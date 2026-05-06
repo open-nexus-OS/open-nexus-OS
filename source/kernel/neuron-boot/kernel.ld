@@ -42,7 +42,7 @@ SECTIONS
     __selftest_stack_guard_lo = .;
     . += 0x1000;
     __selftest_stack_base = .;
-    *(.bss.selftest_stack_body)
+    KEEP(*(.bss.selftest_stack_body))
     . = ALIGN(4096);
     __selftest_stack_top = .;
     __selftest_stack_guard_hi = __selftest_stack_top + 0x1000;

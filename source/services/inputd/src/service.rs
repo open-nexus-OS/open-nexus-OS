@@ -14,7 +14,7 @@ use crate::config::InputdConfig;
 use crate::route::RouteTarget;
 use crate::{ImeHook, InputDispatch, InputdError};
 use alloc::vec::Vec;
-use hid::{HidEvent, HidEventKind, KeyboardUsage, RelativeAxis};
+use hid::{AbsoluteAxis, HidEvent, HidEventKind, KeyboardUsage, RelativeAxis};
 use hidrawd::{HidBatch, HidDeviceKind};
 use key_repeat::{MonotonicNs, RepeatEngine, RepeatKey};
 use keymaps::{KeyAction, KeyOutput, Keymap, LayoutId, Modifiers};
@@ -78,10 +78,7 @@ impl<R: RouteTarget> InputdService<R> {
             || u32::try_from(pointer.x()).ok().map_or(true, |x| x >= width)
             || u32::try_from(pointer.y()).ok().map_or(true, |y| y >= height)
         {
-            return Err(InputdError::InitialPointerOutOfBounds {
-                x: pointer.x(),
-                y: pointer.y(),
-            });
+            return Err(InputdError::InitialPointerOutOfBounds { x: pointer.x(), y: pointer.y() });
         }
 
         Ok(Self {
@@ -116,6 +113,10 @@ impl<R: RouteTarget> InputdService<R> {
 
     pub fn take_dispatches(&mut self) -> Vec<InputDispatch> {
         core::mem::take(&mut self.dispatch_log)
+    }
+
+    pub fn clear_dispatches(&mut self) {
+        self.dispatch_log.clear();
     }
 
     #[must_use]
@@ -157,6 +158,12 @@ impl<R: RouteTarget> InputdService<R> {
     }
 
     pub fn apply_hid_batch(&mut self, batch: &HidBatch) -> Result<Vec<InputDispatch>, InputdError> {
+        self.apply_hid_batch_in_place(batch)?;
+        Ok(self.dispatch_log.clone())
+    }
+
+    pub fn apply_hid_batch_in_place(&mut self, batch: &HidBatch) -> Result<(), InputdError> {
+        self.dispatch_log.clear();
         match batch.kind() {
             HidDeviceKind::Keyboard => self.apply_keyboard(batch.events()),
             HidDeviceKind::Mouse => self.apply_mouse(batch.events()),
@@ -186,8 +193,12 @@ impl<R: RouteTarget> InputdService<R> {
         let mut out = Vec::new();
         for event in self.repeat.tick(MonotonicNs::new(now_ns)).map_err(InputdError::from)? {
             let usage = KeyboardUsage::from_raw(event.key().raw() as u8);
-            let output = self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
-            let delivery = self.router.route_keyboard(u32::from(event.key().raw())).map_err(InputdError::from)?;
+            let output =
+                self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
+            let delivery = self
+                .router
+                .route_keyboard(u32::from(event.key().raw()))
+                .map_err(InputdError::from)?;
             let dispatch = InputDispatch::Keyboard {
                 delivery,
                 key_code: u32::from(event.key().raw()),
@@ -200,8 +211,7 @@ impl<R: RouteTarget> InputdService<R> {
         Ok(out)
     }
 
-    fn apply_keyboard(&mut self, events: &[HidEvent]) -> Result<Vec<InputDispatch>, InputdError> {
-        let mut out = Vec::new();
+    fn apply_keyboard(&mut self, events: &[HidEvent]) -> Result<(), InputdError> {
         for event in events {
             if event.kind() != HidEventKind::Key {
                 continue;
@@ -213,10 +223,14 @@ impl<R: RouteTarget> InputdService<R> {
                 continue;
             }
             if pressed {
-                let output =
-                    self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
-                let delivery =
-                    self.router.route_keyboard(u32::from(event.code().raw())).map_err(InputdError::from)?;
+                let output = self
+                    .keymap
+                    .resolve(usage, self.modifiers.snapshot())
+                    .map_err(InputdError::from)?;
+                let delivery = self
+                    .router
+                    .route_keyboard(u32::from(event.code().raw()))
+                    .map_err(InputdError::from)?;
                 let repeat_key = RepeatKey::new(event.code().raw()).map_err(InputdError::from)?;
                 self.repeat
                     .press(repeat_key, MonotonicNs::new(event.timestamp().raw()))
@@ -228,26 +242,29 @@ impl<R: RouteTarget> InputdService<R> {
                     repeated: false,
                 };
                 self.push_dispatch(dispatch.clone())?;
-                out.push(dispatch);
-                if self.text_focus && matches!(output, KeyOutput::Text(_) | KeyOutput::Action(KeyAction::ImeSwitch))
+                if self.text_focus
+                    && matches!(
+                        output,
+                        KeyOutput::Text(_) | KeyOutput::Action(KeyAction::ImeSwitch)
+                    )
                     && !self.ime_visible
                 {
                     self.ime_visible = true;
                     let hook = InputDispatch::ImeHook(ImeHook::Show);
                     self.push_dispatch(hook.clone())?;
-                    out.push(hook);
                 }
             } else if let Ok(repeat_key) = RepeatKey::new(event.code().raw()) {
                 self.repeat.release(repeat_key);
             }
         }
-        Ok(out)
+        Ok(())
     }
 
-    fn apply_mouse(&mut self, events: &[HidEvent]) -> Result<Vec<InputDispatch>, InputdError> {
-        let mut out = Vec::new();
+    fn apply_mouse(&mut self, events: &[HidEvent]) -> Result<(), InputdError> {
         let mut dx = 0;
         let mut dy = 0;
+        let mut absolute_x = None;
+        let mut absolute_y = None;
         let mut pointer_down = false;
         for event in events {
             match event.kind() {
@@ -257,6 +274,12 @@ impl<R: RouteTarget> InputdService<R> {
                 HidEventKind::Rel if event.code().raw() == RelativeAxis::Y.event_code() => {
                     dy += event.value().raw();
                 }
+                HidEventKind::Abs if event.code().raw() == AbsoluteAxis::X.event_code() => {
+                    absolute_x = Some(event.value().raw());
+                }
+                HidEventKind::Abs if event.code().raw() == AbsoluteAxis::Y.event_code() => {
+                    absolute_y = Some(event.value().raw());
+                }
                 HidEventKind::Btn if event.code().raw() == 0x110 && event.value().raw() > 0 => {
                     pointer_down = true;
                 }
@@ -264,16 +287,26 @@ impl<R: RouteTarget> InputdService<R> {
             }
         }
 
-        if dx != 0 || dy != 0 {
-            let next_x = self.pointer_x + self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?;
-            let next_y = self.pointer_y + self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?;
+        if let (Some(next_x), Some(next_y)) = (absolute_x, absolute_y) {
             self.validate_pointer_bounds(next_x, next_y)?;
-            let delivery = self.router.route_pointer_move(next_x, next_y).map_err(InputdError::from)?;
+            let delivery =
+                self.router.route_pointer_move(next_x, next_y).map_err(InputdError::from)?;
             self.pointer_x = next_x;
             self.pointer_y = next_y;
             let dispatch = InputDispatch::PointerMove { delivery, x: next_x, y: next_y };
             self.push_dispatch(dispatch.clone())?;
-            out.push(dispatch);
+        } else if dx != 0 || dy != 0 {
+            let next_x =
+                self.pointer_x + self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?;
+            let next_y =
+                self.pointer_y + self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?;
+            self.validate_pointer_bounds(next_x, next_y)?;
+            let delivery =
+                self.router.route_pointer_move(next_x, next_y).map_err(InputdError::from)?;
+            self.pointer_x = next_x;
+            self.pointer_y = next_y;
+            let dispatch = InputDispatch::PointerMove { delivery, x: next_x, y: next_y };
+            self.push_dispatch(dispatch.clone())?;
         }
 
         if pointer_down {
@@ -282,16 +315,12 @@ impl<R: RouteTarget> InputdService<R> {
                 .router
                 .route_pointer_down(self.pointer_x, self.pointer_y)
                 .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerDown {
-                delivery,
-                x: self.pointer_x,
-                y: self.pointer_y,
-            };
+            let dispatch =
+                InputDispatch::PointerDown { delivery, x: self.pointer_x, y: self.pointer_y };
             self.push_dispatch(dispatch.clone())?;
-            out.push(dispatch);
         }
 
-        Ok(out)
+        Ok(())
     }
 
     fn validate_pointer_bounds(&self, x: i32, y: i32) -> Result<(), InputdError> {

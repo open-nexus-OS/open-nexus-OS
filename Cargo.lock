@@ -1114,8 +1114,11 @@ name = "hidrawd"
 version = "0.1.0"
 dependencies = [
  "hid",
+ "input-live-protocol",
  "nexus-abi",
+ "nexus-ipc",
  "nexus-service-entry",
+ "virtio-input",
 ]
 
 [[package]]
@@ -1281,6 +1284,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "input-live-protocol"
+version = "0.1.0"
+
+[[package]]
 name = "input_v1_0_host"
 version = "0.1.0"
 dependencies = [
@@ -1297,9 +1304,11 @@ version = "0.1.0"
 dependencies = [
  "hid",
  "hidrawd",
+ "input-live-protocol",
  "key-repeat",
  "keymaps",
  "nexus-abi",
+ "nexus-ipc",
  "nexus-service-entry",
  "pointer-accel",
  "touch",
@@ -2780,6 +2789,7 @@ dependencies = [
  "hid",
  "hidrawd",
  "ime",
+ "input-live-protocol",
  "inputd",
  "keymaps",
  "keystored",
@@ -3506,6 +3516,14 @@ dependencies = [
  "parking_lot",
  "sha2",
  "thiserror",
+]
+
+[[package]]
+name = "virtio-input"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-hal",
 ]
 
 [[package]]

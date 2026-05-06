@@ -369,6 +369,21 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - IME show/hide hooks remain bounded stubs only
     - `visible-bootstrap` marker verification covers the in-process `hidrawd|touchd -> inputd -> windowd` proof path under `verify-uart`
   - does **not** yet prove separate OS daemon startup/device wiring for `hidrawd`, `touchd`, and `inputd`; broad closure gates remain task-controlled
+- RFC-0054 gate hardening floor (`TASK-0253` in-progress live-daemon slice):
+  - **General capability/routing/IPC gates**
+    - `cargo test -p nx --test interactive_os_startup`
+    - proves deterministic owner-chain contracts as static guards:
+      - `init-lite` transfers dedicated `input_req` / `input_rsp` caps to `hidrawd` and `inputd`,
+      - routing contract exposes explicit `inputd`/`hidrawd` lookup entries,
+      - `inputd` keeps a deterministic named-route -> slot-fallback posture for startup resilience.
+  - **Input-specific gates**
+    - `cargo test -p virtio-input -- --nocapture`
+    - proves virtio-input role detection is bounded and tolerant of optional config-bit absence (keyboard-safe default).
+    - `cargo test -p hidrawd -- --nocapture`
+    - proves bounded ingest and deterministic event mapping remain green while OS-lite owner-loop posture evolves.
+  - **Focused OS startup gate**
+    - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
+    - proves `hidrawd`/`touchd`/`inputd` startup markers in canonical order without waiting for full end-to-end closure.
 - QEMU smoke: `RUN_UNTIL_MARKER=1 just test-os` (defaults to `PROFILE=full`)
 - QEMU smoke (DHCP requested): `just ci-os-dhcp` (PROFILE-driven; replaces the deleted `test-os-dhcp`)
 - QEMU smoke (Strict DHCP gate): `just ci-os-dhcp-strict` (PROFILE-driven; replaces the deleted `test-os-dhcp-strict`)

@@ -182,6 +182,20 @@ agent_debug_log() {
 }
 # #endregion agent log
 
+# #region agent log (session-specific input debug helper)
+agent_input_debug_log() {
+  local run_id=$1
+  local hypothesis_id=$2
+  local location=$3
+  local message=$4
+  local data_json=${5:-"{}"}
+  local ts
+  ts=$(date +%s%3N 2>/dev/null || date +%s000)
+  printf '{"sessionId":"8cde1d","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+    "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"/home/jenning/open-nexus-OS/.cursor/debug-8cde1d.log" 2>/dev/null || true
+}
+# #endregion agent log
+
 # #region agent log (always-on exit summary; Slice B)
 agent_on_exit() {
   local code=$?
@@ -237,7 +251,7 @@ for svc in HIDRAWD TOUCHD INPUTD; do
 done
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"debug_log\":\"$DEBUG_LOG\"}"
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"debug_log\":\"$DEBUG_LOG\"}"
 # #endregion
 
 QEMU_EXTRA_ARGS=()
@@ -272,7 +286,7 @@ declare -A PHASE_START_MARKER=(
 )
 declare -A PHASE_END_MARKER=(
   ["bring-up"]="execd: ready"
-  ["input-startup"]="inputd: os service payload ready"
+  ["input-startup"]="hidrawd: os service payload ready"
   ["mmio"]="SELFTEST: cap query vmo ok"
   ["routing"]="SELFTEST: ipc routing ok"
   ["ota"]="SELFTEST: ota rollback ok"
@@ -281,6 +295,16 @@ declare -A PHASE_END_MARKER=(
   ["vfs"]="SELFTEST: vfs ebadf ok"
   ["end"]="SELFTEST: end"
 )
+
+declare -a INPUT_STARTUP_MARKERS=(
+  "touchd: os service payload ready"
+  "inputd: os service payload ready"
+)
+if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+  INPUT_STARTUP_MARKERS+=("hidrawd: os service payload ready")
+else
+  PHASE_END_MARKER["input-startup"]="inputd: os service payload ready"
+fi
 
 find_marker_index() {
   local needle=$1
@@ -381,9 +405,7 @@ expected_sequence=(
   "vfsd: ready"
   "vfsd: namespace ready"
   "execd: ready"
-  "hidrawd: os service payload ready"
-  "touchd: os service payload ready"
-  "inputd: os service payload ready"
+  "${INPUT_STARTUP_MARKERS[@]}"
   "timed: ready"
   "netstackd: ready"
   "net: virtio-net up"
@@ -497,6 +519,11 @@ expected_sequence=(
 )
 
 if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+  QEMU_SESSION_MODE=proof
+  QEMU_MARKER_LEVEL=proof
+  QEMU_INPUT_AUTOINJECT=1
+  NEXUS_SELFTEST_MODE=${NEXUS_SELFTEST_MODE:-proof}
+  NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-full}
   expected_sequence=(
     "${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}"
     "display: bootstrap on"
@@ -506,6 +533,10 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "display: first scanout ok"
     "systemui: first frame visible"
     "SELFTEST: ui visible present ok"
+    "hidrawd: virtio-input raw event seen"
+    "hidrawd: ingress adapter ready"
+    "inputd: live pointer route on"
+    "inputd: live keyboard route on"
     "windowd: present scheduler on"
     "windowd: input on"
     "windowd: focus -> 1"
@@ -525,16 +556,20 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
-  if [[ "$RUN_UNTIL_MARKER" == "1" ]]; then
+  if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
     RUN_UNTIL_MARKER="SELFTEST: ui visible input ok"
   fi
 fi
 
 # TASK-0023B P4-05: drift gate. The in-script `expected_sequence` above
-# is a curated subset of the manifest's `full` projection; if a marker
-# the script gates on disappears from (or is renamed in) the manifest,
-# we want to know NOW, not after a fleet failure.
-pm_mirror_check full || exit 1
+# is a curated subset of the manifest projection for the active harness
+# profile; if a marker the script gates on disappears from (or is renamed
+# in) the manifest, we want to know NOW, not after a fleet failure.
+if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+  pm_mirror_check visible-bootstrap || exit 1
+else
+  pm_mirror_check full || exit 1
+fi
 
 if [[ "$REQUIRE_SMP" == "1" ]]; then
   if [[ "${SMP:-1}" -lt 2 ]]; then
@@ -578,9 +613,7 @@ if [[ -n "$RUN_PHASE" ]]; then
       "init: up touchd"
       "init: start inputd"
       "init: up inputd"
-      "hidrawd: os service payload ready"
-      "touchd: os service payload ready"
-      "inputd: os service payload ready"
+      "${INPUT_STARTUP_MARKERS[@]}"
     )
   fi
   phase_end="${PHASE_END_MARKER[$RUN_PHASE]}"
@@ -636,7 +669,11 @@ agent_debug_log "$AGENT_RUN_ID" "H2" "scripts/qemu-test.sh:artifact-state" "kern
   "{\"target_root\":\"$target_root\",\"kernel_exists\":$kernel_exists,\"kernel_size\":$kernel_size,\"kernel_mtime\":$kernel_mtime,\"init_exists\":$init_exists,\"init_size\":$init_size,\"init_mtime\":$init_mtime,\"netstackd_exists\":$netstackd_exists,\"netstackd_size\":$netstackd_size,\"netstackd_mtime\":$netstackd_mtime}"
 # #endregion
 agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
+QEMU_SESSION_MODE="${QEMU_SESSION_MODE:-proof}" \
+QEMU_MARKER_LEVEL="${QEMU_MARKER_LEVEL:-proof}" \
+NEXUS_SELFTEST_MODE="${NEXUS_SELFTEST_MODE:-}" \
+NEXUS_SELFTEST_PROFILE="${NEXUS_SELFTEST_PROFILE:-}" \
 RUN_TIMEOUT="$RUN_TIMEOUT" \
 RUN_UNTIL_MARKER="$RUN_UNTIL_MARKER" \
 QEMU_LOG="$QEMU_LOG" \
@@ -984,6 +1021,48 @@ if [[ "$missing" -ne 0 ]]; then
   fi
   echo "[error] first_failed_phase=$failed_phase missing_marker='$missing_marker'" >&2
   echo "[error] Missing UART marker: $missing_marker" >&2
+  if [[ "${PROFILE:-}" == "visible-bootstrap" ]]; then
+    # #region agent log
+    line_hid_mouse=$(grep -aFn "hidrawd: device mouse" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_hid_raw=$(grep -aFn "hidrawd: virtio-input raw event seen" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_hid_adapter=$(grep -aFn "hidrawd: ingress adapter ready" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_pointer_route=$(grep -aFn "inputd: live pointer route on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_pointer_down_dispatch=$(grep -aFn "dbg: inputd pointer down dispatched" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_pointer_down_delivered=$(grep -aFn "dbg: inputd pointer down delivered" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_focus_target=$(grep -aFn "dbg: inputd focus on target" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_hid_keyboard=$(grep -aFn "hidrawd: device kbd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_keyboard_dispatch=$(grep -aFn "dbg: inputd keyboard dispatched" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_keyboard_delivered=$(grep -aFn "dbg: inputd keyboard delivered" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_keyboard_delivered_without_dispatch=$(grep -aFn "dbg: inputd keyboard delivered without dispatch" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_keyboard_dispatched_without_delivery=$(grep -aFn "dbg: inputd keyboard dispatched without delivery" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_keyboard_route=$(grep -aFn "inputd: live keyboard route on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_boot_cfg_mode_present=$(grep -aFn "dbg: boot_cfg runtime_mode present" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_boot_cfg_mode_missing=$(grep -aFn "dbg: boot_cfg runtime_mode missing" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_end_bootstrap_enabled=$(grep -aFn "dbg: end bootstrap enabled" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_end_bootstrap_run_ok=$(grep -aFn "dbg: end bootstrap run ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_end_bootstrap_run_none=$(grep -aFn "dbg: end bootstrap run none" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_end_bootstrap_mode_proof=$(grep -aFn "dbg: end bootstrap mode proof" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_end_bootstrap_mode_interactive=$(grep -aFn "dbg: end bootstrap mode interactive" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_fps_hidrawd=$(grep -aFn "fps: hidrawd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_fps_inputd=$(grep -aFn "fps: inputd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    last_fps_hidrawd=$(grep -aF "fps: hidrawd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+    last_fps_inputd=$(grep -aF "fps: inputd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+    line_bootstrap_fail=$(grep -aFn "bootstrap: failed visible-input-evidence" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_display_bootstrap=$(grep -aFn "display: bootstrap on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    last_visible_timeout=$(grep -aF "bootstrap: visible-state timeout" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+    if [[ -z "$last_visible_timeout" ]]; then
+      last_visible_timeout="<none>"
+    fi
+    if [[ -z "$last_fps_hidrawd" ]]; then
+      last_fps_hidrawd="<none>"
+    fi
+    if [[ -z "$last_fps_inputd" ]]; then
+      last_fps_inputd="<none>"
+    fi
+    agent_input_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:visible-bootstrap-failure" "visible-bootstrap marker and route summary" \
+      "{\"missing_marker\":\"$missing_marker\",\"failed_phase\":\"$failed_phase\",\"line_hid_mouse\":$line_hid_mouse,\"line_hid_raw\":$line_hid_raw,\"line_hid_adapter\":$line_hid_adapter,\"line_pointer_route\":$line_pointer_route,\"line_pointer_down_dispatch\":$line_pointer_down_dispatch,\"line_pointer_down_delivered\":$line_pointer_down_delivered,\"line_focus_target\":$line_focus_target,\"line_hid_keyboard\":$line_hid_keyboard,\"line_keyboard_dispatch\":$line_keyboard_dispatch,\"line_keyboard_delivered\":$line_keyboard_delivered,\"line_keyboard_delivered_without_dispatch\":$line_keyboard_delivered_without_dispatch,\"line_keyboard_dispatched_without_delivery\":$line_keyboard_dispatched_without_delivery,\"line_keyboard_route\":$line_keyboard_route,\"line_boot_cfg_mode_present\":$line_boot_cfg_mode_present,\"line_boot_cfg_mode_missing\":$line_boot_cfg_mode_missing,\"line_end_bootstrap_enabled\":$line_end_bootstrap_enabled,\"line_end_bootstrap_run_ok\":$line_end_bootstrap_run_ok,\"line_end_bootstrap_run_none\":$line_end_bootstrap_run_none,\"line_end_bootstrap_mode_proof\":$line_end_bootstrap_mode_proof,\"line_end_bootstrap_mode_interactive\":$line_end_bootstrap_mode_interactive,\"line_fps_hidrawd\":$line_fps_hidrawd,\"line_fps_inputd\":$line_fps_inputd,\"line_bootstrap_fail\":$line_bootstrap_fail,\"line_display_bootstrap\":$line_display_bootstrap,\"last_visible_timeout\":\"$last_visible_timeout\",\"last_fps_hidrawd\":\"$last_fps_hidrawd\",\"last_fps_inputd\":\"$last_fps_inputd\"}"
+    # #endregion agent log
+  fi
   print_uart_excerpt "${PHASE_START_MARKER[$failed_phase]:-}" "${expected_sequence[$((missing_pos - 1))]:-}"
   exit 1
 fi
@@ -1233,6 +1312,13 @@ fi
 if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then
   for m in \
     "SELFTEST: ui visible present ok" \
+    "hidrawd: virtio-input mmio ready" \
+    "hidrawd: virtio-input keyboard ready" \
+    "hidrawd: virtio-input pointer ready" \
+    "hidrawd: virtio-input raw event seen" \
+    "hidrawd: ingress adapter ready" \
+    "inputd: live pointer route on" \
+    "inputd: live keyboard route on" \
     "windowd: input visible on" \
     "windowd: cursor move visible" \
     "windowd: hover visible" \

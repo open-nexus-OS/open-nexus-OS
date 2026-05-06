@@ -33,6 +33,8 @@ mod markers;
 mod markers_generated;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 mod os_lite;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+mod runtime_mode;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 nexus_service_entry::declare_entry!(os_entry);

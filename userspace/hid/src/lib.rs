@@ -30,4 +30,4 @@ pub use error::HidError;
 pub use event::{HidCode, HidEvent, HidEventKind, HidValue, TimestampNs};
 pub use keyboard::BootKeyboardParser;
 pub use mouse::BootMouseParser;
-pub use usage::{KeyboardUsage, MouseButton, RelativeAxis};
+pub use usage::{AbsoluteAxis, KeyboardUsage, MouseButton, RelativeAxis};

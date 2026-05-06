@@ -3,19 +3,20 @@
 - Status: In Progress
 - Owners: @ui
 - Created: 2026-05-04
-- Last Updated: 2026-05-04
+- Last Updated: 2026-05-06
 - Links:
   - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
   - Related RFCs:
     - `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
     - `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
     - `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md`
+    - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`
 
 ## Status at a Glance
 
 - **Phase 0 (contract freeze + proof vectors)**: ✅
 - **Phase 1 (service wiring + reject floor)**: ✅ host/service slice landed and green
-- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, IDL seeds, touch routing, narrow live marker replacement, and profile-gated init-lite startup markers landed, but kernel/runtime service-scale closure is still open
+- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, normal-service startup proof, deterministic visible scene proof, UART verifier hardening, interactive OS-start contracts, real live-input QEMU proof, and docs sync landed, but repo-wide `fmt`/`test-all` closure outside this slice still blocks a final Gate-E green claim
 
 Definition:
 
@@ -26,10 +27,17 @@ Definition:
   - bounded `ime` / `systemui` hook seams, canonical `settingsd` input keys, service IDL seeds, and expanded `nx input` / `nx postflight input` surfaces exist,
   - the RFC-0052 carry-in crates now compile for the OS target at library level,
   - `inputd` now routes touch through `windowd` instead of only recording normalized touch dispatches,
-  - the `selftest-client` `visible-bootstrap` path now drives the in-process `hidrawd|touchd -> inputd -> windowd` sequence and the narrow QEMU proof is green under `verify-uart`,
-  - minimal OS service payload entries and startup markers now exist for `hidrawd`, `touchd`, and `inputd`,
-  - separate daemon startup in the normal service set currently exposes a kernel/runtime scale blocker: additional service address spaces/page tables exhaust the current 2 MiB kernel heap before later exec proofs complete,
-  - broad closure gates remain deferred until explicitly rerun.
+  - kernel/runtime service-scale work now bounds the focused proof lane: page-table/address-space/VMO pressure diagnostics landed, per-service kernel mapping cost was reduced, and `exec_v2` rollback cleanup now reclaims new address spaces,
+  - minimal OS service payload entries and startup markers now exist for `hidrawd`, `touchd`, and `inputd` in the default init-lite/QEMU service set,
+  - the focused startup proof is green under `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
+  - the deterministic `visible-bootstrap` scene is green under `verify-uart` and now emits full-window/cursor/hover/click/keyboard markers backed by framebuffer assertions,
+  - the proof-manifest UART verifier now tolerates non-UTF8 UART noise, and `selftest-client` uses a targeted 512 KiB heap opt-in for the heavy visible scene proof,
+  - `make run` / `just start` now have explicit interactive runtime-mode contracts (`interactive-minimal` and `interactive-full`) and must not emit fake deterministic proof markers,
+  - focused contracts now cover the previously observed KPGF class (`neuron-boot.map` private selftest stack retention), late `fw_cfg` mode/profile delivery, and VMO arena headroom for the live ramfb framebuffer,
+  - the former live-lane blocker is now closed through the `RFC-0054` driver-owner polling path instead of a `selftest-client` bridge,
+  - broad closure gates were rerun explicitly: `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`, `make clean -> make build -> make test`, and a time-capped `make run` are green,
+  - time-capped `make run` and `just start` now prove the host-driven live QEMU lane with real mouse movement, hover/click rectangle reaction, keyboard rectangle reaction, and stable UI-side failure labels when the scene is not ready,
+  - `scripts/fmt-clippy-deny.sh` and therefore `just test-all` still stop on repo-wide rustfmt drift outside the TASK-0253 slice, so the final Gate-E green claim remains intentionally open.
 
 ## Scope boundaries (anti-drift)
 
@@ -42,6 +50,7 @@ This RFC is a design seed / contract. Execution sequencing and closure proof run
   - narrow kernel/runtime service-scale prerequisites needed to run the 0253 services as real init-lite service processes.
 - **This RFC does NOT own**:
   - host input-core algorithms already owned by RFC-0052 (`hid`, `touch`, `keymaps`, `repeat`, `pointer-accel`),
+  - the minimal `virtio-input` driver-layer contract and long-term `device.mmio.input` ownership rules now owned by RFC-0054,
   - `windowd` hit-test/focus authority (owned by RFC-0050/0051),
   - IME/OSK full behavior and text stack breadth (`TASK-0146`/`TASK-0147`),
   - latency budget/perf closure (`TASK-0056C`),
@@ -82,6 +91,7 @@ This RFC is a design seed / contract. Execution sequencing and closure proof run
 - **Kernel/runtime scalability**: the normal QEMU service set plus `hidrawd`/`touchd`/`inputd` must not rely on a marker-only or script-gated workaround for kernel heap exhaustion.
 - **Fail-closed**: malformed frames/stale channels/invalid configs reject with stable classes.
 - **No parser/keymap drift**: all parsing/keymap/repeat/accel behavior reuses RFC-0052 crates.
+- **Truth before distribution**: raw receive truth must become visible and testable before `inputd` routing or proof-scene observation is used to diagnose failures.
 
 Rust quality floor (mandatory):
 
@@ -97,6 +107,7 @@ Rust quality floor (mandatory):
 
 - `hidrawd`:
   - ingests keyboard/mouse source data and emits typed events from RFC-0052 `hid`,
+  - owns the explicit receive/adapter truth seam for raw input delivered by the driver layer from RFC-0054,
   - provides bounded subscriber stream API with explicit reject behavior for malformed payload and stale subscriber state.
 - `touchd`:
   - ingests touch source data and emits normalized touch events from RFC-0052 `touch`,
@@ -105,6 +116,9 @@ Rust quality floor (mandatory):
   - merges source streams into a bounded `InputEvent` stream,
   - applies keymap/repeat/accel through RFC-0052 crates,
   - routes to `windowd` and bounded IME hook integration without owning hit-test/focus.
+- observer/debug posture:
+  - `selftest-client` remains a downstream observer of distribution/visible truth,
+  - it must not become the authority for what arrived from the input device.
 - `windowd`/SystemUI/IME hook seam:
   - consumes routed events and emits visible-input markers only after routed-state assertions.
 
@@ -121,6 +135,8 @@ Suggested module shape (non-normative but recommended):
 - **Phase 2**: harden settings/CLI/postflight seams and synchronize Gate-E quality evidence.
 - **Phase 3**: fix kernel/runtime service-scale blockers so the three input services can run as real init-lite service processes in the normal proof path.
 - **Phase 4**: replace marker-only visual assertions with a diagnosable visible-bootstrap scene: full colored window, mouse-following pixel, hover/click square, and keyboard-input square.
+- **Phase 5**: land the minimal `virtio-input` driver layer and service ownership rules from RFC-0054 so QEMU live input is not bridged through `selftest-client`.
+- **Phase 6**: close the host-driven interactive OS-start lane: `make run` and `just start` must launch the same live QEMU path with honest breadcrumb levels and real mouse/keyboard reaction, after receive truth is already proven upstream of UI observation.
 
 ## Security considerations
 
@@ -170,18 +186,45 @@ cd /home/jenning/open-nexus-OS && cargo test -p inputd -- --nocapture
 cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
 ```
 
-This proof must eventually run with the normal QEMU service set plus real
-`hidrawd`, `touchd`, and `inputd` init-lite service processes. A profile-gated
-startup marker is useful for local triage, but it is not sufficient for `Done`
-while the normal service set still trips kernel heap OOM.
+This proof now runs green with the normal QEMU service set plus real
+`hidrawd`, `touchd`, and `inputd` init-lite service processes in the focused
+proof lane. The host-driven interactive start lane is additional closure scope;
+it must not replace or weaken this deterministic harness proof.
 
 The final visible proof must be visual and diagnosable:
 
 - full colored window background,
-- one pixel follows live mouse motion,
+- one pixel follows routed pointer motion in the proof scene,
 - bottom-left square changes color on hover and click,
 - right-side square changes color on keyboard input,
 - UI-side logs/errors identify observed state transitions and failure causes.
+
+### Proof (Interactive OS start)
+
+The interactive lane is not a deterministic acceptance harness and must not emit
+fake `SELFTEST:` success markers. It is a live OS bring-up path with honest
+breadcrumbs:
+
+```bash
+cd /home/jenning/open-nexus-OS && make build && make run
+cd /home/jenning/open-nexus-OS && just start
+```
+
+Required behavior before `TASK-0253` can close:
+
+- `make run` reuses the latest `make build` artifacts and starts QEMU live in
+  `interactive-minimal` mode,
+- `just start` performs its own build and starts the same live runner in
+  `interactive-full` mode,
+- the live lane is backed by the real RFC-0054 `virtio-input` driver path rather
+  than a permanent `selftest-client` bridge,
+- the scene presents a full colored window, a visible mouse-following pixel, a
+  hover/click rectangle, and a keyboard-input rectangle,
+- failures emit stable labels such as `bootstrap: failed fw-cfg-map`,
+  `bootstrap: failed fw-cfg-signature`,
+  `bootstrap: failed ramfb-file-missing`,
+  `bootstrap: failed framebuffer-vmo`, or
+  `bootstrap: failed interactive-scene-evidence`.
 
 ### Deterministic markers (required, non-exhaustive)
 
@@ -247,4 +290,10 @@ Perf boundary honesty:
 - [x] Marker verification uses proof-manifest/harness ordering (no grep-only closure).
 - [x] Security-relevant negative tests exist (`test_reject_*`).
 - [x] RFC-0052 carry-in crates are OS-target compatible so the real live-input path can link into `selftest-client`.
-- [ ] Broad closure gates rerun explicitly for final Gate-E closure.
+- [x] Kernel/runtime service-scale slice and focused startup proof are green.
+- [x] Deterministic visible scene proof emits pixel/state-backed markers under `verify-uart`.
+- [x] Interactive OS-start contracts distinguish `make run` minimal breadcrumbs from `just start` full breadcrumbs.
+- [x] Focused boot/resource contracts cover private selftest stack linker retention, late `fw_cfg` runtime config, and VMO arena framebuffer headroom.
+- [x] RFC-0054 driver-layer slice is implemented so live QEMU input no longer depends on a permanent `selftest-client` bridge.
+- [x] Final host-driven live QEMU proof shows real mouse hover/click and keyboard rectangle reaction.
+- [x] Broad closure gates rerun explicitly for final Gate-E closure.

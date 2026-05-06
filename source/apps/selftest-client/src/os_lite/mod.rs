@@ -19,6 +19,7 @@
 
 extern crate alloc;
 
+mod boot_cfg;
 mod context;
 mod display_bootstrap;
 mod dsoftbus;

@@ -40,6 +40,11 @@ pub const FOCUS_VISIBLE_MARKER: &str = "windowd: focus visible";
 pub const LAUNCHER_CLICK_VISIBLE_OK_MARKER: &str = "launcher: click visible ok";
 pub const KEYBOARD_VISIBLE_MARKER: &str = "windowd: keyboard visible";
 pub const SELFTEST_UI_VISIBLE_INPUT_OK_MARKER: &str = "SELFTEST: ui visible input ok";
+pub const INTERACTIVE_SCENE_READY_MARKER: &str = "windowd: interactive scene ready";
+pub const INTERACTIVE_CLICK_TARGET_READY_MARKER: &str = "windowd: interactive click target ready";
+pub const INTERACTIVE_KEYBOARD_TARGET_READY_MARKER: &str =
+    "windowd: interactive keyboard target ready";
+pub const INTERACTIVE_FULL_MARKERS_MARKER: &str = "windowd: interactive full markers on";
 
 pub fn present_marker(ack: PresentAck) -> String {
     format!(

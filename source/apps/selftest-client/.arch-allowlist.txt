@@ -27,6 +27,11 @@ os_lite/mod.rs
 # Kept under selftest-client for bisect convenience; tracked for Phase 4
 # cleanup if it survives the manifest migration.
 os_lite/net/smoltcp_probe.rs
+# `display_bootstrap.rs` owns the single visible-bootstrap coordinator for
+# ramfb scanout setup, proof-lane rendering, and the interactive live observer
+# loop. RFC-0054 extends that same coordinator with inputd-backed live redraws;
+# the file remains intentionally centralized until a later selftest split.
+os_lite/display_bootstrap.rs
 
 [justfile_require_env]
 # TASK-0023B P4-10 — Rule 6 escape hatch.

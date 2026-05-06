@@ -15,7 +15,11 @@ pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};
 pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 
 /// Size reserved for user VMO allocations directly managed by the kernel.
-pub const USER_VMO_ARENA_LEN: usize = 16 * 1024 * 1024;
+///
+/// The live interactive UI lane needs enough headroom for the full ramfb-sized
+/// framebuffer VMO after normal service bring-up has already allocated virtio,
+/// exec, metadata, and proof buffers.
+pub const USER_VMO_ARENA_LEN: usize = 32 * 1024 * 1024;
 /// Base address of the kernel-managed user VMO arena.
 pub const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.
@@ -40,8 +44,10 @@ impl AddressWindow {
 }
 
 /// Temporary kernel page-pool window used by early loader and selftest allocators.
-pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow =
-    AddressWindow { base: KERNEL_PAGE_POOL_BASE, len: KERNEL_PAGE_POOL_LEN };
+pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow = AddressWindow {
+    base: KERNEL_PAGE_POOL_BASE,
+    len: KERNEL_PAGE_POOL_LEN,
+};
 
 #[cfg(test)]
 mod tests;

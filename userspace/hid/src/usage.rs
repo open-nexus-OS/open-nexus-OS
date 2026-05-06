@@ -114,6 +114,22 @@ impl RelativeAxis {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbsoluteAxis {
+    X,
+    Y,
+}
+
+impl AbsoluteAxis {
+    #[must_use]
+    pub const fn event_code(self) -> u16 {
+        match self {
+            Self::X => 0,
+            Self::Y => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left,
     Right,

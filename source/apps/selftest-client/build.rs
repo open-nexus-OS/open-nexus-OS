@@ -43,13 +43,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proof-manifest");
     println!("cargo:rerun-if-changed=proof-manifest/markers");
     println!("cargo:rerun-if-changed=proof-manifest/profiles");
-    // P4-08: SELFTEST_PROFILE is read by os_lite::profile via option_env!;
-    // signal cargo to rebuild whenever it changes so `just ci-os-runtime-quick`
-    // (etc) picks up the right binary on second invocation.
+    // Legacy fallback: `os_lite::profile` still accepts a compile-time
+    // `SELFTEST_PROFILE` when no runtime `fw_cfg` override is present.
     println!("cargo:rerun-if-env-changed=SELFTEST_PROFILE");
-    // TASK-0055B: visible scanout bootstrap is a boot-mode knob, distinct from
-    // proof-manifest marker profiles.
-    println!("cargo:rerun-if-env-changed=NEXUS_DISPLAY_BOOTSTRAP");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let nxs_bytes = build_system_test_nxs();

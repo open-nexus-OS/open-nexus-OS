@@ -13,7 +13,7 @@ extern crate alloc;
 use crate::ingest::{parse_keyboard, parse_mouse};
 use crate::{DeviceId, HidBatch, HidDeviceKind, HidrawdError};
 use alloc::vec::Vec;
-use hid::{BootKeyboardParser, BootMouseParser, TimestampNs};
+use hid::{BootKeyboardParser, BootMouseParser, HidEvent, TimestampNs};
 
 const MAX_LOGGED_BATCHES: usize = 32;
 
@@ -94,6 +94,37 @@ impl HidrawdService {
         }
         let batch =
             HidBatch::new(device_id, HidDeviceKind::Mouse, parse_mouse(&mut mouse.parser, timestamp, report)?);
+        self.push_batch(batch.clone());
+        Ok(batch)
+    }
+
+    pub fn ingest_device_events(
+        &mut self,
+        device_id: DeviceId,
+        kind: HidDeviceKind,
+        events: Vec<HidEvent>,
+    ) -> Result<HidBatch, HidrawdError> {
+        match kind {
+            HidDeviceKind::Keyboard => {
+                let keyboard = self.keyboard.as_ref().ok_or(HidrawdError::KeyboardUnavailable)?;
+                if keyboard.device_id != device_id {
+                    return Err(HidrawdError::UnexpectedDevice {
+                        expected: HidDeviceKind::Keyboard,
+                        actual: HidDeviceKind::Mouse,
+                    });
+                }
+            }
+            HidDeviceKind::Mouse => {
+                let mouse = self.mouse.as_ref().ok_or(HidrawdError::MouseUnavailable)?;
+                if mouse.device_id != device_id {
+                    return Err(HidrawdError::UnexpectedDevice {
+                        expected: HidDeviceKind::Mouse,
+                        actual: HidDeviceKind::Keyboard,
+                    });
+                }
+            }
+        }
+        let batch = HidBatch::new(device_id, kind, events);
         self.push_batch(batch.clone());
         Ok(batch)
     }

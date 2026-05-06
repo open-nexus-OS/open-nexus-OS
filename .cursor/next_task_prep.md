@@ -1,9 +1,10 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution snapshot (TASK-0253 / RFC-0053)
+## Active execution snapshot (TASK-0253 / RFC-0053 + RFC-0054)
 
 - **active task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Progress`.
 - **active contract seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `In Progress`.
+- **driver-layer follow-on RFC**: `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `In Progress`.
 - **carry-in closed**: `TASK-0252` / `RFC-0052` are `Done` and remain the only host-core input authority.
 - **proof posture**: deterministic marker ladder + assertion-backed behavior proofs + `test_reject_*`; marker-only closure is forbidden.
 - **scope split locked**:
@@ -13,16 +14,19 @@
   - 0253 must enforce bounded/deterministic handling,
   - perf/latency closure remains in `TASK-0056C`.
 - **current progress snapshot**:
-  - host/service slice is landed and green for `hidrawd`, `touchd`, `inputd`, `ime`, `systemui`, `settingsd`, and `nx`,
-  - `nx input` and `nx postflight input` now exist as host diagnostics / delegate surfaces,
-  - the `visible-bootstrap` path has been swapped to the real `hidrawd|touchd -> inputd -> windowd` route and its narrow OS proof is green,
-  - commit `f24011b` captured the current implementation slice,
-  - minimal init-lite OS service payload startup for `hidrawd`, `touchd`, and `inputd` is now wired behind a focused startup proof.
+  - commit `0503499` captures the kernel/runtime service-scale follow-up after `f24011b`,
+  - `hidrawd`, `touchd`, and `inputd` now live in the default init-lite/QEMU service set with bounded startup stacks,
+  - focused startup proof is green: `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
+  - deterministic visible scene proof is green: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
+  - interactive OS-start contracts now distinguish `make run` (`interactive-minimal`, reuse `make build`) from `just start` (`interactive-full`, build first),
+  - focused closure contracts cover private selftest stack linker retention, late `fw_cfg` runtime config retry, and VMO arena headroom for the live ramfb framebuffer,
+  - `verify-uart` now tolerates non-UTF8 UART noise, and `selftest-client` uses a targeted 512 KiB service heap for the visible proof lane,
+  - `nx input` and `nx postflight input` still exist only as host diagnostics / delegate surfaces.
 - **remaining closure caution**:
-  - do not claim full `TASK-0253` Gate-E closure until the kernel/runtime service-scale blocker is fixed and deferred broad gates are explicitly rerun,
-  - observed blocker: adding the three input services to the normal QEMU service set exhausts the current 2 MiB kernel heap before the exec-tail proofs finish,
-  - next plan must solve kernel/runtime scalability, not add more harness-only conditionals,
-  - final `visible-bootstrap` target must be a visual live-input scene with UI diagnostics: full colored window, mouse-following pixel, hover/click square, and keyboard-input square,
+  - do not claim full `TASK-0253` Gate-E closure until deferred broad gates are explicitly rerun,
+  - the current deterministic proof must not be back-claimed as real human live input,
+  - the remaining live-input architecture gap is now explicit: `RFC-0054` must replace the long-term `selftest-client` MMIO bridge with a real bounded `virtio-input` driver-owner path,
+  - final 0253 closure still requires a QEMU live run showing mouse-following pixel, hover/click rectangle reaction, and keyboard rectangle reaction,
   - latency/perf closure remains follow-up scope in `TASK-0056C`.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)

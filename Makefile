@@ -218,37 +218,26 @@ endif
 # self-contained (no `just` dependency) and limits itself to build/test/run.
 
 run:
-	@echo "==> Launching NEURON kernel under QEMU"
+	@echo "==> Launching interactive NEURON session under QEMU"
 	@# Make-discipline: `make build` is the build step. `make run` only
-	@# launches the QEMU smoke; NEXUS_SKIP_BUILD=1 forwards into
+	@# launches the interactive OS start; NEXUS_SKIP_BUILD=1 forwards into
 	@# scripts/run-qemu-rv64.sh so the kernel/init-lite/services
 	@# artifacts MUST already exist (clear "run make build first" error
 	@# if they don't). To pre-build inline, do `make build run`.
-	@# Profile pick: SMP env wins if explicit; otherwise default to the
-	@# `smp` profile when SMP>=2 (matches harness.toml SMP="2") so
-	@# verify-uart accepts the SMP-only marker subset. TASK-0054 will
-	@# add a `none` harness profile for fast UI-only boots; until then
-	@# `smp` is the historical default.
-	@profile=$${PROFILE:-}; \
-	if [ -z "$$profile" ]; then \
-	  smp_eff=$${SMP:-$(SMP)}; \
-	  if [ "$$smp_eff" -ge 2 ] 2>/dev/null; then profile=smp; else profile=full; fi; \
-	fi; \
-	run_until_marker=$${RUN_UNTIL_MARKER:-1}; \
-	if [ "$$run_until_marker" != "0" ]; then \
-	  echo "==> RUN_UNTIL_MARKER=$$run_until_marker, --profile=$$profile (SMP from manifest if profile=smp; else SMP=$${SMP:-$(SMP)})"; \
-	  NEXUS_SKIP_BUILD=1 RUN_TIMEOUT=$${RUN_TIMEOUT:-190s} RUN_UNTIL_MARKER=$$run_until_marker ./scripts/qemu-test.sh --profile=$$profile; \
-	else \
-	  UART_LOG=$${UART_LOG:-uart.log}; \
-	  NEXUS_SKIP_BUILD=1 SMP=$${SMP:-$(SMP)} RUN_TIMEOUT=$${RUN_TIMEOUT:-30s} ./scripts/run-qemu-rv64.sh; \
-	  status=$$?; \
-	  if [ "$$status" = "124" ] && [ -f "$$UART_LOG" ] && grep -aFq "SELFTEST: end" "$$UART_LOG"; then \
-	    echo "[warn] QEMU timed out, but UART log contains 'SELFTEST: end' (selftest completed)."; \
-	    echo "[hint] For a truly green run, prefer: RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s make run"; \
-	    exit 0; \
-	  fi; \
-	  exit $$status; \
-	fi
+	@# Interactive semantics:
+	@#  - reuse `make build` artifacts only (no implicit rebuilds),
+	@#  - keep QEMU alive until user exit / fatal failure,
+	@#  - use the minimal interactive marker ladder,
+	@#  - switch the guest to runtime profile `bringup` without recompiling.
+	@NEXUS_SKIP_BUILD=1 \
+	  SMP=$${SMP:-$(SMP)} \
+	  QEMU_SESSION_MODE=interactive \
+	  QEMU_MARKER_LEVEL=minimal \
+	  NEXUS_SELFTEST_MODE=interactive-minimal \
+	  NEXUS_SELFTEST_PROFILE=bringup \
+	  RUN_UNTIL_MARKER=0 \
+	  RUN_TIMEOUT=$${RUN_TIMEOUT:-0} \
+	  ./scripts/run-qemu-rv64.sh
 
 dep-gate:
 	@echo "==> RFC-0009 Dependency Hygiene Gate (Makefile)"

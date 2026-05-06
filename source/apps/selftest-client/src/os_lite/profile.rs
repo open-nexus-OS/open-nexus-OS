@@ -17,20 +17,17 @@
 //!
 //! ### Where the profile selection comes from
 //!
-//! `selftest-client` is a no-std RISC-V binary with no live cmdline plumbing
-//! today (kernel cmdline / device-tree integration is tracked by a follow-on
-//! cut). For Phase-4 we therefore source the active profile from
-//! `option_env!("SELFTEST_PROFILE")` at compile time:
+//! `selftest-client` now resolves its active profile from a runtime boot-config
+//! surface in QEMU `fw_cfg` when present:
 //!
 //! ```text
-//! SELFTEST_PROFILE=quick cargo build -p selftest-client …
+//! -fw_cfg name=opt/org.open-nexus/selftest-profile,string=bringup
 //! ```
 //!
-//! Unset (the common case) → falls back to the `default` argument supplied by
-//! the caller (`Profile::Full` for the canonical QEMU smoke). The function
-//! name `from_kernel_cmdline_or_default` is the public API surface the plan
-//! locks; the internal source (build-time env vs runtime cmdline) is an
-//! implementation detail that can swing without breaking callers.
+//! This keeps the `make build -> make run` artifact chain valid because the
+//! start mode no longer requires a rebuild. For compatibility, a compile-time
+//! `SELFTEST_PROFILE` still acts as a legacy fallback when no runtime override
+//! is provided.
 //!
 //! OWNERS: @runtime
 //! STATUS: Functional (P4-08; runtime cmdline plumbing deferred)
@@ -43,6 +40,8 @@
 #![allow(clippy::missing_docs_in_private_items)]
 
 use crate::markers_generated as M;
+use crate::os_lite::boot_cfg;
+use crate::runtime_mode::{RuntimeMode, RuntimeProfile};
 
 /// One of the runtime selftest profiles declared in `proof-manifest.toml`
 /// under `runtime_only = true`. `Full` is the implicit default and is the
@@ -89,20 +88,30 @@ pub enum PhaseId {
 impl Profile {
     /// Resolve the active profile, falling back to `default` if unset.
     ///
-    /// Reads `SELFTEST_PROFILE` from the build-time environment via
-    /// `option_env!` (see module docs for the rationale). Unknown values
-    /// also fall back to `default`; this is intentional so that a typo in
-    /// CI env wiring doesn't crash boot.
+    /// Resolution order:
+    /// 1. runtime `fw_cfg` profile override
+    /// 2. runtime mode default (`bringup` for interactive starts)
+    /// 3. legacy build-time `SELFTEST_PROFILE`
+    /// 4. caller-provided `default`
+    ///
+    /// Unknown values fall back to `default`; this is intentional so that a
+    /// typo in boot wiring does not crash early boot.
     pub fn from_kernel_cmdline_or_default(default: Profile) -> Profile {
-        match option_env!("SELFTEST_PROFILE") {
-            Some("full") | Some("Full") => Profile::Full,
-            Some("bringup") | Some("Bringup") => Profile::Bringup,
-            Some("quick") | Some("Quick") => Profile::Quick,
-            Some("ota") | Some("Ota") => Profile::Ota,
-            Some("net") | Some("Net") => Profile::Net,
-            Some("none") | Some("None") => Profile::None,
-            _ => default,
-        }
+        let legacy = match option_env!("SELFTEST_PROFILE") {
+            Some("full") | Some("Full") => Some(Profile::Full),
+            Some("bringup") | Some("Bringup") => Some(Profile::Bringup),
+            Some("quick") | Some("Quick") => Some(Profile::Quick),
+            Some("ota") | Some("Ota") => Some(Profile::Ota),
+            Some("net") | Some("Net") => Some(Profile::Net),
+            Some("none") | Some("None") => Some(Profile::None),
+            _ => None,
+        };
+        Self::resolve(
+            boot_cfg::runtime_profile_with_retry(),
+            boot_cfg::runtime_mode_with_retry(),
+            legacy,
+            default,
+        )
     }
 
     /// Returns `true` iff the active profile enables the given phase.
@@ -149,11 +158,37 @@ impl Profile {
             PhaseId::End => M::M_DBG_PHASE_END_SKIPPED,
         }
     }
+
+    fn resolve(
+        runtime_profile: Option<RuntimeProfile>,
+        runtime_mode: Option<RuntimeMode>,
+        legacy_profile: Option<Profile>,
+        default: Profile,
+    ) -> Profile {
+        if let Some(profile) = runtime_profile {
+            return match profile {
+                RuntimeProfile::Full => Profile::Full,
+                RuntimeProfile::Bringup => Profile::Bringup,
+                RuntimeProfile::Quick => Profile::Quick,
+                RuntimeProfile::Ota => Profile::Ota,
+                RuntimeProfile::Net => Profile::Net,
+                RuntimeProfile::None => Profile::None,
+            };
+        }
+        if matches!(
+            runtime_mode,
+            Some(RuntimeMode::InteractiveMinimal | RuntimeMode::InteractiveFull)
+        ) {
+            return Profile::Bringup;
+        }
+        legacy_profile.unwrap_or(default)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_mode::{RuntimeMode, RuntimeProfile};
 
     #[test]
     fn full_profile_enables_every_phase() {
@@ -199,22 +234,36 @@ mod tests {
 
     #[test]
     fn unknown_env_falls_back_to_default() {
-        // option_env! is evaluated at compile time, so we can only assert
-        // that an unset/unknown SELFTEST_PROFILE returns the supplied
-        // default. (CI never bakes a bogus value, so this is the steady
-        // state.)
-        let p = Profile::from_kernel_cmdline_or_default(Profile::Quick);
-        // Either we got the compile-time value (when CI explicitly set
-        // SELFTEST_PROFILE) or we got the default.
-        let valid = matches!(
-            p,
-            Profile::Full
-                | Profile::Bringup
-                | Profile::Quick
-                | Profile::Ota
-                | Profile::Net
-                | Profile::None
+        assert_eq!(Profile::resolve(None, None, None, Profile::Quick), Profile::Quick);
+    }
+
+    #[test]
+    fn interactive_modes_default_to_bringup_profile() {
+        assert_eq!(
+            Profile::resolve(
+                None,
+                Some(RuntimeMode::InteractiveMinimal),
+                Some(Profile::Full),
+                Profile::Quick
+            ),
+            Profile::Bringup
         );
-        assert!(valid);
+        assert_eq!(
+            Profile::resolve(None, Some(RuntimeMode::InteractiveFull), None, Profile::Full),
+            Profile::Bringup
+        );
+    }
+
+    #[test]
+    fn explicit_runtime_profile_wins_over_mode_and_legacy() {
+        assert_eq!(
+            Profile::resolve(
+                Some(RuntimeProfile::Net),
+                Some(RuntimeMode::InteractiveFull),
+                Some(Profile::Quick),
+                Profile::Full
+            ),
+            Profile::Net
+        );
     }
 }

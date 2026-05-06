@@ -10,9 +10,17 @@ path = "src/lib.rs"
 
 [features]
 default = []
-os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "dep:virtio-input",
+]
 
 [dependencies]
 hid = { path = "../../../userspace/hid" }
+input-live-protocol = { path = "../../../userspace/input-live-protocol" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+virtio-input = { path = "../../drivers/input/virtio-input", default-features = false, features = ["os-lite"], optional = true }

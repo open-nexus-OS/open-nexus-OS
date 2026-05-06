@@ -8,7 +8,7 @@
 //! TEST_COVERAGE: config rejects, bounded queue overflow, stale-route reject, repeat determinism
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
-use hid::TimestampNs;
+use hid::{AbsoluteAxis, HidEvent, TimestampNs};
 use hidrawd::{DeviceId, HidrawdService};
 use inputd::{InputDispatch, InputdConfig, InputdError, InputdService};
 use touch::{RawTouchSample, TouchBounds, TouchPhase, TouchTimestampNs};
@@ -195,4 +195,29 @@ fn mouse_relative_motion_routes_through_windowd_authority() {
     assert_eq!(delivered.len(), 2);
     assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { .. }));
     assert_eq!(delivered[1].kind, windowd::InputEventKind::PointerDown);
+}
+
+#[test]
+fn absolute_pointer_motion_routes_through_windowd_authority() {
+    let (server, caller, surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let batch = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![
+            HidEvent::abs(TimestampNs::new(5), AbsoluteAxis::X.event_code(), 20),
+            HidEvent::abs(TimestampNs::new(5), AbsoluteAxis::Y.event_code(), 10),
+        ],
+    );
+
+    let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
+    assert_eq!(dispatches.len(), 1);
+    assert!(matches!(dispatches[0], InputDispatch::PointerMove { x: 20, y: 10, .. }));
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 1);
+    assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { x: 20, y: 10 }));
 }

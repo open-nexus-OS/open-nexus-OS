@@ -17,6 +17,7 @@ links:
   - Production gates: tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md
   - Queue/quality context: tasks/IMPLEMENTATION-ORDER.md
   - RFC (contract seed): docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md
+  - Live driver-layer RFC: docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
   - Input core (host-first): tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md
   - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
   - Later IME consumer: tasks/TASK-0146-ime-text-v2-part1a-imed-keymaps-host.md
@@ -50,6 +51,9 @@ Gate alignment:
 - Scope is expanded narrowly to include kernel/runtime service-scale fixes required
   to boot `hidrawd`, `touchd`, and `inputd` as real init-lite service processes
   without kernel heap exhaustion. This is not permission for broad kernel redesign.
+- The remaining live-QEMU closure gap now also includes a minimal `virtio-input`
+  driver layer per `RFC-0054`; this task must not close via a permanent
+  `selftest-client` bridge around the real driver owner.
 
 ## Goal
 
@@ -95,18 +99,31 @@ On OS/QEMU:
      address-space, stack, cap-table, IPC, or VMO pressure instead of forcing log guessing,
    - prove the normal service set plus input services can continue through the
      required visible-bootstrap proof without script-only profile exceptions.
-10. **Visible live-input scene proof**:
-    the final visible-bootstrap proof should render a full colored window, one
-    visible pixel that moves live with the mouse, a bottom-left square that
-    changes color on hover and click, and a right-side square that changes color
-    on keyboard input. UI logs/errors must expose enough structured state to
-    debug failures without guessing.
+10. **Minimal `virtio-input` driver layer (RFC-0054)**:
+    - establish a bounded userspace `virtio-input` MMIO polling layer for QEMU
+      `virt` input devices (device ID `18`),
+    - make the live driver owner explicit (`device.mmio.input` must not remain a
+      long-term `selftest-client` ownership path),
+    - translate keyboard/pointer events into the existing
+      `hidrawd -> inputd -> windowd` authority chain without introducing a second
+      routing authority,
+    - keep the runtime model cooperative and bounded (`yield_()`-based, no
+      unbounded busy loop, no fake ready markers).
+11. **Visible live-input scene proof + host-driven live lane**:
+    the final visible-bootstrap proof and interactive OS-start lane must render a
+    full colored window, one visible pixel that follows routed pointer motion, a
+    bottom-left square that changes color on hover and click, and a right-side
+    square that changes color on keyboard input. UI logs/errors must expose
+    enough structured state to debug failures without guessing.
 
 ## Non-Goals
 
 - Broad kernel redesign beyond the narrow service-scale work required for this proof.
 - Full IME engine (handled by `TASK-0146`/`TASK-0147`).
 - Real hardware (QEMU HID/touch only).
+- A permanent `selftest-client` ownership bridge for live input devices.
+- Latency/coalescing/no-damage/present fast-path closure; that is `TASK-0056C`
+  and must not be claimed by this task.
 
 ## Constraints / invariants (hard requirements)
 
@@ -153,6 +170,7 @@ Red-flag mitigation now:
 ## Contract sources (single source of truth)
 
 - RFC contract seed: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
+- Live driver-layer contract seed: `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`
 - QEMU marker contract: `scripts/qemu-test.sh`
 - Input core: `TASK-0252`
 - Later IME keymaps: `TASK-0146` (US/DE keymaps for IME)
@@ -187,10 +205,41 @@ Additional closure floor:
 - kernel/runtime resource diagnostics identify the pressure category when service-scale proofs fail,
 - visible-bootstrap proves real visible behavior, not only markers:
   - full colored window,
-  - one pixel follows live mouse motion,
+  - one pixel follows routed pointer motion in the proof scene,
   - bottom-left square changes color on hover and click,
   - right-side square changes color on keyboard input,
   - UI-side logs/errors expose the observed state transitions,
+- the live-input closure path includes a real driver layer:
+  - `device.mmio.input` ownership for live QEMU input moves to the driver owner
+    service rather than staying on a long-term `selftest-client` bridge,
+  - the `virtio-input` polling/event loop is bounded and cooperative,
+  - real QEMU keyboard/pointer events traverse `hidrawd -> inputd -> windowd`
+    before any live-lane closure claim,
+- host-driven live OS start proves the same scene in a non-proof interactive
+  lane:
+  - `make run` reuses `make build` artifacts, starts QEMU live, and uses the
+    `interactive-minimal` runtime mode with minimal breadcrumbs,
+  - `just start` performs its own build, starts QEMU live through the same
+    runner, and uses the `interactive-full` runtime mode with full breadcrumbs,
+  - live breadcrumbs never masquerade as deterministic `SELFTEST:` proof
+    markers,
+- boot/resource gates prevent pre-input failures from being rediscovered by
+  manual QEMU runs:
+  - `neuron-boot.map` must retain a non-zero private selftest stack
+    (`__selftest_stack_top - __selftest_stack_base == 0x8000`),
+  - runtime mode/profile must be read via bounded `fw_cfg` retry so late
+    capability transfer does not fall back to the wrong profile,
+  - the VMO arena must leave enough headroom for the live ramfb framebuffer
+    after normal service bring-up,
+- stable bootstrap failure labels must exist for:
+  - `fw-cfg-map`,
+  - `fw-cfg-signature`,
+  - `ramfb-file-missing`,
+  - `framebuffer-vmo`,
+  - `interactive-scene-evidence`,
+  - future input route timeout classes (`input-route-timeout`,
+    `keyboard-route-timeout`) when the live daemon path is wired beyond the
+    current scene readiness gate,
 - `cargo test -p input_v1_0_host -- --nocapture` stays green as the RFC-0052 carry-in authority baseline,
 - required reject-path tests exist for malformed HID/touch and invalid keymap/repeat/accel/routing settings,
 - proof-manifest / harness verification remains the OS acceptance authority; marker-only grep closure is forbidden,
@@ -206,18 +255,65 @@ Additional closure floor:
   - 0253 provides bounded/measurable live-input behavior,
   - latency-budget closure remains explicitly owned by `TASK-0056C`.
 
+## Current implementation reality (2026-05-05)
+
+- Commit `0503499` captured the kernel/runtime service-scale follow-up after `f24011b`.
+- Focused proofs currently green:
+  - `cargo test -p windowd`
+  - `cargo test -p nx --test init_lite_input_service_startup`
+  - `cargo test -p nexus-proof-manifest --test cli_verify_uart`
+  - `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite`
+  - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
+- The normal init-lite/QEMU service set now includes `hidrawd`, `touchd`, and `inputd` with bounded startup stacks; the focused startup proof is no longer hidden behind profile-only startup exceptions.
+- The deterministic visible scene now emits pixel/state-backed markers for full-window color, cursor motion, hover, click, keyboard input, and `SELFTEST: ui visible input ok`.
+- Interactive live-lane hardening is now proven in both runners:
+  - `make run` is the minimal-marker interactive runner that reuses `make build`
+    artifacts and now reaches `windowd: interactive scene ready` plus
+    `inputd: live pointer route on` in a time-capped live run,
+  - `just start` builds first, then starts the same live runner with full
+    breadcrumbs and now reaches `windowd: interactive full markers on`,
+    `windowd: input visible on`, `windowd: cursor move visible`,
+    `windowd: hover visible`, `launcher: click visible ok`,
+    `windowd: keyboard visible`, and `SELFTEST: ui visible input ok`,
+  - focused contracts cover linker retention of the private selftest stack,
+    bounded `fw_cfg` runtime config retry, interactive marker honesty, and VMO
+    arena headroom for the ramfb framebuffer,
+  - stable UI bootstrap failure labels now expose failures such as
+    `bootstrap: failed framebuffer-vmo` instead of a generic failure.
+- Live-QEMU input closure is now carried by the `RFC-0054` slice:
+  - QEMU exposes `virtio-keyboard-device`, `virtio-mouse-device`, and
+    `virtio-tablet-device`,
+  - init discovers `VIRTIO_DEVICE_ID_INPUT` windows and hands ownership into the
+    `hidrawd -> inputd -> windowd` chain instead of a permanent
+    `selftest-client` bridge.
+- Remaining closure before `Done`:
+  - broad-gate reruns are no longer deferred:
+    - `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`,
+      `make clean -> make build -> make test`, and a time-capped `make run` are
+      green,
+    - `scripts/fmt-clippy-deny.sh` and therefore `just test-all` currently stop
+      on repo-wide rustfmt drift outside the TASK-0253 slice (for example
+      `source/kernel/neuron/src/mm/address_space.rs`,
+      `source/init/nexus-init/src/os_payload.rs`,
+      `tools/nx/src/commands/input.rs`, and
+      `userspace/keymaps/src/layout.rs`),
+  - `nx input` commands remain host/preflight helper surfaces only.
+
 ## Touched paths (allowlist)
 
 - `source/services/hidrawd/` (new)
 - `source/services/touchd/` (new)
 - `source/services/inputd/` (new)
+- `source/drivers/input/virtio-input/` (new)
 - `source/services/windowd/` (extend: input integration, cursor, focus)
 - `source/services/windowd/idl/input.capnp` (extend only if routing/event contract changes)
 - `source/services/ime/` (extend: overlay hooks/stubs only)
 - `source/services/systemui/` (extend: IME show/hide hook markers only)
 - `source/services/settingsd/` (extend: keyboard/pointer provider keys)
 - `tools/nx/` (extend: `nx input ...` subcommands; no separate `nx-input` binary)
-- `source/apps/selftest-client/` (markers)
+- `source/apps/selftest-client/` (markers + scene observer only; not final driver authority)
+- `source/init/nexus-init/` (extend: input MMIO capability ownership / distribution)
 - `source/apps/selftest-client/proof-manifest/` (marker/profile updates)
 - `docs/dev/ui/input/input.md` (extend with OS/QEMU live-input scope/proof notes)
 - `docs/devx/nx-cli.md` (extend `nx input` diagnostics)
@@ -237,14 +333,20 @@ Additional closure floor:
    - focus & routing
    - markers
 
-3. **windowd/IME hook stubs + settings + CLI**
+3. **virtio-input driver layer + hidrawd backend**
+   - minimal `virtio-input` driver crate
+   - cooperative polling loop
+   - capability ownership via init
+   - `hidrawd` live backend markers / reject tests
+
+4. **windowd/IME hook stubs + settings + CLI**
    - windowd input integration
    - IME overlay hook stubs
    - settings provider
    - `nx input` CLI
    - markers
 
-4. **OS selftests + postflight**
+5. **OS selftests + postflight**
    - OS selftests
    - postflight
 
@@ -252,6 +354,8 @@ Additional closure floor:
 
 - `hidrawd` and `touchd` probe devices and emit events correctly.
 - `inputd` merges sources, applies keymaps/repeat/accel, and dispatches to windowd correctly while exposing bounded IME hook stubs.
+- the live QEMU lane is backed by a real `virtio-input` driver owner and bounded
+  cooperative event loop, not a permanent `selftest-client` bridge.
 - Windowd cursor and IME overlay hook stubs work correctly.
 - All four OS selftest markers are emitted.
 - Gate E quality/perf alignment is explicit and honest:

@@ -77,6 +77,31 @@ phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "the deterministic mouse source for the visible proof was registered"
 
+[marker."hidrawd: virtio-input mmio ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hidrawd opened a real virtio-input MMIO owner path before any live-input closure marker"
+
+[marker."hidrawd: virtio-input keyboard ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hidrawd classified at least one real virtio-input device as a keyboard owner path"
+
+[marker."hidrawd: virtio-input pointer ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hidrawd classified at least one real virtio-input device as a pointer owner path"
+
+[marker."hidrawd: virtio-input raw event seen"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the real virtio-input device delivered non-empty raw events before normalization or routing claims"
+
+[marker."hidrawd: ingress adapter ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hidrawd normalized real raw input into the bounded HID batch contract before inputd routing claims"
+
 [marker."touchd: ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
@@ -84,13 +109,11 @@ proves = "the bounded touch ingest adapter was initialized before touch proof ve
 
 [marker."inputd: ready"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "the bounded inputd merge/config/route core was initialized"
+proves = "the bounded inputd merge/config/route core was initialized for the normal service set, while visible-bootstrap later proves the live routed scene"
 
 [marker."inputd: keymap=de"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "the canonical visible proof uses the deterministic de keymap configuration"
+proves = "the canonical inputd startup path selected the deterministic de keymap configuration before later visible proofs exercise it live"
 
 [marker."inputd: repeat start code=4"]
 phase = "end"
@@ -101,6 +124,16 @@ proves = "repeat scheduling started from a real key press for the canonical A-ke
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "inputd drove the existing windowd pointer authority to the deterministic visible cursor target"
+
+[marker."inputd: live pointer route on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "inputd routed a real normalized pointer batch into windowd-visible state"
+
+[marker."inputd: live keyboard route on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "inputd routed a real normalized keyboard batch into windowd-visible state"
 
 [marker."systemui: imed show"]
 phase = "end"
@@ -186,4 +219,20 @@ proves = "right-side proof square visibly changed state after routed keyboard de
 
 [marker."SELFTEST: ui visible input ok"]
 phase = "end"
-proves = "selftest observed full-window, cursor, hover, focus, click, and keyboard-visible evidence from windowd authority"
+proves = "selftest observed full-window, cursor, hover, focus, click, and keyboard-visible evidence from the real upstream gate chain without owning ingest or routing"
+
+[marker."windowd: interactive scene ready"]
+phase = "end"
+proves = "interactive start reached a visible scene-ready state; this is a debug breadcrumb, not a deterministic proof completion marker"
+
+[marker."windowd: interactive click target ready"]
+phase = "end"
+proves = "interactive start rendered the left click target for manual debugging; this is not a routed-click proof"
+
+[marker."windowd: interactive keyboard target ready"]
+phase = "end"
+proves = "interactive start rendered the right keyboard target for manual debugging; this is not a routed-keyboard proof"
+
+[marker."windowd: interactive full markers on"]
+phase = "end"
+proves = "interactive start selected the richer breadcrumb ladder used by `just start`, not the deterministic proof ladder"

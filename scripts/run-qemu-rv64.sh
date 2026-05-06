@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Environment knobs:
-#   RUN_TIMEOUT      – timeout(1) duration before QEMU is terminated (default: 30s)
+#   RUN_TIMEOUT      – timeout(1) duration before QEMU is terminated (`0` disables timeout)
 #   RUN_UNTIL_MARKER – when "1", stop QEMU once a success UART marker is printed (default: 0)
+#   QEMU_SESSION_MODE – `proof` or `interactive` (default: proof)
+#   QEMU_MARKER_LEVEL – `proof`, `minimal`, or `full` marker posture
+#   NEXUS_SELFTEST_MODE – guest runtime mode override passed through QEMU `fw_cfg`
+#   NEXUS_SELFTEST_PROFILE – guest runtime profile override passed through QEMU `fw_cfg`
 #   QEMU_LOG_MAX     – maximum size of qemu.log after trimming (default: 52428800 bytes)
 #   UART_LOG_MAX     – maximum size of uart.log after trimming (default: 10485760 bytes)
 #   QEMU_LOG / UART_LOG – override log file paths.
@@ -38,7 +42,6 @@ KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 export RUSTFLAGS="$RUSTFLAGS_OS"
-RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
 QEMU_TIMEOUT_SIGNAL=${QEMU_TIMEOUT_SIGNAL:-TERM}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
@@ -51,7 +54,40 @@ QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
+QEMU_SESSION_MODE=${QEMU_SESSION_MODE:-proof}
+QEMU_MARKER_LEVEL=${QEMU_MARKER_LEVEL:-}
+QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}
+QEMU_QMP_SOCKET=${QEMU_QMP_SOCKET:-$ROOT/build/qemu.qmp}
+QEMU_INPUT_INJECTOR_PY=${QEMU_INPUT_INJECTOR_PY:-$ROOT/tools/qmp_visible_input_inject.py}
+if [[ -z "$QEMU_MARKER_LEVEL" ]]; then
+  if [[ "$QEMU_SESSION_MODE" == "interactive" ]]; then
+    QEMU_MARKER_LEVEL=minimal
+  else
+    QEMU_MARKER_LEVEL=proof
+  fi
+fi
+if [[ -z "${NEXUS_SELFTEST_MODE:-}" ]]; then
+  case "$QEMU_SESSION_MODE:$QEMU_MARKER_LEVEL" in
+    proof:proof)
+      if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+        NEXUS_SELFTEST_MODE=proof
+      fi
+      ;;
+    interactive:minimal) NEXUS_SELFTEST_MODE=interactive-minimal ;;
+    interactive:full) NEXUS_SELFTEST_MODE=interactive-full ;;
+  esac
+fi
+if [[ -n "${NEXUS_SELFTEST_MODE:-}" && -z "${NEXUS_DISPLAY_BOOTSTRAP:-}" ]]; then
+  NEXUS_DISPLAY_BOOTSTRAP=1
+fi
 NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP:-0}
+if [[ -z "${RUN_TIMEOUT:-}" ]]; then
+  if [[ "$QEMU_SESSION_MODE" == "interactive" ]]; then
+    RUN_TIMEOUT=0
+  else
+    RUN_TIMEOUT=90s
+  fi
+fi
 QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
@@ -65,8 +101,8 @@ SANDBOX_CACHE_TARGET_FREE_MB=${SANDBOX_CACHE_TARGET_FREE_MB:-1024}
 SANDBOX_CACHE_MIN_AGE_SECS=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
 BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
 BUILD_TMP_MIN_FREE_MB=${BUILD_TMP_MIN_FREE_MB:-256}
-DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug.log"}
-DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-""}
+DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug-8cde1d.log"}
+DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-"8cde1d"}
 DEBUG_RUN_ID=${DEBUG_RUN_ID:-"run-qemu-$(date +%s)-$$"}
 
 # When NEXUS_SKIP_BUILD=1, every per-component `cargo build` below is
@@ -130,6 +166,17 @@ debug_log() {
     printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
       "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
   fi
+}
+# #endregion
+
+# #region agent log
+json_escape() {
+  local value=${1:-}
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/ }
+  value=${value//$'\r'/ }
+  printf '%s' "$value"
 }
 # #endregion
 
@@ -731,6 +778,21 @@ monitor_uart() {
   done
 }
 
+# #region agent log
+monitor_agent_uart() {
+  while IFS= read -r line; do
+    case "$line" in
+      agent8cde1d\|*)
+        local hypothesis_id location message data
+        IFS='|' read -r _ hypothesis_id location message data <<<"$line"
+        debug_log "$hypothesis_id" "$location" "$message" \
+          "{\"marker\":\"$(json_escape "$data")\"}"
+        ;;
+    esac
+  done
+}
+# #endregion
+
 finish() {
   local status=$1
   trim_log "$QEMU_LOG" "$QEMU_LOG_MAX"
@@ -739,10 +801,19 @@ finish() {
     echo "[info] QEMU stopped after success marker" >&2
     status=0
   fi
-  if [[ "$status" -eq 124 ]]; then
+  if [[ "$status" -eq 124 && "$RUN_TIMEOUT" != "0" ]]; then
     echo "[warn] QEMU terminated after exceeding timeout ($RUN_TIMEOUT)" >&2
   fi
   return "$status"
+}
+
+run_qemu_stream() {
+  if [[ "$RUN_TIMEOUT" == "0" ]]; then
+    stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@"
+  else
+    timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" \
+      stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@"
+  fi
 }
 
 gc_sandbox_cache
@@ -762,7 +833,13 @@ cleanup_blk_lock() {
   flock -u 9 2>/dev/null || true
   exec 9>&- 2>/dev/null || true
 }
-trap cleanup_blk_lock EXIT
+cleanup_qmp_input() {
+  if [[ -n "${QEMU_INPUT_INJECT_PID:-}" ]]; then
+    kill "$QEMU_INPUT_INJECT_PID" >/dev/null 2>&1 || true
+  fi
+  rm -f "$QEMU_QMP_SOCKET"
+}
+trap 'cleanup_qmp_input; cleanup_blk_lock' EXIT
 # Always recreate the image to avoid stale QEMU "write lock" issues after aborted runs.
 rm -f "$QEMU_BLK_IMG"
 truncate -s 64M "$QEMU_BLK_IMG"
@@ -805,8 +882,20 @@ COMMON_ARGS=(
 
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
   COMMON_ARGS+=( -display "$QEMU_DISPLAY_BACKEND" -serial mon:stdio -device ramfb )
+  COMMON_ARGS+=( -device virtio-keyboard-device -device virtio-tablet-device -device virtio-mouse-device )
 else
   COMMON_ARGS+=( -nographic -serial mon:stdio )
+fi
+if [[ "$QEMU_INPUT_AUTOINJECT" == "1" ]]; then
+  rm -f "$QEMU_QMP_SOCKET"
+  COMMON_ARGS+=( -qmp "unix:$QEMU_QMP_SOCKET,server=on,wait=off" )
+fi
+
+if [[ -n "${NEXUS_SELFTEST_MODE:-}" ]]; then
+  COMMON_ARGS+=( -fw_cfg "name=opt/org.open-nexus/selftest-mode,string=${NEXUS_SELFTEST_MODE}" )
+fi
+if [[ -n "${NEXUS_SELFTEST_PROFILE:-}" ]]; then
+  COMMON_ARGS+=( -fw_cfg "name=opt/org.open-nexus/selftest-profile,string=${NEXUS_SELFTEST_PROFILE}" )
 fi
 
 # Default to modern virtio-mmio for determinism (legacy virtio-mmio has known virtio-blk issues).
@@ -835,9 +924,36 @@ COMMON_ARGS+=(
   ${QEMU_BLK_DEVICE}
 )
 
+# #region agent log
+has_usb_kbd=0
+has_usb_tablet=0
+has_virtio_keyboard=0
+has_virtio_mouse=0
+has_virtio_tablet=0
+for qemu_arg in "${COMMON_ARGS[@]}" "$@"; do
+  case "$qemu_arg" in
+    *usb-kbd*) has_usb_kbd=1 ;;
+    *usb-tablet*) has_usb_tablet=1 ;;
+    *virtio-keyboard*) has_virtio_keyboard=1 ;;
+    *virtio-mouse*) has_virtio_mouse=1 ;;
+    *virtio-tablet*) has_virtio_tablet=1 ;;
+  esac
+done
+debug_log "H7,H11" "scripts/run-qemu-rv64.sh:qemu-input-devices" "resolved qemu input device exposure before launch" \
+  "{\"usb_kbd\":$has_usb_kbd,\"usb_tablet\":$has_usb_tablet,\"virtio_keyboard\":$has_virtio_keyboard,\"virtio_mouse\":$has_virtio_mouse,\"virtio_tablet\":$has_virtio_tablet,\"forwarded_arg_count\":$#}"
+# #endregion
+
 # Debug aid: print the resolved QEMU arguments (bounded).
 echo "[info] QEMU_NETDEV=${QEMU_NETDEV}" >&2
 echo "[info] QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE}" >&2
+echo "[info] QEMU session mode: ${QEMU_SESSION_MODE}" >&2
+echo "[info] QEMU marker level: ${QEMU_MARKER_LEVEL}" >&2
+if [[ -n "${NEXUS_SELFTEST_MODE:-}" ]]; then
+  echo "[info] guest selftest mode: ${NEXUS_SELFTEST_MODE}" >&2
+fi
+if [[ -n "${NEXUS_SELFTEST_PROFILE:-}" ]]; then
+  echo "[info] guest selftest profile: ${NEXUS_SELFTEST_PROFILE}" >&2
+fi
 echo "[info] NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP}" >&2
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
   echo "[info] QEMU display backend: ${QEMU_DISPLAY_BACKEND}" >&2
@@ -852,6 +968,11 @@ if [[ -n "${QEMU_TRACE_EVENTS:-}" ]]; then
   echo "[info] QEMU trace events: ${QEMU_TRACE_EVENTS}" >&2
   echo "[info] QEMU trace file: ${QEMU_TRACE_FILE:-qemu.trace}" >&2
 fi
+
+# #region agent log
+debug_log "H1,H2,H4,H5" "scripts/run-qemu-rv64.sh:resolved-live-config" "resolved qemu live-start config before launch" \
+  "{\"session_mode\":\"$QEMU_SESSION_MODE\",\"marker_level\":\"$QEMU_MARKER_LEVEL\",\"selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"display_bootstrap\":\"$NEXUS_DISPLAY_BOOTSTRAP\",\"display_backend\":\"${QEMU_DISPLAY_BACKEND:-}\",\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"skip_build\":\"$NEXUS_SKIP_BUILD\",\"kernel_bin\":\"$KERNEL_BIN\",\"forwarded_arg_count\":$#,\"forwarded_first_arg\":\"$(json_escape "${1:-}")\"}"
+# #endregion
 
 # Enable heavy QEMU tracing only when explicitly requested
 if [[ "${QEMU_TRACE:-0}" == "1" ]]; then
@@ -885,20 +1006,61 @@ debug_log "H14" "scripts/run-qemu-rv64.sh:host-resources-pre" "host resource sna
   "{\"target_root\":\"$TARGET_ROOT\",\"target_usage_kb\":$target_usage_kb_before,\"root_free_kb\":$root_free_kb_before,\"tmp_free_kb\":$tmp_free_kb_before,\"mem_available_kb\":$mem_avail_kb_before}"
 # #endregion
 if [[ "$RUN_UNTIL_MARKER" != "0" ]]; then
+  if [[ "$QEMU_INPUT_AUTOINJECT" == "1" ]]; then
+    # #region agent log
+    debug_log "H4" "scripts/run-qemu-rv64.sh:autoinject-start" "starting qmp visible-input injector" \
+      "{\"enabled\":1,\"socket\":\"$QEMU_QMP_SOCKET\",\"injector\":\"$QEMU_INPUT_INJECTOR_PY\"}"
+    # #endregion
+    python3 "$QEMU_INPUT_INJECTOR_PY" "$QEMU_QMP_SOCKET" >&2 &
+    QEMU_INPUT_INJECT_PID=$!
+  else
+    # #region agent log
+    debug_log "H4" "scripts/run-qemu-rv64.sh:autoinject-disabled" "qmp visible-input injector disabled" \
+      "{\"enabled\":0}"
+    # #endregion
+  fi
   set +e
-  timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  run_qemu_stream "$@" \
     2> >(tee "$QEMU_LOG" >&2) \
-    | tee >(monitor_uart) \
+    | tee >(monitor_uart) >(monitor_agent_uart) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e
 else
+  if [[ "$QEMU_INPUT_AUTOINJECT" == "1" ]]; then
+    # #region agent log
+    debug_log "H4" "scripts/run-qemu-rv64.sh:autoinject-start" "starting qmp visible-input injector" \
+      "{\"enabled\":1,\"socket\":\"$QEMU_QMP_SOCKET\",\"injector\":\"$QEMU_INPUT_INJECTOR_PY\"}"
+    # #endregion
+    python3 "$QEMU_INPUT_INJECTOR_PY" "$QEMU_QMP_SOCKET" >&2 &
+    QEMU_INPUT_INJECT_PID=$!
+  else
+    # #region agent log
+    debug_log "H4" "scripts/run-qemu-rv64.sh:autoinject-disabled" "qmp visible-input injector disabled" \
+      "{\"enabled\":0}"
+    # #endregion
+  fi
   set +e
-  timeout --signal="$QEMU_TIMEOUT_SIGNAL" --foreground "$RUN_TIMEOUT" stdbuf -oL -eL qemu-system-riscv64 "${COMMON_ARGS[@]}" "$@" \
+  run_qemu_stream "$@" \
     2> >(tee "$QEMU_LOG" >&2) \
+    | tee >(monitor_agent_uart) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e
+fi
+
+if [[ -n "${QEMU_INPUT_INJECT_PID:-}" ]]; then
+  set +e
+  wait "$QEMU_INPUT_INJECT_PID"
+  injector_status=$?
+  set -e
+  # #region agent log
+  debug_log "H4" "scripts/run-qemu-rv64.sh:autoinject-exit" "qmp visible-input injector exited" \
+    "{\"injector_status\":$injector_status}"
+  # #endregion
+  if [[ "$injector_status" -ne 0 && "$status" -eq 0 ]]; then
+    status=$injector_status
+  fi
 fi
 
 # #region agent log

@@ -57,6 +57,7 @@ impl HidValue {
 pub enum HidEventKind {
     Key,
     Rel,
+    Abs,
     Btn,
 }
 
@@ -87,6 +88,11 @@ impl HidEvent {
     #[must_use]
     pub const fn rel(timestamp: TimestampNs, code: u16, value: i32) -> Self {
         Self::new(timestamp, HidEventKind::Rel, HidCode::new(code), HidValue::new(value))
+    }
+
+    #[must_use]
+    pub const fn abs(timestamp: TimestampNs, code: u16, value: i32) -> Self {
+        Self::new(timestamp, HidEventKind::Abs, HidCode::new(code), HidValue::new(value))
     }
 
     #[must_use]

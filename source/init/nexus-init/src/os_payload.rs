@@ -369,6 +369,8 @@ struct CtrlChannel {
     rng_recv_slot: Option<u32>,
     timed_send_slot: Option<u32>,
     timed_recv_slot: Option<u32>,
+    input_send_slot: Option<u32>,
+    input_recv_slot: Option<u32>,
     net_send_slot: Option<u32>,
     net_recv_slot: Option<u32>,
     metrics_send_slot: Option<u32>,
@@ -463,6 +465,7 @@ static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 const DEVICE_MMIO_CAP_SLOT: u32 = 48;
 const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
+const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
 const VIRTIO_MMIO_STRIDE: usize = 0x1000;
@@ -470,10 +473,13 @@ const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
 const FW_CFG_MMIO_LEN: usize = 0x1000;
 
 fn virtio_mmio_window(slot: usize) -> (usize, usize) {
-    (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
+    (
+        VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE,
+        VIRTIO_MMIO_STRIDE,
+    )
 }
 
-fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
+fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>, [Option<usize>; 3])> {
     // Map the full virtio-mmio window to discover device slots, then mint per-device caps.
     const MAX_SLOTS: usize = 8;
     const MMIO_VA: usize = 0x2000_e000;
@@ -481,6 +487,7 @@ fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
     const VIRTIO_DEVICE_ID_NET: u32 = 1;
     const VIRTIO_DEVICE_ID_RNG: u32 = 4;
     const VIRTIO_DEVICE_ID_BLK: u32 = 2;
+    const VIRTIO_DEVICE_ID_INPUT: u32 = 18;
 
     let full_len = VIRTIO_MMIO_STRIDE * MAX_SLOTS;
     let cap = nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
@@ -489,6 +496,7 @@ fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
     let mut net_slot: Option<usize> = None;
     let mut rng_slot: Option<usize> = None;
     let mut blk_slot: Option<usize> = None;
+    let mut input_slots: [Option<usize>; 3] = [None, None, None];
     for slot in 0..MAX_SLOTS {
         let off = slot * VIRTIO_MMIO_STRIDE;
         let va = MMIO_VA + off;
@@ -508,15 +516,26 @@ fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>)> {
             rng_slot = Some(slot);
         } else if device_id == VIRTIO_DEVICE_ID_BLK {
             blk_slot = Some(slot);
+        } else if device_id == VIRTIO_DEVICE_ID_INPUT {
+            for input_slot in &mut input_slots {
+                if input_slot.is_none() {
+                    *input_slot = Some(slot);
+                    break;
+                }
+            }
         }
-        if net_slot.is_some() && rng_slot.is_some() && blk_slot.is_some() {
+        if net_slot.is_some()
+            && rng_slot.is_some()
+            && blk_slot.is_some()
+            && input_slots.iter().all(Option::is_some)
+        {
             break;
         }
     }
     let _ = nexus_abi::cap_close(cap);
     let net_slot = net_slot.ok_or(InitError::Map("virtio-net slot not found"))?;
     let rng_slot = rng_slot.ok_or(InitError::Map("virtio-rng slot not found"))?;
-    Ok((net_slot, rng_slot, blk_slot))
+    Ok((net_slot, rng_slot, blk_slot, input_slots))
 }
 
 fn debug_write_byte(byte: u8) {
@@ -537,7 +556,11 @@ fn debug_write_hex(value: usize) {
     const NIBBLES: usize = core::mem::size_of::<usize>() * 2;
     for shift in (0..NIBBLES).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         debug_write_byte(ch);
     }
 }
@@ -810,6 +833,8 @@ where
                     rng_recv_slot: None,
                     timed_send_slot: None,
                     timed_recv_slot: None,
+                    input_send_slot: None,
+                    input_recv_slot: None,
                     net_send_slot: None,
                     net_recv_slot: None,
                     metrics_send_slot: None,
@@ -891,6 +916,8 @@ where
     let _statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
+    let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
+    let inputd_pid = find_pid(&ctrl_channels, "inputd").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
     let metricsd_pid = find_pid(&ctrl_channels, "metricsd");
 
@@ -988,6 +1015,11 @@ where
         .map_err(InitError::Abi)?;
     let timed_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
+    let input_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, inputd_pid, 8)
+        .map_err(InitError::Abi)?;
+    let input_rsp =
+        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, hidrawd_pid, 8)
+            .map_err(InitError::Abi)?;
 
     // logd (optional) service endpoints (request/response).
     // If logd is present in the image set, selftest-client gets a dedicated pair.
@@ -1182,7 +1214,7 @@ where
         }
     }
 
-    let (net_slot, rng_slot, blk_slot) = probe_virtio_mmio_slots()?;
+    let (net_slot, rng_slot, blk_slot, input_slots) = probe_virtio_mmio_slots()?;
     grant_mmio_with_wait(
         netstackd_pid,
         "netstackd",
@@ -1190,7 +1222,13 @@ where
         net_slot,
         DEVICE_MMIO_CAP_SLOT,
     )?;
-    grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot, DEVICE_MMIO_CAP_SLOT)?;
+    grant_mmio_with_wait(
+        rngd_pid,
+        "rngd",
+        "device.mmio.rng",
+        rng_slot,
+        DEVICE_MMIO_CAP_SLOT,
+    )?;
     grant_mmio_with_wait(
         selftest_pid,
         "selftest-client",
@@ -1225,6 +1263,17 @@ where
                 }
                 let _ = nexus_abi::yield_();
             }
+        }
+    }
+    for (idx, input_slot) in input_slots.iter().copied().enumerate() {
+        if let Some(input_slot) = input_slot {
+            grant_mmio_with_wait(
+                hidrawd_pid,
+                "hidrawd",
+                "device.mmio.input",
+                input_slot,
+                INPUT_MMIO_CAP_SLOT_BASE + u32::try_from(idx).unwrap_or(0),
+            )?;
         }
     }
 
@@ -1888,6 +1937,32 @@ where
                 chan.timed_send_slot = Some(send_slot);
                 chan.timed_recv_slot = Some(recv_slot);
             }
+            "hidrawd" => {
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, input_req, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, input_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                chan.input_send_slot = Some(send_slot);
+                chan.input_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: hidrawd inputd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_byte(b'\n');
+            }
+            "inputd" => {
+                let recv_slot =
+                    nexus_abi::cap_transfer(pid, input_req, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                chan.input_send_slot = Some(send_slot);
+                chan.input_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: inputd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
+            }
             "metricsd" => {
                 if let (Some(req), Some(rsp)) = (metrics_req, metrics_rsp) {
                     let recv_slot =
@@ -2087,6 +2162,16 @@ where
                 debug_write_hex(reply_recv_slot as usize);
                 debug_write_byte(b'\n');
 
+                let send_slot =
+                    nexus_abi::cap_transfer(pid, input_req, Rights::SEND).map_err(InitError::Abi)?;
+                chan.input_send_slot = Some(send_slot);
+                chan.input_recv_slot = Some(reply_recv_slot);
+                debug_write_bytes(b"init: selftest inputd slots send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(reply_recv_slot as usize);
+                debug_write_byte(b'\n');
+
                 // Allow selftest-client to send requests to netstackd.
                 let send_slot =
                     nexus_abi::cap_transfer(pid, net_req, Rights::SEND).map_err(InitError::Abi)?;
@@ -2126,6 +2211,50 @@ where
             }
             _ => {}
         }
+        if chan.svc_name == "inputd" {
+            // #region agent log
+            debug_write_bytes(b"agent8cde1d|H2|source/init/nexus-init/src/os_payload.rs:2168|inputd init routing slots|");
+            debug_write_bytes(b"vfs=");
+            debug_write_byte(if chan.vfs_recv_slot.is_some() && chan.vfs_send_slot.is_some() {
+                b'1'
+            } else {
+                b'0'
+            });
+            debug_write_bytes(b" input=");
+            debug_write_byte(
+                if chan.input_recv_slot.is_some() && chan.input_send_slot.is_some() {
+                    b'1'
+                } else {
+                    b'0'
+                },
+            );
+            debug_write_bytes(b" pol=");
+            debug_write_byte(if chan.pol_recv_slot.is_some() && chan.pol_send_slot.is_some() {
+                b'1'
+            } else {
+                b'0'
+            });
+            debug_write_bytes(b" sam=");
+            debug_write_byte(if chan.sam_recv_slot.is_some() && chan.sam_send_slot.is_some() {
+                b'1'
+            } else {
+                b'0'
+            });
+            debug_write_bytes(b" reply=");
+            debug_write_byte(if chan.reply_recv_slot.is_some() && chan.reply_send_slot.is_some() {
+                b'1'
+            } else {
+                b'0'
+            });
+            debug_write_bytes(b" dsoft=");
+            debug_write_byte(if chan.dsoft_recv_slot.is_some() && chan.dsoft_send_slot.is_some() {
+                b'1'
+            } else {
+                b'0'
+            });
+            debug_write_byte(b'\n');
+            // #endregion
+        }
     }
 
     // Yield after cap distribution so services observe a consistent slot layout.
@@ -2133,7 +2262,12 @@ where
 
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
-    match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
+    match updated_boot_attempt(
+        &mut upd_pending,
+        upd_req,
+        init_reply_send,
+        pol_ctl_route_rsp,
+    ) {
         Ok(Some(slot)) => {
             let ok = bundlemgrd_set_active_slot(
                 &mut upd_pending,
@@ -2464,11 +2598,13 @@ where
                 debug_write_bytes(b"init: route vfsd lookup svc=");
                 debug_write_str(chan.svc_name);
                 debug_write_bytes(b" has_slots=");
-                debug_write_byte(if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
-                    b'Y'
-                } else {
-                    b'N'
-                });
+                debug_write_byte(
+                    if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
+                        b'Y'
+                    } else {
+                        b'N'
+                    },
+                );
                 debug_write_byte(b'\n');
                 match (chan.vfs_send_slot, chan.vfs_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
@@ -2561,6 +2697,11 @@ where
                 }
             } else if name == b"timed" {
                 match (chan.timed_send_slot, chan.timed_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"inputd" {
+                match (chan.input_send_slot, chan.input_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }
@@ -3075,7 +3216,13 @@ fn decode_init_health_ok_req(frame: &[u8]) -> bool {
 }
 
 fn encode_init_health_ok_rsp(status: u8) -> [u8; 5] {
-    [INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION, INIT_HEALTH_OP_OK | 0x80, status]
+    [
+        INIT_HEALTH_MAGIC0,
+        INIT_HEALTH_MAGIC1,
+        INIT_HEALTH_VERSION,
+        INIT_HEALTH_OP_OK | 0x80,
+        status,
+    ]
 }
 
 fn decode_init_health_ok_req_with_optional_nonce(frame: &[u8]) -> Option<Option<u32>> {
@@ -3128,8 +3275,13 @@ fn updated_health_ok(
     let len = nexus_abi::updated::encode_health_ok_req(&mut req)
         .ok_or(InitError::Map("updated health_ok encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
     // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
@@ -3227,8 +3379,13 @@ fn updated_get_status(
     let len = nexus_abi::updated::encode_get_status_req(&mut req)
         .ok_or(InitError::Map("updated status encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
     let mut i: usize = 0;

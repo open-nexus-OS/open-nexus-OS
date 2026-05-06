@@ -10,11 +10,12 @@ path = "src/lib.rs"
 
 [features]
 default = []
-os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
+os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry"]
 
 [dependencies]
 hid = { path = "../../../userspace/hid" }
 hidrawd = { path = "../hidrawd" }
+input-live-protocol = { path = "../../../userspace/input-live-protocol" }
 touch = { path = "../../../userspace/touch" }
 touchd = { path = "../touchd" }
 keymaps = { path = "../../../userspace/keymaps" }
@@ -22,4 +23,5 @@ key-repeat = { path = "../../../userspace/key-repeat" }
 pointer-accel = { path = "../../../userspace/pointer-accel" }
 windowd = { path = "../windowd" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

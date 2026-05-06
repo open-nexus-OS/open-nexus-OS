@@ -31,7 +31,7 @@ mod tests {
         LAUNCHER_CLICK_VISIBLE_OK_MARKER, PRESENT_SCHEDULER_ON_MARKER,
         SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
         SELFTEST_UI_VISIBLE_INPUT_OK_MARKER, VISIBLE_CURSOR_BGRA, VISIBLE_FOCUS_BGRA,
-        VISIBLE_HOVER_BGRA, VISIBLE_INPUT_CLICK_BGRA,
+        VISIBLE_INPUT_CLICK_BGRA,
     };
 
     const LAUNCHER: CallerCtx = CallerCtx::from_service_metadata(0x55);
@@ -213,20 +213,20 @@ mod tests {
         assert!(evidence.focus_visible);
         assert!(evidence.launcher_click_visible);
         assert_eq!(evidence.focused_surface.raw(), 1);
-        assert_eq!(evidence.cursor_start_position.x, 12);
+        assert_eq!(evidence.cursor_start_position.x, 24);
         assert_eq!(evidence.cursor_start_position.y, 12);
-        assert_eq!(evidence.cursor_position.x, 36);
-        assert_eq!(evidence.cursor_position.y, 28);
+        assert_eq!(evidence.cursor_position.x, 8);
+        assert_eq!(evidence.cursor_position.y, 40);
 
         let cursor_frame = evidence.cursor_frame.as_ref().expect("cursor frame");
-        assert_eq!(pixel(cursor_frame, 12, 12), VISIBLE_CURSOR_BGRA);
+        assert_eq!(pixel(cursor_frame, 24, 12), VISIBLE_CURSOR_BGRA);
         let hover_frame = evidence.hover_frame.as_ref().expect("hover frame");
-        assert_eq!(pixel(hover_frame, 8, 8), VISIBLE_HOVER_BGRA);
-        assert_eq!(pixel(hover_frame, 36, 28), VISIBLE_CURSOR_BGRA);
+        assert_eq!(pixel(hover_frame, 5, 37), [0x20, 0xd0, 0xf8, 0xff]);
+        assert_eq!(pixel(hover_frame, 8, 40), VISIBLE_CURSOR_BGRA);
         let frame = evidence.visible_frame.as_ref().expect("visible frame");
-        assert_eq!(pixel(frame, 36, 28), VISIBLE_CURSOR_BGRA);
-        assert_eq!(pixel(frame, 8, 8), VISIBLE_FOCUS_BGRA);
-        assert_eq!(pixel(frame, 24, 18), VISIBLE_INPUT_CLICK_BGRA);
+        assert_eq!(pixel(frame, 8, 40), VISIBLE_CURSOR_BGRA);
+        assert_eq!(pixel(frame, 0, 0), VISIBLE_FOCUS_BGRA);
+        assert_eq!(pixel(frame, 5, 37), VISIBLE_INPUT_CLICK_BGRA);
         assert_eq!(
             windowd::visible_input_marker_postflight_ready(Some(evidence.clone())),
             Ok(evidence)

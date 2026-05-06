@@ -44,6 +44,7 @@ help:
     @echo "  just test-dsoftbus-host   # full userspace/dsoftbus host regression"
     @echo "  just ci-network           # PROFILE-driven aggregate (replaces legacy test-network)"
     @echo "  just qemu                # boot kernel in QEMU (manual)"
+    @echo "  just start               # build + launch interactive OS with full breadcrumbs"
     @echo "  just test-init           # run host init test (nexus-init spawns daemons)"
     @echo "  INIT_LITE_LOG_TOPICS=svc-meta just qemu  # opt-in init-lite log topics"
     @echo "  tools/uart-filter.py --strip-escape uart.log | less  # decode legacy escape logs"
@@ -90,6 +91,13 @@ qemu *args:
     just build-kernel
     RUN_TIMEOUT=${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER="${RUN_UNTIL_MARKER:-SELFTEST: dsoftbus ping ok}" scripts/run-qemu-rv64.sh {{args}}
     @echo "[hint] Default stop marker is 'SELFTEST: dsoftbus ping ok'. Set RUN_UNTIL_MARKER=1 for full readiness ladder or QEMU_TRACE=1 for tracing."
+
+start *args:
+    # self-contained interactive path: build first, then keep the same guest
+    # alive with the richer breadcrumb ladder.
+    make build
+    NEXUS_SKIP_BUILD=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=bringup RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/run-qemu-rv64.sh {{args}}
+    @echo "[hint] just start builds first and keeps QEMU alive with the full interactive breadcrumb ladder."
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
@@ -165,9 +173,9 @@ ci-network:
 # -----------------------------------------------------------------------------
 # TASK-0023B P4-08 — runtime-profile QEMU smoke recipes.
 #
-# These recipes set `SELFTEST_PROFILE=<name>` at build time so
-# `os_lite::profile::Profile::from_kernel_cmdline_or_default` resolves to a
-# subset profile. The QEMU runner stays on the harness-side `full` profile
+# These recipes set `NEXUS_SELFTEST_PROFILE=<name>` at runtime through QEMU
+# `fw_cfg`, so the same built artifacts can be reused across profile
+# selections. The QEMU runner stays on the harness-side `full` profile
 # (full env wiring); the OS binary itself decides which phases to actually
 # execute, emitting `dbg: phase X skipped` for the others. Manifest /
 # dispatcher contract is locked by `cargo test -p nexus-proof-manifest
@@ -175,13 +183,13 @@ ci-network:
 # on unexpected markers) lands in P4-09.
 # -----------------------------------------------------------------------------
 ci-os-runtime-bringup:
-    SELFTEST_PROFILE=bringup just test-os full
+    NEXUS_SELFTEST_PROFILE=bringup just test-os full
 
 ci-os-runtime-quick:
-    SELFTEST_PROFILE=quick just test-os full
+    NEXUS_SELFTEST_PROFILE=quick just test-os full
 
 ci-os-runtime-none:
-    SELFTEST_PROFILE=none just test-os full
+    NEXUS_SELFTEST_PROFILE=none just test-os full
 
 # -----------------------------------------------------------------------------
 # Opt-in OS 2-VM harness (TASK-0005)

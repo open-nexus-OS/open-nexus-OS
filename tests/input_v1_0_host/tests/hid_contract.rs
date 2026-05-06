@@ -23,8 +23,8 @@
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use hid::{
-    BootKeyboardParser, BootMouseParser, HidEvent, HidEventKind, KeyboardUsage, MouseButton,
-    RelativeAxis, TimestampNs,
+    AbsoluteAxis, BootKeyboardParser, BootMouseParser, HidEvent, HidEventKind, KeyboardUsage,
+    MouseButton, RelativeAxis, TimestampNs,
 };
 
 fn ts(ns: u64) -> TimestampNs {
@@ -103,4 +103,20 @@ fn test_reject_mouse_invalid_button_bits() {
     let mut parser = BootMouseParser::new();
     let err = parser.parse_report(ts(70), &[0b1000, 0, 0]).unwrap_err();
     assert_eq!(err.code(), "hid.mouse.button_bits");
+}
+
+#[test]
+fn absolute_pointer_events_are_typed_and_distinct_from_relative_axes() {
+    let events = [
+        HidEvent::abs(ts(80), AbsoluteAxis::X.event_code(), 320),
+        HidEvent::abs(ts(80), AbsoluteAxis::Y.event_code(), 200),
+    ];
+
+    assert_eq!(
+        logical(&events),
+        vec![
+            (HidEventKind::Abs, AbsoluteAxis::X.event_code(), 320),
+            (HidEventKind::Abs, AbsoluteAxis::Y.event_code(), 200),
+        ]
+    );
 }

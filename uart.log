@@ -65,33 +65,16 @@ Boot HART MEDELEG           : 0x0000000000f4b509
 [INFO boot] traps: ok
 [INFO boot] boot: returning to wrapper
 W0: calling kmain
-PT: pool idx=0
-PT: pool idx=1
-PT: pool idx=2
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: pool idx=3
-PT: pool idx=4
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: pool idx=5
-PT: pool idx=6
-PT: pool idx=7
-PT: pool idx=8
-PT: pool idx=9
-PT: pool idx=10
-PT: pool idx=11
-PT: pool idx=12
-PT: pool idx=13
-PT: pool idx=14
-PT: pool idx=15
-PT: pool idx=16
 [INFO mm] map kernel segments ok
-AS: activating satp=0x8000100000080605
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000100000080605
+AS: activating satp=0x800010000008061c
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x800010000008061c
 AS: post-satp OK
 CAP: new enter
 CAP: with_capacity slots=96
@@ -99,58 +82,38 @@ CAP: new exit
 SCHED: timeslice=1000000
 SCHED: new exit
 [DEBUG sched] enqueue: pid=0 qos=Normal
-SYSCALL install debug_putc=0x0000000080227f4c
-SYSCALL install ep_create=0x0000000080226c3e
+SYSCALL install debug_putc=0x0000000080227c68
+SYSCALL install ep_create=0x000000008022695a
 [INFO smp] KINIT: cpu0 online
 [INFO boot]  _ __   ___ _   _ _ __ ___  _ __
 [INFO boot] | '_ \ / _ \ | | | '__/ _ \| '_ \
 [INFO boot] | | | |  __/ |_| | | | (_) | | | |
 [INFO boot] |_| |_|\___|\__,_|_|  \___/|_| |_|
 [INFO boot] neuron vers. 0.1.0 - One OS. Many Devices.
-SYSCALL install debug_putc=0x0000000080227f4c
-SYSCALL install ep_create=0x0000000080226c3e
-PT: pool idx=17
-PT: pool idx=18
-PT: pool idx=19
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: pool idx=20
-PT: pool idx=21
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+SYSCALL install debug_putc=0x0000000080227c68
+SYSCALL install ep_create=0x000000008022695a
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: pool idx=22
-PT: pool idx=23
-PT: pool idx=24
-PT: pool idx=25
-PT: pool idx=26
-PT: pool idx=27
-PT: pool idx=28
-PT: pool idx=29
-PT: pool idx=30
-PT: pool idx=31
-PT: pool idx=32
-PT: pool idx=33
 [INFO mm] map kernel segments ok
 [INFO selftest] KSELFTEST: as create ok
 [INFO selftest] KSELFTEST: vmo zero ok
 [INFO selftest] KSELFTEST: userptr guard ok
-PT: pool idx=34
-PT: pool idx=35
 [INFO selftest] KSELFTEST: as map ok
-PT: pool idx=36
-[INFO sys] SPAWN: entry=0x8022174c sp=0x40000000 as=2 slot=0 gp=0x80401520
+[INFO sys] SPAWN: entry=0x80221f54 sp=0x40000000 as=2 slot=0 gp=0x8040fb50
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x8022174c sp(x2)=0x40000000 gp(x3)=0x80401520
+[INFO task] SPAWN-FRAME: sepc=0x80221f54 sp(x2)=0x40000000 gp(x3)=0x8040fb50
 [DEBUG sched] enqueue: pid=1 qos=Normal
-[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000080605
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x800010000008061c
 [INFO selftest] KSELFTEST: direct-run begin
-AS: activating satp=0x8000200000080616
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080402000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000200000080616
+AS: activating satp=0x8000200000080622
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080419000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x8000200000080622
 AS: post-satp OK
 [INFO selftest] KSELFTEST: direct-run set SUM
 [INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
@@ -160,15 +123,15 @@ AS: post-satp OK
 [INFO selftest] KSELFTEST: child exit
 [INFO selftest] KSELFTEST: direct call return
 [INFO selftest] KSELFTEST: returned from child entry
-AS: activating satp=0x8000100000080605
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080402000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000100000080605
+AS: activating satp=0x800010000008061c
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080419000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x800010000008061c
 AS: post-satp OK
 [INFO selftest] KSELFTEST: spawn ok
-SYSCALL install debug_putc=0x0000000080227f4c
-SYSCALL install ep_create=0x0000000080226c3e
+SYSCALL install debug_putc=0x0000000080227c68
+SYSCALL install ep_create=0x000000008022695a
 [INFO selftest] KSELFTEST: w^x enforced
 [INFO selftest] KSELFTEST: ipc queue full ok
 [INFO selftest] KSELFTEST: ipc bytes full ok
@@ -225,145 +188,71 @@ CAP: new exit
 [INFO selftest] KSELFTEST: spawn reasons ok
 CAP: with_capacity slots=8
 [INFO selftest] KSELFTEST: resource sentinel ok
-SYSCALL install debug_putc=0x0000000080227f4c
-SYSCALL install ep_create=0x0000000080226c3e
-[INFO sys] SPAWN: entry=0x802220c4 sp=0x0 as=0 slot=0 gp=0x0
+SYSCALL install debug_putc=0x0000000080227c68
+SYSCALL install ep_create=0x000000008022695a
+[INFO sys] SPAWN: entry=0x802228cc sp=0x0 as=0 slot=0 gp=0x0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-PT: pool idx=37
-PT: pool idx=38
-PT: pool idx=39
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: pool idx=40
-PT: pool idx=41
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: pool idx=42
-PT: pool idx=43
-PT: pool idx=44
-PT: pool idx=45
-PT: pool idx=46
-PT: pool idx=47
-PT: pool idx=48
-PT: pool idx=49
-PT: pool idx=50
-PT: pool idx=51
-PT: pool idx=52
-PT: pool idx=53
 [INFO mm] map kernel segments ok
-PT: pool idx=54
-[INFO task] SPAWN-FRAME: sepc=0x802220c4 sp(x2)=0x40000000 gp(x3)=0x0
+[INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
 [DEBUG sched] enqueue: pid=14 qos=Normal
 [INFO selftest] KSELFTEST: exit ok
-[INFO sys] SPAWN: entry=0x802220c4 sp=0x0 as=0 slot=0 gp=0x0
+[INFO sys] SPAWN: entry=0x802228cc sp=0x0 as=0 slot=0 gp=0x0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-PT: pool idx=55
-PT: pool idx=56
-PT: pool idx=57
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: pool idx=58
-PT: pool idx=59
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: pool idx=60
-PT: pool idx=61
-PT: pool idx=62
-PT: pool idx=63
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-[INFO task] SPAWN-FRAME: sepc=0x802220c4 sp(x2)=0x40000000 gp(x3)=0x0
+[INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
 [DEBUG sched] enqueue: pid=15 qos=Normal
-[INFO sys] SPAWN: entry=0x802220c4 sp=0x0 as=0 slot=0 gp=0x0
+[INFO sys] SPAWN: entry=0x802228cc sp=0x0 as=0 slot=0 gp=0x0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-[INFO task] SPAWN-FRAME: sepc=0x802220c4 sp(x2)=0x40000000 gp(x3)=0x0
+[INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
 [DEBUG sched] enqueue: pid=16 qos=Normal
 [INFO selftest] KSELFTEST: wait ok
 [INFO selftest] KSELFTEST: spawn init begin
-SYSCALL install debug_putc=0x0000000080227f4c
-SYSCALL install ep_create=0x0000000080226c3e
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+SYSCALL install debug_putc=0x0000000080227c68
+SYSCALL install ep_create=0x000000008022695a
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x12f04 flags=0x5
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x13ae6 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
-PT: heap alloc
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10412f08 memsz=0x13bf58 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10413ae8 memsz=0x148960 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1054ee60 memsz=0x801a1 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1055c448 memsz=0x80bb9 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
-PT: heap alloc
-PT: heap alloc
 [INFO selftest] KSELFTEST: text page entry=0x000000002020005b va=0x0000000010400000
-[INFO selftest] KSELFTEST: data page entry=0x00000000202538d7 va=0x000000001054e000
-[INFO selftest] KSELFTEST: derived gp=0x1054f660 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x1054f660
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x1054f660
+[INFO selftest] KSELFTEST: data page entry=0x00000000202570d7 va=0x000000001055c000
+[INFO selftest] KSELFTEST: derived gp=0x1055cc48 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x1055cc48
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x1055cc48
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x1054f660
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x1055cc48
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x000000001054f660
+  gp=0x000000001055cc48
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -374,77 +263,37 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080433db0 sp=0x0000000020008000 gp=0x000000001054f660 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
-AS: activating satp=0x8000600000080410
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000600000080410
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x000000008042f730 sp=0x0000000020008000 gp=0x000000001055cc48 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+AS: activating satp=0x8000600000080640
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x8000600000080640
 AS: post-satp OK
 UB!init-lite entry
 init: entry
 log topics mask=0x0000000000000001
 init: start
 init: start keystored
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8108b000 entry=0x0000000020422c53 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x810ac000 entry=0x000000002042b053 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x15890 sp(x2)=0x20008000 gp(x3)=0x27674
+[INFO task] SPAWN-FRAME: sepc=0x158a8 sp(x2)=0x20008000 gp(x3)=0x27920
 [DEBUG sched] enqueue: pid=18 qos=Normal
 init: up keystored
 init: start rngd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81107000 entry=0x0000000020441c53 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81148000 entry=0x0000000020452053 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -452,65 +301,25 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=19 qos=Normal
 init: up rngd
 init: start policyd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81183000 entry=0x0000000020460c53 name_len=0x7 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x811e4000 entry=0x0000000020479053 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x12252 sp(x2)=0x20008000 gp(x3)=0x16be0
+[INFO task] SPAWN-FRAME: sepc=0x122ba sp(x2)=0x20008000 gp(x3)=0x16c60
 [DEBUG sched] enqueue: pid=20 qos=Normal
 init: up policyd
 init: start logd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81200000 entry=0x0000000020480053 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81281000 entry=0x00000000204a0453 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -518,98 +327,38 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=21 qos=Normal
 init: up logd
 init: start metricsd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8127f000 entry=0x000000002049fc53 name_len=0x8 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81327000 entry=0x00000000204c9c53 name_len=0x8 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x140f4 sp(x2)=0x20008000 gp(x3)=0x20890
+[INFO task] SPAWN-FRAME: sepc=0x140e4 sp(x2)=0x20008000 gp(x3)=0x20880
 [DEBUG sched] enqueue: pid=22 qos=Normal
 init: up metricsd
 init: start samgrd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x812fb000 entry=0x00000000204bec53 name_len=0x6 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x813c3000 entry=0x00000000204f0c53 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x13f10 sp(x2)=0x20008000 gp(x3)=0x17670
+[INFO task] SPAWN-FRAME: sepc=0x13f08 sp(x2)=0x20008000 gp(x3)=0x17668
 [DEBUG sched] enqueue: pid=23 qos=Normal
 init: up samgrd
 init: start bundlemgrd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81378000 entry=0x00000000204de053 name_len=0xa info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81460000 entry=0x0000000020518053 name_len=0xa info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -617,99 +366,39 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=24 qos=Normal
 init: up bundlemgrd
 init: start statefsd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x813fc000 entry=0x00000000204ff053 name_len=0x8 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81504000 entry=0x0000000020541053 name_len=0x8 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1390a sp(x2)=0x20008000 gp(x3)=0x1f034
+[INFO task] SPAWN-FRAME: sepc=0x138e2 sp(x2)=0x20008000 gp(x3)=0x1f00c
 [DEBUG sched] enqueue: pid=25 qos=Normal
 init: up statefsd
 init: start updated
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81494000 entry=0x0000000020525053 name_len=0x7 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x815bc000 entry=0x000000002056f053 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x16088 sp(x2)=0x20008000 gp(x3)=0x32c80
+[INFO task] SPAWN-FRAME: sepc=0x16070 sp(x2)=0x20008000 gp(x3)=0x32c68
 [DEBUG sched] enqueue: pid=26 qos=Normal
 init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
 init: up updated
 init: start timed
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8150f000 entry=0x0000000020543c53 name_len=0x5 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81657000 entry=0x0000000020595c53 name_len=0x5 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -717,230 +406,90 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=27 qos=Normal
 init: up timed
 init: start packagefsd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8159b000 entry=0x0000000020566c53 name_len=0xa info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81703000 entry=0x00000000205c0c53 name_len=0xa info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x15fea sp(x2)=0x20008000 gp(x3)=0x270c2
+[INFO task] SPAWN-FRAME: sepc=0x15fd2 sp(x2)=0x20008000 gp(x3)=0x270aa
 [DEBUG sched] enqueue: pid=28 qos=Normal
 init: up packagefsd
 init: start vfsd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8161b000 entry=0x0000000020586c53 name_len=0x4 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x817a3000 entry=0x00000000205e8c53 name_len=0x4 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x152c4 sp(x2)=0x20008000 gp(x3)=0x1aa84
+[INFO task] SPAWN-FRAME: sepc=0x152bc sp(x2)=0x20008000 gp(x3)=0x1aa7c
 [DEBUG sched] enqueue: pid=29 qos=Normal
 init: up vfsd
 init: start execd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x8169f000 entry=0x00000000205a7c53 name_len=0x5 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81847000 entry=0x0000000020611c53 name_len=0x5 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x12e5a sp(x2)=0x20008000 gp(x3)=0x1f170
+[INFO task] SPAWN-FRAME: sepc=0x12e4a sp(x2)=0x20008000 gp(x3)=0x1f160
 [DEBUG sched] enqueue: pid=30 qos=Normal
 init: up execd
 init: start netstackd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81730000 entry=0x00000000205cc053 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x818f8000 entry=0x000000002063e053 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x1dace sp(x2)=0x20008000 gp(x3)=0x2c4cc
+[INFO task] SPAWN-FRAME: sepc=0x1da5e sp(x2)=0x20008000 gp(x3)=0x2c45c
 [DEBUG sched] enqueue: pid=31 qos=Normal
 init: up netstackd
 init: start dsoftbusd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x817d2000 entry=0x00000000205f4853 name_len=0x9 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x819ba000 entry=0x000000002066e853 name_len=0x9 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x2e68a sp(x2)=0x20008000 gp(x3)=0x3d550
+[INFO task] SPAWN-FRAME: sepc=0x2e6b0 sp(x2)=0x20008000 gp(x3)=0x3d388
 [DEBUG sched] enqueue: pid=32 qos=Normal
 init: up dsoftbusd
 init: start hidrawd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81843000 entry=0x0000000020610c53 name_len=0x7 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81a52000 entry=0x0000000020694853 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x11cde sp(x2)=0x20008000 gp(x3)=0x13694
+[INFO task] SPAWN-FRAME: sepc=0x145a4 sp(x2)=0x20008000 gp(x3)=0x19b04
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up hidrawd
 init: start touchd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x818b4000 entry=0x000000002062d053 name_len=0x6 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81ae3000 entry=0x00000000206b8c53 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
@@ -948,69 +497,29 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=34 qos=Normal
 init: up touchd
 init: start inputd
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x81927000 entry=0x0000000020649c53 name_len=0x6 info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81b7e000 entry=0x00000000206df853 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x127ee sp(x2)=0x20008000 gp(x3)=0x14ade
+[INFO task] SPAWN-FRAME: sepc=0x159c4 sp(x2)=0x20008000 gp(x3)=0x1d522
 [DEBUG sched] enqueue: pid=35 qos=Normal
 init: up inputd
 init: start selftest-client
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x8041b000..0x8061b000 data_end=0x8066a000
+[INFO mm] AS-MAP: KSTACK check: start=0x80669000 end=0x80672000 data_end=0x8066a000 guard=0 map_from=0x8066a000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x8066a000..0x80672000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
 [INFO mm] map kernel segments ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO exec] EXEC-META: va=0x2000b000 pa=0x819f4000 entry=0x000000002067d053 name_len=0xf info_va=0x2000c000
+[INFO exec] EXEC-META: va=0x2000b000 pa=0x81c68000 entry=0x000000002071a053 name_len=0xf info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x4c5fc sp(x2)=0x20008000 gp(x3)=0x67918
+[INFO task] SPAWN-FRAME: sepc=0x4c026 sp(x2)=0x20008000 gp(x3)=0x652d0
 [DEBUG sched] enqueue: pid=36 qos=Normal
 init: up selftest-client
 init: ready
@@ -1018,27 +527,27 @@ init: ready
 init: probe key_req self-xfer pid=0x0000000000000011 cap=0x000000000000003b
 init: probe key_req self-xfer SEND ok slot=0x000000000000003c
 init: probe key_req self-xfer RECV ok slot=0x000000000000003c
-AS: activating satp=0x800070000008044b
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x800070000008044b
+AS: activating satp=0x8000700000080649
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x8000700000080649
 AS: post-satp OK
 UBkeystored: ready
 [DEBUG sched] enqueue: pid=18 qos=Normal
-AS: activating satp=0x8000800000080460
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000800000080460
+AS: activating satp=0x8000800000080652
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x8000800000080652
 AS: post-satp OK
 UBrngd: ready
 [DEBUG sched] enqueue: pid=19 qos=Normal
-AS: activating satp=0x8000900000080475
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000900000080475
+AS: activating satp=0x800090000008065b
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x800090000008065b
 AS: post-satp OK
 UBpolicyd: ready
 abi-profile: ready (server=policyd|abi-filterd)
@@ -1046,72 +555,73 @@ policyd: audit emit deferred
 policyd: mmio blk deny priv
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [DEBUG sched] enqueue: pid=20 qos=Normal
-AS: activating satp=0x8000a0000008048a
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-[INFO as] AS: trampoline enter val=0x8000a0000008048a
+AS: activating satp=0x8000a0000008043c
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+[INFO as] AS: trampoline enter val=0x8000a0000008043c
 AS: post-satp OK
 UB[DEBUG sched] enqueue: pid=21 qos=Normal
-AS: activating satp=0x8000b0000008049f
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8000b00000080446
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UB[DEBUG sched] enqueue: pid=22 qos=Normal
-AS: activating satp=0x8000c000000804b4
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8000c00000080450
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBsamgrd: ready
 samgrd: mode os-lite
 [DEBUG sched] enqueue: pid=23 qos=Normal
-AS: activating satp=0x8000d000000804c9
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8000d0000008045a
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBbundlemgrd: ready
-AS: activating satp=0x8000e000000804de
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8000e00000080464
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBstatefsd: entry
-AS: activating satp=0x8000f0000008044a
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8000f00000080470
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBupdated: entry
-AS: activating satp=0x8001000000080509
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
-UBAS: activating satp=0x800110000008051e
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x8001000000080479
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
+UBAS: activating satp=0x8001100000080483
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBpackagefsd: ready
-AS: activating satp=0x8001200000080533
-AS: pc check va=0x0000000080209000
-AS: sp check va=0x0000000080659000
-AS: ensure_rx_guard pc=0x00000000802097a8
+AS: activating satp=0x800120000008048e
+AS: pc check va=0x000000008020a000
+AS: sp check va=0x0000000080670000
+AS: ensure_rx_guard pc=0x000000008020a6c0
 UBvfsd: ready
 vfsd: namespace ready
 UBexecd: entry
 execd: ready
 UBnetstackd: ready
 UBdsoftbusd: waiting for slots
-UBhidrawd: os service payload ready
+UBhidrawd: input slot missing 50
+hidrawd: input slot missing 51
+hidrawd: input slot missing 52
 UBtouchd: os service payload ready
-UBinputd: os service payload ready
-UBinit: mmio policy deny ok
-init: mmio grant begin svc=netstackd pid=0x000000000000001f slot=0x0000000000000030 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.net
+UBUBinit: mmio policy deny ok
+init: mmio grant begin svc=netstackd pid=0x000000000000001f slot=0x0000000000000030 base=0x0000000010005000 len=0x0000000000001000 cap=device.mmio.net
 policyd: audit emit deferred
 policyd: mmio net allow priv
 init: mmio cap_create svc=netstackd
-init: mmio cap_create ok svc=netstackd cap_slot=0x0000000000000055
+init: mmio cap_create ok svc=netstackd cap_slot=0x0000000000000057
 init: mmio xfer_to_slot svc=netstackd dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=netstackd got=0x0000000000000030
 init: mmio grant svc=netstackd slot=0x0000000000000030
-init: mmio grant begin svc=rngd pid=0x0000000000000013 slot=0x0000000000000030 base=0x0000000010007000 len=0x0000000000001000 cap=device.mmio.rng
+init: mmio grant begin svc=rngd pid=0x0000000000000013 slot=0x0000000000000030 base=0x0000000010004000 len=0x0000000000001000 cap=device.mmio.rng
 policyd: audit emit deferred
 policyd: mmio rng allow priv
 net: virtio-net up
@@ -1122,30 +632,51 @@ net: dhcp bound 10.0.2.15/24 gw=10.0.2.2
 net: smoltcp iface up 10.0.2.15
 SELFTEST: net ping ok
 init: mmio cap_create svc=rngd
-init: mmio cap_create ok svc=rngd cap_slot=0x0000000000000055
+init: mmio cap_create ok svc=rngd cap_slot=0x0000000000000057
 init: mmio xfer_to_slot svc=rngd dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=rngd got=0x0000000000000030
 init: mmio grant svc=rngd slot=0x0000000000000030
-init: mmio grant begin svc=selftest-client pid=0x0000000000000024 slot=0x0000000000000030 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.net
+init: mmio grant begin svc=selftest-client pid=0x0000000000000024 slot=0x0000000000000030 base=0x0000000010005000 len=0x0000000000001000 cap=device.mmio.net
 policyd: audit emit deferred
 policyd: mmio net allow priv
 init: mmio cap_create svc=selftest-client
-init: mmio cap_create ok svc=selftest-client cap_slot=0x0000000000000055
+init: mmio cap_create ok svc=selftest-client cap_slot=0x0000000000000057
 init: mmio xfer_to_slot svc=selftest-client dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=selftest-client got=0x0000000000000030
 init: mmio grant svc=selftest-client slot=0x0000000000000030
 init: mmio grant begin svc=selftest-client pid=0x0000000000000024 slot=0x0000000000000031 base=0x0000000010100000 len=0x0000000000001000 cap=device.mmio.fwcfg
 policyd: audit emit deferred
 init: mmio cap_create svc=selftest-client
-init: mmio cap_create ok svc=selftest-client cap_slot=0x0000000000000055
+init: mmio cap_create ok svc=selftest-client cap_slot=0x0000000000000057
 init: mmio xfer_to_slot svc=selftest-client dst_slot=0x0000000000000031
 init: mmio xfer_to_slot ok svc=selftest-client got=0x0000000000000031
 init: mmio grant svc=selftest-client slot=0x0000000000000031
-init: mmio grant begin svc=statefsd pid=0x0000000000000019 slot=0x0000000000000030 base=0x0000000010006000 len=0x0000000000001000 cap=device.mmio.blk
+init: mmio grant begin svc=hidrawd pid=0x0000000000000021 slot=0x0000000000000032 base=0x0000000010006000 len=0x0000000000001000 cap=device.mmio.input
+policyd: audit emit deferred
+init: mmio cap_create svc=hidrawd
+init: mmio cap_create ok svc=hidrawd cap_slot=0x0000000000000057
+init: mmio xfer_to_slot svc=hidrawd dst_slot=0x0000000000000032
+init: mmio xfer_to_slot ok svc=hidrawd got=0x0000000000000032
+init: mmio grant svc=hidrawd slot=0x0000000000000032
+init: mmio grant begin svc=hidrawd pid=0x0000000000000021 slot=0x0000000000000033 base=0x0000000010007000 len=0x0000000000001000 cap=device.mmio.input
+policyd: audit emit deferred
+init: mmio cap_create svc=hidrawd
+init: mmio cap_create ok svc=hidrawd cap_slot=0x0000000000000057
+init: mmio xfer_to_slot svc=hidrawd dst_slot=0x0000000000000033
+init: mmio xfer_to_slot ok svc=hidrawd got=0x0000000000000033
+init: mmio grant svc=hidrawd slot=0x0000000000000033
+init: mmio grant begin svc=hidrawd pid=0x0000000000000021 slot=0x0000000000000034 base=0x0000000010008000 len=0x0000000000001000 cap=device.mmio.input
+policyd: audit emit deferred
+init: mmio cap_create svc=hidrawd
+init: mmio cap_create ok svc=hidrawd cap_slot=0x0000000000000057
+init: mmio xfer_to_slot svc=hidrawd dst_slot=0x0000000000000034
+init: mmio xfer_to_slot ok svc=hidrawd got=0x0000000000000034
+init: mmio grant svc=hidrawd slot=0x0000000000000034
+init: mmio grant begin svc=statefsd pid=0x0000000000000019 slot=0x0000000000000030 base=0x0000000010003000 len=0x0000000000001000 cap=device.mmio.blk
 policyd: audit emit deferred
 policyd: mmio blk allow priv
 init: mmio cap_create svc=statefsd
-init: mmio cap_create ok svc=statefsd cap_slot=0x0000000000000055
+init: mmio cap_create ok svc=statefsd cap_slot=0x0000000000000057
 init: mmio xfer_to_slot svc=statefsd dst_slot=0x0000000000000030
 init: mmio xfer_to_slot ok svc=statefsd got=0x0000000000000030
 init: mmio grant svc=statefsd slot=0x0000000000000030
@@ -1154,8 +685,8 @@ init: ks arm
 init: wire keystored xfer key_req RECV cap=0x000000000000003b
 init: wire keystored xfer key_rsp SEND cap=0x000000000000003c
 init: wire keystored create reply_ep
-init: wire keystored xfer reply_ep RECV cap=0x0000000000000055
-init: wire keystored xfer reply_ep SEND cap=0x0000000000000055
+init: wire keystored xfer reply_ep RECV cap=0x0000000000000057
+init: wire keystored xfer reply_ep SEND cap=0x0000000000000057
 init: wire keystored xfer state_req SEND cap=0x000000000000003d
 init: wire keystored xfer pol_req SEND cap=0x0000000000000030
 init: wire keystored xfer rng_req SEND cap=0x000000000000003f
@@ -1196,8 +727,11 @@ init: dsoftbusd reply slots recv=0x0000000000000005 send=0x0000000000000006
 init: dsoftbusd packagefsd slots send=0x0000000000000009 recv=0x000000000000000a
 init: dsoftbusd statefsd slots send=0x000000000000000b recv=0x000000000000000c
 init: wire svc=hidrawd pid=0x0000000000000021
+init: hidrawd inputd slots send=0x0000000000000003 recv=0x0000000000000004
 init: wire svc=touchd pid=0x0000000000000022
 init: wire svc=inputd pid=0x0000000000000023
+init: inputd slots recv=0x0000000000000003 send=0x0000000000000004
+agent8cde1d|H2|source/init/nexus-init/src/os_payload.rs:2168|inputd init routing slots|vfs=0 input=1 pol=0 sam=0 reply=0 dsoft=0
 init: wire svc=selftest-client pid=0x0000000000000024
 init: selftest vfsd slots send=0x0000000000000003 recv=0x0000000000000004
 init: selftest policyd slots send=0x0000000000000007 recv=0x0000000000000008
@@ -1210,7 +744,8 @@ init: selftest statefsd slots send=0x0000000000000013 recv=0x0000000000000014
 init: selftest logd slots send=0x0000000000000015 recv=0x0000000000000016
 init: selftest metricsd slots send=0x0000000000000021 recv=0x0000000000000022
 init: selftest reply slots send=0x0000000000000018 recv=0x0000000000000017
-init: selftest rngd slots send=0x000000000000001d recv=0x000000000000001e
+init: selftest inputd slots send=0x0000000000000019 recv=0x0000000000000017
+init: selftest rngd slots send=0x000000000000001e recv=0x000000000000001f
 statefsd: ready
 updated: slots 0003 0004
 updated: statefs init
@@ -1220,17 +755,31 @@ dsoftbusd: entry
 dsoftbusd: waiting for local ip
 keystored: statefs backend ok
 virtio-blk: mmio modern
-virtio-blk: q_pa=0x0000000081a00000 pfn=0x00081a00
+virtio-blk: q_pa=0x0000000081c74000 pfn=0x00081c74
 virtio-blk: q_max=00000400
 virtio-blk: status=0000000b
 virtio-blk: pfn_rb=00000000
 virtio-blk: q_layout desc=20080000 avail=20080080 used=20080098
 virtio-blk: status_ok=0000000f
-virtio-blk: buf_pa=0x0000000081a01000
+virtio-blk: buf_pa=0x0000000081c75000
 virtio-blk: cap=0000000000020000 sectors
 logd: route fallback
 logd: ready
 logd: ready
+samgrd: route err timeout
+samgrd: route fallback
+samgrd: slots logging
+samgrd: slots 00000003 00000004
+bundlemgrd: route err timeout
+bundlemgrd: route fallback
+inputd: route err timeout
+agent8cde1d|H2|source/services/inputd/src/os_lite.rs:46|inputd named route bind failed|route_err=timeout
+inputd: route fallback
+agent8cde1d|H1|source/services/inputd/src/os_lite.rs:63|inputd fallback bind|mode=fallback recv_slot=3 send_slot=4
+agent8cde1d|H2|source/services/inputd/src/os_lite.rs:46|inputd named route bind|mode=named recv_slot=3 send_slot=4
+inputd: ready
+inputd: keymap=de
+inputd: os service payload ready
 virtio-blk: warmup ok
 blk: virtio-blk up
 blk: virtio-blk up (ss=512 nsec=131072)
@@ -1245,15 +794,9 @@ updated: rx
 updated: rx head 55 44 01
 updated: rx op 05
 [INFO updated] core service log probe: updated
-samgrd: route err timeout
-samgrd: route fallback
-samgrd: slots logging
-samgrd: slots 00000003 00000004
-bundlemgrd: route err timeout
-bundlemgrd: route fallback
+packagefsd: v2 mounted (pkgimg)
 updated: capmove
 [INFO updated] audit op=boot_attempt status=ok
-packagefsd: v2 mounted (pkgimg)
 dbg:netstackd: dns h-start
 updated: audit (op=boot_attempt status=ok)
 updated: tx op 85
@@ -1267,6 +810,10 @@ policyd: audit emit ok
 init: route vfsd from vfsd
 init: route vfsd lookup svc=vfsd has_slots=Y
 timed: ready
+agent8cde1d|H4|source/services/hidrawd/src/os_lite.rs:35|hidrawd initial route to inputd|has_client=1 live_devices=0
+hidrawd: virtio-input mmio ready
+hidrawd: ready
+hidrawd: os service payload ready
 init: ctrl req from updated
 SELFTEST: ipc routing keystored ok
 SELFTEST: keystored v1 ok
@@ -1314,8 +861,10 @@ SELFTEST: keystored capmove ok
 init: route logd rsp status=0x0000000000000000 send=0x0000000000000015 recv=0x0000000000000016
 dbg:netstackd: dns h2 send-ok
 dbg:netstackd: dns h2 send-wouldblock
-dbg:netstackd: dns matched
-SELFTEST: net udp dns ok
+dbg:netstackd: dns h3 recv-wouldblock-only
+dbg:netstackd: dns h1 deadline
+netstackd: udp dns unavailable (fallback dhcp proof)
+netstackd: net dns proof fail
 SELFTEST: net tcp listen ok
 netstackd: facade up
 netstackd: svc slots 5/6
@@ -1360,155 +909,638 @@ SELFTEST: samgrd v1 lookup ok
 SELFTEST: samgrd lookup rsp len 000000000000000d head=0000000182014d53
 SELFTEST: samgrd v1 unknown ok
 SELFTEST: samgrd v1 malformed ok
-SELFTEST: ipc routing policyd ok
-SELFTEST: bundlemgrd slots 0000000000000009 000000000000000a
-SELFTEST: ipc routing bundlemgrd ok
-SELFTEST: updated slots 000000000000000b 000000000000000c
-SELFTEST: ipc routing updated ok
-updated: rx op 7f
-updated: log probe
-SELFTEST: updated probe ok
-SELFTEST: bundlemgrd list send
-SELFTEST: bundlemgrd list sent
-SELFTEST: bundlemgrd list recv
-SELFTEST: bundlemgrd list recv ok
-SELFTEST: bundlemgrd v1 list ok
-SELFTEST: bundlemgrd v1 image ok
-SELFTEST: bundlemgrd v1 malformed ok
-bundlemgrd: slot a active
-updated: rx op 04
-updated: rx op 04
-SELFTEST: updated stage send
-updated: rx op 01
-[INFO updated] audit op=stage status=ok
-init: ctrl req from updated
-init: ctrl req from updated
-updated: audit (op=stage status=ok)
-SELFTEST: ota stage ok
-updated: rx op 02
-bundlemgrd: slot b active
-[INFO updated] audit op=switch status=ok detail=slot=b
-updated: audit (op=switch status=ok detail=slot=b)
-SELFTEST: ota switch ok
-SELFTEST: ota publish b ok
-updated: rx op 03
-updated: capmove
-[INFO updated] audit op=health_ok status=ok
-updated: audit (op=health_ok status=ok)
-updated: tx op 83
-updated: replycap slot=0x0000000d
-updated: rx op 04
-updated: capmove
-updated: tx op 84
-updated: replycap slot=0x0000000d
-init: health ok (slot b)
-SELFTEST: ota health ok
-SELFTEST: updated stage send
-updated: rx op 01
-[INFO updated] audit op=stage status=ok
-updated: audit (op=stage status=ok)
-updated: rx op 04
-updated: rx op 02
-bundlemgrd: slot a active
-[INFO updated] audit op=switch status=ok detail=slot=a
-updated: audit (op=switch status=ok detail=slot=a)
-updated: rx op 05
-[INFO updated] audit op=boot_attempt status=rollback detail=slot=b
-updated: audit (op=boot_attempt status=rollback detail=slot=b)
-SELFTEST: ota rollback ok
-SELFTEST: bootctl persist begin
-SELFTEST: bootctl persist ok
-init: policyd route bundlemgrd->execd status=0x0000000000000001
-SELFTEST: bundlemgrd route execd denied ok
+dbg: phase routing skipped
+dbg: phase ota skipped
+dbg: phase policy skipped
+dbg: phase exec skipped
+dbg: phase logd skipped
+dbg: phase ipc_kernel skipped
+dbg: phase mmio skipped
+dbg: phase vfs skipped
+dbg: phase net skipped
+dbg: phase remote skipped
+dbg: boot_cfg runtime_mode present
+dbg: end bootstrap enabled
+hidrawd: device mouse
+hidrawd: virtio-input pointer ready
+hidrawd: virtio-input raw event seen
+hidrawd: ingress adapter ready
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+inputd: live pointer route on
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+fps: hidrawd ingress_hz=29 sent_hz=29 raw_batches=30 wire_batches=30 wire_skip=0 raw_events=60 norm_events=60 send_fail=0 rebinds=0 idle_yields=10370
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+fps: inputd recv_hz=21 hid_ok_hz=21 poll_hz=0 hid_push=31 hid_ok=31 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=62 norm_events=62 dispatch=31 delivered=31 ptr_d=31 kbd_d=0 ptr_deliv=31 kbd_deliv=0 poll_reply=0 idle_yields=0 pointer_live=1 keyboard_live=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=69 op=1 has_reply=0
+dbg: inputd pointer down dispatched
+dbg: inputd pointer down delivered
+dbg: inputd focus on target
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+debug8cde1d: interactive present-tick-ok
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=339 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=69 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=99 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=69 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+hidrawd: device kbd
+hidrawd: virtio-input keyboard ready
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+dbg: inputd keyboard dispatched
+dbg: inputd keyboard delivered
+inputd: live keyboard route on
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=39 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=204 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=204 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=204 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=204 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=144 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+dbg: end bootstrap run ok
+display: bootstrap on
+display: mode 1280x800 argb8888
+windowd: backend=visible
+windowd: present visible ok
+display: first scanout ok
+systemui: first frame visible
+dbg: end bootstrap mode interactive-full
+windowd: interactive scene ready
+windowd: interactive full markers on
+windowd: interactive click target ready
+windowd: interactive keyboard target ready
+debug8cde1d: interactive full live-route observer
+fps: hidrawd ingress_hz=452 sent_hz=452 raw_batches=453 wire_batches=453 wire_skip=0 raw_events=1318 norm_events=1318 send_fail=0 rebinds=0 idle_yields=8118
+windowd: input visible on
+windowd: cursor move visible
+windowd: hover visible
+windowd: focus visible
+launcher: click visible ok
+windowd: keyboard visible
+SELFTEST: ui visible input ok
+fps: inputd recv_hz=428 hid_ok_hz=426 poll_hz=1 hid_push=452 hid_ok=452 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=1316 norm_events=1316 dispatch=448 delivered=448 ptr_d=436 kbd_d=8 ptr_deliv=436 kbd_deliv=8 poll_reply=2 idle_yields=0 pointer_live=1 keyboard_live=1
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=234 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=234 op=1 has_reply=0
+fps: hidrawd ingress_hz=3 sent_hz=3 raw_batches=4 wire_batches=4 wire_skip=0 raw_events=40 norm_events=40 send_fail=0 rebinds=0 idle_yields=98
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=294 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=264 op=1 has_reply=0
+fps: inputd recv_hz=19 hid_ok_hz=5 poll_hz=14 hid_push=6 hid_ok=6 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=74 norm_events=74 dispatch=6 delivered=6 ptr_d=6 kbd_d=0 ptr_deliv=6 kbd_deliv=0 poll_reply=15 idle_yields=0 pointer_live=1 keyboard_live=1
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=234 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=234 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=174 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=219 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=294 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=294 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=69 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=54 op=1 has_reply=0
+fps: hidrawd ingress_hz=15 sent_hz=15 raw_batches=16 wire_batches=16 wire_skip=0 raw_events=148 norm_events=148 send_fail=0 rebinds=0 idle_yields=48
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+fps: inputd recv_hz=29 hid_ok_hz=14 poll_hz=15 hid_push=15 hid_ok=15 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=118 norm_events=118 dispatch=19 delivered=19 ptr_d=14 kbd_d=1 ptr_deliv=14 kbd_deliv=1 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=324 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=114 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=234 op=1 has_reply=0
+agent8cde1d|H3|source/services/inputd/src/os_lite.rs:85|inputd recv ok|frame_len=84 op=1 has_reply=0
+fps: hidrawd ingress_hz=5 sent_hz=5 raw_batches=6 wire_batches=6 wire_skip=0 raw_events=52 norm_events=52 send_fail=0 rebinds=0 idle_yields=68
+fps: inputd recv_hz=20 hid_ok_hz=4 poll_hz=16 hid_push=5 hid_ok=5 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=48 norm_events=48 dispatch=5 delivered=5 ptr_d=4 kbd_d=1 ptr_deliv=4 kbd_deliv=1 poll_reply=17 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
 policyd: audit emit ok
-SELFTEST: policy allow ok
 policyd: audit emit ok
-SELFTEST: policy deny ok
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=82
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
 policyd: audit emit ok
-policyd: mmio blk deny nonpriv
-SELFTEST: mmio policy deny ok
-abi-filter: deny (subject=selftest-client syscall=statefs.put)
-SELFTEST: abi filter deny ok
-SELFTEST: abi filter allow ok
-abi-filter: deny (subject=selftest-client syscall=net.bind)
-SELFTEST: abi netbind deny ok
-SELFTEST: logd slots 0000000000000015 0000000000000016
-logd: allow selftest replies
-SELFTEST: logd record count=000000000000000e
-SELFTEST: logd has audit records
-SELFTEST: policy allow audit ok
-SELFTEST: policy deny audit ok
-SELFTEST: keystored sign denied ok
-SELFTEST: policyd requester spoof denied ok
-SELFTEST: policy malformed ok
-SELFTEST: ipc routing execd ok
-HELLOHDR
-^hello entry=0x0000000000010130 phoff=0x0000000000000040
-^hello p_offset=0x0000000000000130 p_vaddr=0x0000000000010130
-[INFO exec] EXEC-ELF hdr entry=0x10130 phoff=0x40 phentsz=56 phnum=1
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
-[INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] map kernel segments ok
-[INFO exec] EXEC-ELF phdr load off=0x130 vaddr=0x10130 filesz=0x69 memsz=0x69 first4=0x00000417
-PT: heap alloc
-[INFO exec] EXEC-ELF gp=0x10930 src=entry+0x800
-PT: heap alloc
-PT: heap alloc
-[INFO exec] STACK-MAP: va=0x1fffb000-0x20009fff pa=0x81a05000 pages=15 sp=0x20000000
-[INFO exec] STACK-CHECK: base=0x1fffb000 top=0x2000a000 top-1->0xSome(81a13fff) top->0xNone sp->0xSome(81a12000)
-CAP: new enter
-CAP: with_capacity slots=96
-CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10130 sp(x2)=0x20008000 gp(x3)=0x10930
-child: hello-elf
-execd: elf load ok
-SELFTEST: e2e exec-elf ok
-[INFO exec] EXEC-ELF hdr entry=0x1000 phoff=0x40 phentsz=56 phnum=1
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80404000..0x80604000 data_end=0x80653000
-PT: heap alloc
-PT: heap alloc
-[INFO mm] AS-MAP: KSTACK check: start=0x80652000 end=0x8065b000 data_end=0x80653000 guard=0 map_from=0x80653000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80653000..0x8065b000
-[INFO mm] AS-MAP: KSTACK tail mapped ok
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-PT: heap alloc
-
-!!! KERNEL HEAP OOM !!!
-req_size=0000000000001000 req_align=0000000000001000
-heap_budget_used=00000000001fe108 heap_budget_free=0000000000001ef8 heap_budget_total=0000000000200000
-satp=8001300000080548 mode=0000000000000008 asid=0000000000000013
-heap_start=0000000080404000 heap_end=0000000080604000
-
-PANIC: source/kernel/neuron/src/lib.rs:00000000000000fe: ALLOC-FAIL
-PANIC ra=0x000000008020088e
+policyd: audit emit ok
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=82
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 send_fail=0 rebinds=0 idle_yields=80
+fps: inputd recv_hz=15 hid_ok_hz=0 poll_hz=15 hid_push=0 hid_ok=0 malformed=0 overflow=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=16 idle_yields=0 pointer_live=1 keyboard_live=1

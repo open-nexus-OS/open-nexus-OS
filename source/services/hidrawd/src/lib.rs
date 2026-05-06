@@ -11,12 +11,21 @@
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]
 
+mod adapter;
 mod error;
 mod ingest;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod os_lite;
 mod service;
 mod types;
 
 pub use error::HidrawdError;
+pub use adapter::{
+    normalize_ingress_batch, IngressGateEvidence, IngressNormalization, IngressRole, RawIngressBatch,
+    RawIngressEvent, RawIngressEventKind,
+};
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+pub use os_lite::service_main_loop;
 pub use service::HidrawdService;
 pub use types::{DeviceId, HidBatch, HidDeviceKind};
 
