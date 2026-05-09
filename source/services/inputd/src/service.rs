@@ -66,6 +66,9 @@ pub struct InputdService<R> {
     pointer_state: PointerState,
     pointer_transform: PointerTransform,
     active_pointer_source: Option<PointerSource>,
+    primary_pointer_held: bool,
+    held_non_modifier_keys: [bool; 256],
+    held_non_modifier_key_count: usize,
     modifiers: ModifierState,
     text_focus: bool,
     ime_visible: bool,
@@ -102,6 +105,9 @@ impl<R: RouteTarget> InputdService<R> {
             pointer_state,
             pointer_transform,
             active_pointer_source: None,
+            primary_pointer_held: false,
+            held_non_modifier_keys: [false; 256],
+            held_non_modifier_key_count: 0,
             modifiers: ModifierState::default(),
             text_focus: false,
             ime_visible: false,
@@ -153,6 +159,16 @@ impl<R: RouteTarget> InputdService<R> {
     #[must_use]
     pub const fn active_pointer_source(&self) -> Option<PointerSource> {
         self.active_pointer_source
+    }
+
+    #[must_use]
+    pub const fn primary_pointer_held(&self) -> bool {
+        self.primary_pointer_held
+    }
+
+    #[must_use]
+    pub const fn held_non_modifier_key_count(&self) -> usize {
+        self.held_non_modifier_key_count
     }
 
     #[must_use]
@@ -272,6 +288,7 @@ impl<R: RouteTarget> InputdService<R> {
             if is_modifier(usage) {
                 continue;
             }
+            self.update_non_modifier_key_hold(usage, pressed);
             if pressed {
                 let output = self
                     .keymap
@@ -320,7 +337,7 @@ impl<R: RouteTarget> InputdService<R> {
         let mut dy = 0;
         let mut absolute_x = None;
         let mut absolute_y = None;
-        let mut pointer_down = false;
+        let mut pointer_button_state = None;
         for event in events {
             match event.kind() {
                 HidEventKind::Rel if event.code().raw() == RelativeAxis::X.event_code() => {
@@ -335,12 +352,19 @@ impl<R: RouteTarget> InputdService<R> {
                 HidEventKind::Abs if event.code().raw() == AbsoluteAxis::Y.event_code() => {
                     absolute_y = Some(event.value().raw());
                 }
-                HidEventKind::Btn if event.code().raw() == 0x110 && event.value().raw() > 0 => {
-                    pointer_down = true;
+                HidEventKind::Btn if event.code().raw() == 0x110 => {
+                    pointer_button_state = Some(event.value().raw() > 0);
                 }
                 _ => {}
             }
         }
+        let pointer_down = if let Some(next_state) = pointer_button_state {
+            let pressed_now = next_state && !self.primary_pointer_held;
+            self.primary_pointer_held = next_state;
+            pressed_now
+        } else {
+            false
+        };
 
         if absolute_x.is_some() || absolute_y.is_some() {
             let display = self.pointer_state.apply_absolute(absolute_x, absolute_y);
@@ -432,6 +456,24 @@ impl<R: RouteTarget> InputdService<R> {
             self.active_pointer_source,
             Some(PointerSource::TabletAbsolute) | Some(PointerSource::TouchAbsolute)
         )
+    }
+
+    fn update_non_modifier_key_hold(&mut self, usage: KeyboardUsage, pressed: bool) {
+        let index = usize::from(usage.raw());
+        let held = &mut self.held_non_modifier_keys[index];
+        match (pressed, *held) {
+            (true, false) => {
+                *held = true;
+                self.held_non_modifier_key_count =
+                    self.held_non_modifier_key_count.saturating_add(1);
+            }
+            (false, true) => {
+                *held = false;
+                self.held_non_modifier_key_count =
+                    self.held_non_modifier_key_count.saturating_sub(1);
+            }
+            _ => {}
+        }
     }
 }
 

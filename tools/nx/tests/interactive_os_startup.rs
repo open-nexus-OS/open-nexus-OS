@@ -856,6 +856,19 @@ fn interactive_live_tick_is_observer_only_for_display_refresh() {
 }
 
 #[test]
+fn inputd_live_visible_feedback_uses_held_input_state_instead_of_sticky_dispatches() {
+    let inputd = read_repo_file("source/services/inputd/src/os_lite.rs");
+
+    assert!(
+        inputd.contains("let pointer_held = self.input.primary_pointer_held();")
+            && inputd.contains("let keyboard_held = self.input.held_non_modifier_key_count() > 0;")
+            && inputd.contains("self.visible_state.launcher_click_visible = pointer_held;")
+            && inputd.contains("self.visible_state.keyboard_visible = keyboard_held;"),
+        "live input feedback must be driven by actual held mouse/key state so click and keyboard highlights return to idle immediately on release"
+    );
+}
+
+#[test]
 fn interactive_end_phase_uses_polled_visible_state_as_observer_seam() {
     let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
 

@@ -606,6 +606,121 @@ fn mouse_relative_motion_routes_through_windowd_authority() {
 }
 
 #[test]
+fn mouse_primary_button_hold_tracks_press_until_release() {
+    let (server, caller, surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+
+    let press = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::btn(TimestampNs::new(10), 0x110, 1)],
+    );
+    let press_dispatches = inputd.apply_hid_batch(&press).expect("press dispatches");
+    assert!(matches!(
+        press_dispatches.as_slice(),
+        [InputDispatch::PointerDown { x: 12, y: 12, .. }]
+    ));
+    assert!(inputd.primary_pointer_held());
+
+    let release = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::btn(TimestampNs::new(11), 0x110, 0)],
+    );
+    let release_dispatches = inputd.apply_hid_batch(&release).expect("release dispatches");
+    assert!(release_dispatches.is_empty());
+    assert!(!inputd.primary_pointer_held());
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].kind, windowd::InputEventKind::PointerDown);
+}
+
+#[test]
+fn keyboard_hold_count_tracks_non_modifier_keys_until_last_release() {
+    let (server, _caller, _surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+
+    let focus_batch = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::btn(TimestampNs::new(20), 0x110, 1)],
+    );
+    inputd.apply_hid_batch(&focus_batch).expect("focus dispatch");
+
+    let press_a = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(21), 0x04, 1)],
+    );
+    let press_a_dispatches = inputd.apply_hid_batch(&press_a).expect("press a");
+    assert!(matches!(
+        press_a_dispatches.as_slice(),
+        [InputDispatch::Keyboard {
+            key_code: 0x04,
+            repeated: false,
+            ..
+        }]
+    ));
+    assert_eq!(inputd.held_non_modifier_key_count(), 1);
+
+    let press_shift = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(22), 0xe1, 1)],
+    );
+    let press_shift_dispatches = inputd.apply_hid_batch(&press_shift).expect("press shift");
+    assert!(press_shift_dispatches.is_empty());
+    assert_eq!(inputd.held_non_modifier_key_count(), 1);
+
+    let press_b = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(23), 0x05, 1)],
+    );
+    let press_b_dispatches = inputd.apply_hid_batch(&press_b).expect("press b");
+    assert!(matches!(
+        press_b_dispatches.as_slice(),
+        [InputDispatch::Keyboard {
+            key_code: 0x05,
+            repeated: false,
+            ..
+        }]
+    ));
+    assert_eq!(inputd.held_non_modifier_key_count(), 2);
+
+    let release_a = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(24), 0x04, 0)],
+    );
+    let release_a_dispatches = inputd.apply_hid_batch(&release_a).expect("release a");
+    assert!(release_a_dispatches.is_empty());
+    assert_eq!(inputd.held_non_modifier_key_count(), 1);
+
+    let release_shift = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(25), 0xe1, 0)],
+    );
+    let release_shift_dispatches = inputd.apply_hid_batch(&release_shift).expect("release shift");
+    assert!(release_shift_dispatches.is_empty());
+    assert_eq!(inputd.held_non_modifier_key_count(), 1);
+
+    let release_b = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(26), 0x05, 0)],
+    );
+    let release_b_dispatches = inputd.apply_hid_batch(&release_b).expect("release b");
+    assert!(release_b_dispatches.is_empty());
+    assert_eq!(inputd.held_non_modifier_key_count(), 0);
+}
+
+#[test]
 fn relative_pointer_motion_preserves_screen_direction_contract() {
     let (server, caller, surface) = full_surface_fixture_server();
     let mut inputd = InputdService::new(server, config(8)).expect("inputd");

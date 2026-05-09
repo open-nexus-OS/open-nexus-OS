@@ -342,6 +342,8 @@ impl LiveRouteRuntime {
     ) {
         let display_pointer = self.input.display_pointer_position();
         let route_pointer = self.input.route_pointer_position();
+        let pointer_held = self.input.primary_pointer_held();
+        let keyboard_held = self.input.held_non_modifier_key_count() > 0;
         self.visible_state.cursor_x = display_pointer.x;
         self.visible_state.cursor_y = display_pointer.y;
         if pointer_down_dispatched && !self.pointer_down_dispatch_debug_emitted {
@@ -364,13 +366,10 @@ impl LiveRouteRuntime {
             self.visible_state.pointer_route_live = true;
             self.visible_state.input_visible_on = true;
             self.visible_state.cursor_move_visible = true;
-            self.visible_state.hover_visible =
-                visible_hover_target_contains(route_pointer.x, route_pointer.y);
         }
         if pointer_down_dispatched {
             self.visible_state.pointer_route_live = true;
             self.visible_state.input_visible_on = true;
-            self.visible_state.launcher_click_visible = true;
             self.visible_state.focus_visible =
                 self.input.router().focused_surface() == Some(self.surface);
             if self.visible_state.focus_visible && !self.focus_debug_emitted {
@@ -378,10 +377,17 @@ impl LiveRouteRuntime {
                 self.focus_debug_emitted = true;
             }
         }
+        if self.visible_state.pointer_route_live {
+            self.visible_state.hover_visible =
+                visible_hover_target_contains(route_pointer.x, route_pointer.y);
+            self.visible_state.launcher_click_visible = pointer_held;
+        }
         if keyboard_dispatched {
             self.visible_state.keyboard_route_live = true;
             self.visible_state.input_visible_on = true;
-            self.visible_state.keyboard_visible = true;
+        }
+        if self.visible_state.keyboard_route_live {
+            self.visible_state.keyboard_visible = keyboard_held;
         }
         if self.visible_state.pointer_route_live && !self.pointer_marker_emitted {
             let _ = debug_println("inputd: live pointer route on");
