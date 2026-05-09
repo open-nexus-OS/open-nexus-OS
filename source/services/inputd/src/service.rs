@@ -335,6 +335,7 @@ impl<R: RouteTarget> InputdService<R> {
         let pointer_source = batch_source.or_else(|| infer_pointer_source(events));
         let mut dx = 0;
         let mut dy = 0;
+        let mut wheel_delta = 0;
         let mut absolute_x = None;
         let mut absolute_y = None;
         let mut pointer_button_state = None;
@@ -345,6 +346,9 @@ impl<R: RouteTarget> InputdService<R> {
                 }
                 HidEventKind::Rel if event.code().raw() == RelativeAxis::Y.event_code() => {
                     dy += event.value().raw();
+                }
+                HidEventKind::Rel if event.code().raw() == RelativeAxis::Wheel.event_code() => {
+                    wheel_delta += event.value().raw();
                 }
                 HidEventKind::Abs if event.code().raw() == AbsoluteAxis::X.event_code() => {
                     absolute_x = Some(event.value().raw());
@@ -384,7 +388,7 @@ impl<R: RouteTarget> InputdService<R> {
             if pointer_source == Some(PointerSource::MouseRelative)
                 && self.relative_motion_blocked_by_absolute_source()
             {
-                return self.finish_pointer_down(pointer_down);
+                return self.finish_pointer_side_effects(pointer_down, wheel_delta);
             }
             let display = self.pointer_state.apply_relative(
                 self.pointer_accel
@@ -408,7 +412,7 @@ impl<R: RouteTarget> InputdService<R> {
             self.active_pointer_source = Some(PointerSource::MouseRelative);
         }
 
-        self.finish_pointer_down(pointer_down)
+        self.finish_pointer_side_effects(pointer_down, wheel_delta)
     }
 
     fn validate_pointer_bounds(&self, x: i32, y: i32) -> Result<(), InputdError> {
@@ -433,7 +437,11 @@ impl<R: RouteTarget> InputdService<R> {
         Ok(())
     }
 
-    fn finish_pointer_down(&mut self, pointer_down: bool) -> Result<(), InputdError> {
+    fn finish_pointer_side_effects(
+        &mut self,
+        pointer_down: bool,
+        wheel_delta: i32,
+    ) -> Result<(), InputdError> {
         if pointer_down {
             let route = self.pointer_state.route_position(self.pointer_transform);
             self.validate_pointer_bounds(route.x, route.y)?;
@@ -447,6 +455,12 @@ impl<R: RouteTarget> InputdService<R> {
                 y: route.y,
             };
             self.push_dispatch(dispatch.clone())?;
+        }
+        if wheel_delta != 0 {
+            self.push_dispatch(InputDispatch::PointerWheel {
+                delta_y: wheel_delta,
+            })?;
+            self.active_pointer_source = Some(PointerSource::MouseRelative);
         }
         Ok(())
     }
@@ -482,7 +496,10 @@ fn is_modifier(usage: KeyboardUsage) -> bool {
 }
 
 fn infer_pointer_source(events: &[HidEvent]) -> Option<PointerSource> {
-    if events.iter().any(|event| matches!(event.kind(), HidEventKind::Abs)) {
+    if events
+        .iter()
+        .any(|event| matches!(event.kind(), HidEventKind::Abs))
+    {
         return Some(PointerSource::TabletAbsolute);
     }
     if events

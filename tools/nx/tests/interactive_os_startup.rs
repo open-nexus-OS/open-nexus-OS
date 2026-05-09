@@ -670,7 +670,8 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
 
 #[test]
 fn visible_bootstrap_runner_derives_qemu_input_devices_from_systemui_profile() {
-    let harness = read_repo_file("source/apps/selftest-client/proof-manifest/profiles/harness.toml");
+    let harness =
+        read_repo_file("source/apps/selftest-client/proof-manifest/profiles/harness.toml");
     let runner = read_repo_file("scripts/run-qemu-rv64.sh");
     let helper = read_repo_file("tools/systemui_profile_qemu_devices.py");
     let desktop_profile =
@@ -865,6 +866,26 @@ fn inputd_live_visible_feedback_uses_held_input_state_instead_of_sticky_dispatch
             && inputd.contains("self.visible_state.launcher_click_visible = pointer_held;")
             && inputd.contains("self.visible_state.keyboard_visible = keyboard_held;"),
         "live input feedback must be driven by actual held mouse/key state so click and keyboard highlights return to idle immediately on release"
+    );
+}
+
+#[test]
+fn inputd_live_visible_feedback_exposes_transient_wheel_direction_indicators() {
+    let inputd = read_repo_file("source/services/inputd/src/os_lite.rs");
+    let renderer = read_repo_file("source/services/windowd/src/visible_state.rs");
+
+    assert!(
+        inputd.contains("InputDispatch::PointerWheel { delta_y }")
+            && inputd.contains("self.note_wheel_indicator(pointer_wheel_delta, now_ns);")
+            && inputd.contains("self.visible_state.wheel_up_visible")
+            && inputd.contains("self.visible_state.wheel_down_visible"),
+        "live input runtime must convert wheel batches into short-lived up/down visible-state pulses"
+    );
+    assert!(
+        renderer.contains("wheel_triangle_contains(route_x, route_y, VISIBLE_INPUT_WHEEL_UP_Y, true)")
+            && renderer.contains("wheel_triangle_contains(route_x, route_y, VISIBLE_INPUT_WHEEL_DOWN_Y, false)")
+            && renderer.contains("VISIBLE_INPUT_WHEEL_ACTIVE_BGRA"),
+        "windowd visible renderer must paint dedicated up/down wheel indicators next to the mouse target"
     );
 }
 

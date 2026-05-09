@@ -25,8 +25,14 @@ fn repo_root() -> PathBuf {
 #[test]
 fn runtime_mode_parser_accepts_all_supported_tokens() {
     assert_eq!(parse_runtime_mode(b"proof"), Some(RuntimeMode::Proof));
-    assert_eq!(parse_runtime_mode(b"interactive-minimal\n"), Some(RuntimeMode::InteractiveMinimal));
-    assert_eq!(parse_runtime_mode(b" interactive-full\r"), Some(RuntimeMode::InteractiveFull));
+    assert_eq!(
+        parse_runtime_mode(b"interactive-minimal\n"),
+        Some(RuntimeMode::InteractiveMinimal)
+    );
+    assert_eq!(
+        parse_runtime_mode(b" interactive-full\r"),
+        Some(RuntimeMode::InteractiveFull)
+    );
 }
 
 #[test]
@@ -39,7 +45,10 @@ fn runtime_mode_parser_rejects_unknown_tokens() {
 #[test]
 fn runtime_profile_parser_accepts_supported_tokens() {
     assert_eq!(parse_runtime_profile(b"full"), Some(RuntimeProfile::Full));
-    assert_eq!(parse_runtime_profile(b"bringup"), Some(RuntimeProfile::Bringup));
+    assert_eq!(
+        parse_runtime_profile(b"bringup"),
+        Some(RuntimeProfile::Bringup)
+    );
     assert_eq!(parse_runtime_profile(b"quick"), Some(RuntimeProfile::Quick));
     assert_eq!(parse_runtime_profile(b"ota"), Some(RuntimeProfile::Ota));
     assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));
@@ -75,6 +84,8 @@ fn proof_visible_input_ready_requires_full_live_chain() {
         focus_visible: true,
         launcher_click_visible: true,
         keyboard_visible: true,
+        wheel_up_visible: false,
+        wheel_down_visible: false,
         pointer_route_live: true,
         keyboard_route_live: true,
         cursor_x: 8,
@@ -85,7 +96,9 @@ fn proof_visible_input_ready_requires_full_live_chain() {
 
     let mut missing_keyboard = state;
     missing_keyboard.keyboard_visible = false;
-    assert!(!display_observer::proof_visible_input_ready(missing_keyboard));
+    assert!(!display_observer::proof_visible_input_ready(
+        missing_keyboard
+    ));
 }
 
 #[test]

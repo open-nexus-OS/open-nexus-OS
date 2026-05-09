@@ -30,6 +30,9 @@ pub enum InputDispatch {
         x: i32,
         y: i32,
     },
+    PointerWheel {
+        delta_y: i32,
+    },
     Keyboard {
         delivery: InputDelivery,
         key_code: u32,

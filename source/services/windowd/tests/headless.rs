@@ -150,6 +150,66 @@ fn live_visible_state_handoff_composes_cursor_click_and_keyboard_targets() {
 }
 
 #[test]
+fn live_visible_state_handoff_composes_transient_wheel_direction_indicators() {
+    let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
+    let transform = PointerTransform::new(
+        PointerSpace::new(mode.width, mode.height).expect("display"),
+        PointerSpace::new(64, 48).expect("route"),
+    )
+    .expect("transform");
+    let up_indicator = transform.route_to_display(PointerPosition::new(17, 37));
+    let down_indicator = transform.route_to_display(PointerPosition::new(17, 42));
+
+    let up_frame = windowd::live_visible_state_handoff(input_live_protocol::VisibleState {
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        scene_ready: true,
+        wheel_up_visible: true,
+        cursor_x: 0,
+        cursor_y: 0,
+        ..Default::default()
+    })
+    .expect("up handoff")
+    .materialize_frame()
+    .expect("up frame");
+    let down_frame = windowd::live_visible_state_handoff(input_live_protocol::VisibleState {
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        scene_ready: true,
+        wheel_down_visible: true,
+        cursor_x: 0,
+        cursor_y: 0,
+        ..Default::default()
+    })
+    .expect("down handoff")
+    .materialize_frame()
+    .expect("down frame");
+
+    let stride = mode.stride as usize;
+    let up_idx = up_indicator.y as usize * stride + up_indicator.x as usize * 4;
+    let down_idx = down_indicator.y as usize * stride + down_indicator.x as usize * 4;
+
+    assert_eq!(
+        up_frame.pixels[up_idx..up_idx + 4],
+        windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
+    );
+    assert_eq!(
+        up_frame.pixels[down_idx..down_idx + 4],
+        windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA
+    );
+    assert_eq!(
+        down_frame.pixels[up_idx..up_idx + 4],
+        windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA
+    );
+    assert_eq!(
+        down_frame.pixels[down_idx..down_idx + 4],
+        windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
+    );
+}
+
+#[test]
 fn live_visible_cursor_coordinates_preserve_screen_direction_when_scaled() {
     let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
     let transform = PointerTransform::new(

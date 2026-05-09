@@ -82,6 +82,8 @@ pub struct VisibleState {
     pub focus_visible: bool,
     pub launcher_click_visible: bool,
     pub keyboard_visible: bool,
+    pub wheel_up_visible: bool,
+    pub wheel_down_visible: bool,
     pub pointer_route_live: bool,
     pub keyboard_route_live: bool,
     pub cursor_x: i32,
@@ -144,7 +146,12 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
             frame[offset + 13],
             frame[offset + 14],
         ]);
-        events.push(WireHidEvent { kind, code, value, timestamp_ns });
+        events.push(WireHidEvent {
+            kind,
+            code,
+            value,
+            timestamp_ns,
+        });
         offset += EVENT_LEN;
     }
     Some(WireHidBatch {
@@ -197,6 +204,8 @@ pub fn encode_visible_state_frame(state: VisibleState) -> [u8; VISIBLE_STATE_FRA
     ]);
     out[25..29].copy_from_slice(&state.cursor_x.to_le_bytes());
     out[29..33].copy_from_slice(&state.cursor_y.to_le_bytes());
+    out[33] = u8::from(state.wheel_up_visible);
+    out[34] = u8::from(state.wheel_down_visible);
     out
 }
 
@@ -234,6 +243,8 @@ pub fn decode_visible_state(frame: &[u8]) -> Option<VisibleState> {
         keyboard_route_live: frame[24] != 0,
         cursor_x: i32::from_le_bytes([frame[25], frame[26], frame[27], frame[28]]),
         cursor_y: i32::from_le_bytes([frame[29], frame[30], frame[31], frame[32]]),
+        wheel_up_visible: frame[33] != 0,
+        wheel_down_visible: frame[34] != 0,
     })
 }
 
@@ -310,7 +321,12 @@ mod tests {
             keyboard_route_live: false,
             cursor_x: 320,
             cursor_y: 200,
+            wheel_up_visible: true,
+            wheel_down_visible: false,
         };
-        assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
+        assert_eq!(
+            decode_visible_state(&encode_visible_state(state)),
+            Some(state)
+        );
     }
 }

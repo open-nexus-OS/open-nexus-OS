@@ -24,10 +24,10 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 use crate::{
     decode_wire_batch, visible_display_space, visible_display_start_position,
     visible_hover_target_contains, AbsoluteAxisCalibration, InputDispatch, InputdConfig,
-    InputdService, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
-    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
-    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
-    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE, WireBatchReject,
+    InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT,
+    LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X,
+    VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH,
+    VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
 };
 
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
@@ -37,6 +37,7 @@ const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = VISIBLE_INPUT_PROOF_HEIGHT;
 const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
 const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
 const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
+const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let mut runtime = LiveRouteRuntime::new()?;
@@ -77,7 +78,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 }
                 if let Some(reply) = reply {
                     if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                        let response = encode_visible_state_frame(runtime.visible_state);
+                        let response = encode_visible_state_frame(runtime.visible_state_snapshot());
                         let _ = reply.reply_and_close(&response);
                         runtime.chain.visible_state_replies =
                             runtime.chain.visible_state_replies.saturating_add(1);
@@ -87,7 +88,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     }
                 } else {
                     if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                        let response = encode_visible_state_frame(runtime.visible_state);
+                        let response = encode_visible_state_frame(runtime.visible_state_snapshot());
                         let _ = server.send(&response, Wait::Blocking);
                         runtime.chain.visible_state_replies =
                             runtime.chain.visible_state_replies.saturating_add(1);
@@ -122,7 +123,16 @@ struct LiveRouteRuntime {
     focus_debug_emitted: bool,
     keyboard_dispatch_debug_emitted: bool,
     keyboard_delivery_debug_emitted: bool,
+    wheel_indicator_direction: WheelIndicatorDirection,
+    wheel_indicator_deadline_ns: u64,
     chain: InputdChainTelemetry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WheelIndicatorDirection {
+    None,
+    Up,
+    Down,
 }
 
 impl LiveRouteRuntime {
@@ -212,14 +222,22 @@ impl LiveRouteRuntime {
             focus_debug_emitted: false,
             keyboard_dispatch_debug_emitted: false,
             keyboard_delivery_debug_emitted: false,
+            wheel_indicator_direction: WheelIndicatorDirection::None,
+            wheel_indicator_deadline_ns: 0,
             chain: InputdChainTelemetry::new(),
         })
+    }
+
+    fn visible_state_snapshot(&mut self) -> VisibleState {
+        self.sync_wheel_indicator(nsec().unwrap_or(0));
+        self.visible_state
     }
 
     fn handle_frame(&mut self, frame: &[u8]) -> [u8; 8] {
         if frame_has_op(frame, OP_PUSH_HID_BATCH) {
             let Some(batch) = decode_push_hid_batch(frame) else {
-                self.chain.frame_decode_malformed = self.chain.frame_decode_malformed.saturating_add(1);
+                self.chain.frame_decode_malformed =
+                    self.chain.frame_decode_malformed.saturating_add(1);
                 self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
                 return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
             };
@@ -265,6 +283,7 @@ impl LiveRouteRuntime {
             dispatch_count,
             pointer_move_seen,
             pointer_down_dispatched,
+            pointer_wheel_delta,
             keyboard_dispatched,
             pointer_dispatch_batch,
             keyboard_dispatch_batch,
@@ -280,11 +299,20 @@ impl LiveRouteRuntime {
                     .any(|dispatch| matches!(dispatch, InputDispatch::PointerDown { .. })),
                 dispatches
                     .iter()
+                    .filter_map(|dispatch| match dispatch {
+                        InputDispatch::PointerWheel { delta_y } => Some(*delta_y),
+                        _ => None,
+                    })
+                    .sum(),
+                dispatches
+                    .iter()
                     .any(|dispatch| matches!(dispatch, InputDispatch::Keyboard { .. })),
                 dispatches.iter().any(|dispatch| {
                     matches!(
                         dispatch,
-                        InputDispatch::PointerMove { .. } | InputDispatch::PointerDown { .. }
+                        InputDispatch::PointerMove { .. }
+                            | InputDispatch::PointerDown { .. }
+                            | InputDispatch::PointerWheel { .. }
                     )
                 }),
                 dispatches
@@ -325,6 +353,7 @@ impl LiveRouteRuntime {
         self.update_visible_state(
             pointer_move_seen,
             pointer_down_dispatched,
+            pointer_wheel_delta,
             keyboard_dispatched,
         );
         STATUS_OK
@@ -338,8 +367,10 @@ impl LiveRouteRuntime {
         &mut self,
         pointer_move_seen: bool,
         pointer_down_dispatched: bool,
+        pointer_wheel_delta: i32,
         keyboard_dispatched: bool,
     ) {
+        let now_ns = nsec().unwrap_or(0);
         let display_pointer = self.input.display_pointer_position();
         let route_pointer = self.input.route_pointer_position();
         let pointer_held = self.input.primary_pointer_held();
@@ -377,6 +408,11 @@ impl LiveRouteRuntime {
                 self.focus_debug_emitted = true;
             }
         }
+        if pointer_wheel_delta != 0 {
+            self.visible_state.pointer_route_live = true;
+            self.visible_state.input_visible_on = true;
+            self.note_wheel_indicator(pointer_wheel_delta, now_ns);
+        }
         if self.visible_state.pointer_route_live {
             self.visible_state.hover_visible =
                 visible_hover_target_contains(route_pointer.x, route_pointer.y);
@@ -396,6 +432,29 @@ impl LiveRouteRuntime {
         if self.visible_state.keyboard_route_live && !self.keyboard_marker_emitted {
             let _ = debug_println("inputd: live keyboard route on");
             self.keyboard_marker_emitted = true;
+        }
+        self.sync_wheel_indicator(now_ns);
+    }
+
+    fn note_wheel_indicator(&mut self, delta_y: i32, now_ns: u64) {
+        self.wheel_indicator_direction = if delta_y > 0 {
+            WheelIndicatorDirection::Up
+        } else if delta_y < 0 {
+            WheelIndicatorDirection::Down
+        } else {
+            WheelIndicatorDirection::None
+        };
+        self.wheel_indicator_deadline_ns = now_ns.saturating_add(WHEEL_INDICATOR_PULSE_NS);
+    }
+
+    fn sync_wheel_indicator(&mut self, now_ns: u64) {
+        let active = now_ns <= self.wheel_indicator_deadline_ns;
+        self.visible_state.wheel_up_visible =
+            active && self.wheel_indicator_direction == WheelIndicatorDirection::Up;
+        self.visible_state.wheel_down_visible =
+            active && self.wheel_indicator_direction == WheelIndicatorDirection::Down;
+        if !active {
+            self.wheel_indicator_direction = WheelIndicatorDirection::None;
         }
     }
 }

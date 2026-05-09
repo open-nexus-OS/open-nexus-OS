@@ -28,6 +28,13 @@ const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
 const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
 const VISIBLE_INPUT_LEFT_HOVER_BGRA: [u8; 4] = [0x20, 0xd0, 0xf8, 0xff];
 const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
+pub const VISIBLE_INPUT_WHEEL_IDLE_BGRA: [u8; 4] = [0x60, 0x60, 0x90, 0xff];
+pub const VISIBLE_INPUT_WHEEL_ACTIVE_BGRA: [u8; 4] = [0x30, 0xf0, 0xf0, 0xff];
+const VISIBLE_INPUT_WHEEL_X: u32 = 15;
+const VISIBLE_INPUT_WHEEL_UP_Y: u32 = 36;
+const VISIBLE_INPUT_WHEEL_DOWN_Y: u32 = 40;
+const VISIBLE_INPUT_WHEEL_WIDTH: u32 = 5;
+const VISIBLE_INPUT_WHEEL_HEIGHT: u32 = 4;
 
 pub fn compose_live_visible_frame(
     state: VisibleState,
@@ -77,6 +84,16 @@ pub fn copy_live_visible_row(
     } else {
         VISIBLE_INPUT_RIGHT_IDLE_BGRA
     };
+    let wheel_up = if state.wheel_up_visible {
+        VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
+    } else {
+        VISIBLE_INPUT_WHEEL_IDLE_BGRA
+    };
+    let wheel_down = if state.wheel_down_visible {
+        VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
+    } else {
+        VISIBLE_INPUT_WHEEL_IDLE_BGRA
+    };
     let left_rect = route_rect_to_display(
         VISIBLE_INPUT_LEFT_SQUARE_X,
         VISIBLE_INPUT_LEFT_SQUARE_Y,
@@ -93,14 +110,17 @@ pub fn copy_live_visible_row(
     );
     let cursor_rect = cursor_display_rect(state, mode);
     for x in 0..mode.width {
-        let mut bgra = visible_input_background_bgra(
-            scale_display_to_route_axis(x, mode.width, VISIBLE_INPUT_PROOF_WIDTH),
-            scale_display_to_route_axis(y, mode.height, VISIBLE_INPUT_PROOF_HEIGHT),
-        );
+        let route_x = scale_display_to_route_axis(x, mode.width, VISIBLE_INPUT_PROOF_WIDTH);
+        let route_y = scale_display_to_route_axis(y, mode.height, VISIBLE_INPUT_PROOF_HEIGHT);
+        let mut bgra = visible_input_background_bgra(route_x, route_y);
         if left_rect.contains(x, y) {
             bgra = left_square;
         } else if right_rect.contains(x, y) {
             bgra = right_square;
+        } else if wheel_triangle_contains(route_x, route_y, VISIBLE_INPUT_WHEEL_UP_Y, true) {
+            bgra = wheel_up;
+        } else if wheel_triangle_contains(route_x, route_y, VISIBLE_INPUT_WHEEL_DOWN_Y, false) {
+            bgra = wheel_down;
         }
         if state.scene_ready && cursor_rect.is_some_and(|rect| rect.contains(x, y)) {
             bgra = VISIBLE_CURSOR_BGRA;
@@ -150,6 +170,27 @@ fn route_rect_to_display(
             mode.height,
         ),
     }
+}
+
+fn wheel_triangle_contains(route_x: u32, route_y: u32, top_y: u32, points_up: bool) -> bool {
+    if route_x < VISIBLE_INPUT_WHEEL_X
+        || route_x >= VISIBLE_INPUT_WHEEL_X + VISIBLE_INPUT_WHEEL_WIDTH
+        || route_y < top_y
+        || route_y >= top_y + VISIBLE_INPUT_WHEEL_HEIGHT
+    {
+        return false;
+    }
+    let local_x = route_x - VISIBLE_INPUT_WHEEL_X;
+    let local_y = route_y - top_y;
+    let row = if points_up {
+        local_y
+    } else {
+        VISIBLE_INPUT_WHEEL_HEIGHT - 1 - local_y
+    };
+    let center = VISIBLE_INPUT_WHEEL_WIDTH / 2;
+    let left = center.saturating_sub(row);
+    let right = (center + row).min(VISIBLE_INPUT_WHEEL_WIDTH - 1);
+    local_x >= left && local_x <= right
 }
 
 fn cursor_display_extent(mode: VisibleBootstrapMode) -> DisplayExtent {

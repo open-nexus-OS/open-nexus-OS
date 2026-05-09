@@ -101,6 +101,7 @@ impl KeyboardUsage {
 pub enum RelativeAxis {
     X,
     Y,
+    Wheel,
 }
 
 impl RelativeAxis {
@@ -109,6 +110,7 @@ impl RelativeAxis {
         match self {
             Self::X => 0,
             Self::Y => 1,
+            Self::Wheel => 8,
         }
     }
 }

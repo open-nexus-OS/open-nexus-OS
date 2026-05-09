@@ -8,7 +8,7 @@
 //! TEST_COVERAGE: registration, deterministic ingest, and reject taxonomy
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
-use hid::{AbsoluteAxis, HidEvent, HidEventKind, TimestampNs};
+use hid::{AbsoluteAxis, HidEvent, HidEventKind, RelativeAxis, TimestampNs};
 use hidrawd::{
     normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidDeviceKind, HidrawdError,
     HidrawdService, IngressRole, PointerSource, RawIngressBatch, RawIngressEvent,
@@ -24,7 +24,11 @@ fn keyboard_and_mouse_ingest_batches_are_deterministic() {
     service.register_mouse(mouse_id);
 
     let keyboard = service
-        .ingest_keyboard_report(keyboard_id, TimestampNs::new(10), &[0, 0, 0x04, 0, 0, 0, 0, 0])
+        .ingest_keyboard_report(
+            keyboard_id,
+            TimestampNs::new(10),
+            &[0, 0, 0x04, 0, 0, 0, 0, 0],
+        )
         .expect("keyboard report");
     let mouse = service
         .ingest_mouse_report(mouse_id, TimestampNs::new(11), &[0b001, 3u8, (-2i8) as u8])
@@ -108,7 +112,10 @@ fn ingest_device_events_accepts_absolute_pointer_batches() {
 
     assert_eq!(batch.kind(), HidDeviceKind::Mouse);
     assert_eq!(batch.events().len(), 2);
-    assert!(batch.events().iter().all(|event| event.kind() == HidEventKind::Abs));
+    assert!(batch
+        .events()
+        .iter()
+        .all(|event| event.kind() == HidEventKind::Abs));
 }
 
 #[test]
@@ -152,6 +159,40 @@ fn virtio_raw_pointer_batch_is_normalized_through_explicit_adapter_gate() {
 }
 
 #[test]
+fn virtio_raw_wheel_events_are_normalized_on_the_mouse_relative_wire_path() {
+    let mut service = HidrawdService::new();
+    let mouse_id = DeviceId::new(11);
+    service.register_mouse(mouse_id);
+
+    let outcome = normalize_ingress_batch(
+        &mut service,
+        mouse_id,
+        &RawIngressBatch::new(
+            IngressRole::RelativePointer,
+            vec![RawIngressEvent::new(
+                RawIngressEventKind::Relative,
+                RelativeAxis::Wheel.event_code(),
+                -1,
+            )],
+        ),
+        TimestampNs::new(21),
+        0,
+        0,
+    )
+    .expect("wheel adapter outcome");
+
+    let hid_batch = outcome.hid_batch().expect("normalized hid batch");
+    assert_eq!(hid_batch.kind(), HidDeviceKind::Mouse);
+    assert_eq!(hid_batch.events().len(), 1);
+    assert_eq!(hid_batch.events()[0].kind(), HidEventKind::Rel);
+    assert_eq!(
+        hid_batch.events()[0].code().raw(),
+        RelativeAxis::Wheel.event_code()
+    );
+    assert_eq!(hid_batch.events()[0].value().raw(), -1);
+}
+
+#[test]
 fn absolute_pointer_normalization_preserves_wire_calibration() {
     let mut service = HidrawdService::new();
     let mouse_id = DeviceId::new(12);
@@ -182,9 +223,47 @@ fn absolute_pointer_normalization_preserves_wire_calibration() {
     assert_eq!(wire_batch.abs_max_y, 32767);
     assert_eq!(wire_batch.normalized_event_count, 2);
     assert!(
-        wire_batch.events.iter().all(|event| event.kind == input_live_protocol::EVENT_KIND_ABS),
+        wire_batch
+            .events
+            .iter()
+            .all(|event| event.kind == input_live_protocol::EVENT_KIND_ABS),
         "absolute pointer calibration proof requires abs events on the wire"
     );
+}
+
+#[test]
+fn absolute_pointer_normalization_keeps_relative_wheel_events_for_scroll() {
+    let mut service = HidrawdService::new();
+    let mouse_id = DeviceId::new(14);
+    service.register_mouse(mouse_id);
+
+    let outcome = normalize_ingress_batch(
+        &mut service,
+        mouse_id,
+        &RawIngressBatch::new(
+            IngressRole::AbsolutePointer,
+            vec![RawIngressEvent::new(
+                RawIngressEventKind::Relative,
+                RelativeAxis::Wheel.event_code(),
+                1,
+            )],
+        ),
+        TimestampNs::new(23),
+        32767,
+        32767,
+    )
+    .expect("absolute wheel adapter outcome");
+
+    let wire_batch = outcome.wire_batch().expect("absolute wheel wire batch");
+    assert_eq!(
+        wire_batch.pointer_source,
+        input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE
+    );
+    assert_eq!(wire_batch.normalized_event_count, 1);
+    assert_eq!(wire_batch.events.len(), 1);
+    assert_eq!(wire_batch.events[0].kind, input_live_protocol::EVENT_KIND_REL);
+    assert_eq!(wire_batch.events[0].code, RelativeAxis::Wheel.event_code());
+    assert_eq!(wire_batch.events[0].value, 1);
 }
 
 #[test]

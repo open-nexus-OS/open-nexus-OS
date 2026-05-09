@@ -14,11 +14,14 @@ use alloc::vec::Vec;
 use hid::{HidEvent, TimestampNs};
 use hidrawd::{DeviceId, HidBatch, HidDeviceKind, PointerSource};
 use input_live_protocol::{
-    WireHidBatch, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL, HID_KIND_KEYBOARD,
-    HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE, POINTER_SOURCE_TABLET_ABSOLUTE,
-    POINTER_SOURCE_TOUCH_ABSOLUTE, STATUS_MALFORMED, STATUS_UNSUPPORTED,
+    WireHidBatch, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
+    HID_KIND_KEYBOARD, HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE,
+    POINTER_SOURCE_TABLET_ABSOLUTE, POINTER_SOURCE_TOUCH_ABSOLUTE, STATUS_MALFORMED,
+    STATUS_UNSUPPORTED,
 };
 use pointer_state::{AbsoluteAxisCalibration, PointerAxis, PointerTransform};
+
+const REL_WHEEL_EVENT_CODE: u16 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireBatchReject {
@@ -55,8 +58,12 @@ impl WireBatchReject {
             Self::RelativeOnAbsoluteSource(PointerSource::TouchAbsolute) => {
                 "relative-on-touch-absolute"
             }
-            Self::RelativeOnAbsoluteSource(PointerSource::MouseRelative) => "relative-on-mouse-relative",
-            Self::AbsoluteOnRelativeSource(PointerSource::MouseRelative) => "absolute-on-mouse-relative",
+            Self::RelativeOnAbsoluteSource(PointerSource::MouseRelative) => {
+                "relative-on-mouse-relative"
+            }
+            Self::AbsoluteOnRelativeSource(PointerSource::MouseRelative) => {
+                "absolute-on-mouse-relative"
+            }
             Self::AbsoluteOnRelativeSource(PointerSource::TabletAbsolute) => {
                 "absolute-on-tablet-absolute"
             }
@@ -115,9 +122,14 @@ pub fn decode_wire_batch(
             EVENT_KIND_KEY => return Err(WireBatchReject::PointerKeyEvent),
             EVENT_KIND_REL => match pointer_source.expect("pointer source for pointer device") {
                 PointerSource::MouseRelative => HidEvent::rel(timestamp, event.code, event.value),
+                _source if event.code == REL_WHEEL_EVENT_CODE => {
+                    HidEvent::rel(timestamp, event.code, event.value)
+                }
                 source => return Err(WireBatchReject::RelativeOnAbsoluteSource(source)),
             },
-            EVENT_KIND_BTN if kind == HidDeviceKind::Mouse => HidEvent::btn(timestamp, event.code, event.value),
+            EVENT_KIND_BTN if kind == HidDeviceKind::Mouse => {
+                HidEvent::btn(timestamp, event.code, event.value)
+            }
             EVENT_KIND_BTN => return Err(WireBatchReject::KeyboardEventKind(EVENT_KIND_BTN)),
             EVENT_KIND_ABS => {
                 let source = pointer_source.expect("pointer source for pointer device");
@@ -127,21 +139,25 @@ pub fn decode_wire_batch(
                 let scaled = match event.code {
                     0 => pointer_transform.scale_absolute_axis(
                         event.value,
-                        AbsoluteAxisCalibration::new(0, batch.abs_max_x)
-                            .map_err(|_| WireBatchReject::InvalidAbsoluteCalibration(PointerAxis::X))?,
+                        AbsoluteAxisCalibration::new(0, batch.abs_max_x).map_err(|_| {
+                            WireBatchReject::InvalidAbsoluteCalibration(PointerAxis::X)
+                        })?,
                         PointerAxis::X,
                     ),
                     1 => pointer_transform.scale_absolute_axis(
                         event.value,
-                        AbsoluteAxisCalibration::new(0, batch.abs_max_y)
-                            .map_err(|_| WireBatchReject::InvalidAbsoluteCalibration(PointerAxis::Y))?,
+                        AbsoluteAxisCalibration::new(0, batch.abs_max_y).map_err(|_| {
+                            WireBatchReject::InvalidAbsoluteCalibration(PointerAxis::Y)
+                        })?,
                         PointerAxis::Y,
                     ),
                     _ => return Err(WireBatchReject::InvalidAbsoluteAxis(event.code)),
                 };
                 HidEvent::abs(timestamp, event.code, scaled)
             }
-            other if kind == HidDeviceKind::Keyboard => return Err(WireBatchReject::KeyboardEventKind(other)),
+            other if kind == HidDeviceKind::Keyboard => {
+                return Err(WireBatchReject::KeyboardEventKind(other))
+            }
             other => return Err(WireBatchReject::UnknownEventKind(other)),
         };
         events.push(hid_event);

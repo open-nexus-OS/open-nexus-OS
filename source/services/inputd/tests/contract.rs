@@ -382,7 +382,10 @@ fn test_reject_tablet_absolute_wire_batch_without_calibration() {
     )
     .expect_err("tablet absolute without x calibration must reject");
 
-    assert_eq!(err, inputd::WireBatchReject::InvalidAbsoluteCalibration(inputd::PointerAxis::X));
+    assert_eq!(
+        err,
+        inputd::WireBatchReject::InvalidAbsoluteCalibration(inputd::PointerAxis::X)
+    );
 }
 
 #[test]
@@ -408,6 +411,35 @@ fn test_reject_relative_event_on_tablet_absolute_source() {
         err,
         inputd::WireBatchReject::RelativeOnAbsoluteSource(hidrawd::PointerSource::TabletAbsolute)
     );
+}
+
+#[test]
+fn tablet_absolute_wire_batch_accepts_relative_wheel_events_for_scroll() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let hid_batch = inputd::decode_wire_batch(
+        visible_pointer_wire_batch(
+            POINTER_SOURCE_TABLET_ABSOLUTE,
+            vec![WireHidEvent {
+                kind: EVENT_KIND_REL,
+                code: RelativeAxis::Wheel.event_code(),
+                value: -1,
+                timestamp_ns: 15,
+            }],
+            32767,
+            32767,
+        ),
+        transform,
+    )
+    .expect("tablet source must accept wheel");
+
+    assert_eq!(
+        hid_batch.pointer_source(),
+        Some(hidrawd::PointerSource::TabletAbsolute)
+    );
+    assert_eq!(hid_batch.events().len(), 1);
+    assert_eq!(hid_batch.events()[0].kind(), hid::HidEventKind::Rel);
+    assert_eq!(hid_batch.events()[0].code().raw(), RelativeAxis::Wheel.event_code());
+    assert_eq!(hid_batch.events()[0].value().raw(), -1);
 }
 
 #[test]
@@ -506,7 +538,9 @@ fn tablet_absolute_source_blocks_following_relative_motion_in_live_mixed_stream(
         ],
     );
 
-    let absolute_dispatches = inputd.apply_hid_batch(&absolute_batch).expect("absolute dispatches");
+    let absolute_dispatches = inputd
+        .apply_hid_batch(&absolute_batch)
+        .expect("absolute dispatches");
     assert!(matches!(
         absolute_dispatches.as_slice(),
         [InputDispatch::PointerMove { x, y, .. }]
@@ -516,7 +550,9 @@ fn tablet_absolute_source_blocks_following_relative_motion_in_live_mixed_stream(
                     inputd::VISIBLE_INPUT_CURSOR_END_Y
                 )
     ));
-    let relative_dispatches = inputd.apply_hid_batch(&relative_batch).expect("relative dispatches");
+    let relative_dispatches = inputd
+        .apply_hid_batch(&relative_batch)
+        .expect("relative dispatches");
 
     assert!(relative_dispatches.is_empty());
     assert_eq!(inputd.display_pointer_position(), target_display);
@@ -627,7 +663,9 @@ fn mouse_primary_button_hold_tracks_press_until_release() {
         hidrawd::HidDeviceKind::Mouse,
         vec![HidEvent::btn(TimestampNs::new(11), 0x110, 0)],
     );
-    let release_dispatches = inputd.apply_hid_batch(&release).expect("release dispatches");
+    let release_dispatches = inputd
+        .apply_hid_batch(&release)
+        .expect("release dispatches");
     assert!(release_dispatches.is_empty());
     assert!(!inputd.primary_pointer_held());
 
@@ -640,6 +678,29 @@ fn mouse_primary_button_hold_tracks_press_until_release() {
 }
 
 #[test]
+fn mouse_wheel_batches_emit_pointer_wheel_dispatch_without_pointer_motion() {
+    let (server, _caller, _surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+
+    let wheel = hidrawd::HidBatch::new_pointer(
+        DeviceId::new(4),
+        hidrawd::PointerSource::MouseRelative,
+        vec![HidEvent::rel(
+            TimestampNs::new(12),
+            RelativeAxis::Wheel.event_code(),
+            -1,
+        )],
+    );
+    let dispatches = inputd.apply_hid_batch(&wheel).expect("wheel dispatches");
+    assert!(matches!(
+        dispatches.as_slice(),
+        [InputDispatch::PointerWheel { delta_y: -1 }]
+    ));
+    assert_eq!(inputd.display_pointer_position().x, 12);
+    assert_eq!(inputd.display_pointer_position().y, 12);
+}
+
+#[test]
 fn keyboard_hold_count_tracks_non_modifier_keys_until_last_release() {
     let (server, _caller, _surface) = fixture_server();
     let mut inputd = InputdService::new(server, config(8)).expect("inputd");
@@ -649,7 +710,9 @@ fn keyboard_hold_count_tracks_non_modifier_keys_until_last_release() {
         hidrawd::HidDeviceKind::Mouse,
         vec![HidEvent::btn(TimestampNs::new(20), 0x110, 1)],
     );
-    inputd.apply_hid_batch(&focus_batch).expect("focus dispatch");
+    inputd
+        .apply_hid_batch(&focus_batch)
+        .expect("focus dispatch");
 
     let press_a = hidrawd::HidBatch::new(
         DeviceId::new(5),
@@ -706,7 +769,9 @@ fn keyboard_hold_count_tracks_non_modifier_keys_until_last_release() {
         hidrawd::HidDeviceKind::Keyboard,
         vec![HidEvent::key(TimestampNs::new(25), 0xe1, 0)],
     );
-    let release_shift_dispatches = inputd.apply_hid_batch(&release_shift).expect("release shift");
+    let release_shift_dispatches = inputd
+        .apply_hid_batch(&release_shift)
+        .expect("release shift");
     assert!(release_shift_dispatches.is_empty());
     assert_eq!(inputd.held_non_modifier_key_count(), 1);
 

@@ -162,7 +162,10 @@ pub struct IngressGateEvidence {
 impl IngressGateEvidence {
     #[must_use]
     pub const fn new(raw_event_count: u16, normalized_event_count: u16) -> Self {
-        Self { raw_event_count, normalized_event_count }
+        Self {
+            raw_event_count,
+            normalized_event_count,
+        }
     }
 
     #[must_use]
@@ -234,14 +237,20 @@ pub fn normalize_ingress_batch(
         events.len().min(u16::MAX as usize) as u16,
     );
     if events.is_empty() {
-        return Ok(IngressNormalization { evidence, hid_batch: None, wire_batch: None });
+        return Ok(IngressNormalization {
+            evidence,
+            hid_batch: None,
+            wire_batch: None,
+        });
     }
 
     let hid_batch = service.ingest_device_events(device_id, hid_kind, events)?;
     let wire_batch = WireHidBatch {
         device_kind: wire_kind,
         device_id: device_id.raw(),
-        pointer_source: raw_batch.pointer_source().map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
+        pointer_source: raw_batch
+            .pointer_source()
+            .map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
         abs_max_x,
         abs_max_y,
         raw_event_count: evidence.raw_event_count(),
@@ -274,7 +283,11 @@ fn batch_to_wire_events(batch: &HidBatch) -> Vec<WireHidEvent> {
     out
 }
 
-fn translate_raw_event(role: IngressRole, event: RawIngressEvent, timestamp: TimestampNs) -> Option<HidEvent> {
+fn translate_raw_event(
+    role: IngressRole,
+    event: RawIngressEvent,
+    timestamp: TimestampNs,
+) -> Option<HidEvent> {
     match (role, event.kind()) {
         (IngressRole::Keyboard, RawIngressEventKind::Key) => {
             let code = linux_key_to_hid(event.code())?;
@@ -286,8 +299,11 @@ fn translate_raw_event(role: IngressRole, event: RawIngressEvent, timestamp: Tim
             Some(HidEvent::key(timestamp, code, value))
         }
         (IngressRole::RelativePointer, RawIngressEventKind::Relative)
-            if event.code() == 0 || event.code() == 1 =>
+            if event.code() == 0 || event.code() == 1 || event.code() == 8 =>
         {
+            Some(HidEvent::rel(timestamp, event.code(), event.value()))
+        }
+        (IngressRole::AbsolutePointer, RawIngressEventKind::Relative) if event.code() == 8 => {
             Some(HidEvent::rel(timestamp, event.code(), event.value()))
         }
         (IngressRole::AbsolutePointer, RawIngressEventKind::Absolute)
