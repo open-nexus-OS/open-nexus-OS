@@ -25,7 +25,7 @@ pub const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.
 pub const KERNEL_PAGE_POOL_BASE: usize = 0x8080_0000;
 /// Size of the temporary kernel page-pool window.
-pub const KERNEL_PAGE_POOL_LEN: usize = 2 * 1024 * 1024;
+pub const KERNEL_PAGE_POOL_LEN: usize = 3 * 1024 * 1024;
 /// Typed memory window descriptor used to avoid base/length mixups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AddressWindow {

@@ -32,9 +32,10 @@ pub(crate) fn rng_entropy_selftest() {
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&32u16.to_le_bytes()); // Request 32 bytes
 
-    // Connect to rngd using the deterministic slots distributed by init-lite.
-    const RNGD_SEND_SLOT: u32 = 0x1e;
-    const RNGD_RECV_SLOT: u32 = 0x1f;
+    // Deterministic rngd slots distributed by init-lite. These must stay in sync
+    // with the selftest wiring guard in `tools/nx/tests/interactive_os_startup.rs`.
+    const RNGD_SEND_SLOT: u32 = 0x1f;
+    const RNGD_RECV_SLOT: u32 = 0x20;
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {
@@ -113,8 +114,8 @@ pub(crate) fn rng_entropy_oversized_selftest() {
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&257u16.to_le_bytes());
 
-    const RNGD_SEND_SLOT: u32 = 0x1e;
-    const RNGD_RECV_SLOT: u32 = 0x1f;
+    const RNGD_SEND_SLOT: u32 = 0x1f;
+    const RNGD_RECV_SLOT: u32 = 0x20;
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {

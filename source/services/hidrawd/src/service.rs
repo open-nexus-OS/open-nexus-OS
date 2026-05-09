@@ -11,7 +11,7 @@
 extern crate alloc;
 
 use crate::ingest::{parse_keyboard, parse_mouse};
-use crate::{DeviceId, HidBatch, HidDeviceKind, HidrawdError};
+use crate::{DeviceId, HidBatch, HidDeviceKind, HidrawdError, PointerSource};
 use alloc::vec::Vec;
 use hid::{BootKeyboardParser, BootMouseParser, HidEvent, TimestampNs};
 
@@ -93,7 +93,11 @@ impl HidrawdService {
             });
         }
         let batch =
-            HidBatch::new(device_id, HidDeviceKind::Mouse, parse_mouse(&mut mouse.parser, timestamp, report)?);
+            HidBatch::new_pointer(
+                device_id,
+                PointerSource::MouseRelative,
+                parse_mouse(&mut mouse.parser, timestamp, report)?,
+            );
         self.push_batch(batch.clone());
         Ok(batch)
     }

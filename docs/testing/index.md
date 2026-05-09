@@ -228,11 +228,16 @@ heap. Rich display/profile presets remain `TASK-0055D`; visible output remains
 keeps `visible-bootstrap` as a harness/marker profile, not a future
 SystemUI/launcher start profile such as desktop, TV, mobile, or car.
 
+Current live-output hardening work uses the focused service matrix in
+[`display-output-hardening-matrix.md`](display-output-hardening-matrix.md).
+When `visible-bootstrap` fails after host tests pass, treat the failed marker as
+a missing per-service proof first, not as a reason to add marker-only retries.
+
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
-| Fixed 1280x800 ARGB8888 mode, stride validation, display capability handoff, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p ui_windowd_host -- --nocapture` |
+| Fixed 1280x800 ARGB8888 mode, `windowd -> fbdevd` display handoff, framebuffer-capability rejection, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p fbdevd -p ui_windowd_host -- --nocapture` |
 | `selftest-client` visible bootstrap and `init-lite` `fw_cfg` capability path compile for the OS target | OS target compile assertions | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` and `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` |
-| Visible marker ladder (`display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`) with proof-manifest verification | single-VM QEMU visible scanout proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+| Service-owned visible ladder (`fbdevd: ready`, `fbdevd: map ok`, `fbdevd: ramfb configured`, `fbdevd: flush ok`, `display: bootstrap on`, `display: mode 1280x800 argb8888`, `display: first scanout ok`) with proof-manifest verification | single-VM QEMU visible scanout proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
 
 This closes only the bootstrap scanout path. Visible SystemUI/launcher profile
 selection, input, cursor, dirty-rect display services, perf budgets, virtio-gpu,
@@ -244,12 +249,20 @@ and kernel/core production-grade display closure remain follow-up scope.
 `windowd` present lifecycle with a deterministic SystemUI first frame. The
 `visible-bootstrap` profile remains only a harness/marker profile.
 
+The visible QEMU runner must not hardcode a mixed pointer set forever. The
+intended source of truth for which visible input devices exist is the
+SystemUI profile manifest under
+`source/services/systemui/manifests/profiles/<id>/profile.toml`, starting with
+the `[input]` booleans in the `desktop` seed. Visible harness profiles may
+select the manifest via env, but the emulated keyboard/mouse/tablet set should
+be derived from that manifest rather than duplicated inside shell scripts.
+
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
 | TOML-backed `desktop` SystemUI profile/shell seed and deterministic BGRA first-frame pixels/checksum | host behavior assertions | `cargo test -p systemui -- --nocapture` |
 | Visible present evidence uses `windowd` composition (full composed frame on host, composed rows in OS to fit selftest heap), not a raw SystemUI source-buffer write; invalid mode/capability/pre-marker paths reject | host behavior/reject assertions | `cargo test -p windowd -p ui_windowd_host -- --nocapture` and `cargo test -p ui_windowd_host reject -- --nocapture` |
 | `selftest-client` visible SystemUI path compiles for the OS target | OS target compile assertion | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` |
-| Visible marker ladder (`windowd: backend=visible`, `windowd: present visible ok`, `systemui: first frame visible`, `SELFTEST: ui visible present ok`) with proof-manifest verification | single-VM QEMU visible SystemUI proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+| Service-owned visible-present ladder (`windowd: backend=visible`, `windowd: present visible ok`, `systemui: first frame visible`, `SELFTEST: ui visible present ok`) plus `fps: windowd` / `fps: fbdevd` failure-summary traces | single-VM QEMU visible SystemUI proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
 
 This slice still does not prove input, cursor/focus/click, display-service
 integration, dirty-rect scanout, frame-budget smoothness, dev display/profile
@@ -368,6 +381,12 @@ seen and ensure log caps are in effect. `just test-os` wraps
     - `inputd` routes keyboard, pointer, and touch through `windowd` authority with bounded queues
     - IME show/hide hooks remain bounded stubs only
     - `visible-bootstrap` marker verification covers the in-process `hidrawd|touchd -> inputd -> windowd` proof path under `verify-uart`
+  - active hardening/debug order for the remaining live pointer closure:
+    - derive visible QEMU input devices from the selected SystemUI profile manifest instead of hardcoding mouse+tablet together,
+    - run source-isolated proofs first (`mouse-only`, `tablet-only`, `keyboard-only`) to identify the failing service boundary honestly,
+    - only then rerun the combined visible-bootstrap lane for modern desktop-style mixed mouse+touch behavior,
+    - keep `visible-bootstrap` as the guest-side/QMP-injected proof lane only; real host-pointer closure belongs to `make run` / `just start`,
+    - for the interactive lane, require sustained cursor movement evidence on the real GTK/QEMU path rather than accepting a single first-move event as closure.
   - does **not** yet prove separate OS daemon startup/device wiring for `hidrawd`, `touchd`, and `inputd`; broad closure gates remain task-controlled
 - RFC-0054 gate hardening floor (`TASK-0253` in-progress live-daemon slice):
   - **General capability/routing/IPC gates**

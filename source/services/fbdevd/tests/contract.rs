@@ -1,0 +1,286 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+use fbdevd::{
+    dma_transfer_complete, encode_ramfb_config, encode_ramfb_dma_request, live_dirty_rows,
+    require_fw_cfg_signature, validate_dma_capability, validate_framebuffer_cap,
+    validate_ramfb_file, DirtyRows, DisplayReactor, DisplayScanout, FbdevService, FbdevdError,
+    TickBudget, FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER,
+};
+use input_live_protocol::VisibleState;
+use pointer_state::{PointerPosition, PointerSpace, PointerTransform};
+use std::vec::Vec;
+use windowd::{
+    bootstrap_display_handoff, live_visible_state_handoff, DisplayFrameSource, Frame,
+    VisibleBootstrapMode, VisibleDisplayCapability,
+};
+
+#[test]
+fn test_reject_invalid_ramfb_fw_cfg() {
+    assert_eq!(
+        require_fw_cfg_signature(false),
+        Err(FbdevdError::InvalidRamfbFwCfg)
+    );
+}
+
+#[test]
+fn test_reject_ramfb_file_too_small() {
+    assert_eq!(
+        validate_ramfb_file(0x24, 27),
+        Err(FbdevdError::RamfbFileTooSmall)
+    );
+}
+
+#[test]
+fn test_reject_invalid_dma_capability() {
+    assert_eq!(
+        validate_dma_capability(0, 0x1000, 4096),
+        Err(FbdevdError::DmaCapInvalid)
+    );
+    assert_eq!(
+        validate_dma_capability(1, 0x1000, 1024),
+        Err(FbdevdError::DmaCapInvalid)
+    );
+}
+
+#[test]
+fn test_reject_invalid_framebuffer_cap() {
+    let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
+    let invalid = VisibleDisplayCapability {
+        byte_len: mode.byte_len().expect("mode bytes") - 1,
+        mapped: true,
+        writable: true,
+    };
+
+    assert_eq!(
+        validate_framebuffer_cap(mode, invalid),
+        Err(FbdevdError::InvalidFramebufferCap)
+    );
+}
+
+#[test]
+fn test_reject_present_without_frame() {
+    let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
+    let handoff = windowd::DisplayPresentHandoff {
+        mode,
+        source: DisplayFrameSource::Materialized(Frame {
+            width: mode.width,
+            height: mode.height,
+            stride: mode.stride,
+            pixels: Vec::new(),
+        }),
+        damage_rects: 1,
+        backend_visible: true,
+        systemui_first_frame_visible: true,
+        scanout_ready: true,
+    };
+    let mut scanout = DisplayScanout::new();
+    scanout.configure();
+
+    assert_eq!(
+        scanout.present(1, &handoff),
+        Err(FbdevdError::PresentWithoutFrame)
+    );
+}
+
+#[test]
+fn test_reject_flush_without_configured_backend() {
+    let handoff = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut scanout = DisplayScanout::new();
+
+    assert_eq!(
+        scanout.present(1, &handoff),
+        Err(FbdevdError::FlushWithoutConfiguredBackend)
+    );
+}
+
+#[test]
+fn test_reject_stale_scanout_generation() {
+    let handoff = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut scanout = DisplayScanout::new();
+    scanout.configure();
+
+    assert_eq!(scanout.present(1, &handoff), Ok(1));
+    assert_eq!(
+        scanout.present(1, &handoff),
+        Err(FbdevdError::StaleScanoutGeneration)
+    );
+}
+
+#[test]
+fn bootstrap_service_is_observer_ready_after_first_present() {
+    let bootstrap = bootstrap_display_handoff().expect("bootstrap handoff");
+    let service = FbdevService::enabled(&bootstrap).expect("enabled service");
+
+    assert!(service.display_enabled());
+    assert!(service.observer_ready());
+    assert!(service.visible_state().backend_visible);
+    assert!(service.visible_state().display_scanout_ready);
+    assert!(service.visible_state().systemui_first_frame_visible);
+}
+
+#[test]
+fn live_present_contract_keeps_display_bits_while_merging_input_state() {
+    let bootstrap = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut service = FbdevService::enabled(&bootstrap).expect("enabled service");
+    service.merge_input_state(VisibleState {
+        scene_ready: true,
+        full_window_visible: true,
+        click_target_visible: true,
+        keyboard_target_visible: true,
+        input_visible_on: true,
+        cursor_move_visible: true,
+        hover_visible: true,
+        focus_visible: true,
+        launcher_click_visible: true,
+        keyboard_visible: true,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_x: 8,
+        cursor_y: 40,
+        ..VisibleState::default()
+    });
+
+    let merged = service.visible_state();
+    assert!(merged.backend_visible);
+    assert!(merged.display_scanout_ready);
+    assert!(merged.systemui_first_frame_visible);
+    assert!(merged.scene_ready);
+    assert!(merged.keyboard_visible);
+
+    let handoff = live_visible_state_handoff(merged).expect("live handoff");
+    assert_eq!(handoff.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(handoff.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    assert!(handoff.byte_len().expect("live byte len") > 0);
+}
+
+#[test]
+fn telemetry_reports_windowd_and_fbdevd_fps_lines() {
+    let bootstrap = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut service = FbdevService::enabled(&bootstrap).expect("enabled service");
+    service.merge_input_state(VisibleState {
+        scene_ready: true,
+        cursor_x: 8,
+        cursor_y: 40,
+        ..VisibleState::default()
+    });
+    let handoff = live_visible_state_handoff(service.visible_state()).expect("live handoff");
+    assert_eq!(service.present(&handoff), Ok(2));
+
+    assert!(service.telemetry_if_due(1).is_none());
+    let (windowd_line, fbdevd_line) = service.telemetry_if_due(1_000_000_001).expect("fps lines");
+    assert!(windowd_line.starts_with("fps: windowd compose_hz="));
+    assert!(fbdevd_line.starts_with("fps: fbdevd flush_hz="));
+}
+
+#[test]
+fn display_reactor_presents_on_cadence_without_overrunning_tick_budget() {
+    let mut reactor = DisplayReactor::new(60);
+    let mut budget = TickBudget::new(1);
+
+    assert!(reactor.should_present(1, &mut budget));
+    assert_eq!(budget.remaining(), 0);
+    assert!(!reactor.should_present(20_000_000, &mut budget));
+
+    let mut budget = TickBudget::new(1);
+    assert!(!reactor.should_present(16_000_000, &mut budget));
+
+    let mut budget = TickBudget::new(1);
+    assert!(reactor.should_present(17_000_000, &mut budget));
+}
+
+#[test]
+fn live_cursor_only_changes_dirty_the_cursor_rows_instead_of_full_frame() {
+    let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
+    let transform = PointerTransform::new(
+        PointerSpace::new(mode.width, mode.height).expect("display"),
+        PointerSpace::new(64, 48).expect("route"),
+    )
+    .expect("transform");
+    let previous_cursor = transform.route_to_display(PointerPosition::new(8, 12));
+    let next_cursor = transform.route_to_display(PointerPosition::new(10, 14));
+    let extent = transform.display_extent_from_route();
+    let previous = VisibleState {
+        scene_ready: true,
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        cursor_x: previous_cursor.x,
+        cursor_y: previous_cursor.y,
+        ..VisibleState::default()
+    };
+    let next = VisibleState {
+        cursor_x: next_cursor.x,
+        cursor_y: next_cursor.y,
+        ..previous
+    };
+
+    assert_eq!(
+        live_dirty_rows(previous, next, mode),
+        DirtyRows::Range {
+            start_y: previous_cursor.y as u32,
+            end_y: (next_cursor.y as u32 + extent.height).min(mode.height)
+        }
+    );
+    assert_eq!(live_dirty_rows(previous, previous, mode), DirtyRows::None);
+    assert_eq!(
+        live_dirty_rows(
+            previous,
+            VisibleState {
+                keyboard_visible: true,
+                ..next
+            },
+            mode
+        ),
+        DirtyRows::Full
+    );
+}
+
+#[test]
+fn partial_live_present_accounts_only_dirty_bytes() {
+    let bootstrap = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut service = FbdevService::enabled(&bootstrap).expect("enabled service");
+    assert!(service.telemetry_if_due(1).is_none());
+    assert!(service.telemetry_if_due(1_000_000_001).is_some());
+
+    assert_eq!(
+        service.present_live_bytes(bootstrap.mode.stride as usize * 4),
+        Ok(2)
+    );
+    let (_, fbdevd_line) = service.telemetry_if_due(2_000_000_002).expect("fps lines");
+
+    assert!(fbdevd_line.contains("bytes=20480"));
+}
+
+#[test]
+fn dma_descriptor_encoding_matches_fw_cfg_contract() {
+    let request = encode_ramfb_dma_request(0x41, 0x0123_4567_89ab_cdef);
+
+    assert_eq!(
+        &request[0..4],
+        &((0x41u32 << 16) | (1 << 3) | (1 << 4)).to_be_bytes()
+    );
+    assert_eq!(&request[4..8], &28u32.to_be_bytes());
+    assert_eq!(&request[8..16], &0x0123_4567_89ab_cdefu64.to_be_bytes());
+}
+
+#[test]
+fn dma_control_error_maps_to_stable_failure_gate() {
+    assert_eq!(dma_transfer_complete(0), Ok(true));
+    assert_eq!(dma_transfer_complete(1 << 3), Ok(false));
+    assert_eq!(dma_transfer_complete(1), Err(FbdevdError::DmaDeviceError));
+}
+
+#[test]
+fn ramfb_config_and_markers_match_service_owned_contract() {
+    let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
+    let config = encode_ramfb_config(0x1234_5000, mode);
+
+    assert_eq!(&config[0..8], &0x1234_5000u64.to_be_bytes());
+    assert_eq!(READY_MARKER, "fbdevd: ready");
+    assert_eq!(MAP_OK_MARKER, "fbdevd: map ok");
+    assert_eq!(RAMFB_CONFIGURED_MARKER, "fbdevd: ramfb configured");
+    assert_eq!(FLUSH_OK_MARKER, "fbdevd: flush ok");
+    assert_eq!(FbdevdError::DmaMapPage.label(), "fbdevd: fail dma-map-page");
+    assert_eq!(FbdevdError::DmaTimeout.label(), "fbdevd: fail dma-timeout");
+}

@@ -22,8 +22,9 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 use virtio_input::{DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent};
 
 use crate::{
-    normalize_ingress_batch, DeviceId, HidrawdService, IngressGateEvidence, IngressRole,
-    RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidrawdService,
+    IngressGateEvidence, IngressRole, PointerSource, RawIngressBatch, RawIngressEvent,
+    RawIngressEventKind,
 };
 
 const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
@@ -39,19 +40,6 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut raw_gate_emitted = false;
     let mut normalized_gate_emitted = false;
     let mut chain = HidrawChainTelemetry::new();
-
-    // #region agent log
-    agent_log(
-        "H4",
-        "source/services/hidrawd/src/os_lite.rs:35",
-        "hidrawd initial route to inputd",
-        &format!(
-            "has_client={} live_devices={}",
-            u8::from(client.is_some()),
-            live_devices.len()
-        ),
-    );
-    // #endregion
 
     loop {
         if live_devices.is_empty() {
@@ -89,6 +77,18 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             chain.normalized_events = chain
                 .normalized_events
                 .saturating_add(u64::from(polled.evidence.normalized_event_count()));
+            match polled.pointer_source {
+                None => chain.keyboard_batches = chain.keyboard_batches.saturating_add(1),
+                Some(PointerSource::MouseRelative) => {
+                    chain.mouse_relative_batches = chain.mouse_relative_batches.saturating_add(1)
+                }
+                Some(PointerSource::TabletAbsolute) => {
+                    chain.tablet_absolute_batches = chain.tablet_absolute_batches.saturating_add(1)
+                }
+                Some(PointerSource::TouchAbsolute) => {
+                    chain.touch_absolute_batches = chain.touch_absolute_batches.saturating_add(1)
+                }
+            }
             if !raw_gate_emitted && polled.evidence.raw_event_count() > 0 {
                 debug_println("hidrawd: virtio-input raw event seen")?;
                 raw_gate_emitted = true;
@@ -133,6 +133,10 @@ struct HidrawChainTelemetry {
     sent_batches: u64,
     raw_events: u64,
     normalized_events: u64,
+    keyboard_batches: u64,
+    mouse_relative_batches: u64,
+    tablet_absolute_batches: u64,
+    touch_absolute_batches: u64,
     send_failures: u64,
     route_rebinds: u64,
     idle_yields: u64,
@@ -150,6 +154,10 @@ impl HidrawChainTelemetry {
             sent_batches: 0,
             raw_events: 0,
             normalized_events: 0,
+            keyboard_batches: 0,
+            mouse_relative_batches: 0,
+            tablet_absolute_batches: 0,
+            touch_absolute_batches: 0,
             send_failures: 0,
             route_rebinds: 0,
             idle_yields: 0,
@@ -172,7 +180,7 @@ impl HidrawChainTelemetry {
         let sent_hz = self.sent_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         // #region agent log
         let _ = debug_println(&format!(
-            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} send_fail={} rebinds={} idle_yields={}",
+            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
             ingress_hz,
             sent_hz,
             self.raw_batches,
@@ -180,6 +188,10 @@ impl HidrawChainTelemetry {
             self.wire_batches_skipped,
             self.raw_events,
             self.normalized_events,
+            self.keyboard_batches,
+            self.mouse_relative_batches,
+            self.tablet_absolute_batches,
+            self.touch_absolute_batches,
             self.send_failures,
             self.route_rebinds,
             self.idle_yields
@@ -192,6 +204,10 @@ impl HidrawChainTelemetry {
         self.sent_batches = 0;
         self.raw_events = 0;
         self.normalized_events = 0;
+        self.keyboard_batches = 0;
+        self.mouse_relative_batches = 0;
+        self.tablet_absolute_batches = 0;
+        self.touch_absolute_batches = 0;
         self.send_failures = 0;
         self.route_rebinds = 0;
         self.idle_yields = 0;
@@ -224,20 +240,21 @@ fn open_live_devices(service: &mut HidrawdService) -> Vec<LiveDevice> {
             emitted_mmio_ready = true;
         }
         let device_id = DeviceId::new((idx + 1) as u16);
-        let (provisional_role, abs_max_x, abs_max_y) = match driver.role() {
-            DeviceRole::Keyboard => (IngressRole::Keyboard, 0, 0),
-            DeviceRole::RelativePointer => (IngressRole::RelativePointer, 0, 0),
-            DeviceRole::AbsolutePointer => (
-                IngressRole::AbsolutePointer,
-                driver.absolute_x().map_or(0, |info| info.max()),
-                driver.absolute_y().map_or(0, |info| info.max()),
-            ),
+        let abs_max_x = driver.absolute_x().map_or(0, |info| info.max());
+        let abs_max_y = driver.absolute_y().map_or(0, |info| info.max());
+        let provisional_class = match driver.role() {
+            DeviceRole::Keyboard => LiveDeviceClass::Keyboard,
+            DeviceRole::AbsolutePointer => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
+            DeviceRole::RelativePointer if abs_max_x > 0 && abs_max_y > 0 => {
+                LiveDeviceClass::Pointer(PointerSource::TabletAbsolute)
+            }
+            DeviceRole::RelativePointer => LiveDeviceClass::Pointer(PointerSource::MouseRelative),
         };
         devices.push(LiveDevice {
             driver,
             device_id,
-            provisional_role,
-            confirmed_role: None,
+            provisional_class,
+            confirmed_class: None,
             abs_max_x,
             abs_max_y,
         });
@@ -272,17 +289,19 @@ fn route_inputd_blocking() -> Option<KernelClient> {
     }
 }
 
-fn agent_log(hypothesis_id: &'static str, location: &'static str, message: &'static str, data: &str) {
-    let _ = debug_println(&format!("agent8cde1d|{hypothesis_id}|{location}|{message}|{data}"));
-}
-
 struct LiveDevice {
     driver: MappedVirtioInputDevice,
     device_id: DeviceId,
-    provisional_role: IngressRole,
-    confirmed_role: Option<IngressRole>,
+    provisional_class: LiveDeviceClass,
+    confirmed_class: Option<LiveDeviceClass>,
     abs_max_x: i32,
     abs_max_y: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveDeviceClass {
+    Keyboard,
+    Pointer(PointerSource),
 }
 
 impl LiveDevice {
@@ -292,25 +311,57 @@ impl LiveDevice {
         };
         let timestamp = TimestampNs::new(nsec().unwrap_or(0));
         let raw_events: Vec<RawIngressEvent> = polled.events().iter().copied().map(raw_ingress_event).collect();
-        let active_role = infer_ingress_role(self.provisional_role, self.confirmed_role, &raw_events);
-        if self.confirmed_role != Some(active_role) {
-            match active_role {
-                IngressRole::Keyboard => {
+        let active_class = infer_device_class(
+            self.provisional_class,
+            self.confirmed_class,
+            &raw_events,
+        );
+        let active_pointer_source = pointer_source_for_class(active_class);
+        let active_role = ingress_role_for_source(active_pointer_source);
+        if self.confirmed_class != Some(active_class) {
+            match active_class {
+                LiveDeviceClass::Keyboard => {
                     service.register_keyboard(self.device_id);
                     let _ = debug_println("hidrawd: device kbd");
                     let _ = debug_println("hidrawd: virtio-input keyboard ready");
                 }
-                IngressRole::RelativePointer | IngressRole::AbsolutePointer => {
+                LiveDeviceClass::Pointer(PointerSource::MouseRelative) => {
                     service.register_mouse(self.device_id);
                     let _ = debug_println("hidrawd: device mouse");
+                    let _ = debug_println("hidrawd: source mouse-relative");
+                    let _ = debug_println("hidrawd: virtio-input pointer ready");
+                }
+                LiveDeviceClass::Pointer(PointerSource::TabletAbsolute) => {
+                    service.register_mouse(self.device_id);
+                    let _ = debug_println("hidrawd: device tablet");
+                    let _ = debug_println("hidrawd: source tablet-absolute");
+                    let _ = debug_println("hidrawd: virtio-input pointer ready");
+                }
+                LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
+                    service.register_mouse(self.device_id);
+                    let _ = debug_println("hidrawd: device touch");
+                    let _ = debug_println("hidrawd: source touch-absolute");
                     let _ = debug_println("hidrawd: virtio-input pointer ready");
                 }
             }
-            self.confirmed_role = Some(active_role);
+            self.confirmed_class = Some(active_class);
         }
-        let raw_batch = RawIngressBatch::new(
+        let raw_batch = RawIngressBatch::with_pointer_source(
             active_role,
+            active_pointer_source,
             raw_events,
+        );
+        self.abs_max_x = resolve_absolute_axis_max(
+            active_pointer_source,
+            self.abs_max_x,
+            raw_batch.events(),
+            0,
+        );
+        self.abs_max_y = resolve_absolute_axis_max(
+            active_pointer_source,
+            self.abs_max_y,
+            raw_batch.events(),
+            1,
         );
         let Ok(normalized) = normalize_ingress_batch(
             service,
@@ -331,6 +382,7 @@ impl LiveDevice {
                 raw_batch.events().len().min(u16::MAX as usize) as u16,
                 wire_batch.as_ref().map_or(0, |batch| batch.normalized_event_count),
             ),
+            pointer_source: active_pointer_source,
             wire_batch,
         })
     }
@@ -338,24 +390,52 @@ impl LiveDevice {
 
 struct PolledDeviceFrame {
     evidence: IngressGateEvidence,
+    pointer_source: Option<PointerSource>,
     wire_batch: Option<WireHidBatch>,
 }
 
-fn infer_ingress_role(
-    provisional_role: IngressRole,
-    confirmed_role: Option<IngressRole>,
+fn infer_device_class(
+    provisional_class: LiveDeviceClass,
+    confirmed_class: Option<LiveDeviceClass>,
     raw_events: &[RawIngressEvent],
-) -> IngressRole {
-    if let Some(role) = confirmed_role {
-        return role;
+) -> LiveDeviceClass {
+    if let Some(class) = confirmed_class {
+        return class;
     }
     if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Absolute) {
-        return IngressRole::AbsolutePointer;
+        return match provisional_class {
+            LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
+                LiveDeviceClass::Pointer(PointerSource::TouchAbsolute)
+            }
+            _ => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
+        };
     }
     if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Relative) {
-        return IngressRole::RelativePointer;
+        return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
     }
-    provisional_role
+    if raw_events
+        .iter()
+        .any(|event| event.kind() == RawIngressEventKind::Key && event.code() >= 0x110)
+    {
+        return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
+    }
+    provisional_class
+}
+
+const fn pointer_source_for_class(class: LiveDeviceClass) -> Option<PointerSource> {
+    match class {
+        LiveDeviceClass::Keyboard => None,
+        LiveDeviceClass::Pointer(source) => Some(source),
+    }
+}
+
+const fn ingress_role_for_source(pointer_source: Option<PointerSource>) -> IngressRole {
+    match pointer_source {
+        None => IngressRole::Keyboard,
+        Some(PointerSource::MouseRelative) => IngressRole::RelativePointer,
+        Some(PointerSource::TabletAbsolute) => IngressRole::AbsolutePointer,
+        Some(PointerSource::TouchAbsolute) => IngressRole::AbsolutePointer,
+    }
 }
 
 fn wire_kind_for(role: IngressRole) -> u8 {

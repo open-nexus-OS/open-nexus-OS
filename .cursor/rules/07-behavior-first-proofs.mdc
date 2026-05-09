@@ -25,6 +25,12 @@ Pick the **smallest honest proof set** that demonstrates the task's intended beh
 - Markers are **supporting evidence only**. `*: ready` or `SELFTEST: * ok` must come after a real assertion or verified end condition.
 - If a path is still stub, placeholder, cooperative, or degraded, tests and markers must say so explicitly.
 
+## Service-Owned Chain Proofs
+- For authority chains, write the proof matrix by hop: producer service, IPC/cap route, owner service state, downstream output.
+- `selftest-client` may observe and validate, but it must not become the authority for input, display scanout, routing, or final success state.
+- A QEMU marker that fails after host tests passed is evidence that the host tests did not cover the real break. Close that gap before declaring the QEMU failure "environmental".
+- Prefer protocol/newtype/manifest tests over hardcoded slot or marker-string checks. If a string guard is the only quick proof, add a follow-up to replace it with a contract test.
+
 ## Anti-slop rules
 - Do **not** add unit + integration + E2E + golden + fuzz "for completeness" unless each closes a different risk.
 - Do **not** create meta test tasks like `test_task_X_phase2` when the proof belongs inside the real closure task.

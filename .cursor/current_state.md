@@ -119,6 +119,10 @@
     - keep the current authority split (`virtio-input` receive -> `hidrawd` normalize -> `inputd` distribute -> `windowd` visible truth),
     - add an explicit ingress/adapter truth seam before `inputd` so the repo can prove what QEMU delivered before routing and UI observation,
     - keep `selftest-client` on an observer-only path for interactive/live proof collection instead of letting it become an implicit receive-layer substitute.
+  - next live-lane slice is now locked to a profile-driven input-device floor before more pointer math churn:
+    - the visible QEMU runner must stop hardcoding `virtio-keyboard` + `virtio-tablet` + `virtio-mouse` together and instead derive the emulated device set from `source/services/systemui/manifests/profiles/<id>/profile.toml` `[input]`,
+    - the visible harness profile should forward an explicit SystemUI/device profile selector (starting with `desktop`) so source-isolated debug lanes can be reproduced without editing runner logic,
+    - once wired, modern desktop-style mixed mouse+touch remains an explicit goal, but the proof/debug order is `mouse-only` / `tablet-only` / `keyboard-only` first, combined runs second.
   - focused proof reruns after the gate-hardening slice are green under the corrected input profile:
     - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
     - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`.
@@ -128,6 +132,11 @@
 - Remaining closure gaps before `TASK-0253` / `RFC-0053` can honestly move to `Done`:
   - `nx input keymap set`, `nx input cursor`, and `nx input test type` are currently bounded host preflight helpers, not live daemon-affecting commands,
   - the deterministic visible-bootstrap proof is green, but TASK-0253 closure now explicitly also requires a host-driven `make run` / `just start` live lane: full colored scene, mouse-following pixel, hover/click rectangle, keyboard-input rectangle, and stable userspace failure labels,
+  - strict OHOS-style display ownership is now staged as `windowd -> fbdevd -> ramfb`, with `selftest-client` kept observer-only; however, the service-owned display proof is still weaker host-first than the input chain because `fbdevd` does not yet expose a dedicated IDL boundary and its low-level `ramfb`/DMA setup remains only partially unit-testable,
+  - the active hardening slice is now explicit for that display boundary:
+    - keep the current narrow external IPC seam on `input-live-protocol::VisibleState` instead of inventing an immediate `fbdevd/idl` tree,
+    - split `fbdevd` `ramfb` / `fw_cfg` setup into host-testable sub-steps with stable failure labels and `test_reject_*` coverage,
+    - apply targeted Rust foundation tightening where ambiguity is real (`#[must_use]` decision-bearing errors/results, small validated wrappers/newtype-style ownership seams, no implicit authority leakage),
   - the current live-lane blocker is now formalized in `RFC-0054`: a real bounded `virtio-input` driver-owner path must replace the long-term `selftest-client` MMIO bridge before live closure can be claimed,
   - current live-lane triage found and addressed two pre-input blockers:
     - kernel private selftest stack storage was link-gc'd; `neuron-boot.map` must show `__selftest_stack_top - __selftest_stack_base == 0x8000`,
@@ -138,6 +147,28 @@
     - repo-visible tests are still strongest at normalize/route/UI layers and weaker at receive-layer truth,
     - the missing middle proof is an explicit `virtio-input raw -> hidrawd normalized` seam with host-testable evidence before `inputd`,
     - interactive observer stability still matters, but it must not become the source of truth for what arrived from hardware,
+    - current diagnosis is no longer "display path dead": service-owned display/scanout evidence is real and discrete pointer/click/keyboard reactions can already become visible,
+    - `just test-os visible-bootstrap` remains intentionally guest-side + QMP-injected proof and is green; it must not be treated as the closure authority for the real host-pointer path,
+    - the unstable seam is now specifically the host-driven `just start` pointer lane (`GTK/QEMU live source -> hidrawd -> inputd canonical pointer state -> fbdevd visible rows`) where click/keyboard and first-move evidence are real but sustained cursor motion is not yet stable,
+    - the interactive delta closure for that lane is now locked:
+      - preserve pointer-source identity past `inputd` wire decode and into the runtime canonical pointer state,
+      - stop letting the 64x48 proof grid act as the effective interactive routing authority; keep it only as proof-scene projection,
+      - align the interactive desktop source mix for a persistent pointer stream (desktop profile may expose tablet-class absolute input in addition to mouse, but runtime must arbitrate sources explicitly instead of relying on implicit QEMU behavior),
+      - add sustained-motion host proofs so "first move happened" cannot masquerade as "live cursor movement is closed".
+  - the active hardening plan for that seam is now explicit:
+    - classify `hidrawd` ingress per device as `PointerSource::MouseRelative`, `PointerSource::TabletAbsolute`, or `PointerSource::TouchAbsolute`,
+    - carry that source type on the live wire protocol instead of only `HID_KIND_MOUSE`,
+    - split `inputd` live rejects into fine internal classes/counters/markers instead of collapsing everything into one `malformed` bucket,
+    - only update canonical pointer state after source-specific normalization/calibration succeeds,
+    - prove the slice host-first with source-isolated matrix lanes before the combined visible-bootstrap rerun.
+  - current display-proof triage after the `fbdevd` authority split narrows the remaining blocker to the real `ramfb` bootstrap boundary:
+    - host-first hardening is now landed in `fbdevd` itself:
+      - granular DMA / `fw_cfg` failure labels replace the old generic `fail dma`,
+      - validated RAMFB-file + DMA-capability wrappers and `#[must_use]` error discipline are in place,
+      - focused `cargo test -p fbdevd -- --nocapture` behavior/reject coverage is green for descriptor layout, invalid RAMFB metadata, invalid DMA capability metadata, and DMA control error/timeout gates,
+    - latest `visible-bootstrap` runs now pass init-lite/input startup and reach `fbdevd: ready` plus `fbdevd: map ok`,
+    - the first hard stop is still before `fbdevd: ramfb configured`,
+    - the latest focused label is now the stable gate `fbdevd: fail dma-map-page`, so the next work slice is runtime map diagnostics / address-space truth at the `fw_cfg` DMA staging boundary rather than more observer-side UI changes,
   - the task/RFC contract still promises broader service/runtime closure (explicit broad-gate reruns, final docs sweep, later SystemUI/global-shortcut consumers) than is currently proven,
   - broad closure gates remain intentionally deferred until explicitly requested:
     - `scripts/fmt-clippy-deny.sh`,

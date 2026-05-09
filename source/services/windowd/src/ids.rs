@@ -31,15 +31,11 @@ pub struct CallerCtx {
 
 impl CallerCtx {
     pub const fn from_service_metadata(service_id: u64) -> Self {
-        Self {
-            caller_id: CallerId(service_id),
-        }
+        Self { caller_id: CallerId(service_id) }
     }
 
     pub const fn system() -> Self {
-        Self {
-            caller_id: CallerId::system(),
-        }
+        Self { caller_id: CallerId::system() }
     }
 
     pub const fn caller_id(self) -> CallerId {

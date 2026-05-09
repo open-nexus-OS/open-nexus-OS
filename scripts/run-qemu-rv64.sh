@@ -59,6 +59,13 @@ QEMU_MARKER_LEVEL=${QEMU_MARKER_LEVEL:-}
 QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}
 QEMU_QMP_SOCKET=${QEMU_QMP_SOCKET:-$ROOT/build/qemu.qmp}
 QEMU_INPUT_INJECTOR_PY=${QEMU_INPUT_INJECTOR_PY:-$ROOT/tools/qmp_visible_input_inject.py}
+QEMU_PROFILE_INPUT_HELPER=${QEMU_PROFILE_INPUT_HELPER:-$ROOT/tools/systemui_profile_qemu_devices.py}
+NEXUS_SYSTEMUI_PROFILE=${NEXUS_SYSTEMUI_PROFILE:-desktop}
+NEXUS_PROFILE_INPUT_TOUCH=${NEXUS_PROFILE_INPUT_TOUCH:-0}
+NEXUS_PROFILE_INPUT_MOUSE=${NEXUS_PROFILE_INPUT_MOUSE:-0}
+NEXUS_PROFILE_INPUT_KBD=${NEXUS_PROFILE_INPUT_KBD:-0}
+NEXUS_PROFILE_INPUT_REMOTE=${NEXUS_PROFILE_INPUT_REMOTE:-0}
+NEXUS_PROFILE_INPUT_ROTARY=${NEXUS_PROFILE_INPUT_ROTARY:-0}
 if [[ -z "$QEMU_MARKER_LEVEL" ]]; then
   if [[ "$QEMU_SESSION_MODE" == "interactive" ]]; then
     QEMU_MARKER_LEVEL=minimal
@@ -89,6 +96,7 @@ if [[ -z "${RUN_TIMEOUT:-}" ]]; then
   fi
 fi
 QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
+RESOLVED_QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND}
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
@@ -142,6 +150,34 @@ join_by() {
   local IFS="$1"
   shift
   echo "$*"
+}
+
+resolve_qemu_display_backend() {
+  local backend=${QEMU_DISPLAY_BACKEND}
+  if [[ "$QEMU_SESSION_MODE" == "interactive" && "$backend" == "gtk" ]]; then
+    backend="gtk,grab-on-hover=on,show-tabs=off"
+  fi
+  printf '%s' "$backend"
+}
+
+prefer_interactive_absolute_pointer() {
+  [[ "$QEMU_SESSION_MODE" == "interactive" \
+    && "$NEXUS_PROFILE_INPUT_TOUCH" == "1" \
+    && "$NEXUS_PROFILE_INPUT_MOUSE" == "1" ]]
+}
+
+load_systemui_input_profile() {
+  [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" != "1" ]] && return 0
+  local env_lines
+  if ! env_lines=$(python3 "$QEMU_PROFILE_INPUT_HELPER" --repo-root "$ROOT" --profile "$NEXUS_SYSTEMUI_PROFILE" 2>&1); then
+    echo "[error] failed to resolve SystemUI input profile '$NEXUS_SYSTEMUI_PROFILE':" >&2
+    echo "$env_lines" >&2
+    exit 1
+  fi
+  while IFS='=' read -r key value; do
+    [[ -z "$key" ]] && continue
+    export "$key=$value"
+  done <<< "$env_lines"
 }
 
 set_env_var() {
@@ -325,7 +361,7 @@ prepare_build_tmpdir() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,selftest-client"
+DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,fbdevd,selftest-client"
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
@@ -364,7 +400,7 @@ prepare_service_payloads() {
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then
       case "$svc" in
-        hidrawd|touchd|inputd)
+        hidrawd|touchd|inputd|fbdevd)
           # TASK-0253 proof services run bounded init-only payload entries.
           set_env_var "$stack_var" "1"
           ;;
@@ -881,8 +917,27 @@ COMMON_ARGS=(
 )
 
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
-  COMMON_ARGS+=( -display "$QEMU_DISPLAY_BACKEND" -serial mon:stdio -device ramfb )
-  COMMON_ARGS+=( -device virtio-keyboard-device -device virtio-tablet-device -device virtio-mouse-device )
+  load_systemui_input_profile
+  RESOLVED_QEMU_DISPLAY_BACKEND=$(resolve_qemu_display_backend)
+  COMMON_ARGS+=( -display "$RESOLVED_QEMU_DISPLAY_BACKEND" -serial mon:stdio -device ramfb )
+  if [[ "$NEXUS_PROFILE_INPUT_KBD" == "1" ]]; then
+    COMMON_ARGS+=( -device virtio-keyboard-device )
+  fi
+  # In the interactive GTK lane, prefer the absolute tablet pointer when the
+  # profile exposes both mouse and touch. This gives `just start` a stable
+  # host-pointer stream without discarding mixed-source support in proof mode.
+  if prefer_interactive_absolute_pointer; then
+    COMMON_ARGS+=( -device virtio-tablet-device )
+  else
+    # QEMU's tablet device is the closest bounded absolute-pointer stand-in for
+    # touch/tablet profiles.
+    if [[ "$NEXUS_PROFILE_INPUT_TOUCH" == "1" ]]; then
+      COMMON_ARGS+=( -device virtio-tablet-device )
+    fi
+    if [[ "$NEXUS_PROFILE_INPUT_MOUSE" == "1" ]]; then
+      COMMON_ARGS+=( -device virtio-mouse-device )
+    fi
+  fi
 else
   COMMON_ARGS+=( -nographic -serial mon:stdio )
 fi
@@ -957,6 +1012,7 @@ fi
 echo "[info] NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP}" >&2
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
   echo "[info] QEMU display backend: ${QEMU_DISPLAY_BACKEND}" >&2
+  echo "[info] QEMU resolved display backend: ${RESOLVED_QEMU_DISPLAY_BACKEND}" >&2
 fi
 if [[ "${QEMU_NO_ICOUNT:-0}" == "1" ]]; then
   echo "[info] QEMU icount: disabled" >&2
@@ -971,7 +1027,7 @@ fi
 
 # #region agent log
 debug_log "H1,H2,H4,H5" "scripts/run-qemu-rv64.sh:resolved-live-config" "resolved qemu live-start config before launch" \
-  "{\"session_mode\":\"$QEMU_SESSION_MODE\",\"marker_level\":\"$QEMU_MARKER_LEVEL\",\"selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"display_bootstrap\":\"$NEXUS_DISPLAY_BOOTSTRAP\",\"display_backend\":\"${QEMU_DISPLAY_BACKEND:-}\",\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"skip_build\":\"$NEXUS_SKIP_BUILD\",\"kernel_bin\":\"$KERNEL_BIN\",\"forwarded_arg_count\":$#,\"forwarded_first_arg\":\"$(json_escape "${1:-}")\"}"
+  "{\"session_mode\":\"$QEMU_SESSION_MODE\",\"marker_level\":\"$QEMU_MARKER_LEVEL\",\"selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"display_bootstrap\":\"$NEXUS_DISPLAY_BOOTSTRAP\",\"display_backend\":\"${QEMU_DISPLAY_BACKEND:-}\",\"resolved_display_backend\":\"${RESOLVED_QEMU_DISPLAY_BACKEND:-}\",\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"skip_build\":\"$NEXUS_SKIP_BUILD\",\"kernel_bin\":\"$KERNEL_BIN\",\"forwarded_arg_count\":$#,\"forwarded_first_arg\":\"$(json_escape "${1:-}")\"}"
 # #endregion
 
 # Enable heavy QEMU tracing only when explicitly requested

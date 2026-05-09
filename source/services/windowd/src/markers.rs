@@ -24,8 +24,13 @@ pub const DISPLAY_MODE_MARKER: &str = "display: mode 1280x800 argb8888";
 pub const DISPLAY_FIRST_SCANOUT_MARKER: &str = "display: first scanout ok";
 pub const SELFTEST_DISPLAY_BOOTSTRAP_VISIBLE_MARKER: &str = "SELFTEST: display bootstrap guest ok";
 pub const VISIBLE_BACKEND_MARKER: &str = "windowd: backend=visible";
+pub const COMPOSE_READY_MARKER: &str = "windowd: compose ready";
+pub const PRESENT_QUEUED_MARKER: &str = "windowd: present queued";
+pub const PRESENT_COALESCED_MARKER: &str = "windowd: present coalesced";
 pub const PRESENT_VISIBLE_MARKER: &str = "windowd: present visible ok";
 pub const SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER: &str = "systemui: first frame visible";
+pub const FAIL_COMPOSE_EVIDENCE_MARKER: &str = "windowd: fail compose-evidence";
+pub const FAIL_PRESENT_STALL_MARKER: &str = "windowd: fail present-stall";
 pub const SELFTEST_UI_VISIBLE_PRESENT_MARKER: &str = "SELFTEST: ui visible present ok";
 pub const PRESENT_SCHEDULER_ON_MARKER: &str = "windowd: present scheduler on";
 pub const INPUT_ON_MARKER: &str = "windowd: input on";
@@ -47,15 +52,15 @@ pub const INTERACTIVE_KEYBOARD_TARGET_READY_MARKER: &str =
 pub const INTERACTIVE_FULL_MARKERS_MARKER: &str = "windowd: interactive full markers on";
 
 pub fn present_marker(ack: PresentAck) -> String {
-    format!(
-        "windowd: present ok (seq={} dmg={})",
-        ack.seq.raw(),
-        ack.damage_rects
-    )
+    format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
 }
 
 pub fn focus_marker(surface: SurfaceId) -> String {
     format!("windowd: focus -> {}", surface.raw())
+}
+
+pub fn damage_rects_marker(rects: u16) -> String {
+    format!("windowd: damage rects={rects}")
 }
 
 pub fn marker_postflight_ready(evidence: Option<PresentAck>) -> Result<PresentAck> {

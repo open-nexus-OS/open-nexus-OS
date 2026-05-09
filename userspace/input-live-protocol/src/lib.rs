@@ -30,6 +30,11 @@ pub const STATUS_OVERFLOW: u8 = 3;
 pub const HID_KIND_KEYBOARD: u8 = 1;
 pub const HID_KIND_MOUSE: u8 = 2;
 
+pub const POINTER_SOURCE_NONE: u8 = 0;
+pub const POINTER_SOURCE_MOUSE_RELATIVE: u8 = 1;
+pub const POINTER_SOURCE_TABLET_ABSOLUTE: u8 = 2;
+pub const POINTER_SOURCE_TOUCH_ABSOLUTE: u8 = 3;
+
 pub const EVENT_KIND_KEY: u8 = 1;
 pub const EVENT_KIND_REL: u8 = 2;
 pub const EVENT_KIND_ABS: u8 = 3;
@@ -52,6 +57,7 @@ pub struct WireHidEvent {
 pub struct WireHidBatch {
     pub device_kind: u8,
     pub device_id: u16,
+    pub pointer_source: u8,
     pub abs_max_x: i32,
     pub abs_max_y: i32,
     pub raw_event_count: u16,
@@ -63,6 +69,9 @@ pub struct WireHidBatch {
 pub struct VisibleState {
     pub virtio_raw_seen: bool,
     pub hid_normalized_seen: bool,
+    pub backend_visible: bool,
+    pub display_scanout_ready: bool,
+    pub systemui_first_frame_visible: bool,
     pub scene_ready: bool,
     pub full_window_visible: bool,
     pub click_target_visible: bool,
@@ -85,7 +94,7 @@ pub fn encode_push_hid_batch(batch: &WireHidBatch) -> Vec<u8> {
     out.extend_from_slice(&(batch.events.len() as u32).to_le_bytes());
     out.push(batch.device_kind);
     out.extend_from_slice(&batch.device_id.to_le_bytes());
-    out.push(0);
+    out.push(batch.pointer_source);
     out.extend_from_slice(&batch.abs_max_x.to_le_bytes());
     out.extend_from_slice(&batch.abs_max_y.to_le_bytes());
     out.extend_from_slice(&batch.raw_event_count.to_le_bytes());
@@ -109,6 +118,7 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
     }
     let device_kind = frame[8];
     let device_id = u16::from_le_bytes([frame[9], frame[10]]);
+    let pointer_source = frame[11];
     let abs_max_x = i32::from_le_bytes([frame[12], frame[13], frame[14], frame[15]]);
     let abs_max_y = i32::from_le_bytes([frame[16], frame[17], frame[18], frame[19]]);
     let raw_event_count = u16::from_le_bytes([frame[20], frame[21]]);
@@ -140,6 +150,7 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
     Some(WireHidBatch {
         device_kind,
         device_id,
+        pointer_source,
         abs_max_x,
         abs_max_y,
         raw_event_count,
@@ -165,9 +176,12 @@ pub fn encode_visible_state_frame(state: VisibleState) -> [u8; VISIBLE_STATE_FRA
     out[2] = VERSION;
     out[3] = OP_GET_VISIBLE_STATE | 0x80;
     out[4..8].copy_from_slice(&(STATE_LEN as u32).to_le_bytes());
-    out[8..22].copy_from_slice(&[
+    out[8..25].copy_from_slice(&[
         u8::from(state.virtio_raw_seen),
         u8::from(state.hid_normalized_seen),
+        u8::from(state.backend_visible),
+        u8::from(state.display_scanout_ready),
+        u8::from(state.systemui_first_frame_visible),
         u8::from(state.scene_ready),
         u8::from(state.full_window_visible),
         u8::from(state.click_target_visible),
@@ -181,8 +195,8 @@ pub fn encode_visible_state_frame(state: VisibleState) -> [u8; VISIBLE_STATE_FRA
         u8::from(state.pointer_route_live),
         u8::from(state.keyboard_route_live),
     ]);
-    out[22..26].copy_from_slice(&state.cursor_x.to_le_bytes());
-    out[26..30].copy_from_slice(&state.cursor_y.to_le_bytes());
+    out[25..29].copy_from_slice(&state.cursor_x.to_le_bytes());
+    out[29..33].copy_from_slice(&state.cursor_y.to_le_bytes());
     out
 }
 
@@ -203,20 +217,23 @@ pub fn decode_visible_state(frame: &[u8]) -> Option<VisibleState> {
     Some(VisibleState {
         virtio_raw_seen: frame[8] != 0,
         hid_normalized_seen: frame[9] != 0,
-        scene_ready: frame[10] != 0,
-        full_window_visible: frame[11] != 0,
-        click_target_visible: frame[12] != 0,
-        keyboard_target_visible: frame[13] != 0,
-        input_visible_on: frame[14] != 0,
-        cursor_move_visible: frame[15] != 0,
-        hover_visible: frame[16] != 0,
-        focus_visible: frame[17] != 0,
-        launcher_click_visible: frame[18] != 0,
-        keyboard_visible: frame[19] != 0,
-        pointer_route_live: frame[20] != 0,
-        keyboard_route_live: frame[21] != 0,
-        cursor_x: i32::from_le_bytes([frame[22], frame[23], frame[24], frame[25]]),
-        cursor_y: i32::from_le_bytes([frame[26], frame[27], frame[28], frame[29]]),
+        backend_visible: frame[10] != 0,
+        display_scanout_ready: frame[11] != 0,
+        systemui_first_frame_visible: frame[12] != 0,
+        scene_ready: frame[13] != 0,
+        full_window_visible: frame[14] != 0,
+        click_target_visible: frame[15] != 0,
+        keyboard_target_visible: frame[16] != 0,
+        input_visible_on: frame[17] != 0,
+        cursor_move_visible: frame[18] != 0,
+        hover_visible: frame[19] != 0,
+        focus_visible: frame[20] != 0,
+        launcher_click_visible: frame[21] != 0,
+        keyboard_visible: frame[22] != 0,
+        pointer_route_live: frame[23] != 0,
+        keyboard_route_live: frame[24] != 0,
+        cursor_x: i32::from_le_bytes([frame[25], frame[26], frame[27], frame[28]]),
+        cursor_y: i32::from_le_bytes([frame[29], frame[30], frame[31], frame[32]]),
     })
 }
 
@@ -238,6 +255,7 @@ mod tests {
         let encoded = encode_push_hid_batch(&WireHidBatch {
             device_kind: HID_KIND_MOUSE,
             device_id: 7,
+            pointer_source: POINTER_SOURCE_MOUSE_RELATIVE,
             abs_max_x: 0,
             abs_max_y: 0,
             raw_event_count: 3,
@@ -255,6 +273,7 @@ mod tests {
             Some(WireHidBatch {
                 device_kind: HID_KIND_MOUSE,
                 device_id: 7,
+                pointer_source: POINTER_SOURCE_MOUSE_RELATIVE,
                 abs_max_x: 0,
                 abs_max_y: 0,
                 raw_event_count: 3,
@@ -274,6 +293,9 @@ mod tests {
         let state = VisibleState {
             virtio_raw_seen: true,
             hid_normalized_seen: true,
+            backend_visible: true,
+            display_scanout_ready: true,
+            systemui_first_frame_visible: true,
             scene_ready: true,
             full_window_visible: true,
             click_target_visible: true,

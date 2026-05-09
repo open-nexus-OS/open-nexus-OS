@@ -6,3 +6,5 @@ license = "Apache-2.0"
 
 [dependencies]
 systemui = { path = "../systemui" }
+input-live-protocol = { path = "../../../userspace/input-live-protocol" }
+pointer-state = { path = "../../../userspace/pointer-state" }

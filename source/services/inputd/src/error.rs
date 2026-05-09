@@ -15,6 +15,7 @@ pub enum InputdError {
     Keymap(keymaps::KeymapError),
     Repeat(key_repeat::RepeatError),
     PointerAccel(pointer_accel::PointerAccelError),
+    PointerState(pointer_state::PointerStateError),
     InvalidQueueCapacity,
     InitialPointerOutOfBounds { x: i32, y: i32 },
     PointerOutOfBounds { x: i32, y: i32 },
@@ -29,13 +30,16 @@ impl InputdError {
             Self::Keymap(err) => err.code(),
             Self::Repeat(err) => err.code(),
             Self::PointerAccel(err) => err.code(),
+            Self::PointerState(err) => err.code(),
             Self::InvalidQueueCapacity => "inputd.queue.capacity.invalid",
             Self::InitialPointerOutOfBounds { .. } => "inputd.pointer.initial_out_of_bounds",
             Self::PointerOutOfBounds { .. } => "inputd.pointer.out_of_bounds",
             Self::QueueOverflow { .. } => "inputd.queue.overflow",
             Self::Route(windowd::WindowdError::StaleSurfaceId) => "inputd.route.stale_surface",
             Self::Route(windowd::WindowdError::Unauthorized) => "inputd.route.unauthorized",
-            Self::Route(windowd::WindowdError::NoFocusedSurface) => "inputd.route.no_focused_surface",
+            Self::Route(windowd::WindowdError::NoFocusedSurface) => {
+                "inputd.route.no_focused_surface"
+            }
             Self::Route(windowd::WindowdError::InputEventQueueFull) => {
                 "inputd.route.windowd_queue_full"
             }
@@ -65,6 +69,12 @@ impl From<pointer_accel::PointerAccelError> for InputdError {
     }
 }
 
+impl From<pointer_state::PointerStateError> for InputdError {
+    fn from(value: pointer_state::PointerStateError) -> Self {
+        Self::PointerState(value)
+    }
+}
+
 impl From<windowd::WindowdError> for InputdError {
     fn from(value: windowd::WindowdError) -> Self {
         Self::Route(value)
@@ -77,6 +87,7 @@ impl fmt::Display for InputdError {
             Self::Keymap(err) => err.fmt(f),
             Self::Repeat(err) => err.fmt(f),
             Self::PointerAccel(err) => err.fmt(f),
+            Self::PointerState(err) => err.fmt(f),
             Self::InvalidQueueCapacity => f.write_str("input queue capacity must be within bounds"),
             Self::InitialPointerOutOfBounds { x, y } => {
                 write!(f, "initial pointer position out of bounds: ({x}, {y})")
@@ -85,7 +96,10 @@ impl fmt::Display for InputdError {
                 write!(f, "pointer dispatch out of bounds: ({x}, {y})")
             }
             Self::QueueOverflow { capacity } => {
-                write!(f, "input dispatch queue exceeded bounded capacity {capacity}")
+                write!(
+                    f,
+                    "input dispatch queue exceeded bounded capacity {capacity}"
+                )
             }
             Self::Route(err) => write!(f, "windowd route failed: {err:?}"),
         }

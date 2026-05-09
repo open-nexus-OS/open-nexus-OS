@@ -129,6 +129,15 @@ mod tests {
     }
 
     #[test]
+    fn desktop_profile_exposes_visible_qemu_input_capabilities() {
+        let profile = desktop_profile().expect("desktop profile");
+
+        assert!(!profile.input.touch, "desktop visible profile starts without tablet/touch");
+        assert!(profile.input.mouse, "desktop visible profile must keep mouse input on");
+        assert!(profile.input.kbd, "desktop visible profile must keep keyboard input on");
+    }
+
+    #[test]
     fn test_reject_invalid_profile_and_shell_manifests() {
         let invalid_profile = r#"
 id = "phone"

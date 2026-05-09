@@ -11,7 +11,7 @@
 use core::cmp::min;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use nexus_abi::{debug_println, mmio_map, yield_, Handle};
+use nexus_abi::{mmio_map, yield_, Handle};
 
 use crate::runtime_mode::{parse_runtime_mode, parse_runtime_profile, RuntimeMode, RuntimeProfile};
 
@@ -31,25 +31,12 @@ const SELFTEST_PROFILE_FILE_NAME: &[u8] = b"opt/org.open-nexus/selftest-profile"
 const MAP_STATE_UNMAPPED: u8 = 0;
 const MAP_STATE_MAPPED: u8 = 1;
 const RUNTIME_CFG_RETRY_YIELDS: usize = 8_192;
-const RUNTIME_MODE_LOG_UNKNOWN: u8 = 0;
-const RUNTIME_MODE_LOG_PRESENT: u8 = 1;
-const RUNTIME_MODE_LOG_MISSING: u8 = 2;
 
 static FW_CFG_MAP_STATE: AtomicU8 = AtomicU8::new(MAP_STATE_UNMAPPED);
-static RUNTIME_MODE_LOG_STATE: AtomicU8 = AtomicU8::new(RUNTIME_MODE_LOG_UNKNOWN);
 
 #[must_use]
 pub(crate) fn display_bootstrap_enabled() -> bool {
-    let mode = runtime_mode();
-    let state = if mode.is_some() { RUNTIME_MODE_LOG_PRESENT } else { RUNTIME_MODE_LOG_MISSING };
-    if RUNTIME_MODE_LOG_STATE.swap(state, Ordering::AcqRel) != state {
-        if state == RUNTIME_MODE_LOG_PRESENT {
-            let _ = debug_println("dbg: boot_cfg runtime_mode present");
-        } else {
-            let _ = debug_println("dbg: boot_cfg runtime_mode missing");
-        }
-    }
-    mode.is_some()
+    runtime_mode().is_some()
 }
 
 #[must_use]

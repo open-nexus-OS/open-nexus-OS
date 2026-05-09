@@ -65,7 +65,10 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
 fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
     let justfile = read_repo_file("justfile");
 
-    assert!(justfile.contains("start *args:"), "`just start` recipe must exist");
+    assert!(
+        justfile.contains("start *args:"),
+        "`just start` recipe must exist"
+    );
     assert!(
         justfile.contains("make build"),
         "`just start` must perform its own build before launching"
@@ -98,7 +101,10 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
         "opt/org.open-nexus/selftest-mode",
         "opt/org.open-nexus/selftest-profile",
     ] {
-        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
     }
     assert!(
         runner.contains("RUN_TIMEOUT=0") || runner.contains("\"$RUN_TIMEOUT\" == \"0\""),
@@ -116,6 +122,27 @@ fn interactive_qemu_exposes_keyboard_and_pointer_devices() {
             && runner.contains("virtio-tablet-device")
             && runner.contains("virtio-mouse-device"),
         "interactive QEMU display starts must expose keyboard plus absolute and relative pointer devices"
+    );
+    assert!(
+        runner.contains("grab-on-hover=on")
+            && runner.contains("show-tabs=off")
+            && runner.contains("resolve_qemu_display_backend"),
+        "interactive GTK starts must prefer pointer-capture-friendly display defaults for the live host path"
+    );
+}
+
+#[test]
+fn interactive_runner_prefers_absolute_tablet_pointer_when_desktop_profile_exposes_both_sources() {
+    let runner = read_repo_file("scripts/run-qemu-rv64.sh");
+
+    assert!(
+        runner.contains("prefer_interactive_absolute_pointer")
+            && runner.contains("QEMU_SESSION_MODE")
+            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH")
+            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE")
+            && runner.contains("stable")
+            && runner.contains("host-pointer stream"),
+        "interactive runner must prefer the absolute tablet pointer when desktop exposes both touch and mouse so `just start` gets a stable host pointer path"
     );
 }
 
@@ -147,8 +174,14 @@ fn qemu_test_harness_stays_in_proof_mode_for_visible_bootstrap() {
     );
     assert!(
         harness.contains("NEXUS_SELFTEST_MODE=${NEXUS_SELFTEST_MODE:-proof}")
-            && harness.contains("NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-full}"),
-        "`scripts/qemu-test.sh` visible-bootstrap path must request proof-only guest semantics"
+            && harness.contains("NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-bringup}"),
+        "`scripts/qemu-test.sh` visible-bootstrap path must request proof-only guest semantics without broad runtime phases"
+    );
+    assert!(
+        harness.contains("\"init: start fbdevd\"")
+            && harness.contains("\"SELFTEST: ui visible input ok\"")
+            && !harness.contains("\"${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}\""),
+        "visible-bootstrap expected markers must be a focused display/input ladder, not the broad full-profile ladder"
     );
 }
 
@@ -237,10 +270,10 @@ fn task_and_rfc_require_real_live_mouse_and_keyboard_before_closure() {
     );
 
     for needle in [
-        "mouse-following pixel",
-        "hover/click rectangle",
-        "keyboard-input rectangle",
-        "must still be proven end-to-end in QEMU",
+        "one visible pixel that follows routed pointer motion",
+        "bottom-left square that changes color on hover and click",
+        "right-side square changes color on keyboard input",
+        "host-driven live OS start proves the same scene",
     ] {
         assert!(task.contains(needle), "`TASK-0253` must contain `{needle}`");
     }
@@ -267,7 +300,11 @@ fn kernel_linker_keeps_private_selftest_stack() {
     let base = read_map_symbol(&map, "__selftest_stack_base");
     let top = read_map_symbol(&map, "__selftest_stack_top");
 
-    assert_eq!(base - guard_lo, 0x1000, "selftest stack low guard must be one page");
+    assert_eq!(
+        base - guard_lo,
+        0x1000,
+        "selftest stack low guard must be one page"
+    );
     assert_eq!(top - base, 0x8000, "private selftest stack must be 32 KiB");
 }
 
@@ -294,47 +331,55 @@ fn runtime_profile_waits_for_late_fw_cfg_capability() {
 }
 
 #[test]
-fn live_framebuffer_has_dedicated_vmo_budget_and_error_label() {
+fn live_framebuffer_service_keeps_dedicated_vmo_budget_and_error_label() {
     let mm = read_repo_file("source/kernel/neuron/src/mm/mod.rs");
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
+    let fbdevd_error = read_repo_file("source/services/fbdevd/src/error.rs");
+    let framebuffer = read_repo_file("source/services/fbdevd/src/backend/framebuffer.rs");
 
     assert!(
         mm.contains("USER_VMO_ARENA_LEN: usize = 32 * 1024 * 1024"),
-        "live ramfb bootstrap must have enough VMO arena headroom after service bring-up"
+        "service-owned ramfb scanout must have enough VMO arena headroom after service bring-up"
     );
     assert!(
         mm.contains("USER_VMO_ARENA_BASE: usize = 0x8100_0000")
             && mm.contains("KERNEL_PAGE_POOL_BASE: usize = 0x8080_0000")
-            && mm.contains("KERNEL_PAGE_POOL_LEN: usize = 2 * 1024 * 1024"),
+            && mm.contains("KERNEL_PAGE_POOL_LEN: usize = 3 * 1024 * 1024"),
         "VMO arena and kernel page-pool windows must stay explicit and non-overlapping"
     );
     assert!(
-        display.contains("bootstrap: failed framebuffer-vmo"),
-        "framebuffer allocation failures must emit a stable userspace label"
+        fbdevd_error.contains("fbdevd: fail framebuffer-vmo")
+            && framebuffer.contains("validate_framebuffer_cap("),
+        "framebuffer allocation failures must emit a stable fbdevd label and validate the framebuffer capability before scanout"
     );
 }
 
 #[test]
-fn interactive_scene_presents_initial_committed_frame() {
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
+fn fbdevd_service_owns_initial_committed_frame() {
+    let fbdevd = read_repo_file("source/services/fbdevd/src/os_lite.rs");
 
     assert!(
-        display.contains(".present_tick()")
-            && display.contains("debug8cde1d: interactive present-tick-ok"),
-        "interactive scene setup must present the initially committed scene before waiting for live input"
+        fbdevd.contains("windowd::bootstrap_display_handoff()")
+            && fbdevd.contains("FramebufferOwner::allocate(bootstrap.mode)")
+            && fbdevd.contains("configure_ramfb(framebuffer.base, bootstrap.mode)")
+            && fbdevd.contains("framebuffer")
+            && fbdevd.contains(".write_handoff(&bootstrap)"),
+        "fbdevd must own the initial bootstrap present before any observer-only selftest polling begins"
     );
 }
 
 #[test]
-fn interactive_visible_state_writer_clamps_rows_and_stride_to_surface_bounds() {
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
+fn fbdevd_framebuffer_writer_clamps_rows_to_valid_handoff_geometry() {
+    let framebuffer = read_repo_file("source/services/fbdevd/src/backend/framebuffer.rs");
 
     assert!(
-        display.contains("let row_len = mode.stride as usize;")
-            && display.contains("let width = core::cmp::min(mode.width as usize, windowd::VISIBLE_BOOTSTRAP_WIDTH as usize);")
-            && display.contains("let idx = x.checked_mul(4).ok_or(BootstrapFailure::FrameWrite)?;")
-            && display.contains("let dst_offset = y as usize * row_len;"),
-        "interactive visible-state row writes must stay bounded to source surface geometry"
+        framebuffer.contains("let row_len = self.mode.stride as usize;")
+            && framebuffer
+                .contains("let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];")
+            && framebuffer.contains("handoff")
+            && framebuffer.contains(".copy_row(y, &mut row[..row_len])")
+            && framebuffer.contains("validate_handoff(handoff)?;")
+            && framebuffer.contains("vmo_write(self.handle, offset, &row[..row_len])"),
+        "fbdevd row writes must stay bounded to the validated framebuffer geometry"
     );
 }
 
@@ -350,12 +395,56 @@ fn hidrawd_service_owns_periodic_chain_fps_telemetry() {
         "wire_skip={}",
         "raw_events={}",
         "norm_events={}",
+        "kbd_batches={}",
+        "mouse_rel={}",
+        "tablet_abs={}",
+        "touch_abs={}",
         "send_fail={}",
         "rebinds={}",
         "idle_yields={}",
     ] {
-        assert!(hidrawd.contains(needle), "`hidrawd` service telemetry must include `{needle}`");
+        assert!(
+            hidrawd.contains(needle),
+            "`hidrawd` service telemetry must include `{needle}`"
+        );
     }
+}
+
+#[test]
+fn hidrawd_live_classification_keeps_keyboard_as_explicit_device_class() {
+    let hidrawd = read_repo_file("source/services/hidrawd/src/os_lite.rs");
+
+    assert!(
+        hidrawd.contains("enum LiveDeviceClass")
+            && hidrawd.contains("LiveDeviceClass::Keyboard")
+            && hidrawd.contains("service.register_keyboard(self.device_id)")
+            && hidrawd.contains("hidrawd: device kbd"),
+        "hidrawd live ingress hardening must keep keyboard as an explicit confirmed device class so pointer-source work cannot silently drop keyboard registration"
+    );
+}
+
+#[test]
+fn hidrawd_upgrades_mouse_button_only_batches_out_of_keyboard_safe_probe_mode() {
+    let hidrawd = read_repo_file("source/services/hidrawd/src/os_lite.rs");
+
+    assert!(
+        hidrawd.contains("event.kind() == RawIngressEventKind::Key && event.code() >= 0x110")
+            && hidrawd.contains("LiveDeviceClass::Pointer(PointerSource::MouseRelative)"),
+        "hidrawd live classification must upgrade button-only mouse batches into a pointer source before relative motion arrives, or click-only regressions will slip past host proofs"
+    );
+}
+
+#[test]
+fn proof_end_phase_reports_v2a_smoke_failures_explicitly() {
+    let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
+
+    assert!(
+        end_phase.contains("windowd: v2a smoke err")
+            && end_phase.contains("windowd: v2a scheduler off")
+            && end_phase.contains("windowd: v2a input off")
+            && end_phase.contains("windowd: v2a click off"),
+        "proof end phase must emit explicit v2a failure breadcrumbs so missing markers map to the failing gate before another QEMU rerun"
+    );
 }
 
 #[test]
@@ -367,7 +456,16 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "hid_ok_hz={}",
         "poll_hz={}",
         "malformed={}",
+        "hid_unsupported={}",
         "overflow={}",
+        "frame_malformed={}",
+        "wire_count={}",
+        "wire_kind={}",
+        "wire_source={}",
+        "wire_event={}",
+        "wire_mode={}",
+        "abs_cal={}",
+        "abs_axis={}",
         "apply_ovf={}",
         "deliver_ovf={}",
         "dispatch={}",
@@ -378,7 +476,10 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "kbd_deliv={}",
         "idle_yields={}",
     ] {
-        assert!(inputd.contains(needle), "`inputd` service telemetry must include `{needle}`");
+        assert!(
+            inputd.contains(needle),
+            "`inputd` service telemetry must include `{needle}`"
+        );
     }
 }
 
@@ -393,9 +494,8 @@ fn inputd_route_contract_has_named_bind_and_deterministic_fallback() {
         "inputd must try named routing first and fail closed to deterministic service slots"
     );
     assert!(
-        inputd.contains("inputd fallback bind")
-            && inputd.contains("mode=fallback recv_slot={recv_slot} send_slot={send_slot}"),
-        "inputd fallback route must publish explicit slot evidence for bring-up triage"
+        inputd.contains("inputd: fallback slots 3/4") && !inputd.contains("agent8cde1d"),
+        "inputd fallback route must publish compact stable slot evidence without oversized agent debug logs"
     );
 }
 
@@ -461,6 +561,48 @@ fn init_wires_input_caps_and_routes_for_owner_chain() {
 }
 
 #[test]
+fn init_wires_fbdevd_caps_and_routes_for_service_owned_display_observer_chain() {
+    let init = read_repo_file("source/init/nexus-init/src/os_payload.rs");
+    let observer =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+
+    assert!(
+        init.contains("let fbdev_req =")
+            && init.contains("let fbdev_rsp =")
+            && init.contains("init: fbdevd slots recv=0x"),
+        "init-lite must provision dedicated request/response endpoints for fbdevd's own service loop"
+    );
+    assert!(
+        init.contains("init: selftest fbdevd slots send=0x")
+            && init.contains("name == b\"fbdevd\""),
+        "routing service must expose explicit fbdevd lookup entries for observer-only clients"
+    );
+    assert!(
+        observer.contains("route_with_retry(\"fbdevd\")")
+            && observer.contains("cached_reply_client()"),
+        "selftest-client must stay observer-only and query fbdevd through routed service IPC plus @reply"
+    );
+}
+
+#[test]
+fn rng_selftest_tracks_current_init_lite_rngd_slot_pair() {
+    let init = read_repo_file("source/init/nexus-init/src/os_payload.rs");
+    let rng_probe = read_repo_file("source/apps/selftest-client/src/os_lite/probes/rng.rs");
+
+    assert!(
+        init.contains("init: selftest rngd slots send=0x"),
+        "init-lite must log and own the rngd slot distribution that the selftest proof depends on"
+    );
+    assert!(
+        rng_probe.contains("const RNGD_SEND_SLOT: u32 = 0x1f;")
+            && rng_probe.contains("const RNGD_RECV_SLOT: u32 = 0x20;")
+            && !rng_probe.contains("const RNGD_SEND_SLOT: u32 = 0x1e;")
+            && !rng_probe.contains("const RNGD_RECV_SLOT: u32 = 0x1f;"),
+        "rng selftest must stay aligned with the current init-lite rngd slot pair so slot drift fails on host before QEMU"
+    );
+}
+
+#[test]
 fn virtio_input_driver_tolerates_missing_optional_event_bitmaps() {
     let driver = read_repo_file("source/drivers/input/virtio-input/src/lib.rs");
 
@@ -482,6 +624,12 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
         "visible-bootstrap proof must enable deterministic real-input injection instead of local selftest replay"
     );
     assert!(
+        harness.contains("QEMU_INPUT_AUTOINJECT=\"${QEMU_INPUT_AUTOINJECT:-0}\"")
+            && harness.contains("QEMU_SESSION_MODE=\"$QEMU_SESSION_MODE\"")
+            && harness.contains("QEMU_MARKER_LEVEL=\"$QEMU_MARKER_LEVEL\""),
+        "qemu-test must forward visible-bootstrap autoinject/session env into run-qemu so the proof runner cannot silently disable real input injection"
+    );
+    assert!(
         runner.contains("QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}")
             && runner.contains("-qmp \"unix:$QEMU_QMP_SOCKET,server=on,wait=off\"")
             && runner.contains("python3 \"$QEMU_INPUT_INJECTOR_PY\" \"$QEMU_QMP_SOCKET\""),
@@ -489,11 +637,97 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
     );
     assert!(
         injector.contains("\"execute\": \"input-send-event\"")
+            && injector.contains("env_flag(\"NEXUS_PROFILE_INPUT_TOUCH\")")
+            && injector.contains("env_flag(\"NEXUS_PROFILE_INPUT_MOUSE\")")
+            && injector.contains("env_flag(\"NEXUS_PROFILE_INPUT_KBD\")")
+            && injector.contains("QEMU_SESSION_MODE")
+            && injector.contains("proof_prefers_single_pointer_source")
+            && injector.contains("QEMU_ABS_MAX = 32767")
+            && injector.contains("HOVER_TARGET_ROUTE_X = 8")
+            && injector.contains("HOVER_TARGET_ROUTE_Y = 40")
+            && injector.contains("CURSOR_START_ROUTE_X = 24")
+            && injector.contains("CURSOR_START_ROUTE_Y = 12")
+            && injector.contains("REL_STEP_LIMIT = 256")
+            && injector.contains("bounded_rel_steps")
             && injector.contains("\"type\": \"rel\"")
+            && injector.contains("\"type\": \"abs\"")
+            && injector.contains("qemu_abs_value(target_display_x, VISIBLE_DISPLAY_WIDTH)")
+            && injector.contains("qemu_abs_value(target_display_y, VISIBLE_DISPLAY_HEIGHT)")
             && injector.contains("\"button\": \"left\"")
             && injector.contains("\"type\": \"key\"")
             && injector.contains("\"data\": \"a\""),
-        "QMP injector must drive real pointer move, click, and keyboard input into the guest"
+        "QMP injector must drive real pointer move to the hover target, click, and keyboard input into the guest while keeping proof-mode mixed pointer injection source-isolated"
+    );
+    assert!(
+        injector.contains("reply[\"error\"].get(\"class\") == \"DeviceNotFound\"")
+            && injector.contains("pointer device fallback without explicit qmp device")
+            && injector.contains("requested_device")
+            && injector.contains("fallback_arguments = {\"events\": events}")
+            && injector.contains("console: int | None = None"),
+        "QMP injector must degrade cleanly when a QEMU build does not expose `video0`, and it must not hardcode the `console` argument on QEMU builds that reject it"
+    );
+}
+
+#[test]
+fn visible_bootstrap_runner_derives_qemu_input_devices_from_systemui_profile() {
+    let harness = read_repo_file("source/apps/selftest-client/proof-manifest/profiles/harness.toml");
+    let runner = read_repo_file("scripts/run-qemu-rv64.sh");
+    let helper = read_repo_file("tools/systemui_profile_qemu_devices.py");
+    let desktop_profile =
+        read_repo_file("source/services/systemui/manifests/profiles/desktop/profile.toml");
+
+    assert!(
+        harness.contains("NEXUS_SYSTEMUI_PROFILE = \"desktop\""),
+        "visible-bootstrap harness profile must forward an explicit SystemUI profile so QEMU input device selection is profile-owned"
+    );
+    assert!(
+        runner.contains("QEMU_PROFILE_INPUT_HELPER")
+            && runner.contains("load_systemui_input_profile")
+            && runner.contains("NEXUS_SYSTEMUI_PROFILE=${NEXUS_SYSTEMUI_PROFILE:-desktop}")
+            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH")
+            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE")
+            && runner.contains("NEXUS_PROFILE_INPUT_KBD")
+            && runner.contains("-device virtio-tablet-device")
+            && runner.contains("-device virtio-mouse-device")
+            && runner.contains("-device virtio-keyboard-device"),
+        "run-qemu must derive visible input devices from the selected SystemUI profile instead of hardcoding a mixed mouse+tablet set"
+    );
+    assert!(
+        helper.contains("tomllib")
+            && helper.contains("NEXUS_PROFILE_INPUT_TOUCH")
+            && helper.contains("NEXUS_PROFILE_INPUT_MOUSE")
+            && helper.contains("NEXUS_PROFILE_INPUT_KBD"),
+        "profile helper must parse the SystemUI profile TOML and export input capability env vars"
+    );
+    assert!(
+        desktop_profile.contains("[input]")
+            && desktop_profile.contains("touch = true")
+            && desktop_profile.contains("mouse = true")
+            && desktop_profile.contains("kbd = true"),
+        "desktop profile must remain the source-of-truth seed for visible QEMU device selection, including the interactive tablet-capable desktop lane"
+    );
+}
+
+#[test]
+fn fbdevd_polls_inputd_with_owned_cap_move_reply_inbox() {
+    let init = read_repo_file("source/init/nexus-init/src/os_payload.rs");
+    let fbdevd = read_repo_file("source/services/fbdevd/src/os_lite.rs");
+
+    assert!(
+        init.contains("init: fbdevd inputd slots send=0x")
+            && init.contains("chan.input_send_slot = Some(input_send_slot);")
+            && init.contains("chan.input_recv_slot = Some(reply_recv_slot);")
+            && init.contains("chan.reply_send_slot = Some(reply_send_slot);"),
+        "init-lite must wire fbdevd as an inputd client with its own reply inbox"
+    );
+    assert!(
+        fbdevd.contains("KernelClient::new_for(\"inputd\")")
+            && fbdevd.contains("KernelClient::new_for(\"@reply\")")
+            && fbdevd.contains("send_with_cap_move_wait(&request, reply_send_clone, wait)")
+            && fbdevd.contains("const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 2;")
+            && fbdevd.contains("DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ)")
+            && fbdevd.contains("TickBudget::new(1)"),
+        "fbdevd must poll inputd through a short bounded CAP_MOVE reply inside a budgeted display reactor"
     );
 }
 
@@ -519,14 +753,16 @@ fn visible_input_fake_green_guard_requires_sequential_live_gates() {
 
 #[test]
 fn proof_mode_selftest_is_observer_only_for_live_input() {
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
+    let display =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+    let observer = read_repo_file("source/apps/selftest-client/src/os_lite/display_observer.rs");
     let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
 
     assert!(
         display.contains("observe_live_visible_input_proof")
             && display.contains("fetch_live_visible_state")
-            && display.contains("state.virtio_raw_seen")
-            && display.contains("state.hid_normalized_seen"),
+            && observer.contains("state.virtio_raw_seen")
+            && observer.contains("state.hid_normalized_seen"),
         "proof-mode selftest must observe inputd-visible upstream gate state rather than replaying local input services"
     );
     assert!(
@@ -545,44 +781,94 @@ fn proof_mode_selftest_is_observer_only_for_live_input() {
 
 #[test]
 fn proof_mode_observer_keeps_enough_wait_budget_for_delayed_live_injection() {
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
+    let display =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+    let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
 
     assert!(
         display.contains("const OBSERVER_MAX_POLLS: usize = 128;")
             && display.contains("const OBSERVER_YIELDS_BETWEEN_POLLS: usize = 4096;"),
         "observer-only proof mode must keep a bounded but large enough wait budget to observe delayed live input injection honestly"
     );
-}
-
-#[test]
-fn interactive_live_tick_renders_rows_without_heap_allocating_a_full_surface() {
-    let display = read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap.rs");
-
     assert!(
-        display.contains("let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];")
-            && display.contains("write_interactive_visible_state_row("),
-        "interactive live repaint must render through a fixed row buffer instead of allocating a fresh full frame per tick"
-    );
-    assert!(
-        !display.contains("let mut surface = visible_input_scene_surface(\n        windowd::CallerCtx::from_service_metadata(0x55),\n        91,"),
-        "interactive live repaint must not allocate a new visible input surface on every observer tick"
+        end_phase.contains("if !proof_completed && proof_visible_input_ready(state)")
+            && end_phase.contains("display_bootstrap::interactive_live_tick()")
+            && end_phase.contains("emit_line(crate::markers::M_SELFTEST_END);"),
+        "proof-mode end phase must keep polling visible state after startup so late real input injection completes the observer-only proof instead of timing out falsely"
     );
 }
 
 #[test]
-fn interactive_end_phase_uses_polled_visible_state_as_live_repaint_seam() {
+fn display_observer_visible_state_rpc_is_bounded_instead_of_blocking_forever() {
+    let display =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+
+    assert!(
+        display.contains("const VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 50;")
+            && display.contains("Wait::Timeout(Duration::from_millis(VISIBLE_STATE_RPC_TIMEOUT_MS))"),
+        "observer visible-state RPC must use an explicit bounded timeout so missing service replies fail honestly"
+    );
+    assert!(
+        !display
+            .contains("client.send_with_cap_move_wait(&request, reply_send_clone, Wait::Blocking)")
+            && !display.contains("let frame = reply.recv(Wait::Blocking).ok()?;"),
+        "observer visible-state RPC must not block forever on service send/recv"
+    );
+}
+
+#[test]
+fn display_bootstrap_markers_emit_before_visible_input_wait() {
+    let display =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+    let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
+
+    assert!(
+        display.contains("pub(crate) fn observe_display_evidence()")
+            && display.contains("observe_live_visible_input_proof()?"),
+        "display bootstrap markers must be emitted after service-owned display evidence, before waiting for live input evidence"
+    );
+    assert!(
+        end_phase.contains("if let Ok(display) = display_bootstrap::observe_display_evidence()")
+            && end_phase.contains("emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER)")
+            && end_phase.contains("emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER)")
+            && end_phase.find("observe_display_evidence()")
+                < end_phase.find("display_bootstrap::run()"),
+        "end phase must emit display/present markers before entering the live-input observer proof"
+    );
+}
+
+#[test]
+fn interactive_live_tick_is_observer_only_for_display_refresh() {
+    let display =
+        read_repo_file("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+
+    assert!(
+        display.contains("pub(crate) fn interactive_live_tick() -> Option<VisibleState>")
+            && display.contains("fetch_live_visible_state()"),
+        "interactive live ticks must stay observer-only and poll service-owned visible state"
+    );
+    assert!(
+        !display.contains("vmo_write(")
+            && !display.contains("configure_ramfb(")
+            && !display.contains("write_handoff("),
+        "interactive live ticks must not perform final scanout writes"
+    );
+}
+
+#[test]
+fn interactive_end_phase_uses_polled_visible_state_as_observer_seam() {
     let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
 
     assert!(
         end_phase.contains("display_bootstrap::interactive_live_tick()")
             && end_phase.contains("if let Some(state) = display_bootstrap::interactive_live_tick()"),
-        "interactive end phase must repaint from polled visible state rather than from self-authored input state"
+        "interactive end phase must observe polled visible state rather than authoring display state"
     );
     assert!(
         end_phase.contains("interactive_mode == Some(RuntimeMode::InteractiveFull)")
             && end_phase.contains("emit_line(windowd::INPUT_VISIBLE_ON_MARKER)")
             && end_phase.contains("emit_line(windowd::CURSOR_MOVE_VISIBLE_MARKER)"),
-        "interactive full breadcrumbs must remain downstream observations of the live repaint seam"
+        "interactive full breadcrumbs must remain downstream observations of the live display seam"
     );
 }
 
@@ -609,16 +895,48 @@ fn visible_bootstrap_failure_summary_carries_service_fps_traces() {
     for needle in [
         "line_fps_hidrawd=$(grep -aFn \"fps: hidrawd\"",
         "line_fps_inputd=$(grep -aFn \"fps: inputd\"",
+        "line_fps_windowd=$(grep -aFn \"fps: windowd\"",
+        "line_fps_fbdevd=$(grep -aFn \"fps: fbdevd\"",
         "last_fps_hidrawd=$(grep -aF \"fps: hidrawd\"",
         "last_fps_inputd=$(grep -aF \"fps: inputd\"",
+        "last_fps_windowd=$(grep -aF \"fps: windowd\"",
+        "last_fps_fbdevd=$(grep -aF \"fps: fbdevd\"",
         "\\\"line_fps_hidrawd\\\":$line_fps_hidrawd",
         "\\\"line_fps_inputd\\\":$line_fps_inputd",
+        "\\\"line_fps_windowd\\\":$line_fps_windowd",
+        "\\\"line_fps_fbdevd\\\":$line_fps_fbdevd",
         "\\\"last_fps_hidrawd\\\":\\\"$last_fps_hidrawd\\\"",
         "\\\"last_fps_inputd\\\":\\\"$last_fps_inputd\\\"",
+        "\\\"last_fps_windowd\\\":\\\"$last_fps_windowd\\\"",
+        "\\\"last_fps_fbdevd\\\":\\\"$last_fps_fbdevd\\\"",
+        "\\\"line_display_fail\\\":$line_display_fail",
+        "\\\"last_display_gate\\\":\\\"$last_display_gate\\\"",
     ] {
         assert!(
             harness.contains(needle),
             "visible-bootstrap failure summary must carry service FPS evidence `{needle}`"
+        );
+    }
+}
+
+#[test]
+fn visible_bootstrap_harness_requires_service_owned_display_markers() {
+    let harness = read_repo_file("scripts/qemu-test.sh");
+    let ui_markers = read_repo_file("source/apps/selftest-client/proof-manifest/markers/ui.toml");
+
+    for marker in [
+        "fbdevd: ready",
+        "fbdevd: map ok",
+        "fbdevd: ramfb configured",
+        "fbdevd: flush ok",
+    ] {
+        assert!(
+            harness.contains(marker),
+            "visible-bootstrap ladder must require service-owned display marker `{marker}`"
+        );
+        assert!(
+            ui_markers.contains(&format!("[marker.\"{marker}\"]")),
+            "proof-manifest must declare service-owned display marker `{marker}`"
         );
     }
 }

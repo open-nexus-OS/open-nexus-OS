@@ -237,12 +237,12 @@ fi
 
 # TASK-0014: enforce canonical os-lite service payload set for deterministic QEMU proofs.
 # Keep this fixed so marker contracts do not depend on inherited shell environment.
-export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,selftest-client"
+export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,fbdevd,selftest-client"
 if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
   # Keep added observability service footprint bounded in bring-up proofs.
   export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
 fi
-for svc in HIDRAWD TOUCHD INPUTD; do
+for svc in HIDRAWD TOUCHD INPUTD FBDEVD; do
   stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
   if [[ -z "${!stack_var:-}" ]]; then
     # Input service entries perform bounded init-only proof work; keep their stacks small.
@@ -389,6 +389,8 @@ expected_sequence=(
   "init: up touchd"
   "init: start inputd"
   "init: up inputd"
+  "init: start fbdevd"
+  "init: up fbdevd"
   "init: ready"
   # Service readiness markers are emitted asynchronously by the spawned processes.
   # With the kernel `exec` loader path, init emits spawn markers first, then yields;
@@ -523,9 +525,25 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
   QEMU_MARKER_LEVEL=proof
   QEMU_INPUT_AUTOINJECT=1
   NEXUS_SELFTEST_MODE=${NEXUS_SELFTEST_MODE:-proof}
-  NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-full}
+  NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-bringup}
   expected_sequence=(
-    "${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}"
+    "neuron vers."
+    "KSELFTEST: spawn reasons ok"
+    "KSELFTEST: resource sentinel ok"
+    "init: start"
+    "init: start hidrawd"
+    "init: up hidrawd"
+    "init: start touchd"
+    "init: up touchd"
+    "init: start inputd"
+    "init: up inputd"
+    "init: start fbdevd"
+    "init: up fbdevd"
+    "${INPUT_STARTUP_MARKERS[@]}"
+    "fbdevd: ready"
+    "fbdevd: map ok"
+    "fbdevd: ramfb configured"
+    "fbdevd: flush ok"
     "display: bootstrap on"
     "display: mode 1280x800 argb8888"
     "windowd: backend=visible"
@@ -680,6 +698,11 @@ QEMU_LOG="$QEMU_LOG" \
 UART_LOG="$UART_LOG" \
 QEMU_LOG_MAX="$QEMU_LOG_MAX" \
 UART_LOG_MAX="$UART_LOG_MAX" \
+QEMU_SESSION_MODE="$QEMU_SESSION_MODE" \
+QEMU_MARKER_LEVEL="$QEMU_MARKER_LEVEL" \
+QEMU_INPUT_AUTOINJECT="${QEMU_INPUT_AUTOINJECT:-0}" \
+NEXUS_SELFTEST_MODE="${NEXUS_SELFTEST_MODE:-}" \
+NEXUS_SELFTEST_PROFILE="${NEXUS_SELFTEST_PROFILE:-}" \
 "$ROOT/scripts/run-qemu-rv64.sh" "${QEMU_EXTRA_ARGS[@]}"
 qemu_status=$?
 set -e
@@ -1045,10 +1068,39 @@ if [[ "$missing" -ne 0 ]]; then
     line_end_bootstrap_mode_interactive=$(grep -aFn "dbg: end bootstrap mode interactive" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
     line_fps_hidrawd=$(grep -aFn "fps: hidrawd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
     line_fps_inputd=$(grep -aFn "fps: inputd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_fps_windowd=$(grep -aFn "fps: windowd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_fps_fbdevd=$(grep -aFn "fps: fbdevd" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
     last_fps_hidrawd=$(grep -aF "fps: hidrawd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
     last_fps_inputd=$(grep -aF "fps: inputd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+    last_fps_windowd=$(grep -aF "fps: windowd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
+    last_fps_fbdevd=$(grep -aF "fps: fbdevd" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
     line_bootstrap_fail=$(grep -aFn "bootstrap: failed visible-input-evidence" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
     line_display_bootstrap=$(grep -aFn "display: bootstrap on" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    line_display_fail=$(grep -aEn "windowd: fail|fbdevd: fail|bootstrap: failed (fbdevd-evidence|visible-input-evidence|interactive-scene-evidence)" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
+    last_display_gate="<none>"
+    for display_gate in \
+      "fbdevd: ready" \
+      "fbdevd: map ok" \
+      "fbdevd: ramfb configured" \
+      "fbdevd: flush ok" \
+      "display: bootstrap on" \
+      "display: mode 1280x800 argb8888" \
+      "windowd: backend=visible" \
+      "windowd: present visible ok" \
+      "display: first scanout ok" \
+      "systemui: first frame visible" \
+      "SELFTEST: ui visible present ok" \
+      "windowd: input visible on" \
+      "windowd: cursor move visible" \
+      "windowd: hover visible" \
+      "windowd: focus visible" \
+      "launcher: click visible ok" \
+      "windowd: keyboard visible" \
+      "SELFTEST: ui visible input ok"; do
+      if grep -aFq "$display_gate" "$UART_LOG"; then
+        last_display_gate="$display_gate"
+      fi
+    done
     last_visible_timeout=$(grep -aF "bootstrap: visible-state timeout" "$UART_LOG" | tail -n1 | sed 's/"/\\"/g' || true)
     if [[ -z "$last_visible_timeout" ]]; then
       last_visible_timeout="<none>"
@@ -1059,8 +1111,14 @@ if [[ "$missing" -ne 0 ]]; then
     if [[ -z "$last_fps_inputd" ]]; then
       last_fps_inputd="<none>"
     fi
+    if [[ -z "$last_fps_windowd" ]]; then
+      last_fps_windowd="<none>"
+    fi
+    if [[ -z "$last_fps_fbdevd" ]]; then
+      last_fps_fbdevd="<none>"
+    fi
     agent_input_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:visible-bootstrap-failure" "visible-bootstrap marker and route summary" \
-      "{\"missing_marker\":\"$missing_marker\",\"failed_phase\":\"$failed_phase\",\"line_hid_mouse\":$line_hid_mouse,\"line_hid_raw\":$line_hid_raw,\"line_hid_adapter\":$line_hid_adapter,\"line_pointer_route\":$line_pointer_route,\"line_pointer_down_dispatch\":$line_pointer_down_dispatch,\"line_pointer_down_delivered\":$line_pointer_down_delivered,\"line_focus_target\":$line_focus_target,\"line_hid_keyboard\":$line_hid_keyboard,\"line_keyboard_dispatch\":$line_keyboard_dispatch,\"line_keyboard_delivered\":$line_keyboard_delivered,\"line_keyboard_delivered_without_dispatch\":$line_keyboard_delivered_without_dispatch,\"line_keyboard_dispatched_without_delivery\":$line_keyboard_dispatched_without_delivery,\"line_keyboard_route\":$line_keyboard_route,\"line_boot_cfg_mode_present\":$line_boot_cfg_mode_present,\"line_boot_cfg_mode_missing\":$line_boot_cfg_mode_missing,\"line_end_bootstrap_enabled\":$line_end_bootstrap_enabled,\"line_end_bootstrap_run_ok\":$line_end_bootstrap_run_ok,\"line_end_bootstrap_run_none\":$line_end_bootstrap_run_none,\"line_end_bootstrap_mode_proof\":$line_end_bootstrap_mode_proof,\"line_end_bootstrap_mode_interactive\":$line_end_bootstrap_mode_interactive,\"line_fps_hidrawd\":$line_fps_hidrawd,\"line_fps_inputd\":$line_fps_inputd,\"line_bootstrap_fail\":$line_bootstrap_fail,\"line_display_bootstrap\":$line_display_bootstrap,\"last_visible_timeout\":\"$last_visible_timeout\",\"last_fps_hidrawd\":\"$last_fps_hidrawd\",\"last_fps_inputd\":\"$last_fps_inputd\"}"
+      "{\"missing_marker\":\"$missing_marker\",\"failed_phase\":\"$failed_phase\",\"line_hid_mouse\":$line_hid_mouse,\"line_hid_raw\":$line_hid_raw,\"line_hid_adapter\":$line_hid_adapter,\"line_pointer_route\":$line_pointer_route,\"line_pointer_down_dispatch\":$line_pointer_down_dispatch,\"line_pointer_down_delivered\":$line_pointer_down_delivered,\"line_focus_target\":$line_focus_target,\"line_hid_keyboard\":$line_hid_keyboard,\"line_keyboard_dispatch\":$line_keyboard_dispatch,\"line_keyboard_delivered\":$line_keyboard_delivered,\"line_keyboard_delivered_without_dispatch\":$line_keyboard_delivered_without_dispatch,\"line_keyboard_dispatched_without_delivery\":$line_keyboard_dispatched_without_delivery,\"line_keyboard_route\":$line_keyboard_route,\"line_boot_cfg_mode_present\":$line_boot_cfg_mode_present,\"line_boot_cfg_mode_missing\":$line_boot_cfg_mode_missing,\"line_end_bootstrap_enabled\":$line_end_bootstrap_enabled,\"line_end_bootstrap_run_ok\":$line_end_bootstrap_run_ok,\"line_end_bootstrap_run_none\":$line_end_bootstrap_run_none,\"line_end_bootstrap_mode_proof\":$line_end_bootstrap_mode_proof,\"line_end_bootstrap_mode_interactive\":$line_end_bootstrap_mode_interactive,\"line_fps_hidrawd\":$line_fps_hidrawd,\"line_fps_inputd\":$line_fps_inputd,\"line_fps_windowd\":$line_fps_windowd,\"line_fps_fbdevd\":$line_fps_fbdevd,\"line_bootstrap_fail\":$line_bootstrap_fail,\"line_display_bootstrap\":$line_display_bootstrap,\"line_display_fail\":$line_display_fail,\"last_display_gate\":\"$last_display_gate\",\"last_visible_timeout\":\"$last_visible_timeout\",\"last_fps_hidrawd\":\"$last_fps_hidrawd\",\"last_fps_inputd\":\"$last_fps_inputd\",\"last_fps_windowd\":\"$last_fps_windowd\",\"last_fps_fbdevd\":\"$last_fps_fbdevd\"}"
     # #endregion agent log
   fi
   print_uart_excerpt "${PHASE_START_MARKER[$failed_phase]:-}" "${expected_sequence[$((missing_pos - 1))]:-}"
@@ -1292,6 +1350,10 @@ fi
 # a configured visible backend, visible present, scanout, and SystemUI first frame.
 if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
   for m in \
+    "fbdevd: ready" \
+    "fbdevd: map ok" \
+    "fbdevd: ramfb configured" \
+    "fbdevd: flush ok" \
     "display: bootstrap on" \
     "display: mode 1280x800 argb8888" \
     "windowd: backend=visible" \

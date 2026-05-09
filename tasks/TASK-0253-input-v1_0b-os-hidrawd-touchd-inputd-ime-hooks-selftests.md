@@ -223,6 +223,12 @@ Additional closure floor:
     runner, and uses the `interactive-full` runtime mode with full breadcrumbs,
   - live breadcrumbs never masquerade as deterministic `SELFTEST:` proof
     markers,
+  - sustained cursor motion on the real host path is required for closure:
+    a single first move / nudge is insufficient if the cursor does not continue
+    to follow host mouse movement across the visible scene,
+  - `visible-bootstrap` staying green does not waive this requirement because
+    it is the intentional guest-side/QMP injection proof lane, not the host
+    capture authority,
 - boot/resource gates prevent pre-input failures from being rediscovered by
   manual QEMU runs:
   - `neuron-boot.map` must retain a non-zero private selftest stack
@@ -276,6 +282,10 @@ Additional closure floor:
     `windowd: input visible on`, `windowd: cursor move visible`,
     `windowd: hover visible`, `launcher: click visible ok`,
     `windowd: keyboard visible`, and `SELFTEST: ui visible input ok`,
+  - this is still not equivalent to sustained real host motion closure:
+    current manual `just start` behavior shows click + keyboard and a first
+    live cursor nudge, but the white cursor box does not yet follow continuous
+    host mouse movement across the scene,
   - focused contracts cover linker retention of the private selftest stack,
     bounded `fw_cfg` runtime config retry, interactive marker honesty, and VMO
     arena headroom for the ramfb framebuffer,
@@ -287,6 +297,16 @@ Additional closure floor:
   - init discovers `VIRTIO_DEVICE_ID_INPUT` windows and hands ownership into the
     `hidrawd -> inputd -> windowd` chain instead of a permanent
     `selftest-client` bridge.
+- The remaining interactive delta closure is now explicit:
+  - preserve pointer-source identity past `inputd` wire decode and into the
+    runtime canonical pointer state,
+  - stop letting the 64x48 proof grid act as the effective interactive routing
+    authority; keep it only as proof-scene projection,
+  - align the desktop live source mix for a persistent pointer stream
+    (`mouse-relative` plus tablet-class absolute input with explicit runtime
+    source arbitration),
+  - add sustained-motion host proofs so "first move happened" cannot
+    masquerade as "live cursor movement is closed".
 - Remaining closure before `Done`:
   - broad-gate reruns are no longer deferred:
     - `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`,

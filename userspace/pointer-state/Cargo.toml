@@ -1,0 +1,9 @@
+[package]
+name = "pointer-state"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "pointer_state"
+path = "src/lib.rs"

@@ -904,6 +904,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
+name = "fbdevd"
+version = "0.1.0"
+dependencies = [
+ "input-live-protocol",
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "pointer-state",
+ "windowd",
+]
+
+[[package]]
 name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1311,6 +1323,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-service-entry",
  "pointer-accel",
+ "pointer-state",
  "touch",
  "touchd",
  "windowd",
@@ -2153,6 +2166,10 @@ dependencies = [
 
 [[package]]
 name = "pointer-accel"
+version = "0.1.0"
+
+[[package]]
+name = "pointer-state"
 version = "0.1.0"
 
 [[package]]
@@ -3652,6 +3669,8 @@ dependencies = [
 name = "windowd"
 version = "0.1.0"
 dependencies = [
+ "input-live-protocol",
+ "pointer-state",
  "systemui",
 ]
 

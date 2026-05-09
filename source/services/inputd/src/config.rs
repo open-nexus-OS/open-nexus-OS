@@ -12,6 +12,7 @@ use crate::InputdError;
 use key_repeat::{DelayMs, RateHz, RepeatConfig};
 use keymaps::LayoutId;
 use pointer_accel::PointerAccelConfig;
+use pointer_state::PointerSpace;
 
 const MAX_QUEUE_CAPACITY: usize = 256;
 
@@ -62,6 +63,7 @@ pub struct InputdConfig {
     pointer_accel: PointerAccelConfig,
     queue_capacity: QueueCapacity,
     initial_pointer: InitialPointerPosition,
+    display_space: Option<PointerSpace>,
 }
 
 impl InputdConfig {
@@ -97,7 +99,13 @@ impl InputdConfig {
             pointer_accel,
             queue_capacity: QueueCapacity::new(queue_capacity)?,
             initial_pointer: InitialPointerPosition::new(initial_pointer_x, initial_pointer_y),
+            display_space: None,
         })
+    }
+
+    pub fn with_display_space(mut self, width: u32, height: u32) -> Result<Self, InputdError> {
+        self.display_space = Some(PointerSpace::new(width, height).map_err(InputdError::from)?);
+        Ok(self)
     }
 
     #[must_use]
@@ -123,5 +131,10 @@ impl InputdConfig {
     #[must_use]
     pub const fn initial_pointer(self) -> InitialPointerPosition {
         self.initial_pointer
+    }
+
+    #[must_use]
+    pub const fn display_space(self) -> Option<PointerSpace> {
+        self.display_space
     }
 }

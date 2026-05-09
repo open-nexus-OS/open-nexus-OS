@@ -10,8 +10,9 @@
 
 use hid::{AbsoluteAxis, HidEvent, HidEventKind, TimestampNs};
 use hidrawd::{
-    normalize_ingress_batch, DeviceId, HidDeviceKind, HidrawdError, HidrawdService, IngressRole,
-    RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidDeviceKind, HidrawdError,
+    HidrawdService, IngressRole, PointerSource, RawIngressBatch, RawIngressEvent,
+    RawIngressEventKind, QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
 };
 
 #[test]
@@ -144,6 +145,94 @@ fn virtio_raw_pointer_batch_is_normalized_through_explicit_adapter_gate() {
     let wire_batch = outcome.wire_batch().expect("wire batch");
     assert_eq!(wire_batch.raw_event_count, 3);
     assert_eq!(wire_batch.normalized_event_count, 3);
+    assert_eq!(
+        wire_batch.pointer_source,
+        input_live_protocol::POINTER_SOURCE_MOUSE_RELATIVE
+    );
+}
+
+#[test]
+fn absolute_pointer_normalization_preserves_wire_calibration() {
+    let mut service = HidrawdService::new();
+    let mouse_id = DeviceId::new(12);
+    service.register_mouse(mouse_id);
+
+    let outcome = normalize_ingress_batch(
+        &mut service,
+        mouse_id,
+        &RawIngressBatch::new(
+            IngressRole::AbsolutePointer,
+            vec![
+                RawIngressEvent::new(RawIngressEventKind::Absolute, 0, 4096),
+                RawIngressEvent::new(RawIngressEventKind::Absolute, 1, 27693),
+            ],
+        ),
+        TimestampNs::new(22),
+        32767,
+        32767,
+    )
+    .expect("absolute adapter outcome");
+
+    let wire_batch = outcome.wire_batch().expect("absolute wire batch");
+    assert_eq!(
+        wire_batch.pointer_source,
+        input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE
+    );
+    assert_eq!(wire_batch.abs_max_x, 32767);
+    assert_eq!(wire_batch.abs_max_y, 32767);
+    assert_eq!(wire_batch.normalized_event_count, 2);
+    assert!(
+        wire_batch.events.iter().all(|event| event.kind == input_live_protocol::EVENT_KIND_ABS),
+        "absolute pointer calibration proof requires abs events on the wire"
+    );
+}
+
+#[test]
+fn touch_absolute_source_is_carried_on_the_wire() {
+    let mut service = HidrawdService::new();
+    let mouse_id = DeviceId::new(13);
+    service.register_mouse(mouse_id);
+
+    let outcome = normalize_ingress_batch(
+        &mut service,
+        mouse_id,
+        &RawIngressBatch::with_pointer_source(
+            IngressRole::AbsolutePointer,
+            Some(PointerSource::TouchAbsolute),
+            vec![RawIngressEvent::new(RawIngressEventKind::Absolute, 0, 8192)],
+        ),
+        TimestampNs::new(24),
+        32767,
+        32767,
+    )
+    .expect("touch absolute adapter outcome");
+
+    let wire_batch = outcome.wire_batch().expect("touch absolute wire batch");
+    assert_eq!(
+        wire_batch.pointer_source,
+        input_live_protocol::POINTER_SOURCE_TOUCH_ABSOLUTE
+    );
+}
+
+#[test]
+fn absolute_pointer_falls_back_to_qemu_axis_max_when_live_axis_info_is_missing() {
+    let raw_events = vec![
+        RawIngressEvent::new(RawIngressEventKind::Absolute, 0, 8192),
+        RawIngressEvent::new(RawIngressEventKind::Absolute, 1, 4096),
+    ];
+
+    assert_eq!(
+        resolve_absolute_axis_max(Some(PointerSource::TabletAbsolute), 0, &raw_events, 0),
+        QEMU_ABSOLUTE_AXIS_FALLBACK_MAX
+    );
+    assert_eq!(
+        resolve_absolute_axis_max(Some(PointerSource::TouchAbsolute), 0, &raw_events, 1),
+        QEMU_ABSOLUTE_AXIS_FALLBACK_MAX
+    );
+    assert_eq!(
+        resolve_absolute_axis_max(Some(PointerSource::MouseRelative), 0, &raw_events, 0),
+        0
+    );
 }
 
 #[test]

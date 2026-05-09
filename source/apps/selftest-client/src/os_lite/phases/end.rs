@@ -17,12 +17,18 @@
 
 use nexus_abi::{nsec, yield_};
 
+use input_live_protocol::VisibleState;
+
 use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::{context::PhaseCtx, display_bootstrap};
 use crate::runtime_mode::RuntimeMode;
 
 const INTERACTIVE_VISIBLE_STATE_POLL_INTERVAL_NS: u64 = 16_000_000;
 const INTERACTIVE_VISIBLE_STATE_POLL_FALLBACK_TICKS: u32 = 64;
+const V2A_SMOKE_ERR_MARKER: &str = "windowd: v2a smoke err";
+const V2A_SCHEDULER_OFF_MARKER: &str = "windowd: v2a scheduler off";
+const V2A_INPUT_OFF_MARKER: &str = "windowd: v2a input off";
+const V2A_CLICK_OFF_MARKER: &str = "windowd: v2a click off";
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut proof_completed = true;
@@ -35,82 +41,43 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut interactive_keyboard_visible_emitted = false;
     let mut interactive_all_visible_emitted = false;
     if display_bootstrap::enabled() {
-        let _ = nexus_abi::debug_println("dbg: end bootstrap enabled");
         proof_completed = false;
-        if let Some(evidence) = display_bootstrap::run() {
-            let _ = nexus_abi::debug_println("dbg: end bootstrap run ok");
+        if let Ok(display) = display_bootstrap::observe_display_evidence() {
             emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
             emit_line(windowd::DISPLAY_MODE_MARKER);
-            if evidence.systemui.backend_visible {
+            if display.backend_visible {
                 emit_line(windowd::VISIBLE_BACKEND_MARKER);
             }
             emit_line(windowd::PRESENT_VISIBLE_MARKER);
-            emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
-            if evidence.systemui.systemui_first_frame {
+            if display.first_scanout_ready {
+                emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
+            }
+            if display.systemui_first_frame {
+                emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+            }
+            emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+        }
+        if let Some(evidence) = display_bootstrap::run() {
+            emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
+            emit_line(windowd::DISPLAY_MODE_MARKER);
+            if evidence.display.backend_visible {
+                emit_line(windowd::VISIBLE_BACKEND_MARKER);
+            }
+            emit_line(windowd::PRESENT_VISIBLE_MARKER);
+            if evidence.display.first_scanout_ready {
+                emit_line(windowd::DISPLAY_FIRST_SCANOUT_MARKER);
+            }
+            if evidence.display.systemui_first_frame {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
             match evidence.runtime_mode {
                 RuntimeMode::Proof => {
-                    let _ = nexus_abi::debug_println("dbg: end bootstrap mode proof");
-                    proof_completed = true;
                     emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
                     if let Some(proof) = evidence.proof {
-                        if let Ok(v2a) = windowd::run_ui_v2a_smoke() {
-                            if v2a.present_scheduler_on {
-                                emit_line(windowd::PRESENT_SCHEDULER_ON_MARKER);
-                            }
-                            if v2a.input_on {
-                                emit_line(windowd::INPUT_ON_MARKER);
-                                emit_bytes(b"windowd: focus -> ");
-                                emit_u64(v2a.focused_surface.raw());
-                                emit_bytes(b"\n");
-                                if v2a.launcher_click_ok {
-                                    emit_line(windowd::LAUNCHER_CLICK_OK_MARKER);
-                                }
-                            }
-                            if v2a.present_scheduler_on {
-                                emit_line(windowd::SELFTEST_UI_V2_PRESENT_OK_MARKER);
-                            }
-                            if v2a.input_on && v2a.launcher_click_ok {
-                                emit_line(windowd::SELFTEST_UI_V2_INPUT_OK_MARKER);
-                            }
-                        }
-                        let visible_input = proof.visible_state;
-                        if visible_input.input_visible_on {
-                            emit_line(windowd::INPUT_VISIBLE_ON_MARKER);
-                        }
-                        if visible_input.full_window_visible {
-                            emit_line(windowd::FULL_WINDOW_VISIBLE_MARKER);
-                        }
-                        if visible_input.cursor_move_visible {
-                            emit_line(windowd::CURSOR_MOVE_VISIBLE_MARKER);
-                        }
-                        if visible_input.hover_visible {
-                            emit_line(windowd::HOVER_VISIBLE_MARKER);
-                        }
-                        if visible_input.focus_visible {
-                            emit_line(windowd::FOCUS_VISIBLE_MARKER);
-                        }
-                        if visible_input.launcher_click_visible {
-                            emit_line(windowd::LAUNCHER_CLICK_VISIBLE_OK_MARKER);
-                        }
-                        if visible_input.keyboard_visible {
-                            emit_line(windowd::KEYBOARD_VISIBLE_MARKER);
-                        }
-                        if visible_input.input_visible_on
-                            && visible_input.full_window_visible
-                            && visible_input.cursor_move_visible
-                            && visible_input.hover_visible
-                            && visible_input.focus_visible
-                            && visible_input.launcher_click_visible
-                            && visible_input.keyboard_visible
-                        {
-                            emit_line(windowd::SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
-                        }
+                        proof_completed = emit_proof_mode_markers(proof.visible_state);
                     }
                 }
                 RuntimeMode::InteractiveMinimal => {
-                    let _ = nexus_abi::debug_println("dbg: end bootstrap mode interactive-minimal");
                     proof_completed = false;
                     interactive_mode = Some(RuntimeMode::InteractiveMinimal);
                     if let Some(interactive) = evidence.interactive {
@@ -118,12 +85,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                             emit_line(windowd::INTERACTIVE_SCENE_READY_MARKER);
                         }
                     }
-                    let _ = nexus_abi::debug_println(
-                        "debug8cde1d: interactive minimal live-route observer",
-                    );
                 }
                 RuntimeMode::InteractiveFull => {
-                    let _ = nexus_abi::debug_println("dbg: end bootstrap mode interactive-full");
                     proof_completed = false;
                     interactive_mode = Some(RuntimeMode::InteractiveFull);
                     if let Some(interactive) = evidence.interactive {
@@ -138,13 +101,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                             emit_line(windowd::INTERACTIVE_KEYBOARD_TARGET_READY_MARKER);
                         }
                     }
-                    let _ = nexus_abi::debug_println(
-                        "debug8cde1d: interactive full live-route observer",
-                    );
                 }
             }
-        } else {
-            let _ = nexus_abi::debug_println("dbg: end bootstrap run none");
         }
     } else if let Ok(evidence) = windowd::run_headless_ui_smoke() {
         if evidence.ready {
@@ -174,15 +132,24 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut last_interactive_poll_tick = 0u32;
     loop {
         idle_ticks = idle_ticks.wrapping_add(1);
-        if matches!(
-            interactive_mode,
-            Some(RuntimeMode::InteractiveMinimal | RuntimeMode::InteractiveFull)
-        ) && should_poll_interactive_visible_state(
+        let should_poll_visible_state = !proof_completed
+            || matches!(
+                interactive_mode,
+                Some(RuntimeMode::InteractiveMinimal | RuntimeMode::InteractiveFull)
+            );
+        if should_poll_visible_state
+            && should_poll_interactive_visible_state(
             idle_ticks,
             &mut last_interactive_poll_tick,
             &mut last_interactive_poll_ns,
         ) {
             if let Some(state) = display_bootstrap::interactive_live_tick() {
+                if !proof_completed && proof_visible_input_ready(state) {
+                    proof_completed = emit_proof_mode_markers(state);
+                    if proof_completed {
+                        emit_line(crate::markers::M_SELFTEST_END);
+                    }
+                }
                 if interactive_mode == Some(RuntimeMode::InteractiveFull) {
                     if state.input_visible_on && !interactive_input_visible_emitted {
                         emit_line(windowd::INPUT_VISIBLE_ON_MARKER);
@@ -225,6 +192,83 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         }
         let _ = yield_();
     }
+}
+
+fn emit_proof_mode_markers(visible_input: VisibleState) -> bool {
+    match windowd::run_ui_v2a_smoke() {
+        Ok(v2a) => {
+            if v2a.present_scheduler_on {
+                emit_line(windowd::PRESENT_SCHEDULER_ON_MARKER);
+            } else {
+                emit_line(V2A_SCHEDULER_OFF_MARKER);
+            }
+            if v2a.input_on {
+                emit_line(windowd::INPUT_ON_MARKER);
+                emit_bytes(b"windowd: focus -> ");
+                emit_u64(v2a.focused_surface.raw());
+                emit_bytes(b"\n");
+                if v2a.launcher_click_ok {
+                    emit_line(windowd::LAUNCHER_CLICK_OK_MARKER);
+                } else {
+                    emit_line(V2A_CLICK_OFF_MARKER);
+                }
+            } else {
+                emit_line(V2A_INPUT_OFF_MARKER);
+            }
+            if v2a.present_scheduler_on {
+                emit_line(windowd::SELFTEST_UI_V2_PRESENT_OK_MARKER);
+            }
+            if v2a.input_on && v2a.launcher_click_ok {
+                emit_line(windowd::SELFTEST_UI_V2_INPUT_OK_MARKER);
+            }
+        }
+        Err(_) => emit_line(V2A_SMOKE_ERR_MARKER),
+    }
+    if visible_input.input_visible_on {
+        emit_line(windowd::INPUT_VISIBLE_ON_MARKER);
+    }
+    if visible_input.full_window_visible {
+        emit_line(windowd::FULL_WINDOW_VISIBLE_MARKER);
+    }
+    if visible_input.cursor_move_visible {
+        emit_line(windowd::CURSOR_MOVE_VISIBLE_MARKER);
+    }
+    if visible_input.hover_visible {
+        emit_line(windowd::HOVER_VISIBLE_MARKER);
+    }
+    if visible_input.focus_visible {
+        emit_line(windowd::FOCUS_VISIBLE_MARKER);
+    }
+    if visible_input.launcher_click_visible {
+        emit_line(windowd::LAUNCHER_CLICK_VISIBLE_OK_MARKER);
+    }
+    if visible_input.keyboard_visible {
+        emit_line(windowd::KEYBOARD_VISIBLE_MARKER);
+    }
+    if visible_input.input_visible_on
+        && visible_input.full_window_visible
+        && visible_input.cursor_move_visible
+        && visible_input.hover_visible
+        && visible_input.focus_visible
+        && visible_input.launcher_click_visible
+        && visible_input.keyboard_visible
+    {
+        emit_line(windowd::SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
+        return true;
+    }
+    false
+}
+
+const fn proof_visible_input_ready(state: VisibleState) -> bool {
+    state.input_visible_on
+        && state.full_window_visible
+        && state.cursor_move_visible
+        && state.hover_visible
+        && state.focus_visible
+        && state.launcher_click_visible
+        && state.keyboard_visible
+        && state.pointer_route_live
+        && state.keyboard_route_live
 }
 
 fn should_poll_interactive_visible_state(

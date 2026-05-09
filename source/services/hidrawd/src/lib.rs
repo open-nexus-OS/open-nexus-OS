@@ -21,8 +21,9 @@ mod types;
 
 pub use error::HidrawdError;
 pub use adapter::{
-    normalize_ingress_batch, IngressGateEvidence, IngressNormalization, IngressRole, RawIngressBatch,
-    RawIngressEvent, RawIngressEventKind,
+    normalize_ingress_batch, resolve_absolute_axis_max, IngressGateEvidence, IngressNormalization,
+    IngressRole, PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
 };
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub use os_lite::service_main_loop;

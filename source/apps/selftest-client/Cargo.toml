@@ -114,3 +114,6 @@ updates = { path = "../../../userspace/updates" }
 # `markers_generated.rs` from `proof-manifest.toml` so emit sites can reference
 # `M_<KEY>` constants instead of hard-coded marker literals.
 nexus-proof-manifest = { path = "../../libs/nexus-proof-manifest" }
+
+[dev-dependencies]
+input-live-protocol = { path = "../../../userspace/input-live-protocol" }

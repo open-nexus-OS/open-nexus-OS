@@ -84,12 +84,12 @@ ifeq ($(MODE),container)
 		    -p keystored -p rngd -p policyd -p logd -p metricsd \
 		    -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
 		    -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
-		    -p hidrawd -p touchd -p inputd \
+		    -p hidrawd -p touchd -p inputd -p fbdevd \
 		    -p selftest-client \
 		    --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --release && \
 		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
 		  forbidden="parking_lot parking_lot_core getrandom"; \
-		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd hidrawd touchd inputd"; \
+		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd hidrawd touchd inputd fbdevd"; \
 		  found=0; \
 		  for svc in $$services; do \
 		    tree_output=$$($(CARGO_BIN) +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
@@ -102,10 +102,10 @@ ifeq ($(MODE),container)
                   RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release && \
 		  echo "[1d/2] build init-lite with INIT_LITE_SERVICE_*_ELF env vars (bakes service ELFs into init-lite)"; \
 		  svc_env=""; \
-		  for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd selftest-client; do \
+		  for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd fbdevd selftest-client; do \
 		    upper=$$(echo "$$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
 		    svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_ELF=/workspace/target/riscv64imac-unknown-none-elf/release/$$svc"; \
-		    case "$$svc" in hidrawd|touchd|inputd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
+		    case "$$svc" in hidrawd|touchd|inputd|fbdevd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
 		  done; \
 		  env $$svc_env RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p init-lite --target riscv64imac-unknown-none-elf --release && \
 		  echo "[2/2] cross build kernel (riscv) — embeds init-lite via EMBED_INIT_ELF"; \
@@ -138,7 +138,7 @@ else
 	  -p keystored -p rngd -p policyd -p logd -p metricsd \
 	  -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
 	  -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
-	  -p hidrawd -p touchd -p inputd \
+	  -p hidrawd -p touchd -p inputd -p fbdevd \
 	  -p selftest-client \
 	  --target $(RV_TARGET) --no-default-features --features os-lite --release
 	@$(MAKE) dep-gate
@@ -150,10 +150,10 @@ else
 	@# Without these env vars, init-lite is built with NO services embedded and
 	@# the kernel boots into a userspace that immediately page-faults.
 	@svc_env=""; \
-	 for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd selftest-client; do \
+	 for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd fbdevd selftest-client; do \
 	   upper=$$(echo "$$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
 	   svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_ELF=$(CURDIR)/$(TARGET_DIR)/$(RV_TARGET)/release/$$svc"; \
-	   case "$$svc" in hidrawd|touchd|inputd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
+	   case "$$svc" in hidrawd|touchd|inputd|fbdevd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
 	 done; \
 	 env $$svc_env RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p init-lite --target $(RV_TARGET) --release
 	@echo "==> Cross-building kernel (neuron-boot) with EMBED_INIT_ELF=$(INIT_ELF)"

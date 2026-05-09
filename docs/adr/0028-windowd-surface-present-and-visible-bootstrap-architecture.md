@@ -50,6 +50,12 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - Display/MMIO capability routing remains constrained by the existing device capability model (`TASK-0010`, `RFC-0017`).
    - Invalid mode/format/rights/state requests fail closed and require negative proof coverage.
 
+9. **Live display output is service-gated**
+   - The live chain is `hidrawd -> inputd -> windowd -> fbdevd -> ramfb`.
+   - `selftest-client` remains observer-only and may only emit display/input proof markers after polling service-owned `VisibleState`.
+   - A missing stable marker in `visible-bootstrap` is treated as a missing host/service proof for the first broken hop.
+   - Current fast-closure matrix: `docs/testing/display-output-hardening-matrix.md`.
+
 ## Current State
 
 - `TASK-0056` / `RFC-0050` and `TASK-0056B` / `RFC-0051` are `Done`.

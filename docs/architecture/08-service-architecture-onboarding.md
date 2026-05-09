@@ -138,6 +138,12 @@ Services emit structured logs via `nexus-log` facade (see RFC-0003, RFC-0011):
 - **Integration flows**: add host E2E tests under `tests/` (fast, deterministic).
 - **Bare-metal smoke**: rely on `scripts/qemu-test.sh` and keep proofs bounded.
 
+For service-owned display output, use
+`docs/architecture/display-output-service-chain.md` and
+`docs/testing/display-output-hardening-matrix.md`: `selftest-client` observes
+only, while `hidrawd`, `inputd`, `windowd`, `fbdevd`, and `init-lite` each own
+one explicit gate.
+
 ## Useful entry points
 
 - Testing methodology: `docs/testing/index.md`

@@ -81,6 +81,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "hidrawd",
         "touchd",
         "inputd",
+        "fbdevd",
         "selftest-client",
     ];
 

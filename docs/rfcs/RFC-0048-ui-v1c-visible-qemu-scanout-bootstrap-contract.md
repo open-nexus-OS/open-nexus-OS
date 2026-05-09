@@ -123,10 +123,17 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ### Deterministic markers
 
+- `fbdevd: ready`
+- `fbdevd: map ok`
+- `fbdevd: ramfb configured`
+- `fbdevd: flush ok`
 - `display: bootstrap on`
 - `display: mode 1280x800 argb8888`
 - `display: first scanout ok`
-- `SELFTEST: display bootstrap guest ok`
+
+`SELFTEST: display bootstrap guest ok` remains a legacy marker name from the
+transitional selftest-owned path and is no longer the service-owned closure
+marker for the active `windowd -> fbdevd -> ramfb` ladder.
 
 ## Alternatives considered
 
@@ -139,7 +146,7 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
 
 ## Open questions
 
-- `fbdevd` remains follow-up scope for `TASK-0251`; this slice intentionally uses a minimal `windowd`-owned bootstrap authority over QEMU `ramfb`.
+- `fbdevd` is now the single scanout authority for the QEMU `ramfb` path; `selftest-client` remains observer-only and validates the service-owned ladder.
 - The absence of `display: first scanout ok` remains sufficient for pre-scanout failure. Success is additionally guarded by host rejects and `scripts/qemu-test.sh` marker prerequisites.
 
 ---

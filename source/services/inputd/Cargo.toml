@@ -21,6 +21,7 @@ touchd = { path = "../touchd" }
 keymaps = { path = "../../../userspace/keymaps" }
 key-repeat = { path = "../../../userspace/key-repeat" }
 pointer-accel = { path = "../../../userspace/pointer-accel" }
+pointer-state = { path = "../../../userspace/pointer-state" }
 windowd = { path = "../windowd" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }

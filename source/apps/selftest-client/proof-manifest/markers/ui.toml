@@ -38,6 +38,26 @@ proves = "visible QEMU scanout bootstrap path was selected by the boot-mode knob
 phase = "end"
 proves = "visible bootstrap accepted exactly the fixed 1280x800 ARGB8888 ramfb mode"
 
+[marker."fbdevd: ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "fbdevd became the single scanout owner before any observer-only visible closure marker"
+
+[marker."fbdevd: map ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "fbdevd acquired a valid framebuffer mapping before ramfb configuration"
+
+[marker."fbdevd: ramfb configured"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "fbdevd configured the QEMU ramfb target before the observer accepted first-scanout evidence"
+
+[marker."fbdevd: flush ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "fbdevd completed at least one real framebuffer flush before visible-present closure"
+
 [marker."windowd: backend=visible"]
 phase = "end"
 proves = "windowd selected the visible backend for the TASK-0055C present path"
@@ -48,7 +68,7 @@ proves = "windowd composed the visible frame and visible-present evidence exists
 
 [marker."display: first scanout ok"]
 phase = "end"
-proves = "selftest configured ramfb only after windowd visible-present evidence"
+proves = "observer-only selftest saw first-scanout readiness only after windowd visible-present evidence and fbdevd scanout ownership"
 
 [marker."systemui: first frame visible"]
 phase = "end"
@@ -60,7 +80,7 @@ proves = "legacy TASK-0055B guest-side ramfb bootstrap marker; not emitted by th
 
 [marker."SELFTEST: ui visible present ok"]
 phase = "end"
-proves = "selftest completed the visible windowd present path with a deterministic SystemUI first frame"
+proves = "observer-only selftest completed the service-owned visible present path with deterministic SystemUI first-frame evidence"
 
 [marker."hidrawd: ready"]
 phase = "end"

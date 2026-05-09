@@ -11,7 +11,11 @@ default_shell = "desktop"
 allowed_shells = ["desktop"]
 
 [input]
-touch = false
+# Visible QEMU/device harness reads these booleans to decide which emulated
+# keyboard/mouse/tablet sources exist for this profile.
+# Desktop keeps absolute tablet input enabled in the live GTK/QEMU lane so
+# host-pointer motion remains stable without relying only on relative capture.
+touch = true
 mouse = true
 kbd = true
 remote = false

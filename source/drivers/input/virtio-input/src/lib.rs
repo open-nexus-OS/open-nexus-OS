@@ -428,16 +428,10 @@ impl MappedVirtioInputDevice {
         mmio.probe()?;
         mmio.negotiate_features_none()?;
         let role = mmio.detect_role()?;
-        let absolute_x = if role == DeviceRole::AbsolutePointer {
-            mmio.read_absolute_axis_info(0).ok()
-        } else {
-            None
-        };
-        let absolute_y = if role == DeviceRole::AbsolutePointer {
-            mmio.read_absolute_axis_info(1).ok()
-        } else {
-            None
-        };
+        // Keep absolute axis calibration available even when role detection
+        // falls back conservatively because optional config-bit probes are absent.
+        let absolute_x = mmio.read_absolute_axis_info(0).ok();
+        let absolute_y = mmio.read_absolute_axis_info(1).ok();
         let queue = QueueState::<{ DEFAULT_QUEUE_ENTRIES as usize }>::new(
             &bus,
             queue_va,
@@ -690,6 +684,12 @@ mod tests {
                 ..Self::keyboard()
             }
         }
+
+        fn keyboard_without_optional_configs_but_with_absolute_axes(max_x: i32, max_y: i32) -> Self {
+            let mut bus = Self::absolute_pointer(max_x, max_y);
+            bus.abs_bits = None;
+            bus
+        }
     }
 
     impl Bus for MockBus {
@@ -772,6 +772,15 @@ mod tests {
         let bus = MockBus::keyboard_without_optional_configs();
         let dev = VirtioInputMmio::new(bus);
         assert_eq!(dev.detect_role(), Ok(DeviceRole::Keyboard));
+    }
+
+    #[test]
+    fn absolute_axis_info_remains_readable_when_optional_bitmaps_are_absent() {
+        let bus = MockBus::keyboard_without_optional_configs_but_with_absolute_axes(32767, 32767);
+        let dev = VirtioInputMmio::new(bus);
+        assert_eq!(dev.detect_role(), Ok(DeviceRole::Keyboard));
+        assert_eq!(dev.read_absolute_axis_info(0), Ok(AbsoluteAxisInfo::new(0, 32767)));
+        assert_eq!(dev.read_absolute_axis_info(1), Ok(AbsoluteAxisInfo::new(0, 32767)));
     }
 
     #[test]

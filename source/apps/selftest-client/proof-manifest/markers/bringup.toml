@@ -123,6 +123,14 @@ proves = "TASK-0253 inputd is embedded as an init-lite OS service image"
 phase = "bringup"
 proves = "TASK-0253 inputd service image was spawned by init-lite"
 
+[marker."init: start fbdevd"]
+phase = "bringup"
+proves = "the service-owned display scanout owner is embedded as an init-lite OS service image"
+
+[marker."init: up fbdevd"]
+phase = "bringup"
+proves = "the service-owned display scanout owner was spawned by init-lite before visible-bootstrap closure"
+
 [marker."init: ready"]
 phase = "bringup"
 

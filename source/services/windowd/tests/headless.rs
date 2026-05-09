@@ -8,6 +8,8 @@
 //! TEST_COVERAGE: headless, visible-bootstrap, visible SystemUI, and visible-input smoke tests
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
+use pointer_state::{PointerPosition, PointerSpace, PointerTransform};
+
 #[test]
 fn headless_smoke_produces_present_and_resize_evidence() {
     let evidence = match windowd::run_headless_ui_smoke() {
@@ -71,6 +73,122 @@ fn visible_systemui_smoke_produces_first_frame_present_evidence() {
     );
     assert_eq!(evidence.first_present.seq.raw(), 1);
     assert_eq!(evidence.first_present.damage_rects, 1);
+}
+
+#[test]
+fn display_bootstrap_handoff_keeps_windowd_as_scene_authority() {
+    let handoff = windowd::bootstrap_display_handoff().expect("bootstrap handoff");
+    let frame = handoff
+        .materialize_frame()
+        .expect("bootstrap materialized frame");
+
+    assert_eq!(handoff.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(handoff.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    assert_eq!(handoff.damage_rects, 1);
+    assert!(handoff.backend_visible);
+    assert!(handoff.scanout_ready);
+    assert!(handoff.systemui_first_frame_visible);
+    assert_eq!(frame.width, handoff.mode.width);
+    assert_eq!(frame.height, handoff.mode.height);
+    assert_eq!(frame.stride, handoff.mode.stride);
+    assert!(!frame.pixels.is_empty());
+}
+
+#[test]
+fn live_visible_state_handoff_composes_cursor_click_and_keyboard_targets() {
+    let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
+    let transform = PointerTransform::new(
+        PointerSpace::new(mode.width, mode.height).expect("display"),
+        PointerSpace::new(64, 48).expect("route"),
+    )
+    .expect("transform");
+    let cursor = transform.route_to_display(PointerPosition::new(8, 40));
+    let click_rect = transform.route_rect_to_display(4, 36, 8, 8);
+    let keyboard_rect = transform.route_rect_to_display(52, 18, 8, 8);
+    let handoff = windowd::live_visible_state_handoff(input_live_protocol::VisibleState {
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        scene_ready: true,
+        full_window_visible: true,
+        click_target_visible: true,
+        keyboard_target_visible: true,
+        input_visible_on: true,
+        cursor_move_visible: true,
+        hover_visible: true,
+        focus_visible: true,
+        launcher_click_visible: true,
+        keyboard_visible: true,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_x: cursor.x,
+        cursor_y: cursor.y,
+        ..Default::default()
+    })
+    .expect("live handoff");
+    let frame = handoff
+        .materialize_frame()
+        .expect("live materialized frame");
+
+    let stride = handoff.mode.stride as usize;
+    let cursor = cursor.y as usize * stride + cursor.x as usize * 4;
+    let click = click_rect.top as usize * stride + click_rect.left as usize * 4;
+    let keyboard = keyboard_rect.top as usize * stride + keyboard_rect.left as usize * 4;
+
+    assert_eq!(
+        frame.pixels[cursor..cursor + 4],
+        windowd::VISIBLE_CURSOR_BGRA
+    );
+    assert_eq!(
+        frame.pixels[click..click + 4],
+        windowd::VISIBLE_INPUT_CLICK_BGRA
+    );
+    assert_eq!(
+        frame.pixels[keyboard..keyboard + 4],
+        windowd::VISIBLE_INPUT_KEYBOARD_BGRA
+    );
+}
+
+#[test]
+fn live_visible_cursor_coordinates_preserve_screen_direction_when_scaled() {
+    let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
+    let transform = PointerTransform::new(
+        PointerSpace::new(mode.width, mode.height).expect("display"),
+        PointerSpace::new(64, 48).expect("route"),
+    )
+    .expect("transform");
+    let mut row = vec![0u8; mode.stride as usize];
+    let base_cursor = transform.route_to_display(PointerPosition::new(8, 12));
+    let base = input_live_protocol::VisibleState {
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        scene_ready: true,
+        cursor_x: base_cursor.x,
+        cursor_y: base_cursor.y,
+        ..Default::default()
+    };
+
+    windowd::copy_live_visible_row(base, mode, base_cursor.y as u32, &mut row)
+        .expect("base cursor row");
+    assert_eq!(
+        row[base_cursor.x as usize * 4..base_cursor.x as usize * 4 + 4],
+        windowd::VISIBLE_CURSOR_BGRA
+    );
+
+    row.fill(0);
+    let moved_cursor = transform.route_to_display(PointerPosition::new(9, 13));
+    let moved_down_right = input_live_protocol::VisibleState {
+        cursor_x: moved_cursor.x,
+        cursor_y: moved_cursor.y,
+        ..base
+    };
+    windowd::copy_live_visible_row(moved_down_right, mode, moved_cursor.y as u32, &mut row)
+        .expect("moved cursor row");
+    assert_eq!(
+        row[moved_cursor.x as usize * 4..moved_cursor.x as usize * 4 + 4],
+        windowd::VISIBLE_CURSOR_BGRA
+    );
 }
 
 #[test]

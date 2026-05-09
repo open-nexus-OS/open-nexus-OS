@@ -12,31 +12,28 @@ extern crate alloc;
 use alloc::{format, vec::Vec};
 
 use hid::{HidEvent, TimestampNs};
-use hidrawd::{DeviceId, HidBatch, HidDeviceKind};
+use hidrawd::{DeviceId, HidBatch};
 use input_live_protocol::{
     decode_push_hid_batch, encode_status, encode_visible_state_frame, frame_has_op, VisibleState,
-    WireHidBatch, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
-    HID_KIND_KEYBOARD, HID_KIND_MOUSE, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED,
-    STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
+    WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK,
+    STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
-use crate::{InputDispatch, InputdConfig, InputdService, RouteTarget};
+use crate::{
+    decode_wire_batch, visible_display_space, visible_display_start_position,
+    visible_hover_target_contains, AbsoluteAxisCalibration, InputDispatch, InputdConfig,
+    InputdService, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
+    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
+    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
+    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE, WireBatchReject,
+};
 
-const VISIBLE_INPUT_PROOF_WIDTH: u32 = 64;
-const VISIBLE_INPUT_PROOF_HEIGHT: u32 = 48;
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
 const VISIBLE_INPUT_SURFACE_Y: i32 = 0;
 const VISIBLE_INPUT_SURFACE_WIDTH: u32 = VISIBLE_INPUT_PROOF_WIDTH;
 const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = VISIBLE_INPUT_PROOF_HEIGHT;
-const VISIBLE_INPUT_CURSOR_START_X: i32 = 24;
-const VISIBLE_INPUT_CURSOR_START_Y: i32 = 12;
-const VISIBLE_INPUT_LEFT_SQUARE_X: u32 = 4;
-const VISIBLE_INPUT_LEFT_SQUARE_Y: u32 = 36;
-const VISIBLE_INPUT_RIGHT_SQUARE_X: u32 = 52;
-const VISIBLE_INPUT_RIGHT_SQUARE_Y: u32 = 18;
-const VISIBLE_INPUT_SQUARE_SIZE: u32 = 8;
 const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
 const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
 const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
@@ -55,38 +52,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 nexus_ipc::IpcError::Unsupported => "inputd: route err unsupported",
                 _ => "inputd: route err other",
             });
-            // #region agent log
-            agent_log(
-                "H2",
-                "source/services/inputd/src/os_lite.rs:46",
-                "inputd named route bind failed",
-                agent_ipc_error_data(err),
-            );
-            // #endregion
             let _ = debug_println("inputd: route fallback");
+            let _ = debug_println("inputd: fallback slots 3/4");
             let server = KernelServer::new_with_slots(3, 4)
                 .map_err(|_| fail("inputd: init fail kernel-server"))?;
-            let (recv_slot, send_slot) = server.slots();
-            // #region agent log
-            agent_log(
-                "H1",
-                "source/services/inputd/src/os_lite.rs:63",
-                "inputd fallback bind",
-                &format!("mode=fallback recv_slot={recv_slot} send_slot={send_slot}"),
-            );
-            // #endregion
             server
         }
     };
-    let (recv_slot, send_slot) = server.slots();
-    // #region agent log
-    agent_log(
-        "H2",
-        "source/services/inputd/src/os_lite.rs:46",
-        "inputd named route bind",
-        &format!("mode=named recv_slot={recv_slot} send_slot={send_slot}"),
-    );
-    // #endregion
     debug_println("inputd: ready").map_err(|_| "inputd ready log failed")?;
     debug_println("inputd: keymap=de").map_err(|_| "inputd keymap log failed")?;
     debug_println("inputd: os service payload ready").map_err(|_| "inputd payload log failed")?;
@@ -102,21 +74,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 } else {
                     runtime.chain.unsupported_frames =
                         runtime.chain.unsupported_frames.saturating_add(1);
-                }
-                if !frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                    // #region agent log
-                    agent_log(
-                        "H3",
-                        "source/services/inputd/src/os_lite.rs:85",
-                        "inputd recv ok",
-                        &format!(
-                            "frame_len={} op={} has_reply={}",
-                            frame.len(),
-                            frame.get(3).copied().unwrap_or(0),
-                            u8::from(reply.is_some())
-                        ),
-                    );
-                    // #endregion
                 }
                 if let Some(reply) = reply {
                     if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
@@ -146,20 +103,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 runtime.report_chain_if_due();
                 let _ = yield_();
             }
-            Err(err) => {
-                let (recv_slot, send_slot) = server.slots();
-                // #region agent log
-                agent_log(
-                    "H1",
-                    "source/services/inputd/src/os_lite.rs:103",
-                    "inputd recv fatal",
-                    &format!(
-                        "recv_slot={recv_slot} send_slot={send_slot} err_kind={} err_detail={}",
-                        agent_ipc_error_kind(err),
-                        agent_ipc_error_detail(err)
-                    ),
-                );
-                // #endregion
+            Err(_err) => {
                 return Err("inputd recv failed");
             }
         }
@@ -225,19 +169,26 @@ impl LiveRouteRuntime {
                 }],
             )
             .map_err(|_| fail("inputd: init fail commit-scene"))?;
-        let _ = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
+        let _ = server
+            .present_tick()
+            .map_err(|_| fail("inputd: init fail present-tick"))?;
+        let display_start = visible_display_start_position()
+            .map_err(|_| fail("inputd: init fail pointer-transform"))?;
+        let display_space =
+            visible_display_space().map_err(|_| fail("inputd: init fail pointer-transform"))?;
         let config = InputdConfig::new(
             "de",
             350,
             30,
+            LIVE_POINTER_THRESHOLD,
+            LIVE_POINTER_NUMERATOR,
+            LIVE_POINTER_DENOMINATOR,
+            LIVE_POINTER_MAX_OUTPUT,
             64,
-            1,
-            1,
-            96,
-            64,
-            VISIBLE_INPUT_CURSOR_START_X,
-            VISIBLE_INPUT_CURSOR_START_Y,
+            display_start.x,
+            display_start.y,
         )
+        .and_then(|config| config.with_display_space(display_space.width(), display_space.height()))
         .map_err(|_| fail("inputd: init fail config"))?;
         let input = InputdService::new(server, config)
             .map_err(|_| fail("inputd: init fail route-service"))?;
@@ -250,8 +201,8 @@ impl LiveRouteRuntime {
                 full_window_visible: true,
                 click_target_visible: true,
                 keyboard_target_visible: true,
-                cursor_x: VISIBLE_INPUT_CURSOR_START_X,
-                cursor_y: VISIBLE_INPUT_CURSOR_START_Y,
+                cursor_x: display_start.x,
+                cursor_y: display_start.y,
                 ..VisibleState::default()
             },
             pointer_marker_emitted: false,
@@ -268,6 +219,7 @@ impl LiveRouteRuntime {
     fn handle_frame(&mut self, frame: &[u8]) -> [u8; 8] {
         if frame_has_op(frame, OP_PUSH_HID_BATCH) {
             let Some(batch) = decode_push_hid_batch(frame) else {
+                self.chain.frame_decode_malformed = self.chain.frame_decode_malformed.saturating_add(1);
                 self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
                 return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
             };
@@ -280,28 +232,30 @@ impl LiveRouteRuntime {
     }
 
     fn apply_wire_batch(&mut self, batch: WireHidBatch) -> u8 {
-        if usize::from(batch.normalized_event_count) != batch.events.len()
-            || batch.raw_event_count < batch.normalized_event_count
-        {
-            self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
-            return STATUS_MALFORMED;
-        }
         // OS-lite consumes the per-batch dispatch result directly for telemetry and visible-state
         // updates, so the internal dispatch history must not accumulate across live batches.
         self.input.clear_dispatches();
-        self.chain.raw_events =
-            self.chain.raw_events.saturating_add(u64::from(batch.raw_event_count));
-        self.chain.normalized_events =
-            self.chain.normalized_events.saturating_add(u64::from(batch.normalized_event_count));
+        self.chain.raw_events = self
+            .chain
+            .raw_events
+            .saturating_add(u64::from(batch.raw_event_count));
+        self.chain.normalized_events = self
+            .chain
+            .normalized_events
+            .saturating_add(u64::from(batch.normalized_event_count));
         if batch.raw_event_count > 0 {
             self.visible_state.virtio_raw_seen = true;
         }
         if batch.normalized_event_count > 0 {
             self.visible_state.hid_normalized_seen = true;
         }
-        let Ok(hid_batch) = self.decode_batch(batch) else {
-            self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
-            return STATUS_MALFORMED;
+        let hid_batch = match decode_wire_batch(batch, self.input.pointer_transform()) {
+            Ok(batch) => batch,
+            Err(reject) => {
+                self.chain.record_wire_reject(reject);
+                let _ = debug_println(&format!("inputd: reject {}", reject.label()));
+                return reject.status();
+            }
         };
         if self.input.apply_hid_batch_in_place(&hid_batch).is_err() {
             self.chain.route_overflow_apply = self.chain.route_overflow_apply.saturating_add(1);
@@ -338,16 +292,20 @@ impl LiveRouteRuntime {
                     .any(|dispatch| matches!(dispatch, InputDispatch::Keyboard { .. })),
             )
         };
-        let Ok(delivered_count) =
-            self.input.router_mut().drain_input_events(self.launcher, self.surface)
+        let Ok(delivered_count) = self
+            .input
+            .router_mut()
+            .drain_input_events(self.launcher, self.surface)
         else {
             self.chain.route_overflow_delivery =
                 self.chain.route_overflow_delivery.saturating_add(1);
             return STATUS_OVERFLOW;
         };
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
-        self.chain.delivered_events =
-            self.chain.delivered_events.saturating_add(delivered_count as u64);
+        self.chain.delivered_events = self
+            .chain
+            .delivered_events
+            .saturating_add(delivered_count as u64);
         if pointer_dispatch_batch {
             self.chain.pointer_dispatch_batches =
                 self.chain.pointer_dispatch_batches.saturating_add(1);
@@ -364,41 +322,16 @@ impl LiveRouteRuntime {
             self.chain.keyboard_delivery_batches =
                 self.chain.keyboard_delivery_batches.saturating_add(1);
         }
-        self.update_visible_state(pointer_move_seen, pointer_down_dispatched, keyboard_dispatched);
+        self.update_visible_state(
+            pointer_move_seen,
+            pointer_down_dispatched,
+            keyboard_dispatched,
+        );
         STATUS_OK
     }
 
     fn report_chain_if_due(&mut self) {
         self.chain.report_if_due(self.visible_state);
-    }
-
-    fn decode_batch(&self, batch: WireHidBatch) -> Result<HidBatch, ()> {
-        let kind = match batch.device_kind {
-            HID_KIND_KEYBOARD => HidDeviceKind::Keyboard,
-            HID_KIND_MOUSE => HidDeviceKind::Mouse,
-            _ => return Err(()),
-        };
-        let (width, height) = self.input.router().bounds();
-        let mut events = Vec::with_capacity(batch.events.len());
-        for event in batch.events {
-            let timestamp = TimestampNs::new(event.timestamp_ns);
-            let hid_event = match event.kind {
-                EVENT_KIND_KEY => HidEvent::key(timestamp, event.code, event.value),
-                EVENT_KIND_REL => HidEvent::rel(timestamp, event.code, event.value),
-                EVENT_KIND_BTN => HidEvent::btn(timestamp, event.code, event.value),
-                EVENT_KIND_ABS => {
-                    let scaled = match event.code {
-                        0 => scale_absolute(event.value, batch.abs_max_x, width),
-                        1 => scale_absolute(event.value, batch.abs_max_y, height),
-                        _ => return Err(()),
-                    };
-                    HidEvent::abs(timestamp, event.code, scaled)
-                }
-                _ => return Err(()),
-            };
-            events.push(hid_event);
-        }
-        Ok(HidBatch::new(DeviceId::new(batch.device_id), kind, events))
     }
 
     fn update_visible_state(
@@ -407,10 +340,10 @@ impl LiveRouteRuntime {
         pointer_down_dispatched: bool,
         keyboard_dispatched: bool,
     ) {
-        if let Some(pointer) = self.input.router().pointer_position() {
-            self.visible_state.cursor_x = pointer.x;
-            self.visible_state.cursor_y = pointer.y;
-        }
+        let display_pointer = self.input.display_pointer_position();
+        let route_pointer = self.input.route_pointer_position();
+        self.visible_state.cursor_x = display_pointer.x;
+        self.visible_state.cursor_y = display_pointer.y;
         if pointer_down_dispatched && !self.pointer_down_dispatch_debug_emitted {
             let _ = debug_println("dbg: inputd pointer down dispatched");
             self.pointer_down_dispatch_debug_emitted = true;
@@ -432,7 +365,7 @@ impl LiveRouteRuntime {
             self.visible_state.input_visible_on = true;
             self.visible_state.cursor_move_visible = true;
             self.visible_state.hover_visible =
-                self.input.router().last_pointer_hit() == Some(self.surface);
+                visible_hover_target_contains(route_pointer.x, route_pointer.y);
         }
         if pointer_down_dispatched {
             self.visible_state.pointer_route_live = true;
@@ -470,7 +403,16 @@ struct InputdChainTelemetry {
     unsupported_frames: u64,
     hid_ok: u64,
     hid_malformed: u64,
+    hid_unsupported: u64,
     hid_overflow: u64,
+    frame_decode_malformed: u64,
+    wire_count_rejects: u64,
+    wire_device_kind_rejects: u64,
+    wire_pointer_source_rejects: u64,
+    wire_event_kind_rejects: u64,
+    wire_source_mode_rejects: u64,
+    wire_abs_calibration_rejects: u64,
+    wire_abs_axis_rejects: u64,
     route_overflow_apply: u64,
     route_overflow_delivery: u64,
     raw_events: u64,
@@ -497,7 +439,16 @@ impl InputdChainTelemetry {
             unsupported_frames: 0,
             hid_ok: 0,
             hid_malformed: 0,
+            hid_unsupported: 0,
             hid_overflow: 0,
+            frame_decode_malformed: 0,
+            wire_count_rejects: 0,
+            wire_device_kind_rejects: 0,
+            wire_pointer_source_rejects: 0,
+            wire_event_kind_rejects: 0,
+            wire_source_mode_rejects: 0,
+            wire_abs_calibration_rejects: 0,
+            wire_abs_axis_rejects: 0,
             route_overflow_apply: 0,
             route_overflow_delivery: 0,
             raw_events: 0,
@@ -516,8 +467,42 @@ impl InputdChainTelemetry {
         match status {
             STATUS_OK => self.hid_ok = self.hid_ok.saturating_add(1),
             STATUS_MALFORMED => self.hid_malformed = self.hid_malformed.saturating_add(1),
+            STATUS_UNSUPPORTED => self.hid_unsupported = self.hid_unsupported.saturating_add(1),
             STATUS_OVERFLOW => self.hid_overflow = self.hid_overflow.saturating_add(1),
             _ => {}
+        }
+    }
+
+    fn record_wire_reject(&mut self, reject: WireBatchReject) {
+        match reject {
+            WireBatchReject::CountMismatch | WireBatchReject::RawCountUnderflow => {
+                self.wire_count_rejects = self.wire_count_rejects.saturating_add(1)
+            }
+            WireBatchReject::UnknownDeviceKind(_) => {
+                self.wire_device_kind_rejects = self.wire_device_kind_rejects.saturating_add(1)
+            }
+            WireBatchReject::KeyboardPointerSource(_)
+            | WireBatchReject::MissingPointerSource
+            | WireBatchReject::UnknownPointerSource(_) => {
+                self.wire_pointer_source_rejects =
+                    self.wire_pointer_source_rejects.saturating_add(1)
+            }
+            WireBatchReject::KeyboardEventKind(_)
+            | WireBatchReject::PointerKeyEvent
+            | WireBatchReject::UnknownEventKind(_) => {
+                self.wire_event_kind_rejects = self.wire_event_kind_rejects.saturating_add(1)
+            }
+            WireBatchReject::RelativeOnAbsoluteSource(_)
+            | WireBatchReject::AbsoluteOnRelativeSource(_) => {
+                self.wire_source_mode_rejects = self.wire_source_mode_rejects.saturating_add(1)
+            }
+            WireBatchReject::InvalidAbsoluteCalibration(_) => {
+                self.wire_abs_calibration_rejects =
+                    self.wire_abs_calibration_rejects.saturating_add(1)
+            }
+            WireBatchReject::InvalidAbsoluteAxis(_) => {
+                self.wire_abs_axis_rejects = self.wire_abs_axis_rejects.saturating_add(1)
+            }
         }
     }
 
@@ -533,9 +518,16 @@ impl InputdChainTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return;
         }
-        let recv_hz =
-            self.total_frames.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let hid_ok_hz = self.hid_ok.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let recv_hz = self
+            .total_frames
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
+        let hid_ok_hz = self
+            .hid_ok
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
         let poll_hz = self
             .visible_state_polls
             .saturating_mul(1_000_000_000)
@@ -543,14 +535,23 @@ impl InputdChainTelemetry {
             .unwrap_or(0);
         // #region agent log
         let _ = debug_println(&format!(
-            "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} overflow={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
+            "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} hid_unsupported={} overflow={} frame_malformed={} wire_count={} wire_kind={} wire_source={} wire_event={} wire_mode={} abs_cal={} abs_axis={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
             recv_hz,
             hid_ok_hz,
             poll_hz,
             self.hid_push_frames,
             self.hid_ok,
             self.hid_malformed,
+            self.hid_unsupported,
             self.hid_overflow,
+            self.frame_decode_malformed,
+            self.wire_count_rejects,
+            self.wire_device_kind_rejects,
+            self.wire_pointer_source_rejects,
+            self.wire_event_kind_rejects,
+            self.wire_source_mode_rejects,
+            self.wire_abs_calibration_rejects,
+            self.wire_abs_axis_rejects,
             self.route_overflow_apply,
             self.route_overflow_delivery,
             self.raw_events,
@@ -575,7 +576,16 @@ impl InputdChainTelemetry {
         self.unsupported_frames = 0;
         self.hid_ok = 0;
         self.hid_malformed = 0;
+        self.hid_unsupported = 0;
         self.hid_overflow = 0;
+        self.frame_decode_malformed = 0;
+        self.wire_count_rejects = 0;
+        self.wire_device_kind_rejects = 0;
+        self.wire_pointer_source_rejects = 0;
+        self.wire_event_kind_rejects = 0;
+        self.wire_source_mode_rejects = 0;
+        self.wire_abs_calibration_rejects = 0;
+        self.wire_abs_axis_rejects = 0;
         self.route_overflow_apply = 0;
         self.route_overflow_delivery = 0;
         self.raw_events = 0;
@@ -590,66 +600,9 @@ impl InputdChainTelemetry {
     }
 }
 
-fn scale_absolute(value: i32, max: i32, bound: u32) -> i32 {
-    if max <= 0 || bound == 0 {
-        return 0;
-    }
-    let clamped = value.clamp(0, max);
-    let top = i64::from(bound.saturating_sub(1));
-    ((i64::from(clamped) * top) / i64::from(max)) as i32
-}
-
 fn fail(label: &'static str) -> &'static str {
     let _ = debug_println(label);
     label
-}
-
-fn agent_log(
-    hypothesis_id: &'static str,
-    location: &'static str,
-    message: &'static str,
-    data: &str,
-) {
-    let _ = debug_println(&format!("agent8cde1d|{hypothesis_id}|{location}|{message}|{data}"));
-}
-
-fn agent_ipc_error_kind(err: nexus_ipc::IpcError) -> &'static str {
-    match err {
-        nexus_ipc::IpcError::WouldBlock => "would_block",
-        nexus_ipc::IpcError::Timeout => "timeout",
-        nexus_ipc::IpcError::Disconnected => "disconnected",
-        nexus_ipc::IpcError::NoSpace => "no_space",
-        nexus_ipc::IpcError::Kernel(_) => "kernel",
-        nexus_ipc::IpcError::Unsupported => "unsupported",
-        _ => "other",
-    }
-}
-
-fn agent_ipc_error_detail(err: nexus_ipc::IpcError) -> &'static str {
-    match err {
-        nexus_ipc::IpcError::Kernel(kernel) => match kernel {
-            nexus_abi::IpcError::NoSuchEndpoint => "kernel_no_such_endpoint",
-            nexus_abi::IpcError::QueueFull => "kernel_queue_full",
-            nexus_abi::IpcError::QueueEmpty => "kernel_queue_empty",
-            nexus_abi::IpcError::PermissionDenied => "kernel_permission_denied",
-            nexus_abi::IpcError::TimedOut => "kernel_timed_out",
-            nexus_abi::IpcError::NoSpace => "kernel_no_space",
-            nexus_abi::IpcError::Unsupported => "kernel_unsupported",
-        },
-        _ => agent_ipc_error_kind(err),
-    }
-}
-
-fn agent_ipc_error_data(err: nexus_ipc::IpcError) -> &'static str {
-    match err {
-        nexus_ipc::IpcError::WouldBlock => "route_err=would_block",
-        nexus_ipc::IpcError::Timeout => "route_err=timeout",
-        nexus_ipc::IpcError::Disconnected => "route_err=disconnected",
-        nexus_ipc::IpcError::NoSpace => "route_err=no_space",
-        nexus_ipc::IpcError::Kernel(_) => "route_err=kernel",
-        nexus_ipc::IpcError::Unsupported => "route_err=unsupported",
-        _ => "route_err=other",
-    }
 }
 
 fn visible_input_scene_surface(

@@ -14,7 +14,8 @@ use alloc::vec::Vec;
 use hid::{HidEvent, HidEventKind, TimestampNs};
 use input_live_protocol::{
     WireHidBatch, WireHidEvent, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
-    HID_KIND_KEYBOARD, HID_KIND_MOUSE,
+    HID_KIND_KEYBOARD, HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE,
+    POINTER_SOURCE_TABLET_ABSOLUTE, POINTER_SOURCE_TOUCH_ABSOLUTE,
 };
 
 use crate::{DeviceId, HidBatch, HidDeviceKind, HidrawdError, HidrawdService};
@@ -24,6 +25,26 @@ pub enum IngressRole {
     Keyboard,
     RelativePointer,
     AbsolutePointer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerSource {
+    MouseRelative,
+    TabletAbsolute,
+    TouchAbsolute,
+}
+
+pub const QEMU_ABSOLUTE_AXIS_FALLBACK_MAX: i32 = 32_767;
+
+impl PointerSource {
+    #[must_use]
+    pub const fn wire_value(self) -> u8 {
+        match self {
+            Self::MouseRelative => POINTER_SOURCE_MOUSE_RELATIVE,
+            Self::TabletAbsolute => POINTER_SOURCE_TABLET_ABSOLUTE,
+            Self::TouchAbsolute => POINTER_SOURCE_TOUCH_ABSOLUTE,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,21 +83,68 @@ impl RawIngressEvent {
     }
 }
 
+#[must_use]
+pub fn resolve_absolute_axis_max(
+    pointer_source: Option<PointerSource>,
+    reported_max: i32,
+    raw_events: &[RawIngressEvent],
+    axis_code: u16,
+) -> i32 {
+    if reported_max > 0 {
+        return reported_max;
+    }
+    let absolute_source = matches!(
+        pointer_source,
+        Some(PointerSource::TabletAbsolute) | Some(PointerSource::TouchAbsolute)
+    );
+    if absolute_source
+        && raw_events
+            .iter()
+            .any(|event| event.kind() == RawIngressEventKind::Absolute && event.code() == axis_code)
+    {
+        return QEMU_ABSOLUTE_AXIS_FALLBACK_MAX;
+    }
+    0
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawIngressBatch {
     role: IngressRole,
+    pointer_source: Option<PointerSource>,
     events: Vec<RawIngressEvent>,
 }
 
 impl RawIngressBatch {
     #[must_use]
     pub fn new(role: IngressRole, events: Vec<RawIngressEvent>) -> Self {
-        Self { role, events }
+        Self {
+            role,
+            pointer_source: default_pointer_source(role),
+            events,
+        }
+    }
+
+    #[must_use]
+    pub fn with_pointer_source(
+        role: IngressRole,
+        pointer_source: Option<PointerSource>,
+        events: Vec<RawIngressEvent>,
+    ) -> Self {
+        Self {
+            role,
+            pointer_source,
+            events,
+        }
     }
 
     #[must_use]
     pub const fn role(&self) -> IngressRole {
         self.role
+    }
+
+    #[must_use]
+    pub const fn pointer_source(&self) -> Option<PointerSource> {
+        self.pointer_source
     }
 
     #[must_use]
@@ -173,6 +241,7 @@ pub fn normalize_ingress_batch(
     let wire_batch = WireHidBatch {
         device_kind: wire_kind,
         device_id: device_id.raw(),
+        pointer_source: raw_batch.pointer_source().map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
         abs_max_x,
         abs_max_y,
         raw_event_count: evidence.raw_event_count(),
@@ -231,6 +300,14 @@ fn translate_raw_event(role: IngressRole, event: RawIngressEvent, timestamp: Tim
             Some(HidEvent::btn(timestamp, event.code(), value))
         }
         _ => None,
+    }
+}
+
+const fn default_pointer_source(role: IngressRole) -> Option<PointerSource> {
+    match role {
+        IngressRole::Keyboard => None,
+        IngressRole::RelativePointer => Some(PointerSource::MouseRelative),
+        IngressRole::AbsolutePointer => Some(PointerSource::TabletAbsolute),
     }
 }
 

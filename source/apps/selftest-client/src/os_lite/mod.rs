@@ -21,7 +21,9 @@ extern crate alloc;
 
 mod boot_cfg;
 mod context;
+#[path = "display_bootstrap_observer.rs"]
 mod display_bootstrap;
+mod display_observer;
 mod dsoftbus;
 mod ipc;
 mod mmio;

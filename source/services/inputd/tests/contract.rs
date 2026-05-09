@@ -8,8 +8,13 @@
 //! TEST_COVERAGE: config rejects, bounded queue overflow, stale-route reject, repeat determinism
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
-use hid::{AbsoluteAxis, HidEvent, TimestampNs};
+use hid::{AbsoluteAxis, HidEvent, RelativeAxis, TimestampNs};
 use hidrawd::{DeviceId, HidrawdService};
+use input_live_protocol::{
+    WireHidBatch, WireHidEvent, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
+    HID_KIND_KEYBOARD, HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE,
+    POINTER_SOURCE_TABLET_ABSOLUTE,
+};
 use inputd::{InputDispatch, InputdConfig, InputdError, InputdService};
 use touch::{RawTouchSample, TouchBounds, TouchPhase, TouchTimestampNs};
 use touchd::{SyntheticTouchMode, TouchDeviceId, TouchdService};
@@ -17,21 +22,114 @@ use windowd::{CallerCtx, CommitSeq, Layer, Rect, SurfaceBuffer, WindowServer, Wi
 
 fn fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
     let caller = CallerCtx::from_service_metadata(0x55);
-    let mut server = WindowServer::new(WindowdConfig { width: 64, height: 48, hz: 60 }).expect("server");
-    let buffer = SurfaceBuffer::solid(caller, 50, 24, 16, [0x24, 0x28, 0x34, 0xff]).expect("buffer");
-    let surface = server.create_surface(caller, buffer.clone()).expect("surface");
+    let mut server = WindowServer::new(WindowdConfig {
+        width: 64,
+        height: 48,
+        hz: 60,
+    })
+    .expect("server");
+    let buffer =
+        SurfaceBuffer::solid(caller, 50, 24, 16, [0x24, 0x28, 0x34, 0xff]).expect("buffer");
+    let surface = server
+        .create_surface(caller, buffer.clone())
+        .expect("surface");
     server
         .queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, 24, 16)])
         .expect("queue");
     server
-        .commit_scene(CallerCtx::system(), CommitSeq::new(1), &[Layer { surface, x: 8, y: 8, z: 0 }])
+        .commit_scene(
+            CallerCtx::system(),
+            CommitSeq::new(1),
+            &[Layer {
+                surface,
+                x: 8,
+                y: 8,
+                z: 0,
+            }],
+        )
         .expect("scene");
-    server.present_tick().expect("present tick").expect("present");
+    server
+        .present_tick()
+        .expect("present tick")
+        .expect("present");
+    (server, caller, surface)
+}
+
+fn full_surface_fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
+    let caller = CallerCtx::from_service_metadata(0x55);
+    let mut server = WindowServer::new(WindowdConfig {
+        width: 64,
+        height: 48,
+        hz: 60,
+    })
+    .expect("server");
+    let buffer =
+        SurfaceBuffer::solid(caller, 50, 64, 48, [0x24, 0x28, 0x34, 0xff]).expect("buffer");
+    let surface = server
+        .create_surface(caller, buffer.clone())
+        .expect("surface");
+    server
+        .queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, 64, 48)])
+        .expect("queue");
+    server
+        .commit_scene(
+            CallerCtx::system(),
+            CommitSeq::new(1),
+            &[Layer {
+                surface,
+                x: 0,
+                y: 0,
+                z: 0,
+            }],
+        )
+        .expect("scene");
+    server
+        .present_tick()
+        .expect("present tick")
+        .expect("present");
     (server, caller, surface)
 }
 
 fn config(queue_capacity: usize) -> InputdConfig {
     InputdConfig::new("de", 100, 10, 1, 2, 1, 32, queue_capacity, 12, 12).expect("config")
+}
+
+fn live_visible_config(queue_capacity: usize) -> InputdConfig {
+    let start = inputd::visible_display_start_position().expect("visible start");
+    let display = inputd::visible_display_space().expect("visible display");
+    InputdConfig::new(
+        "de",
+        350,
+        30,
+        inputd::LIVE_POINTER_THRESHOLD,
+        inputd::LIVE_POINTER_NUMERATOR,
+        inputd::LIVE_POINTER_DENOMINATOR,
+        inputd::LIVE_POINTER_MAX_OUTPUT,
+        queue_capacity,
+        start.x,
+        start.y,
+    )
+    .expect("live visible config")
+    .with_display_space(display.width(), display.height())
+    .expect("live visible display config")
+}
+
+fn visible_pointer_wire_batch(
+    pointer_source: u8,
+    events: Vec<WireHidEvent>,
+    abs_max_x: i32,
+    abs_max_y: i32,
+) -> WireHidBatch {
+    WireHidBatch {
+        device_kind: HID_KIND_MOUSE,
+        device_id: 9,
+        pointer_source,
+        abs_max_x,
+        abs_max_y,
+        raw_event_count: events.len() as u16,
+        normalized_event_count: events.len() as u16,
+        events,
+    }
 }
 
 #[test]
@@ -54,7 +152,12 @@ fn test_reject_invalid_pointer_accel_config() {
 
 #[test]
 fn test_reject_stale_windowd_route_target() {
-    let server = WindowServer::new(WindowdConfig { width: 64, height: 48, hz: 60 }).expect("server");
+    let server = WindowServer::new(WindowdConfig {
+        width: 64,
+        height: 48,
+        hz: 60,
+    })
+    .expect("server");
     let mut inputd = InputdService::new(server, config(8)).expect("inputd");
     let mut hidrawd = HidrawdService::new();
     let mouse_id = DeviceId::new(2);
@@ -63,9 +166,14 @@ fn test_reject_stale_windowd_route_target() {
         .ingest_mouse_report(mouse_id, TimestampNs::new(1), &[0, 1, 1])
         .expect("mouse batch");
 
-    let err = inputd.apply_hid_batch(&batch).expect_err("route must reject without scene");
+    let err = inputd
+        .apply_hid_batch(&batch)
+        .expect_err("route must reject without scene");
     assert_eq!(err.code(), "inputd.route.stale_surface");
-    assert_eq!(err, InputdError::Route(windowd::WindowdError::StaleSurfaceId));
+    assert_eq!(
+        err,
+        InputdError::Route(windowd::WindowdError::StaleSurfaceId)
+    );
 }
 
 #[test]
@@ -76,14 +184,26 @@ fn test_reject_bounded_queue_overflow() {
     let mut touchd = TouchdService::new(bounds, SyntheticTouchMode::Disabled);
     touchd.register_device(TouchDeviceId::new(9));
     let first = touchd
-        .ingest(RawTouchSample::new(TouchTimestampNs::new(1), 10, 10, TouchPhase::Down))
+        .ingest(RawTouchSample::new(
+            TouchTimestampNs::new(1),
+            10,
+            10,
+            TouchPhase::Down,
+        ))
         .expect("touch down");
     let second = touchd
-        .ingest(RawTouchSample::new(TouchTimestampNs::new(2), 12, 12, TouchPhase::Move))
+        .ingest(RawTouchSample::new(
+            TouchTimestampNs::new(2),
+            12,
+            12,
+            TouchPhase::Move,
+        ))
         .expect("touch move");
 
     inputd.apply_touch_event(first).expect("first dispatch");
-    let err = inputd.apply_touch_event(second).expect_err("queue must reject overflow");
+    let err = inputd
+        .apply_touch_event(second)
+        .expect_err("queue must reject overflow");
     assert_eq!(err.code(), "inputd.queue.overflow");
 }
 
@@ -102,18 +222,36 @@ fn touch_sequence_routes_through_windowd_authority() {
     }
 
     assert_eq!(dispatches.len(), 3);
-    assert!(matches!(dispatches[0], InputDispatch::Touch { x: 20, y: 20, .. }));
-    assert!(matches!(dispatches[1], InputDispatch::Touch { x: 28, y: 22, .. }));
-    assert!(matches!(dispatches[2], InputDispatch::Touch { x: 28, y: 22, .. }));
+    assert!(matches!(
+        dispatches[0],
+        InputDispatch::Touch { x: 20, y: 20, .. }
+    ));
+    assert!(matches!(
+        dispatches[1],
+        InputDispatch::Touch { x: 28, y: 22, .. }
+    ));
+    assert!(matches!(
+        dispatches[2],
+        InputDispatch::Touch { x: 28, y: 22, .. }
+    ));
 
     let delivered = inputd
         .router_mut()
         .take_input_events(caller, surface)
         .expect("deliveries");
     assert_eq!(delivered.len(), 3);
-    assert!(matches!(delivered[0].kind, windowd::InputEventKind::TouchDown { x: 20, y: 20 }));
-    assert!(matches!(delivered[1].kind, windowd::InputEventKind::TouchMove { x: 28, y: 22 }));
-    assert!(matches!(delivered[2].kind, windowd::InputEventKind::TouchUp { x: 28, y: 22 }));
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::TouchDown { x: 20, y: 20 }
+    ));
+    assert!(matches!(
+        delivered[1].kind,
+        windowd::InputEventKind::TouchMove { x: 28, y: 22 }
+    ));
+    assert!(matches!(
+        delivered[2].kind,
+        windowd::InputEventKind::TouchUp { x: 28, y: 22 }
+    ));
     assert_eq!(inputd.router().focused_surface(), Some(surface));
 }
 
@@ -131,16 +269,28 @@ fn test_repeat_tick_is_deterministic_with_injected_time() {
     let pointer_batch = hidrawd
         .ingest_mouse_report(mouse_id, TimestampNs::new(1), &[0b001, 0, 0])
         .expect("pointer down batch");
-    let pointer_dispatches = inputd.apply_hid_batch(&pointer_batch).expect("pointer route");
-    assert!(matches!(pointer_dispatches.as_slice(), [InputDispatch::PointerDown { .. }]));
+    let pointer_dispatches = inputd
+        .apply_hid_batch(&pointer_batch)
+        .expect("pointer route");
+    assert!(matches!(
+        pointer_dispatches.as_slice(),
+        [InputDispatch::PointerDown { .. }]
+    ));
 
     let key_batch = hidrawd
-        .ingest_keyboard_report(keyboard_id, TimestampNs::new(1), &[0, 0, 0x04, 0, 0, 0, 0, 0])
+        .ingest_keyboard_report(
+            keyboard_id,
+            TimestampNs::new(1),
+            &[0, 0, 0x04, 0, 0, 0, 0, 0],
+        )
         .expect("keyboard batch");
     let key_dispatches = inputd.apply_hid_batch(&key_batch).expect("keyboard route");
     assert!(matches!(
         key_dispatches.as_slice(),
-        [InputDispatch::Keyboard { repeated: false, .. }]
+        [InputDispatch::Keyboard {
+            repeated: false,
+            ..
+        }]
     ));
 
     let first_repeat = inputd.tick_repeat(100_000_001).expect("first repeat");
@@ -162,9 +312,262 @@ fn test_repeat_tick_is_deterministic_with_injected_time() {
         .expect("delivered events");
     assert_eq!(delivered.len(), 4);
     assert_eq!(delivered[0].kind, windowd::InputEventKind::PointerDown);
-    assert!(matches!(delivered[1].kind, windowd::InputEventKind::Keyboard { key_code: 0x04 }));
-    assert!(matches!(delivered[2].kind, windowd::InputEventKind::Keyboard { key_code: 0x04 }));
-    assert!(matches!(delivered[3].kind, windowd::InputEventKind::Keyboard { key_code: 0x04 }));
+    assert!(matches!(
+        delivered[1].kind,
+        windowd::InputEventKind::Keyboard { key_code: 0x04 }
+    ));
+    assert!(matches!(
+        delivered[2].kind,
+        windowd::InputEventKind::Keyboard { key_code: 0x04 }
+    ));
+    assert!(matches!(
+        delivered[3].kind,
+        windowd::InputEventKind::Keyboard { key_code: 0x04 }
+    ));
+}
+
+#[test]
+fn mouse_relative_wire_batch_decodes_without_absolute_calibration() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let hid_batch = inputd::decode_wire_batch(
+        visible_pointer_wire_batch(
+            POINTER_SOURCE_MOUSE_RELATIVE,
+            vec![
+                WireHidEvent {
+                    kind: EVENT_KIND_REL,
+                    code: 0,
+                    value: 5,
+                    timestamp_ns: 10,
+                },
+                WireHidEvent {
+                    kind: EVENT_KIND_BTN,
+                    code: 0x110,
+                    value: 1,
+                    timestamp_ns: 10,
+                },
+            ],
+            0,
+            0,
+        ),
+        transform,
+    )
+    .expect("mouse-relative wire batch");
+
+    assert_eq!(hid_batch.kind(), hidrawd::HidDeviceKind::Mouse);
+    assert_eq!(
+        hid_batch.pointer_source(),
+        Some(hidrawd::PointerSource::MouseRelative)
+    );
+    assert_eq!(hid_batch.events().len(), 2);
+    assert_eq!(hid_batch.events()[0].kind(), hid::HidEventKind::Rel);
+    assert_eq!(hid_batch.events()[1].kind(), hid::HidEventKind::Btn);
+}
+
+#[test]
+fn test_reject_tablet_absolute_wire_batch_without_calibration() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let err = inputd::decode_wire_batch(
+        visible_pointer_wire_batch(
+            POINTER_SOURCE_TABLET_ABSOLUTE,
+            vec![WireHidEvent {
+                kind: EVENT_KIND_ABS,
+                code: 0,
+                value: 1024,
+                timestamp_ns: 12,
+            }],
+            0,
+            32767,
+        ),
+        transform,
+    )
+    .expect_err("tablet absolute without x calibration must reject");
+
+    assert_eq!(err, inputd::WireBatchReject::InvalidAbsoluteCalibration(inputd::PointerAxis::X));
+}
+
+#[test]
+fn test_reject_relative_event_on_tablet_absolute_source() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let err = inputd::decode_wire_batch(
+        visible_pointer_wire_batch(
+            POINTER_SOURCE_TABLET_ABSOLUTE,
+            vec![WireHidEvent {
+                kind: EVENT_KIND_REL,
+                code: 0,
+                value: 7,
+                timestamp_ns: 14,
+            }],
+            32767,
+            32767,
+        ),
+        transform,
+    )
+    .expect_err("tablet source must reject relative motion");
+
+    assert_eq!(
+        err,
+        inputd::WireBatchReject::RelativeOnAbsoluteSource(hidrawd::PointerSource::TabletAbsolute)
+    );
+}
+
+#[test]
+fn keyboard_wire_batch_decodes_without_pointer_source() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let hid_batch = inputd::decode_wire_batch(
+        WireHidBatch {
+            device_kind: HID_KIND_KEYBOARD,
+            device_id: 4,
+            pointer_source: POINTER_SOURCE_NONE,
+            abs_max_x: 0,
+            abs_max_y: 0,
+            raw_event_count: 1,
+            normalized_event_count: 1,
+            events: vec![WireHidEvent {
+                kind: EVENT_KIND_KEY,
+                code: 0x04,
+                value: 1,
+                timestamp_ns: 16,
+            }],
+        },
+        transform,
+    )
+    .expect("keyboard wire batch");
+
+    assert_eq!(hid_batch.kind(), hidrawd::HidDeviceKind::Keyboard);
+    assert_eq!(hid_batch.pointer_source(), None);
+    assert_eq!(hid_batch.events().len(), 1);
+    assert_eq!(hid_batch.events()[0].kind(), hid::HidEventKind::Key);
+}
+
+#[test]
+fn tablet_absolute_wire_batch_preserves_pointer_source_identity() {
+    let transform = inputd::visible_pointer_transform().expect("pointer transform");
+    let hid_batch = inputd::decode_wire_batch(
+        visible_pointer_wire_batch(
+            POINTER_SOURCE_TABLET_ABSOLUTE,
+            vec![
+                WireHidEvent {
+                    kind: EVENT_KIND_ABS,
+                    code: 0,
+                    value: 16_384,
+                    timestamp_ns: 18,
+                },
+                WireHidEvent {
+                    kind: EVENT_KIND_ABS,
+                    code: 1,
+                    value: 8_192,
+                    timestamp_ns: 18,
+                },
+            ],
+            32_767,
+            32_767,
+        ),
+        transform,
+    )
+    .expect("tablet wire batch");
+
+    assert_eq!(
+        hid_batch.pointer_source(),
+        Some(hidrawd::PointerSource::TabletAbsolute)
+    );
+}
+
+#[test]
+fn tablet_absolute_source_blocks_following_relative_motion_in_live_mixed_stream() {
+    let (server, _caller, _surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, live_visible_config(8)).expect("inputd");
+    let transform = inputd::visible_pointer_transform().expect("visible transform");
+    let target_display = transform.route_to_display(inputd::PointerPosition::new(
+        inputd::VISIBLE_INPUT_CURSOR_END_X,
+        inputd::VISIBLE_INPUT_CURSOR_END_Y,
+    ));
+    let absolute_batch = hidrawd::HidBatch::new_pointer(
+        DeviceId::new(8),
+        hidrawd::PointerSource::TabletAbsolute,
+        vec![
+            HidEvent::abs(
+                TimestampNs::new(30),
+                AbsoluteAxis::X.event_code(),
+                target_display.x,
+            ),
+            HidEvent::abs(
+                TimestampNs::new(30),
+                AbsoluteAxis::Y.event_code(),
+                target_display.y,
+            ),
+        ],
+    );
+    let relative_batch = hidrawd::HidBatch::new_pointer(
+        DeviceId::new(9),
+        hidrawd::PointerSource::MouseRelative,
+        vec![
+            HidEvent::rel(TimestampNs::new(31), RelativeAxis::X.event_code(), 40),
+            HidEvent::rel(TimestampNs::new(31), RelativeAxis::Y.event_code(), -20),
+        ],
+    );
+
+    let absolute_dispatches = inputd.apply_hid_batch(&absolute_batch).expect("absolute dispatches");
+    assert!(matches!(
+        absolute_dispatches.as_slice(),
+        [InputDispatch::PointerMove { x, y, .. }]
+            if (*x, *y)
+                == (
+                    inputd::VISIBLE_INPUT_CURSOR_END_X,
+                    inputd::VISIBLE_INPUT_CURSOR_END_Y
+                )
+    ));
+    let relative_dispatches = inputd.apply_hid_batch(&relative_batch).expect("relative dispatches");
+
+    assert!(relative_dispatches.is_empty());
+    assert_eq!(inputd.display_pointer_position(), target_display);
+    assert_eq!(
+        inputd.active_pointer_source(),
+        Some(hidrawd::PointerSource::TabletAbsolute)
+    );
+}
+
+#[test]
+fn tablet_absolute_source_supports_sustained_live_motion_across_multiple_batches() {
+    let (server, _caller, _surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, live_visible_config(16)).expect("inputd");
+    let transform = inputd::visible_pointer_transform().expect("visible transform");
+    let route_steps = [
+        inputd::PointerPosition::new(24, 12),
+        inputd::PointerPosition::new(20, 20),
+        inputd::PointerPosition::new(12, 28),
+        inputd::PointerPosition::new(8, 40),
+    ];
+
+    for (idx, route) in route_steps.into_iter().enumerate() {
+        let display = transform.route_to_display(route);
+        let batch = hidrawd::HidBatch::new_pointer(
+            DeviceId::new(10),
+            hidrawd::PointerSource::TabletAbsolute,
+            vec![
+                HidEvent::abs(
+                    TimestampNs::new(40 + idx as u64),
+                    AbsoluteAxis::X.event_code(),
+                    display.x,
+                ),
+                HidEvent::abs(
+                    TimestampNs::new(40 + idx as u64),
+                    AbsoluteAxis::Y.event_code(),
+                    display.y,
+                ),
+            ],
+        );
+
+        let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
+        assert!(matches!(
+            dispatches.as_slice(),
+            [InputDispatch::PointerMove { x, y, .. }] if (*x, *y) == (route.x, route.y)
+        ));
+        assert_eq!(inputd.display_pointer_position(), display);
+        assert_eq!(
+            inputd.active_pointer_source(),
+            Some(hidrawd::PointerSource::TabletAbsolute)
+        );
+    }
 }
 
 #[test]
@@ -176,25 +579,198 @@ fn mouse_relative_motion_routes_through_windowd_authority() {
     hidrawd.register_mouse(mouse_id);
 
     let batch = hidrawd
-        .ingest_mouse_report(
-            mouse_id,
-            TimestampNs::new(4),
-            &[0b001, 2u8, (1i8) as u8],
-        )
+        .ingest_mouse_report(mouse_id, TimestampNs::new(4), &[0b001, 2u8, (1i8) as u8])
         .expect("mouse batch");
     let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
 
     assert_eq!(dispatches.len(), 2);
-    assert!(matches!(dispatches[0], InputDispatch::PointerMove { x: 15, y: 13, .. }));
-    assert!(matches!(dispatches[1], InputDispatch::PointerDown { x: 15, y: 13, .. }));
+    assert!(matches!(
+        dispatches[0],
+        InputDispatch::PointerMove { x: 15, y: 13, .. }
+    ));
+    assert!(matches!(
+        dispatches[1],
+        InputDispatch::PointerDown { x: 15, y: 13, .. }
+    ));
 
     let delivered = inputd
         .router_mut()
         .take_input_events(caller, surface)
         .expect("deliveries");
     assert_eq!(delivered.len(), 2);
-    assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { .. }));
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove { .. }
+    ));
     assert_eq!(delivered[1].kind, windowd::InputEventKind::PointerDown);
+}
+
+#[test]
+fn relative_pointer_motion_preserves_screen_direction_contract() {
+    let (server, caller, surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let steps = [
+        (RelativeAxis::X, 1, (13, 12)),
+        (RelativeAxis::Y, 1, (13, 13)),
+        (RelativeAxis::X, -1, (12, 13)),
+        (RelativeAxis::Y, -1, (12, 12)),
+    ];
+
+    for (idx, (axis, delta, expected)) in steps.into_iter().enumerate() {
+        let batch = hidrawd::HidBatch::new(
+            DeviceId::new(4),
+            hidrawd::HidDeviceKind::Mouse,
+            vec![HidEvent::rel(
+                TimestampNs::new(10 + idx as u64),
+                axis.event_code(),
+                delta,
+            )],
+        );
+        let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
+        assert!(matches!(
+            dispatches.as_slice(),
+            [InputDispatch::PointerMove { x, y, .. }] if (*x, *y) == expected
+        ));
+    }
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 4);
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove { x: 13, y: 12 }
+    ));
+    assert!(matches!(
+        delivered[1].kind,
+        windowd::InputEventKind::PointerMove { x: 13, y: 13 }
+    ));
+    assert!(matches!(
+        delivered[2].kind,
+        windowd::InputEventKind::PointerMove { x: 12, y: 13 }
+    ));
+    assert!(matches!(
+        delivered[3].kind,
+        windowd::InputEventKind::PointerMove { x: 12, y: 12 }
+    ));
+}
+
+#[test]
+fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
+    let (server, caller, surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, live_visible_config(8)).expect("inputd");
+    let target_display = inputd::visible_pointer_transform()
+        .expect("visible transform")
+        .route_to_display(inputd::PointerPosition::new(
+            inputd::VISIBLE_INPUT_CURSOR_END_X,
+            inputd::VISIBLE_INPUT_CURSOR_END_Y,
+        ));
+    let batch = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![
+            HidEvent::abs(
+                TimestampNs::new(20),
+                AbsoluteAxis::X.event_code(),
+                target_display.x,
+            ),
+            HidEvent::abs(
+                TimestampNs::new(20),
+                AbsoluteAxis::Y.event_code(),
+                target_display.y,
+            ),
+        ],
+    );
+
+    let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
+    assert!(matches!(
+        dispatches.as_slice(),
+        [InputDispatch::PointerMove { x, y, .. }]
+            if (*x, *y)
+                == (
+                    inputd::VISIBLE_INPUT_CURSOR_END_X,
+                    inputd::VISIBLE_INPUT_CURSOR_END_Y
+                )
+    ));
+    assert_eq!(inputd.display_pointer_position(), target_display);
+    assert!(inputd::visible_hover_target_contains(
+        inputd::VISIBLE_INPUT_CURSOR_END_X,
+        inputd::VISIBLE_INPUT_CURSOR_END_Y
+    ));
+    assert!(!inputd::visible_hover_target_contains(0, 47));
+    assert!(!inputd::visible_hover_target_contains(63, 47));
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 1);
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove {
+            x: inputd::VISIBLE_INPUT_CURSOR_END_X,
+            y: inputd::VISIBLE_INPUT_CURSOR_END_Y
+        }
+    ));
+}
+
+#[test]
+fn absolute_pointer_scaling_covers_the_full_visible_input_area() {
+    let transform = inputd::visible_pointer_transform().expect("visible transform");
+    let calibration = inputd::AbsoluteAxisCalibration::new(0, 32_767).expect("calibration");
+    assert_eq!(
+        transform.scale_absolute_axis(0, calibration, inputd::PointerAxis::X),
+        0
+    );
+    assert_eq!(
+        transform.scale_absolute_axis(32_767, calibration, inputd::PointerAxis::X),
+        1279
+    );
+    assert_eq!(
+        transform.scale_absolute_axis(0, calibration, inputd::PointerAxis::Y),
+        0
+    );
+    assert_eq!(
+        transform.scale_absolute_axis(32_767, calibration, inputd::PointerAxis::Y),
+        799
+    );
+
+    let center_x = transform.scale_absolute_axis(16_384, calibration, inputd::PointerAxis::X);
+    let center_y = transform.scale_absolute_axis(16_384, calibration, inputd::PointerAxis::Y);
+    assert!((639..=640).contains(&center_x));
+    assert!((399..=400).contains(&center_y));
+}
+
+#[test]
+fn relative_pointer_motion_clamps_at_window_bounds_instead_of_dropping_live_motion() {
+    let (server, caller, surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let batch = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::rel(
+            TimestampNs::new(5),
+            RelativeAxis::Y.event_code(),
+            -100,
+        )],
+    );
+
+    let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
+    assert!(matches!(
+        dispatches.as_slice(),
+        [InputDispatch::PointerMove { x: 12, y: 0, .. }]
+    ));
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 1);
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove { x: 12, y: 0 }
+    ));
 }
 
 #[test]
@@ -212,12 +788,68 @@ fn absolute_pointer_motion_routes_through_windowd_authority() {
 
     let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
     assert_eq!(dispatches.len(), 1);
-    assert!(matches!(dispatches[0], InputDispatch::PointerMove { x: 20, y: 10, .. }));
+    assert!(matches!(
+        dispatches[0],
+        InputDispatch::PointerMove { x: 20, y: 10, .. }
+    ));
 
     let delivered = inputd
         .router_mut()
         .take_input_events(caller, surface)
         .expect("deliveries");
     assert_eq!(delivered.len(), 1);
-    assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { x: 20, y: 10 }));
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove { x: 20, y: 10 }
+    ));
+}
+
+#[test]
+fn absolute_pointer_split_axes_route_each_update_using_last_position() {
+    let (server, caller, surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+
+    let x_batch = hidrawd::HidBatch::new(
+        DeviceId::new(6),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::abs(
+            TimestampNs::new(6),
+            AbsoluteAxis::X.event_code(),
+            20,
+        )],
+    );
+    let x_dispatches = inputd.apply_hid_batch(&x_batch).expect("x dispatch");
+    assert!(matches!(
+        x_dispatches.as_slice(),
+        [InputDispatch::PointerMove { x: 20, y: 12, .. }]
+    ));
+
+    let y_batch = hidrawd::HidBatch::new(
+        DeviceId::new(6),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::abs(
+            TimestampNs::new(7),
+            AbsoluteAxis::Y.event_code(),
+            16,
+        )],
+    );
+    let y_dispatches = inputd.apply_hid_batch(&y_batch).expect("y dispatch");
+    assert!(matches!(
+        y_dispatches.as_slice(),
+        [InputDispatch::PointerMove { x: 20, y: 16, .. }]
+    ));
+
+    let delivered = inputd
+        .router_mut()
+        .take_input_events(caller, surface)
+        .expect("deliveries");
+    assert_eq!(delivered.len(), 2);
+    assert!(matches!(
+        delivered[0].kind,
+        windowd::InputEventKind::PointerMove { x: 20, y: 12 }
+    ));
+    assert!(matches!(
+        delivered[1].kind,
+        windowd::InputEventKind::PointerMove { x: 20, y: 16 }
+    ));
 }
