@@ -21,6 +21,7 @@ marker-centric. To turn the DSL into a practical integration tool, we need the f
 the live shell and shown in the QEMU graphics window.
 
 This task is the final bridge before Launcher/SystemUI can move to DSL as a real visible shell technology.
+The mounted DSL page should reuse the shared visible proof surface targets, not introduce a separate DSL-only proof page.
 
 ## Goal
 
@@ -29,6 +30,7 @@ Deliver:
 1. Visible DSL demo mount:
    - mount a DSL page into a managed window or SystemUI surface
    - render its first frame through the real interpreter/runtime path
+   - render the same shared proof-surface targets already defined in the host DSL fixtures
 2. Visible deterministic interaction proof:
    - one bounded interaction (e.g. button tap or state toggle) updates the visible DSL surface
 3. Handoff to SystemUI DSL phases:
@@ -63,6 +65,7 @@ Visual proof:
 
 - the QEMU window shows a DSL-rendered page
 - a bounded interaction visibly changes the page
+- the mounted page reuses the shared desktop/test targets rather than a disconnected DSL-only screen
 
 ## Touched paths (allowlist)
 

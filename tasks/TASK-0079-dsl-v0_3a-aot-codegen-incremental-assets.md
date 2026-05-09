@@ -28,6 +28,8 @@ DSL v0.3 introduces an optional AOT path:
 - embed assets (SVG/text/i18n) deterministically,
 - add `nx dsl --aot` commands.
 
+The parity target must remain the shared visible proof surface, not a separate AOT-only showcase.
+
 Perf benchmarking and OS demo integration is handled in v0.3b (`TASK-0080`).
 
 ## Goal
@@ -112,6 +114,11 @@ Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 - tree-shaking: removing a route increases “shaken” count and drops generated modules
 - assets: hash mismatch makes `build.rs` fail deterministically
 - parity: for a fixture app/page, interpreter snapshot and AOT snapshot match for the same `{locale, profile}` inputs
+
+Visible-proof-surface handoff:
+
+- the parity fixture/page should correspond to the shared visible proof targets,
+- later visible OS/AOT tasks must mount that same surface rather than creating an AOT-specific demo scene.
 
 ## Touched paths (allowlist)
 

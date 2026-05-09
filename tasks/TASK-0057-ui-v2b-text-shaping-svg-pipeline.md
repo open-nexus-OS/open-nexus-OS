@@ -10,6 +10,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - UI v2a (present/input baseline): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - Cursor themes: docs/dev/ui/foundations/visual/cursor-themes.md
   - Drivers/Accelerators contracts (future GPU backend): tasks/TRACK-DRIVERS-ACCELERATORS.md
   - Policy as Code (asset access): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
 ---
@@ -27,6 +28,8 @@ and UI vector assets. PNG is allowed only as a golden, screenshot/export artifac
 or derived raster cache; product UI must not become PNG-first.
 
 This task focuses on the content pipeline and rendering primitives, independent of present scheduling (v2a).
+For the fast lane it must also seed the shared visible proof surface with real text and vector assets,
+so shaping/SVG do not remain invisible host-only capabilities.
 
 Scope note:
 
@@ -53,9 +56,14 @@ Deliver:
    - parse a strict subset and reject the rest
    - rasterize into BGRA8888 (CPU) deterministically
    - provide a canonical SVG icon asset path for SystemUI/launcher/design-kit consumers
+   - provide the asset path needed to replace the temporary proof cursor with the BreezeX-oriented cursor family from
+     `docs/dev/ui/foundations/visual/cursor-themes.md` once the visible shell consumes SVG cursor assets
 4. Host tests:
    - shaping goldens (JSON)
    - SVG render goldens (PNG with SSIM threshold if needed)
+5. Visible proof-surface handoff:
+   - mount at least one real text target and one SVG-derived icon/cursor target into the shared visible proof surface,
+   - avoid a detached one-off demo scene.
 
 ## Non-Goals
 
@@ -104,6 +112,12 @@ Deliver:
   - rejected features are correctly detected
   - rendered PNGs match goldens (pixel-exact or SSIM threshold)
   - canonical launcher/system icon fixtures are SVG-sourced, with no PNG-only UI source accepted.
+
+### Visual proof handoff — required
+
+- the shared proof surface shows real shaped text, not placeholder blocks only,
+- the visible shell/proof cursor path is ready to switch from the temporary cursor to an SVG-sourced BreezeX asset path,
+- SystemUI/launcher/design-kit consumers use SVG-source fixtures on the proof surface rather than PNG-only UI sources.
 
 ## Touched paths (allowlist)
 

@@ -36,6 +36,7 @@ Update note (to avoid drift):
   JSON store if `settingsd` is the chosen canonical substrate.
 - The Orbital-Level UX floor still needs a visible Settings/Quick Settings surface. If this task remains
   superseded, the equivalent `settingsd` task must carry the same live QEMU pointer/keyboard proof.
+  It must also preserve the shared visible proof-surface contract (same desktop/test screen, not a detached settings demo).
 
 ## Goal
 
@@ -55,6 +56,7 @@ Deliver:
    - toggles/sliders write prefs
    - markers for applied keys
    - visible live pointer interaction opens Quick Settings and toggles at least one setting in QEMU
+   - the visible Settings/QS panels live on the shared proof surface
 5. Host tests and OS/QEMU markers.
 
 ## Non-Goals
@@ -98,6 +100,12 @@ UART markers (order tolerant):
 - `settings: apply (key=value)`
 - `SELFTEST: ui v9 prefs ok`
 - `SELFTEST: ui v9 quick ok`
+
+### Visual proof — required
+
+- the shared proof surface shows Quick Settings and at least one real Settings panel,
+- live pointer interaction visibly toggles one setting on-screen,
+- the same screen reflects the resulting state/theme/route change instead of marker-only apply evidence.
 
 ## Touched paths (allowlist)
 

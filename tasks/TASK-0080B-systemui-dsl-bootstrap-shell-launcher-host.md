@@ -27,6 +27,8 @@ the `0081–0118` range can be tested against a visible shell.
 It is also the host-side shape of the Orbital-Level UX floor: desktop/shell/launcher are real
 SystemUI DSL surfaces, app launch uses `appmgrd`, and icons/vector art are SVG-sourced.
 OS/live-input proof lands in `TASK-0080C`.
+The bootstrap shell should host the shared visible proof surface so later tasks reuse one desktop/test screen instead
+of growing parallel launcher/settings/demo shells.
 
 ## Goal
 
@@ -45,6 +47,7 @@ Deliver:
    - SVG-sourced app/icon assets; PNGs only as derived goldens/snapshots
    - host fixtures may force a small baseline set of profiles/orientations (desktop, phone/tablet portrait/landscape)
      so the bootstrap shell is profile-aware from the start instead of becoming desktop-only by accident
+   - provides the host shape for the shared proof-surface targets (text, vector/cursor/icon area, scroll/data window, overlays/app launch)
 3. Canonical DSL page structure:
    - page files follow the `Store` + `Event` + `reduce` + `@effect` + `Page` shape from `TASK-0075`
    - pure state logic stays pure; service calls only in effects
@@ -76,6 +79,11 @@ Deliver:
 - search/filter is deterministic
 - launcher tap emits the expected launch request
 - launcher visuals use SVG-source icons and stable hover/focus/pressed states
+
+### Visible proof surface — required
+
+- the bootstrap shell layout is the host container for the shared desktop/test targets,
+- launcher/icons stay SVG-sourced and aligned with the BreezeX-oriented cursor asset path once cursor theming is mounted visibly.
 
 ## Touched paths (allowlist)
 

@@ -27,6 +27,8 @@ After UI v4a improves frame efficiency, v4b improves input ergonomics and access
 Gestures must build on the live QEMU pointer path from `TASK-0253`, the visible
 affordance semantics from `TASK-0056B`, and the scroll path from `TASK-0059`;
 synthetic sequences remain host/regression coverage only.
+The gesture proof should stay on the shared visible proof surface, reusing the small scroll/gesture window instead of
+creating a detached gesture-only demo.
 
 ## Goal
 
@@ -89,6 +91,12 @@ UART markers (order tolerant):
 - `a11y: focus cycle ok`
 - `SELFTEST: ui v4 fling ok`
 - `SELFTEST: ui v4 a11y focus ok`
+
+### Visual proof — required
+
+- the shared proof surface exposes a visible gesture/scroll target,
+- pan/fling visibly moves that target on-screen,
+- a11y focus movement is tied to visible UI targets rather than marker-only events.
 
 ## Touched paths (allowlist)
 

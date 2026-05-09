@@ -27,6 +27,8 @@ deterministic foundations:
 - CLI tooling for fmt/lint/build.
 
 Interpreter + snapshots + OS demo is deferred to v0.1b (`TASK-0076`).
+Even at this host-first stage, the syntax/IR should be shaped around the shared visible proof surface rather than a
+special DSL-only demo hierarchy.
 
 ## Canonical UI project layout (v0.x convention; no auto-import)
 
@@ -120,6 +122,7 @@ Deliver:
    - parse/format idempotence
    - AST→IR golden JSON stability (JSON is a view derived from canonical IR)
    - diagnostics for missing @key and missing a11y label hints
+   - at least one fixture page models the shared visible proof surface targets (text, icon/cursor, scroll/list, overlay shell areas)
 
 5. Module resolution (no auto-import; deterministic):
    - explicit `import "..."`
@@ -183,6 +186,11 @@ CLI:
 - `nx dsl lint` returns non-zero on errors (warnings are reported but do not fail unless `--deny-warn`)
 - `nx dsl build` emits **canonical** `.nxir` under `target/nxir/` deterministically
 - `nx dsl build --emit-json` also emits `.nxir.json` under `target/nxir/` deterministically (derived view for goldens)
+
+Visible-proof-surface handoff:
+
+- the canonical fixture app/page for v0.1a already maps to the shared proof-surface targets,
+- later interpreter/OS tasks must mount that same structure instead of inventing a separate DSL demo layout.
 
 ## Touched paths (allowlist)
 

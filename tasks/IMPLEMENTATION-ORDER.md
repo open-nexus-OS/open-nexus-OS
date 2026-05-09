@@ -151,9 +151,17 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 | TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
 | TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |
 | TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (pulled forward; live QEMU pointer/keyboard floor) |
-| TASK-0056C | UI v2a: present/input perf latency + coalescing (after real input pipeline; required before scroll/animation/launcher UX claims) |
+| TASK-0056C | UI v2a: embedded reactor/runtime floor + present/input perf latency + coalescing (after real input pipeline; required before scroll/animation/launcher UX claims) |
 
 **Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets).
+
+**Eingebetteter Reactor/Runtime-Faden (kein separater Parallel-Track):**
+`TASK-0056C` setzt das Mindestniveau fuer eine fluessige echte Desktop-UI:
+demand-aware present, deterministisches Motion-Coalescing, no-damage/unchanged-state skip,
+common-case caches, Kettenmetriken und ein billiger Idle-Pfad ueber `inputd` -> `fbdevd` -> `windowd`.
+`TASK-0059`, `TASK-0062`, `TASK-0063` und `TASK-0064` bauen genau diesen Faden weiter aus
+fuer Scroll/Clip/Damage, Runtime/Animation, Virtualisierung/Invalidation und WM/Scene-Transitions,
+statt ein separates Runtime-Subsystem neben der Fast Lane aufzubauen.
 
 ### Orbital-Level UX Gate (vor 0119/0120)
 
@@ -179,6 +187,23 @@ Fast Lane mindestens beweisen:
 ### Schritt 3 — UI-Inhalt (57–65)
 
 Text, Layout, Gesten, Animation, Window Management, App-Lifecycle.
+
+**Gemeinsame Visible-Proof-Surface-Regel fuer Schritt 3-5:**
+Diese Tasks duerfen neue UI-Faehigkeiten nicht nur per Host-Golden, Marker oder isolierter Demo claimen.
+Sie muessen in eine gemeinsame sichtbare Proof-Surface auf dem echten QEMU-/Desktop-Bildschirm einlaufen:
+
+- Text-/Wrapping-Target mit echtem sichtbarem Text,
+- SVG-/Icon-Target und sichtbarer Cursor-Asset-Pfad; sobald die SVG-Pipeline live ist, soll der Cursor auf den in
+  `docs/dev/ui/foundations/visual/cursor-themes.md` beschriebenen BreezeX-Pfad umgestellt werden,
+- kleines Scroll-/Clip-/Gesture-Fenster,
+- Animations-/Transition-Zone,
+- Virtual-List-/Datenfenster,
+- Settings-/Overlay-/Modal-Flaeche,
+- Launcher-/App-Window-/Shell-Flaeche,
+- DSL-Seiten, die genau diese sichtbaren Targets uebernehmen statt eigene Sonder-Demos aufzubauen.
+
+Wenn ein Task Text, SVG, Scroll, Gesten, Animation, Listen, Settings, Launcher oder DSL-UI einfuehrt,
+muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface erscheinen und live pruefbar sein.
 
 | Task | Title |
 |------|-------|

@@ -1,5 +1,5 @@
 ---
-title: TASK-0056C UI v2a extension: present/input perf polish (click-to-frame latency + event coalescing + short-circuit compose)
+title: TASK-0056C UI v2a extension: embedded reactor/runtime floor + present/input perf polish (input-to-frame latency + event coalescing + short-circuit compose)
 status: Draft
 owner: @ui @runtime
 created: 2026-03-29
@@ -30,26 +30,37 @@ that input pipeline to make the path feel responsive enough for the
 Orbital-Level UX gate before scrolling, animation, window management, and
 launcher work build on it.
 
+This task is the embedded **reactor/runtime minimum floor** for the UI fast lane.
+It should tighten the common path across `inputd` -> `fbdevd` -> `windowd`
+without creating a detached parallel subsystem. `TASK-0059`, `TASK-0062`,
+`TASK-0063`, and `TASK-0064` must extend this floor rather than re-invent it.
+
 ## Goal
 
-Deliver a focused present/input perf polish slice:
+Deliver the minimum runtime/reactor floor and a focused present/input perf polish slice:
 
-1. **Click-to-frame latency tightening**:
-   - reduce the time from live pointer/click delivery to visible frame update,
+1. **Common-case input-to-frame latency tightening**:
+   - reduce the time from live pointer/click/wheel/key delivery to visible frame update,
    - add stable counters for the common path.
 2. **Event coalescing**:
-   - coalesce live pointer-motion bursts deterministically,
-   - keep click/focus semantics correct while reducing redundant work.
+   - coalesce live pointer-motion bursts deterministically within and across present cadence,
+   - keep click/focus/wheel/key semantics correct while reducing redundant work.
 3. **Short-circuit compose/present rules**:
    - no damage and no visible state change → skip compose/present deterministically,
-   - unchanged surfaces and idle input should not trigger avoidable work.
-4. **Common-case caches**:
+   - unchanged surfaces and idle input should not trigger avoidable work,
+   - idle desktop path should settle into a low-work state.
+4. **Common-case caches / wakeup collapse**:
    - lightweight hit-test/focus shortcuts where correctness is obvious,
-   - fence/wakeup collapse only where semantics stay explicit.
+   - fence/wakeup collapse only where semantics stay explicit,
+   - avoid unnecessary visible-state fetch / compose / present work in the common case.
+5. **Embedded handoff to later fast-lane tasks**:
+   - establish explicit counters, damage rules, and present reasons that `TASK-0059`,
+     `TASK-0062`, `TASK-0063`, and `TASK-0064` can extend.
 
 ## Non-Goals
 
 - New full input device stacks; consume the live QEMU input path from `TASK-0252`/`TASK-0253`.
+- A separate standalone runtime/platform track outside the UI fast lane.
 - Blur, glass, or backdrop work (handled by `TASK-0059` / `TASK-0060B`).
 - Full window manager behavior.
 - Kernel redesign; consume the `TASK-0054B/C/D` floor if present.
@@ -60,6 +71,8 @@ Deliver a focused present/input perf polish slice:
 - Preserve `TASK-0056B` visible affordance semantics and `TASK-0253` live pointer/keyboard semantics.
 - Event coalescing must be deterministic and bounded.
 - No “fast path” that skips hit-testing correctness for clicks/focus.
+- Preserve service ownership boundaries: `inputd` owns normalized input state, `fbdevd` owns display polling/present loop, `windowd` owns hit-test/focus/present semantics.
+- Observer/proof latching must not become sticky render-state behavior.
 - No latency marker can pass on selftest-only input if the live pointer path regresses.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
@@ -71,8 +84,9 @@ Deliver a focused present/input perf polish slice:
 
 - pointer burst is coalesced deterministically,
 - live QEMU pointer burst is coalesced without losing the latest visible cursor position,
-- click causes one visible frame update without redundant extra presents,
-- no-damage / unchanged-state path skips compose/present,
+- click/wheel/key state changes each cause at most one visible frame update per cadence in the common case,
+- no-damage / unchanged-state path skips avoidable fetch/compose/present work,
+- idle path stays quiet and exposes stable low-work counters,
 - focus correctness is unchanged.
 
 ### Proof (OS/QEMU) — gated
@@ -82,6 +96,7 @@ UART markers (order tolerant):
 - `windowd: present fastpath on`
 - `windowd: pointer coalesce ok`
 - `windowd: no-damage skip ok`
+- `windowd: idle fastpath ok`
 - `windowd: click latency ok`
 - `SELFTEST: live pointer latency ok`
 - `SELFTEST: ui v2 perf ok`
@@ -89,6 +104,9 @@ UART markers (order tolerant):
 ## Touched paths (allowlist)
 
 - `source/services/windowd/`
+- `source/services/fbdevd/`
+- `source/services/inputd/`
+- `userspace/input-live-protocol/`
 - `userspace/apps/launcher/` (or other small proof surface)
 - `tests/ui_v2c_host/` (new)
 - `source/apps/selftest-client/`
@@ -98,7 +116,7 @@ UART markers (order tolerant):
 
 ## Plan (small PRs)
 
-1. add common-case present/input counters and short-circuit rules
-2. add deterministic pointer burst coalescing
-3. tighten click-to-frame visible update path
+1. add common-case chain counters and short-circuit rules across `inputd` / `fbdevd` / `windowd`
+2. add deterministic pointer-motion burst coalescing without losing latest visible state
+3. tighten input-to-frame visible update path and idle cheap behavior
 4. add host/QEMU proof scenes and docs

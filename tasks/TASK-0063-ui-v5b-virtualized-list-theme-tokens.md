@@ -9,6 +9,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v5a runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
+  - UI v2a embedded runtime/reactor floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - UI v3b scroll/clip baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
   - UI v4a tiling baseline (perf): tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
@@ -28,6 +29,8 @@ After v5a establishes a reactive runtime and timeline, v5b adds two “productiv
 This task is v5b (components + theming). It assumes scroll/clip and present scheduler exist.
 It must consume the live input floor from `TASK-0253` and the scroll path from `TASK-0059`
 so large lists are usable in QEMU, not only proven by synthetic offset changes.
+It also extends the embedded runtime/reactor floor from `TASK-0056C` so virtualization
+and theme invalidation stay on the same bounded present path as the rest of the fast lane.
 
 Note: v5b delivers the **virtualization primitive** (recycling + stable visible range). A deterministic “lazy loading”
 integration pattern (paged providers, viewport-triggered requests) is tracked as `TASK-0275`.
@@ -42,6 +45,7 @@ Deliver:
    - bounded cache sizes and deterministic reuse
    - stable anchor-by-key behavior and bounded mixed-height measurement caches
    - live pointer wheel/drag scroll integration through the established scroll path
+   - mount the list as a visible window/panel on the shared proof surface
 2. `userspace/ui/theme`:
    - roles/tokens schema and loader
    - light/dark modes and overrides
@@ -60,6 +64,7 @@ Deliver:
 
 - Deterministic virtualization behavior (given viewport/scroll, visible range is stable).
 - Live scroll behavior must preserve anchors and recycling bounds under QEMU pointer input.
+- Virtualization and theme switching must preserve the `TASK-0056C` idle-cheap/no-damage posture whenever the visible range and effective tokens are unchanged.
 - Bounded memory:
   - cap pool size and cached surfaces
   - cap theme token sizes and parsed tree depth
@@ -102,6 +107,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v5 virtualize ok`
 - `SELFTEST: ui v5 theme ok`
 
+### Visual proof — required
+
+- the shared proof surface contains a visible virtualized list/data window,
+- live scroll visibly changes the viewport while preserving anchors,
+- theme switching visibly recolors the same proof surface instead of only updating host snapshots.
+
 ## Touched paths (allowlist)
 
 - `userspace/ui/widgets/virtual_list/` (new)
@@ -114,7 +125,7 @@ UART markers (order tolerant):
 
 ## Plan (small PRs)
 
-1. virtual list widget + markers
+1. virtual list widget + markers on the existing runtime/reactor floor
 2. theme tokens v1 + schema + markers
 3. live switching via config (gated) + audit events
 4. host tests + OS markers + docs

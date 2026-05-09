@@ -30,6 +30,8 @@ DSL v0.2 adds “real app mechanics” on top of v0.1:
 
 This task (v0.2a) focuses on language + IR + interpreter runtime foundations. Service-call stubs and the
 master-detail demo app are handled in v0.2b (`TASK-0078`).
+The new state/nav/i18n machinery must remain aligned with the shared visible proof surface so later DSL mounts can
+switch routes/locales on the same desktop/test targets instead of a separate navigation demo.
 
 ## Device/profile environment contract (v0.2a)
 
@@ -159,6 +161,8 @@ Deliver:
      - `dsl: store runtime on`
      - `dsl: nav runtime on`
      - `dsl: i18n on`
+   - visible-proof-surface posture:
+     - route and locale changes must be able to drive the shared visible proof targets later without DSL-specific forks
 
 ### Lint posture (v0.2a)
 

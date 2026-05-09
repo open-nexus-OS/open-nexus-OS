@@ -46,6 +46,7 @@ Deliver:
    - Back/Home/Recents stubs
    - focus switching across windows via WM/appmgrd
    - launcher click opens a demo app window through `appmgrd`, not by selftest-only state mutation
+   - the demo app window/toast/nav proof stays on the shared visible proof surface
 4. Host tests and OS markers.
 
 ## Non-Goals
@@ -96,6 +97,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v6 launch ok`
 - `SELFTEST: ui v6 lifecycle ok`
 - `SELFTEST: ui v6 toast ok`
+
+### Visual proof — required
+
+- the shared proof surface shows launcher -> app-window launch on-screen,
+- the demo app (`notes` or equivalent) appears as a real visible proof window,
+- toast/navigation changes are visible on the same desktop/test screen rather than marker-only lifecycle evidence.
 
 ## Touched paths (allowlist)
 

@@ -51,6 +51,7 @@ Deliver:
 4. Settings overlays (stubs):
    - quick settings: Wi‑Fi/Bluetooth/DND stubs, brightness/volume sliders (no backend), theme switch (if v5b exists)
    - system settings stub routes (Network/Display/Accounts placeholders)
+   - overlays appear on the shared visible proof surface rather than an isolated overlay demo
 5. Host tests + OS markers.
 
 ## Non-Goals
@@ -94,6 +95,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v8 resize ok`
 - `SELFTEST: ui v8 move ok`
 - `SELFTEST: ui v8 settings ok`
+
+### Visual proof — required
+
+- the shared proof surface shows a visible proof window that can be moved/resized,
+- Quick Settings / Settings overlays open on that same screen,
+- shortcuts and pointer drag visibly affect the same desktop/test targets.
 
 ## Touched paths (allowlist)
 

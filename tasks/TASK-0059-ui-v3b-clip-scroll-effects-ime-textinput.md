@@ -10,6 +10,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v3a layout/wrap: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - UI v2a embedded runtime/reactor floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - UI v2b shaping/svg baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
   - UI v1b windowd baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
   - Glass material guidance: docs/dev/ui/foundations/visual/materials.md
@@ -30,6 +31,8 @@ With layout/wrapping available (v3a), v3b adds:
 - a minimal IME/text-input stub path (composition/commit, caret/selection).
 
 This task is QEMU-tolerant but has more moving parts, so it is gated on prior UI v1/v2 tasks.
+It extends the embedded reactor/runtime floor established by `TASK-0056C`, rather than
+introducing a second present/runtime path for scrolling and visible effects.
 
 Sequencing note:
 
@@ -46,6 +49,8 @@ Deliver:
    - scroll offsets and scroll damage rules
    - live QEMU pointer wheel/drag scroll routed through the `TASK-0253` input path and `TASK-0056B` visible affordance semantics
    - visible scroll affordance hover/active state for proof surfaces
+   - preserve the `TASK-0056C` idle-cheap/no-damage fast path whenever scroll state is unchanged
+   - use a small visible scroll/clip window on the shared proof surface rather than a detached demo
 2. CPU effects module:
    - separable blur and drop shadow
    - caching and per-frame budgets with deterministic degrade behavior
@@ -67,6 +72,7 @@ Deliver:
 
 - Deterministic damage math and deterministic effect outputs.
 - Live scroll must be routed through `windowd`; selftest scroll injection is regression coverage, not a substitute for QEMU pointer proof.
+- Scroll/clip/effect invalidation must extend the `TASK-0056C` runtime/reactor floor instead of bypassing it with unconditional full-frame present work.
 - Strict budgets:
   - cap blur radius and area per frame,
   - cap cached effect entries and total bytes.
@@ -114,6 +120,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v3 effect ok`
 - `SELFTEST: ui v3 wrap ok`
 
+### Visual proof — required
+
+- the shared proof surface contains a small scrollable window/panel,
+- live wheel/drag visibly moves content inside that panel and updates the scroll affordance,
+- clip boundaries are visible on-screen and not only asserted in headless math tests.
+
 ## Touched paths (allowlist)
 
 - `source/services/windowd/` + `idl/` (clip/scroll/effects/text-input protocol)
@@ -130,6 +142,7 @@ UART markers (order tolerant):
 1. **Clipping + scroll**
    - IDL: `SetClip`, `SetScroll`
    - damage math for scroll and clip
+   - consume the `TASK-0056C` present/input floor instead of introducing a parallel scroll loop
    - markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: scroll present ok`
 
 2. **Effects**

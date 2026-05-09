@@ -24,6 +24,7 @@ phases land.
 This task is the first OS-mounted Orbital-Level shell proof: live QEMU pointer input must
 hover and click launcher entries, launch a real app window, and preserve the single
 SystemUI shell path.
+It should also become the live OS container for the shared visible proof surface used across the fast lane.
 
 ## Goal
 
@@ -34,6 +35,7 @@ Deliver:
    - launcher is visible in the QEMU window
    - the mounted shell consumes the same profile/orientation device environment that later canonical SystemUI DSL phases use
    - shell appears after the `TASK-0065B` greeter/dev-session handoff when that gate is active
+   - the shell hosts the shared proof-surface targets rather than a launcher-only screen
 2. Real launch integration:
    - live QEMU pointer hover/click selects a launcher entry and launches a real app window
    - return/focus behavior is deterministic enough for selftests
@@ -74,6 +76,7 @@ Visual proof:
 - launcher is visible in the QEMU window
 - moving the host pointer over a launcher entry shows hover/focus state
 - clicking the launcher entry opens a visible app frame
+- the same screen can host the shared text/scroll/list/settings/modal proof targets as they land in later tasks
 
 ## Touched paths (allowlist)
 

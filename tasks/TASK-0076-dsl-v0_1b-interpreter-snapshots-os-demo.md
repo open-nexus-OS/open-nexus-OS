@@ -24,6 +24,8 @@ With DSL syntax and IR in place (v0.1a), v0.1b makes it real:
 - headless snapshot testing,
 - a demo DSL app launched from SystemUI to get QEMU markers.
 
+That demo should already mirror the shared visible proof surface instead of creating a one-off DSL-only scene.
+
 ## Goal
 
 Deliver:
@@ -48,6 +50,7 @@ Deliver:
 3. Example app `dsl_hello`:
    - a page with a TextField, cards/grid, and one button
    - demonstrates state binding and a computed signal
+   - maps onto the shared visible proof targets (real text, vector/icon area, interactive controls) rather than a detached sample
 4. SystemUI integration:
    - add “DSL Demo” entry that launches and mounts the interpreter output into a managed window
    - markers:
@@ -96,6 +99,11 @@ UART markers:
 - `dsl: first frame ok`
 - `SELFTEST: dsl v0.1 demo ok`
 - `SELFTEST: dsl v0.1 binding ok`
+
+### Visual proof handoff — required
+
+- the DSL example page corresponds to the same visible proof-surface targets used by the non-DSL fast lane,
+- the eventual QEMU mount is a handoff of that shared surface, not a separate DSL showcase.
 
 ## Touched paths (allowlist)
 

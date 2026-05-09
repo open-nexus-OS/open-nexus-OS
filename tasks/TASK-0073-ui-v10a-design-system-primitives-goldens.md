@@ -29,6 +29,8 @@ must be authored around SVG/icon-vector sources, live input states, and a11y lab
 launcher, greeter, Settings, and apps do not drift into one-off visuals.
 
 This task is **host-first**. App shell and adoption/migration is `TASK-0074`.
+Even so, primitives must be designed for the shared visible proof surface so they can be seen on the same desktop/test
+screen once mounted by SystemUI/apps.
 
 ## Goal
 
@@ -50,6 +52,9 @@ Deliver:
 4. A11y lints in tests:
    - minimum touch target size checks
    - contrast checks against configurable threshold (WCAG AA style)
+5. Visible proof-surface handoff:
+   - define the primitive set that later tasks mount on the shared desktop/test screen,
+   - avoid design-kit-only demo surfaces that diverge from launcher/settings/modal consumers.
 
 ## Non-Goals
 
@@ -80,6 +85,11 @@ Deliver:
 - a11y lints:
   - touch targets meet minimum
   - contrast meets threshold (configurable)
+
+### Visual proof handoff — required
+
+- button/textfield/switch/slider/dialog/sheet primitives are ready to appear on the shared visible proof surface,
+- hover/pressed/focus states line up with the same live input targets used by launcher/settings/modal tasks.
 
 ## Touched paths (allowlist)
 

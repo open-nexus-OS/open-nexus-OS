@@ -32,6 +32,7 @@ links:
 
 DSL v0.2a introduces stores/effects/navigation/i18n. v0.2b makes effects useful by allowing service calls
 via typed stubs, and provides end-to-end tooling and a demo app.
+That demo app should become a visible data-window target on the shared proof surface rather than a detached DSL-only sample.
 
 ## Goal
 
@@ -61,6 +62,7 @@ Deliver:
    - routes `/` and `/detail/:id`
    - store loads data via stub service call
    - i18n packs `en` and `de`
+   - mounts as the shared visible list/detail proof target when shown on-screen
 4. SystemUI launcher entry and OS markers:
    - `dsl: example masterdetail launched`
    - `dsl: nav to /detail/... ok`
@@ -115,6 +117,11 @@ UART markers:
 - `SELFTEST: dsl v0.2 load ok`
 - `SELFTEST: dsl v0.2 nav ok`
 - `SELFTEST: dsl v0.2 i18n ok`
+
+### Visual proof handoff — required
+
+- the master-detail example is suitable for the shared visible list/data window,
+- later OS mounts reuse this same list/detail target instead of inventing a second data demo.
 
 ## Touched paths (allowlist)
 

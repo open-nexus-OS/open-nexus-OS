@@ -35,6 +35,7 @@ Deliver:
    - visible greeter or dev-session splash,
    - live pointer focus/click handoff into the shell via `TASK-0253` + `windowd`,
    - minimal keyboard path only as needed for the greeter.
+   - the greeter and shell handoff reuse the shared visible proof surface instead of a separate login-only scene.
 3. Shell handoff:
    - after session ready, launcher/dock/taskbar surface is visible,
    - app launch requests are delegated to `appmgrd`.
@@ -79,6 +80,7 @@ UART markers (order tolerant):
 - QEMU shows the greeter/dev-session surface first.
 - Live pointer click advances to the shell/launcher surface.
 - App launch after session ready uses the `TASK-0065` app lifecycle path.
+- The greeter/shell handoff stays on the same desktop/test screen that later hosts launcher/app/overlay targets.
 
 ## Touched paths (allowlist)
 

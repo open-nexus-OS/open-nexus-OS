@@ -9,6 +9,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v2a present/input baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - UI v2a embedded runtime/reactor floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - UI v5a transitions baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
   - UI v4a perf/pacing baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - Config broker (WM knobs): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
@@ -29,6 +30,10 @@ The WM baseline must be visibly interactive in QEMU: live pointer focus/raise/cl
 must work through `windowd`, while move/resize can remain a bounded v0 if `TASK-0070`
 is still pending.
 
+This task must continue the same embedded runtime/reactor track established by
+`TASK-0056C` and extended by `TASK-0062`; window management and scene transitions
+should not introduce a separate event/present loop beside the fast-lane floor.
+
 App lifecycle and notifications are handled in `TASK-0065`.
 
 ## Goal
@@ -40,6 +45,7 @@ Deliver:
    - stacks: overlays > notifications > apps > desktop
    - actions: open/close/focus/minimize/maximize/fullscreen (move/resize stub)
    - live pointer focus/raise/close for at least the proof windows
+   - use visible proof windows on the shared desktop/test surface, not detached WM-only fixtures
 2. WM IPC:
    - `wm.capnp` (Open/BindSurface/SetState/Close)
 3. Scene transitions engine:
@@ -58,6 +64,7 @@ Deliver:
 
 - Deterministic focus/z-order behavior.
 - Live pointer focus/raise/close must use the same hit-test/focus authority as `TASK-0056B`.
+- WM transitions must reuse the existing runtime/reactor floor and preserve no-damage/idle-quiet behavior whenever scene state is unchanged.
 - Bounded state:
   - cap window count,
   - cap transition duration and memory used for snapshots.
@@ -90,6 +97,12 @@ UART markers (order tolerant):
 - `windowd: transition done (ms=...)`
 - `SELFTEST: ui v6 switch ok`
 
+### Visual proof — required
+
+- the shared proof surface contains at least two visible windows/cards with real focus/z-order changes,
+- live pointer focus/raise/close is visible on that same desktop/test screen,
+- scene transitions animate between visible proof surfaces instead of off-screen-only state.
+
 ## Touched paths (allowlist)
 
 - `source/services/windowd/` (WM + transitions)
@@ -101,7 +114,7 @@ UART markers (order tolerant):
 
 ## Plan (small PRs)
 
-1. WM model + markers + basic IDL
+1. WM model + markers + basic IDL on the embedded runtime/reactor floor
 2. focus/z-order rules + host tests
 3. transitions engine + reduced motion + host tests
 4. OS selftest markers + docs + postflight

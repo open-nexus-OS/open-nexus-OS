@@ -22,6 +22,8 @@ This must be **deterministic** and **testable headlessly** (host-first), so late
 use it without layout drift.
 
 This task is **v3a** (layout + wrapping). Clipping/scroll/effects/IME are deferred to v3b (`TASK-0059`).
+It should still feed the shared visible proof surface: once a consumer mounts it, wrapped text and hit regions must be
+visible on-screen, not only in host JSON goldens.
 
 ## Goal
 
@@ -44,6 +46,9 @@ Deliver:
 5. Markers for OS bring-up later:
    - `layout: engine on`
    - `text: wrapping on`
+6. Visible proof-surface handoff:
+   - define a deterministic wrapped-text target/card for the shared proof surface,
+   - expose the same layout boxes and input bounds used by live hit-testing.
 
 ## Non-Goals
 
@@ -98,6 +103,11 @@ Once windowd/plugins consume layout:
 - `layout: engine on`
 - `text: wrapping on`
 - `SELFTEST: ui v3 wrap ok` (added in v3b integration task)
+
+### Visual proof handoff — required
+
+- the shared proof surface has a bounded text box/card whose wrapping is visibly stable,
+- the visible text target uses the same layout bounds that later hover/focus/click proof paths consume.
 
 ## Touched paths (allowlist)
 

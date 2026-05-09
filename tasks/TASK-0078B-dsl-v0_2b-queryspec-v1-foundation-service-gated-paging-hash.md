@@ -36,6 +36,9 @@ We want:
 - and a base that early consumers such as Document Picker and Files can extend with domain-specific helpers without
   inventing their own query core.
 
+Even though this slice is host-first, its consumer fixture should line up with the shared visible proof surface
+(for example the virtual-list/data window) instead of a detached query-only demo.
+
 This task is intentionally the **v1 foundation** only. Stronger defaults, richer builder ergonomics, and hardening stay in
 `TASK-0274`. Large lazy/virtualized data surfaces stay in `TASK-0275`.
 
@@ -74,6 +77,7 @@ Deliver host-first support for:
 6. **Host proofs + one real consumer path**:
    - extend the demo/test path so QuerySpec is exercised through the effect runner and stub registry
    - prove at least one realistic query-shaped flow (e.g. master-detail list source or a small content-style fixture)
+   - keep that consumer path compatible with the shared visible list/data proof target
 
 ## Non-Goals
 

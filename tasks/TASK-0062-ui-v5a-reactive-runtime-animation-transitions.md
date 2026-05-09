@@ -9,6 +9,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v2a present scheduler baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - UI v2a embedded runtime/reactor floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - UI v3a layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - UI v4a pacing/metrics baseline: tasks/TASK-0060-ui-v4a-tiled-compositor-clipstack-atlases-perf.md
   - Glass compositor consumer: tasks/TASK-0060B-ui-v4b-glass-materials-backdrop-cache-degrade.md
@@ -19,8 +20,10 @@ links:
 
 ## Context
 
-Up to UI v4 we mostly operate in an “immediate-ish” style: clients submit buffers and windowd composes.
-UI v5 introduces a retained, reactive runtime on top:
+Up to UI v4 we mostly operate in an “immediate-ish” style: clients submit buffers and `windowd` composes.
+`TASK-0056C` should already have established the minimum embedded runtime/reactor floor
+for demand-aware present, coalescing, and idle-cheap behavior. UI v5 introduces a retained,
+reactive runtime on top of that floor:
 
 - reactive signals/derived/effects,
 - deterministic frame-batching,
@@ -47,6 +50,7 @@ Deliver:
    - signals/derived/effects
    - deterministic ordering
    - frame-batched commits (coalesce updates per vsync tick)
+   - reuse/extend the `TASK-0056C` present reasons and batching floor instead of bypassing it
    - metrics and markers
 2. `userspace/ui/animation`:
    - keyframes and springs
@@ -59,6 +63,7 @@ Deliver:
 4. Live input-triggered proof scene:
    - hover/click/scroll state changes can start a visible transition,
    - the transition remains bounded and deterministic in QEMU.
+   - the transition runs on the shared visible proof surface instead of a detached animation demo.
 
 ## Non-Goals
 
@@ -70,6 +75,7 @@ Deliver:
 
 - Deterministic batching and effect ordering (no re-entrancy surprises).
 - Bounded work per frame (caps on queued work items).
+- No free-running animation loop when nothing visible is changing; preserve the `TASK-0056C` idle-cheap posture.
 - Input-triggered transitions must preserve `windowd` as input authority and may not observe raw device events directly.
 - No `unwrap/expect`; no blanket `allow(dead_code)`.
 
@@ -109,6 +115,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v5 transition ok`
 - `SELFTEST: ui v5 spring ok`
 
+### Visual proof — required
+
+- the shared proof surface exposes a dedicated animation/transition target,
+- hover/click/scroll on that target visibly triggers bounded motion on-screen,
+- the proof target remains part of the same desktop/test screen used by scroll, launcher, and overlay tasks.
+
 ## Touched paths (allowlist)
 
 - `userspace/ui/runtime/` (new)
@@ -121,7 +133,7 @@ UART markers (order tolerant):
 
 ## Plan (small PRs)
 
-1. runtime primitives + batching + markers
+1. runtime primitives + batching + markers on top of the `TASK-0056C` floor
 2. timeline (keyframes/springs) + markers
 3. windowd implicit transitions + reduced motion
 4. host tests + OS markers + docs

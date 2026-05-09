@@ -41,6 +41,7 @@ Deliver:
    - userspace-only modal stack (Dialog/Sheet) with backdrop, focus trap, ESC handling
    - consistent toasts via kit `ToastView`
    - live pointer outside/inside modal behavior and keyboard escape/focus behavior are visible in QEMU
+   - modal/sheet proof runs on the shared visible proof surface
 3. Adoption/migration:
    - SystemUI overlays (quick settings, notifications, palette, settings overlay) use kit primitives
    - apps `launcher`, `notes`, `settings` adopt App Shell + kit controls
@@ -76,6 +77,12 @@ UART markers (order tolerant):
 - `SELFTEST: ui v10 dialog ok`
 - `SELFTEST: ui v10 live modal ok`
 - `SELFTEST: ui v10 theme recolor ok`
+
+### Visual proof — required
+
+- the shared proof surface shows an adopted app shell plus a modal/sheet target,
+- live pointer/keyboard visibly open and dismiss the modal on that same screen,
+- background input leak checks are performed against visible proof targets, not only event logs.
 
 ## Touched paths (allowlist)
 
