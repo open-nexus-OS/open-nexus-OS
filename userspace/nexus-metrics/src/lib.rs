@@ -16,7 +16,12 @@
 #![forbid(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    all(
+        feature = "os-lite",
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none"
+    ),
     no_std
 )]
 
@@ -150,7 +155,10 @@ pub struct DeterministicIdSource {
 impl DeterministicIdSource {
     /// Creates a deterministic ID source for one sender.
     pub const fn new(sender_service_id: u64) -> Self {
-        Self { sender_service_id, next_local: 1 }
+        Self {
+            sender_service_id,
+            next_local: 1,
+        }
     }
 
     /// Returns the next deterministic span ID.
@@ -197,7 +205,12 @@ pub struct SpanGuard<'a, C: SpanEndClient> {
 impl<'a, C: SpanEndClient> SpanGuard<'a, C> {
     /// Creates a span guard with a deterministic end-time provider.
     pub fn new(client: &'a C, span_id: SpanId, end_now: fn() -> u64) -> Self {
-        Self { client, span_id, end_now, closed: false }
+        Self {
+            client,
+            span_id,
+            end_now,
+            closed: false,
+        }
     }
 
     /// Returns the guarded span id.
@@ -218,7 +231,9 @@ impl<C: SpanEndClient> Drop for SpanGuard<'_, C> {
         if self.closed {
             return;
         }
-        let _ = self.client.end_span(self.span_id, (self.end_now)(), STATUS_OK, b"");
+        let _ = self
+            .client
+            .end_span(self.span_id, (self.end_now)(), STATUS_OK, b"");
         self.closed = true;
     }
 }
@@ -315,7 +330,13 @@ pub fn encode_gauge_set(
     labels: BoundedFields<'_>,
     value: i64,
 ) -> Result<Vec<u8>, EncodeError> {
-    encode_metric_value_frame(OP_GAUGE_SET, nonce, name.as_bytes(), labels.as_bytes(), value)
+    encode_metric_value_frame(
+        OP_GAUGE_SET,
+        nonce,
+        name.as_bytes(),
+        labels.as_bytes(),
+        value,
+    )
 }
 
 /// Encodes a HIST_OBSERVE frame.
@@ -474,14 +495,29 @@ fn decode_metric_value(op: u8, nonce: u32, payload: &[u8]) -> Result<Request<'_>
             if value < 0 {
                 return Err(DecodeError::Malformed);
             }
-            Ok(Request::CounterInc { nonce, name, labels, delta: value as u64 })
+            Ok(Request::CounterInc {
+                nonce,
+                name,
+                labels,
+                delta: value as u64,
+            })
         }
-        OP_GAUGE_SET => Ok(Request::GaugeSet { nonce, name, labels, value }),
+        OP_GAUGE_SET => Ok(Request::GaugeSet {
+            nonce,
+            name,
+            labels,
+            value,
+        }),
         OP_HIST_OBSERVE => {
             if value < 0 {
                 return Err(DecodeError::Malformed);
             }
-            Ok(Request::HistObserve { nonce, name, labels, value: value as u64 })
+            Ok(Request::HistObserve {
+                nonce,
+                name,
+                labels,
+                value: value as u64,
+            })
         }
         _ => Err(DecodeError::Unsupported),
     }
@@ -535,7 +571,15 @@ fn decode_span_start(nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeEr
     }
     let name = &payload[35..35 + name_len];
     let attrs = &payload[35 + name_len..];
-    Ok(Request::SpanStart { nonce, span_id, trace_id, parent_span_id, start_ns, name, attrs })
+    Ok(Request::SpanStart {
+        nonce,
+        span_id,
+        trace_id,
+        parent_span_id,
+        start_ns,
+        name,
+        attrs,
+    })
 }
 
 fn decode_span_end(nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeError> {
@@ -565,7 +609,13 @@ fn decode_span_end(nonce: u32, payload: &[u8]) -> Result<Request<'_>, DecodeErro
         return Err(DecodeError::Malformed);
     }
     let attrs = &payload[19..];
-    Ok(Request::SpanEnd { nonce, span_id, end_ns, status, attrs })
+    Ok(Request::SpanEnd {
+        nonce,
+        span_id,
+        end_ns,
+        status,
+        attrs,
+    })
 }
 
 /// Encodes a status-only response frame.
@@ -629,7 +679,10 @@ pub mod client {
         /// Creates a client for an explicit service name.
         pub fn new_for(service_name: &str) -> Result<Self, ClientError> {
             let ipc = KernelClient::new_for(service_name).map_err(|_| ClientError::Transport)?;
-            Ok(Self { ipc, next_nonce: AtomicU32::new(1) })
+            Ok(Self {
+                ipc,
+                next_nonce: AtomicU32::new(1),
+            })
         }
 
         fn nonce(&self) -> u32 {
@@ -790,11 +843,30 @@ pub mod host {
     /// Minimal host event model.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Event {
-        Counter { name: Vec<u8>, labels: Vec<u8>, delta: u64 },
-        Gauge { name: Vec<u8>, labels: Vec<u8>, value: i64 },
-        Hist { name: Vec<u8>, labels: Vec<u8>, value: u64 },
-        SpanStart { span_id: SpanId, trace_id: TraceId, name: Vec<u8> },
-        SpanEnd { span_id: SpanId, status: u8 },
+        Counter {
+            name: Vec<u8>,
+            labels: Vec<u8>,
+            delta: u64,
+        },
+        Gauge {
+            name: Vec<u8>,
+            labels: Vec<u8>,
+            value: i64,
+        },
+        Hist {
+            name: Vec<u8>,
+            labels: Vec<u8>,
+            value: u64,
+        },
+        SpanStart {
+            span_id: SpanId,
+            trace_id: TraceId,
+            name: Vec<u8>,
+        },
+        SpanEnd {
+            span_id: SpanId,
+            status: u8,
+        },
     }
 
     /// In-memory host backend used by host tests.
@@ -957,7 +1029,12 @@ mod tests {
         .unwrap();
         let req = decode_request(&frame).unwrap();
         match req {
-            Request::CounterInc { nonce, name, labels, delta } => {
+            Request::CounterInc {
+                nonce,
+                name,
+                labels,
+                delta,
+            } => {
                 assert_eq!(nonce, 7);
                 assert_eq!(name, b"sched.wakeups");
                 assert_eq!(labels, b"svc=timed\n");

@@ -134,10 +134,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => 0,
         };
         loop {
-            let recv_ok =
-                nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            let send_ok =
-                nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+            let recv_ok = nexus_abi::cap_clone(RECV_SLOT)
+                .map(|tmp| nexus_abi::cap_close(tmp))
+                .is_ok();
+            let send_ok = nexus_abi::cap_clone(SEND_SLOT)
+                .map(|tmp| nexus_abi::cap_close(tmp))
+                .is_ok();
             if recv_ok && send_ok {
                 break KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT)
                     .map_err(|_| ServerError::Unsupported)?;
@@ -178,7 +180,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
                 if pristine && !virtio_upgraded && virtio_retry_count < VIRTIO_MAX_RETRIES {
-                    let mut q = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+                    let mut q = nexus_abi::CapQuery {
+                        kind_tag: 0,
+                        reserved: 0,
+                        base: 0,
+                        len: 0,
+                    };
                     let mmio_ready = nexus_abi::cap_query(48, &mut q).is_ok() && q.kind_tag == 2;
                     if mmio_ready {
                         if let Ok(blk) = VirtioBlkDevice::new(48) {
@@ -426,7 +433,10 @@ fn required_cap(op: u8, path: &str) -> &'static str {
         CAP_KEYSTORE
     } else if path.starts_with("/state/boot/") {
         CAP_BOOT
-    } else if matches!(op, proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN) {
+    } else if matches!(
+        op,
+        proto::OP_PUT | proto::OP_DEL | proto::OP_SYNC | proto::OP_REOPEN
+    ) {
         CAP_WRITE
     } else {
         CAP_READ
@@ -544,7 +554,12 @@ fn emit_access_denied(path: &str, sender_service_id: u64) {
 }
 
 fn emit_line(message: &str) {
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+    for byte in message
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(core::iter::once(b'\n'))
+    {
         let _ = debug_putc(byte);
     }
 }
@@ -615,7 +630,11 @@ fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
     }
     for shift in (0..16).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         buf[*len] = ch;
         *len += 1;
     }
@@ -682,8 +701,19 @@ fn append_logd_audit(msg: &[u8]) {
     frame[len..len + msg.len()].copy_from_slice(msg);
     len += msg.len();
 
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    let _ = nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], nexus_abi::IPC_SYS_NONBLOCK, 0);
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
+    let _ = nexus_abi::ipc_send_v1(
+        send_slot,
+        &hdr,
+        &frame[..len],
+        nexus_abi::IPC_SYS_NONBLOCK,
+        0,
+    );
     let _ = _reply_recv_slot;
 }

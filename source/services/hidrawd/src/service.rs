@@ -39,15 +39,25 @@ struct MouseSource {
 impl HidrawdService {
     #[must_use]
     pub fn new() -> Self {
-        Self { keyboard: None, mouse: None, recent_batches: Vec::new() }
+        Self {
+            keyboard: None,
+            mouse: None,
+            recent_batches: Vec::new(),
+        }
     }
 
     pub fn register_keyboard(&mut self, device_id: DeviceId) {
-        self.keyboard = Some(KeyboardSource { device_id, parser: BootKeyboardParser::new() });
+        self.keyboard = Some(KeyboardSource {
+            device_id,
+            parser: BootKeyboardParser::new(),
+        });
     }
 
     pub fn register_mouse(&mut self, device_id: DeviceId) {
-        self.mouse = Some(MouseSource { device_id, parser: BootMouseParser::new() });
+        self.mouse = Some(MouseSource {
+            device_id,
+            parser: BootMouseParser::new(),
+        });
     }
 
     #[must_use]
@@ -66,15 +76,21 @@ impl HidrawdService {
         timestamp: TimestampNs,
         report: &[u8],
     ) -> Result<HidBatch, HidrawdError> {
-        let keyboard = self.keyboard.as_mut().ok_or(HidrawdError::KeyboardUnavailable)?;
+        let keyboard = self
+            .keyboard
+            .as_mut()
+            .ok_or(HidrawdError::KeyboardUnavailable)?;
         if keyboard.device_id != device_id {
             return Err(HidrawdError::UnexpectedDevice {
                 expected: HidDeviceKind::Keyboard,
                 actual: HidDeviceKind::Mouse,
             });
         }
-        let batch =
-            HidBatch::new(device_id, HidDeviceKind::Keyboard, parse_keyboard(&mut keyboard.parser, timestamp, report)?);
+        let batch = HidBatch::new(
+            device_id,
+            HidDeviceKind::Keyboard,
+            parse_keyboard(&mut keyboard.parser, timestamp, report)?,
+        );
         self.push_batch(batch.clone());
         Ok(batch)
     }
@@ -92,12 +108,11 @@ impl HidrawdService {
                 actual: HidDeviceKind::Keyboard,
             });
         }
-        let batch =
-            HidBatch::new_pointer(
-                device_id,
-                PointerSource::MouseRelative,
-                parse_mouse(&mut mouse.parser, timestamp, report)?,
-            );
+        let batch = HidBatch::new_pointer(
+            device_id,
+            PointerSource::MouseRelative,
+            parse_mouse(&mut mouse.parser, timestamp, report)?,
+        );
         self.push_batch(batch.clone());
         Ok(batch)
     }
@@ -110,7 +125,10 @@ impl HidrawdService {
     ) -> Result<HidBatch, HidrawdError> {
         match kind {
             HidDeviceKind::Keyboard => {
-                let keyboard = self.keyboard.as_ref().ok_or(HidrawdError::KeyboardUnavailable)?;
+                let keyboard = self
+                    .keyboard
+                    .as_ref()
+                    .ok_or(HidrawdError::KeyboardUnavailable)?;
                 if keyboard.device_id != device_id {
                     return Err(HidrawdError::UnexpectedDevice {
                         expected: HidDeviceKind::Keyboard,

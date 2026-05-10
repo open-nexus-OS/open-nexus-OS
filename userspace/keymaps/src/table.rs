@@ -34,7 +34,12 @@ pub const fn entry(
     shifted: Option<KeyOutput>,
     alt_gr: Option<KeyOutput>,
 ) -> MappingEntry {
-    MappingEntry { usage, base, shifted, alt_gr }
+    MappingEntry {
+        usage,
+        base,
+        shifted,
+        alt_gr,
+    }
 }
 
 pub fn lookup(entries: &[MappingEntry], usage: KeyboardUsage) -> Option<&MappingEntry> {
@@ -87,8 +92,18 @@ pub mod us {
         entry(KeyboardUsage::SPACE, text(' '), Some(text(' ')), None),
         entry(KeyboardUsage::MINUS, text('-'), Some(text('_')), None),
         entry(KeyboardUsage::EQUAL, text('='), Some(text('+')), None),
-        entry(KeyboardUsage::LEFT_BRACKET, text('['), Some(text('{')), None),
-        entry(KeyboardUsage::RIGHT_BRACKET, text(']'), Some(text('}')), None),
+        entry(
+            KeyboardUsage::LEFT_BRACKET,
+            text('['),
+            Some(text('{')),
+            None,
+        ),
+        entry(
+            KeyboardUsage::RIGHT_BRACKET,
+            text(']'),
+            Some(text('}')),
+            None,
+        ),
         entry(KeyboardUsage::BACKSLASH, text('\\'), Some(text('|')), None),
         entry(KeyboardUsage::SEMICOLON, text(';'), Some(text(':')), None),
         entry(KeyboardUsage::APOSTROPHE, text('\''), Some(text('"')), None),
@@ -96,7 +111,12 @@ pub mod us {
         entry(KeyboardUsage::COMMA, text(','), Some(text('<')), None),
         entry(KeyboardUsage::DOT, text('.'), Some(text('>')), None),
         entry(KeyboardUsage::SLASH, text('/'), Some(text('?')), None),
-        entry(KeyboardUsage::ENTER, action(KeyAction::Enter), Some(action(KeyAction::Enter)), None),
+        entry(
+            KeyboardUsage::ENTER,
+            action(KeyAction::Enter),
+            Some(action(KeyAction::Enter)),
+            None,
+        ),
         entry(
             KeyboardUsage::ESCAPE,
             action(KeyAction::Escape),
@@ -109,7 +129,12 @@ pub mod us {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(
+            KeyboardUsage::TAB,
+            action(KeyAction::Tab),
+            Some(action(KeyAction::Tab)),
+            None,
+        ),
     ];
 }
 
@@ -124,7 +149,12 @@ pub mod de {
         entry(KeyboardUsage::B, text('b'), Some(text('B')), None),
         entry(KeyboardUsage::C, text('c'), Some(text('C')), None),
         entry(KeyboardUsage::D, text('d'), Some(text('D')), None),
-        entry(KeyboardUsage::E, text('e'), Some(text('E')), Some(text('€'))),
+        entry(
+            KeyboardUsage::E,
+            text('e'),
+            Some(text('E')),
+            Some(text('€')),
+        ),
         entry(KeyboardUsage::F, text('f'), Some(text('F')), None),
         entry(KeyboardUsage::G, text('g'), Some(text('G')), None),
         entry(KeyboardUsage::H, text('h'), Some(text('H')), None),
@@ -136,7 +166,12 @@ pub mod de {
         entry(KeyboardUsage::N, text('n'), Some(text('N')), None),
         entry(KeyboardUsage::O, text('o'), Some(text('O')), None),
         entry(KeyboardUsage::P, text('p'), Some(text('P')), None),
-        entry(KeyboardUsage::Q, text('q'), Some(text('Q')), Some(text('@'))),
+        entry(
+            KeyboardUsage::Q,
+            text('q'),
+            Some(text('Q')),
+            Some(text('@')),
+        ),
         entry(KeyboardUsage::R, text('r'), Some(text('R')), None),
         entry(KeyboardUsage::S, text('s'), Some(text('S')), None),
         entry(KeyboardUsage::T, text('t'), Some(text('T')), None),
@@ -152,15 +187,50 @@ pub mod de {
         entry(KeyboardUsage::DIGIT_4, text('4'), Some(text('$')), None),
         entry(KeyboardUsage::DIGIT_5, text('5'), Some(text('%')), None),
         entry(KeyboardUsage::DIGIT_6, text('6'), Some(text('&')), None),
-        entry(KeyboardUsage::DIGIT_7, text('7'), Some(text('/')), Some(text('{'))),
-        entry(KeyboardUsage::DIGIT_8, text('8'), Some(text('(')), Some(text('['))),
-        entry(KeyboardUsage::DIGIT_9, text('9'), Some(text(')')), Some(text(']'))),
-        entry(KeyboardUsage::DIGIT_0, text('0'), Some(text('=')), Some(text('}'))),
+        entry(
+            KeyboardUsage::DIGIT_7,
+            text('7'),
+            Some(text('/')),
+            Some(text('{')),
+        ),
+        entry(
+            KeyboardUsage::DIGIT_8,
+            text('8'),
+            Some(text('(')),
+            Some(text('[')),
+        ),
+        entry(
+            KeyboardUsage::DIGIT_9,
+            text('9'),
+            Some(text(')')),
+            Some(text(']')),
+        ),
+        entry(
+            KeyboardUsage::DIGIT_0,
+            text('0'),
+            Some(text('=')),
+            Some(text('}')),
+        ),
         entry(KeyboardUsage::SPACE, text(' '), Some(text(' ')), None),
-        entry(KeyboardUsage::MINUS, text('ß'), Some(text('?')), Some(text('\\'))),
+        entry(
+            KeyboardUsage::MINUS,
+            text('ß'),
+            Some(text('?')),
+            Some(text('\\')),
+        ),
         entry(KeyboardUsage::EQUAL, text('´'), Some(text('`')), None),
-        entry(KeyboardUsage::LEFT_BRACKET, text('ü'), Some(text('Ü')), None),
-        entry(KeyboardUsage::RIGHT_BRACKET, text('+'), Some(text('*')), Some(text('~'))),
+        entry(
+            KeyboardUsage::LEFT_BRACKET,
+            text('ü'),
+            Some(text('Ü')),
+            None,
+        ),
+        entry(
+            KeyboardUsage::RIGHT_BRACKET,
+            text('+'),
+            Some(text('*')),
+            Some(text('~')),
+        ),
         entry(KeyboardUsage::BACKSLASH, text('#'), Some(text('\'')), None),
         entry(KeyboardUsage::SEMICOLON, text('ö'), Some(text('Ö')), None),
         entry(KeyboardUsage::APOSTROPHE, text('ä'), Some(text('Ä')), None),
@@ -168,7 +238,12 @@ pub mod de {
         entry(KeyboardUsage::COMMA, text(','), Some(text(';')), None),
         entry(KeyboardUsage::DOT, text('.'), Some(text(':')), None),
         entry(KeyboardUsage::SLASH, text('-'), Some(text('_')), None),
-        entry(KeyboardUsage::ENTER, action(KeyAction::Enter), Some(action(KeyAction::Enter)), None),
+        entry(
+            KeyboardUsage::ENTER,
+            action(KeyAction::Enter),
+            Some(action(KeyAction::Enter)),
+            None,
+        ),
         entry(
             KeyboardUsage::ESCAPE,
             action(KeyAction::Escape),
@@ -181,7 +256,12 @@ pub mod de {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(
+            KeyboardUsage::TAB,
+            action(KeyAction::Tab),
+            Some(action(KeyAction::Tab)),
+            None,
+        ),
     ];
 }
 
@@ -196,12 +276,27 @@ pub mod jp {
         entry(KeyboardUsage::DIGIT_2, text('2'), Some(text('"')), None),
         entry(KeyboardUsage::DIGIT_6, text('6'), Some(text('&')), None),
         entry(KeyboardUsage::DIGIT_7, text('7'), Some(text('\'')), None),
-        entry(KeyboardUsage::LEFT_BRACKET, text('@'), Some(text('`')), None),
-        entry(KeyboardUsage::RIGHT_BRACKET, text('['), Some(text('{')), None),
+        entry(
+            KeyboardUsage::LEFT_BRACKET,
+            text('@'),
+            Some(text('`')),
+            None,
+        ),
+        entry(
+            KeyboardUsage::RIGHT_BRACKET,
+            text('['),
+            Some(text('{')),
+            None,
+        ),
         entry(KeyboardUsage::BACKSLASH, text(']'), Some(text('}')), None),
         entry(KeyboardUsage::APOSTROPHE, text(':'), Some(text('*')), None),
         entry(KeyboardUsage::GRAVE, text('^'), Some(text('~')), None),
-        entry(KeyboardUsage::ENTER, action(KeyAction::Enter), Some(action(KeyAction::Enter)), None),
+        entry(
+            KeyboardUsage::ENTER,
+            action(KeyAction::Enter),
+            Some(action(KeyAction::Enter)),
+            None,
+        ),
         entry(
             KeyboardUsage::ESCAPE,
             action(KeyAction::Escape),
@@ -214,13 +309,21 @@ pub mod jp {
             Some(action(KeyAction::Backspace)),
             None,
         ),
-        entry(KeyboardUsage::TAB, action(KeyAction::Tab), Some(action(KeyAction::Tab)), None),
+        entry(
+            KeyboardUsage::TAB,
+            action(KeyAction::Tab),
+            Some(action(KeyAction::Tab)),
+            None,
+        ),
     ];
 
     pub fn merged() -> Vec<MappingEntry> {
         let mut out = us::TABLE.to_vec();
         for replacement in TABLE {
-            if let Some(slot) = out.iter_mut().find(|entry| entry.usage == replacement.usage) {
+            if let Some(slot) = out
+                .iter_mut()
+                .find(|entry| entry.usage == replacement.usage)
+            {
                 *slot = *replacement;
             } else {
                 out.push(*replacement);
@@ -236,8 +339,12 @@ pub mod kr {
 
     use super::{entry, text, us, MappingEntry};
 
-    pub const TABLE: &[MappingEntry] =
-        &[entry(KeyboardUsage::BACKSLASH, text('₩'), Some(text('|')), None)];
+    pub const TABLE: &[MappingEntry] = &[entry(
+        KeyboardUsage::BACKSLASH,
+        text('₩'),
+        Some(text('|')),
+        None,
+    )];
 
     pub fn merged() -> Vec<MappingEntry> {
         us::TABLE
@@ -251,7 +358,9 @@ pub mod kr {
                     .unwrap_or(entry_candidate)
             })
             .chain(TABLE.iter().copied().filter(|replacement| {
-                !us::TABLE.iter().any(|entry_candidate| entry_candidate.usage == replacement.usage)
+                !us::TABLE
+                    .iter()
+                    .any(|entry_candidate| entry_candidate.usage == replacement.usage)
             }))
             .collect()
     }
@@ -263,8 +372,12 @@ pub mod zh {
 
     use super::{entry, text, us, MappingEntry};
 
-    pub const TABLE: &[MappingEntry] =
-        &[entry(KeyboardUsage::NON_US_HASH, text('￥'), Some(text('|')), None)];
+    pub const TABLE: &[MappingEntry] = &[entry(
+        KeyboardUsage::NON_US_HASH,
+        text('￥'),
+        Some(text('|')),
+        None,
+    )];
 
     pub fn merged() -> Vec<MappingEntry> {
         us::TABLE
@@ -278,7 +391,9 @@ pub mod zh {
                     .unwrap_or(entry_candidate)
             })
             .chain(TABLE.iter().copied().filter(|replacement| {
-                !us::TABLE.iter().any(|entry_candidate| entry_candidate.usage == replacement.usage)
+                !us::TABLE
+                    .iter()
+                    .any(|entry_candidate| entry_candidate.usage == replacement.usage)
             }))
             .collect()
     }

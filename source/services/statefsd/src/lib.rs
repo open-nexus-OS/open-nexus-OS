@@ -10,7 +10,12 @@
 
 #![forbid(unsafe_code)]
 #![cfg_attr(
-    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    all(
+        feature = "os-lite",
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none"
+    ),
     no_std
 )]
 

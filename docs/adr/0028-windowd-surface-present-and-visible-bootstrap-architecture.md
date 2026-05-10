@@ -62,8 +62,11 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 - `TASK-0056B` currently claims only deterministic visible input in QEMU: routed cursor movement, hover affordance, focus affordance, and click-visible proof surface state.
 - `TASK-0252` has now landed the host-first input core (`hid`, `touch`, `keymaps`, `key-repeat`,
   `pointer-accel`) plus `tests/input_v1_0_host/` as the canonical host proof package.
-- The remaining live input pipeline still proceeds intentionally as `TASK-0253` instead of being
-  implemented as a 56B-only `inputd-light` path.
+- `TASK-0253` / `RFC-0053` / `RFC-0054` are now review-closed for the service-owned
+  live chain: `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`,
+  with `selftest-client` kept observer-only.
+- The next follow-up remains `TASK-0056C`; this ADR still does not claim
+  latency/perf closure for the UI fast lane.
 
 ## Consequences
 - **Positive**

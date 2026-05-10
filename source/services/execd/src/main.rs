@@ -1,4 +1,8 @@
-#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
+#![cfg_attr(
+    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    no_std,
+    no_main
+)]
 
 //! CONTEXT: Execd daemon entrypoint wiring default transport to shared service logic
 

@@ -103,7 +103,9 @@ where
     pub fn new(net: N, bind: SocketAddr, identity: Identity) -> Result<Self, AuthError> {
         let mut net = net;
         let local = to_v4(bind)?;
-        let listener = net.tcp_listen(local, 8).map_err(|e| AuthError::Io(neterr_to_io(e)))?;
+        let listener = net
+            .tcp_listen(local, 8)
+            .map_err(|e| AuthError::Io(neterr_to_io(e)))?;
         let listener_addr = listener.local_addr();
 
         let (noise_secret, noise_public) = crate::derive_noise_keys(&identity);
@@ -160,7 +162,11 @@ where
                         return Err(AuthError::Identity("device mismatch".into()));
                     }
                     crate::host::send_connect_response(&mut io, &mut transport, true)?;
-                    return Ok(FacadeSession { io, transport, remote_device: device_id });
+                    return Ok(FacadeSession {
+                        io,
+                        transport,
+                        remote_device: device_id,
+                    });
                 }
                 Err(NetError::WouldBlock) => {
                     std::thread::yield_now();
@@ -227,7 +233,11 @@ where
         if !ok {
             return Err(AuthError::Identity("connection rejected".into()));
         }
-        Ok(FacadeSession { io, transport, remote_device: device_id })
+        Ok(FacadeSession {
+            io,
+            transport,
+            remote_device: device_id,
+        })
     }
 
     // Note: we intentionally model deadlines as ticks (deterministic host-first).
@@ -247,7 +257,10 @@ impl<S: TcpStream + Send + 'static> Session for FacadeSession<S> {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Ok(FacadeStream { io: self.io, transport: self.transport })
+        Ok(FacadeStream {
+            io: self.io,
+            transport: self.transport,
+        })
     }
 }
 

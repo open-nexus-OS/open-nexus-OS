@@ -61,6 +61,9 @@ mod host {
         let mut w = disc_w.watch().expect("watch");
         let first = w.next().expect("first");
         assert_eq!(first.device_id(), ann_a.device_id());
-        assert!(w.next().is_none(), "replayed announce should be ignored (no second yield)");
+        assert!(
+            w.next().is_none(),
+            "replayed announce should be ignored (no second yield)"
+        );
     }
 }

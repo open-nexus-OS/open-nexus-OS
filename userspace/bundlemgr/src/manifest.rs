@@ -92,27 +92,40 @@ impl Manifest {
         })?;
         let name_trimmed = name_raw.trim();
         if name_trimmed.is_empty() {
-            return Err(Error::InvalidField { field: "name", reason: "must not be empty".into() });
+            return Err(Error::InvalidField {
+                field: "name",
+                reason: "must not be empty".into(),
+            });
         }
         let name = name_trimmed.to_string();
 
-        let semver_raw = m.get_semver().map_err(|err| Error::Decode(err.to_string()))?;
+        let semver_raw = m
+            .get_semver()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         let semver_raw = semver_raw.to_str().map_err(|err| Error::InvalidField {
             field: "semver",
             reason: format!("invalid utf-8: {err}"),
         })?;
-        let version = Version::parse(semver_raw.trim())
-            .map_err(|err| Error::InvalidField { field: "semver", reason: err.to_string() })?;
+        let version = Version::parse(semver_raw.trim()).map_err(|err| Error::InvalidField {
+            field: "semver",
+            reason: err.to_string(),
+        })?;
 
-        let min_sdk_raw = m.get_min_sdk().map_err(|err| Error::Decode(err.to_string()))?;
+        let min_sdk_raw = m
+            .get_min_sdk()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         let min_sdk_raw = min_sdk_raw.to_str().map_err(|err| Error::InvalidField {
             field: "minSdk",
             reason: format!("invalid utf-8: {err}"),
         })?;
-        let min_sdk = Version::parse(min_sdk_raw.trim())
-            .map_err(|err| Error::InvalidField { field: "minSdk", reason: err.to_string() })?;
+        let min_sdk = Version::parse(min_sdk_raw.trim()).map_err(|err| Error::InvalidField {
+            field: "minSdk",
+            reason: err.to_string(),
+        })?;
 
-        let abilities_list = m.get_abilities().map_err(|err| Error::Decode(err.to_string()))?;
+        let abilities_list = m
+            .get_abilities()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         if abilities_list.is_empty() {
             return Err(Error::InvalidField {
                 field: "abilities",
@@ -121,7 +134,9 @@ impl Manifest {
         }
         let mut abilities = Vec::with_capacity(abilities_list.len() as usize);
         for i in 0..abilities_list.len() {
-            let s = abilities_list.get(i).map_err(|err| Error::Decode(err.to_string()))?;
+            let s = abilities_list
+                .get(i)
+                .map_err(|err| Error::Decode(err.to_string()))?;
             let s = s.to_str().map_err(|err| Error::InvalidField {
                 field: "abilities",
                 reason: format!("invalid utf-8: {err}"),
@@ -136,10 +151,14 @@ impl Manifest {
             abilities.push(t.to_string());
         }
 
-        let caps_list = m.get_capabilities().map_err(|err| Error::Decode(err.to_string()))?;
+        let caps_list = m
+            .get_capabilities()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         let mut capabilities = Vec::with_capacity(caps_list.len() as usize);
         for i in 0..caps_list.len() {
-            let s = caps_list.get(i).map_err(|err| Error::Decode(err.to_string()))?;
+            let s = caps_list
+                .get(i)
+                .map_err(|err| Error::Decode(err.to_string()))?;
             let s = s.to_str().map_err(|err| Error::InvalidField {
                 field: "caps",
                 reason: format!("invalid utf-8: {err}"),
@@ -154,7 +173,9 @@ impl Manifest {
             capabilities.push(t.to_string());
         }
 
-        let publisher = m.get_publisher().map_err(|err| Error::Decode(err.to_string()))?;
+        let publisher = m
+            .get_publisher()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         if publisher.len() != 16 {
             return Err(Error::InvalidField {
                 field: "publisher",
@@ -163,7 +184,9 @@ impl Manifest {
         }
         let publisher_hex = hex::encode(publisher);
 
-        let signature = m.get_signature().map_err(|err| Error::Decode(err.to_string()))?;
+        let signature = m
+            .get_signature()
+            .map_err(|err| Error::Decode(err.to_string()))?;
         if signature.len() != 64 {
             return Err(Error::InvalidField {
                 field: "signature",
@@ -172,15 +195,18 @@ impl Manifest {
         }
 
         let payload_digest = parse_optional_sha256(
-            m.get_payload_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            m.get_payload_digest()
+                .map_err(|err| Error::Decode(err.to_string()))?,
             "payloadDigest",
         )?;
         let sbom_digest = parse_optional_sha256(
-            m.get_sbom_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            m.get_sbom_digest()
+                .map_err(|err| Error::Decode(err.to_string()))?,
             "sbomDigest",
         )?;
         let repro_digest = parse_optional_sha256(
-            m.get_repro_digest().map_err(|err| Error::Decode(err.to_string()))?,
+            m.get_repro_digest()
+                .map_err(|err| Error::Decode(err.to_string()))?,
             "reproDigest",
         )?;
 

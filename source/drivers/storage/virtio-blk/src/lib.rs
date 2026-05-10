@@ -121,7 +121,11 @@ impl<B: Bus> VirtioBlk<B> {
             return Err(VirtioError::NotBlockDevice);
         }
         let vendor_id = self.bus.read(REG_VENDOR_ID);
-        Ok(DeviceInfo { version, device_id, vendor_id })
+        Ok(DeviceInfo {
+            version,
+            device_id,
+            vendor_id,
+        })
     }
 
     /// Resets the device status to 0.
@@ -135,7 +139,8 @@ impl<B: Bus> VirtioBlk<B> {
         let version = self.bus.read(REG_VERSION);
 
         // ACK + DRIVER
-        self.bus.write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        self.bus
+            .write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
         if version == VIRTIO_MMIO_VERSION_MODERN {
             // Modern: 64-bit features via selector registers
@@ -207,7 +212,12 @@ impl<B: Bus> VirtioBlk<B> {
 
         let version = self.bus.read(REG_VERSION);
         if version == VIRTIO_MMIO_VERSION_MODERN {
-            write_u64_mmio_pair(&self.bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, cfg.desc_paddr);
+            write_u64_mmio_pair(
+                &self.bus,
+                REG_QUEUE_DESC_LOW,
+                REG_QUEUE_DESC_HIGH,
+                cfg.desc_paddr,
+            );
             write_u64_mmio_pair(
                 &self.bus,
                 REG_QUEUE_DRIVER_LOW,
@@ -349,7 +359,12 @@ mod mmio_backend {
     }
 
     fn emit_line(msg: &str) {
-        for byte in msg.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+        for byte in msg
+            .as_bytes()
+            .iter()
+            .copied()
+            .chain(core::iter::once(b'\n'))
+        {
             let _ = debug_putc(byte);
         }
     }
@@ -373,7 +388,12 @@ mod mmio_backend {
     }
 
     fn cap_query_base_len(slot: u32) -> Result<(u64, u64), VirtioError> {
-        let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut info = CapQuery {
+            kind_tag: 0,
+            reserved: 0,
+            base: 0,
+            len: 0,
+        };
         cap_query(slot, &mut info).map_err(|_| VirtioError::Unsupported)?;
         Ok((info.base, info.len))
     }
@@ -624,7 +644,11 @@ mod mmio_backend {
                 return Err(VirtioError::Unsupported);
             }
 
-            let req = BlkReq { req_type, reserved: 0, sector };
+            let req = BlkReq {
+                req_type,
+                reserved: 0,
+                sector,
+            };
             unsafe {
                 core::ptr::write_volatile(self.req_va as *mut BlkReq, req);
                 core::ptr::write_bytes(self.status_va as *mut u8, 0, 1);
@@ -654,7 +678,12 @@ mod mmio_backend {
                     );
                     core::ptr::write_volatile(
                         self.desc.add(1),
-                        VqDesc { addr: self.status_pa, len: 1, flags: VIRTQ_DESC_F_WRITE, next: 0 },
+                        VqDesc {
+                            addr: self.status_pa,
+                            len: 1,
+                            flags: VIRTQ_DESC_F_WRITE,
+                            next: 0,
+                        },
                     );
                 } else {
                     core::ptr::write_volatile(
@@ -681,7 +710,12 @@ mod mmio_backend {
                     );
                     core::ptr::write_volatile(
                         self.desc.add(2),
-                        VqDesc { addr: self.status_pa, len: 1, flags: VIRTQ_DESC_F_WRITE, next: 0 },
+                        VqDesc {
+                            addr: self.status_pa,
+                            len: 1,
+                            flags: VIRTQ_DESC_F_WRITE,
+                            next: 0,
+                        },
                     );
                 }
 

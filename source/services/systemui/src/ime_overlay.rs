@@ -18,7 +18,11 @@ pub struct ImeOverlayState {
 impl ImeOverlayState {
     #[must_use]
     pub const fn new() -> Self {
-        Self { visible: false, show_events: 0, hide_events: 0 }
+        Self {
+            visible: false,
+            show_events: 0,
+            hide_events: 0,
+        }
     }
 
     pub fn show(&mut self) -> bool {

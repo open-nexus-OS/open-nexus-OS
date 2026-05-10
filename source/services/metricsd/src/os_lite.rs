@@ -144,8 +144,10 @@ impl RetentionSink {
             }
         }
         if let Some(rollup_10s) = update.rollup_10s.as_ref() {
-            let key =
-                format!("/state/observability/metricsd/rollup/10s/w_{}", rollup_10s.window_id);
+            let key = format!(
+                "/state/observability/metricsd/rollup/10s/w_{}",
+                rollup_10s.window_id
+            );
             let _ = put_with_retries(
                 client,
                 key.as_str(),
@@ -164,8 +166,10 @@ impl RetentionSink {
             let _ = statefs_delete_nonblocking(client, key.as_str());
         }
         if let Some(rollup_60s) = update.rollup_60s.as_ref() {
-            let key =
-                format!("/state/observability/metricsd/rollup/60s/w_{}", rollup_60s.window_id);
+            let key = format!(
+                "/state/observability/metricsd/rollup/60s/w_{}",
+                rollup_60s.window_id
+            );
             let _ = put_with_retries(
                 client,
                 key.as_str(),
@@ -310,35 +314,60 @@ fn handle_frame(
     let decoded = match decode_request(frame) {
         Ok(req) => req,
         Err(DecodeError::Malformed) => {
-            return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS))
+            return (
+                encode_status_response(op, 0, STATUS_INVALID_ARGS),
+                Some(STATUS_INVALID_ARGS),
+            )
         }
         Err(DecodeError::OverLimit) => {
-            return (encode_status_response(op, 0, STATUS_OVER_LIMIT), Some(STATUS_OVER_LIMIT))
+            return (
+                encode_status_response(op, 0, STATUS_OVER_LIMIT),
+                Some(STATUS_OVER_LIMIT),
+            )
         }
         Err(DecodeError::Unsupported) => {
-            return (encode_status_response(op, 0, STATUS_INVALID_ARGS), Some(STATUS_INVALID_ARGS))
+            return (
+                encode_status_response(op, 0, STATUS_INVALID_ARGS),
+                Some(STATUS_INVALID_ARGS),
+            )
         }
     };
 
     // Budget all mutating operations except ping.
     if !matches!(decoded, Request::Ping { .. }) && limiter.is_limited(sender_service_id, now_ns) {
         let (op, nonce) = req_op_nonce(decoded);
-        return (encode_status_response(op, nonce, STATUS_RATE_LIMITED), Some(STATUS_RATE_LIMITED));
+        return (
+            encode_status_response(op, nonce, STATUS_RATE_LIMITED),
+            Some(STATUS_RATE_LIMITED),
+        );
     }
 
     match decoded {
-        Request::CounterInc { nonce, name, labels, delta } => {
+        Request::CounterInc {
+            nonce,
+            name,
+            labels,
+            delta,
+        } => {
             let result = registry.counter_inc(sender_service_id, name, labels, delta);
             match result {
                 Ok(value) => {
                     log_counter_snapshot(name, value);
                     retention.record_metric(metric_counter_record(name, value).as_str());
-                    (encode_status_response(OP_COUNTER_INC, nonce, STATUS_OK), None)
+                    (
+                        encode_status_response(OP_COUNTER_INC, nonce, STATUS_OK),
+                        None,
+                    )
                 }
                 Err(reject) => reject_rsp(OP_COUNTER_INC, nonce, reject),
             }
         }
-        Request::GaugeSet { nonce, name, labels, value } => {
+        Request::GaugeSet {
+            nonce,
+            name,
+            labels,
+            value,
+        } => {
             let result = registry.gauge_set(sender_service_id, name, labels, value);
             match result {
                 Ok(current) => {
@@ -349,18 +378,34 @@ fn handle_frame(
                 Err(reject) => reject_rsp(OP_GAUGE_SET, nonce, reject),
             }
         }
-        Request::HistObserve { nonce, name, labels, value } => {
+        Request::HistObserve {
+            nonce,
+            name,
+            labels,
+            value,
+        } => {
             let result = registry.hist_observe(sender_service_id, name, labels, value);
             match result {
                 Ok((count, sum)) => {
                     log_hist_snapshot(name, count, sum);
                     retention.record_metric(metric_hist_record(name, count, sum).as_str());
-                    (encode_status_response(OP_HIST_OBSERVE, nonce, STATUS_OK), None)
+                    (
+                        encode_status_response(OP_HIST_OBSERVE, nonce, STATUS_OK),
+                        None,
+                    )
                 }
                 Err(reject) => reject_rsp(OP_HIST_OBSERVE, nonce, reject),
             }
         }
-        Request::SpanStart { nonce, span_id, trace_id, parent_span_id, start_ns, name, attrs } => {
+        Request::SpanStart {
+            nonce,
+            span_id,
+            trace_id,
+            parent_span_id,
+            start_ns,
+            name,
+            attrs,
+        } => {
             let result = registry.span_start(SpanStartArgs {
                 sender_service_id,
                 span_id: span_id.0,
@@ -371,11 +416,20 @@ fn handle_frame(
                 attrs,
             });
             match result {
-                Ok(()) => (encode_status_response(OP_SPAN_START, nonce, STATUS_OK), None),
+                Ok(()) => (
+                    encode_status_response(OP_SPAN_START, nonce, STATUS_OK),
+                    None,
+                ),
                 Err(reject) => reject_rsp(OP_SPAN_START, nonce, reject),
             }
         }
-        Request::SpanEnd { nonce, span_id, end_ns, status, attrs } => {
+        Request::SpanEnd {
+            nonce,
+            span_id,
+            end_ns,
+            status,
+            attrs,
+        } => {
             let result = registry.span_end(sender_service_id, span_id.0, end_ns, status, attrs);
             match result {
                 Ok(ended) => {
@@ -443,7 +497,10 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
+        RouteRetryOutcome::Success {
+            send_slot,
+            recv_slot,
+        } => Some((send_slot, recv_slot)),
         _ => None,
     }
 }
@@ -509,15 +566,28 @@ fn log_span_end(
 }
 
 fn metric_counter_record(name: &[u8], value: u64) -> String {
-    format!("metric counter name={} value={}", as_utf8_or_placeholder(name), value)
+    format!(
+        "metric counter name={} value={}",
+        as_utf8_or_placeholder(name),
+        value
+    )
 }
 
 fn metric_gauge_record(name: &[u8], value: i64) -> String {
-    format!("metric gauge name={} value={}", as_utf8_or_placeholder(name), value)
+    format!(
+        "metric gauge name={} value={}",
+        as_utf8_or_placeholder(name),
+        value
+    )
 }
 
 fn metric_hist_record(name: &[u8], count: u64, sum: u64) -> String {
-    format!("metric histogram name={} count={} sum={}", as_utf8_or_placeholder(name), count, sum)
+    format!(
+        "metric histogram name={} count={} sum={}",
+        as_utf8_or_placeholder(name),
+        count,
+        sum
+    )
 }
 
 fn span_end_record(
@@ -562,7 +632,12 @@ fn escaped_attrs_or_placeholder(bytes: &[u8]) -> String {
 }
 
 fn emit_line(message: &str) {
-    for b in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+    for b in message
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(core::iter::once(b'\n'))
+    {
         let _ = debug_putc(b);
     }
 }

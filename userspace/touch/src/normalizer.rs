@@ -19,12 +19,18 @@ pub struct TouchNormalizer {
 impl TouchNormalizer {
     #[must_use]
     pub const fn new(bounds: TouchBounds) -> Self {
-        Self { bounds, active: false }
+        Self {
+            bounds,
+            active: false,
+        }
     }
 
     pub fn normalize(&mut self, sample: RawTouchSample) -> Result<TouchEvent, TouchError> {
         if sample.x() >= self.bounds.width() || sample.y() >= self.bounds.height() {
-            return Err(TouchError::OutOfBounds { x: sample.x(), y: sample.y() });
+            return Err(TouchError::OutOfBounds {
+                x: sample.x(),
+                y: sample.y(),
+            });
         }
 
         match sample.phase() {

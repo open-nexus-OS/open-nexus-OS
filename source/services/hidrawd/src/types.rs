@@ -10,9 +10,9 @@
 
 extern crate alloc;
 
+use crate::PointerSource;
 use alloc::vec::Vec;
 use hid::HidEvent;
-use crate::PointerSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeviceId(u16);

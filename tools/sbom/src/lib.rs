@@ -54,18 +54,28 @@ pub enum SbomError {
     #[error("failed to format timestamp: {0}")]
     TimestampFormat(String),
     #[error("SBOM secret scan failed: pattern={pattern} artifact={artifact} line={line}")]
-    SecretLeak { pattern: &'static str, artifact: &'static str, line: usize },
+    SecretLeak {
+        pattern: &'static str,
+        artifact: &'static str,
+        line: usize,
+    },
     #[error("SBOM secret scan failed: {0}")]
     SecretScanner(String),
     #[error("failed to serialize SBOM JSON: {0}")]
     Serialize(String),
     #[error("input too large: {field} (max={max}, actual={actual})")]
-    InputTooLarge { field: &'static str, max: usize, actual: usize },
+    InputTooLarge {
+        field: &'static str,
+        max: usize,
+        actual: usize,
+    },
 }
 
 pub fn source_date_epoch_from_env() -> Result<u64, SbomError> {
     match std::env::var("SOURCE_DATE_EPOCH") {
-        Ok(raw) => raw.parse::<u64>().map_err(|_| SbomError::InvalidSourceDateEpoch(raw)),
+        Ok(raw) => raw
+            .parse::<u64>()
+            .map_err(|_| SbomError::InvalidSourceDateEpoch(raw)),
         Err(std::env::VarError::NotPresent) => Ok(0),
         Err(err) => Err(SbomError::InvalidSourceDateEpoch(err.to_string())),
     }
@@ -96,7 +106,10 @@ pub fn generate_bundle_sbom_json(input: &BundleSbomInput) -> Result<Vec<u8>, Sbo
                 name: input.bundle_name.clone(),
                 version: input.bundle_version.clone(),
                 publisher: input.publisher_hex.clone(),
-                hashes: vec![HashEntry { alg: "SHA-256", content: input.payload_sha256.clone() }],
+                hashes: vec![HashEntry {
+                    alg: "SHA-256",
+                    content: input.payload_sha256.clone(),
+                }],
             },
         },
         components: components
@@ -110,12 +123,18 @@ pub fn generate_bundle_sbom_json(input: &BundleSbomInput) -> Result<Vec<u8>, Sbo
                 hashes: component
                     .sha256
                     .into_iter()
-                    .map(|sha| HashEntry { alg: "SHA-256", content: sha })
+                    .map(|sha| HashEntry {
+                        alg: "SHA-256",
+                        content: sha,
+                    })
                     .collect(),
             })
             .collect(),
         properties: vec![
-            Property { name: "nexus.publisher.id".to_string(), value: input.publisher_hex.clone() },
+            Property {
+                name: "nexus.publisher.id".to_string(),
+                value: input.publisher_hex.clone(),
+            },
             Property {
                 name: "nexus.payload.sha256".to_string(),
                 value: input.payload_sha256.clone(),
@@ -166,7 +185,10 @@ fn validate_input(input: &BundleSbomInput) -> Result<(), SbomError> {
             actual: input.components.len(),
         });
     }
-    if hex::decode(&input.publisher_hex).map(|bytes| bytes.len() != 16).unwrap_or(true) {
+    if hex::decode(&input.publisher_hex)
+        .map(|bytes| bytes.len() != 16)
+        .unwrap_or(true)
+    {
         return Err(SbomError::InvalidPublisherHex);
     }
     validate_sha256(&input.payload_sha256, "payload_sha256")?;
@@ -223,7 +245,9 @@ fn format_timestamp(source_date_epoch: u64) -> Result<String, SbomError> {
     let hour = sec_of_day / 3_600;
     let minute = (sec_of_day % 3_600) / 60;
     let second = sec_of_day % 60;
-    Ok(format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"))
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+    ))
 }
 
 fn civil_from_days(days_since_unix_epoch: i64) -> Result<(i32, u32, u32), SbomError> {
@@ -308,9 +332,15 @@ fn reject_if_secret_leak(bytes: &[u8], allowlist: &ScanAllowlist) -> Result<(), 
     let mut bundle = test_support::empty_bundle();
     bundle.uart.bytes = bytes.to_vec();
     scan_for_secrets_with(&bundle, allowlist).map_err(|err| match err {
-        EvidenceError::SecretLeak { artifact, line, pattern } => {
-            SbomError::SecretLeak { artifact, line, pattern }
-        }
+        EvidenceError::SecretLeak {
+            artifact,
+            line,
+            pattern,
+        } => SbomError::SecretLeak {
+            artifact,
+            line,
+            pattern,
+        },
         other => SbomError::SecretScanner(other.to_string()),
     })
 }
@@ -440,7 +470,13 @@ mod tests {
             })
             .collect();
         let err = generate_bundle_sbom_json(&bad).expect_err("component cap should reject");
-        assert!(matches!(err, SbomError::InputTooLarge { field: "components", .. }));
+        assert!(matches!(
+            err,
+            SbomError::InputTooLarge {
+                field: "components",
+                ..
+            }
+        ));
     }
 
     #[test]

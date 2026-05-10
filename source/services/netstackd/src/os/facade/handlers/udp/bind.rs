@@ -56,7 +56,11 @@ pub(crate) fn handle_bind<R: FnMut(&[u8])>(
     if (port == LOOPBACK_UDP_PORT || port == LOOPBACK_PORT || port == LOOPBACK_UDP_QUIC_CLIENT_PORT)
         && (bind_ip == QEMU_USERNET_FALLBACK_IP || bind_ip == [0, 0, 0, 0])
     {
-        udps.push(Some(UdpSock::Loop(LoopUdp { rx: LoopBuf::new(), port, last_from_port: 0 })));
+        udps.push(Some(UdpSock::Loop(LoopUdp {
+            rx: LoopBuf::new(),
+            port,
+            last_from_port: 0,
+        })));
         let id = UdpId::to_wire(udps.len() - 1);
         reply_u32_status_maybe_nonce(reply, OP_UDP_BIND, STATUS_OK, id, nonce);
         let _ = yield_();

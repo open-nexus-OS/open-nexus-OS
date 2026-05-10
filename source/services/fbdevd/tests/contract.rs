@@ -1,6 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Host contract tests for `fbdevd` service-owned RAMFB bootstrap and visible-state observation.
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: `cargo test -p fbdevd -- --nocapture`
+//!
+//! TEST_SCOPE:
+//!   - RAMFB metadata and DMA reject paths
+//!   - service-owned framebuffer handoff validation
+//!   - observer-side visible state transport and markers
+//!
+//! TEST_SCENARIOS:
+//!   - `test_reject_*`: malformed RAMFB / DMA metadata must fail closed
+//!   - `visible_state_*`: observer transport keeps service-owned scanout evidence intact
+//!   - `scanout_*`: framebuffer mapping and frame encoding stay bounded
+//!
+//! DEPENDENCIES:
+//!   - `fbdevd::backend::ramfb`: RAMFB file and DMA validation
+//!   - `fbdevd::protocol`: visible-state wire helpers
+//!   - `fbdevd::service`: service-owned scanout glue
+//!
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 use fbdevd::{
     dma_transfer_complete, encode_ramfb_config, encode_ramfb_dma_request, live_dirty_rows,
     require_fw_cfg_signature, validate_dma_capability, validate_framebuffer_cap,
@@ -148,10 +171,56 @@ fn live_present_contract_keeps_display_bits_while_merging_input_state() {
     assert!(merged.scene_ready);
     assert!(merged.keyboard_visible);
 
-    let handoff = live_visible_state_handoff(merged).expect("live handoff");
+    let handoff = live_visible_state_handoff(service.render_state()).expect("live handoff");
     assert_eq!(handoff.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
     assert_eq!(handoff.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
     assert!(handoff.byte_len().expect("live byte len") > 0);
+}
+
+#[test]
+fn observer_state_latches_transient_visible_input_bits_without_sticking_render_state() {
+    let bootstrap = bootstrap_display_handoff().expect("bootstrap handoff");
+    let mut service = FbdevService::enabled(&bootstrap).expect("enabled service");
+
+    service.merge_input_state(VisibleState {
+        input_visible_on: true,
+        cursor_move_visible: true,
+        hover_visible: true,
+        focus_visible: true,
+        launcher_click_visible: true,
+        keyboard_visible: true,
+        wheel_up_visible: true,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_x: 8,
+        cursor_y: 40,
+        ..VisibleState::default()
+    });
+    service.merge_input_state(VisibleState {
+        input_visible_on: false,
+        cursor_move_visible: false,
+        hover_visible: false,
+        focus_visible: false,
+        launcher_click_visible: false,
+        keyboard_visible: false,
+        wheel_up_visible: false,
+        wheel_down_visible: false,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_x: 8,
+        cursor_y: 40,
+        ..VisibleState::default()
+    });
+
+    let observer = service.visible_state();
+    assert!(observer.launcher_click_visible);
+    assert!(observer.keyboard_visible);
+    assert!(observer.wheel_up_visible);
+
+    let render = service.render_state();
+    assert!(!render.launcher_click_visible);
+    assert!(!render.keyboard_visible);
+    assert!(!render.wheel_up_visible);
 }
 
 #[test]
@@ -164,7 +233,7 @@ fn telemetry_reports_windowd_and_fbdevd_fps_lines() {
         cursor_y: 40,
         ..VisibleState::default()
     });
-    let handoff = live_visible_state_handoff(service.visible_state()).expect("live handoff");
+    let handoff = live_visible_state_handoff(service.render_state()).expect("live handoff");
     assert_eq!(service.present(&handoff), Ok(2));
 
     assert!(service.telemetry_if_due(1).is_none());

@@ -63,7 +63,10 @@ static TRAP_RING: Mutex<[Option<TrapFrame>; TRAP_RING_LEN]> = Mutex::new([None; 
 #[cfg(any(debug_assertions, feature = "trap_ring"))]
 static TRAP_RING_IDX: Mutex<usize> = Mutex::new(0);
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[inline]
 pub fn uart_write_hex(u: &mut crate::uart::RawUart, value: usize) {
     let nibbles = core::mem::size_of::<usize>() * 2;
@@ -115,7 +118,10 @@ where
     f(&mut u);
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[inline]
 fn uart_print_exc(scause: usize, sepc: usize, stval: usize) {
     let mut u = crate::uart::raw_writer();
@@ -162,7 +168,11 @@ fn dump_user_stack_for_task(task: &task::Task, spaces: &AddressSpaceManager, sp:
             write_byte(b'x');
             for shift in (0..4).rev() {
                 let nibble = ((offset >> (shift * 4)) & 0xf) as u8;
-                let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                let ch = if nibble < 10 {
+                    b'0' + nibble
+                } else {
+                    b'a' + (nibble - 10)
+                };
                 write_byte(ch);
             }
             for &b in b" = " {
@@ -175,7 +185,11 @@ fn dump_user_stack_for_task(task: &task::Task, spaces: &AddressSpaceManager, sp:
                 write_byte(b'x');
                 for shift in (0..16).rev() {
                     let nibble = ((value >> (shift * 4)) & 0xf) as u8;
-                    let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                    let ch = if nibble < 10 {
+                        b'0' + nibble
+                    } else {
+                        b'a' + (nibble - 10)
+                    };
                     write_byte(ch);
                 }
             } else {
@@ -424,8 +438,14 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         }
     }
     record(frame);
-    let args =
-        Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
+    let args = Args::new([
+        frame.x[10],
+        frame.x[11],
+        frame.x[12],
+        frame.x[13],
+        frame.x[14],
+        frame.x[15],
+    ]);
     // NOTE: keep trap-side UART logging minimal; use trap_ring/trap_symbols for post-mortem triage.
     if log_syscall {
         uart_dbg_block!({
@@ -567,8 +587,11 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         uart_dbg_block!({
             ecall_log(|u| {
                 use core::fmt::Write as _;
-                let _ =
-                    write!(u, "ECALL load pid=0x{:x} sepc=0x{:x}\n", new_pid as usize, frame.sepc);
+                let _ = write!(
+                    u,
+                    "ECALL load pid=0x{:x} sepc=0x{:x}\n",
+                    new_pid as usize, frame.sepc
+                );
             });
         });
     }
@@ -693,7 +716,10 @@ pub fn is_interrupt(scause: usize) -> bool {
     scause & INTERRUPT_FLAG != 0
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[allow(dead_code)]
 pub fn describe_cause(scause: usize) -> &'static str {
     let code = scause & (usize::MAX >> 1);
@@ -740,18 +766,29 @@ mod tests_guard_diag {
 
     #[test]
     fn guard_classifier_recognizes_stack_and_bootinfo() {
-        let info = UserGuardInfo { stack_guard_va: 0x2000_1000, info_guard_va: Some(0x2000_3000) };
+        let info = UserGuardInfo {
+            stack_guard_va: 0x2000_1000,
+            info_guard_va: Some(0x2000_3000),
+        };
         assert_eq!(classify(0x2000_1000, info), Some("STACK"));
         assert_eq!(classify(0x2000_3000, info), Some("BOOTINFO"));
         assert_eq!(classify(0x1234_5678, info), None);
     }
 }
 
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 #[allow(dead_code)]
 pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
     writeln!(f, " sepc=0x{:016x}", frame.sepc)?;
-    writeln!(f, " scause=0x{:016x} ({})", frame.scause, describe_cause(frame.scause))?;
+    writeln!(
+        f,
+        " scause=0x{:016x} ({})",
+        frame.scause,
+        describe_cause(frame.scause)
+    )?;
     writeln!(f, " stval=0x{:016x}", frame.stval)?;
     writeln!(f, " a0..a7 = {:016x?}", &frame.x[10..=17])
 }
@@ -759,7 +796,10 @@ pub fn fmt_trap<W: Write>(frame: &TrapFrame, f: &mut W) -> fmt::Result {
 // ——— SBI timer utilities ———
 
 /// Default tick in cycles (10 ms for 10 MHz mtimer on QEMU virt).
-#[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_arch = "riscv64", target_os = "none")),
+    allow(dead_code)
+)]
 pub const DEFAULT_TICK_CYCLES: u64 = 100_000;
 
 /// Arm S-mode timer via SBI for `now + delta_cycles`.
@@ -1230,7 +1270,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.sepc >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
 
@@ -1239,7 +1283,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((stval_now >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
 
@@ -1276,7 +1324,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[1] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     for &b in b" sp=0x" {
@@ -1284,7 +1336,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[2] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1294,7 +1350,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[3] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1304,7 +1364,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[10] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1314,7 +1378,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[11] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1324,7 +1392,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[12] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1334,7 +1406,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     }
                     for shift in (0..16).rev() {
                         let nibble = ((frame.x[13] >> (shift * 4)) & 0xf) as u8;
-                        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                        let ch = if nibble < 10 {
+                            b'0' + nibble
+                        } else {
+                            b'a' + (nibble - 10)
+                        };
                         write_byte(ch);
                     }
                     write_byte(b'\n');
@@ -1374,7 +1450,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         let value = frame.x[reg_idx];
                         for shift in (0..16).rev() {
                             let nibble = ((value >> (shift * 4)) & 0xf) as u8;
-                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            let ch = if nibble < 10 {
+                                b'0' + nibble
+                            } else {
+                                b'a' + (nibble - 10)
+                            };
                             write_byte(ch);
                         }
                         write_byte(b'\n');
@@ -1513,7 +1593,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     let write_hex = |val: usize, digits: usize| {
                         for shift in (0..digits).rev() {
                             let nibble = ((val >> (shift * 4)) & 0xf) as u8;
-                            let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            let ch = if nibble < 10 {
+                                b'0' + nibble
+                            } else {
+                                b'a' + (nibble - 10)
+                            };
                             write_byte(ch);
                         }
                     };
@@ -1678,8 +1762,12 @@ mod tests {
 
     #[test]
     fn trap_runtime_access_is_boot_hart_only() {
-        assert!(trap_runtime_access_allowed_for_cpu(crate::types::CpuId::BOOT));
-        assert!(!trap_runtime_access_allowed_for_cpu(crate::types::CpuId::from_raw(1)));
+        assert!(trap_runtime_access_allowed_for_cpu(
+            crate::types::CpuId::BOOT
+        ));
+        assert!(!trap_runtime_access_allowed_for_cpu(
+            crate::types::CpuId::from_raw(1)
+        ));
     }
 }
 

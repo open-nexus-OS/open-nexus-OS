@@ -280,12 +280,22 @@ impl Scheduler {
             if count < LOG_LIMIT {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
-                let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id.as_raw(), qos);
+                let _ = writeln!(
+                    u,
+                    "[DEBUG sched] enqueue: pid={} qos={:?}",
+                    id.as_raw(),
+                    qos
+                );
             }
         }
 
         let task = Task { id, qos };
-        Self::bounded_push(self.queue_for(qos), task, qos, Self::runtime_queue_capacity_for(qos))
+        Self::bounded_push(
+            self.queue_for(qos),
+            task,
+            qos,
+            Self::runtime_queue_capacity_for(qos),
+        )
     }
 
     /// Picks the next runnable task.
@@ -316,8 +326,12 @@ impl Scheduler {
             );
         }
 
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
-        {
+        for class in [
+            QosClass::PerfBurst,
+            QosClass::Interactive,
+            QosClass::Normal,
+            QosClass::Idle,
+        ] {
             if let Some(task) = self.queue_for(class).pop_front() {
                 if let Some(ref mut w) = u {
                     use core::fmt::Write as _;
@@ -343,7 +357,10 @@ impl Scheduler {
     /// Re-enqueue the currently running task (call on timeslice/yield).
     pub fn yield_current(&mut self) {
         if let Some(task) = self.current.take() {
-            if matches!(self.try_enqueue(task.id, task.qos), EnqueueOutcome::Rejected(_)) {
+            if matches!(
+                self.try_enqueue(task.id, task.qos),
+                EnqueueOutcome::Rejected(_)
+            ) {
                 // Deterministic fail-closed behavior for queue saturation:
                 // keep the task as current so it is not silently dropped.
                 self.current = Some(task);
@@ -385,8 +402,12 @@ impl Scheduler {
     }
 
     fn selftest_try_steal(&mut self, local_cpu: usize, max_qos: QosClass) -> Option<Task> {
-        const STEAL_CLASSES_PERF: [QosClass; 4] =
-            [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle];
+        const STEAL_CLASSES_PERF: [QosClass; 4] = [
+            QosClass::PerfBurst,
+            QosClass::Interactive,
+            QosClass::Normal,
+            QosClass::Idle,
+        ];
         const STEAL_CLASSES_INTERACTIVE: [QosClass; 3] =
             [QosClass::Interactive, QosClass::Normal, QosClass::Idle];
         const STEAL_CLASSES_NORMAL: [QosClass; 2] = [QosClass::Normal, QosClass::Idle];
@@ -462,8 +483,12 @@ impl Scheduler {
             return None;
         }
 
-        for class in [QosClass::PerfBurst, QosClass::Interactive, QosClass::Normal, QosClass::Idle]
-        {
+        for class in [
+            QosClass::PerfBurst,
+            QosClass::Interactive,
+            QosClass::Normal,
+            QosClass::Idle,
+        ] {
             if let Some(task) = self.selftest_queue_for(cpu_idx, class).pop_front() {
                 self.selftest_cpus[cpu_idx].current = Some(task.clone());
                 return Some(task.id);
@@ -489,7 +514,8 @@ impl Scheduler {
         if cpu_idx >= crate::smp::MAX_CPUS {
             return None;
         }
-        self.selftest_try_steal(cpu_idx, max_qos).map(|task| task.id)
+        self.selftest_try_steal(cpu_idx, max_qos)
+            .map(|task| task.id)
     }
 
     pub fn selftest_queue_len(&self, cpu: CpuId, qos: QosClass) -> usize {
@@ -571,7 +597,10 @@ mod tests {
             sched.selftest_enqueue_on_cpu(secondary, Pid::from_raw(42), QosClass::Normal),
             EnqueueOutcome::Enqueued
         ));
-        assert_eq!(sched.selftest_schedule_on_cpu(boot), Some(Pid::from_raw(42)));
+        assert_eq!(
+            sched.selftest_schedule_on_cpu(boot),
+            Some(Pid::from_raw(42))
+        );
         assert_eq!(sched.selftest_schedule_on_cpu(boot), None);
     }
 
@@ -617,7 +646,10 @@ mod tests {
         let qos = QosClass::Normal;
         let capacity = Scheduler::runtime_queue_capacity_for(qos).raw();
         for pid in 1..=(capacity as u32) {
-            assert!(matches!(sched.try_enqueue(Pid::from_raw(pid), qos), EnqueueOutcome::Enqueued));
+            assert!(matches!(
+                sched.try_enqueue(Pid::from_raw(pid), qos),
+                EnqueueOutcome::Enqueued
+            ));
         }
 
         let rejected = sched.try_enqueue(Pid::from_raw((capacity as u32) + 1), qos);
@@ -656,12 +688,18 @@ mod tests {
     fn test_reject_set_task_qos_when_target_queue_full() {
         let mut sched = Scheduler::new();
         let target = Pid::from_raw(0x1234);
-        assert!(matches!(sched.enqueue(target, QosClass::Normal), EnqueueOutcome::Enqueued));
+        assert!(matches!(
+            sched.enqueue(target, QosClass::Normal),
+            EnqueueOutcome::Enqueued
+        ));
 
         let cap = Scheduler::runtime_queue_capacity_for(QosClass::Interactive).raw();
         for i in 0..cap {
             let pid = Pid::from_raw(0x4000u32.wrapping_add(i as u32));
-            assert!(matches!(sched.enqueue(pid, QosClass::Interactive), EnqueueOutcome::Enqueued));
+            assert!(matches!(
+                sched.enqueue(pid, QosClass::Interactive),
+                EnqueueOutcome::Enqueued
+            ));
         }
 
         let outcome = sched.set_task_qos(target, QosClass::Interactive);

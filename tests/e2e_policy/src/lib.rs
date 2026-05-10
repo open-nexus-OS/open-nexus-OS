@@ -56,8 +56,11 @@ const BUNDLE_OPCODE_QUERY: u8 = 2;
 #[test]
 fn policy_allow_and_deny_roundtrip() -> Result<()> {
     let temp = TempDir::new().context("temp policy dir")?;
-    std::fs::write(temp.path().join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
-        .context("write policy root")?;
+    std::fs::write(
+        temp.path().join("nexus.policy.toml"),
+        "version = 1\ninclude = ['base.toml']\n",
+    )
+    .context("write policy root")?;
     std::fs::write(
         temp.path().join("base.toml"),
         "[allow]\nsamgrd = [\"ipc.core\"]\n\"demo.testsvc\" = []\n",
@@ -69,8 +72,11 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     std::env::set_var("NEXUS_ANCHORS_DIR", anchors.path());
     let signing_key = SigningKey::from_bytes(&[3u8; 32]);
     let verifying_key = signing_key.verifying_key();
-    std::fs::write(anchors.path().join("policy-e2e.pub"), hex::encode(verifying_key.to_bytes()))
-        .context("write anchor key")?;
+    std::fs::write(
+        anchors.path().join("policy-e2e.pub"),
+        hex::encode(verifying_key.to_bytes()),
+    )
+    .context("write anchor key")?;
 
     let publisher_hex = keystore::device_id(&verifying_key);
     let allowlist_path = temp.path().join("publishers.toml");
@@ -122,7 +128,9 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
         policyd::run_with_transport_ready(&mut policy_server, notifier)
             .expect("policyd exits cleanly");
     });
-    policy_ready_rx.recv_timeout(Duration::from_secs(2)).context("wait policyd ready")?;
+    policy_ready_rx
+        .recv_timeout(Duration::from_secs(2))
+        .context("wait policyd ready")?;
 
     // Install manifests and query required capabilities from bundlemgrd
     let allowed_manifest = allowed_manifest(&publisher_hex, &publisher_bytes, &signature)?;
@@ -132,7 +140,12 @@ fn policy_allow_and_deny_roundtrip() -> Result<()> {
     store.insert(2, denied_manifest.clone());
     store.stage_payload(2, Vec::new());
     install_bundle(&bundle_client, "samgrd", 1, allowed_manifest.len() as u32)?;
-    install_bundle(&bundle_client, "demo.testsvc", 2, denied_manifest.len() as u32)?;
+    install_bundle(
+        &bundle_client,
+        "demo.testsvc",
+        2,
+        denied_manifest.len() as u32,
+    )?;
     let allowed_caps = query_caps(&bundle_client, "samgrd")?;
     let denied_caps = query_caps(&bundle_client, "demo.testsvc")?;
 
@@ -206,7 +219,9 @@ fn install_bundle(
         request.set_vmo_handle(handle);
     }
     let frame = encode_frame(BUNDLE_OPCODE_INSTALL, &message)?;
-    client.send(&frame, Wait::Blocking).context("send install")?;
+    client
+        .send(&frame, Wait::Blocking)
+        .context("send install")?;
     let response = client.recv(Wait::Blocking).context("recv install")?;
     let (opcode, payload) = response.split_first().context("install opcode")?;
     if *opcode != BUNDLE_OPCODE_INSTALL {
@@ -215,7 +230,9 @@ fn install_bundle(
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("install decode")?;
-    let resp = message.get_root::<install_response::Reader<'_>>().context("install root")?;
+    let resp = message
+        .get_root::<install_response::Reader<'_>>()
+        .context("install root")?;
     if !resp.get_ok() {
         let err = resp.get_err().unwrap_or(InstallError::Einval);
         anyhow::bail!("install failed: {err:?}");
@@ -240,14 +257,20 @@ fn query_caps(client: &nexus_ipc::LoopbackClient, name: &str) -> Result<Vec<Stri
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("query decode")?;
-    let resp = message.get_root::<query_response::Reader<'_>>().context("query root")?;
+    let resp = message
+        .get_root::<query_response::Reader<'_>>()
+        .context("query root")?;
     if !resp.get_installed() {
         anyhow::bail!("bundle {name} not installed");
     }
     let mut caps = Vec::new();
     let list = resp.get_required_caps().context("required caps")?;
     for idx in 0..list.len() {
-        let text = list.get(idx).context("cap entry")?.to_str().context("cap utf8")?;
+        let text = list
+            .get(idx)
+            .context("cap entry")?
+            .to_str()
+            .context("cap utf8")?;
         caps.push(text.to_string());
     }
     Ok(caps)
@@ -268,7 +291,13 @@ fn denied_manifest(
     publisher: &[u8; 16],
     signature: &[u8; 64],
 ) -> Result<Vec<u8>> {
-    build_signed_manifest_nxb("demo.testsvc", &["net.client"], publisher_hex, publisher, signature)
+    build_signed_manifest_nxb(
+        "demo.testsvc",
+        &["net.client"],
+        publisher_hex,
+        publisher,
+        signature,
+    )
 }
 
 #[cfg(test)]
@@ -337,14 +366,31 @@ fn manifest_with_digests(
     let mut cursor = Cursor::new(manifest);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("read manifest")?;
-    let src = message.get_root::<bundle_manifest::Reader<'_>>().context("manifest root")?;
+    let src = message
+        .get_root::<bundle_manifest::Reader<'_>>()
+        .context("manifest root")?;
     let mut out_builder = Builder::new_default();
     {
         let mut dst = out_builder.init_root::<bundle_manifest::Builder<'_>>();
         dst.set_schema_version(src.get_schema_version());
-        dst.set_name(src.get_name().context("name")?.to_str().context("name utf8")?);
-        dst.set_semver(src.get_semver().context("semver")?.to_str().context("semver utf8")?);
-        dst.set_min_sdk(src.get_min_sdk().context("minSdk")?.to_str().context("minSdk utf8")?);
+        dst.set_name(
+            src.get_name()
+                .context("name")?
+                .to_str()
+                .context("name utf8")?,
+        );
+        dst.set_semver(
+            src.get_semver()
+                .context("semver")?
+                .to_str()
+                .context("semver utf8")?,
+        );
+        dst.set_min_sdk(
+            src.get_min_sdk()
+                .context("minSdk")?
+                .to_str()
+                .context("minSdk utf8")?,
+        );
         dst.set_publisher(src.get_publisher().context("publisher")?);
         dst.set_signature(src.get_signature().context("signature")?);
         dst.set_payload_digest(&hex::decode(sha256_hex(payload)).context("payload digest decode")?);
@@ -405,13 +451,18 @@ fn decode_response(frame: &[u8]) -> Result<(bool, Vec<String>)> {
     let mut cursor = Cursor::new(payload);
     let message =
         serialize::read_message(&mut cursor, ReaderOptions::new()).context("decode message")?;
-    let response =
-        message.get_root::<check_response::Reader<'_>>().context("check response root")?;
+    let response = message
+        .get_root::<check_response::Reader<'_>>()
+        .context("check response root")?;
     let allowed = response.get_allowed();
     let mut missing = Vec::new();
     if let Ok(list) = response.get_missing() {
         for idx in 0..list.len() {
-            let text = list.get(idx).context("missing entry")?.to_str().context("missing utf8")?;
+            let text = list
+                .get(idx)
+                .context("missing entry")?
+                .to_str()
+                .context("missing utf8")?;
             missing.push(text.to_string());
         }
     }

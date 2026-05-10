@@ -65,16 +65,16 @@ Boot HART MEDELEG           : 0x0000000000f4b509
 [INFO boot] traps: ok
 [INFO boot] boot: returning to wrapper
 W0: calling kmain
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
-AS: activating satp=0x8000100000080625
+AS: activating satp=0x8000100000080626
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000100000080625
+[INFO as] AS: trampoline enter val=0x8000100000080626
 AS: post-satp OK
 CAP: new enter
 CAP: with_capacity slots=96
@@ -92,28 +92,28 @@ SYSCALL install ep_create=0x000000008022695a
 [INFO boot] neuron vers. 0.1.0 - One OS. Many Devices.
 SYSCALL install debug_putc=0x0000000080227c68
 SYSCALL install ep_create=0x000000008022695a
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO selftest] KSELFTEST: as create ok
 [INFO selftest] KSELFTEST: vmo zero ok
 [INFO selftest] KSELFTEST: userptr guard ok
 [INFO selftest] KSELFTEST: as map ok
-[INFO sys] SPAWN: entry=0x80221f54 sp=0x40000000 as=2 slot=0 gp=0x80418b50
+[INFO sys] SPAWN: entry=0x80221f54 sp=0x40000000 as=2 slot=0 gp=0x80419b50
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x80221f54 sp(x2)=0x40000000 gp(x3)=0x80418b50
+[INFO task] SPAWN-FRAME: sepc=0x80221f54 sp(x2)=0x40000000 gp(x3)=0x80419b50
 [DEBUG sched] enqueue: pid=1 qos=Normal
-[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000080625
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000080626
 [INFO selftest] KSELFTEST: direct-run begin
-AS: activating satp=0x800020000008062c
+AS: activating satp=0x800020000008062d
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080422000
+AS: sp check va=0x0000000080423000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x800020000008062c
+[INFO as] AS: trampoline enter val=0x800020000008062d
 AS: post-satp OK
 [INFO selftest] KSELFTEST: direct-run set SUM
 [INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
@@ -123,11 +123,11 @@ AS: post-satp OK
 [INFO selftest] KSELFTEST: child exit
 [INFO selftest] KSELFTEST: direct call return
 [INFO selftest] KSELFTEST: returned from child entry
-AS: activating satp=0x8000100000080625
+AS: activating satp=0x8000100000080626
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080422000
+AS: sp check va=0x0000000080423000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000100000080625
+[INFO as] AS: trampoline enter val=0x8000100000080626
 AS: post-satp OK
 [INFO selftest] KSELFTEST: spawn ok
 SYSCALL install debug_putc=0x0000000080227c68
@@ -194,9 +194,9 @@ SYSCALL install ep_create=0x000000008022695a
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
@@ -206,9 +206,9 @@ CAP: new exit
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
@@ -217,9 +217,9 @@ CAP: new exit
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO task] SPAWN-FRAME: sepc=0x802228cc sp(x2)=0x40000000 gp(x3)=0x0
@@ -228,31 +228,31 @@ CAP: new exit
 [INFO selftest] KSELFTEST: spawn init begin
 SYSCALL install debug_putc=0x0000000080227c68
 SYSCALL install ep_create=0x000000008022695a
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x141c2 flags=0x5
 [INFO selftest] KSELFTEST: map flags bits=0x1b
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x104141c8 memsz=0x1519a8 flags=0x4
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x104141c8 memsz=0x152108 flags=0x4
 [INFO selftest] KSELFTEST: map flags bits=0x13
-[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10565b70 memsz=0x80491 flags=0x6
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x105662d0 memsz=0x80d31 flags=0x6
 [INFO selftest] KSELFTEST: map flags bits=0x17
 [INFO selftest] KSELFTEST: text page entry=0x000000002020005b va=0x0000000010400000
-[INFO selftest] KSELFTEST: data page entry=0x00000000202594d7 va=0x0000000010565000
-[INFO selftest] KSELFTEST: derived gp=0x10566370 from .sdata/.data
-[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10566370
-[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10566370
+[INFO selftest] KSELFTEST: data page entry=0x00000000202598d7 va=0x0000000010566000
+[INFO selftest] KSELFTEST: derived gp=0x10566ad0 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10566ad0
+[INFO sys] SPAWN: entry=0x10400000 sp=0x20008000 as=6 slot=0 gp=0x10566ad0
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10566370
+[INFO task] SPAWN-FRAME: sepc=0x10400000 sp(x2)=0x20008000 gp(x3)=0x10566ad0
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [INFO selftest] KSELFTEST: spawn ok pid=17
 [INFO selftest] KSELFTEST: init frame:
   sepc=0x0000000010400000
-  gp=0x0000000010566370
+  gp=0x0000000010566ad0
   sp=0x0000000020008000
   sstatus=0x0000000000040020
   SPP=0 (U-mode=0, S-mode=1)
@@ -263,21 +263,21 @@ CAP: new exit
 [INFO kmain] KMAIN: skip S-mode task pid=15 (SPP=1)
 [INFO kmain] KMAIN: skip S-mode task pid=16 (SPP=1)
 [INFO kmain] KMAIN: switch to U-mode pid=17 sepc=0x10400000 sp=0x20008000
-ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080438730 sp=0x0000000020008000 gp=0x0000000010566370 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
-AS: activating satp=0x800060000008064e
+ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x0000000010400000 frame_ptr=0x0000000080439730 sp=0x0000000020008000 gp=0x0000000010566ad0 ra=0x0000000000000000 sstatus=0x0000000000040020 off_sepc=0x0000000000000100
+AS: activating satp=0x800060000008064f
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x800060000008064e
+[INFO as] AS: trampoline enter val=0x800060000008064f
 AS: post-satp OK
 UB!init-lite entry
 init: entry
 log topics mask=0x0000000000000001
 init: start
 init: start keystored
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x810ac000 entry=0x000000002042b053 name_len=0x9 info_va=0x2000c000
@@ -288,9 +288,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=18 qos=Normal
 init: up keystored
 init: start rngd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81148000 entry=0x0000000020452053 name_len=0x4 info_va=0x2000c000
@@ -301,9 +301,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=19 qos=Normal
 init: up rngd
 init: start policyd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x811e4000 entry=0x0000000020479053 name_len=0x7 info_va=0x2000c000
@@ -314,9 +314,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=20 qos=Normal
 init: up policyd
 init: start logd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81281000 entry=0x00000000204a0453 name_len=0x4 info_va=0x2000c000
@@ -327,9 +327,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=21 qos=Normal
 init: up logd
 init: start metricsd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81327000 entry=0x00000000204c9c53 name_len=0x8 info_va=0x2000c000
@@ -340,9 +340,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=22 qos=Normal
 init: up metricsd
 init: start samgrd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x813c3000 entry=0x00000000204f0c53 name_len=0x6 info_va=0x2000c000
@@ -353,9 +353,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=23 qos=Normal
 init: up samgrd
 init: start bundlemgrd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81460000 entry=0x0000000020518053 name_len=0xa info_va=0x2000c000
@@ -366,9 +366,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=24 qos=Normal
 init: up bundlemgrd
 init: start statefsd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81504000 entry=0x0000000020541053 name_len=0x8 info_va=0x2000c000
@@ -379,9 +379,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=25 qos=Normal
 init: up statefsd
 init: start updated
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x815bc000 entry=0x000000002056f053 name_len=0x7 info_va=0x2000c000
@@ -393,9 +393,9 @@ CAP: new exit
 init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
 init: up updated
 init: start timed
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81657000 entry=0x0000000020595c53 name_len=0x5 info_va=0x2000c000
@@ -406,9 +406,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=27 qos=Normal
 init: up timed
 init: start packagefsd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81703000 entry=0x00000000205c0c53 name_len=0xa info_va=0x2000c000
@@ -419,9 +419,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=28 qos=Normal
 init: up packagefsd
 init: start vfsd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x817a3000 entry=0x00000000205e8c53 name_len=0x4 info_va=0x2000c000
@@ -432,9 +432,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=29 qos=Normal
 init: up vfsd
 init: start execd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81847000 entry=0x0000000020611c53 name_len=0x5 info_va=0x2000c000
@@ -445,9 +445,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=30 qos=Normal
 init: up execd
 init: start netstackd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x818f8000 entry=0x000000002063e053 name_len=0x9 info_va=0x2000c000
@@ -458,9 +458,9 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=31 qos=Normal
 init: up netstackd
 init: start dsoftbusd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x819ba000 entry=0x000000002066e853 name_len=0x9 info_va=0x2000c000
@@ -471,22 +471,22 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=32 qos=Normal
 init: up dsoftbusd
 init: start hidrawd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81a52000 entry=0x0000000020694853 name_len=0x7 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x146f6 sp(x2)=0x20008000 gp(x3)=0x19ba4
+[INFO task] SPAWN-FRAME: sepc=0x146ec sp(x2)=0x20008000 gp(x3)=0x19b9c
 [DEBUG sched] enqueue: pid=33 qos=Normal
 init: up hidrawd
 init: start touchd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81ae3000 entry=0x00000000206b8c53 name_len=0x6 info_va=0x2000c000
@@ -497,42 +497,42 @@ CAP: new exit
 [DEBUG sched] enqueue: pid=34 qos=Normal
 init: up touchd
 init: start inputd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81b7f000 entry=0x00000000206dfc53 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x15482 sp(x2)=0x20008000 gp(x3)=0x1d9f0
+[INFO task] SPAWN-FRAME: sepc=0x1550e sp(x2)=0x20008000 gp(x3)=0x1dc8a
 [DEBUG sched] enqueue: pid=35 qos=Normal
 init: up inputd
 init: start fbdevd
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81c1c000 entry=0x0000000020707053 name_len=0x6 info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x16692 sp(x2)=0x20008000 gp(x3)=0x1f5fc
+[INFO task] SPAWN-FRAME: sepc=0x16660 sp(x2)=0x20008000 gp(x3)=0x1f74e
 [DEBUG sched] enqueue: pid=36 qos=Normal
 init: up fbdevd
 init: start selftest-client
-[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80424000..0x80624000 data_end=0x80673000
-[INFO mm] AS-MAP: KSTACK check: start=0x80672000 end=0x8067b000 data_end=0x80673000 guard=0 map_from=0x80673000
-[INFO mm] AS-MAP: mapping KSTACK tail 0x80673000..0x8067b000
+[INFO mm] AS-MAP: HEAP OK in DATA range: heap=0x80425000..0x80625000 data_end=0x80674000
+[INFO mm] AS-MAP: KSTACK check: start=0x80673000 end=0x8067c000 data_end=0x80674000 guard=0 map_from=0x80674000
+[INFO mm] AS-MAP: mapping KSTACK tail 0x80674000..0x8067c000
 [INFO mm] AS-MAP: KSTACK tail mapped ok
 [INFO mm] map kernel segments ok
 [INFO exec] EXEC-META: va=0x2000b000 pa=0x81d02000 entry=0x0000000020740853 name_len=0xf info_va=0x2000c000
 CAP: new enter
 CAP: with_capacity slots=96
 CAP: new exit
-[INFO task] SPAWN-FRAME: sepc=0x4a702 sp(x2)=0x20008000 gp(x3)=0x60b78
+[INFO task] SPAWN-FRAME: sepc=0x4aa82 sp(x2)=0x20008000 gp(x3)=0x60ef8
 [DEBUG sched] enqueue: pid=37 qos=Normal
 init: up selftest-client
 init: ready
@@ -540,27 +540,27 @@ init: ready
 init: probe key_req self-xfer pid=0x0000000000000011 cap=0x000000000000003d
 init: probe key_req self-xfer SEND ok slot=0x000000000000003e
 init: probe key_req self-xfer RECV ok slot=0x000000000000003e
-AS: activating satp=0x8000700000080658
+AS: activating satp=0x8000700000080659
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000700000080658
+[INFO as] AS: trampoline enter val=0x8000700000080659
 AS: post-satp OK
 UBkeystored: ready
 [DEBUG sched] enqueue: pid=18 qos=Normal
-AS: activating satp=0x8000800000080662
+AS: activating satp=0x8000800000080663
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000800000080662
+[INFO as] AS: trampoline enter val=0x8000800000080663
 AS: post-satp OK
 UBrngd: ready
 [DEBUG sched] enqueue: pid=19 qos=Normal
-AS: activating satp=0x8000900000080443
+AS: activating satp=0x8000900000080444
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000900000080443
+[INFO as] AS: trampoline enter val=0x8000900000080444
 AS: post-satp OK
 UBpolicyd: ready
 abi-profile: ready (server=policyd|abi-filterd)
@@ -568,51 +568,51 @@ policyd: audit emit deferred
 policyd: mmio blk deny priv
 [DEBUG sched] enqueue: pid=17 qos=Normal
 [DEBUG sched] enqueue: pid=20 qos=Normal
-AS: activating satp=0x8000a0000008044e
+AS: activating satp=0x8000a0000008044f
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-[INFO as] AS: trampoline enter val=0x8000a0000008044e
+[INFO as] AS: trampoline enter val=0x8000a0000008044f
 AS: post-satp OK
 UB[DEBUG sched] enqueue: pid=21 qos=Normal
-AS: activating satp=0x8000b00000080459
+AS: activating satp=0x8000b0000008045a
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UB[DEBUG sched] enqueue: pid=22 qos=Normal
-AS: activating satp=0x8000c00000080464
+AS: activating satp=0x8000c00000080465
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBsamgrd: ready
 samgrd: mode os-lite
-AS: activating satp=0x8000d0000008046f
+AS: activating satp=0x8000d00000080470
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBbundlemgrd: ready
-AS: activating satp=0x8000e0000008047a
+AS: activating satp=0x8000e0000008047b
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBstatefsd: entry
-AS: activating satp=0x8000f00000080487
+AS: activating satp=0x8000f00000080488
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBupdated: entry
-AS: activating satp=0x8001000000080491
+AS: activating satp=0x8001000000080492
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
-UBAS: activating satp=0x800110000008049c
+UBAS: activating satp=0x800110000008049d
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBpackagefsd: ready
-AS: activating satp=0x80012000000804a8
+AS: activating satp=0x80012000000804a9
 AS: pc check va=0x000000008020a000
-AS: sp check va=0x0000000080679000
+AS: sp check va=0x000000008067a000
 AS: ensure_rx_guard pc=0x000000008020a6c0
 UBvfsd: ready
 vfsd: namespace ready
@@ -876,15 +876,6 @@ keystored: capmove seen
 keystored: capmove req
 SELFTEST: keystored capmove ok
 init: route logd rsp status=0x0000000000000000 send=0x0000000000000015 recv=0x0000000000000016
-hidrawd: device tablet
-hidrawd: source tablet-absolute
-hidrawd: virtio-input pointer ready
-hidrawd: virtio-input raw event seen
-hidrawd: ingress adapter ready
-inputd: live pointer route on
-dbg: inputd pointer down dispatched
-dbg: inputd pointer down delivered
-dbg: inputd focus on target
 dbg:netstackd: dns h2 send-ok
 dbg:netstackd: dns h2 send-wouldblock
 dbg:netstackd: dns h3 recv-wouldblock-only
@@ -962,65 +953,69 @@ windowd: interactive scene ready
 windowd: interactive full markers on
 windowd: interactive click target ready
 windowd: interactive keyboard target ready
+fps: inputd recv_hz=30 hid_ok_hz=0 poll_hz=30 hid_push=0 hid_ok=0 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=31 idle_yields=0 pointer_live=0 keyboard_live=0
+fps: windowd compose_hz=1 present_hz=1 coalesced=0 dropped=0 damage_px=2048000
+fps: fbdevd flush_hz=1 vsync_hz=1 bytes=8192000 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=8740
+fps: inputd recv_hz=59 hid_ok_hz=0 poll_hz=59 hid_push=0 hid_ok=0 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=0 keyboard_live=0
+policyd: audit emit ok
+policyd: audit emit ok
+fps: windowd compose_hz=0 present_hz=0 coalesced=0 dropped=0 damage_px=0
+fps: fbdevd flush_hz=0 vsync_hz=0 bytes=0 flush_fail=0 stale_scanout=0
+hidrawd: device tablet
+hidrawd: source tablet-absolute
+hidrawd: virtio-input pointer ready
+hidrawd: virtio-input raw event seen
+hidrawd: ingress adapter ready
+inputd: live pointer route on
 windowd: input visible on
 windowd: cursor move visible
+fps: hidrawd ingress_hz=36 sent_hz=36 raw_batches=37 wire_batches=37 wire_skip=0 raw_events=94 norm_events=94 kbd_batches=0 mouse_rel=0 tablet_abs=37 touch_abs=0 send_fail=0 rebinds=0 idle_yields=8129
+windowd: hover visible
+dbg: inputd pointer down dispatched
+dbg: inputd pointer down delivered
+dbg: inputd focus on target
 windowd: focus visible
 launcher: click visible ok
-fps: inputd recv_hz=84 hid_ok_hz=63 poll_hz=20 hid_push=64 hid_ok=64 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=150 norm_events=150 dispatch=65 delivered=65 ptr_d=64 kbd_d=0 ptr_deliv=64 kbd_deliv=0 poll_reply=21 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=22 present_hz=22 coalesced=0 dropped=0 damage_px=5116160
-fps: fbdevd flush_hz=22 vsync_hz=22 bytes=20464640 flush_fail=0 stale_scanout=0
-windowd: hover visible
-fps: hidrawd ingress_hz=151 sent_hz=151 raw_batches=152 wire_batches=152 wire_skip=0 raw_events=326 norm_events=326 kbd_batches=0 mouse_rel=0 tablet_abs=152 touch_abs=0 send_fail=0 rebinds=0 idle_yields=4558
-fps: inputd recv_hz=266 hid_ok_hz=214 poll_hz=51 hid_push=215 hid_ok=215 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=442 norm_events=442 dispatch=215 delivered=215 ptr_d=215 kbd_d=0 ptr_deliv=215 kbd_deliv=0 poll_reply=52 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=44 present_hz=44 coalesced=0 dropped=0 damage_px=5075200
-fps: fbdevd flush_hz=44 vsync_hz=44 bytes=20300800 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=174 sent_hz=174 raw_batches=175 wire_batches=175 wire_skip=0 raw_events=394 norm_events=394 kbd_batches=0 mouse_rel=0 tablet_abs=175 touch_abs=0 send_fail=0 rebinds=0 idle_yields=5104
+fps: inputd recv_hz=127 hid_ok_hz=86 poll_hz=40 hid_push=89 hid_ok=89 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=222 norm_events=222 dispatch=88 delivered=88 ptr_d=88 kbd_d=0 ptr_deliv=88 kbd_deliv=0 poll_reply=42 idle_yields=0 pointer_live=1 keyboard_live=0
+fps: windowd compose_hz=34 present_hz=34 coalesced=0 dropped=0 damage_px=7452160
+fps: fbdevd flush_hz=34 vsync_hz=34 bytes=29808640 flush_fail=0 stale_scanout=0
+hidrawd: device kbd
+hidrawd: virtio-input keyboard ready
+dbg: inputd keyboard dispatched
+dbg: inputd keyboard delivered
+inputd: live keyboard route on
+fps: hidrawd ingress_hz=94 sent_hz=94 raw_batches=101 wire_batches=101 wire_skip=0 raw_events=236 norm_events=236 kbd_batches=2 mouse_rel=0 tablet_abs=99 touch_abs=0 send_fail=0 rebinds=0 idle_yields=4314
+fps: inputd recv_hz=95 hid_ok_hz=53 poll_hz=42 hid_push=54 hid_ok=54 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=120 norm_events=120 dispatch=53 delivered=49 ptr_d=52 kbd_d=1 ptr_deliv=52 kbd_deliv=1 poll_reply=43 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=15 present_hz=15 coalesced=0 dropped=0 damage_px=5489920
+fps: fbdevd flush_hz=15 vsync_hz=15 bytes=21959680 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=9 sent_hz=9 raw_batches=10 wire_batches=10 wire_skip=0 raw_events=22 norm_events=22 kbd_batches=0 mouse_rel=0 tablet_abs=10 touch_abs=0 send_fail=0 rebinds=0 idle_yields=7205
 policyd: audit emit ok
 policyd: audit emit ok
-fps: inputd recv_hz=216 hid_ok_hz=165 poll_hz=50 hid_push=166 hid_ok=166 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=366 norm_events=366 dispatch=165 delivered=165 ptr_d=165 kbd_d=0 ptr_deliv=165 kbd_deliv=0 poll_reply=51 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=42 present_hz=42 coalesced=0 dropped=0 damage_px=3216640
-fps: fbdevd flush_hz=42 vsync_hz=42 bytes=12866560 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=277 sent_hz=277 raw_batches=278 wire_batches=278 wire_skip=0 raw_events=654 norm_events=654 kbd_batches=0 mouse_rel=0 tablet_abs=278 touch_abs=0 send_fail=0 rebinds=0 idle_yields=6985
-fps: inputd recv_hz=288 hid_ok_hz=228 poll_hz=60 hid_push=231 hid_ok=231 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=582 norm_events=582 dispatch=231 delivered=231 ptr_d=231 kbd_d=0 ptr_deliv=231 kbd_deliv=0 poll_reply=61 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=33 present_hz=33 coalesced=0 dropped=0 damage_px=2113280
-fps: fbdevd flush_hz=33 vsync_hz=33 bytes=8453120 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=190 sent_hz=190 raw_batches=191 wire_batches=191 wire_skip=0 raw_events=424 norm_events=424 kbd_batches=0 mouse_rel=0 tablet_abs=191 touch_abs=0 send_fail=0 rebinds=0 idle_yields=7491
+fps: inputd recv_hz=64 hid_ok_hz=4 poll_hz=59 hid_push=5 hid_ok=5 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=10 norm_events=10 dispatch=5 delivered=5 ptr_d=5 kbd_d=0 ptr_deliv=5 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=1 present_hz=1 coalesced=0 dropped=0 damage_px=316160
+fps: fbdevd flush_hz=1 vsync_hz=1 bytes=1264640 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=9676
+fps: inputd recv_hz=59 hid_ok_hz=0 poll_hz=59 hid_push=0 hid_ok=0 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=0 present_hz=0 coalesced=0 dropped=0 damage_px=0
+fps: fbdevd flush_hz=0 vsync_hz=0 bytes=0 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=9677
 policyd: audit emit ok
 policyd: audit emit ok
-fps: inputd recv_hz=298 hid_ok_hz=239 poll_hz=58 hid_push=240 hid_ok=240 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=498 norm_events=498 dispatch=240 delivered=240 ptr_d=240 kbd_d=0 ptr_deliv=240 kbd_deliv=0 poll_reply=59 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=49 present_hz=49 coalesced=0 dropped=0 damage_px=3308800
-fps: fbdevd flush_hz=49 vsync_hz=49 bytes=13235200 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=158 sent_hz=158 raw_batches=159 wire_batches=159 wire_skip=0 raw_events=316 norm_events=316 kbd_batches=0 mouse_rel=0 tablet_abs=159 touch_abs=0 send_fail=0 rebinds=0 idle_yields=7369
-fps: inputd recv_hz=106 hid_ok_hz=46 poll_hz=59 hid_push=47 hid_ok=47 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=92 norm_events=92 dispatch=46 delivered=46 ptr_d=46 kbd_d=0 ptr_deliv=46 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=13 present_hz=13 coalesced=0 dropped=0 damage_px=1048320
-fps: fbdevd flush_hz=13 vsync_hz=13 bytes=4193280 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=82 sent_hz=82 raw_batches=85 wire_batches=85 wire_skip=0 raw_events=174 norm_events=174 kbd_batches=0 mouse_rel=0 tablet_abs=85 touch_abs=0 send_fail=0 rebinds=0 idle_yields=7827
+fps: inputd recv_hz=59 hid_ok_hz=0 poll_hz=59 hid_push=0 hid_ok=0 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=0 present_hz=0 coalesced=0 dropped=0 damage_px=0
+fps: fbdevd flush_hz=0 vsync_hz=0 bytes=0 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=9676
+fps: inputd recv_hz=59 hid_ok_hz=0 poll_hz=59 hid_push=0 hid_ok=0 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=0 norm_events=0 dispatch=0 delivered=0 ptr_d=0 kbd_d=0 ptr_deliv=0 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=0 present_hz=0 coalesced=0 dropped=0 damage_px=0
+fps: fbdevd flush_hz=0 vsync_hz=0 bytes=0 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=13 sent_hz=13 raw_batches=14 wire_batches=14 wire_skip=0 raw_events=34 norm_events=34 kbd_batches=0 mouse_rel=0 tablet_abs=14 touch_abs=0 send_fail=0 rebinds=0 idle_yields=9035
+fps: inputd recv_hz=209 hid_ok_hz=152 poll_hz=56 hid_push=153 hid_ok=153 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=462 norm_events=462 dispatch=153 delivered=153 ptr_d=153 kbd_d=0 ptr_deliv=153 kbd_deliv=0 poll_reply=57 idle_yields=0 pointer_live=1 keyboard_live=1
 policyd: audit emit ok
 policyd: audit emit ok
-fps: inputd recv_hz=199 hid_ok_hz=148 poll_hz=51 hid_push=149 hid_ok=149 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=346 norm_events=346 dispatch=147 delivered=147 ptr_d=147 kbd_d=0 ptr_deliv=147 kbd_deliv=0 poll_reply=52 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=24 present_hz=24 coalesced=0 dropped=0 damage_px=3386880
-fps: fbdevd flush_hz=24 vsync_hz=24 bytes=13547520 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=73 sent_hz=73 raw_batches=74 wire_batches=74 wire_skip=0 raw_events=192 norm_events=192 kbd_batches=0 mouse_rel=0 tablet_abs=74 touch_abs=0 send_fail=0 rebinds=0 idle_yields=8069
-fps: inputd recv_hz=73 hid_ok_hz=13 poll_hz=59 hid_push=14 hid_ok=14 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=36 norm_events=36 dispatch=14 delivered=14 ptr_d=14 kbd_d=0 ptr_deliv=14 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=3 present_hz=3 coalesced=0 dropped=0 damage_px=119040
-fps: fbdevd flush_hz=3 vsync_hz=3 bytes=476160 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=11 sent_hz=11 raw_batches=12 wire_batches=12 wire_skip=0 raw_events=32 norm_events=32 kbd_batches=0 mouse_rel=0 tablet_abs=12 touch_abs=0 send_fail=0 rebinds=0 idle_yields=9578
-policyd: audit emit ok
-policyd: audit emit ok
-fps: inputd recv_hz=98 hid_ok_hz=40 poll_hz=57 hid_push=41 hid_ok=41 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=86 norm_events=86 dispatch=41 delivered=41 ptr_d=41 kbd_d=0 ptr_deliv=41 kbd_deliv=0 poll_reply=58 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=16 present_hz=16 coalesced=0 dropped=0 damage_px=3580160
-fps: fbdevd flush_hz=16 vsync_hz=16 bytes=14320640 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=88 sent_hz=88 raw_batches=89 wire_batches=89 wire_skip=0 raw_events=206 norm_events=206 kbd_batches=0 mouse_rel=0 tablet_abs=89 touch_abs=0 send_fail=0 rebinds=0 idle_yields=5999
-fps: inputd recv_hz=196 hid_ok_hz=146 poll_hz=50 hid_push=147 hid_ok=147 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=320 norm_events=320 dispatch=147 delivered=147 ptr_d=147 kbd_d=0 ptr_deliv=147 kbd_deliv=0 poll_reply=51 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=45 present_hz=45 coalesced=0 dropped=0 damage_px=3527680
-fps: fbdevd flush_hz=45 vsync_hz=45 bytes=14110720 flush_fail=0 stale_scanout=0
-fps: hidrawd ingress_hz=203 sent_hz=203 raw_batches=204 wire_batches=204 wire_skip=0 raw_events=424 norm_events=424 kbd_batches=0 mouse_rel=0 tablet_abs=204 touch_abs=0 send_fail=0 rebinds=0 idle_yields=6338
-fps: inputd recv_hz=280 hid_ok_hz=220 poll_hz=59 hid_push=221 hid_ok=221 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=512 norm_events=512 dispatch=221 delivered=221 ptr_d=221 kbd_d=0 ptr_deliv=221 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=40 present_hz=40 coalesced=0 dropped=0 damage_px=2950400
-fps: fbdevd flush_hz=40 vsync_hz=40 bytes=11801600 flush_fail=0 stale_scanout=0
-policyd: audit emit ok
-policyd: audit emit ok
-fps: hidrawd ingress_hz=281 sent_hz=281 raw_batches=282 wire_batches=282 wire_skip=0 raw_events=676 norm_events=676 kbd_batches=0 mouse_rel=0 tablet_abs=282 touch_abs=0 send_fail=0 rebinds=0 idle_yields=6660
-fps: inputd recv_hz=239 hid_ok_hz=178 poll_hz=60 hid_push=181 hid_ok=181 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=422 norm_events=422 dispatch=181 delivered=181 ptr_d=181 kbd_d=0 ptr_deliv=181 kbd_deliv=0 poll_reply=61 idle_yields=0 pointer_live=1 keyboard_live=0
-fps: windowd compose_hz=13 present_hz=13 coalesced=0 dropped=0 damage_px=1268480
-fps: fbdevd flush_hz=13 vsync_hz=13 bytes=5073920 flush_fail=0 stale_scanout=0
+fps: windowd compose_hz=35 present_hz=35 coalesced=0 dropped=0 damage_px=4852480
+fps: fbdevd flush_hz=35 vsync_hz=35 bytes=19409920 flush_fail=0 stale_scanout=0
+fps: hidrawd ingress_hz=222 sent_hz=222 raw_batches=223 wire_batches=223 wire_skip=0 raw_events=678 norm_events=678 kbd_batches=0 mouse_rel=0 tablet_abs=223 touch_abs=0 send_fail=0 rebinds=0 idle_yields=5837
+fps: inputd recv_hz=142 hid_ok_hz=82 poll_hz=59 hid_push=84 hid_ok=84 malformed=0 hid_unsupported=0 overflow=0 frame_malformed=0 wire_count=0 wire_kind=0 wire_source=0 wire_event=0 wire_mode=0 abs_cal=0 abs_axis=0 apply_ovf=0 deliver_ovf=0 raw_events=250 norm_events=250 dispatch=84 delivered=84 ptr_d=84 kbd_d=0 ptr_deliv=84 kbd_deliv=0 poll_reply=60 idle_yields=0 pointer_live=1 keyboard_live=1
+fps: windowd compose_hz=9 present_hz=9 coalesced=0 dropped=0 damage_px=515840
+fps: fbdevd flush_hz=9 vsync_hz=9 bytes=2063360 flush_fail=0 stale_scanout=0

@@ -173,7 +173,11 @@ impl fmt::Display for EvidenceError {
                     got, supported
                 )
             }
-            EvidenceError::SecretLeak { artifact, line, pattern } => {
+            EvidenceError::SecretLeak {
+                artifact,
+                line,
+                pattern,
+            } => {
                 write!(
                     f,
                     "evidence: secret leak in `{}` line {}: pattern={}",
@@ -187,7 +191,11 @@ impl fmt::Display for EvidenceError {
                 )
             }
             EvidenceError::KeyMaterialPermissions { path, mode } => {
-                write!(f, "evidence: key material `{}` has perms 0{:o} (want 0600)", path, mode)
+                write!(
+                    f,
+                    "evidence: key material `{}` has perms 0{:o} (want 0600)",
+                    path, mode
+                )
             }
         }
     }

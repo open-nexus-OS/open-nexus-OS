@@ -113,19 +113,24 @@ Host proof floor added by this slice:
 - `cargo test -p touchd -- --nocapture`
 - `cargo test -p inputd -- --nocapture`
 
-Narrow OS/QEMU proof state now landed:
+OS/QEMU proof state now landed:
 
 - the reused RFC-0052 carry-in crates compile for the OS target at library
   level, so `selftest-client` can link the real live-input path,
 - `visible-bootstrap` no longer falls back to `windowd::run_visible_input_smoke()`
   for 0253 closure; it now drives deterministic `hidrawd`, `touchd`, and `inputd`
   service sequences, including touch routing, into `windowd`,
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is green
-  with the canonical marker ladder and `verify-uart` acceptance.
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os visible-bootstrap` is green
+  with the canonical marker ladder and `verify-uart` acceptance,
+- `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s scripts/qemu-test.sh --profile=visible-bootstrap`
+  is green for the focused startup lane,
+- `RUN_TIMEOUT=220s make run` and `RUN_TIMEOUT=220s just start` are green for
+  the time-capped interactive minimal/full runner paths backed by the real
+  `virtio-input -> hidrawd -> inputd -> windowd` chain.
 
-Still out of scope for this slice:
+Still intentionally out of scope for this slice:
 
-- separate-daemon startup / QEMU device wiring proof for `hidrawd`, `touchd`,
-  and `inputd`,
 - perf / latency-budget closure (`TASK-0056C`),
-- broad repo closure gates until they are explicitly rerun.
+- turning `nx input keymap set`, `nx input cursor`, and `nx input test type`
+  into live daemon-affecting RPC surfaces,
+- user-deferred repo-wide `scripts/fmt-clippy-deny.sh` and `just test-all`.

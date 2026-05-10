@@ -107,11 +107,21 @@ fn cached_client(
 }
 
 fn cached_logd_client(force_refresh: bool) -> Option<KernelClient> {
-    cached_client("logd", &LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE, force_refresh)
+    cached_client(
+        "logd",
+        &LOGD_SEND_SLOT_CACHE,
+        &LOGD_RECV_SLOT_CACHE,
+        force_refresh,
+    )
 }
 
 fn cached_reply_client(force_refresh: bool) -> Option<KernelClient> {
-    cached_client("@reply", &REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE, force_refresh)
+    cached_client(
+        "@reply",
+        &REPLY_SEND_SLOT_CACHE,
+        &REPLY_RECV_SLOT_CACHE,
+        force_refresh,
+    )
 }
 
 /// Minimal samgrd bring-up service loop.
@@ -184,8 +194,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[2] == VERSION
                     && frame[3] == OP_LOG_PROBE
                 {
-                    let status =
-                        if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
+                    let status = if append_probe_to_logd() {
+                        STATUS_OK
+                    } else {
+                        STATUS_UNSUPPORTED
+                    };
                     let rsp = [MAGIC0, MAGIC1, VERSION, OP_LOG_PROBE | 0x80, status];
                     if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
                         let _ = KernelServer::send_on_cap(hdr.src, &rsp);
@@ -410,7 +423,12 @@ fn rsp(op: u8, status: u8, send_slot: u32, recv_slot: u32) -> [u8; 13] {
 }
 
 fn emit_line(message: &str) {
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+    for byte in message
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(core::iter::once(b'\n'))
+    {
         let _ = debug_putc(byte);
     }
 }
@@ -428,7 +446,11 @@ fn emit_byte(byte: u8) {
 fn emit_hex_u32(value: u32) {
     for shift in (0..8).rev() {
         let nib = (value >> (shift * 4)) & 0x0f;
-        let ch = if nib < 10 { b'0' + nib as u8 } else { b'a' + (nib as u8 - 10) };
+        let ch = if nib < 10 {
+            b'0' + nib as u8
+        } else {
+            b'a' + (nib as u8 - 10)
+        };
         let _ = debug_putc(ch);
     }
 }
@@ -485,7 +507,10 @@ fn append_probe_to_logd() -> bool {
         frame.extend_from_slice(msg);
 
         // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
-        if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
+        if logd
+            .send_with_cap_move_wait(&frame, moved, Wait::NonBlocking)
+            .is_err()
+        {
             let _ = cap_close(moved);
             invalidate_client_cache(&LOGD_SEND_SLOT_CACHE, &LOGD_RECV_SLOT_CACHE);
             invalidate_client_cache(&REPLY_SEND_SLOT_CACHE, &REPLY_RECV_SLOT_CACHE);

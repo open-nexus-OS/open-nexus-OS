@@ -32,7 +32,10 @@ fn ts(ns: u64) -> TimestampNs {
 }
 
 fn logical(events: &[HidEvent]) -> Vec<(HidEventKind, u16, i32)> {
-    events.iter().map(|event| (event.kind(), event.code().raw(), event.value().raw())).collect()
+    events
+        .iter()
+        .map(|event| (event.kind(), event.code().raw(), event.value().raw()))
+        .collect()
 }
 
 #[test]
@@ -50,8 +53,9 @@ fn keyboard_press_release_and_modifier_transitions_are_deterministic() {
         ]
     );
 
-    let second =
-        parser.parse_report(ts(20), &[0x00, 0x00, 0, 0, 0, 0, 0, 0]).expect("second report");
+    let second = parser
+        .parse_report(ts(20), &[0x00, 0x00, 0, 0, 0, 0, 0, 0])
+        .expect("second report");
     assert_eq!(
         logical(&second),
         vec![
@@ -65,7 +69,9 @@ fn keyboard_press_release_and_modifier_transitions_are_deterministic() {
 fn mouse_relative_and_button_reports_are_deterministic() {
     let mut parser = BootMouseParser::new();
 
-    let pressed = parser.parse_report(ts(30), &[0b001, 5u8, 252u8]).expect("mouse down");
+    let pressed = parser
+        .parse_report(ts(30), &[0b001, 5u8, 252u8])
+        .expect("mouse down");
     assert_eq!(
         logical(&pressed),
         vec![
@@ -75,14 +81,21 @@ fn mouse_relative_and_button_reports_are_deterministic() {
         ]
     );
 
-    let released = parser.parse_report(ts(40), &[0b000, 0, 0]).expect("mouse up");
-    assert_eq!(logical(&released), vec![(HidEventKind::Btn, MouseButton::Left.event_code(), 0)]);
+    let released = parser
+        .parse_report(ts(40), &[0b000, 0, 0])
+        .expect("mouse up");
+    assert_eq!(
+        logical(&released),
+        vec![(HidEventKind::Btn, MouseButton::Left.event_code(), 0)]
+    );
 }
 
 #[test]
 fn test_reject_keyboard_truncated_report() {
     let mut parser = BootKeyboardParser::new();
-    let err = parser.parse_report(ts(50), &[0x00, 0x00, KeyboardUsage::A.raw()]).unwrap_err();
+    let err = parser
+        .parse_report(ts(50), &[0x00, 0x00, KeyboardUsage::A.raw()])
+        .unwrap_err();
     assert_eq!(err.code(), "hid.keyboard.length");
 }
 
@@ -92,7 +105,16 @@ fn test_reject_keyboard_duplicate_usage() {
     let err = parser
         .parse_report(
             ts(60),
-            &[0x00, 0x00, KeyboardUsage::A.raw(), KeyboardUsage::A.raw(), 0, 0, 0, 0],
+            &[
+                0x00,
+                0x00,
+                KeyboardUsage::A.raw(),
+                KeyboardUsage::A.raw(),
+                0,
+                0,
+                0,
+                0,
+            ],
         )
         .unwrap_err();
     assert_eq!(err.code(), "hid.keyboard.duplicate_usage");

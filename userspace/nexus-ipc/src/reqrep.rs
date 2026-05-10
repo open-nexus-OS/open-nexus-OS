@@ -106,13 +106,21 @@ struct FrameSlot<const MAX: usize> {
 }
 
 impl<const MAX: usize> FrameSlot<MAX> {
-    const EMPTY: Self = Self { used: false, len: 0, buf: [0u8; MAX] };
+    const EMPTY: Self = Self {
+        used: false,
+        len: 0,
+        buf: [0u8; MAX],
+    };
 }
 
 impl<const PENDING: usize, const MAX_FRAME: usize> FrameStash<PENDING, MAX_FRAME> {
     /// Create an empty frame stash.
     pub const fn new() -> Self {
-        Self { slots: [FrameSlot::EMPTY; PENDING], evict_cursor: 0, drops: 0 }
+        Self {
+            slots: [FrameSlot::EMPTY; PENDING],
+            evict_cursor: 0,
+            drops: 0,
+        }
     }
 
     /// Number of frames dropped due to bounded capacity or oversized input.
@@ -187,13 +195,22 @@ struct Slot<const MAX: usize> {
 }
 
 impl<const MAX: usize> Slot<MAX> {
-    const EMPTY: Self = Self { used: false, nonce: 0, len: 0, buf: [0u8; MAX] };
+    const EMPTY: Self = Self {
+        used: false,
+        nonce: 0,
+        len: 0,
+        buf: [0u8; MAX],
+    };
 }
 
 impl<const PENDING: usize, const MAX_FRAME: usize> ReplyBuffer<PENDING, MAX_FRAME> {
     /// Create an empty reply buffer.
     pub const fn new() -> Self {
-        Self { slots: [Slot::EMPTY; PENDING], evict_cursor: 0, drops: 0 }
+        Self {
+            slots: [Slot::EMPTY; PENDING],
+            evict_cursor: 0,
+            drops: 0,
+        }
     }
 
     /// Number of replies dropped due to bounded capacity or collisions.
@@ -494,7 +511,9 @@ mod tests {
         stash.push(b"AAAA").unwrap();
         stash.push(b"BBBB").unwrap();
         let mut out = [0u8; 8];
-        let n = stash.take_into_where(&mut out, |f| f == b"BBBB").expect("should find BBBB");
+        let n = stash
+            .take_into_where(&mut out, |f| f == b"BBBB")
+            .expect("should find BBBB");
         assert_eq!(&out[..n], b"BBBB");
         assert_eq!(stash.drops(), 0);
     }

@@ -188,8 +188,9 @@ impl PackageFsClient {
         let message =
             capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                 .map_err(|_| Error::Decode)?;
-        let response =
-            message.get_root::<publish_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+        let response = message
+            .get_root::<publish_response::Reader<'_>>()
+            .map_err(|_| Error::Decode)?;
         if response.get_ok() {
             Ok(())
         } else {
@@ -218,8 +219,9 @@ impl PackageFsClient {
         let message =
             capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                 .map_err(|_| Error::Decode)?;
-        let response =
-            message.get_root::<resolve_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+        let response = message
+            .get_root::<resolve_response::Reader<'_>>()
+            .map_err(|_| Error::Decode)?;
         if !response.get_ok() {
             return Err(Error::NotFound);
         }
@@ -232,7 +234,9 @@ impl PackageFsClient {
     #[cfg(nexus_env = "host")]
     /// Creates a client bound to the provided loopback connection.
     pub fn from_loopback(client: nexus_ipc::LoopbackClient) -> Self {
-        Self { backend: Backend::Host(host::Client::from_loopback(client)) }
+        Self {
+            backend: Backend::Host(host::Client::from_loopback(client)),
+        }
     }
 }
 
@@ -272,7 +276,9 @@ mod host {
 
     impl Client {
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self { ipc: Arc::new(client) }
+            Self {
+                ipc: Arc::new(client),
+            }
         }
 
         pub fn call(&self, frame: Vec<u8>) -> Result<Vec<u8>> {
@@ -302,7 +308,9 @@ mod os {
 
     impl Client {
         pub fn new() -> Result<Self> {
-            KernelClient::new().map(|ipc| Self { ipc }).map_err(map_ipc_error)
+            KernelClient::new()
+                .map(|ipc| Self { ipc })
+                .map_err(map_ipc_error)
         }
 
         pub fn call(&self, frame: Vec<u8>) -> Result<Vec<u8>> {

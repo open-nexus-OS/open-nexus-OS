@@ -29,8 +29,10 @@ fn pointer_accel_is_monotonic_and_bounded() {
         PointerAccel::new(PointerAccelConfig::new(2, 2, 1, 12).expect("config")).expect("accel");
 
     let inputs = [0, 1, 2, 3, 4, 5, 6];
-    let outputs: Vec<i32> =
-        inputs.into_iter().map(|delta| accel.apply_axis(delta).expect("axis")).collect();
+    let outputs: Vec<i32> = inputs
+        .into_iter()
+        .map(|delta| accel.apply_axis(delta).expect("axis"))
+        .collect();
 
     assert_eq!(outputs[0], 0);
     assert!(outputs.windows(2).all(|pair| pair[0] <= pair[1]));

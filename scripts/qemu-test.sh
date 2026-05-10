@@ -569,13 +569,15 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "launcher: click visible ok"
             "windowd: keyboard visible"
     "SELFTEST: ui visible input ok"
+    "windowd: wheel visible"
+    "SELFTEST: ui visible wheel ok"
     "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui visible input ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui visible wheel ok"
   fi
 fi
 
@@ -1096,7 +1098,9 @@ if [[ "$missing" -ne 0 ]]; then
       "windowd: focus visible" \
       "launcher: click visible ok" \
       "windowd: keyboard visible" \
-      "SELFTEST: ui visible input ok"; do
+      "SELFTEST: ui visible input ok" \
+      "windowd: wheel visible" \
+      "SELFTEST: ui visible wheel ok"; do
       if grep -aFq "$display_gate" "$UART_LOG"; then
         last_display_gate="$display_gate"
       fi
@@ -1382,13 +1386,30 @@ if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then
     "inputd: live pointer route on" \
     "inputd: live keyboard route on" \
     "windowd: input visible on" \
+    "windowd: full-window color visible" \
     "windowd: cursor move visible" \
     "windowd: hover visible" \
     "windowd: focus visible" \
-    "launcher: click visible ok"; do
+    "launcher: click visible ok" \
+    "windowd: keyboard visible"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=end missing_marker='$m'" >&2
       echo "[error] UI visible input marker appeared before required visible-input proof: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
+fi
+
+# TASK-0253 visible-wheel fake-green guard: the wheel marker summarizes the
+# routed visible-input proof plus a real transient wheel indicator.
+if grep -aFq "SELFTEST: ui visible wheel ok" "$UART_LOG"; then
+  for m in \
+    "SELFTEST: ui visible input ok" \
+    "windowd: wheel visible"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] UI visible wheel marker appeared before required wheel proof: $m" >&2
       print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
       exit 1
     fi

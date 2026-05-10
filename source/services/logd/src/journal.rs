@@ -224,7 +224,10 @@ impl Journal {
         self.used_bytes = self.used_bytes.saturating_add(size);
         self.total_allocated_bytes = self.total_allocated_bytes.saturating_add(size);
 
-        Ok(AppendOutcome { record_id, dropped_records: self.dropped_records })
+        Ok(AppendOutcome {
+            record_id,
+            dropped_records: self.dropped_records,
+        })
     }
 
     /// Returns up to `max_count` records with timestamp >= `since_nsec`.
@@ -252,7 +255,9 @@ impl Journal {
     ///
     /// This is allocation-free and is preferred for OS-lite query encoding under bump allocators.
     pub fn iter_since(&self, since_nsec: TimestampNsec) -> impl Iterator<Item = &LogRecord> {
-        self.records.iter().filter(move |rec| rec.timestamp_nsec.0 >= since_nsec.0)
+        self.records
+            .iter()
+            .filter(move |rec| rec.timestamp_nsec.0 >= since_nsec.0)
     }
 
     /// Returns current journal stats.

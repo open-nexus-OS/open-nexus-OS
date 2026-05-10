@@ -71,7 +71,12 @@ fn handle_config_effective(args: ConfigEffectiveArgs, cfg: &RuntimeConfig) -> Ex
         "version": snapshot.version,
         "effective": snapshot.merged_json,
     });
-    Ok((ExitClass::Success, "effective config generated".to_string(), args.json, Some(data)))
+    Ok((
+        ExitClass::Success,
+        "effective config generated".to_string(),
+        args.json,
+        Some(data),
+    ))
 }
 
 fn handle_config_diff(args: ConfigDiffArgs, _cfg: &RuntimeConfig) -> ExecResult {
@@ -96,7 +101,12 @@ fn handle_config_diff(args: ConfigDiffArgs, _cfg: &RuntimeConfig) -> ExecResult 
         "from_effective": from_snapshot.merged_json,
         "to_effective": to_snapshot.merged_json,
     });
-    Ok((ExitClass::Success, "config diff generated".to_string(), args.json, Some(data)))
+    Ok((
+        ExitClass::Success,
+        "config diff generated".to_string(),
+        args.json,
+        Some(data),
+    ))
 }
 
 fn handle_config_push(args: ConfigPushArgs, cfg: &RuntimeConfig) -> ExecResult {
@@ -117,14 +127,20 @@ fn handle_config_push(args: ConfigPushArgs, cfg: &RuntimeConfig) -> ExecResult {
     fs::create_dir_all(&state_dir).map_err(|e| {
         NxError::new(
             ExitClass::Internal,
-            format!("failed creating state config directory '{}': {e}", state_dir.display()),
+            format!(
+                "failed creating state config directory '{}': {e}",
+                state_dir.display()
+            ),
         )
     })?;
     let state_path = state_dir.join(format!("{STATE_CONFIG_FILENAME}.json"));
     fs::write(&state_path, bytes).map_err(|e| {
         NxError::new(
             ExitClass::Internal,
-            format!("failed writing state config '{}': {e}", state_path.display()),
+            format!(
+                "failed writing state config '{}': {e}",
+                state_path.display()
+            ),
         )
     })?;
     Ok((
@@ -142,7 +158,11 @@ fn handle_config_reload(args: ConfigReloadArgs, cfg: &RuntimeConfig) -> ExecResu
     let report: ReloadReport = daemon
         .reload(layers)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
-    let class = if report.committed { ExitClass::Success } else { ExitClass::DelegateFailure };
+    let class = if report.committed {
+        ExitClass::Success
+    } else {
+        ExitClass::DelegateFailure
+    };
     let message = if report.committed {
         "config reload committed".to_string()
     } else {
@@ -160,13 +180,24 @@ fn handle_config_reload(args: ConfigReloadArgs, cfg: &RuntimeConfig) -> ExecResu
 
 fn handle_config_where(args: ConfigWhereArgs, cfg: &RuntimeConfig) -> ExecResult {
     let data = config_paths(cfg);
-    Ok((ExitClass::Success, "config source paths".to_string(), args.json, Some(json!(data))))
+    Ok((
+        ExitClass::Success,
+        "config source paths".to_string(),
+        args.json,
+        Some(json!(data)),
+    ))
 }
 
 pub(crate) fn config_paths(cfg: &RuntimeConfig) -> BTreeMap<String, String> {
     BTreeMap::from([
-        ("system".to_string(), cfg.repo_root.join("system/config").display().to_string()),
-        ("state".to_string(), cfg.repo_root.join("state/config").display().to_string()),
+        (
+            "system".to_string(),
+            cfg.repo_root.join("system/config").display().to_string(),
+        ),
+        (
+            "state".to_string(),
+            cfg.repo_root.join("state/config").display().to_string(),
+        ),
         ("env_prefix".to_string(), "NEXUS_CFG_".to_string()),
     ])
 }
@@ -190,8 +221,9 @@ pub(crate) fn load_layers_from_repo(cfg: &RuntimeConfig) -> Result<LayerInputs, 
     layers.state = load_layer_dir(&state_path)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
 
-    let env_pairs =
-        std::env::vars().filter(|(k, _)| k.starts_with("NEXUS_CFG_")).collect::<BTreeMap<_, _>>();
+    let env_pairs = std::env::vars()
+        .filter(|(k, _)| k.starts_with("NEXUS_CFG_"))
+        .collect::<BTreeMap<_, _>>();
     layers.env = env_overrides_from_pairs(&env_pairs)
         .map_err(|e| NxError::new(ExitClass::ValidationReject, e.to_string()))?;
 

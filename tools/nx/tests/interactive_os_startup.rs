@@ -113,6 +113,26 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
 }
 
 #[test]
+fn interactive_minimal_timeout_is_only_accepted_after_scene_ready() {
+    let runner = read_repo_file("scripts/run-qemu-rv64.sh");
+
+    for needle in [
+        "INTERACTIVE_READY_SENTINEL",
+        "windowd: interactive scene ready",
+        "QEMU reached interactive scene readiness before timeout; accepting time-capped make run",
+        "\"$status\" -eq 124",
+        "\"$QEMU_SESSION_MODE\" == \"interactive\"",
+        "\"$QEMU_MARKER_LEVEL\" == \"minimal\"",
+        "| tee >(monitor_uart) >(monitor_agent_uart) \\",
+    ] {
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
+    }
+}
+
+#[test]
 fn interactive_qemu_exposes_keyboard_and_pointer_devices() {
     let runner = read_repo_file("scripts/run-qemu-rv64.sh");
 
@@ -180,6 +200,7 @@ fn qemu_test_harness_stays_in_proof_mode_for_visible_bootstrap() {
     assert!(
         harness.contains("\"init: start fbdevd\"")
             && harness.contains("\"SELFTEST: ui visible input ok\"")
+            && harness.contains("\"SELFTEST: ui visible wheel ok\"")
             && !harness.contains("\"${expected_sequence[@]:0:$(( ${#expected_sequence[@]} - 7 ))}\""),
         "visible-bootstrap expected markers must be a focused display/input ladder, not the broad full-profile ladder"
     );
@@ -626,14 +647,17 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
     assert!(
         harness.contains("QEMU_INPUT_AUTOINJECT=\"${QEMU_INPUT_AUTOINJECT:-0}\"")
             && harness.contains("QEMU_SESSION_MODE=\"$QEMU_SESSION_MODE\"")
-            && harness.contains("QEMU_MARKER_LEVEL=\"$QEMU_MARKER_LEVEL\""),
-        "qemu-test must forward visible-bootstrap autoinject/session env into run-qemu so the proof runner cannot silently disable real input injection"
+            && harness.contains("QEMU_MARKER_LEVEL=\"$QEMU_MARKER_LEVEL\"")
+            && harness.contains("RUN_UNTIL_MARKER=\"SELFTEST: ui visible wheel ok\""),
+        "qemu-test must forward visible-bootstrap autoinject/session env into run-qemu and stop on the terminal wheel-proof marker so the proof runner cannot silently disable real input injection or linger past closure"
     );
     assert!(
         runner.contains("QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}")
             && runner.contains("-qmp \"unix:$QEMU_QMP_SOCKET,server=on,wait=off\"")
-            && runner.contains("python3 \"$QEMU_INPUT_INJECTOR_PY\" \"$QEMU_QMP_SOCKET\""),
-        "run-qemu runner must expose a QMP socket and launch the deterministic input injector when requested"
+            && runner.contains("python3 \"$QEMU_INPUT_INJECTOR_PY\" \"$QEMU_QMP_SOCKET\"")
+            && runner.contains("QEMU_PROOF_POINTER_SOURCE")
+            && runner.contains("unsupported QEMU_PROOF_POINTER_SOURCE"),
+        "run-qemu runner must expose a QMP socket, launch the deterministic input injector when requested, and honor a proof-only single-pointer source override"
     );
     assert!(
         injector.contains("\"execute\": \"input-send-event\"")
@@ -641,6 +665,10 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
             && injector.contains("env_flag(\"NEXUS_PROFILE_INPUT_MOUSE\")")
             && injector.contains("env_flag(\"NEXUS_PROFILE_INPUT_KBD\")")
             && injector.contains("QEMU_SESSION_MODE")
+            && injector.contains("wait_for_uart_marker")
+            && injector.contains("QEMU_UART_LOG_PATH")
+            && injector.contains("QEMU_INPUT_INJECT_WAIT_MARKER")
+            && injector.contains("SELFTEST: ui visible present ok")
             && injector.contains("proof_prefers_single_pointer_source")
             && injector.contains("QEMU_ABS_MAX = 32767")
             && injector.contains("HOVER_TARGET_ROUTE_X = 8")
@@ -649,14 +677,19 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
             && injector.contains("CURSOR_START_ROUTE_Y = 12")
             && injector.contains("REL_STEP_LIMIT = 256")
             && injector.contains("bounded_rel_steps")
+            && injector.contains("POINTER_DOWN_HOLD_S = 0.25")
+            && injector.contains("KEY_DOWN_HOLD_S = 0.25")
+            && injector.contains("WHEEL_PULSE_SETTLE_S = 0.20")
             && injector.contains("\"type\": \"rel\"")
             && injector.contains("\"type\": \"abs\"")
             && injector.contains("qemu_abs_value(target_display_x, VISIBLE_DISPLAY_WIDTH)")
             && injector.contains("qemu_abs_value(target_display_y, VISIBLE_DISPLAY_HEIGHT)")
             && injector.contains("\"button\": \"left\"")
+            && injector.contains("\"button\": \"wheel-up\"")
             && injector.contains("\"type\": \"key\"")
-            && injector.contains("\"data\": \"a\""),
-        "QMP injector must drive real pointer move to the hover target, click, and keyboard input into the guest while keeping proof-mode mixed pointer injection source-isolated"
+            && injector.contains("\"data\": \"a\"")
+            && injector.contains("wheel injection sent"),
+        "QMP injector must drive real pointer move to the hover target, click, keyboard input, and wheel input into the guest while keeping proof-mode mixed pointer injection source-isolated"
     );
     assert!(
         injector.contains("reply[\"error\"].get(\"class\") == \"DeviceNotFound\"")
@@ -682,16 +715,21 @@ fn visible_bootstrap_runner_derives_qemu_input_devices_from_systemui_profile() {
         "visible-bootstrap harness profile must forward an explicit SystemUI profile so QEMU input device selection is profile-owned"
     );
     assert!(
+        harness.contains("QEMU_PROOF_POINTER_SOURCE = \"mouse\""),
+        "visible-bootstrap harness profile must pin a single proof pointer source instead of exposing mixed mouse+tablet devices to the automated proof lane"
+    );
+    assert!(
         runner.contains("QEMU_PROFILE_INPUT_HELPER")
             && runner.contains("load_systemui_input_profile")
             && runner.contains("NEXUS_SYSTEMUI_PROFILE=${NEXUS_SYSTEMUI_PROFILE:-desktop}")
+            && runner.contains("QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-}")
             && runner.contains("NEXUS_PROFILE_INPUT_TOUCH")
             && runner.contains("NEXUS_PROFILE_INPUT_MOUSE")
             && runner.contains("NEXUS_PROFILE_INPUT_KBD")
             && runner.contains("-device virtio-tablet-device")
             && runner.contains("-device virtio-mouse-device")
             && runner.contains("-device virtio-keyboard-device"),
-        "run-qemu must derive visible input devices from the selected SystemUI profile instead of hardcoding a mixed mouse+tablet set"
+        "run-qemu must derive visible input devices from the selected SystemUI profile and then allow a proof-only single-pointer override instead of hardcoding a mixed mouse+tablet set"
     );
     assert!(
         helper.contains("tomllib")
@@ -792,10 +830,12 @@ fn proof_mode_observer_keeps_enough_wait_budget_for_delayed_live_injection() {
         "observer-only proof mode must keep a bounded but large enough wait budget to observe delayed live input injection honestly"
     );
     assert!(
-        end_phase.contains("if !proof_completed && proof_visible_input_ready(state)")
+        end_phase.contains("let mut proof_witness = ProofVisibleInputWitness::new();")
+            && end_phase.contains("proof_witness.observe(state);")
+            && end_phase.contains("if !proof_completed && proof_witness.ready()")
             && end_phase.contains("display_bootstrap::interactive_live_tick()")
             && end_phase.contains("emit_line(crate::markers::M_SELFTEST_END);"),
-        "proof-mode end phase must keep polling visible state after startup so late real input injection completes the observer-only proof instead of timing out falsely"
+        "proof-mode end phase must keep polling visible state after startup and latch transient hold-state observations so late real input injection completes the observer-only proof instead of timing out falsely"
     );
 }
 

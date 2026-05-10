@@ -63,7 +63,13 @@ impl TouchdService {
             return Err(TouchdError::SyntheticModeDisabled);
         }
         let mut events = Vec::new();
-        for sample in synthetic_fixture(start_ns, SYNTHETIC_X0, SYNTHETIC_Y0, SYNTHETIC_X1, SYNTHETIC_Y1) {
+        for sample in synthetic_fixture(
+            start_ns,
+            SYNTHETIC_X0,
+            SYNTHETIC_Y0,
+            SYNTHETIC_X1,
+            SYNTHETIC_Y1,
+        ) {
             events.push(self.ingest(sample)?);
         }
         Ok(events)

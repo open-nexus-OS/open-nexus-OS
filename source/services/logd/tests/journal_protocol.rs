@@ -32,9 +32,12 @@ use proptest::prelude::*;
 #[test]
 fn journal_drop_oldest_by_records() {
     let mut j = Journal::new(2, 16 * 1024);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m1", b"").unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m2", b"").unwrap();
-    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m3", b"").unwrap();
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m1", b"")
+        .unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m2", b"")
+        .unwrap();
+    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m3", b"")
+        .unwrap();
     let out = j.query(TimestampNsec(0), 10);
     assert_eq!(out.len(), 2);
     assert_eq!(out[0].message.as_slice(), b"m2");
@@ -48,9 +51,12 @@ fn journal_alloc_cap_is_lifetime_budget() {
     // The alloc cap therefore acts as a lifetime budget and must reject deterministically once
     // exceeded, rather than exhausting the service heap.
     let mut j = Journal::new_with_alloc_cap(2, 200, 220);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"").unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m", b"").unwrap();
-    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m", b"").unwrap();
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"")
+        .unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m", b"")
+        .unwrap();
+    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m", b"")
+        .unwrap();
     // Next append should exceed the lifetime budget and be rejected.
     assert_eq!(
         j.append(1, TimestampNsec(4), LogLevel::Info, b"s", b"m", b""),
@@ -118,7 +124,15 @@ fn bounded_query_skips_oversized_records_and_returns_later_hits() {
         &huge_fields,
     )
     .unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"svc", b"needle-here", b"").unwrap();
+    j.append(
+        1,
+        TimestampNsec(2),
+        LogLevel::Info,
+        b"svc",
+        b"needle-here",
+        b"",
+    )
+    .unwrap();
 
     let stats = j.stats();
     let out = encode_query_response_bounded_iter(STATUS_OK, stats, &j, TimestampNsec(0), 10);
@@ -128,7 +142,8 @@ fn bounded_query_skips_oversized_records_and_returns_later_hits() {
     let count = u16::from_le_bytes([buf[21], buf[22]]) as usize;
     assert!(count >= 1, "expected at least one record encoded");
     assert!(
-        buf.windows(b"needle-here".len()).any(|w| w == b"needle-here"),
+        buf.windows(b"needle-here".len())
+            .any(|w| w == b"needle-here"),
         "expected bounded response to contain the later small record"
     );
 }
@@ -424,9 +439,33 @@ fn journal_drop_oldest_by_bytes() {
     // cap_bytes = 200, each record ~70 bytes overhead + payload
     // Insert records until bytes overflow triggers drop
     let mut j = Journal::new(100, 200);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"scope", b"message1", b"").unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"scope", b"message2", b"").unwrap();
-    j.append(1, TimestampNsec(3), LogLevel::Info, b"scope", b"message3", b"").unwrap();
+    j.append(
+        1,
+        TimestampNsec(1),
+        LogLevel::Info,
+        b"scope",
+        b"message1",
+        b"",
+    )
+    .unwrap();
+    j.append(
+        1,
+        TimestampNsec(2),
+        LogLevel::Info,
+        b"scope",
+        b"message2",
+        b"",
+    )
+    .unwrap();
+    j.append(
+        1,
+        TimestampNsec(3),
+        LogLevel::Info,
+        b"scope",
+        b"message3",
+        b"",
+    )
+    .unwrap();
 
     let stats = j.stats();
     // Should have dropped at least one record due to bytes constraint
@@ -436,7 +475,8 @@ fn journal_drop_oldest_by_bytes() {
 #[test]
 fn journal_query_empty_result_future_timestamp() {
     let mut j = Journal::new(10, 16 * 1024);
-    j.append(1, TimestampNsec(100), LogLevel::Info, b"s", b"m", b"").unwrap();
+    j.append(1, TimestampNsec(100), LogLevel::Info, b"s", b"m", b"")
+        .unwrap();
 
     // Query with since_nsec > all timestamps → empty result
     let out = j.query(TimestampNsec(999), 10);
@@ -446,7 +486,8 @@ fn journal_query_empty_result_future_timestamp() {
 #[test]
 fn journal_query_max_count_zero() {
     let mut j = Journal::new(10, 16 * 1024);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"").unwrap();
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"")
+        .unwrap();
 
     // Query with max_count = 0 → empty result
     let out = j.query(TimestampNsec(0), 0);
@@ -456,8 +497,10 @@ fn journal_query_max_count_zero() {
 #[test]
 fn journal_query_max_count_exceeds_records() {
     let mut j = Journal::new(10, 16 * 1024);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m1", b"").unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m2", b"").unwrap();
+    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m1", b"")
+        .unwrap();
+    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m2", b"")
+        .unwrap();
 
     // Query with max_count > actual records → returns all
     let out = j.query(TimestampNsec(0), 100);
@@ -492,7 +535,10 @@ fn protocol_encode_append_response_roundtrip() {
     let response = encode_append_response(STATUS_OK, RecordId(42), 3);
 
     // Verify response structure: [L,O,ver,OP|0x80,status,record_id:u64,dropped:u64]
-    assert_eq!(&response[0..4], &[MAGIC0, MAGIC1, VERSION, OP_APPEND | 0x80]);
+    assert_eq!(
+        &response[0..4],
+        &[MAGIC0, MAGIC1, VERSION, OP_APPEND | 0x80]
+    );
     assert_eq!(response[4], STATUS_OK);
     assert_eq!(u64::from_le_bytes(response[5..13].try_into().unwrap()), 42);
     assert_eq!(u64::from_le_bytes(response[13..21].try_into().unwrap()), 3);
@@ -533,8 +579,24 @@ fn protocol_encode_stats_response_roundtrip() {
 fn protocol_encode_query_response_with_records() {
     // Build records via journal to avoid accessing private size_bytes field
     let mut j = Journal::new(10, 4096);
-    j.append(42, TimestampNsec(1000), LogLevel::Info, b"test", b"hello", b"k=v").unwrap();
-    j.append(42, TimestampNsec(2000), LogLevel::Warn, b"test", b"world", b"").unwrap();
+    j.append(
+        42,
+        TimestampNsec(1000),
+        LogLevel::Info,
+        b"test",
+        b"hello",
+        b"k=v",
+    )
+    .unwrap();
+    j.append(
+        42,
+        TimestampNsec(2000),
+        LogLevel::Warn,
+        b"test",
+        b"world",
+        b"",
+    )
+    .unwrap();
     let records = j.query(TimestampNsec(0), 10);
     let stats = logd::journal::JournalStats {
         total_records: 2,

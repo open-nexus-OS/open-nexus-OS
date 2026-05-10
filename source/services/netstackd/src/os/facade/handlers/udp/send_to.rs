@@ -87,7 +87,11 @@ pub(crate) fn handle_send_to<R: FnMut(&[u8])>(
                 }
             }
         }
-        UdpSock::Loop(LoopUdp { rx: _, port: local, last_from_port: _ }) => {
+        UdpSock::Loop(LoopUdp {
+            rx: _,
+            port: local,
+            last_from_port: _,
+        }) => {
             if ip != QEMU_USERNET_FALLBACK_IP {
                 reply_status_maybe_nonce(reply, OP_UDP_SEND_TO, STATUS_IO, nonce);
                 let _ = yield_();
@@ -102,8 +106,9 @@ pub(crate) fn handle_send_to<R: FnMut(&[u8])>(
                 let _ = yield_();
                 return DispatchControl::ContinueLoop;
             };
-            let Some(Some(UdpSock::Loop(LoopUdp { rx, last_from_port, .. }))) =
-                udps.get_mut(target_idx)
+            let Some(Some(UdpSock::Loop(LoopUdp {
+                rx, last_from_port, ..
+            }))) = udps.get_mut(target_idx)
             else {
                 reply(&status_frame(OP_UDP_SEND_TO, STATUS_IO));
                 let _ = yield_();

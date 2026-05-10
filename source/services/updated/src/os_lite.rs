@@ -98,7 +98,11 @@ struct UpdatedState {
 
 impl UpdatedState {
     fn new() -> Self {
-        Self { boot: BootCtrl::new(Slot::A), staged: None, staged_slot: None }
+        Self {
+            boot: BootCtrl::new(Slot::A),
+            staged: None,
+            staged_slot: None,
+        }
     }
 }
 
@@ -122,10 +126,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => 0,
         };
         loop {
-            let recv_ok =
-                nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
-            let send_ok =
-                nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+            let recv_ok = nexus_abi::cap_clone(RECV_SLOT)
+                .map(|tmp| nexus_abi::cap_close(tmp))
+                .is_ok();
+            let send_ok = nexus_abi::cap_clone(SEND_SLOT)
+                .map(|tmp| nexus_abi::cap_close(tmp))
+                .is_ok();
             if recv_ok && send_ok {
                 break KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT)
                     .map_err(|_| ServerError::Unsupported)?;
@@ -309,8 +315,11 @@ fn recv_request_large(
     let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
     let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let n = nexus_abi::ipc_recv_v1(recv_slot, &mut hdr, buf, sys_flags, deadline_ns)?;
-    let reply_cap =
-        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 { Some(hdr.src) } else { None };
+    let reply_cap = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+        Some(hdr.src)
+    } else {
+        None
+    };
     Ok((n as usize, reply_cap))
 }
 
@@ -326,7 +335,10 @@ fn wait_to_sys(wait: Wait) -> Option<(u32, u64)> {
 }
 
 fn duration_to_ns(duration: core::time::Duration) -> u64 {
-    duration.as_secs().saturating_mul(1_000_000_000).saturating_add(duration.subsec_nanos() as u64)
+    duration
+        .as_secs()
+        .saturating_mul(1_000_000_000)
+        .saturating_add(duration.subsec_nanos() as u64)
 }
 
 fn handle_frame(
@@ -575,8 +587,13 @@ fn bundlemgrd_set_active_slot(slot: Slot) -> Result<(), &'static str> {
     let wait = Wait::Timeout(core::time::Duration::from_secs(1));
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| "reply-clone")?;
     let (sys_flags, deadline_ns) = wait_to_sys(wait).ok_or("send-wait")?;
-    let hdr =
-        MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
+    let hdr = MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
     if nexus_abi::ipc_send_v1(bnd_send_slot, &hdr, &frame, sys_flags, deadline_ns).is_err() {
         let _ = nexus_abi::cap_close(reply_send_clone);
         return Err("send");
@@ -694,7 +711,13 @@ fn decode_bootctrl_state(bytes: &[u8]) -> Result<BootCtrlState, StatefsError> {
     let staged = decode_slot(bytes[3])?;
     let tries_left = bytes[4];
     let health_ok = bytes[5] == 1;
-    Ok(BootCtrlState { active, pending, staged, tries_left, health_ok })
+    Ok(BootCtrlState {
+        active,
+        pending,
+        staged,
+        tries_left,
+        health_ok,
+    })
 }
 
 fn bootctrl_from_state(state: BootCtrlState) -> Result<BootCtrl, BootCtrlError> {
@@ -795,7 +818,8 @@ fn local_verify(
 
     let key = VerifyingKey::from_bytes(public_key).map_err(|_| VerifyError::InvalidKey)?;
     let sig = Signature::from_bytes(signature);
-    key.verify(message, &sig).map_err(|_| VerifyError::InvalidSignature)
+    key.verify(message, &sig)
+        .map_err(|_| VerifyError::InvalidSignature)
 }
 
 fn keystored_verify(

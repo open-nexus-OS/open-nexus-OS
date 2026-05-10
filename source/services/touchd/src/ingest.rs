@@ -30,7 +30,12 @@ pub(crate) fn synthetic_fixture(
     y1: u32,
 ) -> Vec<RawTouchSample> {
     vec![
-        RawTouchSample::new(touch::TouchTimestampNs::new(start_ns), x0, y0, touch::TouchPhase::Down),
+        RawTouchSample::new(
+            touch::TouchTimestampNs::new(start_ns),
+            x0,
+            y0,
+            touch::TouchPhase::Down,
+        ),
         RawTouchSample::new(
             touch::TouchTimestampNs::new(start_ns + 1_000_000),
             x1,

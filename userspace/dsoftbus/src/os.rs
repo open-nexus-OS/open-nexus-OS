@@ -81,7 +81,9 @@ impl Session for OsSession {
     }
 
     fn into_stream(self) -> Result<Self::Stream, SessionError> {
-        Err(SessionError::Rejected("OS DSoftBus session is unsupported (placeholder)".into()))
+        Err(SessionError::Rejected(
+            "OS DSoftBus session is unsupported (placeholder)".into(),
+        ))
     }
 }
 

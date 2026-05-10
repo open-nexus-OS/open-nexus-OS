@@ -92,13 +92,19 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        checksum, compose_first_frame, desktop_profile, desktop_shell, execute, ImeOverlayState,
-        parse_profile_manifest, parse_shell_manifest, validate_profile_shell, SystemUiError,
+        checksum, compose_first_frame, desktop_profile, desktop_shell, execute,
+        parse_profile_manifest, parse_shell_manifest, validate_profile_shell, ImeOverlayState,
+        SystemUiError,
     };
 
     fn pixel(frame: &super::FirstFrame, x: u32, y: u32) -> [u8; 4] {
         let idx = (y as usize * frame.stride as usize) + (x as usize * 4);
-        [frame.pixels[idx], frame.pixels[idx + 1], frame.pixels[idx + 2], frame.pixels[idx + 3]]
+        [
+            frame.pixels[idx],
+            frame.pixels[idx + 1],
+            frame.pixels[idx + 2],
+            frame.pixels[idx + 3],
+        ]
     }
 
     #[test]
@@ -132,9 +138,18 @@ mod tests {
     fn desktop_profile_exposes_visible_qemu_input_capabilities() {
         let profile = desktop_profile().expect("desktop profile");
 
-        assert!(!profile.input.touch, "desktop visible profile starts without tablet/touch");
-        assert!(profile.input.mouse, "desktop visible profile must keep mouse input on");
-        assert!(profile.input.kbd, "desktop visible profile must keep keyboard input on");
+        assert!(
+            profile.input.touch,
+            "desktop visible profile keeps tablet/touch enabled for the mixed live lane"
+        );
+        assert!(
+            profile.input.mouse,
+            "desktop visible profile must keep mouse input on"
+        );
+        assert!(
+            profile.input.kbd,
+            "desktop visible profile must keep keyboard input on"
+        );
     }
 
     #[test]

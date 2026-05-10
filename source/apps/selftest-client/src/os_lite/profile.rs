@@ -122,10 +122,16 @@ impl Profile {
                 matches!(p, PhaseId::Bringup | PhaseId::End)
             }
             Profile::Quick => {
-                matches!(p, PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Mmio | PhaseId::End)
+                matches!(
+                    p,
+                    PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Mmio | PhaseId::End
+                )
             }
             Profile::Ota => {
-                matches!(p, PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Ota | PhaseId::End)
+                matches!(
+                    p,
+                    PhaseId::Bringup | PhaseId::IpcKernel | PhaseId::Ota | PhaseId::End
+                )
             }
             Profile::Net => matches!(
                 p,
@@ -234,7 +240,10 @@ mod tests {
 
     #[test]
     fn unknown_env_falls_back_to_default() {
-        assert_eq!(Profile::resolve(None, None, None, Profile::Quick), Profile::Quick);
+        assert_eq!(
+            Profile::resolve(None, None, None, Profile::Quick),
+            Profile::Quick
+        );
     }
 
     #[test]
@@ -249,7 +258,12 @@ mod tests {
             Profile::Bringup
         );
         assert_eq!(
-            Profile::resolve(None, Some(RuntimeMode::InteractiveFull), None, Profile::Full),
+            Profile::resolve(
+                None,
+                Some(RuntimeMode::InteractiveFull),
+                None,
+                Profile::Full
+            ),
             Profile::Bringup
         );
     }

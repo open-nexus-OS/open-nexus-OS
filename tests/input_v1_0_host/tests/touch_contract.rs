@@ -47,8 +47,9 @@ fn touch_sequence_preserves_down_move_up_order() {
     let move_two = normalizer
         .normalize(RawTouchSample::new(ts(30), 128, 256, TouchPhase::Move))
         .expect("move two");
-    let up =
-        normalizer.normalize(RawTouchSample::new(ts(40), 128, 256, TouchPhase::Up)).expect("up");
+    let up = normalizer
+        .normalize(RawTouchSample::new(ts(40), 128, 256, TouchPhase::Up))
+        .expect("up");
 
     assert_eq!(event_tuple(down), (TouchPhase::Down, 100, 200));
     assert_eq!(event_tuple(move_one), (TouchPhase::Move, 120, 240));
@@ -60,8 +61,9 @@ fn touch_sequence_preserves_down_move_up_order() {
 fn test_reject_move_before_down() {
     let bounds = TouchBounds::new(640, 480).expect("bounds");
     let mut normalizer = TouchNormalizer::new(bounds);
-    let err =
-        normalizer.normalize(RawTouchSample::new(ts(50), 10, 20, TouchPhase::Move)).unwrap_err();
+    let err = normalizer
+        .normalize(RawTouchSample::new(ts(50), 10, 20, TouchPhase::Move))
+        .unwrap_err();
     assert_eq!(err.code(), "touch.sequence.missing_down");
 }
 
@@ -73,8 +75,9 @@ fn test_reject_duplicate_down_without_up() {
         .normalize(RawTouchSample::new(ts(60), 20, 30, TouchPhase::Down))
         .expect("first down");
 
-    let err =
-        normalizer.normalize(RawTouchSample::new(ts(70), 22, 32, TouchPhase::Down)).unwrap_err();
+    let err = normalizer
+        .normalize(RawTouchSample::new(ts(70), 22, 32, TouchPhase::Down))
+        .unwrap_err();
     assert_eq!(err.code(), "touch.sequence.duplicate_down");
 }
 
@@ -82,7 +85,8 @@ fn test_reject_duplicate_down_without_up() {
 fn test_reject_touch_out_of_bounds() {
     let bounds = TouchBounds::new(640, 480).expect("bounds");
     let mut normalizer = TouchNormalizer::new(bounds);
-    let err =
-        normalizer.normalize(RawTouchSample::new(ts(80), 641, 20, TouchPhase::Down)).unwrap_err();
+    let err = normalizer
+        .normalize(RawTouchSample::new(ts(80), 641, 20, TouchPhase::Down))
+        .unwrap_err();
     assert_eq!(err.code(), "touch.sample.out_of_bounds");
 }

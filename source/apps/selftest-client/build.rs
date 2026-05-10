@@ -8,6 +8,7 @@
 //! TEST_COVERAGE: No tests
 //!
 //! This keeps the on-device selftest asset in sync with schema and payload changes.
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 // Build scripts may use expect/unwrap since failures are hard errors.
 #![allow(clippy::expect_used)]
@@ -85,7 +86,12 @@ fn render_markers(manifest: &nexus_proof_manifest::Manifest) -> String {
     out.push_str("\n\n");
     for marker in manifest.markers() {
         let key = marker.const_key();
-        let _ = writeln!(out, "/// {} (phase: {})", escape_doc(&marker.literal), marker.phase);
+        let _ = writeln!(
+            out,
+            "/// {} (phase: {})",
+            escape_doc(&marker.literal),
+            marker.phase
+        );
         let _ = writeln!(
             out,
             "pub(crate) const M_{}: &str = {};",
@@ -181,7 +187,9 @@ fn append_file(builder: &mut TarBuilder<Vec<u8>>, path: &str, bytes: &[u8]) {
     header.set_gid(0);
     header.set_mtime(0);
     header.set_cksum();
-    builder.append_data(&mut header, path, bytes).expect("append file");
+    builder
+        .append_data(&mut header, path, bytes)
+        .expect("append file");
 }
 
 fn append_dir(builder: &mut TarBuilder<Vec<u8>>, path: &str) {
@@ -193,5 +201,7 @@ fn append_dir(builder: &mut TarBuilder<Vec<u8>>, path: &str) {
     header.set_gid(0);
     header.set_mtime(0);
     header.set_cksum();
-    builder.append_data(&mut header, path, &[] as &[u8]).expect("append dir");
+    builder
+        .append_data(&mut header, path, &[] as &[u8])
+        .expect("append dir");
 }

@@ -59,8 +59,17 @@ pub(crate) fn handle_doctor_with_path(
         "hint": "Install missing required tools and rerun nx doctor"
     });
 
-    if data["missing_required"].as_array().map(|v| v.is_empty()).unwrap_or(false) {
-        Ok((ExitClass::Success, "doctor passed".to_string(), args.json, Some(data)))
+    if data["missing_required"]
+        .as_array()
+        .map(|v| v.is_empty())
+        .unwrap_or(false)
+    {
+        Ok((
+            ExitClass::Success,
+            "doctor passed".to_string(),
+            args.json,
+            Some(data),
+        ))
     } else {
         Ok((
             ExitClass::MissingDependency,

@@ -12,7 +12,12 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    all(
+        feature = "os-lite",
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none"
+    ),
     no_std
 )]
 
@@ -285,7 +290,8 @@ impl Vmo {
             return Err(Error::InvalidLength);
         }
         let mut file = std::fs::File::open(path).map_err(|_| Error::IoFailure)?;
-        file.seek(SeekFrom::Start(offset)).map_err(|_| Error::IoFailure)?;
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|_| Error::IoFailure)?;
         let mut buf = vec![0u8; len];
         file.read_exact(&mut buf).map_err(|_| Error::IoFailure)?;
         Self::from_bytes(&buf)
@@ -346,7 +352,9 @@ impl Vmo {
         self.record_map_reuse();
         #[cfg(nexus_env = "host")]
         {
-            Ok(VmoMapping { bytes: &self.bytes[offset..end] })
+            Ok(VmoMapping {
+                bytes: &self.bytes[offset..end],
+            })
         }
         #[cfg(nexus_env = "os")]
         {
@@ -366,7 +374,9 @@ impl Vmo {
         }
         #[cfg(nexus_env = "host")]
         {
-            Ok(VmoSlice { bytes: &self.bytes[offset..end] })
+            Ok(VmoSlice {
+                bytes: &self.bytes[offset..end],
+            })
         }
         #[cfg(nexus_env = "os")]
         {
@@ -388,13 +398,17 @@ impl Vmo {
         if !rights.contains(TransferRights::MAP) {
             return Err(Error::RightsMismatch);
         }
-        self.counters.control_plane_bytes =
-            self.counters.control_plane_bytes.saturating_add(TRANSFER_CONTROL_BYTES);
+        self.counters.control_plane_bytes = self
+            .counters
+            .control_plane_bytes
+            .saturating_add(TRANSFER_CONTROL_BYTES);
         #[cfg(nexus_env = "host")]
         {
             self.counters.copy_fallback_count = self.counters.copy_fallback_count.saturating_add(1);
             self.counters.bulk_bytes = self.counters.bulk_bytes.saturating_add(self.len as u64);
-            Ok(TransferOutcome::HostCopyFallback { copied_bytes: self.len })
+            Ok(TransferOutcome::HostCopyFallback {
+                copied_bytes: self.len,
+            })
         }
         #[cfg(all(nexus_env = "os", feature = "os-lite"))]
         {
@@ -424,8 +438,10 @@ impl Vmo {
         if !rights.contains(TransferRights::MAP) {
             return Err(Error::RightsMismatch);
         }
-        self.counters.control_plane_bytes =
-            self.counters.control_plane_bytes.saturating_add(TRANSFER_CONTROL_BYTES);
+        self.counters.control_plane_bytes = self
+            .counters
+            .control_plane_bytes
+            .saturating_add(TRANSFER_CONTROL_BYTES);
         #[cfg(nexus_env = "host")]
         {
             let _ = dst_slot;

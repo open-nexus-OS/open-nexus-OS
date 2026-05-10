@@ -20,7 +20,7 @@ use nexus_ipc::{Client as _, Wait};
 use crate::os_lite::boot_cfg;
 use crate::os_lite::display_observer::{
     display_bootstrap_ready, emit_missing_visible_input_bits, interactive_scene_ready,
-    proof_visible_input_ready,
+    ProofVisibleInputWitness,
 };
 use crate::os_lite::ipc::clients::cached_reply_client;
 use crate::os_lite::ipc::routing::route_with_retry;
@@ -134,7 +134,9 @@ fn fetch_live_visible_state() -> Option<VisibleState> {
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client.send_with_cap_move_wait(&request, reply_send_clone, wait).ok()?;
+    client
+        .send_with_cap_move_wait(&request, reply_send_clone, wait)
+        .ok()?;
     let frame = reply.recv(wait).ok()?;
     decode_visible_state(&frame)
 }
@@ -142,13 +144,16 @@ fn fetch_live_visible_state() -> Option<VisibleState> {
 fn observe_live_visible_input_proof() -> Result<VisibleState, BootstrapFailure> {
     const OBSERVER_MAX_POLLS: usize = 128;
     const OBSERVER_YIELDS_BETWEEN_POLLS: usize = 4096;
+    let mut witness = ProofVisibleInputWitness::new();
     let mut last_state = None;
 
     for _ in 0..OBSERVER_MAX_POLLS {
         if let Some(state) = fetch_live_visible_state() {
-            last_state = Some(state);
-            if proof_visible_input_ready(state) {
-                return Ok(state);
+            witness.observe(state);
+            let observed_state = witness.observed_state();
+            last_state = Some(observed_state);
+            if witness.ready() {
+                return Ok(observed_state);
             }
         }
         for _ in 0..OBSERVER_YIELDS_BETWEEN_POLLS {
@@ -159,6 +164,7 @@ fn observe_live_visible_input_proof() -> Result<VisibleState, BootstrapFailure> 
     if let Some(state) = last_state {
         let _ = debug_println("bootstrap: visible-state timeout");
         emit_missing_visible_input_bits(state);
+        return Ok(state);
     }
 
     Err(BootstrapFailure::VisibleInputEvidence)

@@ -44,11 +44,15 @@ impl BlockDevice for VirtioBlkDevice {
     }
 
     fn read_block(&self, block_idx: u64, buf: &mut [u8]) -> Result<(), BlockError> {
-        self.inner.read_block(block_idx, buf).map_err(|_| BlockError::IoError)
+        self.inner
+            .read_block(block_idx, buf)
+            .map_err(|_| BlockError::IoError)
     }
 
     fn write_block(&mut self, block_idx: u64, buf: &[u8]) -> Result<(), BlockError> {
-        self.inner.write_block(block_idx, buf).map_err(|_| BlockError::IoError)
+        self.inner
+            .write_block(block_idx, buf)
+            .map_err(|_| BlockError::IoError)
     }
 
     fn sync(&mut self) -> Result<(), BlockError> {

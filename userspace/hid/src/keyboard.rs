@@ -23,7 +23,10 @@ pub struct BootKeyboardParser {
 impl BootKeyboardParser {
     #[must_use]
     pub const fn new() -> Self {
-        Self { previous_modifiers: 0, previous_keys: [0; MAX_KEYS] }
+        Self {
+            previous_modifiers: 0,
+            previous_keys: [0; MAX_KEYS],
+        }
     }
 
     pub fn parse_report(
@@ -32,7 +35,9 @@ impl BootKeyboardParser {
         report: &[u8],
     ) -> Result<Vec<HidEvent>, HidError> {
         if report.len() != KEYBOARD_REPORT_LEN {
-            return Err(HidError::InvalidKeyboardReportLength { actual: report.len() });
+            return Err(HidError::InvalidKeyboardReportLength {
+                actual: report.len(),
+            });
         }
         if report[1] != 0 {
             return Err(HidError::KeyboardReservedByteNonZero { value: report[1] });
@@ -81,7 +86,11 @@ fn validate_no_duplicates(keys: &[u8; MAX_KEYS]) -> Result<(), HidError> {
         if *usage == 0 {
             continue;
         }
-        if keys.iter().skip(idx + 1).any(|candidate| candidate == usage) {
+        if keys
+            .iter()
+            .skip(idx + 1)
+            .any(|candidate| candidate == usage)
+        {
             return Err(HidError::DuplicateKeyUsage { usage: *usage });
         }
     }

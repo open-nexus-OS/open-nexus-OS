@@ -1,10 +1,11 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution snapshot (TASK-0253 / RFC-0053 + RFC-0054)
+## Active execution snapshot (post-`TASK-0253` closeout)
 
-- **active task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Progress`.
-- **active contract seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `In Progress`.
-- **driver-layer follow-on RFC**: `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `In Progress`.
+- **reviewed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`.
+- **closed contract seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`.
+- **closed driver-layer RFC**: `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`.
+- **next queue head**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`.
 - **carry-in closed**: `TASK-0252` / `RFC-0052` are `Done` and remain the only host-core input authority.
 - **proof posture**: deterministic marker ladder + assertion-backed behavior proofs + `test_reject_*`; marker-only closure is forbidden.
 - **scope split locked**:
@@ -13,21 +14,17 @@
 - **perf boundary honesty**:
   - 0253 must enforce bounded/deterministic handling,
   - perf/latency closure remains in `TASK-0056C`.
-- **current progress snapshot**:
-  - commit `0503499` captures the kernel/runtime service-scale follow-up after `f24011b`,
-  - `hidrawd`, `touchd`, and `inputd` now live in the default init-lite/QEMU service set with bounded startup stacks,
-  - focused startup proof is green: `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
-  - deterministic visible scene proof is green: `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`,
-  - interactive OS-start contracts now distinguish `make run` (`interactive-minimal`, reuse `make build`) from `just start` (`interactive-full`, build first),
-  - focused closure contracts cover private selftest stack linker retention, late `fw_cfg` runtime config retry, and VMO arena headroom for the live ramfb framebuffer,
-  - `verify-uart` now tolerates non-UTF8 UART noise, and `selftest-client` uses a targeted 512 KiB service heap for the visible proof lane,
+- **current closeout snapshot**:
+  - `hidrawd`, `touchd`, `inputd`, and `virtio-input` are now review-closed as the real live-input chain,
+  - focused proofs plus non-excluded broad gates are green on the current tree,
+  - `make run` / `just start` are verified through the shared runner with honest time-capped success semantics,
   - `nx input` and `nx postflight input` still exist only as host diagnostics / delegate surfaces.
-- **remaining closure caution**:
-  - do not claim full `TASK-0253` Gate-E closure until deferred broad gates are explicitly rerun,
-  - the current deterministic proof must not be back-claimed as real human live input,
-  - the remaining live-input architecture gap is now explicit: `RFC-0054` must replace the long-term `selftest-client` MMIO bridge with a real bounded `virtio-input` driver-owner path,
-  - final 0253 closure still requires a QEMU live run showing mouse-following pixel, hover/click rectangle reaction, and keyboard rectangle reaction,
-  - latency/perf closure remains follow-up scope in `TASK-0056C`.
+- **explicitly deferred by user**:
+  - `scripts/fmt-clippy-deny.sh`
+  - `just test-all`
+- **next-slice caution**:
+  - do not back-claim any perf/latency closure from 0253,
+  - keep `TASK-0056C` focused on latency/coalescing/no-damage/idle-cheap posture rather than reopening live-input authority questions.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
 
@@ -119,10 +116,10 @@
 - Observed marker ladder on closure run: `display: bootstrap on`, `display: mode 1280x800 argb8888`, `windowd: present ok (seq=1 dmg=1)`, `display: first scanout ok`, `SELFTEST: display bootstrap guest ok`.
 - Full closure gate sweep is green in sequence: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, `make clean`, `make build`, `make test`, `make run`, plus `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`.
 
-## Active task prep prompt (TASK-0253)
+## Active task prep prompt (TASK-0056C)
 
-- Next queue head is `TASK-0253` (input v1.0b OS/QEMU hidrawd/touchd/inputd/IME hooks + selftests).
-- Active contract seed is `RFC-0053` and must stay synced with task-scope decisions.
+- Next queue head is `TASK-0056C` (present/input perf, latency, coalescing, and embedded reactor/runtime floor).
+- Carry-in is now closed: `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - `TASK-0056B` and `RFC-0051` are `Done` and locked as deterministic visible-input carry-in.
@@ -134,9 +131,9 @@
   - `selftest-client` compile/test check is green (`cargo test -p selftest-client -- --nocapture`),
   - visible-bootstrap 56B QEMU marker proof is green through `SELFTEST: ui visible input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
   - touched docs/task/RFC/status/handoff notes are synced to partial-closure reality.
-- Immediate follow-up after 0252 closure:
-  - `TASK-0253` OS/QEMU `inputd`/HID pipeline for live pointer/keyboard,
-  - `TASK-0056C` responsiveness after the live path exists.
+- Immediate follow-up after 0253 review closeout:
+  - `TASK-0056C` responsiveness after the live path exists,
+  - preserve the now-closed live-input chain while tightening present/input latency and idle-cheap behavior.
 - 0252 closure checkpoint:
   - new crates: `userspace/hid`, `userspace/touch`, `userspace/keymaps`, `userspace/key-repeat`, `userspace/pointer-accel`,
   - new proof package: `tests/input_v1_0_host`,

@@ -6,7 +6,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `cargo test -p hidrawd -- --nocapture`
-//! ADR: docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
+//! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 extern crate alloc;
 

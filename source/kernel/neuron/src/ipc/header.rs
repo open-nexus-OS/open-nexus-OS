@@ -26,7 +26,13 @@ pub struct MessageHeader {
 impl MessageHeader {
     /// Creates a new header with all fields initialised.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 
     /// Serialises the header to a little-endian byte array suitable for golden vector comparisons.
@@ -49,7 +55,13 @@ impl MessageHeader {
         let ty = u16::from_le_bytes(bytes[8..10].try_into().unwrap());
         let flags = u16::from_le_bytes(bytes[10..12].try_into().unwrap());
         let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 }
 

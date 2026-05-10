@@ -717,7 +717,13 @@ pub mod bundleimg {
         let data = frame.get(i..i + data_len)?;
         i += data_len;
         *off = i;
-        Some(Entry { bundle, version, path, kind, data })
+        Some(Entry {
+            bundle,
+            version,
+            path,
+            kind,
+            data,
+        })
     }
 
     #[cfg(test)]
@@ -962,7 +968,11 @@ pub mod policyd {
         if frame.len() != tgt_end {
             return None;
         }
-        Some((nonce, &frame[req_start..req_end], &frame[tgt_start..tgt_end]))
+        Some((
+            nonce,
+            &frame[req_start..req_end],
+            &frame[tgt_start..tgt_end],
+        ))
     }
 
     /// Encodes a v2 EXEC request:
@@ -1355,7 +1365,13 @@ pub fn service_id_from_name(name: &[u8]) -> u64 {
 impl MsgHeader {
     /// Creates a new header with the provided fields.
     pub const fn new(src: u32, dst: u32, ty: u16, flags: u16, len: u32) -> Self {
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 
     /// Serialises the header to a little-endian byte array.
@@ -1376,7 +1392,13 @@ impl MsgHeader {
         let ty = u16::from_le_bytes([bytes[8], bytes[9]]);
         let flags = u16::from_le_bytes([bytes[10], bytes[11]]);
         let len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-        Self { src, dst, ty, flags, len }
+        Self {
+            src,
+            dst,
+            ty,
+            flags,
+            len,
+        }
     }
 }
 
@@ -1585,7 +1607,14 @@ pub fn ipc_recv_v2(
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (slot, header_out, payload_out, sender_service_id_out, sys_flags, deadline_ns);
+        let _ = (
+            slot,
+            header_out,
+            payload_out,
+            sender_service_id_out,
+            sys_flags,
+            deadline_ns,
+        );
         Err(IpcError::Unsupported)
     }
 }
@@ -1852,8 +1881,14 @@ pub fn task_qos_set_for(target: Pid, qos: QosClass) -> SysResult<()> {
     {
         const SYSCALL_TASK_QOS: usize = 15;
         const TASK_QOS_OP_SET: usize = 1;
-        let raw =
-            unsafe { ecall3(SYSCALL_TASK_QOS, TASK_QOS_OP_SET, target as usize, qos as usize) };
+        let raw = unsafe {
+            ecall3(
+                SYSCALL_TASK_QOS,
+                TASK_QOS_OP_SET,
+                target as usize,
+                qos as usize,
+            )
+        };
         decode_syscall(raw).map(|_| ())
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -2024,7 +2059,12 @@ pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {
         const SYSCALL_CAP_TRANSFER: usize = 8;
         let raw = unsafe {
             // SAFETY: forwards raw arguments expected by the kernel capability transfer ABI.
-            ecall3(SYSCALL_CAP_TRANSFER, dst_task as usize, cap as usize, rights.bits() as usize)
+            ecall3(
+                SYSCALL_CAP_TRANSFER,
+                dst_task as usize,
+                cap as usize,
+                rights.bits() as usize,
+            )
         };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
@@ -2098,8 +2138,14 @@ pub fn ipc_endpoint_create_v2(factory_cap: Cap, queue_depth: usize) -> SysResult
         if queue_depth == 0 {
             return Err(AbiError::InvalidArgument);
         }
-        let raw =
-            unsafe { ecall3(SYSCALL_IPC_ENDPOINT_CREATE_V2, factory_cap as usize, queue_depth, 0) };
+        let raw = unsafe {
+            ecall3(
+                SYSCALL_IPC_ENDPOINT_CREATE_V2,
+                factory_cap as usize,
+                queue_depth,
+                0,
+            )
+        };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

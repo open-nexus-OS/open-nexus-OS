@@ -26,7 +26,12 @@ impl<'a> Policy<'a> {
         self.entries
             .iter()
             .find(|entry| entry.service_id == service_id)
-            .map(|entry| entry.capabilities.iter().any(|cap| cap.eq_ignore_ascii_case(capability)))
+            .map(|entry| {
+                entry
+                    .capabilities
+                    .iter()
+                    .any(|cap| cap.eq_ignore_ascii_case(capability))
+            })
             .unwrap_or(false)
     }
 
@@ -48,8 +53,14 @@ mod tests {
         let svc_a = 0x10u64;
         let svc_b = 0x20u64;
         let entries = [
-            PolicyEntry { service_id: svc_a, capabilities: &["window.manage", "ipc.core"] },
-            PolicyEntry { service_id: svc_b, capabilities: &[] },
+            PolicyEntry {
+                service_id: svc_a,
+                capabilities: &["window.manage", "ipc.core"],
+            },
+            PolicyEntry {
+                service_id: svc_b,
+                capabilities: &[],
+            },
         ];
         let policy = Policy::new(&entries);
         assert!(policy.allows(svc_a, "window.manage"));

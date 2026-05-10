@@ -46,8 +46,14 @@ fn build_manifest_bytes(
 
 #[test]
 fn parses_valid_manifest() {
-    let bytes =
-        build_manifest_bytes("demo.hello", "1.0.0", &["demo"], &["gpu"], &[0u8; 16], &[0u8; 64]);
+    let bytes = build_manifest_bytes(
+        "demo.hello",
+        "1.0.0",
+        &["demo"],
+        &["gpu"],
+        &[0u8; 16],
+        &[0u8; 64],
+    );
     let m = Manifest::parse_nxb(&bytes).expect("parse ok");
     assert_eq!(m.name, "demo.hello");
     assert_eq!(m.version.to_string(), "1.0.0");
@@ -66,29 +72,66 @@ fn test_rejects_empty_name() {
 
 #[test]
 fn test_rejects_invalid_semver() {
-    let bytes =
-        build_manifest_bytes("demo.hello", "not-a-semver", &["demo"], &[], &[0u8; 16], &[0u8; 64]);
+    let bytes = build_manifest_bytes(
+        "demo.hello",
+        "not-a-semver",
+        &["demo"],
+        &[],
+        &[0u8; 16],
+        &[0u8; 64],
+    );
     let err = Manifest::parse_nxb(&bytes).expect_err("expected failure");
-    assert!(matches!(err, Error::InvalidField { field: "semver", .. }));
+    assert!(matches!(
+        err,
+        Error::InvalidField {
+            field: "semver",
+            ..
+        }
+    ));
 }
 
 #[test]
 fn test_rejects_missing_abilities() {
     let bytes = build_manifest_bytes("demo.hello", "1.0.0", &[], &[], &[0u8; 16], &[0u8; 64]);
     let err = Manifest::parse_nxb(&bytes).expect_err("expected failure");
-    assert!(matches!(err, Error::InvalidField { field: "abilities", .. }));
+    assert!(matches!(
+        err,
+        Error::InvalidField {
+            field: "abilities",
+            ..
+        }
+    ));
 }
 
 #[test]
 fn test_rejects_wrong_publisher_len() {
-    let bytes = build_manifest_bytes("demo.hello", "1.0.0", &["demo"], &[], &[0u8; 15], &[0u8; 64]);
+    let bytes = build_manifest_bytes(
+        "demo.hello",
+        "1.0.0",
+        &["demo"],
+        &[],
+        &[0u8; 15],
+        &[0u8; 64],
+    );
     let err = Manifest::parse_nxb(&bytes).expect_err("expected failure");
-    assert!(matches!(err, Error::InvalidField { field: "publisher", .. }));
+    assert!(matches!(
+        err,
+        Error::InvalidField {
+            field: "publisher",
+            ..
+        }
+    ));
 }
 
 #[test]
 fn test_rejects_wrong_signature_len() {
     let bytes = build_manifest_bytes("demo.hello", "1.0.0", &["demo"], &[], &[0u8; 16], &[0u8; 3]);
     let err = Manifest::parse_nxb(&bytes).expect_err("expected failure");
-    assert!(matches!(err, Error::InvalidField { field: "signature", .. }));
+    assert!(matches!(
+        err,
+        Error::InvalidField {
+            field: "signature",
+            ..
+        }
+    ));
 }

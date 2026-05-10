@@ -77,27 +77,52 @@ impl HidEvent {
         code: HidCode,
         value: HidValue,
     ) -> Self {
-        Self { timestamp, kind, code, value }
+        Self {
+            timestamp,
+            kind,
+            code,
+            value,
+        }
     }
 
     #[must_use]
     pub const fn key(timestamp: TimestampNs, code: u16, value: i32) -> Self {
-        Self::new(timestamp, HidEventKind::Key, HidCode::new(code), HidValue::new(value))
+        Self::new(
+            timestamp,
+            HidEventKind::Key,
+            HidCode::new(code),
+            HidValue::new(value),
+        )
     }
 
     #[must_use]
     pub const fn rel(timestamp: TimestampNs, code: u16, value: i32) -> Self {
-        Self::new(timestamp, HidEventKind::Rel, HidCode::new(code), HidValue::new(value))
+        Self::new(
+            timestamp,
+            HidEventKind::Rel,
+            HidCode::new(code),
+            HidValue::new(value),
+        )
     }
 
     #[must_use]
     pub const fn abs(timestamp: TimestampNs, code: u16, value: i32) -> Self {
-        Self::new(timestamp, HidEventKind::Abs, HidCode::new(code), HidValue::new(value))
+        Self::new(
+            timestamp,
+            HidEventKind::Abs,
+            HidCode::new(code),
+            HidValue::new(value),
+        )
     }
 
     #[must_use]
     pub const fn btn(timestamp: TimestampNs, code: u16, value: i32) -> Self {
-        Self::new(timestamp, HidEventKind::Btn, HidCode::new(code), HidValue::new(value))
+        Self::new(
+            timestamp,
+            HidEventKind::Btn,
+            HidCode::new(code),
+            HidValue::new(value),
+        )
     }
 
     #[must_use]

@@ -7,6 +7,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Unit tests in this crate.
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]

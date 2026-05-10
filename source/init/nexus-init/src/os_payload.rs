@@ -1026,9 +1026,8 @@ where
         .map_err(InitError::Abi)?;
     let input_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, inputd_pid, 8)
         .map_err(InitError::Abi)?;
-    let input_rsp =
-        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, hidrawd_pid, 8)
-            .map_err(InitError::Abi)?;
+    let input_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, hidrawd_pid, 8)
+        .map_err(InitError::Abi)?;
     let fbdev_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, fbdevd_pid, 8)
         .map_err(InitError::Abi)?;
     let fbdev_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
@@ -1993,10 +1992,10 @@ where
                 chan.timed_recv_slot = Some(recv_slot);
             }
             "hidrawd" => {
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, input_req, Rights::SEND).map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, input_rsp, Rights::RECV).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
                 chan.input_send_slot = Some(send_slot);
                 chan.input_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: hidrawd inputd slots send=0x");
@@ -2006,10 +2005,10 @@ where
                 debug_write_byte(b'\n');
             }
             "inputd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, input_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.input_send_slot = Some(send_slot);
                 chan.input_recv_slot = Some(recv_slot);
                 debug_write_bytes(b"init: inputd slots recv=0x");
@@ -2019,10 +2018,10 @@ where
                 debug_write_byte(b'\n');
             }
             "fbdevd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, fbdev_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, fbdev_rsp, Rights::SEND).map_err(InitError::Abi)?;
+                let recv_slot = nexus_abi::cap_transfer(pid, fbdev_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, fbdev_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.fbdev_send_slot = Some(send_slot);
                 chan.fbdev_recv_slot = Some(recv_slot);
                 let reply_ep =
@@ -2035,8 +2034,8 @@ where
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
                 let _ = nexus_abi::cap_close(reply_ep);
-                let input_send_slot =
-                    nexus_abi::cap_transfer(pid, input_req, Rights::SEND).map_err(InitError::Abi)?;
+                let input_send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.input_send_slot = Some(input_send_slot);
                 chan.input_recv_slot = Some(reply_recv_slot);
                 debug_write_bytes(b"init: fbdevd slots recv=0x");
@@ -2250,8 +2249,8 @@ where
                 debug_write_hex(reply_recv_slot as usize);
                 debug_write_byte(b'\n');
 
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, input_req, Rights::SEND).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.input_send_slot = Some(send_slot);
                 chan.input_recv_slot = Some(reply_recv_slot);
                 debug_write_bytes(b"init: selftest inputd slots send=0x");
@@ -2260,8 +2259,8 @@ where
                 debug_write_hex(reply_recv_slot as usize);
                 debug_write_byte(b'\n');
 
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, fbdev_req, Rights::SEND).map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, fbdev_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
                 chan.fbdev_send_slot = Some(send_slot);
                 chan.fbdev_recv_slot = Some(reply_recv_slot);
                 debug_write_bytes(b"init: selftest fbdevd slots send=0x");

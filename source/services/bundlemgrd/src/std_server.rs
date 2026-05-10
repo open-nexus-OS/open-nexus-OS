@@ -317,7 +317,10 @@ impl ArtifactStore {
 
     /// Stages an asset file to be published alongside the bundle payload.
     pub fn stage_asset(&self, handle: u32, path: &str, bytes: Vec<u8>) {
-        let asset = StagedAsset { path: path.to_string(), bytes };
+        let asset = StagedAsset {
+            path: path.to_string(),
+            bytes,
+        };
         match self.staged_assets.lock() {
             Ok(mut guard) => guard.entry(handle).or_default().push(asset),
             Err(poisoned) => {
@@ -358,7 +361,10 @@ pub fn register_artifact_store(store: &ArtifactStore) {
 
 /// Returns a clone of the globally registered artifact store if available.
 pub fn artifact_store() -> Option<ArtifactStore> {
-    global_artifacts().lock().ok().and_then(|slot| slot.as_ref().cloned())
+    global_artifacts()
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().cloned())
 }
 
 #[cfg(feature = "idl-capnp")]
@@ -431,7 +437,9 @@ where
             .split_first()
             .ok_or_else(|| KeystoreClientError::Protocol("empty frame".into()))?;
         if *opcode != KEYSTORE_OPCODE_VERIFY {
-            return Err(KeystoreClientError::Protocol(format!("unexpected opcode {opcode}")));
+            return Err(KeystoreClientError::Protocol(format!(
+                "unexpected opcode {opcode}"
+            )));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -471,7 +479,9 @@ where
             .split_first()
             .ok_or_else(|| KeystoreClientError::Protocol("empty frame".into()))?;
         if *opcode != KEYSTORE_OPCODE_IS_KEY_ALLOWED {
-            return Err(KeystoreClientError::Protocol(format!("unexpected opcode {opcode}")));
+            return Err(KeystoreClientError::Protocol(format!(
+                "unexpected opcode {opcode}"
+            )));
         }
         let mut cursor = Cursor::new(payload);
         let message = serialize::read_message(&mut cursor, ReaderOptions::new())
@@ -485,7 +495,10 @@ where
             .to_str()
             .map_err(|err| KeystoreClientError::Decode(err.to_string()))?
             .to_string();
-        Ok(KeyAllowDecision { allowed: response.get_allowed(), reason })
+        Ok(KeyAllowDecision {
+            allowed: response.get_allowed(),
+            reason,
+        })
     }
 }
 
@@ -573,7 +586,12 @@ impl Server {
         keystore: Option<Box<dyn KeystoreClient>>,
         packagefs: Option<Arc<PackageFsClient>>,
     ) -> Self {
-        Self { service, artifacts, keystore, packagefs }
+        Self {
+            service,
+            artifacts,
+            keystore,
+            packagefs,
+        }
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -781,11 +799,13 @@ impl Server {
             .ok_or_else(|| ServerError::Decode("missing sbom".to_string()))?;
         if sbom_bytes.len() > MAX_SBOM_BYTES {
             builder.set_ok(false);
-            builder.set_err(if self.emit_supply_chain_audit("integrity.sbom_oversize", false) {
-                InstallError::Einval
-            } else {
-                InstallError::Eacces
-            });
+            builder.set_err(
+                if self.emit_supply_chain_audit("integrity.sbom_oversize", false) {
+                    InstallError::Einval
+                } else {
+                    InstallError::Eacces
+                },
+            );
             self.artifacts.insert(handle, manifest_bytes.clone());
             self.artifacts.stage_payload(handle, payload_bytes);
             self.restage_assets(handle, &assets);
@@ -808,11 +828,13 @@ impl Server {
             .ok_or_else(|| ServerError::Decode("missing repro".to_string()))?;
         if repro_bytes.len() > MAX_REPRO_BYTES {
             builder.set_ok(false);
-            builder.set_err(if self.emit_supply_chain_audit("integrity.repro_oversize", false) {
-                InstallError::Einval
-            } else {
-                InstallError::Eacces
-            });
+            builder.set_err(
+                if self.emit_supply_chain_audit("integrity.repro_oversize", false) {
+                    InstallError::Einval
+                } else {
+                    InstallError::Eacces
+                },
+            );
             self.artifacts.insert(handle, manifest_bytes.clone());
             self.artifacts.stage_payload(handle, payload_bytes);
             self.restage_assets(handle, &assets);
@@ -857,15 +879,15 @@ impl Server {
         if let Err(err) = repro::verify_repro_json(repro_bytes, &repro_expect) {
             let label = match err {
                 repro::ReproError::SchemaInvalid(_) => "pack.repro_schema_invalid",
-                repro::ReproError::DigestMismatch { field: "payload_sha256" } => {
-                    "integrity.payload_digest_mismatch"
-                }
-                repro::ReproError::DigestMismatch { field: "sbom_sha256" } => {
-                    "integrity.sbom_digest_mismatch"
-                }
-                repro::ReproError::DigestMismatch { field: "manifest_sha256" } => {
-                    "integrity.repro_digest_mismatch"
-                }
+                repro::ReproError::DigestMismatch {
+                    field: "payload_sha256",
+                } => "integrity.payload_digest_mismatch",
+                repro::ReproError::DigestMismatch {
+                    field: "sbom_sha256",
+                } => "integrity.sbom_digest_mismatch",
+                repro::ReproError::DigestMismatch {
+                    field: "manifest_sha256",
+                } => "integrity.repro_digest_mismatch",
                 _ => "integrity.repro_invalid",
             };
             builder.set_ok(false);
@@ -889,8 +911,10 @@ impl Server {
             return Self::encode_response(OPCODE_INSTALL, &response);
         }
 
-        match self.service.install(DomainInstallRequest { name: &name, manifest: &manifest_bytes })
-        {
+        match self.service.install(DomainInstallRequest {
+            name: &name,
+            manifest: &manifest_bytes,
+        }) {
             Ok(bundle) => {
                 self.publish_package_to_fs(&bundle, &manifest_bytes, &payload_bytes, &assets);
                 self.artifacts.install_payload(&name, payload_bytes);
@@ -932,8 +956,9 @@ impl Server {
                     builder.set_installed(true);
                     let version = bundle.version.to_string();
                     builder.set_version(&version);
-                    let mut caps =
-                        builder.reborrow().init_required_caps(bundle.capabilities.len() as u32);
+                    let mut caps = builder
+                        .reborrow()
+                        .init_required_caps(bundle.capabilities.len() as u32);
                     for (idx, cap) in bundle.capabilities.iter().enumerate() {
                         caps.set(idx as u32, cap);
                     }
@@ -1043,7 +1068,10 @@ impl Server {
     #[cfg(feature = "idl-capnp")]
     fn emit_supply_chain_audit(&self, label: &str, allowed: bool) -> bool {
         let _ = allowed;
-        if std::env::var("NEXUS_BUNDLEMGRD_AUDIT_FAIL").map(|value| value == "1").unwrap_or(false) {
+        if std::env::var("NEXUS_BUNDLEMGRD_AUDIT_FAIL")
+            .map(|value| value == "1")
+            .unwrap_or(false)
+        {
             return false;
         }
         eprintln!("bundlemgrd: audit {label}");
@@ -1054,7 +1082,8 @@ impl Server {
 impl Server {
     fn restage_assets(&self, handle: u32, assets: &[StagedAsset]) {
         for asset in assets {
-            self.artifacts.stage_asset(handle, &asset.path, asset.bytes.clone());
+            self.artifacts
+                .stage_asset(handle, &asset.path, asset.bytes.clone());
         }
     }
 
@@ -1082,9 +1111,15 @@ impl Server {
             entries: &entries,
         };
         if let Err(err) = client.publish_bundle(request) {
-            eprintln!("bundlemgrd: packagefs publish {}@{} failed: {err}", bundle.name, version);
+            eprintln!(
+                "bundlemgrd: packagefs publish {}@{} failed: {err}",
+                bundle.name, version
+            );
         } else {
-            println!("bundlemgrd: published {}@{} to packagefs", bundle.name, version);
+            println!(
+                "bundlemgrd: published {}@{} to packagefs",
+                bundle.name, version
+            );
         }
     }
 }
@@ -1116,20 +1151,29 @@ pub(crate) fn serve_with_components<T: Transport>(
     packagefs: Option<Arc<PackageFsClient>>,
 ) -> Result<(), ServerError> {
     let mut server = Server::new(service, artifacts, keystore, packagefs);
-    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
+    while let Some(frame) = transport
+        .recv()
+        .map_err(|err| ServerError::Transport(err.into()))?
+    {
         if frame.is_empty() {
             continue;
         }
-        let (opcode, payload) =
-            frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+        let (opcode, payload) = frame
+            .split_first()
+            .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
         let response = server.handle_frame(*opcode, payload)?;
-        transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
+        transport
+            .send(&response)
+            .map_err(|err| ServerError::Transport(err.into()))?;
     }
     Ok(())
 }
 
 fn find_asset_bytes<'a>(assets: &'a [StagedAsset], path: &str) -> Option<&'a [u8]> {
-    assets.iter().find(|asset| asset.path == path).map(|asset| asset.bytes.as_slice())
+    assets
+        .iter()
+        .find(|asset| asset.path == path)
+        .map(|asset| asset.bytes.as_slice())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1319,8 +1363,10 @@ pub fn service_main_loop(
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
-{
+pub fn loopback_transport() -> (
+    nexus_ipc::LoopbackClient,
+    IpcTransport<nexus_ipc::LoopbackServer>,
+) {
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -1357,7 +1403,10 @@ mod tests {
             _alg: &str,
             _pubkey: &[u8],
         ) -> Result<KeyAllowDecision, KeystoreClientError> {
-            Ok(KeyAllowDecision { allowed: self.allowed, reason: self.reason.to_string() })
+            Ok(KeyAllowDecision {
+                allowed: self.allowed,
+                reason: self.reason.to_string(),
+            })
         }
     }
 
@@ -1378,9 +1427,13 @@ mod tests {
         let mut cursor = Cursor::new(frame);
         let message = capnp::serialize::read_message(&mut cursor, ReaderOptions::new())
             .expect("read install response");
-        let response =
-            message.get_root::<install_response::Reader<'_>>().expect("install response root");
-        (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
+        let response = message
+            .get_root::<install_response::Reader<'_>>()
+            .expect("install response root");
+        (
+            response.get_ok(),
+            response.get_err().unwrap_or(InstallError::Einval),
+        )
     }
 
     fn build_manifest(publisher: [u8; 16], signature: &[u8]) -> Vec<u8> {
@@ -1416,14 +1469,26 @@ mod tests {
         let mut cursor = Cursor::new(manifest);
         let message = capnp::serialize::read_message(&mut cursor, ReaderOptions::new())
             .expect("read manifest");
-        let src = message.get_root::<bundle_manifest::Reader<'_>>().expect("manifest root");
+        let src = message
+            .get_root::<bundle_manifest::Reader<'_>>()
+            .expect("manifest root");
         let mut out_builder = Builder::new_default();
         {
             let mut dst = out_builder.init_root::<bundle_manifest::Builder<'_>>();
             dst.set_schema_version(src.get_schema_version());
             dst.set_name(src.get_name().expect("name").to_str().expect("name utf8"));
-            dst.set_semver(src.get_semver().expect("semver").to_str().expect("semver utf8"));
-            dst.set_min_sdk(src.get_min_sdk().expect("minSdk").to_str().expect("minSdk utf8"));
+            dst.set_semver(
+                src.get_semver()
+                    .expect("semver")
+                    .to_str()
+                    .expect("semver utf8"),
+            );
+            dst.set_min_sdk(
+                src.get_min_sdk()
+                    .expect("minSdk")
+                    .to_str()
+                    .expect("minSdk utf8"),
+            );
             dst.set_publisher(src.get_publisher().expect("publisher"));
             dst.set_signature(src.get_signature().expect("signature"));
             dst.set_payload_digest(&hex::decode(sha256_hex(payload)).expect("payload digest"));
@@ -1443,14 +1508,24 @@ mod tests {
             for idx in 0..src_abilities.len() {
                 dst_abilities.set(
                     idx,
-                    src_abilities.get(idx).expect("ability entry").to_str().expect("ability utf8"),
+                    src_abilities
+                        .get(idx)
+                        .expect("ability entry")
+                        .to_str()
+                        .expect("ability utf8"),
                 );
             }
             let src_caps = src.get_capabilities().expect("caps");
             let mut dst_caps = dst.reborrow().init_capabilities(src_caps.len());
             for idx in 0..src_caps.len() {
-                dst_caps
-                    .set(idx, src_caps.get(idx).expect("cap entry").to_str().expect("cap utf8"));
+                dst_caps.set(
+                    idx,
+                    src_caps
+                        .get(idx)
+                        .expect("cap entry")
+                        .to_str()
+                        .expect("cap utf8"),
+                );
             }
         }
         let mut out = Vec::new();
@@ -1519,7 +1594,9 @@ mod tests {
 
         let mut server = Server::new(Service::new(), artifacts, Some(Box::new(keystore)), None);
         let install_payload = build_install_payload("demo.bundle", 7, manifest.len() as u32);
-        let frame = server.handle_install(&install_payload).expect("handle install");
+        let frame = server
+            .handle_install(&install_payload)
+            .expect("handle install");
         let result = parse_install_response(&frame[1..]);
         match previous_audit_flag {
             Some(value) => std::env::set_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL", value),
@@ -1536,7 +1613,11 @@ mod tests {
         let payload = vec![0xde, 0xad, 0xbe, 0xef];
         let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,
@@ -1554,7 +1635,11 @@ mod tests {
         let payload = vec![1, 2, 3, 4];
         let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: false, reason: "publisher_unknown" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: false,
+                reason: "publisher_unknown",
+            },
             manifest,
             payload,
             sbom,
@@ -1572,7 +1657,11 @@ mod tests {
         let payload = vec![1, 2, 3, 4];
         let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: false, reason: "key_unknown" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: false,
+                reason: "key_unknown",
+            },
             manifest,
             payload,
             sbom,
@@ -1590,7 +1679,11 @@ mod tests {
         let payload = vec![1, 2, 3, 4];
         let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: false, reason: "alg_unsupported" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: false,
+                reason: "alg_unsupported",
+            },
             manifest,
             payload,
             sbom,
@@ -1609,7 +1702,11 @@ mod tests {
         let (manifest, sbom, mut repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         repro_json[20] ^= 0x01;
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,
@@ -1628,7 +1725,11 @@ mod tests {
         let (manifest, sbom, _repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let invalid_repro = br#"{"schema_version":1}"#.to_vec();
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,
@@ -1646,7 +1747,11 @@ mod tests {
         let payload = vec![1, 2, 3, 4];
         let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let (ok, err) = run_install_with_audit_fail(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,
@@ -1666,7 +1771,11 @@ mod tests {
         let (manifest, _sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         let oversized_sbom = vec![b'a'; MAX_SBOM_BYTES + 1];
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             oversized_sbom,
@@ -1685,7 +1794,11 @@ mod tests {
         let (manifest, mut sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         sbom.push(b' ');
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,
@@ -1704,7 +1817,11 @@ mod tests {
         let (manifest, sbom, mut repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
         repro_json.push(b' ');
         let (ok, err) = run_install(
-            FakeKeystore { verify_ok: true, allowed: true, reason: "allow" },
+            FakeKeystore {
+                verify_ok: true,
+                allowed: true,
+                reason: "allow",
+            },
             manifest,
             payload,
             sbom,

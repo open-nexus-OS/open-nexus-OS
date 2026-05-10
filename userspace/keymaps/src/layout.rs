@@ -8,8 +8,8 @@
 //! TEST_COVERAGE: No direct tests (covered by 4 integration tests in `tests/input_v1_0_host/tests/keymaps_contract.rs`).
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
-use hid::KeyboardUsage;
 use alloc::vec::Vec;
+use hid::KeyboardUsage;
 
 use crate::{
     table::{self, lookup, MappingEntry},
@@ -106,7 +106,9 @@ fn resolve_entry(
         });
     }
     if modifiers.shift() {
-        return entry.shifted.ok_or(KeymapError::UnsupportedModifierCombination);
+        return entry
+            .shifted
+            .ok_or(KeymapError::UnsupportedModifierCombination);
     }
     Ok(entry.base)
 }

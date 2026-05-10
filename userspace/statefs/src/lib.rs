@@ -480,7 +480,11 @@ pub mod protocol {
         if prefix.len() > MAX_KEY_LEN {
             return Err(StatefsError::KeyTooLong);
         }
-        let limit = if limit == 0 { 1 } else { limit.min(MAX_LIST_LIMIT) };
+        let limit = if limit == 0 {
+            1
+        } else {
+            limit.min(MAX_LIST_LIMIT)
+        };
         let mut out = Vec::with_capacity(8 + prefix.len());
         out.push(MAGIC0);
         out.push(MAGIC1);
@@ -589,7 +593,11 @@ pub mod protocol {
             return Err(STATUS_MALFORMED);
         }
         let prefix = str::from_utf8(&payload[4..expected]).map_err(|_| STATUS_MALFORMED)?;
-        let limit = if limit == 0 { 1 } else { limit.min(MAX_LIST_LIMIT) };
+        let limit = if limit == 0 {
+            1
+        } else {
+            limit.min(MAX_LIST_LIMIT)
+        };
         Ok(Request::List { prefix, limit })
     }
 }
@@ -692,7 +700,11 @@ pub mod client {
             } else {
                 0
             };
-            let flags = if moved != 0 { nexus_abi::ipc_hdr::CAP_MOVE } else { 0 };
+            let flags = if moved != 0 {
+                nexus_abi::ipc_hdr::CAP_MOVE
+            } else {
+                0
+            };
             // Nonce correlation for shared reply inboxes (RFC-0019):
             // upgrade requests to SF v2 (explicit nonce field) and require it in the reply.
             static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
@@ -958,9 +970,18 @@ fn parse_record(data: &[u8]) -> Result<Option<(JournalRecord, usize)>, StatefsEr
     }
 
     // Parse key as UTF-8
-    let key = core::str::from_utf8(key_bytes).map_err(|_| StatefsError::Corrupted)?.into();
+    let key = core::str::from_utf8(key_bytes)
+        .map_err(|_| StatefsError::Corrupted)?
+        .into();
 
-    Ok(Some((JournalRecord { op, key, value: value.to_vec() }, total_len)))
+    Ok(Some((
+        JournalRecord {
+            op,
+            key,
+            value: value.to_vec(),
+        },
+        total_len,
+    )))
 }
 
 // ============================================================================
@@ -981,7 +1002,12 @@ pub struct JournalEngine<B: BlockDevice> {
 impl<B: BlockDevice> JournalEngine<B> {
     /// Create a new journal engine and replay existing journal from device.
     pub fn open(device: B) -> Result<Self, StatefsError> {
-        let mut engine = Self { device, kv: BTreeMap::new(), write_pos: 0, record_count: 0 };
+        let mut engine = Self {
+            device,
+            kv: BTreeMap::new(),
+            write_pos: 0,
+            record_count: 0,
+        };
         engine.replay()?;
         Ok(engine)
     }
@@ -999,7 +1025,9 @@ impl<B: BlockDevice> JournalEngine<B> {
         let mut done = false;
 
         for block_idx in 0..block_count {
-            self.device.read_block(block_idx, &mut block_buf).map_err(|_| StatefsError::IoError)?;
+            self.device
+                .read_block(block_idx, &mut block_buf)
+                .map_err(|_| StatefsError::IoError)?;
 
             if buf_len + block_size > buf.len() {
                 buf.resize(buf_len + block_size, 0);
@@ -1127,8 +1155,11 @@ impl<B: BlockDevice> JournalEngine<B> {
             let block_end_byte = block_start_byte + block_size;
 
             let write_start = self.write_pos.saturating_sub(block_start_byte);
-            let write_end =
-                if end_byte < block_end_byte { end_byte - block_start_byte } else { block_size };
+            let write_end = if end_byte < block_end_byte {
+                end_byte - block_start_byte
+            } else {
+                block_size
+            };
 
             let record_chunk_len = write_end - write_start;
             buf[write_start..write_end]
@@ -1136,7 +1167,9 @@ impl<B: BlockDevice> JournalEngine<B> {
             record_offset += record_chunk_len;
 
             // Write block back
-            self.device.write_block(block_idx as u64, &buf).map_err(|_| StatefsError::IoError)?;
+            self.device
+                .write_block(block_idx as u64, &buf)
+                .map_err(|_| StatefsError::IoError)?;
         }
 
         self.write_pos = end_byte;
@@ -1186,8 +1219,13 @@ impl<B: BlockDevice> JournalEngine<B> {
             return Err(StatefsError::InvalidKey);
         }
 
-        let keys: Vec<String> =
-            self.kv.keys().filter(|k| k.starts_with(prefix)).take(limit).cloned().collect();
+        let keys: Vec<String> = self
+            .kv
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .take(limit)
+            .cloned()
+            .collect();
 
         Ok(keys)
     }
@@ -1234,7 +1272,10 @@ mod tests {
         let block_size = device.block_size();
         let blocks = device.raw_storage_mut();
         let capacity = block_size * blocks.len();
-        assert!(bytes.len() <= capacity, "fixture bytes exceed device capacity");
+        assert!(
+            bytes.len() <= capacity,
+            "fixture bytes exceed device capacity"
+        );
         for (idx, block) in blocks.iter_mut().enumerate() {
             block.fill(0);
             let start = idx * block_size;
@@ -1280,7 +1321,9 @@ mod tests {
         // Create engine and write data
         let device = MemBlockDevice::new(512, 100);
         let mut engine = JournalEngine::open(device).unwrap();
-        engine.put("/state/keystore/device.key", b"secret-key-data").unwrap();
+        engine
+            .put("/state/keystore/device.key", b"secret-key-data")
+            .unwrap();
         engine.put("/state/boot/bootctl.active", b"slot-a").unwrap();
         engine.sync().unwrap();
 
@@ -1289,8 +1332,14 @@ mod tests {
         let engine2 = JournalEngine::open(device).unwrap();
 
         // Verify data survived replay
-        assert_eq!(engine2.get("/state/keystore/device.key").unwrap(), b"secret-key-data");
-        assert_eq!(engine2.get("/state/boot/bootctl.active").unwrap(), b"slot-a");
+        assert_eq!(
+            engine2.get("/state/keystore/device.key").unwrap(),
+            b"secret-key-data"
+        );
+        assert_eq!(
+            engine2.get("/state/boot/bootctl.active").unwrap(),
+            b"slot-a"
+        );
     }
 
     #[test]
@@ -1315,14 +1364,20 @@ mod tests {
     fn test_reject_value_oversized() {
         let mut engine = create_engine(512, 100);
         let big_value = vec![0u8; MAX_VALUE_SIZE + 1];
-        assert_eq!(engine.put("/state/test/big", &big_value), Err(StatefsError::ValueTooLarge));
+        assert_eq!(
+            engine.put("/state/test/big", &big_value),
+            Err(StatefsError::ValueTooLarge)
+        );
     }
 
     #[test]
     fn test_reject_key_too_long() {
         let mut engine = create_engine(512, 100);
         let long_key = format!("/state/{}", "x".repeat(MAX_KEY_LEN));
-        assert_eq!(engine.put(&long_key, b"value"), Err(StatefsError::KeyTooLong));
+        assert_eq!(
+            engine.put(&long_key, b"value"),
+            Err(StatefsError::KeyTooLong)
+        );
     }
 
     #[test]
@@ -1330,12 +1385,21 @@ mod tests {
         let mut engine = create_engine(512, 100);
 
         // Must start with /state/
-        assert_eq!(engine.put("/other/key", b"v"), Err(StatefsError::InvalidKey));
+        assert_eq!(
+            engine.put("/other/key", b"v"),
+            Err(StatefsError::InvalidKey)
+        );
         assert_eq!(engine.put("state/key", b"v"), Err(StatefsError::InvalidKey));
 
         // No path traversal
-        assert_eq!(engine.put("/state/../etc/passwd", b"v"), Err(StatefsError::InvalidKey));
-        assert_eq!(engine.put("/state/./key", b"v"), Err(StatefsError::InvalidKey));
+        assert_eq!(
+            engine.put("/state/../etc/passwd", b"v"),
+            Err(StatefsError::InvalidKey)
+        );
+        assert_eq!(
+            engine.put("/state/./key", b"v"),
+            Err(StatefsError::InvalidKey)
+        );
     }
 
     #[test]
@@ -1366,7 +1430,10 @@ mod tests {
     #[test]
     fn test_delete_nonexistent() {
         let mut engine = create_engine(512, 100);
-        assert_eq!(engine.delete("/state/nonexistent"), Err(StatefsError::NotFound));
+        assert_eq!(
+            engine.delete("/state/nonexistent"),
+            Err(StatefsError::NotFound)
+        );
     }
 
     #[test]
@@ -1600,7 +1667,10 @@ mod tests {
 
         let device = engine.device;
         let engine2 = JournalEngine::open(device).unwrap();
-        assert_eq!(engine2.get("/state/test/ephemeral"), Err(StatefsError::NotFound));
+        assert_eq!(
+            engine2.get("/state/test/ephemeral"),
+            Err(StatefsError::NotFound)
+        );
         assert_eq!(engine2.get("/state/test/permanent").unwrap(), b"stay");
     }
 
@@ -1621,7 +1691,10 @@ mod tests {
         let engine2 = JournalEngine::open(device).unwrap();
 
         assert_eq!(engine2.get("/state/app/setting1").unwrap(), b"v1-updated");
-        assert_eq!(engine2.get("/state/app/setting2"), Err(StatefsError::NotFound));
+        assert_eq!(
+            engine2.get("/state/app/setting2"),
+            Err(StatefsError::NotFound)
+        );
         assert_eq!(engine2.get("/state/app/setting3").unwrap(), b"v3");
 
         let keys = engine2.list("/state/app/", 10).unwrap();

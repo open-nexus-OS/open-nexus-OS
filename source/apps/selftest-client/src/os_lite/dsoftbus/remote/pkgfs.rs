@@ -34,10 +34,15 @@ pub(crate) fn dsoftbusd_remote_pkgfs_stat(path: &str) -> core::result::Result<(u
     let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
     req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
     req.extend_from_slice(p);
-    d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(
+        &req,
+        IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+    )
+    .map_err(|_| ())?;
     let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+            REMOTE_DSOFTBUS_WAIT_MS,
+        )))
         .map_err(|_| ())?;
     if rsp.len() != 15 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
@@ -45,8 +50,9 @@ pub(crate) fn dsoftbusd_remote_pkgfs_stat(path: &str) -> core::result::Result<(u
     if rsp[4] != STATUS_OK {
         return Err(());
     }
-    let size =
-        u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
+    let size = u64::from_le_bytes([
+        rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
+    ]);
     let kind = u16::from_le_bytes([rsp[13], rsp[14]]);
     Ok((size, kind))
 }
@@ -65,10 +71,15 @@ pub(crate) fn dsoftbusd_remote_pkgfs_open(path: &str) -> core::result::Result<u3
     let mut req = alloc::vec::Vec::with_capacity(5 + p.len());
     req.extend_from_slice(&[D0, D1, VER, OP, p.len() as u8]);
     req.extend_from_slice(p);
-    d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(
+        &req,
+        IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+    )
+    .map_err(|_| ())?;
     let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+            REMOTE_DSOFTBUS_WAIT_MS,
+        )))
         .map_err(|_| ())?;
     if rsp.len() != 9 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
@@ -101,10 +112,15 @@ pub(crate) fn dsoftbusd_remote_pkgfs_read(
     req[4..8].copy_from_slice(&handle.to_le_bytes());
     req[8..12].copy_from_slice(&offset.to_le_bytes());
     req[12..14].copy_from_slice(&read_len.to_le_bytes());
-    d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(
+        &req,
+        IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+    )
+    .map_err(|_| ())?;
     let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+            REMOTE_DSOFTBUS_WAIT_MS,
+        )))
         .map_err(|_| ())?;
     if rsp.len() < 7 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());
@@ -132,10 +148,15 @@ pub(crate) fn dsoftbusd_remote_pkgfs_close(handle: u32) -> core::result::Result<
     req[2] = VER;
     req[3] = OP;
     req[4..8].copy_from_slice(&handle.to_le_bytes());
-    d.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
-        .map_err(|_| ())?;
+    d.send(
+        &req,
+        IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)),
+    )
+    .map_err(|_| ())?;
     let rsp = d
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(REMOTE_DSOFTBUS_WAIT_MS)))
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(
+            REMOTE_DSOFTBUS_WAIT_MS,
+        )))
         .map_err(|_| ())?;
     if rsp.len() != 5 || rsp[0] != D0 || rsp[1] != D1 || rsp[2] != VER || rsp[3] != (OP | 0x80) {
         return Err(());

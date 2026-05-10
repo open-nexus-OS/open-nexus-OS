@@ -9,8 +9,8 @@
 //! ADR: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 
 use crate::cli::{
-    InputAction, InputArgs, InputCursorArgs, InputKeymapAction, InputKeymapSetArgs, InputTestAction,
-    InputTypeArgs,
+    InputAction, InputArgs, InputCursorArgs, InputKeymapAction, InputKeymapSetArgs,
+    InputTestAction, InputTypeArgs,
 };
 use crate::error::{ExecResult, ExitClass, NxError};
 use serde_json::json;
@@ -27,10 +27,30 @@ const OS_PROOFS: &[&str] = &["RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os v
 
 pub(crate) fn handle_input(args: InputArgs) -> ExecResult {
     match args.action {
-        InputAction::Layouts(flags) => Ok((ExitClass::Success, "input layouts listed".to_string(), flags.json, Some(layouts_payload()))),
-        InputAction::Status(flags) => Ok((ExitClass::Success, "input authority chain reported".to_string(), flags.json, Some(status_payload()))),
-        InputAction::Proof(flags) => Ok((ExitClass::Success, "input proof commands listed".to_string(), flags.json, Some(proof_payload()))),
-        InputAction::Devices(flags) => Ok((ExitClass::Success, "input proof devices listed".to_string(), flags.json, Some(devices_payload()))),
+        InputAction::Layouts(flags) => Ok((
+            ExitClass::Success,
+            "input layouts listed".to_string(),
+            flags.json,
+            Some(layouts_payload()),
+        )),
+        InputAction::Status(flags) => Ok((
+            ExitClass::Success,
+            "input authority chain reported".to_string(),
+            flags.json,
+            Some(status_payload()),
+        )),
+        InputAction::Proof(flags) => Ok((
+            ExitClass::Success,
+            "input proof commands listed".to_string(),
+            flags.json,
+            Some(proof_payload()),
+        )),
+        InputAction::Devices(flags) => Ok((
+            ExitClass::Success,
+            "input proof devices listed".to_string(),
+            flags.json,
+            Some(devices_payload()),
+        )),
         InputAction::Keymap(args) => match args.action {
             InputKeymapAction::Get(flags) => Ok((
                 ExitClass::Success,
@@ -117,10 +137,16 @@ fn handle_keymap_set(args: InputKeymapSetArgs) -> ExecResult {
 fn handle_type(args: InputTypeArgs) -> ExecResult {
     let scalar_count = args.text.chars().count();
     if scalar_count == 0 {
-        return Err(NxError::new(ExitClass::ValidationReject, "input.type.empty"));
+        return Err(NxError::new(
+            ExitClass::ValidationReject,
+            "input.type.empty",
+        ));
     }
     if scalar_count > 64 {
-        return Err(NxError::new(ExitClass::ValidationReject, "input.type.too_long"));
+        return Err(NxError::new(
+            ExitClass::ValidationReject,
+            "input.type.too_long",
+        ));
     }
     Ok((
         ExitClass::Success,

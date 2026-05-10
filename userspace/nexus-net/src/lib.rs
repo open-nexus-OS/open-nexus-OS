@@ -95,7 +95,10 @@ impl std::error::Error for NetError {}
 
 impl NetSocketAddrV4 {
     pub fn new(ip: [u8; 4], port: u16) -> Self {
-        Self { ip: NetIpAddrV4(ip), port }
+        Self {
+            ip: NetIpAddrV4(ip),
+            port,
+        }
     }
 }
 

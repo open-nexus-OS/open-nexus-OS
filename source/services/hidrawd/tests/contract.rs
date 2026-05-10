@@ -338,3 +338,28 @@ fn test_reject_keyboard_role_cannot_normalize_pointer_motion() {
     assert!(outcome.hid_batch().is_none());
     assert!(outcome.wire_batch().is_none());
 }
+
+#[test]
+fn test_reject_keyboard_role_with_non_binary_key_value() {
+    let mut service = HidrawdService::new();
+    let keyboard_id = DeviceId::new(12);
+    service.register_keyboard(keyboard_id);
+
+    let outcome = normalize_ingress_batch(
+        &mut service,
+        keyboard_id,
+        &RawIngressBatch::new(
+            IngressRole::Keyboard,
+            vec![RawIngressEvent::new(RawIngressEventKind::Key, 2, 7)],
+        ),
+        TimestampNs::new(22),
+        0,
+        0,
+    )
+    .expect("adapter outcome");
+
+    assert_eq!(outcome.evidence().raw_event_count(), 1);
+    assert_eq!(outcome.evidence().normalized_event_count(), 0);
+    assert!(outcome.hid_batch().is_none());
+    assert!(outcome.wire_batch().is_none());
+}

@@ -67,14 +67,26 @@ pub struct SystemSet {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SystemSetError {
-    ArchiveTooLarge { actual: usize, max: usize },
+    ArchiveTooLarge {
+        actual: usize,
+        max: usize,
+    },
     ArchiveMalformed(&'static str),
     MissingEntry(&'static str),
-    UnexpectedEntry { name: String },
-    OversizedEntry { name: String, actual: usize, max: usize },
+    UnexpectedEntry {
+        name: String,
+    },
+    OversizedEntry {
+        name: String,
+        actual: usize,
+        max: usize,
+    },
     InvalidSignature(&'static str),
     InvalidIndex(&'static str),
-    DigestMismatch { name: String, field: &'static str },
+    DigestMismatch {
+        name: String,
+        field: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +120,8 @@ impl SignatureVerifier for Ed25519Verifier {
 
         let key = VerifyingKey::from_bytes(public_key).map_err(|_| VerifyError::InvalidKey)?;
         let sig = Signature::from_bytes(signature);
-        key.verify(message, &sig).map_err(|_| VerifyError::InvalidSignature)
+        key.verify(message, &sig)
+            .map_err(|_| VerifyError::InvalidSignature)
     }
 }
 
@@ -162,7 +175,9 @@ impl SystemSet {
             });
         }
         if sig_entry.data.len() != 64 {
-            return Err(SystemSetError::InvalidSignature("signature must be 64 bytes"));
+            return Err(SystemSetError::InvalidSignature(
+                "signature must be 64 bytes",
+            ));
         }
 
         let index = parse_index(&index_entry.data)?;
@@ -241,7 +256,9 @@ impl SystemSet {
         }
 
         if let Some(extra) = file_map.keys().next() {
-            return Err(SystemSetError::UnexpectedEntry { name: extra.clone() });
+            return Err(SystemSetError::UnexpectedEntry {
+                name: extra.clone(),
+            });
         }
 
         Ok(SystemSet { index, bundles })
@@ -270,8 +287,9 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
         return Err(SystemSetError::InvalidIndex("systemVersion empty"));
     }
 
-    let publisher =
-        root.get_publisher().map_err(|_| SystemSetError::InvalidIndex("publisher missing"))?;
+    let publisher = root
+        .get_publisher()
+        .map_err(|_| SystemSetError::InvalidIndex("publisher missing"))?;
     if publisher.len() != 32 {
         return Err(SystemSetError::InvalidIndex("publisher must be 32 bytes"));
     }
@@ -280,13 +298,15 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
 
     let timestamp_unix_ms = root.get_timestamp_unix_ms();
 
-    let bundles_reader =
-        root.get_bundles().map_err(|_| SystemSetError::InvalidIndex("bundles missing"))?;
+    let bundles_reader = root
+        .get_bundles()
+        .map_err(|_| SystemSetError::InvalidIndex("bundles missing"))?;
     let mut bundles = Vec::with_capacity(bundles_reader.len() as usize);
     for i in 0..bundles_reader.len() {
         let entry = bundles_reader.get(i);
-        let name =
-            entry.get_name().map_err(|_| SystemSetError::InvalidIndex("bundle name missing"))?;
+        let name = entry
+            .get_name()
+            .map_err(|_| SystemSetError::InvalidIndex("bundle name missing"))?;
         let name = name
             .to_str()
             .map_err(|_| SystemSetError::InvalidIndex("bundle name invalid utf-8"))?
@@ -330,7 +350,12 @@ fn parse_index(bytes: &[u8]) -> Result<SystemSetIndex, SystemSetError> {
         });
     }
 
-    Ok(SystemSetIndex { system_version, publisher: publisher_bytes, timestamp_unix_ms, bundles })
+    Ok(SystemSetIndex {
+        system_version,
+        publisher: publisher_bytes,
+        timestamp_unix_ms,
+        bundles,
+    })
 }
 
 struct TarEntry {
@@ -433,7 +458,9 @@ fn sha256_with_yield(bytes: &[u8], yield_hook: &mut impl FnMut()) -> [u8; 32] {
 
 fn array_64(bytes: &[u8]) -> Result<[u8; 64], SystemSetError> {
     if bytes.len() != 64 {
-        return Err(SystemSetError::InvalidSignature("signature must be 64 bytes"));
+        return Err(SystemSetError::InvalidSignature(
+            "signature must be 64 bytes",
+        ));
     }
     let mut out = [0u8; 64];
     out.copy_from_slice(bytes);

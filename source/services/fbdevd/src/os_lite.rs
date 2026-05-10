@@ -59,9 +59,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         let mut budget = TickBudget::new(1);
         if reactor.should_present(now_ns, &mut budget) {
             if let Some(input_state) = fetch_input_visible_state() {
-                let previous_state = service.visible_state();
+                let previous_state = service.render_state();
                 service.merge_input_state(input_state);
-                let next_state = service.visible_state();
+                let next_state = service.render_state();
                 match live_dirty_rows(previous_state, next_state, bootstrap.mode) {
                     DirtyRows::None => {}
                     DirtyRows::Range { start_y, end_y } => {

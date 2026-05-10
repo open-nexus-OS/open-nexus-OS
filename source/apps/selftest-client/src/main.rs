@@ -10,12 +10,22 @@
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
 #![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),
+    all(
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none",
+        feature = "os-lite"
+    ),
     no_std,
     no_main
 )]
 #![cfg_attr(
-    not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite")),
+    not(all(
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none",
+        feature = "os-lite"
+    )),
     forbid(unsafe_code)
 )]
 
@@ -26,19 +36,44 @@
     feature = "os-lite"
 )))]
 mod host_lite;
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 mod markers;
 // P4-04: marker-literal SSOT shared between host and OS pfads. Pure
 // `const &str` table, no platform deps; safe to compile in any target.
 mod markers_generated;
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 mod os_lite;
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 mod runtime_mode;
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 nexus_service_entry::declare_entry!(os_entry);
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 fn os_entry() -> core::result::Result<(), ()> {
     os_lite::run()
 }

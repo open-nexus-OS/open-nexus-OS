@@ -152,8 +152,15 @@ pub(crate) fn execd_spawn_image_raw_requester(
     req.push(4);
     req.push(name.len() as u8);
     req.extend_from_slice(name);
-    execd.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
-    execd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())
+    execd
+        .send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(100)),
+        )
+        .map_err(|_| ())?;
+    execd
+        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
+        .map_err(|_| ())
 }
 
 pub(crate) fn execd_report_exit_with_dump_status(

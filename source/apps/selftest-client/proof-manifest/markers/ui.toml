@@ -241,6 +241,14 @@ proves = "right-side proof square visibly changed state after routed keyboard de
 phase = "end"
 proves = "selftest observed full-window, cursor, hover, focus, click, and keyboard-visible evidence from the real upstream gate chain without owning ingest or routing"
 
+[marker."windowd: wheel visible"]
+phase = "end"
+proves = "windowd rendered a deterministic transient wheel indicator after routed scroll delivery"
+
+[marker."SELFTEST: ui visible wheel ok"]
+phase = "end"
+proves = "selftest observed the full visible-input chain including a routed wheel indicator before concluding the proof lane"
+
 [marker."windowd: interactive scene ready"]
 phase = "end"
 proves = "interactive start reached a visible scene-ready state; this is a debug breadcrumb, not a deterministic proof completion marker"

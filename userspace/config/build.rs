@@ -15,8 +15,10 @@ use std::{env, path::PathBuf};
 fn main() {
     let schema = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/nexus-idl/schemas/config_effective.capnp");
-    let schema_dir =
-        schema.parent().map(PathBuf::from).expect("config_effective schema parent missing");
+    let schema_dir = schema
+        .parent()
+        .map(PathBuf::from)
+        .expect("config_effective schema parent missing");
 
     println!("cargo:rerun-if-changed={}", schema.display());
 

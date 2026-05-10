@@ -75,7 +75,10 @@ fn test_reject_invalid_stream_state_transition() {
 fn test_reject_window_credit_overflow_or_underflow() {
     let underflow =
         apply_window_delta(WindowCredit::new(0), -1).expect_err("underflow must reject");
-    assert_eq!(underflow.label(), REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW);
+    assert_eq!(
+        underflow.label(),
+        REJECT_WINDOW_CREDIT_OVERFLOW_OR_UNDERFLOW
+    );
 
     let overflow =
         apply_window_delta(WindowCredit::new(u32::MAX), 1).expect_err("overflow must reject");
@@ -85,9 +88,13 @@ fn test_reject_window_credit_overflow_or_underflow() {
 #[test]
 fn test_reject_unknown_stream_frame() {
     let mut session = MuxSessionState::new_authenticated(0);
-    session.open_stream(stream_id(1), priority(0), WindowCredit::new(64)).expect("open stream");
+    session
+        .open_stream(stream_id(1), priority(0), WindowCredit::new(64))
+        .expect("open stream");
 
-    let err = session.send_data(stream_id(42), 4).expect_err("unknown stream must reject");
+    let err = session
+        .send_data(stream_id(42), 4)
+        .expect_err("unknown stream must reject");
     assert_eq!(err.label(), REJECT_UNKNOWN_STREAM_FRAME);
 }
 
@@ -103,10 +110,19 @@ fn test_reject_unauthenticated_session() {
 #[test]
 fn backpressure_returns_would_block_when_credit_exhausted() {
     let mut session = MuxSessionState::new_authenticated(0);
-    session.open_stream(stream_id(1), priority(0), WindowCredit::new(4)).expect("open stream");
+    session
+        .open_stream(stream_id(1), priority(0), WindowCredit::new(4))
+        .expect("open stream");
 
-    let outcome = session.send_data(stream_id(1), 8).expect("backpressure should not reject");
-    assert_eq!(outcome, SendBudgetOutcome::WouldBlock { remaining_credit: WindowCredit::new(4) });
+    let outcome = session
+        .send_data(stream_id(1), 8)
+        .expect("backpressure should not reject");
+    assert_eq!(
+        outcome,
+        SendBudgetOutcome::WouldBlock {
+            remaining_credit: WindowCredit::new(4)
+        }
+    );
 }
 
 #[test]
@@ -132,7 +148,10 @@ fn scheduler_enforces_bounded_starvation() {
         if next == low {
             return;
         }
-        assert_eq!(next, high, "only high-priority stream expected before low stream release");
+        assert_eq!(
+            next, high,
+            "only high-priority stream expected before low stream release"
+        );
         scheduler.enqueue(priority(0), high);
         assert!(
             step < HIGH_PRIORITY_BURST_LIMIT,
@@ -188,11 +207,21 @@ fn stream_name_rejects_empty_and_oversized_values() {
 fn duplicate_stream_name_rejects_endpoint_open() {
     let mut endpoint = MuxHostEndpoint::new_authenticated(0);
     endpoint
-        .open_stream(stream_id(20), priority(1), stream_name("rpc"), WindowCredit::new(64))
+        .open_stream(
+            stream_id(20),
+            priority(1),
+            stream_name("rpc"),
+            WindowCredit::new(64),
+        )
         .expect("first stream open");
 
     let err = endpoint
-        .open_stream(stream_id(21), priority(1), stream_name("rpc"), WindowCredit::new(64))
+        .open_stream(
+            stream_id(21),
+            priority(1),
+            stream_name("rpc"),
+            WindowCredit::new(64),
+        )
         .expect_err("duplicate stream name must reject");
     assert_eq!(err.label(), REJECT_DUPLICATE_STREAM_NAME);
 }

@@ -149,7 +149,11 @@ struct State {
 
 impl State {
     fn new() -> Self {
-        Self { children: Vec::new(), policy_nonce: 1, pending_policy: ReplyBuffer::new() }
+        Self {
+            children: Vec::new(),
+            policy_nonce: 1,
+            pending_policy: ReplyBuffer::new(),
+        }
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
@@ -301,8 +305,12 @@ fn append_crash_to_logd(
                     emit_line_no_nl("execd: crash logd send kernel=");
                     emit_line(ipc_error_label(inner));
                     if inner == nexus_abi::IpcError::NoSuchEndpoint {
-                        let mut info =
-                            nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+                        let mut info = nexus_abi::CapQuery {
+                            kind_tag: 0,
+                            reserved: 0,
+                            base: 0,
+                            len: 0,
+                        };
                         match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
                             Ok(()) => {
                                 emit_line_no_nl("execd: crash logd slot kind=");
@@ -456,7 +464,12 @@ fn verify_reported_minidump(
             name: frame.name.as_str(),
             build_id: frame.build_id.as_str(),
         },
-        crate::MinidumpFrameMetadata { pid, code, name, build_id },
+        crate::MinidumpFrameMetadata {
+            pid,
+            code,
+            name,
+            build_id,
+        },
     ) {
         return false;
     }
@@ -484,8 +497,11 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             Ok((got, code)) => {
                 let got_u32 = got as u32;
                 if code != 0 {
-                    let image_id =
-                        state.children.iter().find(|c| c.pid == got_u32).map(|c| c.image_id);
+                    let image_id = state
+                        .children
+                        .iter()
+                        .find(|c| c.pid == got_u32)
+                        .map(|c| c.image_id);
                     let name = image_id.map(State::child_name).unwrap_or("unknown");
                     // For minidump-managed payloads, crash publication is deferred to OP_REPORT_EXIT
                     // so dump metadata can be validated before emitting success markers.
@@ -580,7 +596,11 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             Some((build_id, dump_path, &frame[dump_start..dump_end]))
         };
 
-        let image_id = state.children.iter().find(|c| c.pid == pid).map(|c| c.image_id);
+        let image_id = state
+            .children
+            .iter()
+            .find(|c| c.pid == pid)
+            .map(|c| c.image_id);
         if let Some(img) = image_id {
             if code != 0 {
                 let name = State::child_name(img);
@@ -777,7 +797,12 @@ pub fn exec_elf(
 }
 
 fn emit_line(message: &str) {
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+    for byte in message
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(core::iter::once(b'\n'))
+    {
         let _ = debug_putc(byte);
     }
 }
@@ -816,7 +841,14 @@ fn metrics_span_start_best_effort(
     let Ok(metrics) = MetricsClient::new() else {
         return;
     };
-    let _ = metrics.span_start(span_id, trace_id, SpanId(0), nsec().ok().unwrap_or(0), name, attrs);
+    let _ = metrics.span_start(
+        span_id,
+        trace_id,
+        SpanId(0),
+        nsec().ok().unwrap_or(0),
+        name,
+        attrs,
+    );
 }
 
 fn metrics_span_end_best_effort(span_id: SpanId, end_ns: u64, status: u8, attrs: &[u8]) {

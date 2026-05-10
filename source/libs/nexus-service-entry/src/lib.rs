@@ -10,7 +10,7 @@
 //! PUBLIC API: `declare_entry!` macro for OS builds
 //! DEPENDS_ON: nexus-abi, nexus-sync
 //! INVARIANTS: Provides deterministic panic/log handling and a tiny bump allocator
-//! ADR: docs/rfcs/RFC-0002-process-per-service-architecture.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 /// Declares the `_start` entry point for OS builds, delegating to `bootstrap`.
 ///

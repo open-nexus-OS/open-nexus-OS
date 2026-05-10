@@ -20,6 +20,7 @@
 //!   - out_of_range_rejected(): rejects non-canonical Sv39 VA ranges
 //!   - lookup_observes_mapping(): lookup observes installed mappings only
 //!   - root_ppn_reports_base_page(): root PPN is non-zero after init
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use super::{MapError, PageFlags, PAGE_SIZE};
 use crate::mm::page_table::PageTable;

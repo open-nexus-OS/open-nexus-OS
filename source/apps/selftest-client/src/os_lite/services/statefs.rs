@@ -40,7 +40,10 @@ pub(crate) fn statefs_send_recv(
     v2.extend_from_slice(&nonce.to_le_bytes());
     v2.extend_from_slice(&frame[4..]);
 
-    if let Err(err) = client.send(&v2, IpcWait::Timeout(core::time::Duration::from_millis(2000))) {
+    if let Err(err) = client.send(
+        &v2,
+        IpcWait::Timeout(core::time::Duration::from_millis(2000)),
+    ) {
         match err {
             nexus_ipc::IpcError::WouldBlock => {
                 emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK)

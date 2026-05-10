@@ -23,7 +23,10 @@ pub trait Timer {
 pub trait Uart {
     /// Writes a single byte to the UART.
     // Host builds don't exercise UART MMIO; keep the HAL contract without forcing usage.
-    #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
+    #[cfg_attr(
+        not(all(target_arch = "riscv64", target_os = "none")),
+        allow(dead_code)
+    )]
     #[allow(dead_code)]
     fn write_byte(&self, byte: u8);
 }

@@ -20,7 +20,9 @@ use nexus_abi::{nsec, yield_};
 use input_live_protocol::VisibleState;
 
 use crate::markers::{emit_bytes, emit_line, emit_u64};
-use crate::os_lite::{context::PhaseCtx, display_bootstrap};
+use crate::os_lite::{
+    context::PhaseCtx, display_bootstrap, display_observer::ProofVisibleInputWitness,
+};
 use crate::runtime_mode::RuntimeMode;
 
 const INTERACTIVE_VISIBLE_STATE_POLL_INTERVAL_NS: u64 = 16_000_000;
@@ -32,6 +34,7 @@ const V2A_CLICK_OFF_MARKER: &str = "windowd: v2a click off";
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut proof_completed = true;
+    let mut proof_witness = ProofVisibleInputWitness::new();
     let mut interactive_mode = None;
     let mut interactive_input_visible_emitted = false;
     let mut interactive_cursor_visible_emitted = false;
@@ -74,7 +77,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 RuntimeMode::Proof => {
                     emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
                     if let Some(proof) = evidence.proof {
-                        proof_completed = emit_proof_mode_markers(proof.visible_state);
+                        proof_witness.observe(proof.visible_state);
+                        proof_completed = emit_proof_mode_markers(proof_witness.observed_state());
                     }
                 }
                 RuntimeMode::InteractiveMinimal => {
@@ -139,13 +143,17 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             );
         if should_poll_visible_state
             && should_poll_interactive_visible_state(
-            idle_ticks,
-            &mut last_interactive_poll_tick,
-            &mut last_interactive_poll_ns,
-        ) {
+                idle_ticks,
+                &mut last_interactive_poll_tick,
+                &mut last_interactive_poll_ns,
+            )
+        {
             if let Some(state) = display_bootstrap::interactive_live_tick() {
-                if !proof_completed && proof_visible_input_ready(state) {
-                    proof_completed = emit_proof_mode_markers(state);
+                if !proof_completed {
+                    proof_witness.observe(state);
+                }
+                if !proof_completed && proof_witness.ready() {
+                    proof_completed = emit_proof_mode_markers(proof_witness.observed_state());
                     if proof_completed {
                         emit_line(crate::markers::M_SELFTEST_END);
                     }
@@ -254,21 +262,23 @@ fn emit_proof_mode_markers(visible_input: VisibleState) -> bool {
         && visible_input.keyboard_visible
     {
         emit_line(windowd::SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
+    }
+    if visible_input.wheel_up_visible || visible_input.wheel_down_visible {
+        emit_line(windowd::WHEEL_VISIBLE_MARKER);
+    }
+    if visible_input.input_visible_on
+        && visible_input.full_window_visible
+        && visible_input.cursor_move_visible
+        && visible_input.hover_visible
+        && visible_input.focus_visible
+        && visible_input.launcher_click_visible
+        && visible_input.keyboard_visible
+        && (visible_input.wheel_up_visible || visible_input.wheel_down_visible)
+    {
+        emit_line(windowd::SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER);
         return true;
     }
     false
-}
-
-const fn proof_visible_input_ready(state: VisibleState) -> bool {
-    state.input_visible_on
-        && state.full_window_visible
-        && state.cursor_move_visible
-        && state.hover_visible
-        && state.focus_visible
-        && state.launcher_click_visible
-        && state.keyboard_visible
-        && state.pointer_route_live
-        && state.keyboard_route_live
 }
 
 fn should_poll_interactive_visible_state(

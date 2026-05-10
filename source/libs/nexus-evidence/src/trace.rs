@@ -65,8 +65,11 @@ pub fn extract_trace(
 ) -> Result<Vec<TraceEntry>, EvidenceError> {
     // Build a literal -> phase index for O(1) lookup. Done once per
     // call; the manifest is small (<500 markers as of P5-00).
-    let index: BTreeMap<&str, &str> =
-        manifest.markers.iter().map(|m| (m.literal.as_str(), m.phase.as_str())).collect();
+    let index: BTreeMap<&str, &str> = manifest
+        .markers
+        .iter()
+        .map(|m| (m.literal.as_str(), m.phase.as_str()))
+        .collect();
 
     // Iterate marker literals in length-descending order so that a
     // line containing both a long literal (`samgrd: ready`) and a

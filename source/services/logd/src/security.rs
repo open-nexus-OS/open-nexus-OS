@@ -41,13 +41,17 @@ pub struct SenderRateLimiter {
 impl SenderRateLimiter {
     /// Create an empty bounded limiter.
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Returns `true` when the sender is over budget (request must be rejected).
     pub fn is_rate_limited(&mut self, sender_service_id: u64, now_nsec: u64) -> bool {
-        if let Some(pos) =
-            self.entries.iter().position(|entry| entry.sender_service_id == sender_service_id)
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|entry| entry.sender_service_id == sender_service_id)
         {
             let entry = &mut self.entries[pos];
             if now_nsec.saturating_sub(entry.window_start_ns) >= RATE_WINDOW_NS {

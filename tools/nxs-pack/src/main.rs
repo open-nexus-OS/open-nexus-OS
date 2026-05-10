@@ -74,9 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("no .nxb bundles found in input directory".into());
     }
     if bundles.len() > MAX_BUNDLES_PER_SET {
-        return Err(
-            format!("too many bundles: {} (max {})", bundles.len(), MAX_BUNDLES_PER_SET).into()
-        );
+        return Err(format!(
+            "too many bundles: {} (max {})",
+            bundles.len(),
+            MAX_BUNDLES_PER_SET
+        )
+        .into());
     }
     bundles.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -143,7 +146,8 @@ fn next_arg(
     args: &mut impl Iterator<Item = String>,
     flag: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    args.next().ok_or_else(|| usage(&format!("missing value for {flag}")))
+    args.next()
+        .ok_or_else(|| usage(&format!("missing value for {flag}")))
 }
 
 fn usage(message: &str) -> Box<dyn std::error::Error> {
@@ -161,7 +165,9 @@ fn print_usage() {
 fn parse_meta(path: &Path) -> Result<Meta, Box<dyn std::error::Error>> {
     let toml_str = fs::read_to_string(path)?;
     let root: Value = toml::from_str(&toml_str)?;
-    let table = root.as_table().ok_or("system-set.toml root must be a table")?;
+    let table = root
+        .as_table()
+        .ok_or("system-set.toml root must be a table")?;
 
     let system_version = req_str(table, "system_version")?.trim().to_string();
     if system_version.is_empty() {
@@ -169,7 +175,10 @@ fn parse_meta(path: &Path) -> Result<Meta, Box<dyn std::error::Error>> {
     }
     let timestamp_unix_ms = opt_u64(table, "timestamp_unix_ms")?.unwrap_or(0);
 
-    Ok(Meta { system_version, timestamp_unix_ms })
+    Ok(Meta {
+        system_version,
+        timestamp_unix_ms,
+    })
 }
 
 fn req_str<'a>(
@@ -202,7 +211,11 @@ fn load_signing_key(path: &Path) -> Result<SigningKey, Box<dyn std::error::Error
     let key_hex = fs::read_to_string(path)?;
     let key_bytes = hex::decode(key_hex.trim())?;
     if key_bytes.len() != 32 {
-        return Err(format!("ed25519 key must be 32 bytes (hex), got {}", key_bytes.len()).into());
+        return Err(format!(
+            "ed25519 key must be 32 bytes (hex), got {}",
+            key_bytes.len()
+        )
+        .into());
     }
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&key_bytes);
@@ -255,7 +268,9 @@ fn load_bundle(path: &Path, dir_name: &str) -> Result<BundleInput, Box<dyn std::
 
     let expected_dir = format!("{name}.nxb");
     if dir_name != expected_dir {
-        return Err(format!("bundle dir `{dir_name}` does not match manifest name `{name}`").into());
+        return Err(
+            format!("bundle dir `{dir_name}` does not match manifest name `{name}`").into(),
+        );
     }
 
     let manifest_sha256 = sha256(&manifest_bytes);
@@ -296,17 +311,23 @@ fn parse_manifest(bytes: &[u8]) -> Result<(String, String), Box<dyn std::error::
         .get_root::<bundle_manifest::Reader<'_>>()
         .map_err(|err| format!("manifest decode error: {err}"))?;
 
-    let name_raw = m.get_name().map_err(|err| format!("manifest decode error: {err}"))?;
-    let name_raw =
-        name_raw.to_str().map_err(|err| format!("manifest name invalid utf-8: {err}"))?;
+    let name_raw = m
+        .get_name()
+        .map_err(|err| format!("manifest decode error: {err}"))?;
+    let name_raw = name_raw
+        .to_str()
+        .map_err(|err| format!("manifest name invalid utf-8: {err}"))?;
     let name = name_raw.trim().to_string();
     if name.is_empty() {
         return Err("manifest name must not be empty".into());
     }
 
-    let semver_raw = m.get_semver().map_err(|err| format!("manifest decode error: {err}"))?;
-    let semver_raw =
-        semver_raw.to_str().map_err(|err| format!("manifest semver invalid utf-8: {err}"))?;
+    let semver_raw = m
+        .get_semver()
+        .map_err(|err| format!("manifest decode error: {err}"))?;
+    let semver_raw = semver_raw
+        .to_str()
+        .map_err(|err| format!("manifest semver invalid utf-8: {err}"))?;
     let version = semver_raw.trim().to_string();
     if version.is_empty() {
         return Err("manifest semver must not be empty".into());

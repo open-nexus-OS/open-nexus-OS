@@ -6,6 +6,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `cargo test -p hidrawd -- --nocapture`
+//! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 extern crate alloc;
 
@@ -13,13 +14,13 @@ use alloc::{format, vec::Vec};
 use core::time::Duration;
 
 use hid::TimestampNs;
-use input_live_protocol::{
-    encode_push_hid_batch, HID_KIND_KEYBOARD, HID_KIND_MOUSE, WireHidBatch,
-};
+use input_live_protocol::{encode_push_hid_batch, WireHidBatch, HID_KIND_KEYBOARD, HID_KIND_MOUSE};
 use nexus_abi::{cap_clone, cap_close, debug_println, nsec, yield_};
 use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, Wait};
-use virtio_input::{DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent};
+use virtio_input::{
+    DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent,
+};
 
 use crate::{
     normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidrawdService,
@@ -176,8 +177,16 @@ impl HidrawChainTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return;
         }
-        let ingress_hz = self.raw_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let sent_hz = self.sent_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let ingress_hz = self
+            .raw_batches
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
+        let sent_hz = self
+            .sent_batches
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
         // #region agent log
         let _ = debug_println(&format!(
             "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
@@ -282,9 +291,10 @@ fn route_inputd_blocking() -> Option<KernelClient> {
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => {
-            KernelClient::new_with_slots(send_slot, recv_slot).ok()
-        }
+        RouteRetryOutcome::Success {
+            send_slot,
+            recv_slot,
+        } => KernelClient::new_with_slots(send_slot, recv_slot).ok(),
         _ => None,
     }
 }
@@ -310,12 +320,14 @@ impl LiveDevice {
             return None;
         };
         let timestamp = TimestampNs::new(nsec().unwrap_or(0));
-        let raw_events: Vec<RawIngressEvent> = polled.events().iter().copied().map(raw_ingress_event).collect();
-        let active_class = infer_device_class(
-            self.provisional_class,
-            self.confirmed_class,
-            &raw_events,
-        );
+        let raw_events: Vec<RawIngressEvent> = polled
+            .events()
+            .iter()
+            .copied()
+            .map(raw_ingress_event)
+            .collect();
+        let active_class =
+            infer_device_class(self.provisional_class, self.confirmed_class, &raw_events);
         let active_pointer_source = pointer_source_for_class(active_class);
         let active_role = ingress_role_for_source(active_pointer_source);
         if self.confirmed_class != Some(active_class) {
@@ -346,23 +358,12 @@ impl LiveDevice {
             }
             self.confirmed_class = Some(active_class);
         }
-        let raw_batch = RawIngressBatch::with_pointer_source(
-            active_role,
-            active_pointer_source,
-            raw_events,
-        );
-        self.abs_max_x = resolve_absolute_axis_max(
-            active_pointer_source,
-            self.abs_max_x,
-            raw_batch.events(),
-            0,
-        );
-        self.abs_max_y = resolve_absolute_axis_max(
-            active_pointer_source,
-            self.abs_max_y,
-            raw_batch.events(),
-            1,
-        );
+        let raw_batch =
+            RawIngressBatch::with_pointer_source(active_role, active_pointer_source, raw_events);
+        self.abs_max_x =
+            resolve_absolute_axis_max(active_pointer_source, self.abs_max_x, raw_batch.events(), 0);
+        self.abs_max_y =
+            resolve_absolute_axis_max(active_pointer_source, self.abs_max_y, raw_batch.events(), 1);
         let Ok(normalized) = normalize_ingress_batch(
             service,
             self.device_id,
@@ -380,7 +381,9 @@ impl LiveDevice {
         Some(PolledDeviceFrame {
             evidence: IngressGateEvidence::new(
                 raw_batch.events().len().min(u16::MAX as usize) as u16,
-                wire_batch.as_ref().map_or(0, |batch| batch.normalized_event_count),
+                wire_batch
+                    .as_ref()
+                    .map_or(0, |batch| batch.normalized_event_count),
             ),
             pointer_source: active_pointer_source,
             wire_batch,
@@ -402,7 +405,10 @@ fn infer_device_class(
     if let Some(class) = confirmed_class {
         return class;
     }
-    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Absolute) {
+    if raw_events
+        .iter()
+        .any(|event| event.kind() == RawIngressEventKind::Absolute)
+    {
         return match provisional_class {
             LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
                 LiveDeviceClass::Pointer(PointerSource::TouchAbsolute)
@@ -410,7 +416,10 @@ fn infer_device_class(
             _ => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
         };
     }
-    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Relative) {
+    if raw_events
+        .iter()
+        .any(|event| event.kind() == RawIngressEventKind::Relative)
+    {
         return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
     }
     if raw_events

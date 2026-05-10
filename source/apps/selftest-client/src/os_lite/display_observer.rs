@@ -10,6 +10,54 @@
 
 use input_live_protocol::VisibleState;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct ProofVisibleInputWitness {
+    observed_state: VisibleState,
+}
+
+impl ProofVisibleInputWitness {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            observed_state: VisibleState::default(),
+        }
+    }
+
+    pub fn observe(&mut self, state: VisibleState) {
+        self.observed_state.backend_visible |= state.backend_visible;
+        self.observed_state.display_scanout_ready |= state.display_scanout_ready;
+        self.observed_state.systemui_first_frame_visible |= state.systemui_first_frame_visible;
+        self.observed_state.virtio_raw_seen |= state.virtio_raw_seen;
+        self.observed_state.hid_normalized_seen |= state.hid_normalized_seen;
+        self.observed_state.scene_ready |= state.scene_ready;
+        self.observed_state.full_window_visible |= state.full_window_visible;
+        self.observed_state.click_target_visible |= state.click_target_visible;
+        self.observed_state.keyboard_target_visible |= state.keyboard_target_visible;
+        self.observed_state.input_visible_on |= state.input_visible_on;
+        self.observed_state.cursor_move_visible |= state.cursor_move_visible;
+        self.observed_state.hover_visible |= state.hover_visible;
+        self.observed_state.focus_visible |= state.focus_visible;
+        self.observed_state.launcher_click_visible |= state.launcher_click_visible;
+        self.observed_state.keyboard_visible |= state.keyboard_visible;
+        self.observed_state.wheel_up_visible |= state.wheel_up_visible;
+        self.observed_state.wheel_down_visible |= state.wheel_down_visible;
+        self.observed_state.pointer_route_live |= state.pointer_route_live;
+        self.observed_state.keyboard_route_live |= state.keyboard_route_live;
+        self.observed_state.cursor_x = state.cursor_x;
+        self.observed_state.cursor_y = state.cursor_y;
+    }
+
+    #[must_use]
+    pub const fn observed_state(self) -> VisibleState {
+        self.observed_state
+    }
+
+    #[must_use]
+    pub fn ready(self) -> bool {
+        proof_visible_input_ready(self.observed_state)
+    }
+}
+
 pub(crate) fn display_bootstrap_ready(state: VisibleState) -> bool {
     state.backend_visible && state.display_scanout_ready && state.systemui_first_frame_visible
 }
@@ -28,8 +76,13 @@ pub(crate) fn proof_visible_input_ready(state: VisibleState) -> bool {
         && state.focus_visible
         && state.launcher_click_visible
         && state.keyboard_visible
+        && proof_visible_wheel_ready(state)
         && state.pointer_route_live
         && state.keyboard_route_live
+}
+
+pub(crate) fn proof_visible_wheel_ready(state: VisibleState) -> bool {
+    state.wheel_up_visible || state.wheel_down_visible
 }
 
 pub(crate) fn interactive_scene_ready(state: VisibleState) -> bool {
@@ -93,6 +146,9 @@ pub(crate) fn emit_missing_visible_input_bits(state: VisibleState) {
     }
     if !state.keyboard_visible {
         emit_debug("bootstrap: missing keyboard-visible");
+    }
+    if !proof_visible_wheel_ready(state) {
+        emit_debug("bootstrap: missing wheel-visible");
     }
     if !state.pointer_route_live {
         emit_debug("bootstrap: missing pointer-route-live");

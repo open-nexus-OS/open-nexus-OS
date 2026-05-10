@@ -6,6 +6,7 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `cargo test -p inputd -- --nocapture`
+//! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 extern crate alloc;
 

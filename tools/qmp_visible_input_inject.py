@@ -13,9 +13,13 @@ import sys
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DEBUG_LOG_PATH = Path("/home/jenning/open-nexus-OS/.cursor/debug-8cde1d.log")
 DEBUG_SESSION_ID = "8cde1d"
 DEBUG_RUN_ID = "visible-bootstrap-qmp"
+DEFAULT_UART_LOG_PATH = REPO_ROOT / "uart.log"
+DEFAULT_WAIT_MARKER = "SELFTEST: ui visible present ok"
+DEFAULT_WAIT_TIMEOUT_S = 60.0
 QEMU_ABS_MAX = 32767
 VISIBLE_ROUTE_WIDTH = 64
 VISIBLE_ROUTE_HEIGHT = 48
@@ -26,6 +30,11 @@ HOVER_TARGET_ROUTE_Y = 40
 CURSOR_START_ROUTE_X = 24
 CURSOR_START_ROUTE_Y = 12
 REL_STEP_LIMIT = 256
+POST_PRESENT_SETTLE_S = 0.10
+POINTER_DOWN_HOLD_S = 0.25
+KEY_DOWN_HOLD_S = 0.25
+POINTER_RELEASE_SETTLE_S = 0.05
+WHEEL_PULSE_SETTLE_S = 0.20
 
 
 def recv_json(sock: socket.socket) -> dict:
@@ -127,6 +136,18 @@ def wait_for_socket(path: Path, timeout_s: float = 15.0) -> None:
     raise RuntimeError(f"timed out waiting for qmp socket: {path}")
 
 
+def wait_for_uart_marker(path: Path, marker: str, timeout_s: float) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            if path.exists() and marker in path.read_text(encoding="utf-8", errors="ignore"):
+                return
+        except OSError:
+            pass
+        time.sleep(0.05)
+    raise RuntimeError(f"timed out waiting for uart marker {marker!r} in {path}")
+
+
 def route_cell_midpoint(route_coord: int, route_extent: int, display_extent: int) -> int:
     start = (route_coord * display_extent) // route_extent
     end = ((route_coord + 1) * display_extent + route_extent - 1) // route_extent
@@ -177,6 +198,11 @@ def main() -> int:
     mouse_enabled = env_flag("NEXUS_PROFILE_INPUT_MOUSE")
     keyboard_enabled = env_flag("NEXUS_PROFILE_INPUT_KBD")
     session_mode = os.environ.get("QEMU_SESSION_MODE", "proof")
+    uart_log_path = Path(os.environ.get("QEMU_UART_LOG_PATH", str(DEFAULT_UART_LOG_PATH)))
+    wait_marker = os.environ.get("QEMU_INPUT_INJECT_WAIT_MARKER", DEFAULT_WAIT_MARKER)
+    wait_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_WAIT_TIMEOUT_S", str(DEFAULT_WAIT_TIMEOUT_S))
+    )
     proof_prefers_single_pointer_source = (
         session_mode == "proof" and touch_enabled and mouse_enabled
     )
@@ -196,16 +222,28 @@ def main() -> int:
             "H4",
             "tools/qmp_visible_input_inject.py:108",
             "qmp capabilities ready",
-            {"socket": str(socket_path), "profile": "visible-bootstrap"},
+            {
+                "socket": str(socket_path),
+                "profile": "visible-bootstrap",
+                "uart_log_path": str(uart_log_path),
+                "wait_marker": wait_marker,
+                "wait_timeout_s": wait_timeout_s,
+            },
         )
         # endregion agent log
 
-        # Give the guest time to finish scene setup and route service startup.
-        time.sleep(8.0)
+        wait_for_uart_marker(uart_log_path, wait_marker, wait_timeout_s)
+        append_debug_log(
+            "H4",
+            "tools/qmp_visible_input_inject.py:122",
+            "guest visible-present marker reached",
+            {"uart_log_path": str(uart_log_path), "wait_marker": wait_marker},
+        )
+        time.sleep(POST_PRESENT_SETTLE_S)
 
         # Drive the proof through the canonical display-space pipeline: compute
-        # the physical midpoint of the hover target cell and inject an absolute
-        # tablet move into that pixel, instead of relying on relative deltas.
+        # the physical midpoint of the hover target cell and inject whichever
+        # pointer mode the proof lane exposed for this run.
         target_display_x = route_cell_midpoint(
             HOVER_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
         )
@@ -286,7 +324,7 @@ def main() -> int:
             },
         )
         # endregion agent log
-        time.sleep(0.10)
+        time.sleep(POST_PRESENT_SETTLE_S)
         if effective_mouse_enabled or effective_touch_enabled:
             send_input_events(
                 sock,
@@ -294,14 +332,7 @@ def main() -> int:
                 console=None,
                 device="video0",
             )
-            time.sleep(0.05)
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": False, "button": "left"}}],
-                console=None,
-                device="video0",
-            )
-            time.sleep(0.25)
+            time.sleep(POINTER_DOWN_HOLD_S)
         if keyboard_enabled:
             send_input_events(
                 sock,
@@ -312,7 +343,7 @@ def main() -> int:
                     },
                 ],
             )
-            time.sleep(0.05)
+            time.sleep(KEY_DOWN_HOLD_S)
             send_input_events(
                 sock,
                 [
@@ -322,6 +353,34 @@ def main() -> int:
                     },
                 ],
             )
+        if effective_mouse_enabled or effective_touch_enabled:
+            time.sleep(POINTER_RELEASE_SETTLE_S)
+            send_input_events(
+                sock,
+                [{"type": "btn", "data": {"down": False, "button": "left"}}],
+                console=None,
+                device="video0",
+            )
+        if effective_mouse_enabled:
+            send_input_events(
+                sock,
+                [{"type": "btn", "data": {"down": True, "button": "wheel-up"}}],
+                console=None,
+                device="video0",
+            )
+            send_input_events(
+                sock,
+                [{"type": "btn", "data": {"down": False, "button": "wheel-up"}}],
+                console=None,
+                device="video0",
+            )
+            append_debug_log(
+                "H4",
+                "tools/qmp_visible_input_inject.py:176",
+                "wheel injection sent",
+                {"enabled": True, "button": "wheel-up", "sequence": ["down", "up"]},
+            )
+            time.sleep(WHEEL_PULSE_SETTLE_S)
         # region agent log
         append_debug_log(
             "H4",

@@ -68,7 +68,9 @@ pub struct GatherOpts {
 ///   (a bundle without a profile cannot be replayed).
 pub fn gather_config(opts: GatherOpts) -> Result<ConfigArtifact, EvidenceError> {
     if opts.profile.is_empty() {
-        return Err(EvidenceError::MalformedConfig { detail: "empty_profile".into() });
+        return Err(EvidenceError::MalformedConfig {
+            detail: "empty_profile".into(),
+        });
     }
     Ok(ConfigArtifact {
         profile: opts.profile,

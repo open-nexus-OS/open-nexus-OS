@@ -274,8 +274,18 @@ impl<const N: usize> Device for SmolVirtio<N> {
         let q = unsafe { &mut *self.q };
         if let Some((id, len)) = q.rx_poll() {
             Some((
-                SmolRxToken { dev: self.dev, q: self.q, id, len, _lt: core::marker::PhantomData },
-                SmolTxToken { dev: self.dev, q: self.q, _lt: core::marker::PhantomData },
+                SmolRxToken {
+                    dev: self.dev,
+                    q: self.q,
+                    id,
+                    len,
+                    _lt: core::marker::PhantomData,
+                },
+                SmolTxToken {
+                    dev: self.dev,
+                    q: self.q,
+                    _lt: core::marker::PhantomData,
+                },
             ))
         } else {
             None
@@ -283,7 +293,11 @@ impl<const N: usize> Device for SmolVirtio<N> {
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        Some(SmolTxToken { dev: self.dev, q: self.q, _lt: core::marker::PhantomData })
+        Some(SmolTxToken {
+            dev: self.dev,
+            q: self.q,
+            _lt: core::marker::PhantomData,
+        })
     }
 }
 
@@ -360,7 +374,12 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     }
-    let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut q_info = nexus_abi::CapQuery {
+        kind_tag: 0,
+        reserved: 0,
+        base: 0,
+        len: 0,
+    };
     if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
         return Err(());
@@ -429,7 +448,12 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     }
-    let mut bq = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut bq = nexus_abi::CapQuery {
+        kind_tag: 0,
+        reserved: 0,
+        base: 0,
+        len: 0,
+    };
     if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
         return Err(());
@@ -470,13 +494,25 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let hw = HardwareAddress::Ethernet(EthernetAddress(mac));
     let mut cfg = smoltcp::iface::Config::new(hw);
     cfg.random_seed = 0x1234_5678;
-    let mut phy = SmolVirtio::<N> { dev: &dev as *const _, q: &mut q as *mut _ };
+    let mut phy = SmolVirtio::<N> {
+        dev: &dev as *const _,
+        q: &mut q as *mut _,
+    };
     let mut iface = smoltcp::iface::Interface::new(cfg, &mut phy, Instant::from_millis(0));
     iface.update_ip_addrs(|addrs| {
-        addrs.push(IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)), 24)).ok();
+        addrs
+            .push(IpCidr::new(
+                IpAddress::Ipv4(Ipv4Address::new(10, 0, 2, 15)),
+                24,
+            ))
+            .ok();
     });
     // Route to the QEMU usernet gateway.
-    if iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2)).is_err() {
+    if iface
+        .routes_mut()
+        .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
+        .is_err()
+    {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_ROUTE_FAIL);
         return Err(());
     }
@@ -487,7 +523,10 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     let rx_buf = smoltcp::socket::icmp::PacketBuffer::new(rx_meta, vec![0u8; 256]);
     let tx_buf = smoltcp::socket::icmp::PacketBuffer::new(tx_meta, vec![0u8; 256]);
     let mut icmp = smoltcp::socket::icmp::Socket::new(rx_buf, tx_buf);
-    if icmp.bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234)).is_err() {
+    if icmp
+        .bind(smoltcp::socket::icmp::Endpoint::Ident(0x1234))
+        .is_err()
+    {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BIND_FAIL);
         return Err(());
     }

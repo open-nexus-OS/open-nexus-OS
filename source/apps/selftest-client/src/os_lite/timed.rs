@@ -47,7 +47,13 @@ fn timed_register(
     req[8] = qos_raw;
     req[9] = 0;
     req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
+    if client
+        .send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(200)),
+        )
+        .is_err()
+    {
         return Err(());
     }
     let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
@@ -77,7 +83,13 @@ fn timed_cancel(client: &KernelClient, nonce: u32, timer_id: u32) -> core::resul
     req[3] = 2; // OP_CANCEL
     req[4..8].copy_from_slice(&nonce.to_le_bytes());
     req[8..12].copy_from_slice(&timer_id.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(200))).is_err() {
+    if client
+        .send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(200)),
+        )
+        .is_err()
+    {
         return Err(());
     }
     let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(200))) {
@@ -109,7 +121,13 @@ fn timed_sleep_until(
     req[8] = qos_raw;
     req[9] = 0;
     req[10..18].copy_from_slice(&deadline_ns.to_le_bytes());
-    if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(250))).is_err() {
+    if client
+        .send(
+            &req,
+            IpcWait::Timeout(core::time::Duration::from_millis(250)),
+        )
+        .is_err()
+    {
         return Err(());
     }
     let rsp = match client.recv(IpcWait::Timeout(core::time::Duration::from_millis(250))) {
@@ -124,8 +142,9 @@ fn timed_sleep_until(
         return Err(());
     }
     let status = rsp[4];
-    let wake_ns =
-        u64::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12], rsp[13], rsp[14], rsp[15], rsp[16]]);
+    let wake_ns = u64::from_le_bytes([
+        rsp[9], rsp[10], rsp[11], rsp[12], rsp[13], rsp[14], rsp[15], rsp[16],
+    ]);
     Ok((status, wake_ns))
 }
 
@@ -175,11 +194,15 @@ pub(crate) fn timed_coalesce_probe() -> core::result::Result<(), ()> {
     }
 
     let sleep_deadline = now.saturating_add(2_100_000);
-    let (sleep_st, woke_ns) =
-        match timed_sleep_until(&timed, 0x5449_0003, QosClass::Interactive as u8, sleep_deadline) {
-            Ok(v) => v,
-            Err(_) => return timed_fail(0x31),
-        };
+    let (sleep_st, woke_ns) = match timed_sleep_until(
+        &timed,
+        0x5449_0003,
+        QosClass::Interactive as u8,
+        sleep_deadline,
+    ) {
+        Ok(v) => v,
+        Err(_) => return timed_fail(0x31),
+    };
     let sleep_expect = match timed_align_up(sleep_deadline, 1_000_000) {
         Some(v) => v,
         None => return timed_fail(0x32),
@@ -218,11 +241,15 @@ pub(crate) fn timed_coalesce_probe() -> core::result::Result<(), ()> {
         }
         ids.push(id);
     }
-    let (st_over, _id_over, _coal_over) =
-        match timed_register(&timed, 0x5449_10FF, QosClass::Idle as u8, base.saturating_add(65)) {
-            Ok(v) => v,
-            Err(_) => return timed_fail(0xA1),
-        };
+    let (st_over, _id_over, _coal_over) = match timed_register(
+        &timed,
+        0x5449_10FF,
+        QosClass::Idle as u8,
+        base.saturating_add(65),
+    ) {
+        Ok(v) => v,
+        Err(_) => return timed_fail(0xA1),
+    };
     if st_over != STATUS_OVER_LIMIT {
         return timed_fail(0xA2);
     }

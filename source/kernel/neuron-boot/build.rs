@@ -1,3 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+//! CONTEXT: Build script for `neuron-boot` linker arguments and boot-map emission.
+//! OWNERS: @kernel-team
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered indirectly by `cargo build -p neuron-boot` and QEMU boot proofs.
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+
 use std::env;
 use std::path::PathBuf;
 

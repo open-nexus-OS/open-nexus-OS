@@ -342,14 +342,14 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0253_context
-- Status: `TASK-0253` is `In Progress`; `RFC-0053` is `In Progress` as the active OS/QEMU live-input contract seed.
+- Status: `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done` after the live-input closure pass.
 - Scope: live OS/QEMU ingestion via `hidrawd` + `touchd` into `inputd`, with bounded routing to existing UI authorities.
 - Proof posture: deterministic marker order plus behavior assertions and `test_reject_*`; no marker-only closure.
 - Authority split: RFC-0052 crates remain the only parser/keymap/repeat/accel authority; `windowd` remains hit-test/focus authority.
 - Perf boundary: measurable/bounded behavior in 0253; latency-budget closure remains `TASK-0056C`.
 - Current landed slice: host-verified `hidrawd` / `touchd` / `inputd`, bounded IME/SystemUI hook stubs, `settingsd` input snapshot translation, and `nx input` / `nx postflight input`.
 - Current narrow proof state: RFC-0052 carry-ins now compile for the OS target at library level, the `selftest-client` OS-lite visible bootstrap build links the real live-input path, and `just test-os visible-bootstrap` is green with `verify-uart` acceptance.
-- Deferred broad gates: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean/build/test/run` still await explicit rerun.
+- User-deferred gates: `scripts/fmt-clippy-deny.sh` and `just test-all` remain explicitly excluded; `just ci-network` plus `make clean/build/test/run` were rerun green in the closure pass.
 - `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
 - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
 - `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md`

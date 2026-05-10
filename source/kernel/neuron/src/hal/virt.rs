@@ -32,7 +32,12 @@ pub struct VirtMachine {
 impl VirtMachine {
     /// Constructs the HAL facade.
     pub const fn new() -> Self {
-        Self { timer: VirtTimer, uart: VirtUart, tlb: VirtTlb, irq: VirtIrq }
+        Self {
+            timer: VirtTimer,
+            uart: VirtUart,
+            tlb: VirtTlb,
+            irq: VirtIrq,
+        }
     }
 
     /// Returns a reference to the timer implementation.

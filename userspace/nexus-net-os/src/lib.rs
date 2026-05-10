@@ -1,5 +1,10 @@
 #![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),
+    all(
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none",
+        feature = "os-lite"
+    ),
     no_std
 )]
 
@@ -24,10 +29,20 @@
 #[cfg(test)]
 mod host_tests;
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 extern crate alloc;
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 mod smoltcp_virtio;
 
 #[cfg(all(

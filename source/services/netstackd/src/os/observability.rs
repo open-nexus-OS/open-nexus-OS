@@ -46,7 +46,12 @@ pub(crate) fn write_ip(ip: &[u8; 4], out: &mut [u8]) -> usize {
     pos
 }
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 pub(crate) fn emit_dhcp_bound_marker(config: &DhcpConfig) {
     let mut buf = [0u8; 64];
     let mut pos = 0;
@@ -72,7 +77,12 @@ pub(crate) fn emit_dhcp_bound_marker(config: &DhcpConfig) {
     }
 }
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 pub(crate) fn emit_smoltcp_iface_marker(config: &DhcpConfig) {
     let mut buf = [0u8; 48];
     let mut pos = 0;
@@ -85,7 +95,12 @@ pub(crate) fn emit_smoltcp_iface_marker(config: &DhcpConfig) {
     }
 }
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+#[cfg(all(
+    nexus_env = "os",
+    target_arch = "riscv64",
+    target_os = "none",
+    feature = "os-lite"
+))]
 pub(crate) fn emit_fallback_static_marker(ip: [u8; 4], prefix_len: u8) {
     let mut buf = [0u8; 64];
     let mut pos = 0usize;

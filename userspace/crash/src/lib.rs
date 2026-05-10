@@ -284,7 +284,9 @@ pub fn write_dump_to_statefs(path: &str, bytes: &[u8]) -> Result<(), CrashError>
     validate_dump_path(path)?;
     let client =
         statefs::client::StatefsClient::new().map_err(|_| CrashError::StatefsWriteFailed)?;
-    client.put(path, bytes).map_err(|_| CrashError::StatefsWriteFailed)?;
+    client
+        .put(path, bytes)
+        .map_err(|_| CrashError::StatefsWriteFailed)?;
     client.sync().map_err(|_| CrashError::StatefsWriteFailed)?;
     Ok(())
 }
@@ -398,17 +400,26 @@ mod tests {
             validate_dump_path("/state/crash/../../etc/passwd"),
             Err(CrashError::InvalidPathEscape)
         );
-        assert_eq!(validate_dump_path("/tmp/crash/x.nmd"), Err(CrashError::PathOutOfScope));
+        assert_eq!(
+            validate_dump_path("/tmp/crash/x.nmd"),
+            Err(CrashError::PathOutOfScope)
+        );
     }
 
     #[test]
     fn test_reject_malformed_minidump_header() {
         let bad = vec![0u8; HEADER_LEN];
-        assert_eq!(MinidumpFrame::decode(&bad), Err(CrashError::MalformedHeader));
+        assert_eq!(
+            MinidumpFrame::decode(&bad),
+            Err(CrashError::MalformedHeader)
+        );
 
         let mut short = sample_frame().encode().expect("encode");
         short[0] = b'X';
-        assert_eq!(MinidumpFrame::decode(&short), Err(CrashError::MalformedHeader));
+        assert_eq!(
+            MinidumpFrame::decode(&short),
+            Err(CrashError::MalformedHeader)
+        );
     }
 
     #[test]

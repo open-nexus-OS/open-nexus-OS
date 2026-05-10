@@ -46,7 +46,9 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
         let reply = cached_reply_client().map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
+        client
+            .send_with_cap_move(req, reply_send_clone)
+            .map_err(|_| ())?;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
         for _ in 0..5_000 {
@@ -269,7 +271,9 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
 
     // Step 3: Write msg3 and get transport keys (encrypted initiator static + tag, 64 bytes)
     let mut msg3 = [0u8; MSG3_LEN];
-    let transport_keys = initiator.read_msg2_write_msg3(&msg2, &mut msg3).map_err(|_| ())?;
+    let transport_keys = initiator
+        .read_msg2_write_msg3(&msg2, &mut msg3)
+        .map_err(|_| ())?;
     let msg3_len = encode_quic_frame(QUIC_OP_MSG3, SESSION_NONCE, &msg3, &mut frame).ok_or(())?;
     udp_send_frame(&net, udp_id, server_ip, port, &frame[..msg3_len])?;
 

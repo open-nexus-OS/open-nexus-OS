@@ -91,7 +91,11 @@ impl KernelState {
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity"))]
+        #[cfg(all(
+            target_arch = "riscv64",
+            target_os = "none",
+            feature = "bringup_identity"
+        ))]
         if let Err(err) = address_spaces.activate_via_trampoline(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -135,21 +139,30 @@ impl KernelState {
             let _ = caps.set(
                 1,
                 Capability {
-                    kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
+                    kind: CapabilityKind::Vmo {
+                        base: 0x8000_0000,
+                        len: 0x10_0000,
+                    },
                     rights: Rights::MAP,
                 },
             );
             // Slot 2: endpoint-factory authority (init-lite receives a derived copy).
             let _ = caps.set(
                 2,
-                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
+                Capability {
+                    kind: CapabilityKind::EndpointFactory,
+                    rights: Rights::MANAGE,
+                },
             );
         }
         // Bind kernel AS handle to bootstrap task
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
         let mut scheduler = Scheduler::new();
-        if matches!(scheduler.enqueue(Pid::KERNEL, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
+        if matches!(
+            scheduler.enqueue(Pid::KERNEL, QosClass::Normal),
+            EnqueueOutcome::Rejected(_)
+        ) {
             panic!("scheduler bootstrap enqueue rejected");
         }
 
@@ -162,7 +175,15 @@ impl KernelState {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
+        Self {
+            hal,
+            scheduler,
+            tasks,
+            ipc: router,
+            address_spaces,
+            kernel_as,
+            syscalls,
+        }
     }
 
     #[allow(dead_code)]
@@ -178,7 +199,11 @@ impl KernelState {
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
-        if self.ipc.send(0, ipc::Message::new(header, Vec::new(), None)).is_ok() {
+        if self
+            .ipc
+            .send(0, ipc::Message::new(header, Vec::new(), None))
+            .is_ok()
+        {
             let _ = self.ipc.recv(0);
         }
     }
@@ -287,9 +312,10 @@ impl KernelState {
                         continue;
                     }
                     match t.block_reason() {
-                        Some(crate::task::BlockReason::IpcRecv { endpoint, deadline_ns })
-                            if deadline_ns != 0 && now >= deadline_ns =>
-                        {
+                        Some(crate::task::BlockReason::IpcRecv {
+                            endpoint,
+                            deadline_ns,
+                        }) if deadline_ns != 0 && now >= deadline_ns => {
                             let _ = self.ipc.remove_recv_waiter(endpoint, pid.as_raw());
                             match self.tasks.wake(pid, &mut self.scheduler) {
                                 crate::task::WakeOutcome::Woken
@@ -299,9 +325,10 @@ impl KernelState {
                                 | crate::task::WakeOutcome::EnqueueRejected => {}
                             }
                         }
-                        Some(crate::task::BlockReason::IpcSend { endpoint, deadline_ns })
-                            if deadline_ns != 0 && now >= deadline_ns =>
-                        {
+                        Some(crate::task::BlockReason::IpcSend {
+                            endpoint,
+                            deadline_ns,
+                        }) if deadline_ns != 0 && now >= deadline_ns => {
                             let _ = self.ipc.remove_send_waiter(endpoint, pid.as_raw());
                             match self.tasks.wake(pid, &mut self.scheduler) {
                                 crate::task::WakeOutcome::Woken
@@ -506,7 +533,10 @@ pub fn kmain() -> ! {
         timer,
         &kernel.syscalls,
     );
-    kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
+    kernel
+        .tasks
+        .bootstrap_mut()
+        .set_trap_domain(_default_trap_domain);
 
     let expected_online_mask = crate::smp::start_secondary_harts();
     if !crate::smp::wait_for_online_mask(expected_online_mask, 2_000_000) {
@@ -589,7 +619,11 @@ pub fn kmain() -> ! {
             }
         }
         // Prefer private selftest stack on OS if enabled; applies to full suite and spawn-only
-        #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "selftest_priv_stack",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         selftest::entry_on_private_stack(&mut ctx);
         #[cfg(not(all(
             feature = "selftest_priv_stack",

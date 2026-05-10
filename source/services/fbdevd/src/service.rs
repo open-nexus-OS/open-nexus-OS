@@ -14,12 +14,15 @@ use input_live_protocol::VisibleState;
 use windowd::{DisplayPresentHandoff, WindowdDisplayTelemetry};
 
 use crate::error::Result;
-use crate::protocol::{display_ready_for_observer, merge_visible_state};
+use crate::protocol::{
+    display_ready_for_observer, merge_observer_visible_state, merge_visible_state,
+};
 use crate::scanout::DisplayScanout;
 
 #[derive(Debug, Clone)]
 pub struct FbdevService {
-    state: VisibleState,
+    render_state: VisibleState,
+    observer_state: VisibleState,
     generation: u64,
     display_enabled: bool,
     scanout: DisplayScanout,
@@ -29,7 +32,8 @@ pub struct FbdevService {
 impl FbdevService {
     pub fn disabled() -> Self {
         Self {
-            state: VisibleState::default(),
+            render_state: VisibleState::default(),
+            observer_state: VisibleState::default(),
             generation: 0,
             display_enabled: false,
             scanout: DisplayScanout::new(),
@@ -40,13 +44,15 @@ impl FbdevService {
     pub fn enabled(bootstrap: &DisplayPresentHandoff) -> Result<Self> {
         let mut scanout = DisplayScanout::new();
         scanout.configure();
+        let initial_state = VisibleState {
+            backend_visible: bootstrap.backend_visible,
+            display_scanout_ready: bootstrap.scanout_ready,
+            systemui_first_frame_visible: bootstrap.systemui_first_frame_visible,
+            ..VisibleState::default()
+        };
         let mut service = Self {
-            state: VisibleState {
-                backend_visible: bootstrap.backend_visible,
-                display_scanout_ready: bootstrap.scanout_ready,
-                systemui_first_frame_visible: bootstrap.systemui_first_frame_visible,
-                ..VisibleState::default()
-            },
+            render_state: initial_state,
+            observer_state: initial_state,
             generation: 0,
             display_enabled: true,
             scanout,
@@ -61,20 +67,31 @@ impl FbdevService {
     }
 
     pub const fn visible_state(&self) -> VisibleState {
-        self.state
+        self.observer_state
+    }
+
+    pub const fn render_state(&self) -> VisibleState {
+        self.render_state
     }
 
     pub fn observer_ready(&self) -> bool {
-        display_ready_for_observer(self.state)
+        display_ready_for_observer(self.observer_state)
     }
 
     pub fn merge_input_state(&mut self, upstream: VisibleState) {
-        self.state = merge_visible_state(
-            self.state,
+        self.render_state = merge_visible_state(
+            self.render_state,
             upstream,
-            self.state.backend_visible,
-            self.state.display_scanout_ready,
-            self.state.systemui_first_frame_visible,
+            self.render_state.backend_visible,
+            self.render_state.display_scanout_ready,
+            self.render_state.systemui_first_frame_visible,
+        );
+        self.observer_state = merge_observer_visible_state(
+            self.observer_state,
+            upstream,
+            self.observer_state.backend_visible,
+            self.observer_state.display_scanout_ready,
+            self.observer_state.systemui_first_frame_visible,
         );
     }
 

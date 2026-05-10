@@ -48,6 +48,7 @@ QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 QEMU_LOG=${QEMU_LOG:-qemu.log}
 UART_LOG=${UART_LOG:-uart.log}
+INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
 NEURON_BOOT_FEATURES=${NEURON_BOOT_FEATURES:-}
 # Allow overriding the QEMU net backend (default: usernet) for opt-in harnesses.
 QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
@@ -61,6 +62,7 @@ QEMU_QMP_SOCKET=${QEMU_QMP_SOCKET:-$ROOT/build/qemu.qmp}
 QEMU_INPUT_INJECTOR_PY=${QEMU_INPUT_INJECTOR_PY:-$ROOT/tools/qmp_visible_input_inject.py}
 QEMU_PROFILE_INPUT_HELPER=${QEMU_PROFILE_INPUT_HELPER:-$ROOT/tools/systemui_profile_qemu_devices.py}
 NEXUS_SYSTEMUI_PROFILE=${NEXUS_SYSTEMUI_PROFILE:-desktop}
+QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-}
 NEXUS_PROFILE_INPUT_TOUCH=${NEXUS_PROFILE_INPUT_TOUCH:-0}
 NEXUS_PROFILE_INPUT_MOUSE=${NEXUS_PROFILE_INPUT_MOUSE:-0}
 NEXUS_PROFILE_INPUT_KBD=${NEXUS_PROFILE_INPUT_KBD:-0}
@@ -178,6 +180,22 @@ load_systemui_input_profile() {
     [[ -z "$key" ]] && continue
     export "$key=$value"
   done <<< "$env_lines"
+  case "$QEMU_PROOF_POINTER_SOURCE" in
+    "")
+      ;;
+    mouse)
+      export NEXUS_PROFILE_INPUT_TOUCH=0
+      export NEXUS_PROFILE_INPUT_MOUSE=1
+      ;;
+    touch)
+      export NEXUS_PROFILE_INPUT_TOUCH=1
+      export NEXUS_PROFILE_INPUT_MOUSE=0
+      ;;
+    *)
+      echo "[error] unsupported QEMU_PROOF_POINTER_SOURCE='$QEMU_PROOF_POINTER_SOURCE' (expected: mouse|touch)" >&2
+      exit 1
+      ;;
+  esac
 }
 
 set_env_var() {
@@ -743,6 +761,9 @@ monitor_uart() {
       *"SELFTEST: end"*)
         saw_selftest_end=1
         ;;
+      *"windowd: interactive scene ready"*)
+        printf 'ready\n' >"$INTERACTIVE_READY_SENTINEL"
+        ;;
       *"I: after selftest"*|*"KSELFTEST: spawn ok"*|*"SELFTEST: ipc ok"*|*"SELFTEST: end"*)
         # When RUN_UNTIL_MARKER is a specific marker string, we only stop once that string is seen
         # (handled above). When RUN_UNTIL_MARKER=1, we stop once the full readiness/selftest set is
@@ -837,9 +858,17 @@ finish() {
     echo "[info] QEMU stopped after success marker" >&2
     status=0
   fi
+  if [[ "$status" -eq 124 \
+      && "$QEMU_SESSION_MODE" == "interactive" \
+      && "$QEMU_MARKER_LEVEL" == "minimal" \
+      && -f "$INTERACTIVE_READY_SENTINEL" ]]; then
+    echo "[info] QEMU reached interactive scene readiness before timeout; accepting time-capped make run" >&2
+    status=0
+  fi
   if [[ "$status" -eq 124 && "$RUN_TIMEOUT" != "0" ]]; then
     echo "[warn] QEMU terminated after exceeding timeout ($RUN_TIMEOUT)" >&2
   fi
+  rm -f "$INTERACTIVE_READY_SENTINEL"
   return "$status"
 }
 
@@ -1053,6 +1082,7 @@ if [[ "${QEMU_GDB:-0}" == "1" ]]; then
 fi
 
 status=0
+rm -f "$INTERACTIVE_READY_SENTINEL"
 # #region agent log
 target_usage_kb_before=$(path_usage_kb "$TARGET_ROOT")
 root_free_kb_before=$(df_available_kb "$ROOT")
@@ -1099,7 +1129,7 @@ else
   set +e
   run_qemu_stream "$@" \
     2> >(tee "$QEMU_LOG" >&2) \
-    | tee >(monitor_agent_uart) \
+    | tee >(monitor_uart) >(monitor_agent_uart) \
     | tee "$UART_LOG"
   status=${PIPESTATUS[0]}
   set -e

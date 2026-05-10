@@ -100,7 +100,9 @@ impl ScanAllowlist {
     }
 
     fn is_allowed(&self, fragment: &str) -> bool {
-        self.substrings.iter().any(|s| fragment.contains(s.as_str()))
+        self.substrings
+            .iter()
+            .any(|s| fragment.contains(s.as_str()))
     }
 }
 
@@ -280,5 +282,9 @@ fn is_b64_byte(b: u8) -> bool {
 }
 
 fn leak(artifact: &'static str, line: usize, kind: LeakKind) -> EvidenceError {
-    EvidenceError::SecretLeak { artifact, line, pattern: kind.as_str() }
+    EvidenceError::SecretLeak {
+        artifact,
+        line,
+        pattern: kind.as_str(),
+    }
 }

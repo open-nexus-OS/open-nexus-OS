@@ -63,7 +63,8 @@ fn accept_on_disk_manifest_marker_count_and_const_keys() {
             marker.literal
         );
         assert!(
-            k.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'),
+            k.bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'),
             "const_key `{k}` must be UPPER_SNAKE_CASE (from marker `{}`)",
             marker.literal
         );
@@ -133,7 +134,11 @@ emit_when = {{ profile = "ghost_profile" }}
     );
     let err = parse(&src).expect_err("marker referencing undeclared profile must reject");
     match err {
-        ParseError::MarkerUnknownProfile { marker, profile, clause } => {
+        ParseError::MarkerUnknownProfile {
+            marker,
+            profile,
+            clause,
+        } => {
             assert_eq!(marker, "SELFTEST: bad profile ref");
             assert_eq!(profile, "ghost_profile");
             assert_eq!(clause, "emit_when");
@@ -153,7 +158,11 @@ forbidden_when = {{ profile = "ghost_profile" }}
     );
     let err = parse(&src).expect_err("forbidden_when referencing undeclared profile must reject");
     match err {
-        ParseError::MarkerUnknownProfile { marker, profile, clause } => {
+        ParseError::MarkerUnknownProfile {
+            marker,
+            profile,
+            clause,
+        } => {
             assert_eq!(marker, "SELFTEST: bad forbidden profile");
             assert_eq!(profile, "ghost_profile");
             assert_eq!(clause, "forbidden_when");

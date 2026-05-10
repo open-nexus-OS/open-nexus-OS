@@ -1,6 +1,6 @@
 ---
 title: TASK-0253 Input v1.0b (OS/QEMU): hidrawd + touchd + inputd + windowd/IME hooks + `nx input` + selftests
-status: In Progress
+status: In Review
 owner: @ui
 created: 2025-12-29
 depends-on:
@@ -261,64 +261,50 @@ Additional closure floor:
   - 0253 provides bounded/measurable live-input behavior,
   - latency-budget closure remains explicitly owned by `TASK-0056C`.
 
-## Current implementation reality (2026-05-05)
+## Current implementation reality (2026-05-09)
 
-- Commit `0503499` captured the kernel/runtime service-scale follow-up after `f24011b`.
-- Focused proofs currently green:
-  - `cargo test -p windowd`
-  - `cargo test -p nx --test init_lite_input_service_startup`
-  - `cargo test -p nexus-proof-manifest --test cli_verify_uart`
-  - `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite`
-  - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s scripts/qemu-test.sh --profile=visible-bootstrap`
-- The normal init-lite/QEMU service set now includes `hidrawd`, `touchd`, and `inputd` with bounded startup stacks; the focused startup proof is no longer hidden behind profile-only startup exceptions.
-- The deterministic visible scene now emits pixel/state-backed markers for full-window color, cursor motion, hover, click, keyboard input, and `SELFTEST: ui visible input ok`.
-- Interactive live-lane hardening is now proven in both runners:
-  - `make run` is the minimal-marker interactive runner that reuses `make build`
-    artifacts and now reaches `windowd: interactive scene ready` plus
-    `inputd: live pointer route on` in a time-capped live run,
-  - `just start` builds first, then starts the same live runner with full
-    breadcrumbs and now reaches `windowd: interactive full markers on`,
-    `windowd: input visible on`, `windowd: cursor move visible`,
-    `windowd: hover visible`, `launcher: click visible ok`,
-    `windowd: keyboard visible`, and `SELFTEST: ui visible input ok`,
-  - this is still not equivalent to sustained real host motion closure:
-    current manual `just start` behavior shows click + keyboard and a first
-    live cursor nudge, but the white cursor box does not yet follow continuous
-    host mouse movement across the scene,
-  - focused contracts cover linker retention of the private selftest stack,
-    bounded `fw_cfg` runtime config retry, interactive marker honesty, and VMO
-    arena headroom for the ramfb framebuffer,
-  - stable UI bootstrap failure labels now expose failures such as
-    `bootstrap: failed framebuffer-vmo` instead of a generic failure.
-- Live-QEMU input closure is now carried by the `RFC-0054` slice:
-  - QEMU exposes `virtio-keyboard-device`, `virtio-mouse-device`, and
-    `virtio-tablet-device`,
-  - init discovers `VIRTIO_DEVICE_ID_INPUT` windows and hands ownership into the
-    `hidrawd -> inputd -> windowd` chain instead of a permanent
-    `selftest-client` bridge.
-- The remaining interactive delta closure is now explicit:
-  - preserve pointer-source identity past `inputd` wire decode and into the
-    runtime canonical pointer state,
-  - stop letting the 64x48 proof grid act as the effective interactive routing
-    authority; keep it only as proof-scene projection,
-  - align the desktop live source mix for a persistent pointer stream
-    (`mouse-relative` plus tablet-class absolute input with explicit runtime
-    source arbitration),
-  - add sustained-motion host proofs so "first move happened" cannot
-    masquerade as "live cursor movement is closed".
-- Remaining closure before `Done`:
-  - broad-gate reruns are no longer deferred:
-    - `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`,
-      `make clean -> make build -> make test`, and a time-capped `make run` are
-      green,
-    - `scripts/fmt-clippy-deny.sh` and therefore `just test-all` currently stop
-      on repo-wide rustfmt drift outside the TASK-0253 slice (for example
-      `source/kernel/neuron/src/mm/address_space.rs`,
-      `source/init/nexus-init/src/os_payload.rs`,
-      `tools/nx/src/commands/input.rs`, and
-      `userspace/keymaps/src/layout.rs`),
-  - `nx input` commands remain host/preflight helper surfaces only.
+- The full service-owned live-input chain is landed and review-ready:
+  - `hidrawd`, `touchd`, and `inputd` boot in the default init-lite/QEMU service set with bounded startup stacks,
+  - `virtio-input` now owns the real receive layer and feeds the explicit
+    `hidrawd -> inputd -> windowd` path without a permanent `selftest-client`
+    MMIO bridge,
+  - `windowd -> fbdevd -> ramfb` remains the visible-output authority while
+    `selftest-client` stays observer-only for proof collection.
+- Closure hardening completed in this pass:
+  - headers across the 0253/RFC53/54 slice and all files touched in the last 6
+    commits were resynced to `docs/standards/`,
+  - architecture / ADR / RFC / task / `.cursor` status docs were synced to the
+    landed driver-owned live-input reality,
+  - RFC-0054 negative-test coverage now explicitly covers wrong device ID,
+    bounded queue-capacity rejects, malformed receive values, and wrong
+    receive-to-adapter classification,
+  - the `make run` runner now treats a time-capped interactive-minimal session
+    as success only after the real `windowd: interactive scene ready`
+    breadcrumb is observed.
+- Focused proofs rerun green on the current tree:
+  - `cargo test -p virtio-input -- --nocapture`
+  - `cargo test -p hidrawd -- --nocapture`
+  - `cargo test -p inputd -- --nocapture`
+  - `cargo test -p fbdevd -- --nocapture`
+  - `cargo test -p selftest-client --test boot_cfg_runtime -- --nocapture`
+  - `cargo test -p nx --test interactive_os_startup -- --nocapture`
+  - `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s scripts/qemu-test.sh --profile=visible-bootstrap`
+  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os visible-bootstrap`
+- Non-excluded broad gates rerun green on the current tree:
+  - `just dep-gate`
+  - `just diag-os`
+  - `just diag-host`
+  - `just ci-network`
+  - `make clean -> make build`
+  - `make test`
+  - `RUN_TIMEOUT=220s make run`
+- Remaining non-closure scope remains unchanged:
+  - latency/perf-budget closure still belongs to `TASK-0056C`,
+  - `nx input keymap set`, `nx input cursor`, and `nx input test type` remain
+    bounded host/preflight helpers instead of live daemon RPCs.
+- User-deferred gates before a later `Done` claim:
+  - `scripts/fmt-clippy-deny.sh`
+  - `just test-all`
 
 ## Touched paths (allowlist)
 

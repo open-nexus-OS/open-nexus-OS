@@ -218,7 +218,11 @@ pub struct AbiProfile {
 impl AbiProfile {
     /// Creates an empty deny-by-default profile for `subject_service_id`.
     pub const fn empty(subject_service_id: u64) -> Self {
-        Self { subject_service_id, rule_count: 0, rules: [AbiRule::empty(); MAX_RULES] }
+        Self {
+            subject_service_id,
+            rule_count: 0,
+            rules: [AbiRule::empty(); MAX_RULES],
+        }
     }
 
     /// Returns the kernel-derived subject identity bound to this profile.

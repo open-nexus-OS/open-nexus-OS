@@ -1,6 +1,28 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Host tests for `selftest-client` runtime mode/profile parsing and visible-input proof predicates.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: runtime mode/profile parsing plus visible-input proof witness checks.
+//!
+//! TEST_SCOPE:
+//!   - runtime mode/profile parsing from boot-config bytes
+//!   - service-owned display bootstrap readiness predicates
+//!   - visible-input proof witness accumulation for transient hold/wheel states
+//!
+//! TEST_SCENARIOS:
+//!   - `runtime_mode_parser_*`: accepted and rejected runtime mode/profile tokens
+//!   - `display_observer_requires_service_owned_display_evidence()`: bootstrap readiness floor
+//!   - `proof_visible_input_*()`: full live chain and transient witness accumulation
+//!
+//! DEPENDENCIES:
+//!   - `display_observer.rs`: observer-side proof predicates
+//!   - `runtime_mode.rs`: runtime mode/profile parsing
+//!
+//! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
+
 #[path = "../src/os_lite/display_observer.rs"]
 mod display_observer;
 #[path = "../src/runtime_mode.rs"]
@@ -84,7 +106,7 @@ fn proof_visible_input_ready_requires_full_live_chain() {
         focus_visible: true,
         launcher_click_visible: true,
         keyboard_visible: true,
-        wheel_up_visible: false,
+        wheel_up_visible: true,
         wheel_down_visible: false,
         pointer_route_live: true,
         keyboard_route_live: true,
@@ -98,6 +120,68 @@ fn proof_visible_input_ready_requires_full_live_chain() {
     missing_keyboard.keyboard_visible = false;
     assert!(!display_observer::proof_visible_input_ready(
         missing_keyboard
+    ));
+
+    let mut missing_wheel = state;
+    missing_wheel.wheel_up_visible = false;
+    assert!(!display_observer::proof_visible_input_ready(missing_wheel));
+}
+
+#[test]
+fn proof_visible_input_witness_latches_transient_hold_and_wheel_bits() {
+    let base = VisibleState {
+        virtio_raw_seen: true,
+        hid_normalized_seen: true,
+        backend_visible: true,
+        display_scanout_ready: true,
+        systemui_first_frame_visible: true,
+        scene_ready: true,
+        full_window_visible: true,
+        click_target_visible: true,
+        keyboard_target_visible: true,
+        input_visible_on: true,
+        cursor_move_visible: true,
+        hover_visible: true,
+        focus_visible: true,
+        launcher_click_visible: false,
+        keyboard_visible: false,
+        wheel_up_visible: false,
+        wheel_down_visible: false,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_x: 8,
+        cursor_y: 40,
+    };
+    let click_state = VisibleState {
+        launcher_click_visible: true,
+        ..base
+    };
+    let keyboard_state = VisibleState {
+        keyboard_visible: true,
+        ..base
+    };
+    let wheel_state = VisibleState {
+        wheel_up_visible: true,
+        ..base
+    };
+    let mut witness = display_observer::ProofVisibleInputWitness::new();
+
+    witness.observe(click_state);
+    assert!(!witness.ready(), "click alone must not satisfy the proof");
+
+    witness.observe(keyboard_state);
+    assert!(
+        !witness.ready(),
+        "click and keyboard still need a visible wheel pulse to satisfy the proof"
+    );
+
+    witness.observe(wheel_state);
+    assert!(
+        witness.ready(),
+        "sequential transient click/key/wheel samples must accumulate into one proof witness"
+    );
+    assert!(display_observer::proof_visible_input_ready(
+        witness.observed_state()
     ));
 }
 

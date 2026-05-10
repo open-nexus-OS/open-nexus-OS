@@ -20,7 +20,10 @@ fn stat_frame(path: &str) -> alloc::vec::Vec<u8> {
 #[test]
 fn test_reject_unauthenticated_stream_request() {
     let req = stat_frame("pkg:/system/build.prop");
-    assert_eq!(parse_request(&req, false), Err(RejectReason::Unauthenticated));
+    assert_eq!(
+        parse_request(&req, false),
+        Err(RejectReason::Unauthenticated)
+    );
 }
 
 #[test]
@@ -32,14 +35,20 @@ fn test_reject_path_traversal() {
 #[test]
 fn test_reject_non_packagefs_scheme() {
     let req = stat_frame("file:/etc/passwd");
-    assert_eq!(parse_request(&req, true), Err(RejectReason::NonPackagefsScheme));
+    assert_eq!(
+        parse_request(&req, true),
+        Err(RejectReason::NonPackagefsScheme)
+    );
 }
 
 #[test]
 fn test_reject_oversize_read_or_path() {
     let long_path = alloc::string::String::from("pkg:/") + &"a".repeat(PK_MAX_PATH_LEN + 1);
     let req = stat_frame(&long_path);
-    assert_eq!(parse_request(&req, true), Err(RejectReason::OversizedReadOrPath));
+    assert_eq!(
+        parse_request(&req, true),
+        Err(RejectReason::OversizedReadOrPath)
+    );
 
     let mut read = [0u8; 14];
     read[0] = PK_MAGIC0;
@@ -47,7 +56,10 @@ fn test_reject_oversize_read_or_path() {
     read[2] = PK_VERSION;
     read[3] = PK_OP_READ;
     read[12..14].copy_from_slice(&((PK_MAX_READ_LEN as u16) + 1).to_le_bytes());
-    assert_eq!(parse_request(&read, true), Err(RejectReason::OversizedReadOrPath));
+    assert_eq!(
+        parse_request(&read, true),
+        Err(RejectReason::OversizedReadOrPath)
+    );
 }
 
 #[test]

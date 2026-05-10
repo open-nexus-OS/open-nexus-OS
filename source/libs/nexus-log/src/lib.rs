@@ -22,10 +22,18 @@ use core::fmt;
 use core::ops::{BitOr, BitOrAssign};
 use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 use core::sync::atomic::AtomicBool;
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 use core::sync::atomic::AtomicUsize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,43 +84,113 @@ fn topic_enabled(topic: Topic) -> bool {
 }
 
 pub fn error(target: &str, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Error, target, topic: TOPIC_GENERAL }, f);
+    log(
+        LineMeta {
+            level: Level::Error,
+            target,
+            topic: TOPIC_GENERAL,
+        },
+        f,
+    );
 }
 
 pub fn error_topic(target: &str, topic: Topic, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Error, target, topic }, f);
+    log(
+        LineMeta {
+            level: Level::Error,
+            target,
+            topic,
+        },
+        f,
+    );
 }
 
 pub fn warn(target: &str, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Warn, target, topic: TOPIC_GENERAL }, f);
+    log(
+        LineMeta {
+            level: Level::Warn,
+            target,
+            topic: TOPIC_GENERAL,
+        },
+        f,
+    );
 }
 
 pub fn warn_topic(target: &str, topic: Topic, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Warn, target, topic }, f);
+    log(
+        LineMeta {
+            level: Level::Warn,
+            target,
+            topic,
+        },
+        f,
+    );
 }
 
 pub fn info(target: &str, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Info, target, topic: TOPIC_GENERAL }, f);
+    log(
+        LineMeta {
+            level: Level::Info,
+            target,
+            topic: TOPIC_GENERAL,
+        },
+        f,
+    );
 }
 
 pub fn info_topic(target: &str, topic: Topic, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Info, target, topic }, f);
+    log(
+        LineMeta {
+            level: Level::Info,
+            target,
+            topic,
+        },
+        f,
+    );
 }
 
 pub fn debug(target: &str, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Debug, target, topic: TOPIC_GENERAL }, f);
+    log(
+        LineMeta {
+            level: Level::Debug,
+            target,
+            topic: TOPIC_GENERAL,
+        },
+        f,
+    );
 }
 
 pub fn debug_topic(target: &str, topic: Topic, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Debug, target, topic }, f);
+    log(
+        LineMeta {
+            level: Level::Debug,
+            target,
+            topic,
+        },
+        f,
+    );
 }
 
 pub fn trace(target: &str, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Trace, target, topic: TOPIC_GENERAL }, f);
+    log(
+        LineMeta {
+            level: Level::Trace,
+            target,
+            topic: TOPIC_GENERAL,
+        },
+        f,
+    );
 }
 
 pub fn trace_topic(target: &str, topic: Topic, f: impl FnOnce(&mut LineBuilder)) {
-    log(LineMeta { level: Level::Trace, target, topic }, f);
+    log(
+        LineMeta {
+            level: Level::Trace,
+            target,
+            topic,
+        },
+        f,
+    );
 }
 
 pub fn info_static(target: &str, message: &str) {
@@ -148,7 +226,11 @@ pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
         return;
     }
 
-    #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+    #[cfg(all(
+        feature = "sink-userspace",
+        target_arch = "riscv64",
+        target_os = "none"
+    ))]
     {
         debug_ptr(b'L', meta.level.label().as_ptr() as usize);
         debug_ptr(b'T', meta.target.as_ptr() as usize);
@@ -192,12 +274,20 @@ impl<'a> StrRef<'a> {
     pub fn new(value: &'a str) -> Self {
         let ptr = value.as_ptr() as usize;
         let len = value.len();
-        let value = if str_ref_permitted(ptr, len) { Some(value) } else { None };
+        let value = if str_ref_permitted(ptr, len) {
+            Some(value)
+        } else {
+            None
+        };
         Self { ptr, len, value }
     }
 
     pub fn from_unchecked(value: &'a str) -> Self {
-        Self { ptr: value.as_ptr() as usize, len: value.len(), value: Some(value) }
+        Self {
+            ptr: value.as_ptr() as usize,
+            len: value.len(),
+            value: Some(value),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -231,7 +321,11 @@ fn str_ref_permitted(ptr: usize, len: usize) -> bool {
         return false;
     }
 
-    #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+    #[cfg(all(
+        feature = "sink-userspace",
+        target_arch = "riscv64",
+        target_os = "none"
+    ))]
     {
         if !guard_logs_enabled() {
             return true;
@@ -273,7 +367,11 @@ fn str_ref_permitted(ptr: usize, len: usize) -> bool {
         }
         false
     }
-    #[cfg(not(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none")))]
+    #[cfg(not(all(
+        feature = "sink-userspace",
+        target_arch = "riscv64",
+        target_os = "none"
+    )))]
     {
         let _ = (ptr, len);
         true
@@ -335,10 +433,18 @@ impl LineBuilder<'_, '_> {
     }
 
     pub fn text_ref(&mut self, text: StrRef<'_>) {
-        #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         let guard_enabled = guard_logs_enabled();
 
-        #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         {
             if guard_enabled && USERS_STR_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
                 debug_str_probe(text.ptr(), text.len());
@@ -346,7 +452,11 @@ impl LineBuilder<'_, '_> {
         }
 
         if let Some(bytes) = text.bytes() {
-            #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+            #[cfg(all(
+                feature = "sink-userspace",
+                target_arch = "riscv64",
+                target_os = "none"
+            ))]
             {
                 if guard_enabled && USERS_TEXT_FAST.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
                     trace_text_fast(text.ptr(), text.len());
@@ -356,7 +466,11 @@ impl LineBuilder<'_, '_> {
             return;
         }
 
-        #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         {
             if guard_enabled {
                 let fallback_probe = USERS_TEXT_FALLBACK.fetch_add(1, Ordering::Relaxed);
@@ -393,7 +507,11 @@ impl LineBuilder<'_, '_> {
     }
 
     pub fn hex(&mut self, value: u64) {
-        #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         {
             if HEX_PROBE.fetch_add(1, Ordering::Relaxed) < PROBE_LIMIT {
                 debug_ptr(b'H', value as usize);
@@ -424,7 +542,11 @@ impl LineBuilder<'_, '_> {
             }
         }
         let slice = &buf[idx..];
-        #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+        #[cfg(all(
+            feature = "sink-userspace",
+            target_arch = "riscv64",
+            target_os = "none"
+        ))]
         {
             let ptr = slice.as_ptr() as usize;
             let len = slice.len();
@@ -476,7 +598,11 @@ fn overlaps_guard(_ptr: usize, _end: usize) -> bool {
     false
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn log_guard_violation(
     ptr: usize,
     len: usize,
@@ -520,7 +646,11 @@ fn log_guard_violation(
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 enum GuardFault {
@@ -531,7 +661,11 @@ enum GuardFault {
     GuardRange,
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 impl GuardFault {
     fn emit_label(self) {
         match self {
@@ -547,24 +681,52 @@ impl GuardFault {
 fn emit_hex(value: u64, mut emit: impl FnMut(u8)) {
     for shift in (0..(core::mem::size_of::<u64>() * 2)).rev() {
         let nibble = ((value >> (shift * 4)) & 0xf) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        let ch = if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        };
         emit(ch);
     }
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 const PROBE_LIMIT: usize = 1024;
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_STR_DIAG: AtomicUsize = AtomicUsize::new(0);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_STR_GOOD: AtomicUsize = AtomicUsize::new(0);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_TEXT_FAST: AtomicUsize = AtomicUsize::new(0);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_TEXT_FALLBACK: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_STR_PROBE: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(all(
@@ -574,14 +736,30 @@ static USERS_STR_PROBE: AtomicUsize = AtomicUsize::new(0);
     target_os = "none"
 ))]
 static IMAGE_BOUNDS_LOGGED: AtomicBool = AtomicBool::new(false);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_BAD_PTRS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static HEX_PROBE: AtomicUsize = AtomicUsize::new(0);
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 static USERS_BOUNDS_ONCE: AtomicBool = AtomicBool::new(false);
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn debug_str_probe(ptr: usize, len: usize) {
     if !guard_logs_enabled() {
         return;
@@ -599,7 +777,11 @@ fn debug_str_probe(ptr: usize, len: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn debug_bad_str(ptr: usize, len: usize) {
     if !guard_logs_enabled() {
         return;
@@ -617,7 +799,11 @@ fn debug_bad_str(ptr: usize, len: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn debug_ptr(prefix: u8, value: usize) {
     if !guard_logs_enabled() {
         return;
@@ -628,7 +814,11 @@ fn debug_ptr(prefix: u8, value: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_good_str(ptr: usize, len: usize) {
     if !guard_logs_enabled() {
         return;
@@ -646,7 +836,11 @@ fn trace_good_str(ptr: usize, len: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_text_fast(ptr: usize, len: usize) {
     if !guard_logs_enabled() {
         return;
@@ -664,7 +858,11 @@ fn trace_text_fast(ptr: usize, len: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_text_fallback(ptr: usize, len: usize) {
     if !guard_logs_enabled() {
         return;
@@ -710,7 +908,11 @@ fn emit_level_label(level: Level) {
     }
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn guard_logs_enabled() -> bool {
     // Default off to keep boot UART clean; opt-in with INIT_LITE_GUARD_LOG=1.
     option_env!("INIT_LITE_GUARD_LOG") == Some("1")
@@ -718,12 +920,19 @@ fn guard_logs_enabled() -> bool {
 
 // Host/non-RISC-V stub to keep sink-userspace compiling when the feature is
 // enabled but we are not building the os-lite target.
-#[cfg(all(feature = "sink-userspace", not(all(target_arch = "riscv64", target_os = "none"))))]
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
 fn guard_logs_enabled() -> bool {
     false
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_large_write(ptr: usize, len: usize, ra: usize, level: Level, target: &str) {
     if !guard_logs_enabled() {
         return;
@@ -759,10 +968,17 @@ fn trace_large_write(ptr: usize, len: usize, ra: usize, level: Level, target: &s
 }
 
 // Host/non-RISC-V stub.
-#[cfg(all(feature = "sink-userspace", not(all(target_arch = "riscv64", target_os = "none"))))]
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
 fn trace_large_write(_ptr: usize, _len: usize, _ra: usize, _level: Level, _target: &str) {}
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn trace_dec_slice(ptr: usize, len: usize, ra: usize) {
     if !guard_logs_enabled() {
         return;
@@ -785,7 +1001,11 @@ fn trace_dec_slice(ptr: usize, len: usize, ra: usize) {
     userspace_putc(b'\n');
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 #[inline(always)]
 fn read_ra() -> usize {
     let ra: usize;
@@ -796,7 +1016,10 @@ fn read_ra() -> usize {
 }
 
 // Host/non-RISC-V stub.
-#[cfg(all(feature = "sink-userspace", not(all(target_arch = "riscv64", target_os = "none"))))]
+#[cfg(all(
+    feature = "sink-userspace",
+    not(all(target_arch = "riscv64", target_os = "none"))
+))]
 #[inline(always)]
 fn read_ra() -> usize {
     0
@@ -815,7 +1038,11 @@ fn image_bounds() -> (usize, usize) {
     }
     let start = core::ptr::addr_of!(__rodata_start) as usize;
     let end = core::ptr::addr_of!(__small_data_guard) as usize;
-    #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+    #[cfg(all(
+        feature = "sink-userspace",
+        target_arch = "riscv64",
+        target_os = "none"
+    ))]
     {
         if !IMAGE_BOUNDS_LOGGED.swap(true, Ordering::Relaxed) {
             debug_ptr(b'S', start);
@@ -835,7 +1062,11 @@ fn image_bounds() -> (usize, usize) {
     (0, usize::MAX)
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn is_sv39_canonical(addr: usize) -> bool {
     let sign_bit = (addr >> 38) & 1;
     let upper = addr >> 39;
@@ -1134,8 +1365,13 @@ mod sink_logd {
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 64];
         for _ in 0..4 {
-            match ipc_recv_v1(recv_slot, &mut hdr, &mut buf, IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE, 0)
-            {
+            match ipc_recv_v1(
+                recv_slot,
+                &mut hdr,
+                &mut buf,
+                IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE,
+                0,
+            ) {
                 Ok(_n) => {}
                 Err(nexus_abi::IpcError::QueueEmpty) => break,
                 Err(_) => break,
@@ -1180,7 +1416,11 @@ mod sink_logd {
 
 #[inline(never)]
 fn guard_violation(_ptr: usize, _len: usize, _ra: usize, _level: Level, _target: &str) -> bool {
-    #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+    #[cfg(all(
+        feature = "sink-userspace",
+        target_arch = "riscv64",
+        target_os = "none"
+    ))]
     {
         let ptr = _ptr;
         let len = _len;
@@ -1231,13 +1471,21 @@ fn guard_violation(_ptr: usize, _len: usize, _ra: usize, _level: Level, _target:
     false
 }
 
-#[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
+#[cfg(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+))]
 fn userspace_putc(byte: u8) {
     // Use the canonical syscall wrapper to avoid subtle inline-asm ABI hazards.
     let _ = nexus_abi::debug_putc(byte);
 }
 
-#[cfg(not(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none")))]
+#[cfg(not(all(
+    feature = "sink-userspace",
+    target_arch = "riscv64",
+    target_os = "none"
+)))]
 fn userspace_putc(_byte: u8) {}
 
 #[cfg(feature = "sink-kernel")]
@@ -1258,7 +1506,11 @@ mod sink_kernel {
     impl<'meta> Sink<'meta> {
         #[allow(dead_code)]
         pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
-            Self { level, target, topic }
+            Self {
+                level,
+                target,
+                topic,
+            }
         }
 
         pub fn write_byte(&mut self, byte: u8) {

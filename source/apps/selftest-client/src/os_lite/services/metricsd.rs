@@ -51,7 +51,9 @@ pub(crate) fn metricsd_security_reject_probe(
         labels[3] = b'0' + ((idx / 10) % 10);
         labels[4] = b'0' + (idx % 10);
         labels[5] = b'\n';
-        let st = metricsd.counter_inc("selftest.cap", &labels[..6], 1).map_err(|_| ())?;
+        let st = metricsd
+            .counter_inc("selftest.cap", &labels[..6], 1)
+            .map_err(|_| ())?;
         if st == METRICS_STATUS_OVER_LIMIT {
             over_limit_seen = true;
             break;
@@ -123,26 +125,34 @@ pub(crate) fn metricsd_semantic_probe(
     logd: &KernelClient,
 ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
     let total_before = super::logd::logd_stats_total(logd).unwrap_or(0);
-    let c0 =
-        metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 3).map_err(|_| ())?;
-    let c1 =
-        metricsd.counter_inc("selftest.counter", b"svc=selftest-client\n", 4).map_err(|_| ())?;
+    let c0 = metricsd
+        .counter_inc("selftest.counter", b"svc=selftest-client\n", 3)
+        .map_err(|_| ())?;
+    let c1 = metricsd
+        .counter_inc("selftest.counter", b"svc=selftest-client\n", 4)
+        .map_err(|_| ())?;
     for _ in 0..64 {
         let _ = yield_();
     }
     let mut counters_ok = c0 == METRICS_STATUS_OK && c1 == METRICS_STATUS_OK;
 
-    let g0 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", 7).map_err(|_| ())?;
-    let g1 = metricsd.gauge_set("selftest.gauge", b"svc=selftest-client\n", -3).map_err(|_| ())?;
+    let g0 = metricsd
+        .gauge_set("selftest.gauge", b"svc=selftest-client\n", 7)
+        .map_err(|_| ())?;
+    let g1 = metricsd
+        .gauge_set("selftest.gauge", b"svc=selftest-client\n", -3)
+        .map_err(|_| ())?;
     for _ in 0..64 {
         let _ = yield_();
     }
     let mut gauges_ok = g0 == METRICS_STATUS_OK && g1 == METRICS_STATUS_OK;
 
-    let h0 =
-        metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000).map_err(|_| ())?;
-    let h1 =
-        metricsd.hist_observe("selftest.hist", b"svc=selftest-client\n", 12_000).map_err(|_| ())?;
+    let h0 = metricsd
+        .hist_observe("selftest.hist", b"svc=selftest-client\n", 1_000)
+        .map_err(|_| ())?;
+    let h1 = metricsd
+        .hist_observe("selftest.hist", b"svc=selftest-client\n", 12_000)
+        .map_err(|_| ())?;
     for _ in 0..64 {
         let _ = yield_();
     }
@@ -154,9 +164,18 @@ pub(crate) fn metricsd_semantic_probe(
     let span_id = ids.next_span_id();
     let trace_id = ids.next_trace_id();
     let s0 = metricsd
-        .span_start(span_id, trace_id, SpanId(0), 100, "selftest.span", b"phase=selftest\n")
+        .span_start(
+            span_id,
+            trace_id,
+            SpanId(0),
+            100,
+            "selftest.span",
+            b"phase=selftest\n",
+        )
         .map_err(|_| ())?;
-    let s1 = metricsd.span_end(span_id, 180, 0, b"result=ok\n").map_err(|_| ())?;
+    let s1 = metricsd
+        .span_end(span_id, 180, 0, b"result=ok\n")
+        .map_err(|_| ())?;
     for _ in 0..64 {
         let _ = yield_();
     }

@@ -395,11 +395,17 @@ fn handle_frame(
                     let bounded = encode_query_response_bounded_iter_proto(
                         STATUS_OK, stats, journal, since, max_count,
                     );
-                    ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
+                    ResponseFrame::Medium {
+                        buf: bounded.buf,
+                        len: bounded.len,
+                    }
                 }
                 Err(err) => {
                     let bounded = encode_query_response_bounded_proto_v1(err, stats);
-                    ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
+                    ResponseFrame::Medium {
+                        buf: bounded.buf,
+                        len: bounded.len,
+                    }
                 }
             },
             OP_STATS => encode_stats_response_small(STATUS_OK, stats),
@@ -459,11 +465,17 @@ fn handle_frame(
                         let bounded = encode_query_response_bounded_iter_proto_v2(
                             STATUS_OK, nonce, stats, journal, since, max_count,
                         );
-                        ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
+                        ResponseFrame::Medium {
+                            buf: bounded.buf,
+                            len: bounded.len,
+                        }
                     }
                     Err(err) => {
                         let bounded = encode_query_response_bounded_proto_v2(err, nonce, stats);
-                        ResponseFrame::Medium { buf: bounded.buf, len: bounded.len }
+                        ResponseFrame::Medium {
+                            buf: bounded.buf,
+                            len: bounded.len,
+                        }
                     }
                 },
                 OP_STATS => encode_stats_response_small_v2(STATUS_OK, nonce, stats),
@@ -525,7 +537,12 @@ fn decode_append_v1(frame: &[u8]) -> Result<(crate::journal::LogLevel, &[u8], &[
     if frame.len() != end_fields {
         return Err(STATUS_MALFORMED);
     }
-    Ok((level, &frame[start..end_scope], &frame[end_scope..end_msg], &frame[end_msg..end_fields]))
+    Ok((
+        level,
+        &frame[start..end_scope],
+        &frame[end_scope..end_msg],
+        &frame[end_msg..end_fields],
+    ))
 }
 
 fn decode_query_v1(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
@@ -567,7 +584,12 @@ fn decode_append_v2(frame: &[u8]) -> Result<(crate::journal::LogLevel, &[u8], &[
     if frame.len() != end_fields {
         return Err(STATUS_MALFORMED);
     }
-    Ok((level, &frame[start..end_scope], &frame[end_scope..end_msg], &frame[end_msg..end_fields]))
+    Ok((
+        level,
+        &frame[start..end_scope],
+        &frame[end_scope..end_msg],
+        &frame[end_msg..end_fields],
+    ))
 }
 
 fn decode_query_v2(frame: &[u8]) -> Result<(TimestampNsec, u16), u8> {
@@ -708,7 +730,12 @@ fn encode_query_response_bounded_proto_v2(
 }
 
 fn emit_line(message: &str) {
-    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+    for byte in message
+        .as_bytes()
+        .iter()
+        .copied()
+        .chain(core::iter::once(b'\n'))
+    {
         let _ = debug_putc(byte);
     }
 }

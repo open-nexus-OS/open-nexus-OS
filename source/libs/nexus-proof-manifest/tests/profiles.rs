@@ -33,28 +33,46 @@ fn accept_on_disk_catalog() {
         .unwrap_or_else(|e| panic!("on-disk manifest must parse: {e}"));
 
     for required in ["full", "smp", "dhcp", "os2vm", "quic-required"] {
-        assert!(m.profiles.contains_key(required), "manifest must declare profile `{required}`");
+        assert!(
+            m.profiles.contains_key(required),
+            "manifest must declare profile `{required}`"
+        );
     }
 
     // `quic-required` extends `full` and adds REQUIRE_DSOFTBUS=1.
-    let env = m.resolve_env_chain("quic-required").expect("quic-required env resolution");
+    let env = m
+        .resolve_env_chain("quic-required")
+        .expect("quic-required env resolution");
     assert_eq!(env.get("REQUIRE_DSOFTBUS").map(String::as_str), Some("1"));
 
     // `os2vm` extends `full` and inherits the dsoftbus remote env trio.
     let os2vm_env = m.resolve_env_chain("os2vm").expect("os2vm env resolution");
-    for k in
-        ["REQUIRE_DSOFTBUS", "REQUIRE_DSOFTBUS_REMOTE_PKGFS", "REQUIRE_DSOFTBUS_REMOTE_STATEFS"]
-    {
-        assert_eq!(os2vm_env.get(k).map(String::as_str), Some("1"), "os2vm env must carry {k}=1");
+    for k in [
+        "REQUIRE_DSOFTBUS",
+        "REQUIRE_DSOFTBUS_REMOTE_PKGFS",
+        "REQUIRE_DSOFTBUS_REMOTE_STATEFS",
+    ] {
+        assert_eq!(
+            os2vm_env.get(k).map(String::as_str),
+            Some("1"),
+            "os2vm env must carry {k}=1"
+        );
     }
 
     // `full` profile expected ladder excludes `forbidden_when=quic-required`
     // markers (they only become forbidden under that profile).
-    let quic_expected: Vec<&str> =
-        m.expected_markers("quic-required").map(|m| m.literal.as_str()).collect();
-    let quic_forbidden: Vec<&str> =
-        m.forbidden_markers("quic-required").map(|m| m.literal.as_str()).collect();
-    assert!(!quic_forbidden.is_empty(), "quic-required must declare forbidden markers");
+    let quic_expected: Vec<&str> = m
+        .expected_markers("quic-required")
+        .map(|m| m.literal.as_str())
+        .collect();
+    let quic_forbidden: Vec<&str> = m
+        .forbidden_markers("quic-required")
+        .map(|m| m.literal.as_str())
+        .collect();
+    assert!(
+        !quic_forbidden.is_empty(),
+        "quic-required must declare forbidden markers"
+    );
     for forb in &quic_forbidden {
         assert!(
             !quic_expected.contains(forb),

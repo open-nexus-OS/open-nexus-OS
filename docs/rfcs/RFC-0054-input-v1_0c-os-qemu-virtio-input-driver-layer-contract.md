@@ -1,9 +1,9 @@
 # RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`)
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-05-05
-- Last Updated: 2026-05-06
+- Last Updated: 2026-05-10
 - Links:
   - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
   - Related RFCs:
@@ -16,7 +16,7 @@
 
 - **Phase 0 (ownership + loop contract freeze)**: ✅
 - **Phase 1 (minimal virtio-input MMIO driver)**: ✅
-- **Phase 2 (hidrawd/inputd live route closure)**: partial; the real driver-owned `hidrawd -> inputd -> windowd` path, ingress/adapter truth, and time-capped interactive `make run` / `just start` proofs are green, while final repo-wide Gate-E closure remains tracked by RFC-0053
+- **Phase 2 (hidrawd/inputd live route closure)**: ✅ complete; the real driver-owned `hidrawd -> inputd -> windowd` path, ingress/adapter truth, and time-capped interactive `make run` / `just start` proofs are green, with only user-deferred repo-wide gates still tracked at the TASK-0253 / RFC-0053 level
 
 Definition:
 
@@ -202,9 +202,14 @@ The deterministic visible proof lane from RFC-0053 must remain green; this drive
 - Build USB/HID first instead of using virtio-input (rejected: much larger scope for QEMU `virt` closure).
 - Route driver events directly to `windowd` (rejected: bypasses `inputd` authority and duplicates routing policy).
 
-## Open questions
+## Resolved classification note
 
-- Should QEMU tablet-style absolute input be normalized as `hidrawd` pointer events only, or should part of the path also feed `touchd` for proof completeness?
+- QEMU tablet-style absolute input is normalized through the explicit
+  `virtio-input -> hidrawd` pointer path.
+- Touch-specific semantics remain distinguishable through the carried
+  `PointerSource::TouchAbsolute` wire classification where the upstream source is
+  touch-like, but the driver layer itself does not fork a second routing
+  authority around `hidrawd` / `inputd`.
 
 ---
 
@@ -217,4 +222,4 @@ The deterministic visible proof lane from RFC-0053 must remain green; this drive
 - [x] **Phase 2**: live QEMU driver path reaches `hidrawd -> inputd -> windowd` with explicit ingress/adapter truth — proof: `make build && just start`
 - [x] Task linked with stop conditions + proof commands.
 - [x] Interactive QEMU path exposes keyboard + pointer devices and passes the focused `nx` contract test.
-- [ ] Security-relevant negative tests exist (`test_reject_*`) for wrong device ID, malformed events, bounded queue behavior, and wrong receive-to-adapter classification.
+- [x] Security-relevant negative tests exist (`test_reject_*`) for wrong device ID, malformed events, bounded queue behavior, and wrong receive-to-adapter classification.

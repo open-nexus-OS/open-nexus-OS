@@ -228,7 +228,10 @@ fn decode_query_v1(frame: &[u8]) -> Result<Request, DecodeError> {
         frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
     ]);
     let max_count = u16::from_le_bytes([frame[12], frame[13]]);
-    Ok(Request::Query(QueryRequest { since_nsec: TimestampNsec(since), max_count }))
+    Ok(Request::Query(QueryRequest {
+        since_nsec: TimestampNsec(since),
+        max_count,
+    }))
 }
 
 fn decode_query_v2(frame: &[u8]) -> Result<Request, DecodeError> {
@@ -243,7 +246,11 @@ fn decode_query_v2(frame: &[u8]) -> Result<Request, DecodeError> {
         frame[12], frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19],
     ]);
     let max_count = u16::from_le_bytes([frame[20], frame[21]]);
-    Ok(Request::QueryV2(QueryRequestV2 { nonce, since_nsec: TimestampNsec(since), max_count }))
+    Ok(Request::QueryV2(QueryRequestV2 {
+        nonce,
+        since_nsec: TimestampNsec(since),
+        max_count,
+    }))
 }
 
 fn decode_stats_v1(frame: &[u8]) -> Result<Request, DecodeError> {
@@ -460,7 +467,10 @@ pub fn encode_query_response_bounded_iter(
         buf[count_pos + 1] = count_bytes[1];
     }
 
-    BoundedFrame { buf, len: core::cmp::min(idx, buf.len()) }
+    BoundedFrame {
+        buf,
+        len: core::cmp::min(idx, buf.len()),
+    }
 }
 
 /// v2 variant of `encode_query_response_bounded_iter` that inserts a nonce after the status byte.
@@ -548,7 +558,10 @@ pub fn encode_query_response_bounded_iter_v2(
         buf[count_pos + 1] = count_bytes[1];
     }
 
-    BoundedFrame { buf, len: core::cmp::min(idx, buf.len()) }
+    BoundedFrame {
+        buf,
+        len: core::cmp::min(idx, buf.len()),
+    }
 }
 
 fn encode_record(out: &mut Vec<u8>, rec: &LogRecord) {

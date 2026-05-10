@@ -62,7 +62,11 @@ impl LossRetryBudget {
         if max_inflight_packets == 0 {
             return None;
         }
-        Some(Self { max_retransmits, max_inflight_packets, max_reorder_packets })
+        Some(Self {
+            max_retransmits,
+            max_inflight_packets,
+            max_reorder_packets,
+        })
     }
 
     #[must_use]

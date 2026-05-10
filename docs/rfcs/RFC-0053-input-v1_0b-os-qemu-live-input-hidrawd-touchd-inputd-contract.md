@@ -1,9 +1,9 @@
 # RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`)
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui
 - Created: 2026-05-04
-- Last Updated: 2026-05-06
+- Last Updated: 2026-05-10
 - Links:
   - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
   - Related RFCs:
@@ -16,7 +16,7 @@
 
 - **Phase 0 (contract freeze + proof vectors)**: ✅
 - **Phase 1 (service wiring + reject floor)**: ✅ host/service slice landed and green
-- **Phase 2 (hardening + Gate-E closure sync)**: partial; host hardening, normal-service startup proof, deterministic visible scene proof, UART verifier hardening, interactive OS-start contracts, real live-input QEMU proof, and docs sync landed, but repo-wide `fmt`/`test-all` closure outside this slice still blocks a final Gate-E green claim
+- **Phase 2 (hardening + Gate-E closure sync)**: ✅ complete for this slice; host hardening, deterministic proof sync, interactive OS-start contracts, and docs sync are closed, while user-deferred repo-wide `scripts/fmt-clippy-deny.sh` / `just test-all` remain outside this explicit closeout
 
 Definition:
 
@@ -35,9 +35,9 @@ Definition:
   - `make run` / `just start` now have explicit interactive runtime-mode contracts (`interactive-minimal` and `interactive-full`) and must not emit fake deterministic proof markers,
   - focused contracts now cover the previously observed KPGF class (`neuron-boot.map` private selftest stack retention), late `fw_cfg` mode/profile delivery, and VMO arena headroom for the live ramfb framebuffer,
   - the former live-lane blocker is now closed through the `RFC-0054` driver-owner polling path instead of a `selftest-client` bridge,
-  - broad closure gates were rerun explicitly: `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`, `make clean -> make build -> make test`, and a time-capped `make run` are green,
-  - time-capped `make run` and `just start` now prove the host-driven live QEMU lane with real mouse movement, hover/click rectangle reaction, keyboard rectangle reaction, and stable UI-side failure labels when the scene is not ready,
-  - `scripts/fmt-clippy-deny.sh` and therefore `just test-all` still stop on repo-wide rustfmt drift outside the TASK-0253 slice, so the final Gate-E green claim remains intentionally open.
+  - focused proofs rerun green on the current tree: `cargo test -p virtio-input -- --nocapture`, `cargo test -p hidrawd -- --nocapture`, `cargo test -p inputd -- --nocapture`, `cargo test -p fbdevd -- --nocapture`, `cargo test -p selftest-client --test boot_cfg_runtime -- --nocapture`, `cargo test -p nx --test interactive_os_startup -- --nocapture`, `RUN_PHASE=input-startup RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s scripts/qemu-test.sh --profile=visible-bootstrap`, and `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os visible-bootstrap`,
+  - non-excluded broad closure gates were rerun explicitly: `just dep-gate`, `just diag-os`, `just diag-host`, `just ci-network`, `make clean -> make build`, `make test`, `RUN_TIMEOUT=220s make run`, and `RUN_TIMEOUT=220s just start` are green,
+  - user-deferred repo-wide gates remain explicitly outside this closeout: `scripts/fmt-clippy-deny.sh` and `just test-all`.
 
 ## Scope boundaries (anti-drift)
 
@@ -265,6 +265,12 @@ Quality-gate closure before `Done`:
 - `just ci-network`
 - `make clean` -> `make build` -> `make test` -> `make run`
 
+User-deferred exception for this closeout:
+
+- `scripts/fmt-clippy-deny.sh` and `just test-all` were explicitly excluded by
+  user instruction; this RFC is marked `Done` once all non-excluded gates above
+  are green and the remaining exclusions are documented.
+
 Perf boundary honesty:
 
 - 0253 proves bounded/measurable live-input behavior only,
@@ -283,7 +289,7 @@ Perf boundary honesty:
 
 - [x] **Phase 0**: contract + Soll/reject vectors frozen — proof: `task+RFC review`
 - [x] **Phase 1**: service wiring + reject floor green — proof: `TASK-0253 required host/os proofs`
-- [ ] **Phase 2**: hardening + Gate-E sync green — proof: `quality gates + docs sync`
+- [x] **Phase 2**: hardening + Gate-E sync green — proof: `quality gates + docs sync` (with user-deferred `scripts/fmt-clippy-deny.sh` / `just test-all` kept outside this closeout)
 - [x] Task linked with stop conditions + proof commands.
 - [x] Host `hidrawd` / `touchd` / `inputd` packages and reject suites are green.
 - [x] Host hardening surfaces exist for `ime`, `systemui`, `settingsd`, `nx input`, and `nx postflight input`.
@@ -296,4 +302,4 @@ Perf boundary honesty:
 - [x] Focused boot/resource contracts cover private selftest stack linker retention, late `fw_cfg` runtime config, and VMO arena framebuffer headroom.
 - [x] RFC-0054 driver-layer slice is implemented so live QEMU input no longer depends on a permanent `selftest-client` bridge.
 - [x] Final host-driven live QEMU proof shows real mouse hover/click and keyboard rectangle reaction.
-- [x] Broad closure gates rerun explicitly for final Gate-E closure.
+- [x] Non-excluded broad closure gates rerun explicitly for closeout; user-deferred `scripts/fmt-clippy-deny.sh` / `just test-all` remain tracked outside this RFC.
