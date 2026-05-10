@@ -1,16 +1,20 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution snapshot (post-`TASK-0253` closeout)
+## Active execution snapshot (`TASK-0056C` kickoff after `TASK-0253` review closeout)
 
-- **reviewed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`.
-- **closed contract seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`.
-- **closed driver-layer RFC**: `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`.
-- **next queue head**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`.
+- **active task**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` — `Draft`.
+- **active contract seed**: `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` — `Draft`.
+- **carry-in reviewed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`.
+- **carry-in closed RFCs**:
+  - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`.
+  - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`.
+- **next queue head**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (active now).
 - **carry-in closed**: `TASK-0252` / `RFC-0052` are `Done` and remain the only host-core input authority.
 - **proof posture**: deterministic marker ladder + assertion-backed behavior proofs + `test_reject_*`; marker-only closure is forbidden.
 - **scope split locked**:
   - 0253 = OS/QEMU ingestion/services and integration hooks,
-  - 0252 = parser/keymap/repeat/accel host core behavior.
+  - 0252 = parser/keymap/repeat/accel host core behavior,
+  - 56C = latency/coalescing/no-damage/idle-cheap floor on top of the closed live path.
 - **perf boundary honesty**:
   - 0253 must enforce bounded/deterministic handling,
   - perf/latency closure remains in `TASK-0056C`.
@@ -24,7 +28,8 @@
   - `just test-all`
 - **next-slice caution**:
   - do not back-claim any perf/latency closure from 0253,
-  - keep `TASK-0056C` focused on latency/coalescing/no-damage/idle-cheap posture rather than reopening live-input authority questions.
+  - keep `TASK-0056C` focused on latency/coalescing/no-damage/idle-cheap posture rather than reopening live-input authority questions,
+  - do not silently inherit the 0253 user-deferred gate exception as the permanent 56C closure policy.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
 
@@ -119,6 +124,7 @@
 ## Active task prep prompt (TASK-0056C)
 
 - Next queue head is `TASK-0056C` (present/input perf, latency, coalescing, and embedded reactor/runtime floor).
+- Contract seed now exists: `RFC-0055`.
 - Carry-in is now closed: `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
@@ -134,15 +140,19 @@
 - Immediate follow-up after 0253 review closeout:
   - `TASK-0056C` responsiveness after the live path exists,
   - preserve the now-closed live-input chain while tightening present/input latency and idle-cheap behavior.
+- Current 56C-specific implementation guardrails:
+  - consume the existing `inputd` / `windowd` / `fbdevd` telemetry seams instead of introducing sidecar runtime authority,
+  - pointer-motion bursts may coalesce, but click/focus/wheel/key edges remain explicit,
+  - marker success requires a real visible update or an explicit proven no-damage/no-visible-change decision.
 - 0252 closure checkpoint:
   - new crates: `userspace/hid`, `userspace/touch`, `userspace/keymaps`, `userspace/key-repeat`, `userspace/pointer-accel`,
   - new proof package: `tests/input_v1_0_host`,
   - primary host proof is green: `cargo test -p input_v1_0_host -- --nocapture`,
   - host diagnostics are green: `just diag-host`,
   - fmt/clippy/deny gate is green: `scripts/fmt-clippy-deny.sh`.
-- User execution preference for the current slice:
-  - do not auto-run `just test-all`, `just ci-network`, or `make clean/build/test/run`;
-    only run them when explicitly requested.
+- Prior-slice user exception to remember:
+  - the 0253 closeout explicitly excluded `scripts/fmt-clippy-deny.sh` and `just test-all`;
+    that exception belongs to the 0253 review-closeout context and should not be silently generalized to 56C.
 - Explicit reruns requested by the user are green:
   - `just test-all`,
   - `just ci-network`,

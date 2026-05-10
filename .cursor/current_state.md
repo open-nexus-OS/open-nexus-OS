@@ -2,13 +2,13 @@
 
 ## Current architecture state
 
-- **last_decision (2026-05-10)**: `TASK-0253` moved to `In Review`; `RFC-0053` and `RFC-0054` are `Done` with focused proofs plus non-excluded broad gates green, while `scripts/fmt-clippy-deny.sh` and `just test-all` remain explicitly user-deferred.
-- **active boundary**: Config v1 authority is locked and becomes mandatory carry-in for Policy as Code:
-  - Cap'n Proto remains canonical for runtime/persistence config snapshots,
-  - JSON remains authoring/validation plus derived CLI/debug view only,
-  - deterministic layering stays `defaults < /system < /state < env`,
-  - `configd` owns deterministic reload/version transitions and honest 2PC semantics.
-- **gate tier**: UI closure remains in Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. `TASK-0056` closes deterministic present scheduler + input-routing baseline; `TASK-0056B` closes deterministic visible cursor/hover/focus/click proof; `TASK-0252`/`TASK-0253` are pulled directly after it for live QEMU input; `TASK-0056C` follows for responsiveness before scroll/animation/launcher UX claims; 0199/0200 plus kernel lanes remain explicit follow-ups.
+- **last_decision (2026-05-10)**: `TASK-0056C` is now the active UI fast-lane SSOT, `RFC-0055` is created as its new contract seed, and `TASK-0253` remains `In Review` with `RFC-0053` / `RFC-0054` closed as carry-in.
+- **active boundary**: `TASK-0056C` consumes the verified live-input chain without reopening ownership:
+  - `inputd` remains normalized input authority,
+  - `windowd` remains hit-test/focus/click/compose authority,
+  - `fbdevd` remains cadence/scanout authority,
+  - no detached runtime/platform subsystem is allowed beside the existing UI fast lane.
+- **gate tier**: UI closure remains in Gate E (`Windowing, UI & Graphics`, `production-floor`) per `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`. `TASK-0056` closes deterministic present scheduler + input-routing baseline; `TASK-0056B` closes deterministic visible cursor/hover/focus/click proof; `TASK-0252`/`TASK-0253` are pulled directly after it for live QEMU input; `TASK-0056C` is now active for responsiveness before scroll/animation/launcher UX claims; 0199/0200 plus kernel lanes remain explicit follow-ups.
 
 ## Active execution state
 
@@ -20,8 +20,12 @@
 - **completed_contract**: `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `Done`
-- **active_task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`
-- **active_contract_seed**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`
+- **active_task**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` — `Draft`
+- **active_contract_seed**: `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` — `Draft`
+- **carry_in_reviewed_task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`
+- **carry_in_closed_contracts**:
+  - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`
+  - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`
 - **active_contract_carry_in**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done` (visible bootstrap baseline)
 - **completed_task**: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0048-ui-v1c-visible-qemu-scanout-bootstrap-contract.md` — `Done`
@@ -29,7 +33,7 @@
 - **completed_contract**: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` — `Done`
 - **completed_task**: `tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md` — `Done`
 - **completed_contract**: `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` — `Done`
-- **next_queue_head**: `TASK-0056C` is next; live input is closed enough for review, and the next focused follow-up is responsiveness/latency/coalescing for the UI fast lane.
+- **next_queue_head**: `TASK-0056C` is active; the next downstream fast-lane follow-up after it remains `TASK-0059`.
 - **completed_predecessor**: `tasks/TASK-0047-policy-as-code-v1-unified-engine.md` — `Done`
 - **completed_predecessor_contract**: `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` — `Done`
 
@@ -113,7 +117,29 @@
 - Explicitly deferred by the user and therefore excluded from this closeout:
   - `scripts/fmt-clippy-deny.sh`
   - `just test-all`
-- Next queue head after review is `TASK-0056C` for responsiveness/latency/coalescing; 0253 does not claim perf closure.
+- Active follow-up SSOT is now `TASK-0056C` for responsiveness/latency/coalescing; 0253 does not claim perf closure.
+
+## TASK-0056C execution prep state
+
+- `TASK-0056C` is now the active execution SSOT (`Draft`); `RFC-0055` is the new contract seed (`Draft`).
+- The carry-in is explicit and already closed enough to build on:
+  - `TASK-0253` is `In Review`,
+  - `RFC-0053` and `RFC-0054` are `Done`,
+  - the live chain remains `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`.
+- Existing repo seams that 56C must extend rather than replace:
+  - `inputd` already exports bounded chain counters and idle-yield posture,
+  - `windowd` already exposes compose/present/coalesced/damage telemetry plus present-fence latency,
+  - `fbdevd` already exposes bounded cadence/flush/scanout telemetry and a cadence gate.
+- 56C owns the still-open perf/runtime floor only:
+  - deterministic pointer-motion burst coalescing,
+  - no-damage / no-visible-state-change skip rules,
+  - idle-cheap wakeup collapse,
+  - honest host/QEMU latency proof surfaces.
+- Red-line constraints for the active slice:
+  - no detached runtime/platform subsystem,
+  - no authority bypass around `inputd` / `windowd` / `fbdevd`,
+  - no fake-green perf markers,
+  - no semantic-edge collapse for click/focus/wheel/key events.
 
 ## TASK-0252 execution state
 

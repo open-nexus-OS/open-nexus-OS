@@ -125,6 +125,31 @@ This is the anti-fake-success gate.
 - [x] `just ci-network` is green.
 - [x] `make clean` -> `make build` -> `make test` -> `make run` is green.
 
+## Task-0056C automatic addendum (when applicable)
+- [ ] `RFC-0055` is linked from `TASK-0056C` and `docs/rfcs/README.md`.
+- [ ] Host proof floor is green for the active 56C slice:
+  - [ ] `cargo test -p windowd -p inputd -p fbdevd -- --nocapture`,
+  - [ ] task-local `tests/ui_v2c_host/` or equivalent requirement-named suites are green.
+- [ ] Required reject suites are green:
+  - [ ] forbidden semantic-edge coalescing rejects,
+  - [ ] overflow/budget-breach behavior is bounded and proven,
+  - [ ] marker-before-visible-state dishonesty rejects.
+- [ ] `just dep-gate` is green.
+- [ ] `just diag-os` is green.
+- [ ] `just diag-host` is green.
+- [ ] `just ci-network` is green.
+- [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os visible-bootstrap` is green for the 56C marker ladder.
+- [ ] Deterministic 56C markers appear only after real visible updates or proven skip decisions:
+  - [ ] `windowd: present fastpath on`
+  - [ ] `windowd: pointer coalesce ok`
+  - [ ] `windowd: no-damage skip ok`
+  - [ ] `windowd: idle fastpath ok`
+  - [ ] `windowd: click latency ok`
+  - [ ] `windowd: keyboard latency ok`
+  - [ ] `SELFTEST: live pointer latency ok`
+  - [ ] `SELFTEST: live keyboard latency ok`
+  - [ ] `SELFTEST: ui v2 perf ok`
+
 ## Task-0252 automatic addendum (when applicable)
 - [x] `cargo test -p input_v1_0_host -- --nocapture` is green for host input-core contract tests.
 - [x] Required Soll-behavior suites are green:
@@ -294,6 +319,26 @@ This is the anti-fake-success gate.
   - [ ] no unsafe `Send`/`Sync` shortcuts,
   - [ ] logs/markers remain bounded metadata only.
 
+## Task-0056C manual addendum (when applicable)
+- [ ] Execution SSOT and contract seed are synchronized:
+  - [ ] `TASK-0056C` reflects current implementation/proofs/gates,
+  - [ ] `RFC-0055` reflects the same embedded runtime/reactor floor and proof model.
+- [ ] Scope honesty is preserved:
+  - [ ] 56C stays latency/coalescing/no-damage/idle-cheap scope only,
+  - [ ] no ingress/driver ownership work from 0253/0054 is silently reopened,
+  - [ ] no scroll/effects/IME/WM breadth is silently absorbed.
+- [ ] Authority boundary is preserved:
+  - [ ] `inputd` remains normalized input authority,
+  - [ ] `windowd` remains hit-test/focus/click/compose authority,
+  - [ ] `fbdevd` remains cadence/scanout authority.
+- [ ] Behavior-first proof shape is explicit:
+  - [ ] motion coalescing proofs preserve click/focus/wheel/key semantic edges,
+  - [ ] no-damage skip is proven with explicit no-visible-state-change assertions,
+  - [ ] idle-cheap claims are backed by bounded counters rather than optimistic logs.
+- [ ] Marker honesty is preserved:
+  - [ ] perf markers are downstream of the real 0253 live path,
+  - [ ] no marker fires before a real visible update or explicit proven skip decision.
+
 ## Active progress snapshot (TASK-0047 done host-first after remediation, 2026-04-26)
 - [x] `TASK-0046` / `RFC-0044` are synchronized to `Done`.
 - [x] `TASK-0047` / `RFC-0045` are linked and form the new execution+contract pair.
@@ -346,6 +391,13 @@ This is the anti-fake-success gate.
 - [x] `TASK-0056B` header includes dependencies/follow-ups, security invariants, red flags, and Gate E mapping.
 - [x] Host visible-input proofs are green.
 - [x] QEMU visible-input marker profile is green.
+
+## Active prep snapshot (TASK-0056C + RFC-0055, 2026-05-10)
+- [x] `TASK-0253` remains synchronized as `In Review`; `RFC-0053` and `RFC-0054` remain `Done` carry-in.
+- [x] `TASK-0056C` is now the active execution SSOT (`Draft`).
+- [x] `RFC-0055` exists and is linked from `TASK-0056C` and `docs/rfcs/README.md`.
+- [x] `.cursor` handoff/current-state/context/prep files are switched from 0253 review-closeout posture to 56C kickoff posture.
+- [x] 56C scope boundaries, security expectations, and red-flag neutralizations are explicit in task + RFC.
 
 ## Task-0022 manual addendum (when applicable)
 - [ ] Behavior-first proof selection is explicit in task/RFC:

@@ -309,6 +309,50 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/pre_flight.md`
 - `.cursor/stop_conditions.md`
 
+### @task_0056c_context
+- Status: `TASK-0056C` is the active execution SSOT (`Draft`); `RFC-0055` is the new contract seed (`Draft`); `TASK-0253` remains `In Review` with `RFC-0053` / `RFC-0054` closed as carry-in.
+- Scope baseline: embedded reactor/runtime floor across `inputd -> windowd -> fbdevd`, deterministic pointer-motion coalescing, no-damage/no-visible-state-change skip, idle-cheap wakeup collapse, and honest latency counters/markers.
+- Carry-in reality: the live chain `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb` is already real and review-closed enough to consume.
+- Authority boundary: `inputd` remains normalized input authority, `windowd` remains hit-test/focus/click/compose authority, and `fbdevd` remains cadence/scanout authority.
+- Explicit non-claims: no ingress/driver ownership rewrite, no scroll/effects/IME breadth (`TASK-0059`), no runtime/animation or WM breadth (`TASK-0062` / `TASK-0063` / `TASK-0064`), and no kernel perf-floor closure (`TASK-0054B/C/D`).
+- Expected proof shape: host-first coalescing/reject suites plus QEMU marker proof for fastpath/no-damage/idle-cheap/latency honesty.
+- `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`
+- `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md`
+- `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
+- `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
+- `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md`
+- `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md`
+- `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md`
+- `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md`
+- `scripts/qemu-test.sh`
+- `.cursor/rules/07-behavior-first-proofs.mdc`
+- `.cursor/rules/10-security-services.mdc`
+
+### @task_0056c_touched
+- `source/services/windowd/`
+- `source/services/fbdevd/`
+- `source/services/inputd/`
+- `userspace/input-live-protocol/`
+- `userspace/apps/launcher/`
+- `tests/ui_v2c_host/`
+- `source/apps/selftest-client/`
+- `tools/nx/tests/interactive_os_startup.rs`
+- `scripts/run-qemu-rv64.sh`
+- `scripts/qemu-test.sh`
+- `docs/dev/ui/input/input.md`
+- `docs/dev/ui/foundations/rendering/renderer.md`
+- `docs/dev/ui/foundations/quality/testing.md`
+- `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md`
+- `docs/rfcs/README.md`
+- `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md`
+- `tasks/IMPLEMENTATION-ORDER.md`
+- `.cursor/current_state.md`
+- `.cursor/handoff/current.md`
+- `.cursor/context_bundles.md`
+- `.cursor/next_task_prep.md`
+- `.cursor/pre_flight.md`
+- `.cursor/stop_conditions.md`
+
 ### @task_0252_context
 - Status: `TASK-0252` is `Done`; `RFC-0052` is `Done`; follow-on live OS/QEMU input closure remains `TASK-0253`.
 - Scope: deterministic host-only input core for HID parse, touch normalize, keymaps, key repeat, and pointer acceleration.
@@ -1029,6 +1073,9 @@ Kontext strikt: @core_context @task_0055c_context @quality_gates @task_0055c_tou
 
 ## Standard instruction line (TASK-0056)
 Kontext strikt: @core_context @task_0056_context @quality_gates @task_0056_touched. Kein @codebase Scan.
+
+## Standard instruction line (TASK-0056C)
+Kontext strikt: @core_context @task_0056c_context @quality_gates @task_0056c_touched. Kein @codebase Scan.
 
 ## Standard instruction line (TASK-0252)
 Kontext strikt: @core_context @task_0252_context @quality_gates @task_0252_touched. Kein @codebase Scan.

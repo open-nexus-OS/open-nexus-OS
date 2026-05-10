@@ -99,6 +99,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (Done; host core crates + `input_v1_0_host` proof package landed and closure gates are green; live marker closure remains delegated to `TASK-0253`)
 - RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is now in review, focused proofs plus non-excluded broad gates are green, and only user-deferred repo-wide `scripts/fmt-clippy-deny.sh` / `just test-all` remain outside this closeout)
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; driver ownership, cooperative polling, explicit ingress/adapter truth, and negative-test coverage are landed for the real live-QEMU path)
+- RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Draft; execution SSOT is `TASK-0056C`, carrying forward the closed live-input path from `TASK-0253` / RFC-0053 / RFC-0054 without reopening authority ownership)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -213,3 +214,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; execution SSOT stays `TASK-0253`, and the minimal driver layer plus MMIO ownership contract are now landed and verified)
   - docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
+- RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Draft; execution SSOT `TASK-0056C`, carry-in is the closed live-input path from RFC-0053 / RFC-0054)
+  - docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md

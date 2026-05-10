@@ -151,7 +151,7 @@ Vom CPU-Renderer bis zum sichtbaren deterministischen Input-Proof und dann direk
 | TASK-0056B | UI v2a: visible input — cursor + hover + focus + click (Done; deterministic host/reject/QEMU proofs + closure gates green; live device input follows in 0252/0253) |
 | TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core (Done; host-first contract closed with full gate reruns green) |
 | TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks (pulled forward; live QEMU pointer/keyboard floor) |
-| TASK-0056C | UI v2a: embedded reactor/runtime floor + present/input perf latency + coalescing (after real input pipeline; required before scroll/animation/launcher UX claims) |
+| TASK-0056C | UI v2a: embedded reactor/runtime floor + present/input perf latency + coalescing (active next UI fast-lane SSOT; RFC-0055 contract seed, after real input pipeline and before scroll/animation/launcher UX claims) |
 
 **Defer aus diesem Bereich:** `0054B/C/D` (Kernel UI/IPC/MM perf floor — Perf-Polish nach Baseline), `0055D` (dev display presets).
 

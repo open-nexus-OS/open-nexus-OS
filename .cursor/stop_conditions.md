@@ -307,6 +307,49 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] no live-input markers are emitted by 56B,
   - [ ] `SELFTEST: ui visible input ok` summarizes deterministic visible-input proof.
 
+## TASK-0056C class stop conditions (UI v2a embedded reactor/runtime floor + present/input perf)
+- [ ] Execution SSOT + contract seed are synchronized:
+  - [ ] `TASK-0056C` status/proof/touched-paths reflect real repo state,
+  - [ ] `RFC-0055` remains linked and contract-aligned,
+  - [ ] `docs/rfcs/README.md` status matches RFC reality.
+- [ ] Gate scope honesty is preserved:
+  - [ ] Gate E `production-floor` alignment stays explicit,
+  - [ ] 56C claims only latency/coalescing/no-damage/idle-cheap closure,
+  - [ ] no scroll/effects/IME/WM breadth or kernel perf-floor redesign is absorbed.
+- [ ] Embedded authority boundary is enforced:
+  - [ ] `inputd` remains normalized input authority,
+  - [ ] `windowd` remains hit-test/focus/click/compose authority,
+  - [ ] `fbdevd` remains cadence/scanout authority,
+  - [ ] no detached runtime/platform authority appears beside the existing chain.
+- [ ] Deterministic coalescing contract is proven:
+  - [ ] pointer-motion bursts coalesce deterministically,
+  - [ ] click/focus-transfer/wheel/key edges remain individually observable,
+  - [ ] overflow/budget-breach paths degrade or reject deterministically.
+- [ ] No-damage / idle-cheap contract is proven:
+  - [ ] no-damage/no-visible-state-change skips avoidable work,
+  - [ ] idle path remains bounded and cheap,
+  - [ ] counters/markers prove reduced work without relying on stale visible state.
+- [ ] Required proof floor is green:
+  - [ ] `cargo test -p windowd -p inputd -p fbdevd -- --nocapture`,
+  - [ ] task-local `tests/ui_v2c_host/` or equivalent requirement-named host proofs are green,
+  - [ ] required `test_reject_*` suites are green,
+  - [ ] `just dep-gate`,
+  - [ ] `just diag-os`,
+  - [ ] `just diag-host`,
+  - [ ] `just ci-network`,
+  - [ ] `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=220s just test-os visible-bootstrap`.
+- [ ] Marker honesty contract is preserved:
+  - [ ] `windowd: present fastpath on` appears only after the fastpath is real,
+  - [ ] `windowd: pointer coalesce ok` appears only after real coalesced visible behavior,
+  - [ ] `windowd: no-damage skip ok` appears only after an explicit proven skip decision,
+  - [ ] `windowd: idle fastpath ok` appears only after bounded idle-cheap behavior is proven,
+  - [ ] `windowd: click latency ok`, `windowd: keyboard latency ok`, `SELFTEST: live pointer latency ok`, `SELFTEST: live keyboard latency ok`, and `SELFTEST: ui v2 perf ok` summarize already-proven behavior.
+- [ ] Follow-up scope remains explicit:
+  - [ ] scroll/effects/IME breadth remains `TASK-0059`,
+  - [ ] runtime/animation and invalidation breadth remain `TASK-0062` / `TASK-0063`,
+  - [ ] WM/scene-transition breadth remains `TASK-0064`,
+  - [ ] kernel perf-floor redesign remains `TASK-0054B` / `TASK-0054C` / `TASK-0054D`.
+
 ## TASK-0252 class stop conditions (Input v1.0a host-first core)
 - [ ] Execution SSOT + contract seed are synchronized:
   - [ ] `TASK-0252` status/proof/touched-paths reflect real repo state,
@@ -395,6 +438,13 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
 - [x] Header follow-ups and red-flag/perf-boundary notes are synchronized in task/rfc/workfiles.
 - [x] Scope split is explicit: host-core behavior in 0252; OS/QEMU service integration in 0253.
 - [x] `.cursor` workfiles are updated for 0253 review closeout and `TASK-0056C` queue-head prep.
+
+## Active progress snapshot (TASK-0056C kickoff, 2026-05-10)
+- [x] `TASK-0056C` is now the active execution SSOT.
+- [x] `RFC-0055` exists as the new contract seed and is linked from task + RFC index.
+- [x] Archived handoff now captures the 0253 review-closeout state under the task name.
+- [x] Active `.cursor` workfiles are switched from 0253 review-closeout posture to 56C kickoff posture.
+- [x] 56C scope/security/red-flag guardrails are explicit before implementation starts.
 
 ## Active progress snapshot (TASK-0252 host core done, 2026-05-04)
 - [x] Host-first crates exist under `userspace/hid/`, `userspace/touch/`, `userspace/keymaps/`,
