@@ -44,10 +44,8 @@ impl AddressWindow {
 }
 
 /// Temporary kernel page-pool window used by early loader and selftest allocators.
-pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow = AddressWindow {
-    base: KERNEL_PAGE_POOL_BASE,
-    len: KERNEL_PAGE_POOL_LEN,
-};
+pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow =
+    AddressWindow { base: KERNEL_PAGE_POOL_BASE, len: KERNEL_PAGE_POOL_LEN };
 
 #[cfg(test)]
 mod tests;

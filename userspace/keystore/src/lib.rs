@@ -78,10 +78,7 @@ pub fn load_anchors(dir: &Path) -> Result<Vec<PublicKey>, Error> {
 }
 
 fn parse_hex_key(input: &str) -> Result<PublicKey, Error> {
-    let filtered: String = input
-        .chars()
-        .filter(|ch| !ch.is_ascii_whitespace())
-        .collect();
+    let filtered: String = input.chars().filter(|ch| !ch.is_ascii_whitespace()).collect();
     if filtered.is_empty() {
         return Err(Error::InvalidKey("empty key material".into()));
     }
@@ -97,13 +94,9 @@ fn parse_pem_spki(input: &str) -> Result<Vec<u8>, Error> {
     // Minimal PEM parser: extract base64 between headers and decode
     let begin = "-----BEGIN PUBLIC KEY-----";
     let end = "-----END PUBLIC KEY-----";
-    let start = input
-        .find(begin)
-        .ok_or_else(|| Error::InvalidKey("missing PEM header".into()))?
+    let start = input.find(begin).ok_or_else(|| Error::InvalidKey("missing PEM header".into()))?
         + begin.len();
-    let stop = input
-        .find(end)
-        .ok_or_else(|| Error::InvalidKey("missing PEM footer".into()))?;
+    let stop = input.find(end).ok_or_else(|| Error::InvalidKey("missing PEM footer".into()))?;
     if stop <= start {
         return Err(Error::InvalidKey("invalid PEM framing".into()));
     }
@@ -117,8 +110,7 @@ fn parse_pem_spki(input: &str) -> Result<Vec<u8>, Error> {
 /// Verifies a detached Ed25519 signature against the provided message.
 pub fn verify_detached(pk: &PublicKey, msg: &[u8], sig: &[u8]) -> Result<(), Error> {
     let signature = Signature::try_from(sig).map_err(|_| Error::InvalidSig)?;
-    pk.verify_strict(msg, &signature)
-        .map_err(|_| Error::InvalidSig)
+    pk.verify_strict(msg, &signature).map_err(|_| Error::InvalidSig)
 }
 
 /// Derives the stable device identifier for a public key.
@@ -165,10 +157,7 @@ mod tests {
 
         let mut tampered = signature.to_bytes();
         tampered[0] ^= 0x01;
-        assert!(matches!(
-            verify_detached(&verifying, message, &tampered),
-            Err(Error::InvalidSig)
-        ));
+        assert!(matches!(verify_detached(&verifying, message, &tampered), Err(Error::InvalidSig)));
     }
 
     #[test]

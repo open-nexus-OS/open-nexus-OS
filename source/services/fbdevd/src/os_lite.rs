@@ -46,9 +46,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     debug_println(MAP_OK_MARKER).map_err(|_| "fbdevd map log failed")?;
     configure_ramfb(framebuffer.base, bootstrap.mode).map_err(|err| fail(err))?;
     debug_println(RAMFB_CONFIGURED_MARKER).map_err(|_| "fbdevd ramfb log failed")?;
-    framebuffer
-        .write_handoff(&bootstrap)
-        .map_err(|err| fail(err))?;
+    framebuffer.write_handoff(&bootstrap).map_err(|err| fail(err))?;
     debug_println(FLUSH_OK_MARKER).map_err(|_| "fbdevd flush log failed")?;
 
     let mut service = FbdevService::enabled(&bootstrap).map_err(|err| fail(err))?;
@@ -69,18 +67,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             .write_live_visible_rows(next_state, start_y, end_y)
                             .map_err(|err| fail(err))?;
                         if byte_len != 0 {
-                            service
-                                .present_live_bytes(byte_len)
-                                .map_err(|err| fail(err))?;
+                            service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                         }
                     }
                     DirtyRows::Full => {
                         let handoff = windowd::live_visible_state_handoff(next_state)
                             .map_err(|_| fail(FbdevdError::InvalidMode))?;
                         service.present(&handoff).map_err(|err| fail(err))?;
-                        framebuffer
-                            .write_handoff(&handoff)
-                            .map_err(|err| fail(err))?;
+                        framebuffer.write_handoff(&handoff).map_err(|err| fail(err))?;
                     }
                 }
             }
@@ -156,9 +150,7 @@ fn fetch_input_visible_state() -> Option<input_live_protocol::VisibleState> {
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client
-        .send_with_cap_move_wait(&request, reply_send_clone, wait)
-        .ok()?;
+    client.send_with_cap_move_wait(&request, reply_send_clone, wait).ok()?;
     let frame = reply.recv(wait).ok()?;
     decode_visible_state(&frame)
 }

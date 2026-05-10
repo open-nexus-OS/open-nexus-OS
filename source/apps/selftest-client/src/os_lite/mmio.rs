@@ -100,12 +100,7 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
 
 pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
     const MMIO_CAP_SLOT: u32 = 48;
-    let mut info = nexus_abi::CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     nexus_abi::cap_query(MMIO_CAP_SLOT, &mut info).map_err(|_| ())?;
     // 2 = DeviceMmio
     if info.kind_tag != 2 || info.base == 0 || info.len == 0 {
@@ -117,12 +112,7 @@ pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
 pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
     // Allocate a small VMO and ensure we can query its physical window deterministically.
     let vmo = nexus_abi::vmo_create(4096).map_err(|_| ())?;
-    let mut info = nexus_abi::CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     nexus_abi::cap_query(vmo, &mut info).map_err(|_| ())?;
     // 1 = VMO
     if info.kind_tag != 1 || info.base == 0 || info.len < 4096 {

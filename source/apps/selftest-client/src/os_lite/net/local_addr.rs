@@ -27,9 +27,7 @@ pub(crate) fn netstackd_local_addr() -> Option<[u8; 4]> {
         let reply = cached_reply_client().map_err(|_| ())?;
         let (reply_send_slot, reply_recv_slot) = reply.slots();
         let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        client
-            .send_with_cap_move(req, reply_send_clone)
-            .map_err(|_| ())?;
+        client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 512];
         for _ in 0..5_000 {

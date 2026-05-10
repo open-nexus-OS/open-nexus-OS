@@ -106,9 +106,7 @@ fn resolve_entry(
         });
     }
     if modifiers.shift() {
-        return entry
-            .shifted
-            .ok_or(KeymapError::UnsupportedModifierCombination);
+        return entry.shifted.ok_or(KeymapError::UnsupportedModifierCombination);
     }
     Ok(entry.base)
 }

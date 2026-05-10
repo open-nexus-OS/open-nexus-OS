@@ -67,33 +67,25 @@ struct Namespace {
 
 impl Namespace {
     fn new() -> Self {
-        Self {
-            view: NamespaceView::new(vec!["pkg:/".to_string()]),
-        }
+        Self { view: NamespaceView::new(vec!["pkg:/".to_string()]) }
     }
 
     fn packagefs_resolve(&self, path: &str) -> Result<Entry> {
         // Forward resolution to packagefsd over IPC (real data path).
         const PKGFS_OPCODE_RESOLVE: u8 = 2;
-        let canonical = self
-            .view
-            .assert_allowed(path)
-            .map_err(map_namespace_error)?;
+        let canonical = self.view.assert_allowed(path).map_err(map_namespace_error)?;
         let rel = canonical.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
         let client = KernelClient::new_for("packagefsd").map_err(|_| Error::Transport)?;
         let mut frame = Vec::with_capacity(1 + rel.len());
         frame.push(PKGFS_OPCODE_RESOLVE);
         frame.extend_from_slice(rel.as_bytes());
-        client
-            .send(&frame, Wait::Blocking)
-            .map_err(|_| Error::Transport)?;
+        client.send(&frame, Wait::Blocking).map_err(|_| Error::Transport)?;
         let rsp = client.recv(Wait::Blocking).map_err(|_| Error::Transport)?;
         if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
             return Err(Error::NotFound);
         }
-        let size = u64::from_le_bytes([
-            rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8],
-        ]);
+        let size =
+            u64::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8]]);
         let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
         let bytes = rsp[11..].to_vec();
         Ok(Entry { kind, size, bytes })
@@ -117,10 +109,7 @@ impl Namespace {
         if entry.kind != KIND_FILE {
             return Err(Error::InvalidPath);
         }
-        Ok(FileHandle {
-            owner_service_id: 0,
-            bytes: entry.bytes,
-        })
+        Ok(FileHandle { owner_service_id: 0, bytes: entry.bytes })
     }
 }
 
@@ -177,9 +166,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_OPEN => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
@@ -204,9 +191,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_READ => {
                         if frame.len() < 1 + 4 + 8 + 4 {
@@ -233,9 +218,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             }
                             None => reply.push(0),
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     OPCODE_CLOSE => {
                         if frame.len() < 5 {
@@ -256,9 +239,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server
-                            .send(&reply, Wait::Blocking)
-                            .map_err(|_| Error::Transport)?;
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                     _ => {
                         let _ = nexus_abi::yield_();

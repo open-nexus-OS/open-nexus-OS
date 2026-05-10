@@ -55,10 +55,7 @@ fn test_reject_quic_feasibility_os_runtime_unimplemented() {
     );
     let err = assess_quic_phase_d_feasibility(input)
         .expect_err("runtime marked unimplemented must reject QUIC feasibility unlock");
-    assert_eq!(
-        err,
-        QuicFeasibilityError::RejectQuicFeasibilityImplementationMissing
-    );
+    assert_eq!(err, QuicFeasibilityError::RejectQuicFeasibilityImplementationMissing);
 }
 
 #[test]
@@ -72,10 +69,7 @@ fn test_reject_quic_feasibility_std_runtime_coupling_even_if_runtime_is_marked_i
     );
     let err = assess_quic_phase_d_feasibility(input)
         .expect_err("std-coupled runtime assumptions must reject feasibility");
-    assert_eq!(
-        err,
-        QuicFeasibilityError::RejectQuicFeasibilityStdRuntimeCoupling
-    );
+    assert_eq!(err, QuicFeasibilityError::RejectQuicFeasibilityStdRuntimeCoupling);
 }
 
 #[test]
@@ -89,10 +83,7 @@ fn test_reject_quic_feasibility_non_deterministic_timer_assumptions() {
     );
     let err = assess_quic_phase_d_feasibility(input)
         .expect_err("runtime-dependent timers must reject feasibility");
-    assert_eq!(
-        err,
-        QuicFeasibilityError::RejectQuicFeasibilityNonDeterministicTimers
-    );
+    assert_eq!(err, QuicFeasibilityError::RejectQuicFeasibilityNonDeterministicTimers);
 }
 
 #[test]
@@ -106,10 +97,7 @@ fn test_reject_quic_feasibility_entropy_prerequisites_unsatisfied() {
     );
     let err = assess_quic_phase_d_feasibility(input)
         .expect_err("missing entropy prerequisites must reject feasibility");
-    assert_eq!(
-        err,
-        QuicFeasibilityError::RejectQuicFeasibilityEntropyPrerequisites
-    );
+    assert_eq!(err, QuicFeasibilityError::RejectQuicFeasibilityEntropyPrerequisites);
 }
 
 #[test]
@@ -125,10 +113,7 @@ fn test_reject_quic_feasibility_unbounded_loss_retry_budget() {
     );
     let err = assess_quic_phase_d_feasibility(input)
         .expect_err("unbounded retry/inflight/reorder assumptions must reject");
-    assert_eq!(
-        err,
-        QuicFeasibilityError::RejectQuicFeasibilityUnboundedLossRetryBudget
-    );
+    assert_eq!(err, QuicFeasibilityError::RejectQuicFeasibilityUnboundedLossRetryBudget);
 }
 
 #[test]

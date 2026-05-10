@@ -209,9 +209,8 @@ impl VfsClient {
             let message =
                 capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                     .map_err(|_| Error::Decode)?;
-            let response = message
-                .get_root::<open_response::Reader<'_>>()
-                .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<open_response::Reader<'_>>().map_err(|_| Error::Decode)?;
             if !response.get_ok() {
                 return Err(Error::NotFound);
             }
@@ -252,16 +251,12 @@ impl VfsClient {
             let message =
                 capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                     .map_err(|_| Error::Decode)?;
-            let response = message
-                .get_root::<read_response::Reader<'_>>()
-                .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<read_response::Reader<'_>>().map_err(|_| Error::Decode)?;
             if !response.get_ok() {
                 return Err(Error::InvalidHandle);
             }
-            response
-                .get_bytes()
-                .map(|data| data.to_vec())
-                .map_err(|_| Error::Decode)
+            response.get_bytes().map(|data| data.to_vec()).map_err(|_| Error::Decode)
         }
     }
 
@@ -294,9 +289,8 @@ impl VfsClient {
             let message =
                 capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                     .map_err(|_| Error::Decode)?;
-            let response = message
-                .get_root::<close_response::Reader<'_>>()
-                .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<close_response::Reader<'_>>().map_err(|_| Error::Decode)?;
             if response.get_ok() {
                 Ok(())
             } else {
@@ -339,16 +333,12 @@ impl VfsClient {
             let message =
                 capnp::serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
                     .map_err(|_| Error::Decode)?;
-            let response = message
-                .get_root::<stat_response::Reader<'_>>()
-                .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<stat_response::Reader<'_>>().map_err(|_| Error::Decode)?;
             if !response.get_ok() {
                 return Err(Error::NotFound);
             }
-            Ok(Metadata::new(
-                response.get_size(),
-                FileKind::from_raw(response.get_kind()),
-            ))
+            Ok(Metadata::new(response.get_size(), FileKind::from_raw(response.get_kind())))
         }
     }
 
@@ -425,9 +415,7 @@ mod host {
     impl Client {
         /// Wraps an existing loopback client handle.
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self {
-                ipc: Arc::new(client),
-            }
+            Self { ipc: Arc::new(client) }
         }
 
         pub fn call(&self, frame: Vec<u8>) -> Result<Vec<u8>> {
@@ -448,9 +436,7 @@ mod host {
     impl super::VfsClient {
         /// Creates a client bound to the provided loopback connection.
         pub fn from_loopback(client: LoopbackClient) -> Self {
-            Self {
-                backend: super::Backend::Host(Client::from_loopback(client)),
-            }
+            Self { backend: super::Backend::Host(Client::from_loopback(client)) }
         }
     }
 }

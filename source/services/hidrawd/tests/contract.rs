@@ -24,11 +24,7 @@ fn keyboard_and_mouse_ingest_batches_are_deterministic() {
     service.register_mouse(mouse_id);
 
     let keyboard = service
-        .ingest_keyboard_report(
-            keyboard_id,
-            TimestampNs::new(10),
-            &[0, 0, 0x04, 0, 0, 0, 0, 0],
-        )
+        .ingest_keyboard_report(keyboard_id, TimestampNs::new(10), &[0, 0, 0x04, 0, 0, 0, 0, 0])
         .expect("keyboard report");
     let mouse = service
         .ingest_mouse_report(mouse_id, TimestampNs::new(11), &[0b001, 3u8, (-2i8) as u8])
@@ -59,10 +55,7 @@ fn test_reject_truncated_keyboard_report() {
         .ingest_keyboard_report(keyboard_id, TimestampNs::new(1), &[0, 0, 0x04])
         .expect_err("must reject truncated keyboard report");
     assert_eq!(err.code(), "hid.keyboard.length");
-    assert_eq!(
-        err,
-        HidrawdError::Parse(hid::HidError::InvalidKeyboardReportLength { actual: 3 })
-    );
+    assert_eq!(err, HidrawdError::Parse(hid::HidError::InvalidKeyboardReportLength { actual: 3 }));
 }
 
 #[test]
@@ -72,11 +65,7 @@ fn test_reject_duplicate_keyboard_usage() {
     service.register_keyboard(keyboard_id);
 
     let err = service
-        .ingest_keyboard_report(
-            keyboard_id,
-            TimestampNs::new(2),
-            &[0, 0, 0x04, 0x04, 0, 0, 0, 0],
-        )
+        .ingest_keyboard_report(keyboard_id, TimestampNs::new(2), &[0, 0, 0x04, 0x04, 0, 0, 0, 0])
         .expect_err("must reject duplicate keyboard usage");
     assert_eq!(err.code(), "hid.keyboard.duplicate_usage");
 }
@@ -112,10 +101,7 @@ fn ingest_device_events_accepts_absolute_pointer_batches() {
 
     assert_eq!(batch.kind(), HidDeviceKind::Mouse);
     assert_eq!(batch.events().len(), 2);
-    assert!(batch
-        .events()
-        .iter()
-        .all(|event| event.kind() == HidEventKind::Abs));
+    assert!(batch.events().iter().all(|event| event.kind() == HidEventKind::Abs));
 }
 
 #[test]
@@ -152,10 +138,7 @@ fn virtio_raw_pointer_batch_is_normalized_through_explicit_adapter_gate() {
     let wire_batch = outcome.wire_batch().expect("wire batch");
     assert_eq!(wire_batch.raw_event_count, 3);
     assert_eq!(wire_batch.normalized_event_count, 3);
-    assert_eq!(
-        wire_batch.pointer_source,
-        input_live_protocol::POINTER_SOURCE_MOUSE_RELATIVE
-    );
+    assert_eq!(wire_batch.pointer_source, input_live_protocol::POINTER_SOURCE_MOUSE_RELATIVE);
 }
 
 #[test]
@@ -185,10 +168,7 @@ fn virtio_raw_wheel_events_are_normalized_on_the_mouse_relative_wire_path() {
     assert_eq!(hid_batch.kind(), HidDeviceKind::Mouse);
     assert_eq!(hid_batch.events().len(), 1);
     assert_eq!(hid_batch.events()[0].kind(), HidEventKind::Rel);
-    assert_eq!(
-        hid_batch.events()[0].code().raw(),
-        RelativeAxis::Wheel.event_code()
-    );
+    assert_eq!(hid_batch.events()[0].code().raw(), RelativeAxis::Wheel.event_code());
     assert_eq!(hid_batch.events()[0].value().raw(), -1);
 }
 
@@ -215,18 +195,12 @@ fn absolute_pointer_normalization_preserves_wire_calibration() {
     .expect("absolute adapter outcome");
 
     let wire_batch = outcome.wire_batch().expect("absolute wire batch");
-    assert_eq!(
-        wire_batch.pointer_source,
-        input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE
-    );
+    assert_eq!(wire_batch.pointer_source, input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE);
     assert_eq!(wire_batch.abs_max_x, 32767);
     assert_eq!(wire_batch.abs_max_y, 32767);
     assert_eq!(wire_batch.normalized_event_count, 2);
     assert!(
-        wire_batch
-            .events
-            .iter()
-            .all(|event| event.kind == input_live_protocol::EVENT_KIND_ABS),
+        wire_batch.events.iter().all(|event| event.kind == input_live_protocol::EVENT_KIND_ABS),
         "absolute pointer calibration proof requires abs events on the wire"
     );
 }
@@ -255,10 +229,7 @@ fn absolute_pointer_normalization_keeps_relative_wheel_events_for_scroll() {
     .expect("absolute wheel adapter outcome");
 
     let wire_batch = outcome.wire_batch().expect("absolute wheel wire batch");
-    assert_eq!(
-        wire_batch.pointer_source,
-        input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE
-    );
+    assert_eq!(wire_batch.pointer_source, input_live_protocol::POINTER_SOURCE_TABLET_ABSOLUTE);
     assert_eq!(wire_batch.normalized_event_count, 1);
     assert_eq!(wire_batch.events.len(), 1);
     assert_eq!(wire_batch.events[0].kind, input_live_protocol::EVENT_KIND_REL);
@@ -287,10 +258,7 @@ fn touch_absolute_source_is_carried_on_the_wire() {
     .expect("touch absolute adapter outcome");
 
     let wire_batch = outcome.wire_batch().expect("touch absolute wire batch");
-    assert_eq!(
-        wire_batch.pointer_source,
-        input_live_protocol::POINTER_SOURCE_TOUCH_ABSOLUTE
-    );
+    assert_eq!(wire_batch.pointer_source, input_live_protocol::POINTER_SOURCE_TOUCH_ABSOLUTE);
 }
 
 #[test]
@@ -308,10 +276,7 @@ fn absolute_pointer_falls_back_to_qemu_axis_max_when_live_axis_info_is_missing()
         resolve_absolute_axis_max(Some(PointerSource::TouchAbsolute), 0, &raw_events, 1),
         QEMU_ABSOLUTE_AXIS_FALLBACK_MAX
     );
-    assert_eq!(
-        resolve_absolute_axis_max(Some(PointerSource::MouseRelative), 0, &raw_events, 0),
-        0
-    );
+    assert_eq!(resolve_absolute_axis_max(Some(PointerSource::MouseRelative), 0, &raw_events, 0), 0);
 }
 
 #[test]

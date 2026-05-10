@@ -95,29 +95,11 @@ impl CapFdToken {
         nonce: u64,
         expires_at: u64,
     ) -> Self {
-        let mac = compute_mac(
-            mac_key,
-            subject_id,
-            &canonical_path,
-            rights,
-            nonce,
-            expires_at,
-        );
+        let mac = compute_mac(mac_key, subject_id, &canonical_path, rights, nonce, expires_at);
         // #region agent log
-        debug_log(
-            "H3",
-            "capfd mint called",
-            "{\"component\":\"capfd\",\"op\":\"mint\"}",
-        );
+        debug_log("H3", "capfd mint called", "{\"component\":\"capfd\",\"op\":\"mint\"}");
         // #endregion
-        Self {
-            subject_id,
-            canonical_path,
-            rights,
-            nonce,
-            expires_at,
-            mac,
-        }
+        Self { subject_id, canonical_path, rights, nonce, expires_at, mac }
     }
 }
 
@@ -228,10 +210,8 @@ fn debug_log(hypothesis_id: &str, message: &str, data_json: &str) {
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let timestamp =
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
     let line = format!(
         "{{\"sessionId\":\"997420\",\"runId\":\"pre-fix\",\"hypothesisId\":\"{}\",\"location\":\"source/services/vfsd/src/sandbox.rs\",\"message\":\"{}\",\"data\":{},\"timestamp\":{}}}\n",
         hypothesis_id, message, data_json, timestamp
@@ -254,68 +234,43 @@ mod tests {
     #[test]
     fn test_reject_path_traversal() {
         let ns = NamespaceView::new(vec!["pkg:/system/".to_string()]);
-        let err = ns
-            .assert_allowed("pkg:/system/../secrets.txt")
-            .expect_err("must reject");
+        let err = ns.assert_allowed("pkg:/system/../secrets.txt").expect_err("must reject");
         assert_eq!(err, SandboxError::Traversal);
     }
 
     #[test]
     fn test_reject_unauthorized_namespace_path() {
         let ns = NamespaceView::new(vec!["pkg:/system/".to_string()]);
-        let err = ns
-            .assert_allowed("pkg:/other/config.toml")
-            .expect_err("must reject");
+        let err = ns.assert_allowed("pkg:/other/config.toml").expect_err("must reject");
         assert_eq!(err, SandboxError::OutOfNamespace);
     }
 
     #[test]
     fn test_reject_forged_capfd() {
         let mut guard = ReplayGuard::default();
-        let mut token = CapFdToken::mint(
-            KEY,
-            7,
-            "pkg:/system/build.prop".to_string(),
-            RIGHT_READ,
-            1,
-            10_000,
-        );
+        let mut token =
+            CapFdToken::mint(KEY, 7, "pkg:/system/build.prop".to_string(), RIGHT_READ, 1, 10_000);
         token.mac[0] ^= 0xFF;
-        let err = guard
-            .verify(KEY, &token, 7, RIGHT_READ, 5_000)
-            .expect_err("must reject forged token");
+        let err =
+            guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).expect_err("must reject forged token");
         assert_eq!(err, SandboxError::Integrity);
     }
 
     #[test]
     fn test_reject_replayed_capfd() {
         let mut guard = ReplayGuard::default();
-        let token = CapFdToken::mint(
-            KEY,
-            7,
-            "pkg:/system/build.prop".to_string(),
-            RIGHT_READ,
-            42,
-            10_000,
-        );
+        let token =
+            CapFdToken::mint(KEY, 7, "pkg:/system/build.prop".to_string(), RIGHT_READ, 42, 10_000);
         assert!(guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).is_ok());
-        let err = guard
-            .verify(KEY, &token, 7, RIGHT_READ, 5_000)
-            .expect_err("must reject replay");
+        let err = guard.verify(KEY, &token, 7, RIGHT_READ, 5_000).expect_err("must reject replay");
         assert_eq!(err, SandboxError::Replay);
     }
 
     #[test]
     fn test_reject_capfd_rights_mismatch() {
         let mut guard = ReplayGuard::default();
-        let token = CapFdToken::mint(
-            KEY,
-            7,
-            "pkg:/system/build.prop".to_string(),
-            RIGHT_READ,
-            77,
-            10_000,
-        );
+        let token =
+            CapFdToken::mint(KEY, 7, "pkg:/system/build.prop".to_string(), RIGHT_READ, 77, 10_000);
         let err = guard
             .verify(KEY, &token, 7, RIGHT_WRITE, 5_000)
             .expect_err("must reject rights mismatch");

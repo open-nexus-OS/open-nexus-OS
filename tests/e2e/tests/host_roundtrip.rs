@@ -63,10 +63,7 @@ fn bundle_install_query_roundtrip() {
     let install = build_install_frame("launcher", 42, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(
-        !ok,
-        "install must fail closed without keystore policy backend"
-    );
+    assert!(!ok, "install must fail closed without keystore policy backend");
     assert_eq!(err, InstallError::Eacces);
 
     drop(client);
@@ -91,10 +88,7 @@ fn bundle_install_get_payload_roundtrip() {
     let install = build_install_frame("launcher", 99, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(
-        !ok,
-        "install must fail closed without keystore policy backend"
-    );
+    assert!(!ok, "install must fail closed without keystore policy backend");
     assert_eq!(err, InstallError::Eacces);
 
     drop(client);
@@ -143,10 +137,8 @@ fn bundle_install_signed_enforced_via_keystored() {
     let (client, mut server) = bundle_loopback();
     let store = ArtifactStore::new();
     let payload_bytes = vec![0xfa, 0xce, 0x00, 0x01];
-    let publisher_bytes: [u8; 16] = hex::decode(&publisher)
-        .expect("publisher hex")
-        .try_into()
-        .expect("16 bytes");
+    let publisher_bytes: [u8; 16] =
+        hex::decode(&publisher).expect("publisher hex").try_into().expect("16 bytes");
     let sig = sk.sign(&payload_bytes);
     let manifest = build_manifest_nxb(
         "launcher",
@@ -231,9 +223,8 @@ fn assert_register_ok(frame: &[u8]) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read register response");
-    let response = message
-        .get_root::<register_response::Reader<'_>>()
-        .expect("register response root");
+    let response =
+        message.get_root::<register_response::Reader<'_>>().expect("register response root");
     assert!(response.get_ok(), "register should succeed");
 }
 
@@ -242,9 +233,8 @@ fn parse_resolve(frame: &[u8]) -> (bool, u32) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read resolve response");
-    let response = message
-        .get_root::<resolve_response::Reader<'_>>()
-        .expect("resolve response root");
+    let response =
+        message.get_root::<resolve_response::Reader<'_>>().expect("resolve response root");
     (response.get_found(), response.get_endpoint())
 }
 
@@ -253,13 +243,9 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read install response");
-    let response = message
-        .get_root::<install_response::Reader<'_>>()
-        .expect("install response root");
-    (
-        response.get_ok(),
-        response.get_err().unwrap_or(InstallError::Einval),
-    )
+    let response =
+        message.get_root::<install_response::Reader<'_>>().expect("install response root");
+    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
 fn valid_manifest() -> Vec<u8> {
@@ -268,20 +254,15 @@ fn valid_manifest() -> Vec<u8> {
         "1.0.0",
         &["ui"],
         &["gpu"],
-        &hex::decode(PUBLISHER_HEX)
-            .expect("publisher hex")
-            .try_into()
-            .expect("16 bytes"),
+        &hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes"),
         &[0x11; 64],
     )
 }
 
 fn invalid_manifest() -> Vec<u8> {
     // Invalid by schema validation: signature length != 64 → InstallError::InvalidSig (even without keystore).
-    let publisher: [u8; 16] = hex::decode(PUBLISHER_HEX)
-        .expect("publisher hex")
-        .try_into()
-        .expect("16 bytes");
+    let publisher: [u8; 16] =
+        hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes");
     let mut message = Builder::new_default();
     {
         let mut m = message.init_root::<bundle_manifest::Builder<'_>>();

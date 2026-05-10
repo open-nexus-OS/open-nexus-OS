@@ -47,14 +47,8 @@ fn repo_root() -> PathBuf {
 #[test]
 fn runtime_mode_parser_accepts_all_supported_tokens() {
     assert_eq!(parse_runtime_mode(b"proof"), Some(RuntimeMode::Proof));
-    assert_eq!(
-        parse_runtime_mode(b"interactive-minimal\n"),
-        Some(RuntimeMode::InteractiveMinimal)
-    );
-    assert_eq!(
-        parse_runtime_mode(b" interactive-full\r"),
-        Some(RuntimeMode::InteractiveFull)
-    );
+    assert_eq!(parse_runtime_mode(b"interactive-minimal\n"), Some(RuntimeMode::InteractiveMinimal));
+    assert_eq!(parse_runtime_mode(b" interactive-full\r"), Some(RuntimeMode::InteractiveFull));
 }
 
 #[test]
@@ -67,10 +61,7 @@ fn runtime_mode_parser_rejects_unknown_tokens() {
 #[test]
 fn runtime_profile_parser_accepts_supported_tokens() {
     assert_eq!(parse_runtime_profile(b"full"), Some(RuntimeProfile::Full));
-    assert_eq!(
-        parse_runtime_profile(b"bringup"),
-        Some(RuntimeProfile::Bringup)
-    );
+    assert_eq!(parse_runtime_profile(b"bringup"), Some(RuntimeProfile::Bringup));
     assert_eq!(parse_runtime_profile(b"quick"), Some(RuntimeProfile::Quick));
     assert_eq!(parse_runtime_profile(b"ota"), Some(RuntimeProfile::Ota));
     assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));
@@ -118,9 +109,7 @@ fn proof_visible_input_ready_requires_full_live_chain() {
 
     let mut missing_keyboard = state;
     missing_keyboard.keyboard_visible = false;
-    assert!(!display_observer::proof_visible_input_ready(
-        missing_keyboard
-    ));
+    assert!(!display_observer::proof_visible_input_ready(missing_keyboard));
 
     let mut missing_wheel = state;
     missing_wheel.wheel_up_visible = false;
@@ -152,18 +141,9 @@ fn proof_visible_input_witness_latches_transient_hold_and_wheel_bits() {
         cursor_x: 8,
         cursor_y: 40,
     };
-    let click_state = VisibleState {
-        launcher_click_visible: true,
-        ..base
-    };
-    let keyboard_state = VisibleState {
-        keyboard_visible: true,
-        ..base
-    };
-    let wheel_state = VisibleState {
-        wheel_up_visible: true,
-        ..base
-    };
+    let click_state = VisibleState { launcher_click_visible: true, ..base };
+    let keyboard_state = VisibleState { keyboard_visible: true, ..base };
+    let wheel_state = VisibleState { wheel_up_visible: true, ..base };
     let mut witness = display_observer::ProofVisibleInputWitness::new();
 
     witness.observe(click_state);
@@ -180,9 +160,12 @@ fn proof_visible_input_witness_latches_transient_hold_and_wheel_bits() {
         witness.ready(),
         "sequential transient click/key/wheel samples must accumulate into one proof witness"
     );
-    assert!(display_observer::proof_visible_input_ready(
-        witness.observed_state()
-    ));
+    assert!(display_observer::proof_visible_input_ready(witness.observed_state()));
+}
+
+#[test]
+fn emit_missing_visible_input_bits_accepts_partial_state_on_host() {
+    display_observer::emit_missing_visible_input_bits(VisibleState::default());
 }
 
 #[test]

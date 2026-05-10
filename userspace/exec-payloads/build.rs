@@ -23,14 +23,8 @@ fn main() -> Result<(), io::Error> {
     println!("cargo:rerun-if-changed=src/hello_elf.rs");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").map_err(io::Error::other)?);
-    fs::write(
-        out_dir.join("hello.manifest.nxb"),
-        build_manifest("demo.hello", "0.0.1"),
-    )?;
-    fs::write(
-        out_dir.join("exit0.manifest.nxb"),
-        build_manifest("demo.exit0", "1.0.0"),
-    )?;
+    fs::write(out_dir.join("hello.manifest.nxb"), build_manifest("demo.hello", "0.0.1"))?;
+    fs::write(out_dir.join("exit0.manifest.nxb"), build_manifest("demo.exit0", "1.0.0"))?;
 
     Ok(())
 }

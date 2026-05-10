@@ -29,12 +29,7 @@ fn touch_service_reports_ready_once_registered() {
 fn test_reject_move_before_down() {
     let mut service = service(SyntheticTouchMode::Disabled);
     let err = service
-        .ingest(RawTouchSample::new(
-            TouchTimestampNs::new(1),
-            12,
-            24,
-            TouchPhase::Move,
-        ))
+        .ingest(RawTouchSample::new(TouchTimestampNs::new(1), 12, 24, TouchPhase::Move))
         .expect_err("must reject move before down");
     assert_eq!(err.code(), "touch.sequence.missing_down");
     assert_eq!(err, TouchdError::Normalize(touch::TouchError::MissingDown));
@@ -44,12 +39,7 @@ fn test_reject_move_before_down() {
 fn test_reject_out_of_bounds_touch_sample() {
     let mut service = service(SyntheticTouchMode::Disabled);
     let err = service
-        .ingest(RawTouchSample::new(
-            TouchTimestampNs::new(2),
-            200,
-            24,
-            TouchPhase::Down,
-        ))
+        .ingest(RawTouchSample::new(TouchTimestampNs::new(2), 200, 24, TouchPhase::Down))
         .expect_err("must reject out-of-bounds sample");
     assert_eq!(err.code(), "touch.sample.out_of_bounds");
 }

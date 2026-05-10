@@ -42,12 +42,7 @@ impl Rect {
         if right <= i64::from(i32::MIN) || bottom <= i64::from(i32::MIN) {
             return Err(RenderError::InvalidRect);
         }
-        Ok(Self {
-            x,
-            y,
-            width,
-            height,
-        })
+        Ok(Self { x, y, width, height })
     }
 
     #[must_use]

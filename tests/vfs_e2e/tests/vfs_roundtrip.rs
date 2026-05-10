@@ -127,9 +127,7 @@ fn assert_install_denied(response: &[u8]) {
     let reader = message.get_root::<install_response::Reader<'_>>().unwrap();
     assert!(!reader.get_ok(), "install must fail closed");
     assert_eq!(
-        reader
-            .get_err()
-            .unwrap_or(nexus_idl_runtime::bundlemgr_capnp::InstallError::Einval),
+        reader.get_err().unwrap_or(nexus_idl_runtime::bundlemgr_capnp::InstallError::Einval),
         nexus_idl_runtime::bundlemgr_capnp::InstallError::Eacces
     );
 }

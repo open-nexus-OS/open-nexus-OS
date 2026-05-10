@@ -9,12 +9,7 @@
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 #[inline]
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub(crate) fn emit_ready_marker() {
     // This marker means the service process reached entry and is alive.
     // Network readiness is proven later by bootstrap markers (iface/ping/dns/tcp).

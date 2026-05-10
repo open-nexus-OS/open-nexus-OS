@@ -75,10 +75,7 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
 
     // Force one server-side deny path (not just client-side path prevalidation),
     // so the `vfsd: access denied` marker is backed by an actual vfsd decision.
-    if vfs
-        .stat("pkg:/system/__definitely_missing_for_deny_marker__.txt")
-        .is_ok()
-    {
+    if vfs.stat("pkg:/system/__definitely_missing_for_deny_marker__.txt").is_ok() {
         return Err(());
     }
 
@@ -99,13 +96,8 @@ fn query_pkgimg_mount_mode() -> Option<u8> {
     const OPCODE_MOUNT_STATUS: u8 = 3;
     let client = KernelClient::new_for("packagefsd").ok()?;
     client
-        .send(
-            &[OPCODE_MOUNT_STATUS],
-            IpcWait::Timeout(core::time::Duration::from_millis(100)),
-        )
+        .send(&[OPCODE_MOUNT_STATUS], IpcWait::Timeout(core::time::Duration::from_millis(100)))
         .ok()?;
-    let rsp = client
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .ok()?;
+    let rsp = client.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).ok()?;
     rsp.first().copied()
 }

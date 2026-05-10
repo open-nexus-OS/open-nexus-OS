@@ -35,12 +35,7 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                 Err(_) => continue, // Malformed frame, skip
             };
             let response_frame = match request {
-                Request::Append(AppendRequest {
-                    level,
-                    scope,
-                    message,
-                    fields,
-                }) => {
+                Request::Append(AppendRequest { level, scope, message, fields }) => {
                     let service_id = next_service_id;
                     next_service_id += 1;
                     let timestamp_nsec = TimestampNsec(next_timestamp);
@@ -61,13 +56,7 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         Err(_) => encode_append_response(3, RecordId(0), 0), // TooLarge
                     }
                 }
-                Request::AppendV2(AppendRequestV2 {
-                    nonce,
-                    level,
-                    scope,
-                    message,
-                    fields,
-                }) => {
+                Request::AppendV2(AppendRequestV2 { nonce, level, scope, message, fields }) => {
                     let service_id = next_service_id;
                     next_service_id += 1;
                     let timestamp_nsec = TimestampNsec(next_timestamp);
@@ -89,19 +78,12 @@ fn spawn_logd_service(cap_records: u32, cap_bytes: u32) -> LoopbackClient {
                         Err(_) => encode_append_response_v2(3, nonce, RecordId(0), 0),
                     }
                 }
-                Request::Query(QueryRequest {
-                    since_nsec,
-                    max_count,
-                }) => {
+                Request::Query(QueryRequest { since_nsec, max_count }) => {
                     let records = journal.query(since_nsec, max_count);
                     let stats = journal.stats();
                     encode_query_response(STATUS_OK, stats, &records)
                 }
-                Request::QueryV2(QueryRequestV2 {
-                    nonce,
-                    since_nsec,
-                    max_count,
-                }) => {
+                Request::QueryV2(QueryRequestV2 { nonce, since_nsec, max_count }) => {
                     let records = journal.query(since_nsec, max_count);
                     let stats = journal.stats();
                     encode_query_response_v2(STATUS_OK, nonce, stats, &records)
@@ -259,13 +241,8 @@ fn logd_append_query_stats_roundtrip() {
 
     // Append 5 records
     for i in 0..5 {
-        let (record_id, dropped_count) = append(
-            &client,
-            LogLevel::Info,
-            b"samgrd",
-            format!("message {}", i).as_bytes(),
-            b"",
-        );
+        let (record_id, dropped_count) =
+            append(&client, LogLevel::Info, b"samgrd", format!("message {}", i).as_bytes(), b"");
         assert_eq!(record_id.0, i + 1);
         assert_eq!(dropped_count, 0);
     }
@@ -291,13 +268,7 @@ fn logd_overflow_drops_oldest() {
 
     // Append 5 records (fill capacity)
     for i in 0..5 {
-        append(
-            &client,
-            LogLevel::Info,
-            b"test",
-            format!("msg {}", i).as_bytes(),
-            b"",
-        );
+        append(&client, LogLevel::Info, b"test", format!("msg {}", i).as_bytes(), b"");
     }
 
     let (total, dropped, _, _) = stats(&client);
@@ -306,13 +277,8 @@ fn logd_overflow_drops_oldest() {
 
     // Append 3 more → overflow, drop oldest 3
     for i in 5..8 {
-        let (_, dropped_count) = append(
-            &client,
-            LogLevel::Info,
-            b"test",
-            format!("msg {}", i).as_bytes(),
-            b"",
-        );
+        let (_, dropped_count) =
+            append(&client, LogLevel::Info, b"test", format!("msg {}", i).as_bytes(), b"");
         assert_eq!(dropped_count, i - 4); // cumulative dropped
     }
 
@@ -335,13 +301,7 @@ fn logd_query_pagination_since_nsec() {
 
     // Append 10 records with artificial timestamps
     for i in 0..10 {
-        append(
-            &client,
-            LogLevel::Info,
-            b"test",
-            format!("msg {}", i).as_bytes(),
-            b"",
-        );
+        append(&client, LogLevel::Info, b"test", format!("msg {}", i).as_bytes(), b"");
         // Sleep to ensure monotonic timestamps
         thread::sleep(Duration::from_millis(2));
     }
@@ -370,19 +330,12 @@ fn logd_crash_report_event() {
 
     // Append crash event (simulates execd crash report)
     let crash_fields = b"event=crash.v1\npid=42\ncode=1\nname=demo.crash\n";
-    append(
-        &client,
-        LogLevel::Error,
-        b"execd",
-        b"process crashed",
-        crash_fields,
-    );
+    append(&client, LogLevel::Error, b"execd", b"process crashed", crash_fields);
 
     // Query for crash events
     let records = query(&client, 0, 100);
-    let crash_record = records
-        .iter()
-        .find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
+    let crash_record =
+        records.iter().find(|r| r.fields.windows(14).any(|w| w == b"event=crash.v1"));
     assert!(crash_record.is_some(), "crash event should be in journal");
 
     let crash = crash_record.unwrap();

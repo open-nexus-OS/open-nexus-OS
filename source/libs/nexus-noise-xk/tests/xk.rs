@@ -86,15 +86,11 @@ fn xk_rejects_bad_lengths_deterministically() {
 
     // Too short for msg2.
     let mut msg3 = [0u8; MSG3_LEN];
-    let err = initiator
-        .read_msg2_write_msg3(&msg2[..MSG2_LEN - 1], &mut msg3)
-        .unwrap_err();
+    let err = initiator.read_msg2_write_msg3(&msg2[..MSG2_LEN - 1], &mut msg3).unwrap_err();
     assert_eq!(err, NoiseError::BadLength);
 
     // Too short for msg1.
     let mut msg2b = [0u8; MSG2_LEN];
-    let err = responder
-        .read_msg1_write_msg2(&msg1[..MSG1_LEN - 1], &mut msg2b)
-        .unwrap_err();
+    let err = responder.read_msg1_write_msg2(&msg1[..MSG1_LEN - 1], &mut msg2b).unwrap_err();
     assert_eq!(err, NoiseError::BadLength);
 }

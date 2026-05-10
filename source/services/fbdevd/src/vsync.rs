@@ -16,15 +16,8 @@ pub struct VsyncCadence {
 
 impl VsyncCadence {
     pub fn new(hz: u16) -> Self {
-        let interval_ns = if hz == 0 {
-            16_666_667
-        } else {
-            1_000_000_000_u64 / u64::from(hz)
-        };
-        Self {
-            interval_ns,
-            last_tick_ns: 0,
-        }
+        let interval_ns = if hz == 0 { 16_666_667 } else { 1_000_000_000_u64 / u64::from(hz) };
+        Self { interval_ns, last_tick_ns: 0 }
     }
 
     pub fn should_tick(&mut self, now_ns: u64) -> bool {

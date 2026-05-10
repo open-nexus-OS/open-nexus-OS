@@ -97,11 +97,7 @@ impl<B: Bus> VirtioNetMmio<B> {
             return Err(VirtioError::NotNetDevice);
         }
         let vendor_id = self.bus.read(REG_VENDOR_ID);
-        Ok(DeviceInfo {
-            version,
-            device_id,
-            vendor_id,
-        })
+        Ok(DeviceInfo { version, device_id, vendor_id })
     }
 
     /// Resets the device status to 0.
@@ -114,8 +110,7 @@ impl<B: Bus> VirtioNetMmio<B> {
     /// Bring-up policy: caller typically passes 0 (disable all optional features).
     pub fn negotiate_features(&self, driver_features: u64) -> Result<u64, VirtioError> {
         // ACK + DRIVER
-        self.bus
-            .write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        self.bus.write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
         // Read device features (two 32-bit windows).
         self.bus.write(REG_DEVICE_FEATURES_SEL, 0);
@@ -161,12 +156,7 @@ impl<B: Bus> VirtioNetMmio<B> {
 
         let version = self.bus.read(REG_VERSION);
         if version == VIRTIO_MMIO_VERSION_MODERN {
-            write_u64_mmio_pair(
-                &self.bus,
-                REG_QUEUE_DESC_LOW,
-                REG_QUEUE_DESC_HIGH,
-                cfg.desc_paddr,
-            );
+            write_u64_mmio_pair(&self.bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, cfg.desc_paddr);
             write_u64_mmio_pair(
                 &self.bus,
                 REG_QUEUE_DRIVER_LOW,
@@ -240,9 +230,7 @@ mod tests {
 
     impl MockBus {
         fn new() -> Self {
-            Self {
-                regs: [0; 0x200 / 4],
-            }
+            Self { regs: [0; 0x200 / 4] }
         }
         fn set(&mut self, off: usize, v: u32) {
             self.regs[off / 4] = v;

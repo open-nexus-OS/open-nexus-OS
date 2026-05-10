@@ -30,11 +30,9 @@ fn ns(ms: u64) -> MonotonicNs {
 
 #[test]
 fn repeat_schedule_uses_injectable_time_deterministically() {
-    let config = RepeatConfig::new(
-        DelayMs::new(300).expect("delay"),
-        RateHz::new(4).expect("rate"),
-    )
-    .expect("config");
+    let config =
+        RepeatConfig::new(DelayMs::new(300).expect("delay"), RateHz::new(4).expect("rate"))
+            .expect("config");
     let mut engine = RepeatEngine::new(config);
     let key = RepeatKey::new(0x04).expect("key");
 
@@ -53,11 +51,9 @@ fn repeat_schedule_uses_injectable_time_deterministically() {
 
 #[test]
 fn repeat_release_cancels_future_repeats() {
-    let config = RepeatConfig::new(
-        DelayMs::new(200).expect("delay"),
-        RateHz::new(5).expect("rate"),
-    )
-    .expect("config");
+    let config =
+        RepeatConfig::new(DelayMs::new(200).expect("delay"), RateHz::new(5).expect("rate"))
+            .expect("config");
     let mut engine = RepeatEngine::new(config);
     let key = RepeatKey::new(0x05).expect("key");
 

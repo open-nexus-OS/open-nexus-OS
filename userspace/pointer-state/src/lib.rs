@@ -165,16 +165,10 @@ impl PointerTransform {
     ) -> DisplayRect {
         let start_x = scale_rect_start(left, self.route.width, self.display.width);
         let start_y = scale_rect_start(top, self.route.height, self.display.height);
-        let end_x = scale_rect_end(
-            left.saturating_add(width),
-            self.route.width,
-            self.display.width,
-        );
-        let end_y = scale_rect_end(
-            top.saturating_add(height),
-            self.route.height,
-            self.display.height,
-        );
+        let end_x =
+            scale_rect_end(left.saturating_add(width), self.route.width, self.display.width);
+        let end_y =
+            scale_rect_end(top.saturating_add(height), self.route.height, self.display.height);
         DisplayRect {
             left: start_x.min(self.display.width),
             top: start_y.min(self.display.height),
@@ -252,10 +246,7 @@ impl PointerState {
                 y: initial.y,
             });
         }
-        Ok(Self {
-            space,
-            display: initial,
-        })
+        Ok(Self { space, display: initial })
     }
 
     #[must_use]
@@ -293,12 +284,8 @@ impl PointerState {
 fn contains(space: PointerSpace, position: PointerPosition) -> bool {
     position.x >= 0
         && position.y >= 0
-        && u32::try_from(position.x)
-            .ok()
-            .is_some_and(|x| x < space.width)
-        && u32::try_from(position.y)
-            .ok()
-            .is_some_and(|y| y < space.height)
+        && u32::try_from(position.x).ok().is_some_and(|x| x < space.width)
+        && u32::try_from(position.y).ok().is_some_and(|y| y < space.height)
 }
 
 fn clamp_axis(value: i32, bound: u32) -> i32 {
@@ -308,11 +295,7 @@ fn clamp_axis(value: i32, bound: u32) -> i32 {
 
 fn scale_point_axis(value: i32, source_bound: u32, target_bound: u32) -> i32 {
     let clamped = clamp_axis(value, source_bound);
-    scale_point_axis_u32(
-        u32::try_from(clamped).unwrap_or(0),
-        source_bound,
-        target_bound,
-    ) as i32
+    scale_point_axis_u32(u32::try_from(clamped).unwrap_or(0), source_bound, target_bound) as i32
 }
 
 fn scale_point_axis_u32(value: u32, source_bound: u32, target_bound: u32) -> u32 {
@@ -364,10 +347,7 @@ mod tests {
 
     #[test]
     fn reject_invalid_pointer_space() {
-        assert_eq!(
-            PointerSpace::new(0, 48),
-            Err(PointerStateError::InvalidSpace)
-        );
+        assert_eq!(PointerSpace::new(0, 48), Err(PointerStateError::InvalidSpace));
         assert_eq!(
             AbsoluteAxisCalibration::new(10, 10),
             Err(PointerStateError::InvalidCalibration)
@@ -380,10 +360,7 @@ mod tests {
         let mut state = PointerState::new(space, PointerPosition::new(10, 10)).expect("state");
 
         assert_eq!(state.apply_relative(-100, 30), PointerPosition::new(0, 40));
-        assert_eq!(
-            state.apply_relative(5000, 5000),
-            PointerPosition::new(1279, 799)
-        );
+        assert_eq!(state.apply_relative(5000, 5000), PointerPosition::new(1279, 799));
     }
 
     #[test]
@@ -402,20 +379,9 @@ mod tests {
         );
         assert_eq!(
             transform.route_rect_to_display(4, 36, 8, 8),
-            DisplayRect {
-                left: 80,
-                top: 600,
-                right: 240,
-                bottom: 734
-            }
+            DisplayRect { left: 80, top: 600, right: 240, bottom: 734 }
         );
-        assert_eq!(
-            transform.display_extent_from_route(),
-            PointerExtent {
-                width: 20,
-                height: 17
-            }
-        );
+        assert_eq!(transform.display_extent_from_route(), PointerExtent { width: 20, height: 17 });
     }
 
     #[test]
@@ -425,17 +391,8 @@ mod tests {
         let transform = PointerTransform::new(display, route).expect("transform");
         let calibration = AbsoluteAxisCalibration::new(0, 32_767).expect("calibration");
 
-        assert_eq!(
-            transform.scale_absolute_axis(0, calibration, PointerAxis::X),
-            0
-        );
-        assert_eq!(
-            transform.scale_absolute_axis(32_767, calibration, PointerAxis::X),
-            1279
-        );
-        assert_eq!(
-            transform.scale_absolute_axis(16_384, calibration, PointerAxis::Y),
-            399
-        );
+        assert_eq!(transform.scale_absolute_axis(0, calibration, PointerAxis::X), 0);
+        assert_eq!(transform.scale_absolute_axis(32_767, calibration, PointerAxis::X), 1279);
+        assert_eq!(transform.scale_absolute_axis(16_384, calibration, PointerAxis::Y), 399);
     }
 }

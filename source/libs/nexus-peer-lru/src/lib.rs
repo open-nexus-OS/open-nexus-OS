@@ -40,12 +40,7 @@ impl PeerEntry {
         noise_static: [u8; 32],
         services: Vec<String>,
     ) -> Self {
-        Self {
-            device_id,
-            port,
-            noise_static,
-            services,
-        }
+        Self { device_id, port, noise_static, services }
     }
 }
 
@@ -57,10 +52,7 @@ pub struct PeerLru {
 
 impl PeerLru {
     pub fn new(capacity: usize) -> Self {
-        Self {
-            entries: Vec::new(),
-            capacity,
-        }
+        Self { entries: Vec::new(), capacity }
     }
 
     pub fn with_default_capacity() -> Self {
@@ -70,11 +62,7 @@ impl PeerLru {
     /// Insert or update a peer. Moves to front (most recently used).
     pub fn insert(&mut self, peer: PeerEntry) {
         // Check if peer already exists (by device_id)
-        if let Some(pos) = self
-            .entries
-            .iter()
-            .position(|p| p.device_id == peer.device_id)
-        {
+        if let Some(pos) = self.entries.iter().position(|p| p.device_id == peer.device_id) {
             // Remove old entry
             self.entries.remove(pos);
         } else if self.entries.len() >= self.capacity {

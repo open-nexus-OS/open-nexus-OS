@@ -80,11 +80,7 @@ impl FixtureFont {
         if width == 0 || width > 8 || height == 0 || glyphs.is_empty() {
             return Err(RenderError::FixtureFontRejected);
         }
-        Ok(Self {
-            width,
-            height,
-            glyphs,
-        })
+        Ok(Self { width, height, glyphs })
     }
 
     #[must_use]
@@ -139,9 +135,7 @@ fn parse_glyph_row(row: &str, width: u32) -> RenderResult<u8> {
     }
     let mut bits = 0u8;
     for ch in row.chars() {
-        bits = bits
-            .checked_shl(1)
-            .ok_or(RenderError::FixtureFontRejected)?;
+        bits = bits.checked_shl(1).ok_or(RenderError::FixtureFontRejected)?;
         match ch {
             '0' => {}
             '1' => bits |= 1,

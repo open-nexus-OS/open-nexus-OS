@@ -38,16 +38,7 @@ pub struct TraceEvent {
 
 impl TraceEvent {
     pub const fn empty() -> Self {
-        Self {
-            seq: 0,
-            kind: 0,
-            status: 0,
-            _rsv: 0,
-            ep: 0,
-            flags: 0,
-            len: 0,
-            extra: 0,
-        }
+        Self { seq: 0, kind: 0, status: 0, _rsv: 0, ep: 0, flags: 0, len: 0, extra: 0 }
     }
 }
 

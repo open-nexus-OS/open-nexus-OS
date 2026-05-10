@@ -36,20 +36,13 @@ fn test_reject_invalid_state_transition() {
 fn test_reject_nonce_mismatch_or_stale_reply() {
     let mut correlation = CorrelationWindow::new_authenticated(11);
 
-    let first_expected = correlation
-        .reserve_outbound_nonce()
-        .expect("reserve outbound nonce");
+    let first_expected = correlation.reserve_outbound_nonce().expect("reserve outbound nonce");
     let mismatch = correlation
-        .validate_inbound_reply(
-            first_expected,
-            CorrelationNonce::new(first_expected.get() + 1),
-        )
+        .validate_inbound_reply(first_expected, CorrelationNonce::new(first_expected.get() + 1))
         .expect_err("nonce mismatch must reject");
     assert_eq!(mismatch.label(), REJECT_NONCE_MISMATCH_OR_STALE_REPLY);
 
-    let second_expected = correlation
-        .reserve_outbound_nonce()
-        .expect("reserve second nonce");
+    let second_expected = correlation.reserve_outbound_nonce().expect("reserve second nonce");
     correlation
         .validate_inbound_reply(second_expected, second_expected)
         .expect("first observation for nonce should pass");
@@ -68,9 +61,8 @@ fn test_reject_oversize_frame_or_record() {
 #[test]
 fn test_reject_unauthenticated_message_path() {
     let mut correlation = CorrelationWindow::new_unauthenticated(7);
-    let err = correlation
-        .reserve_outbound_nonce()
-        .expect_err("unauthenticated message path must reject");
+    let err =
+        correlation.reserve_outbound_nonce().expect_err("unauthenticated message path must reject");
     assert_eq!(err.label(), REJECT_UNAUTHENTICATED_MESSAGE_PATH);
 }
 
@@ -81,10 +73,7 @@ fn test_reject_payload_identity_spoof_vs_sender_service_id() {
         PayloadIdentityClaim::new("bundlemgrd"),
     )
     .expect_err("payload identity mismatch must reject");
-    assert_eq!(
-        err.label(),
-        REJECT_PAYLOAD_IDENTITY_SPOOF_VS_SENDER_SERVICE_ID
-    );
+    assert_eq!(err.label(), REJECT_PAYLOAD_IDENTITY_SPOOF_VS_SENDER_SERVICE_ID);
 }
 
 #[test]
@@ -100,22 +89,11 @@ fn test_perf_backpressure_budget_is_deterministic() {
     let stream_id = StreamId::new(1).expect("stream id");
     let priority = PriorityClass::new(0).expect("priority");
     let mut session = dsoftbus::MuxSessionState::new_authenticated(0);
-    session
-        .open_stream(stream_id, priority, WindowCredit::new(4))
-        .expect("open stream");
+    session.open_stream(stream_id, priority, WindowCredit::new(4)).expect("open stream");
 
-    let first = session
-        .send_data(stream_id, 8)
-        .expect("deterministic backpressure outcome");
-    let second = session
-        .send_data(stream_id, 8)
-        .expect("deterministic backpressure outcome");
-    assert_eq!(
-        first,
-        SendBudgetOutcome::WouldBlock {
-            remaining_credit: WindowCredit::new(4)
-        }
-    );
+    let first = session.send_data(stream_id, 8).expect("deterministic backpressure outcome");
+    let second = session.send_data(stream_id, 8).expect("deterministic backpressure outcome");
+    assert_eq!(first, SendBudgetOutcome::WouldBlock { remaining_credit: WindowCredit::new(4) });
     assert_eq!(second, first);
 }
 

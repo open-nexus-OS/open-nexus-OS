@@ -15,10 +15,7 @@ use core::fmt;
 pub enum HidrawdError {
     KeyboardUnavailable,
     MouseUnavailable,
-    UnexpectedDevice {
-        expected: HidDeviceKind,
-        actual: HidDeviceKind,
-    },
+    UnexpectedDevice { expected: HidDeviceKind, actual: HidDeviceKind },
     Parse(hid::HidError),
 }
 
@@ -28,14 +25,12 @@ impl HidrawdError {
         match self {
             Self::KeyboardUnavailable => "hidrawd.device.keyboard_unavailable",
             Self::MouseUnavailable => "hidrawd.device.mouse_unavailable",
-            Self::UnexpectedDevice {
-                expected: HidDeviceKind::Keyboard,
-                ..
-            } => "hidrawd.device.expected_keyboard",
-            Self::UnexpectedDevice {
-                expected: HidDeviceKind::Mouse,
-                ..
-            } => "hidrawd.device.expected_mouse",
+            Self::UnexpectedDevice { expected: HidDeviceKind::Keyboard, .. } => {
+                "hidrawd.device.expected_keyboard"
+            }
+            Self::UnexpectedDevice { expected: HidDeviceKind::Mouse, .. } => {
+                "hidrawd.device.expected_mouse"
+            }
             Self::Parse(err) => err.code(),
         }
     }
@@ -53,10 +48,7 @@ impl fmt::Display for HidrawdError {
             Self::KeyboardUnavailable => f.write_str("keyboard device not registered"),
             Self::MouseUnavailable => f.write_str("mouse device not registered"),
             Self::UnexpectedDevice { expected, actual } => {
-                write!(
-                    f,
-                    "unexpected HID device kind: expected {expected:?}, got {actual:?}"
-                )
+                write!(f, "unexpected HID device kind: expected {expected:?}, got {actual:?}")
             }
             Self::Parse(err) => err.fmt(f),
         }

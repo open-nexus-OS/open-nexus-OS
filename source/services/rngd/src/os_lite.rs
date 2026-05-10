@@ -119,10 +119,7 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
-        RouteRetryOutcome::Success {
-            send_slot,
-            recv_slot,
-        } => Some((send_slot, recv_slot)),
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
 }
@@ -337,9 +334,7 @@ fn policyd_allows(pending: &mut reqrep::ReplyBuffer<16, 512>, subject_id: u64, c
         Err(_) => return false,
     };
 
-    let inbox = ReplyInboxV1 {
-        recv_slot: reply_recv_slot,
-    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
     let rsp = match reqrep::recv_match_until(
         &clock,
         &inbox,
@@ -391,12 +386,7 @@ fn rsp_with_nonce(op: u8, status: u8, nonce: u32, value: &[u8]) -> Vec<u8> {
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

@@ -18,9 +18,7 @@ pub(crate) struct ProofVisibleInputWitness {
 impl ProofVisibleInputWitness {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            observed_state: VisibleState::default(),
-        }
+        Self { observed_state: VisibleState::default() }
     }
 
     pub fn observe(&mut self, state: VisibleState) {

@@ -61,8 +61,5 @@ pub fn authorize_remote_proxy(
     if request_len > MAX_REMOTE_PROXY_REQ {
         return Err(DenyReason::OversizedRequest);
     }
-    Ok(AuditEvent {
-        service,
-        request_len,
-    })
+    Ok(AuditEvent { service, request_len })
 }

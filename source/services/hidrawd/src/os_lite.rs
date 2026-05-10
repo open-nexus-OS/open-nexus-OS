@@ -72,9 +72,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 continue;
             };
             chain.raw_batches = chain.raw_batches.saturating_add(1);
-            chain.raw_events = chain
-                .raw_events
-                .saturating_add(u64::from(polled.evidence.raw_event_count()));
+            chain.raw_events =
+                chain.raw_events.saturating_add(u64::from(polled.evidence.raw_event_count()));
             chain.normalized_events = chain
                 .normalized_events
                 .saturating_add(u64::from(polled.evidence.normalized_event_count()));
@@ -177,16 +176,10 @@ impl HidrawChainTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return;
         }
-        let ingress_hz = self
-            .raw_batches
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let sent_hz = self
-            .sent_batches
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let ingress_hz =
+            self.raw_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let sent_hz =
+            self.sent_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         // #region agent log
         let _ = debug_println(&format!(
             "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
@@ -291,10 +284,9 @@ fn route_inputd_blocking() -> Option<KernelClient> {
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
-        RouteRetryOutcome::Success {
-            send_slot,
-            recv_slot,
-        } => KernelClient::new_with_slots(send_slot, recv_slot).ok(),
+        RouteRetryOutcome::Success { send_slot, recv_slot } => {
+            KernelClient::new_with_slots(send_slot, recv_slot).ok()
+        }
         _ => None,
     }
 }
@@ -320,12 +312,8 @@ impl LiveDevice {
             return None;
         };
         let timestamp = TimestampNs::new(nsec().unwrap_or(0));
-        let raw_events: Vec<RawIngressEvent> = polled
-            .events()
-            .iter()
-            .copied()
-            .map(raw_ingress_event)
-            .collect();
+        let raw_events: Vec<RawIngressEvent> =
+            polled.events().iter().copied().map(raw_ingress_event).collect();
         let active_class =
             infer_device_class(self.provisional_class, self.confirmed_class, &raw_events);
         let active_pointer_source = pointer_source_for_class(active_class);
@@ -381,9 +369,7 @@ impl LiveDevice {
         Some(PolledDeviceFrame {
             evidence: IngressGateEvidence::new(
                 raw_batch.events().len().min(u16::MAX as usize) as u16,
-                wire_batch
-                    .as_ref()
-                    .map_or(0, |batch| batch.normalized_event_count),
+                wire_batch.as_ref().map_or(0, |batch| batch.normalized_event_count),
             ),
             pointer_source: active_pointer_source,
             wire_batch,
@@ -405,10 +391,7 @@ fn infer_device_class(
     if let Some(class) = confirmed_class {
         return class;
     }
-    if raw_events
-        .iter()
-        .any(|event| event.kind() == RawIngressEventKind::Absolute)
-    {
+    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Absolute) {
         return match provisional_class {
             LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
                 LiveDeviceClass::Pointer(PointerSource::TouchAbsolute)
@@ -416,10 +399,7 @@ fn infer_device_class(
             _ => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
         };
     }
-    if raw_events
-        .iter()
-        .any(|event| event.kind() == RawIngressEventKind::Relative)
-    {
+    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Relative) {
         return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
     }
     if raw_events

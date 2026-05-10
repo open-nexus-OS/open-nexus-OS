@@ -147,12 +147,7 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
             frame[offset + 13],
             frame[offset + 14],
         ]);
-        events.push(WireHidEvent {
-            kind,
-            code,
-            value,
-            timestamp_ns,
-        });
+        events.push(WireHidEvent { kind, code, value, timestamp_ns });
         offset += EVENT_LEN;
     }
     Some(WireHidBatch {
@@ -325,9 +320,6 @@ mod tests {
             wheel_up_visible: true,
             wheel_down_visible: false,
         };
-        assert_eq!(
-            decode_visible_state(&encode_visible_state(state)),
-            Some(state)
-        );
+        assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
     }
 }

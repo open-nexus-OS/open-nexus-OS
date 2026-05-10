@@ -114,10 +114,7 @@ impl StaticKeypair {
     pub fn from_secret(secret: [u8; 32]) -> Self {
         let secret = X25519Secret::from_bytes(secret);
         let public = secret.public_key().to_bytes();
-        Self {
-            secret: secret.to_bytes(),
-            public,
-        }
+        Self { secret: secret.to_bytes(), public }
     }
 }
 
@@ -135,10 +132,7 @@ struct CipherState {
 
 impl CipherState {
     fn new() -> Self {
-        Self {
-            key: None,
-            nonce: 0,
-        }
+        Self { key: None, nonce: 0 }
     }
 
     fn initialize_key(&mut self, key: [u8; 32]) {
@@ -222,11 +216,7 @@ impl SymmetricState {
         } else {
             h.copy_from_slice(&hash(protocol_name));
         }
-        Self {
-            ck: h,
-            h,
-            cipher: CipherState::new(),
-        }
+        Self { ck: h, h, cipher: CipherState::new() }
     }
 
     fn mix_hash(&mut self, data: &[u8]) {
@@ -282,14 +272,7 @@ impl XkInitiator {
         symmetric.mix_hash(&remote_static_pub);
         let e = X25519Secret::from_bytes(eph_seed);
         let e_pub = e.public_key().to_bytes();
-        Self {
-            local_static,
-            remote_static_pub,
-            e,
-            e_pub,
-            symmetric,
-            re_pub: None,
-        }
+        Self { local_static, remote_static_pub, e, e_pub, symmetric, re_pub: None }
     }
 
     pub fn write_msg1(&mut self, out: &mut [u8; MSG1_LEN]) {
@@ -316,9 +299,7 @@ impl XkInitiator {
 
         // decrypt responder static (must match pinned key)
         let mut rs_plain = [0u8; 32];
-        let n = self
-            .symmetric
-            .decrypt_and_hash(&msg2[32..80], &mut rs_plain)?;
+        let n = self.symmetric.decrypt_and_hash(&msg2[32..80], &mut rs_plain)?;
         if n != 32 || rs_plain != self.remote_static_pub {
             return Err(NoiseError::StaticKeyMismatch);
         }
@@ -329,9 +310,7 @@ impl XkInitiator {
 
         // decrypt payload (empty)
         let mut scratch = [0u8; 1];
-        let n = self
-            .symmetric
-            .decrypt_and_hash(&msg2[80..96], &mut scratch)?;
+        let n = self.symmetric.decrypt_and_hash(&msg2[80..96], &mut scratch)?;
         if n != 0 {
             return Err(NoiseError::BadLength);
         }
@@ -351,9 +330,7 @@ impl XkInitiator {
         self.symmetric.mix_key(&dh_se);
 
         // enc(payload="") -> tag only
-        let n = self
-            .symmetric
-            .encrypt_and_hash(&[], &mut out_msg3[off..off + 16])?;
+        let n = self.symmetric.encrypt_and_hash(&[], &mut out_msg3[off..off + 16])?;
         if n != 16 || off + n != MSG3_LEN {
             return Err(NoiseError::BadLength);
         }
@@ -384,14 +361,7 @@ impl XkResponder {
         symmetric.mix_hash(&local_static.public);
         let e = X25519Secret::from_bytes(eph_seed);
         let e_pub = e.public_key().to_bytes();
-        Self {
-            local_static,
-            expected_remote_static_pub,
-            e,
-            e_pub,
-            symmetric,
-            ie_pub: None,
-        }
+        Self { local_static, expected_remote_static_pub, e, e_pub, symmetric, ie_pub: None }
     }
 
     pub fn read_msg1_write_msg2(
@@ -416,9 +386,8 @@ impl XkResponder {
         self.symmetric.mix_key(&dh_ee);
 
         // enc(s_r)
-        let n = self
-            .symmetric
-            .encrypt_and_hash(&self.local_static.public, &mut out_msg2[32..80])?;
+        let n =
+            self.symmetric.encrypt_and_hash(&self.local_static.public, &mut out_msg2[32..80])?;
         if n != 48 {
             return Err(NoiseError::BadLength);
         }
@@ -428,9 +397,7 @@ impl XkResponder {
         self.symmetric.mix_key(&dh_es);
 
         // enc(payload="") -> tag only
-        let n = self
-            .symmetric
-            .encrypt_and_hash(&[], &mut out_msg2[80..96])?;
+        let n = self.symmetric.encrypt_and_hash(&[], &mut out_msg2[80..96])?;
         if n != 16 {
             return Err(NoiseError::BadLength);
         }
@@ -448,9 +415,7 @@ impl XkResponder {
 
         // decrypt initiator static
         let mut is_plain = [0u8; 32];
-        let n = self
-            .symmetric
-            .decrypt_and_hash(&msg3[..48], &mut is_plain)?;
+        let n = self.symmetric.decrypt_and_hash(&msg3[..48], &mut is_plain)?;
         if n != 32 || is_plain != self.expected_remote_static_pub {
             return Err(NoiseError::StaticKeyMismatch);
         }
@@ -461,9 +426,7 @@ impl XkResponder {
 
         // decrypt payload (empty)
         let mut scratch = [0u8; 1];
-        let n = self
-            .symmetric
-            .decrypt_and_hash(&msg3[48..64], &mut scratch)?;
+        let n = self.symmetric.decrypt_and_hash(&msg3[48..64], &mut scratch)?;
         if n != 0 {
             return Err(NoiseError::BadLength);
         }

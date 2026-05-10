@@ -43,12 +43,7 @@ impl Image {
         if pixels.len() != expected {
             return Err(RenderError::InvalidStride);
         }
-        Ok(Self {
-            width,
-            height,
-            stride,
-            pixels,
-        })
+        Ok(Self { width, height, stride, pixels })
     }
 
     #[must_use]
@@ -71,11 +66,8 @@ impl Image {
         let col = u64::from(x)
             .checked_mul(u64::from(BYTES_PER_PIXEL))
             .ok_or(RenderError::ArithmeticOverflow)?;
-        let offset = usize::try_from(
-            row.checked_add(col)
-                .ok_or(RenderError::ArithmeticOverflow)?,
-        )
-        .map_err(|_| RenderError::ArithmeticOverflow)?;
+        let offset = usize::try_from(row.checked_add(col).ok_or(RenderError::ArithmeticOverflow)?)
+            .map_err(|_| RenderError::ArithmeticOverflow)?;
         Ok(PixelBgra::new(
             self.pixels[offset],
             self.pixels[offset + 1],

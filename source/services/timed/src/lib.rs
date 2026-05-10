@@ -15,12 +15,7 @@
 
 #![forbid(unsafe_code)]
 #![cfg_attr(
-    all(
-        feature = "os-lite",
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none"
-    ),
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
     no_std
 )]
 
@@ -120,10 +115,7 @@ pub struct TimerRegistry {
 impl TimerRegistry {
     /// Creates an empty bounded timer registry.
     pub fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            next_id: 1,
-        }
+        Self { entries: Vec::new(), next_id: 1 }
     }
 
     /// Registers a timer for `owner_service_id`, enforcing per-owner and global bounds.
@@ -143,11 +135,7 @@ impl TimerRegistry {
         if self.next_id == 0 {
             self.next_id = 1;
         }
-        self.entries.push(TimerEntry {
-            owner_service_id,
-            id,
-            deadline_ns,
-        });
+        self.entries.push(TimerEntry { owner_service_id, id, deadline_ns });
         Ok(id)
     }
 
@@ -167,10 +155,7 @@ impl TimerRegistry {
 
     /// Returns number of live timers for the given owner.
     pub fn count_for_owner(&self, owner_service_id: u64) -> usize {
-        self.entries
-            .iter()
-            .filter(|entry| entry.owner_service_id == owner_service_id)
-            .count()
+        self.entries.iter().filter(|entry| entry.owner_service_id == owner_service_id).count()
     }
 }
 

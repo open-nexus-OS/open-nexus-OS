@@ -28,9 +28,5 @@ fn main() {
         eprintln!("verify {}: {err}", input.display());
         std::process::exit(1);
     });
-    println!(
-        "pkgimg-verify: ok entries={} bytes={}",
-        parsed.entries().len(),
-        bytes.len()
-    );
+    println!("pkgimg-verify: ok entries={} bytes={}", parsed.entries().len(), bytes.len());
 }

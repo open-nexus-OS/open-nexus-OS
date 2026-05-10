@@ -49,9 +49,7 @@ pub struct IpcTransport<T> {
 impl<T> IpcTransport<T> {
     /// Constructs the transport wrapper.
     pub fn new(_server: T) -> Self {
-        Self {
-            _marker: PhantomData,
-        }
+        Self { _marker: PhantomData }
     }
 }
 
@@ -121,9 +119,7 @@ pub fn run_default() -> LiteResult<()> {
 
 /// Runs the keystored daemon using the default transport and anchor set (stubbed).
 pub fn run_with_transport_default_anchors<T: Transport>(_transport: &mut T) -> LiteResult<()> {
-    Err(ServerError::Unsupported(
-        "keystored run_with_transport_default_anchors",
-    ))
+    Err(ServerError::Unsupported("keystored run_with_transport_default_anchors"))
 }
 
 enum KeyStoreBackend {
@@ -141,24 +137,15 @@ impl KeyStore {
         if let Some(mut store) = StatefsStore::new() {
             emit_line("keystored: statefs backend ok");
             let device_key_bytes = store.load_device_key().ok().flatten();
-            return Self {
-                backend: KeyStoreBackend::Statefs(store),
-                device_key_bytes,
-            };
+            return Self { backend: KeyStoreBackend::Statefs(store), device_key_bytes };
         }
         emit_line("keystored: memory backend fallback");
-        Self {
-            backend: KeyStoreBackend::Memory(BTreeMap::new()),
-            device_key_bytes: None,
-        }
+        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
     }
 
     #[cfg(test)]
     fn new_memory() -> Self {
-        Self {
-            backend: KeyStoreBackend::Memory(BTreeMap::new()),
-            device_key_bytes: None,
-        }
+        Self { backend: KeyStoreBackend::Memory(BTreeMap::new()), device_key_bytes: None }
     }
 
     fn get(&mut self, sender_service_id: u64, key: &[u8]) -> Result<Option<Vec<u8>>, StatefsError> {
@@ -374,16 +361,12 @@ impl DeviceKeyPair {
     }
 
     fn public_key(&self) -> Option<[u8; 32]> {
-        self.signing_key
-            .as_ref()
-            .map(|sk| sk.verifying_key().to_bytes())
+        self.signing_key.as_ref().map(|sk| sk.verifying_key().to_bytes())
     }
 
     fn sign(&self, message: &[u8]) -> Option<[u8; 64]> {
         use ed25519_dalek::Signer;
-        self.signing_key
-            .as_ref()
-            .map(|sk| sk.sign(message).to_bytes())
+        self.signing_key.as_ref().map(|sk| sk.sign(message).to_bytes())
     }
 }
 
@@ -489,12 +472,8 @@ fn route_keystored_blocking() -> Option<KernelServer> {
     };
     loop {
         // `KernelServer::new_with_slots` does not validate capability presence; probe via cap_clone.
-        let recv_ok = nexus_abi::cap_clone(RECV_SLOT)
-            .map(|tmp| nexus_abi::cap_close(tmp))
-            .is_ok();
-        let send_ok = nexus_abi::cap_clone(SEND_SLOT)
-            .map(|tmp| nexus_abi::cap_close(tmp))
-            .is_ok();
+        let recv_ok = nexus_abi::cap_clone(RECV_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
+        let send_ok = nexus_abi::cap_clone(SEND_SLOT).map(|tmp| nexus_abi::cap_close(tmp)).is_ok();
         if recv_ok && send_ok {
             return KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).ok();
         }
@@ -786,9 +765,7 @@ fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8
         Ok(v) => v,
         Err(_) => return false,
     };
-    let inbox = ReplyInboxV1 {
-        recv_slot: reply_recv_slot,
-    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
     let rsp = match recv_match_until(
         &clock,
         &inbox,
@@ -1119,9 +1096,7 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
         }
     }
     let clock = OsClock;
-    let inbox = ReplyInboxV1 {
-        recv_slot: reply_recv_slot,
-    };
+    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
     let rsp = recv_match_until(
         &clock,
         &inbox,
@@ -1173,11 +1148,7 @@ fn status_from_statefs_error(err: StatefsError) -> u8 {
 fn push_hex_u64(out: &mut String, value: u64) {
     for shift in (0..16).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
         out.push(ch as char);
     }
 }
@@ -1186,16 +1157,8 @@ fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
     for byte in bytes {
         let high = (byte >> 4) & 0xF;
         let low = byte & 0xF;
-        out.push(if high < 10 {
-            (b'0' + high) as char
-        } else {
-            (b'a' + (high - 10)) as char
-        });
-        out.push(if low < 10 {
-            (b'0' + low) as char
-        } else {
-            (b'a' + (low - 10)) as char
-        });
+        out.push(if high < 10 { (b'0' + high) as char } else { (b'a' + (high - 10)) as char });
+        out.push(if low < 10 { (b'0' + low) as char } else { (b'a' + (low - 10)) as char });
     }
 }
 
@@ -1203,12 +1166,7 @@ fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
 pub fn touch_schemas() {}
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

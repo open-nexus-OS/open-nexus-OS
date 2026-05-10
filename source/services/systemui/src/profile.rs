@@ -181,9 +181,7 @@ pub(crate) fn bool_field(entries: &[TomlEntry], section: &str, key: &str) -> Res
 }
 
 pub(crate) fn u32_field(entries: &[TomlEntry], section: &str, key: &str) -> Result<u32> {
-    raw_field(entries, section, key)?
-        .parse::<u32>()
-        .map_err(|_| SystemUiError::InvalidManifest)
+    raw_field(entries, section, key)?.parse::<u32>().map_err(|_| SystemUiError::InvalidManifest)
 }
 
 pub(crate) fn contains_str(values: &[String], expected: &str) -> bool {

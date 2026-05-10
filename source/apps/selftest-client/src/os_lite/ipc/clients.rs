@@ -61,11 +61,7 @@ pub(crate) fn cached_reply_client() -> core::result::Result<KernelClient, ()> {
 }
 
 pub(crate) fn cached_netstackd_client() -> core::result::Result<KernelClient, ()> {
-    cached_client(
-        "netstackd",
-        &NETSTACKD_SEND_SLOT_CACHE,
-        &NETSTACKD_RECV_SLOT_CACHE,
-    )
+    cached_client("netstackd", &NETSTACKD_SEND_SLOT_CACHE, &NETSTACKD_RECV_SLOT_CACHE)
 }
 
 pub(crate) fn cached_samgrd_client() -> core::result::Result<KernelClient, ()> {
@@ -73,9 +69,5 @@ pub(crate) fn cached_samgrd_client() -> core::result::Result<KernelClient, ()> {
 }
 
 pub(crate) fn cached_dsoftbusd_client() -> core::result::Result<KernelClient, ()> {
-    cached_client(
-        "dsoftbusd",
-        &DSOFTBUSD_SEND_SLOT_CACHE,
-        &DSOFTBUSD_RECV_SLOT_CACHE,
-    )
+    cached_client("dsoftbusd", &DSOFTBUSD_SEND_SLOT_CACHE, &DSOFTBUSD_RECV_SLOT_CACHE)
 }

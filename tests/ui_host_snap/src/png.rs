@@ -27,11 +27,7 @@ pub fn encode_png_rgba(width: u32, height: u32, rgba: &[u8]) -> SnapResult<Vec<u
     )
     .map_err(|_| SnapshotError::ImageDataInvalid)?;
     let height_usize = usize::try_from(height).map_err(|_| SnapshotError::ImageDataInvalid)?;
-    if rgba.len()
-        != row_bytes
-            .checked_mul(height_usize)
-            .ok_or(SnapshotError::ImageDataInvalid)?
-    {
+    if rgba.len() != row_bytes.checked_mul(height_usize).ok_or(SnapshotError::ImageDataInvalid)? {
         return Err(SnapshotError::ImageDataInvalid);
     }
 
@@ -43,9 +39,7 @@ pub fn encode_png_rgba(width: u32, height: u32, rgba: &[u8]) -> SnapResult<Vec<u
     );
     for row in 0..height_usize {
         scanlines.push(0);
-        let start = row
-            .checked_mul(row_bytes)
-            .ok_or(SnapshotError::ImageDataInvalid)?;
+        let start = row.checked_mul(row_bytes).ok_or(SnapshotError::ImageDataInvalid)?;
         scanlines.extend_from_slice(&rgba[start..start + row_bytes]);
     }
 
@@ -102,9 +96,7 @@ pub fn decode_png_rgba(input: &[u8]) -> SnapResult<DecodedPng> {
     let width = width.ok_or(SnapshotError::Codec)?;
     let height = height.ok_or(SnapshotError::Codec)?;
     let row_bytes = usize::try_from(
-        u64::from(width)
-            .checked_mul(u64::from(BYTES_PER_PIXEL))
-            .ok_or(SnapshotError::Codec)?,
+        u64::from(width).checked_mul(u64::from(BYTES_PER_PIXEL)).ok_or(SnapshotError::Codec)?,
     )
     .map_err(|_| SnapshotError::Codec)?;
     let height_usize = usize::try_from(height).map_err(|_| SnapshotError::Codec)?;
@@ -116,11 +108,8 @@ pub fn decode_png_rgba(input: &[u8]) -> SnapResult<DecodedPng> {
     if inflated.len() != expected {
         return Err(SnapshotError::Codec);
     }
-    let mut rgba = Vec::with_capacity(
-        row_bytes
-            .checked_mul(height_usize)
-            .ok_or(SnapshotError::Codec)?,
-    );
+    let mut rgba =
+        Vec::with_capacity(row_bytes.checked_mul(height_usize).ok_or(SnapshotError::Codec)?);
     for row in 0..height_usize {
         let start = row.checked_mul(row_bytes + 1).ok_or(SnapshotError::Codec)?;
         if inflated[start] != 0 {
@@ -128,11 +117,7 @@ pub fn decode_png_rgba(input: &[u8]) -> SnapResult<DecodedPng> {
         }
         rgba.extend_from_slice(&inflated[start + 1..start + 1 + row_bytes]);
     }
-    Ok(DecodedPng {
-        width,
-        height,
-        rgba,
-    })
+    Ok(DecodedPng { width, height, rgba })
 }
 
 pub fn insert_chunk_after_ihdr(
@@ -212,9 +197,7 @@ fn decode_zlib_stored(input: &[u8]) -> SnapResult<Vec<u8>> {
             return Err(SnapshotError::Codec);
         }
         let len_usize = usize::from(len);
-        let data = input
-            .get(pos..pos + len_usize)
-            .ok_or(SnapshotError::Codec)?;
+        let data = input.get(pos..pos + len_usize).ok_or(SnapshotError::Codec)?;
         out.extend_from_slice(data);
         pos += len_usize;
         if is_final {

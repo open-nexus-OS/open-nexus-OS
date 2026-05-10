@@ -57,12 +57,7 @@ mod tests {
 
     fn pixel(frame: &windowd::Frame, x: u32, y: u32) -> [u8; 4] {
         let idx = (y as usize * frame.stride as usize) + (x as usize * 4);
-        [
-            frame.pixels[idx],
-            frame.pixels[idx + 1],
-            frame.pixels[idx + 2],
-            frame.pixels[idx + 3],
-        ]
+        [frame.pixels[idx], frame.pixels[idx + 1], frame.pixels[idx + 2], frame.pixels[idx + 3]]
     }
 
     #[test]
@@ -82,27 +77,14 @@ mod tests {
             server.queue_buffer(LAUNCHER, bottom_id, bottom, &[Rect::new(0, 0, 4, 4)]),
             Ok(())
         );
-        assert_eq!(
-            server.queue_buffer(LAUNCHER, top_id, top, &[Rect::new(0, 0, 2, 2)]),
-            Ok(())
-        );
+        assert_eq!(server.queue_buffer(LAUNCHER, top_id, top, &[Rect::new(0, 0, 2, 2)]), Ok(()));
         assert_eq!(
             server.commit_scene(
                 CallerCtx::system(),
                 CommitSeq::new(1),
                 &[
-                    Layer {
-                        surface: top_id,
-                        x: 1,
-                        y: 1,
-                        z: 10
-                    },
-                    Layer {
-                        surface: bottom_id,
-                        x: 0,
-                        y: 0,
-                        z: 0
-                    },
+                    Layer { surface: top_id, x: 1, y: 1, z: 10 },
+                    Layer { surface: bottom_id, x: 0, y: 0, z: 0 },
                 ],
             ),
             Ok(())
@@ -139,12 +121,7 @@ mod tests {
             server.commit_scene(
                 CallerCtx::system(),
                 CommitSeq::new(1),
-                &[Layer {
-                    surface,
-                    x: 0,
-                    y: 0,
-                    z: 0
-                }],
+                &[Layer { surface, x: 0, y: 0, z: 0 }],
             ),
             Ok(())
         );
@@ -189,18 +166,8 @@ mod tests {
                 CallerCtx::system(),
                 CommitSeq::new(1),
                 &[
-                    Layer {
-                        surface: a_blue,
-                        x: 0,
-                        y: 0,
-                        z: 5
-                    },
-                    Layer {
-                        surface: a_red,
-                        x: 0,
-                        y: 0,
-                        z: 5
-                    },
+                    Layer { surface: a_blue, x: 0, y: 0, z: 5 },
+                    Layer { surface: a_red, x: 0, y: 0, z: 5 },
                 ],
             ),
             Ok(())
@@ -210,18 +177,8 @@ mod tests {
                 CallerCtx::system(),
                 CommitSeq::new(1),
                 &[
-                    Layer {
-                        surface: b_red,
-                        x: 0,
-                        y: 0,
-                        z: 5
-                    },
-                    Layer {
-                        surface: b_blue,
-                        x: 0,
-                        y: 0,
-                        z: 5
-                    },
+                    Layer { surface: b_red, x: 0, y: 0, z: 5 },
+                    Layer { surface: b_blue, x: 0, y: 0, z: 5 },
                 ],
             ),
             Ok(())
@@ -324,12 +281,7 @@ mod tests {
             srv.commit_scene(
                 CallerCtx::system(),
                 CommitSeq::new(2),
-                &[Layer {
-                    surface,
-                    x: 0,
-                    y: 0,
-                    z: 0
-                }],
+                &[Layer { surface, x: 0, y: 0, z: 0 }],
             ),
             Err(WindowdError::StaleCommitSequence)
         );
@@ -343,31 +295,16 @@ mod tests {
             Err(err) => panic!("create failed: {err:?}"),
         };
         assert_eq!(
-            srv.commit_scene(
-                LAUNCHER,
-                CommitSeq::new(1),
-                &[Layer {
-                    surface,
-                    x: 0,
-                    y: 0,
-                    z: 0
-                }]
-            ),
+            srv.commit_scene(LAUNCHER, CommitSeq::new(1), &[Layer { surface, x: 0, y: 0, z: 0 }]),
             Err(WindowdError::Unauthorized)
         );
     }
 
     #[test]
     fn test_reject_marker_postflight_before_real_present_state() {
-        assert_eq!(
-            marker_postflight_ready(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
         let srv = server();
-        assert_eq!(
-            srv.marker_evidence(),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(srv.marker_evidence(), Err(WindowdError::MarkerBeforePresentState));
     }
 
     #[test]
@@ -385,10 +322,7 @@ mod tests {
         assert_eq!(evidence.seed_surface.width, 64);
         assert_eq!(evidence.seed_surface.height, 48);
         assert_eq!(evidence.seed_surface.format, PixelFormat::Bgra8888);
-        assert_eq!(
-            visible_marker_postflight_ready(Some(evidence.clone())),
-            Ok(evidence)
-        );
+        assert_eq!(visible_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
         assert_eq!(
             visible_marker_postflight_ready(None),
             Err(WindowdError::MarkerBeforePresentState)
@@ -410,32 +344,18 @@ mod tests {
         assert_eq!(evidence.frame_source.stride, 640);
         assert_eq!(evidence.frame_source.format, PixelFormat::Bgra8888);
         assert_eq!(evidence.frame_source.pixels[0..4], [0x80, 0x50, 0x20, 0xff]);
-        let composed_frame = evidence
-            .composed_frame
-            .as_ref()
-            .expect("host composed frame");
+        let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
         assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
         assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
         assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
-        assert_eq!(
-            composed_frame.pixels[0..4],
-            evidence.frame_source.pixels[0..4]
-        );
+        assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
         let inner_pixel = (20 * composed_frame.stride as usize) + (12 * 4);
-        assert_eq!(
-            composed_frame.pixels[inner_pixel..inner_pixel + 4],
-            [0x24, 0x28, 0x34, 0xff]
-        );
+        assert_eq!(composed_frame.pixels[inner_pixel..inner_pixel + 4], [0x24, 0x28, 0x34, 0xff]);
         let mut row = [0xff; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
-        evidence
-            .copy_composed_row(20, &mut row)
-            .expect("copy composed row");
+        evidence.copy_composed_row(20, &mut row).expect("copy composed row");
         assert_eq!(row[12 * 4..(12 * 4) + 4], [0x24, 0x28, 0x34, 0xff]);
         assert_eq!(row[200 * 4..(200 * 4) + 4], [0, 0, 0, 0]);
-        assert_eq!(
-            visible_systemui_marker_postflight_ready(Some(evidence.clone())),
-            Ok(evidence)
-        );
+        assert_eq!(visible_systemui_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
     }
 
     #[test]
@@ -446,14 +366,8 @@ mod tests {
         );
         assert_eq!(VISIBLE_BACKEND_MARKER, "windowd: backend=visible");
         assert_eq!(PRESENT_VISIBLE_MARKER, "windowd: present visible ok");
-        assert_eq!(
-            SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER,
-            "systemui: first frame visible"
-        );
-        assert_eq!(
-            SELFTEST_UI_VISIBLE_PRESENT_MARKER,
-            "SELFTEST: ui visible present ok"
-        );
+        assert_eq!(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, "systemui: first frame visible");
+        assert_eq!(SELFTEST_UI_VISIBLE_PRESENT_MARKER, "SELFTEST: ui visible present ok");
     }
 
     #[test]
@@ -464,19 +378,11 @@ mod tests {
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                stride: mode.stride - 4,
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { stride: mode.stride - 4, ..mode }.validate(),
             Err(WindowdError::InvalidStride)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                format: PixelFormat::Unsupported(0x55),
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { format: PixelFormat::Unsupported(0x55), ..mode }.validate(),
             Err(WindowdError::UnsupportedFormat)
         );
         for cap in [
@@ -517,26 +423,17 @@ mod tests {
     fn test_reject_bounds_for_surface_layers_damage_and_total_bytes() {
         let mut srv = server();
         for handle in 100..132 {
-            assert!(srv
-                .create_surface(LAUNCHER, buffer(handle, 1, 1, [0, 0, 0, 0xff]))
-                .is_ok());
+            assert!(srv.create_surface(LAUNCHER, buffer(handle, 1, 1, [0, 0, 0, 0xff])).is_ok());
         }
         assert_eq!(
-            srv.create_surface(LAUNCHER, buffer(132, 1, 1, [0, 0, 0, 0xff]))
-                .map(|_| ()),
+            srv.create_surface(LAUNCHER, buffer(132, 1, 1, [0, 0, 0, 0xff])).map(|_| ()),
             Err(WindowdError::TooManySurfaces)
         );
 
         let mut srv = server();
-        let surface = srv
-            .create_surface(LAUNCHER, buffer(200, 1, 1, [0, 0, 0, 0xff]))
-            .expect("surface");
-        let too_many_layers = [Layer {
-            surface,
-            x: 0,
-            y: 0,
-            z: 0,
-        }; 17];
+        let surface =
+            srv.create_surface(LAUNCHER, buffer(200, 1, 1, [0, 0, 0, 0xff])).expect("surface");
+        let too_many_layers = [Layer { surface, x: 0, y: 0, z: 0 }; 17];
         assert_eq!(
             srv.commit_scene(CallerCtx::system(), CommitSeq::new(1), &too_many_layers),
             Err(WindowdError::TooManyLayers)
@@ -544,12 +441,7 @@ mod tests {
 
         let damage = [Rect::new(0, 0, 1, 1); 17];
         assert_eq!(
-            srv.queue_buffer(
-                LAUNCHER,
-                surface,
-                buffer(201, 1, 1, [0, 0, 0, 0xff]),
-                &damage
-            ),
+            srv.queue_buffer(LAUNCHER, surface, buffer(201, 1, 1, [0, 0, 0, 0xff]), &damage),
             Err(WindowdError::TooManyDamageRects)
         );
 
@@ -564,9 +456,8 @@ mod tests {
     #[test]
     fn test_reject_invalid_damage_and_no_committed_scene() {
         let mut srv = server();
-        let surface = srv
-            .create_surface(LAUNCHER, buffer(300, 2, 2, [0, 0, 0, 0xff]))
-            .expect("surface");
+        let surface =
+            srv.create_surface(LAUNCHER, buffer(300, 2, 2, [0, 0, 0, 0xff])).expect("surface");
         assert_eq!(
             srv.queue_buffer(
                 LAUNCHER,
@@ -584,41 +475,24 @@ mod tests {
         let mut srv = server();
         let red = buffer(400, 2, 2, [0, 0, 0xff, 0xff]);
         let surface = srv.create_surface(LAUNCHER, red.clone()).expect("surface");
-        srv.queue_buffer(LAUNCHER, surface, red, &[Rect::new(0, 0, 2, 2)])
-            .expect("queue");
+        srv.queue_buffer(LAUNCHER, surface, red, &[Rect::new(0, 0, 2, 2)]).expect("queue");
         srv.commit_scene(
             CallerCtx::system(),
             CommitSeq::new(1),
-            &[Layer {
-                surface,
-                x: 0,
-                y: 0,
-                z: 0,
-            }],
+            &[Layer { surface, x: 0, y: 0, z: 0 }],
         )
         .expect("commit");
         assert!(matches!(srv.present_tick(), Ok(Some(_))));
 
         let blue = buffer(401, 2, 2, [0xff, 0, 0, 0xff]);
-        srv.queue_buffer(LAUNCHER, surface, blue, &[Rect::new(0, 0, 2, 2)])
-            .expect("queue");
+        srv.queue_buffer(LAUNCHER, surface, blue, &[Rect::new(0, 0, 2, 2)]).expect("queue");
         assert_eq!(
             srv.commit_scene(
                 CallerCtx::system(),
                 CommitSeq::new(2),
                 &[
-                    Layer {
-                        surface,
-                        x: 0,
-                        y: 0,
-                        z: 0
-                    },
-                    Layer {
-                        surface: SurfaceId::new(999),
-                        x: 10,
-                        y: 10,
-                        z: 1
-                    },
+                    Layer { surface, x: 0, y: 0, z: 0 },
+                    Layer { surface: SurfaceId::new(999), x: 10, y: 10, z: 1 },
                 ],
             ),
             Err(WindowdError::StaleSurfaceId)
@@ -626,18 +500,10 @@ mod tests {
         srv.commit_scene(
             CallerCtx::system(),
             CommitSeq::new(2),
-            &[Layer {
-                surface,
-                x: 0,
-                y: 0,
-                z: 0,
-            }],
+            &[Layer { surface, x: 0, y: 0, z: 0 }],
         )
         .expect("commit sequence preserved");
-        assert_eq!(
-            srv.present_tick().expect("present").expect("ack").seq.raw(),
-            2
-        );
+        assert_eq!(srv.present_tick().expect("present").expect("ack").seq.raw(), 2);
     }
 
     #[test]
@@ -647,9 +513,8 @@ mod tests {
             srv.subscribe_vsync(PresentSeq::new(0)),
             Err(WindowdError::MarkerBeforePresentState)
         );
-        let surface = srv
-            .create_surface(LAUNCHER, buffer(500, 2, 2, [0, 0, 0, 0xff]))
-            .expect("surface");
+        let surface =
+            srv.create_surface(LAUNCHER, buffer(500, 2, 2, [0, 0, 0, 0xff])).expect("surface");
         srv.queue_buffer(
             LAUNCHER,
             surface,
@@ -660,12 +525,7 @@ mod tests {
         srv.commit_scene(
             CallerCtx::system(),
             CommitSeq::new(1),
-            &[Layer {
-                surface,
-                x: 0,
-                y: 0,
-                z: 0,
-            }],
+            &[Layer { surface, x: 0, y: 0, z: 0 }],
         )
         .expect("commit");
         let ack = srv.present_tick().expect("present").expect("ack");
@@ -676,25 +536,18 @@ mod tests {
     #[test]
     fn input_stub_is_explicitly_unsupported_and_authorized() {
         let mut srv = server();
-        let surface = srv
-            .create_surface(LAUNCHER, buffer(600, 2, 2, [0, 0, 0, 0xff]))
-            .expect("surface");
+        let surface =
+            srv.create_surface(LAUNCHER, buffer(600, 2, 2, [0, 0, 0, 0xff])).expect("surface");
         assert_eq!(
             srv.subscribe_input_stub(LAUNCHER, surface),
             Ok(InputStubStatus::UnsupportedStub)
         );
-        assert_eq!(
-            srv.subscribe_input_stub(OTHER, surface),
-            Err(WindowdError::Unauthorized)
-        );
+        assert_eq!(srv.subscribe_input_stub(OTHER, surface), Err(WindowdError::Unauthorized));
     }
 
     #[test]
     fn present_marker_is_rendered_from_ack_evidence() {
-        let ack = PresentAck {
-            seq: PresentSeq::new(7),
-            damage_rects: 3,
-        };
+        let ack = PresentAck { seq: PresentSeq::new(7), damage_rects: 3 };
         assert_eq!(present_marker(ack), "windowd: present ok (seq=7 dmg=3)");
     }
 
@@ -795,9 +648,8 @@ mod tests {
             capnp::message::ReaderOptions::new(),
         )
         .expect("read queue");
-        let req = reader
-            .get_root::<surface_capnp::queue_buffer_request::Reader>()
-            .expect("queue root");
+        let req =
+            reader.get_root::<surface_capnp::queue_buffer_request::Reader>().expect("queue root");
         let damage = req.get_damage().expect("damage");
         let rect = damage.get(0);
 
@@ -860,9 +712,7 @@ mod tests {
         );
 
         let mut input_msg = capnp::message::Builder::new_default();
-        input_msg
-            .init_root::<input_capnp::input_subscribe_request::Builder>()
-            .set_surface_id(22);
+        input_msg.init_root::<input_capnp::input_subscribe_request::Builder>().set_surface_id(22);
         let mut input_bytes = Vec::new();
         capnp::serialize::write_message(&mut input_bytes, &input_msg).expect("serialize input");
         let input_reader = capnp::serialize::read_message(

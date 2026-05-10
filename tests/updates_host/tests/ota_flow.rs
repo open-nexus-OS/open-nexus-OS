@@ -98,10 +98,7 @@ fn test_reject_mismatched_digest() {
 
     let verifier = Ed25519Verifier;
     let err = SystemSet::parse(&nxs, &verifier).expect_err("digest mismatch");
-    assert!(matches!(
-        err,
-        updates::SystemSetError::DigestMismatch { .. }
-    ));
+    assert!(matches!(err, updates::SystemSetError::DigestMismatch { .. }));
 }
 
 #[test]
@@ -124,24 +121,13 @@ fn test_reject_missing_signature() {
     let mut tar = TarBuilder::new(Vec::new());
     append_file(&mut tar, "system.nxsindex", &index_bytes);
     append_dir(&mut tar, &format!("{}.nxb/", bundle.name));
-    append_file(
-        &mut tar,
-        &format!("{}.nxb/manifest.nxb", bundle.name),
-        &bundle.manifest,
-    );
-    append_file(
-        &mut tar,
-        &format!("{}.nxb/payload.elf", bundle.name),
-        &bundle.payload,
-    );
+    append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+    append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     let nxs = tar.into_inner().expect("tar bytes");
 
     let verifier = Ed25519Verifier;
     let err = SystemSet::parse(&nxs, &verifier).expect_err("missing signature");
-    assert!(matches!(
-        err,
-        SystemSetError::MissingEntry("system.sig.ed25519")
-    ));
+    assert!(matches!(err, SystemSetError::MissingEntry("system.sig.ed25519")));
 }
 
 #[test]
@@ -171,10 +157,7 @@ fn test_reject_path_traversal_dotdot() {
 
     let verifier = Ed25519Verifier;
     let err = SystemSet::parse(&nxs, &verifier).expect_err("path traversal");
-    assert!(matches!(
-        err,
-        SystemSetError::ArchiveMalformed("unsafe path")
-    ));
+    assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
 }
 
 #[test]
@@ -194,10 +177,7 @@ fn test_reject_absolute_path() {
 
     let verifier = Ed25519Verifier;
     let err = SystemSet::parse(&nxs, &verifier).expect_err("absolute path");
-    assert!(matches!(
-        err,
-        SystemSetError::ArchiveMalformed("unsafe path")
-    ));
+    assert!(matches!(err, SystemSetError::ArchiveMalformed("unsafe path")));
 }
 
 #[test]
@@ -210,9 +190,7 @@ fn test_bootctrl_switch_without_stage_fails() {
 #[test]
 fn test_bootctrl_commit_health_without_switch_fails() {
     let mut boot = BootCtrl::new(Slot::A);
-    let err = boot
-        .commit_health()
-        .expect_err("should fail without switch");
+    let err = boot.commit_health().expect_err("should fail without switch");
     assert_eq!(err, updates::BootCtrlError::NotPending);
 }
 
@@ -229,12 +207,7 @@ fn test_bootctrl_double_switch_fails() {
 fn fixture_bundle(name: &str, version: &str) -> BundleFixture {
     let manifest = build_manifest(name, version);
     let payload = vec![0xAAu8; 16];
-    BundleFixture {
-        name: name.to_string(),
-        version: version.to_string(),
-        manifest,
-        payload,
-    }
+    BundleFixture { name: name.to_string(), version: version.to_string(), manifest, payload }
 }
 
 fn build_manifest(name: &str, version: &str) -> Vec<u8> {
@@ -255,10 +228,8 @@ fn build_manifest(name: &str, version: &str) -> Vec<u8> {
 }
 
 fn build_nxs(signing_key: &SigningKey, bundles: &[BundleFixture]) -> Vec<u8> {
-    let signature = signing_key.sign(&build_index(
-        &signing_key.verifying_key().to_bytes(),
-        bundles,
-    ));
+    let signature =
+        signing_key.sign(&build_index(&signing_key.verifying_key().to_bytes(), bundles));
     build_nxs_with_signature(signing_key, bundles, &signature.to_bytes())
 }
 
@@ -276,16 +247,8 @@ fn build_nxs_with_signature(
     for bundle in bundles {
         let dir_name = format!("{}.nxb/", bundle.name);
         append_dir(&mut tar, &dir_name);
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/manifest.nxb", bundle.name),
-            &bundle.manifest,
-        );
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/payload.elf", bundle.name),
-            &bundle.payload,
-        );
+        append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+        append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     }
 
     tar.into_inner().expect("tar bytes")
@@ -307,16 +270,8 @@ fn build_nxs_with_index(
     for bundle in archive_bundles {
         let dir_name = format!("{}.nxb/", bundle.name);
         append_dir(&mut tar, &dir_name);
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/manifest.nxb", bundle.name),
-            &bundle.manifest,
-        );
-        append_file(
-            &mut tar,
-            &format!("{}.nxb/payload.elf", bundle.name),
-            &bundle.payload,
-        );
+        append_file(&mut tar, &format!("{}.nxb/manifest.nxb", bundle.name), &bundle.manifest);
+        append_file(&mut tar, &format!("{}.nxb/payload.elf", bundle.name), &bundle.payload);
     }
 
     tar.into_inner().expect("tar bytes")
@@ -363,9 +318,7 @@ fn append_file(builder: &mut TarBuilder<Vec<u8>>, path: &str, bytes: &[u8]) {
     header.set_gid(0);
     header.set_mtime(0);
     header.set_cksum();
-    builder
-        .append_data(&mut header, path, bytes)
-        .expect("append file");
+    builder.append_data(&mut header, path, bytes).expect("append file");
 }
 
 fn append_dir(builder: &mut TarBuilder<Vec<u8>>, path: &str) {
@@ -377,9 +330,7 @@ fn append_dir(builder: &mut TarBuilder<Vec<u8>>, path: &str) {
     header.set_gid(0);
     header.set_mtime(0);
     header.set_cksum();
-    builder
-        .append_data(&mut header, path, std::io::empty())
-        .expect("append dir");
+    builder.append_data(&mut header, path, std::io::empty()).expect("append dir");
 }
 
 /// Appends a file with a raw path, bypassing tar library path validation.

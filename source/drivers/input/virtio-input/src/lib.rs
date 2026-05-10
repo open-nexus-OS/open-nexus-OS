@@ -10,10 +10,7 @@
 //! ADR: docs/adr/0017-service-architecture.md
 
 #![cfg_attr(all(feature = "os-lite", not(feature = "std")), no_std)]
-#![cfg_attr(
-    not(all(feature = "os-lite", not(feature = "std"))),
-    forbid(unsafe_code)
-)]
+#![cfg_attr(not(all(feature = "os-lite", not(feature = "std"))), forbid(unsafe_code))]
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 extern crate alloc;
@@ -40,17 +37,28 @@ const REG_DEVICE_FEATURES: usize = 0x010;
 const REG_DEVICE_FEATURES_SEL: usize = 0x014;
 const REG_DRIVER_FEATURES: usize = 0x020;
 const REG_DRIVER_FEATURES_SEL: usize = 0x024;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_SEL: usize = 0x030;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_NUM_MAX: usize = 0x034;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_NUM: usize = 0x038;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_READY: usize = 0x044;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_NOTIFY: usize = 0x050;
 const REG_STATUS: usize = 0x070;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DESC_LOW: usize = 0x080;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DESC_HIGH: usize = 0x084;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DRIVER_LOW: usize = 0x090;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DRIVER_HIGH: usize = 0x094;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DEVICE_LOW: usize = 0x0a0;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DEVICE_HIGH: usize = 0x0a4;
 const REG_CONFIG_SELECT: usize = 0x0fc;
 const REG_CONFIG_SUBSEL: usize = 0x100;
@@ -59,10 +67,12 @@ const REG_CONFIG_DATA: usize = 0x108;
 
 const STATUS_ACKNOWLEDGE: u32 = 1;
 const STATUS_DRIVER: u32 = 2;
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const STATUS_DRIVER_OK: u32 = 4;
 const STATUS_FEATURES_OK: u32 = 8;
 const STATUS_FAILED: u32 = 128;
 
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 const CONFIG_SELECT_EV_BITS: u32 = 0x11;
 const CONFIG_SELECT_ABS_INFO: u32 = 0x12;
@@ -151,11 +161,7 @@ pub struct RawInputEvent {
 impl RawInputEvent {
     #[must_use]
     pub const fn new(event_type: u16, code: u16, value: i32) -> Self {
-        Self {
-            event_type,
-            code,
-            value,
-        }
+        Self { event_type, code, value }
     }
 
     #[must_use]
@@ -163,11 +169,7 @@ impl RawInputEvent {
         let event_type = u16::from_le_bytes([bytes[0], bytes[1]]);
         let code = u16::from_le_bytes([bytes[2], bytes[3]]);
         let value = i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-        Self {
-            event_type,
-            code,
-            value,
-        }
+        Self { event_type, code, value }
     }
 
     #[must_use]
@@ -280,8 +282,7 @@ impl<B: Bus> VirtioInputMmio<B> {
 
     pub fn negotiate_features_none(&self) -> Result<(), VirtioInputError> {
         self.bus.write(REG_STATUS, 0);
-        self.bus
-            .write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        self.bus.write(REG_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
         self.bus.write(REG_DEVICE_FEATURES_SEL, 0);
         let _ = self.bus.read(REG_DEVICE_FEATURES);
         self.bus.write(REG_DEVICE_FEATURES_SEL, 1);
@@ -293,8 +294,7 @@ impl<B: Bus> VirtioInputMmio<B> {
         let status = self.bus.read(REG_STATUS);
         self.bus.write(REG_STATUS, status | STATUS_FEATURES_OK);
         if self.bus.read(REG_STATUS) & STATUS_FEATURES_OK == 0 {
-            self.bus
-                .write(REG_STATUS, self.bus.read(REG_STATUS) | STATUS_FAILED);
+            self.bus.write(REG_STATUS, self.bus.read(REG_STATUS) | STATUS_FAILED);
             return Err(VirtioInputError::DeviceRejectedFeatures);
         }
         Ok(())
@@ -346,8 +346,10 @@ impl<B: Bus> VirtioInputMmio<B> {
     }
 }
 
-#[must_use]
-pub const fn validate_queue_capacity(max_entries: u32, required_entries: u16) -> Result<(), VirtioInputError> {
+pub const fn validate_queue_capacity(
+    max_entries: u32,
+    required_entries: u16,
+) -> Result<(), VirtioInputError> {
     if max_entries == 0 {
         return Err(VirtioInputError::QueueUnavailable);
     }
@@ -448,13 +450,7 @@ impl MappedVirtioInputDevice {
         slot: DeviceSlot,
     ) -> Result<Self, VirtioInputError> {
         mmio_map(mmio_cap_slot, mmio_base_va, 0)
-            .or_else(|err| {
-                if err == AbiError::InvalidArgument {
-                    Ok(())
-                } else {
-                    Err(err)
-                }
-            })
+            .or_else(|err| if err == AbiError::InvalidArgument { Ok(()) } else { Err(err) })
             .map_err(|_| VirtioInputError::MapFailed)?;
         let bus = MmioBus::new(mmio_base_va);
         let mmio = VirtioInputMmio::new(bus);
@@ -473,14 +469,7 @@ impl MappedVirtioInputDevice {
         )?;
         bus.write(REG_STATUS, bus.read(REG_STATUS) | STATUS_DRIVER_OK);
         bus.write(REG_QUEUE_NOTIFY, INPUT_EVENT_QUEUE_INDEX);
-        Ok(Self {
-            slot,
-            role,
-            bus,
-            queue,
-            absolute_x,
-            absolute_y,
-        })
+        Ok(Self { slot, role, bus, queue, absolute_x, absolute_y })
     }
 
     #[must_use]
@@ -550,19 +539,9 @@ impl<const N: usize> QueueState<N> {
             | nexus_abi::page_flags::WRITE;
         vmo_map_page(queue_vmo, queue_va, 0, flags).map_err(|_| VirtioInputError::MapFailed)?;
         vmo_map_page(buffer_vmo, buffer_va, 0, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut queue_info = CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut queue_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         cap_query(queue_vmo, &mut queue_info).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut buffer_info = CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut buffer_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         cap_query(buffer_vmo, &mut buffer_info).map_err(|_| VirtioInputError::MapFailed)?;
 
         unsafe {
@@ -581,12 +560,7 @@ impl<const N: usize> QueueState<N> {
         let max = bus.read(REG_QUEUE_NUM_MAX);
         validate_queue_capacity(max, N as u16)?;
         bus.write(REG_QUEUE_NUM, N as u32);
-        write_u64_mmio_pair(
-            bus,
-            REG_QUEUE_DESC_LOW,
-            REG_QUEUE_DESC_HIGH,
-            queue_info.base,
-        );
+        write_u64_mmio_pair(bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, queue_info.base);
         write_u64_mmio_pair(bus, REG_QUEUE_DRIVER_LOW, REG_QUEUE_DRIVER_HIGH, avail_pa);
         write_u64_mmio_pair(bus, REG_QUEUE_DEVICE_LOW, REG_QUEUE_DEVICE_HIGH, used_pa);
         bus.write(REG_QUEUE_READY, 1);
@@ -715,11 +689,7 @@ mod tests {
         }
 
         fn keyboard_without_optional_configs() -> Self {
-            Self {
-                rel_bits: None,
-                abs_bits: None,
-                ..Self::keyboard()
-            }
+            Self { rel_bits: None, abs_bits: None, ..Self::keyboard() }
         }
 
         fn absolute_pointer(max_x: i32, max_y: i32) -> Self {
@@ -727,12 +697,7 @@ mod tests {
             let mut abs_y = [0u8; ABS_INFO_LEN];
             abs_x[4..8].copy_from_slice(&max_x.to_le_bytes());
             abs_y[4..8].copy_from_slice(&max_y.to_le_bytes());
-            Self {
-                abs_bits: Some([0b11]),
-                abs_x,
-                abs_y,
-                ..Self::keyboard()
-            }
+            Self { abs_bits: Some([0b11]), abs_x, abs_y, ..Self::keyboard() }
         }
 
         fn keyboard_without_optional_configs_but_with_absolute_axes(
@@ -766,8 +731,8 @@ mod tests {
                     (CONFIG_SELECT_EV_BITS, x) if x == EVENT_TYPE_ABS as u32 => {
                         self.abs_bits.map_or(0, |bits| bits.len() as u32)
                     }
-                    (CONFIG_SELECT_ABS_INFO, x) if x == 0 => ABS_INFO_LEN as u32,
-                    (CONFIG_SELECT_ABS_INFO, x) if x == 1 => ABS_INFO_LEN as u32,
+                    (CONFIG_SELECT_ABS_INFO, 0) => ABS_INFO_LEN as u32,
+                    (CONFIG_SELECT_ABS_INFO, 1) => ABS_INFO_LEN as u32,
                     _ => 0,
                 },
                 offset if (REG_CONFIG_DATA..REG_CONFIG_DATA + ABS_INFO_LEN).contains(&offset) => {
@@ -778,8 +743,8 @@ mod tests {
                         (CONFIG_SELECT_EV_BITS, x) if x == EVENT_TYPE_ABS as u32 => {
                             self.abs_bits.as_ref().map_or(&[][..], |bits| &bits[..])
                         }
-                        (CONFIG_SELECT_ABS_INFO, x) if x == 0 => &self.abs_x[..],
-                        (CONFIG_SELECT_ABS_INFO, x) if x == 1 => &self.abs_y[..],
+                        (CONFIG_SELECT_ABS_INFO, 0) => &self.abs_x[..],
+                        (CONFIG_SELECT_ABS_INFO, 1) => &self.abs_y[..],
                         _ => &[],
                     };
                     let base = offset - REG_CONFIG_DATA;
@@ -837,7 +802,10 @@ mod tests {
             validate_queue_capacity((DEFAULT_QUEUE_ENTRIES - 1) as u32, DEFAULT_QUEUE_ENTRIES),
             Err(VirtioInputError::QueueTooSmall)
         );
-        assert_eq!(validate_queue_capacity(DEFAULT_QUEUE_ENTRIES as u32, DEFAULT_QUEUE_ENTRIES), Ok(()));
+        assert_eq!(
+            validate_queue_capacity(DEFAULT_QUEUE_ENTRIES as u32, DEFAULT_QUEUE_ENTRIES),
+            Ok(())
+        );
     }
 
     #[test]
@@ -845,14 +813,8 @@ mod tests {
         let bus = MockBus::absolute_pointer(1279, 799);
         let dev = VirtioInputMmio::new(bus);
         assert_eq!(dev.detect_role(), Ok(DeviceRole::AbsolutePointer));
-        assert_eq!(
-            dev.read_absolute_axis_info(0),
-            Ok(AbsoluteAxisInfo::new(0, 1279))
-        );
-        assert_eq!(
-            dev.read_absolute_axis_info(1),
-            Ok(AbsoluteAxisInfo::new(0, 799))
-        );
+        assert_eq!(dev.read_absolute_axis_info(0), Ok(AbsoluteAxisInfo::new(0, 1279)));
+        assert_eq!(dev.read_absolute_axis_info(1), Ok(AbsoluteAxisInfo::new(0, 799)));
     }
 
     #[test]
@@ -867,14 +829,8 @@ mod tests {
         let bus = MockBus::keyboard_without_optional_configs_but_with_absolute_axes(32767, 32767);
         let dev = VirtioInputMmio::new(bus);
         assert_eq!(dev.detect_role(), Ok(DeviceRole::Keyboard));
-        assert_eq!(
-            dev.read_absolute_axis_info(0),
-            Ok(AbsoluteAxisInfo::new(0, 32767))
-        );
-        assert_eq!(
-            dev.read_absolute_axis_info(1),
-            Ok(AbsoluteAxisInfo::new(0, 32767))
-        );
+        assert_eq!(dev.read_absolute_axis_info(0), Ok(AbsoluteAxisInfo::new(0, 32767)));
+        assert_eq!(dev.read_absolute_axis_info(1), Ok(AbsoluteAxisInfo::new(0, 32767)));
     }
 
     #[test]

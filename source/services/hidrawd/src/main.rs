@@ -8,11 +8,7 @@
 //! TEST_COVERAGE: `cargo test -p hidrawd -- --nocapture`
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![forbid(unsafe_code)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

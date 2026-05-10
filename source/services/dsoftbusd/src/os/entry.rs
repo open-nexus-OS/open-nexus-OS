@@ -349,13 +349,8 @@ pub(crate) fn udp_send_to(
     req[16..16 + payload.len()].copy_from_slice(payload);
     let nonce = next_nonce(nonce_ctr);
     req[16 + payload.len()..16 + payload.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(
-        pending,
-        net,
-        &req[..16 + payload.len() + 8],
-        OP_UDP_SEND_TO | 0x80,
-        nonce,
-    )?;
+    let rsp =
+        rpc_nonce(pending, net, &req[..16 + payload.len() + 8], OP_UDP_SEND_TO | 0x80, nonce)?;
     if rsp[0] == MAGIC0
         && rsp[1] == MAGIC1
         && rsp[2] == VERSION
@@ -600,13 +595,7 @@ pub(crate) fn dual_stream_write(
     w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
     w[10..10 + data.len()].copy_from_slice(data);
     w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(
-        pending,
-        net,
-        &w[..10 + data.len() + 8],
-        OP_WRITE | 0x80,
-        nonce,
-    )?;
+    let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
     if rsp[4] == STATUS_OK {
         Ok(())
     } else {

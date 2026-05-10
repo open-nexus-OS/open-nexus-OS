@@ -41,9 +41,6 @@ fn main() {
     };
 
     for row in rows {
-        println!(
-            "pc=0x{:016x} fn={} {}:{}",
-            row.pc, row.function, row.file, row.line
-        );
+        println!("pc=0x{:016x} fn={} {}:{}", row.pc, row.function, row.file, row.line);
     }
 }

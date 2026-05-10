@@ -28,22 +28,14 @@ fn empty_bundle_hashes_deterministically() {
     let bundle = empty_bundle();
     let h1 = canonical_hash(&bundle);
     let h2 = canonical_hash(&bundle);
-    assert_eq!(
-        h1, h2,
-        "canonical_hash is not deterministic for empty bundle"
-    );
+    assert_eq!(h1, h2, "canonical_hash is not deterministic for empty bundle");
 
     // Lock the empty-bundle hash so future canonicalization changes
     // surface here instead of silently breaking downstream verifiers.
     // If you intentionally change the canonical form, update this
     // literal AND bump `BundleMeta::schema_version`.
     let hex = hex::encode(h1);
-    assert_eq!(
-        hex.len(),
-        64,
-        "SHA-256 must be 32 bytes / 64 hex chars; got {}",
-        hex.len()
-    );
+    assert_eq!(hex.len(), 64, "SHA-256 must be 32 bytes / 64 hex chars; got {}", hex.len());
 }
 
 /// Test 2: reordering trace entries in memory does NOT change the hash.
@@ -83,10 +75,7 @@ fn trace_reorder_does_not_change_hash() {
 
     let ha = canonical_hash(&a);
     let hb = canonical_hash(&b);
-    assert_eq!(
-        ha, hb,
-        "canonical_hash must be invariant under trace-entry reordering"
-    );
+    assert_eq!(ha, hb, "canonical_hash must be invariant under trace-entry reordering");
 }
 
 /// Test 3: the env map's iteration order does NOT change the hash.
@@ -116,10 +105,7 @@ fn env_key_order_does_not_change_hash() {
 
     let ha = canonical_hash(&a);
     let hb = canonical_hash(&b);
-    assert_eq!(
-        ha, hb,
-        "canonical_hash must be invariant under env-key insertion order"
-    );
+    assert_eq!(ha, hb, "canonical_hash must be invariant under env-key insertion order");
 }
 
 /// Test 4: `\r\n` vs `\n` line endings in `uart.bytes` produce the
@@ -137,10 +123,7 @@ fn uart_line_ending_normalization() {
 
     let ha = canonical_hash(&a);
     let hb = canonical_hash(&b);
-    assert_eq!(
-        ha, hb,
-        "canonical_hash must normalize CRLF to LF before hashing UART"
-    );
+    assert_eq!(ha, hb, "canonical_hash must normalize CRLF to LF before hashing UART");
 }
 
 /// Test 5: `wall_clock_utc` is excluded from the config hash —
@@ -158,10 +141,7 @@ fn wall_clock_excluded_from_hash() {
 
     let ha = canonical_hash(&a);
     let hb = canonical_hash(&b);
-    assert_eq!(
-        ha, hb,
-        "canonical_hash must exclude wall_clock_utc from config canonicalization"
-    );
+    assert_eq!(ha, hb, "canonical_hash must exclude wall_clock_utc from config canonicalization");
 }
 
 /// Test 6: a single byte change in the manifest artifact changes the
@@ -178,8 +158,5 @@ fn manifest_byte_change_changes_hash() {
 
     let ha = canonical_hash(&a);
     let hb = canonical_hash(&b);
-    assert_ne!(
-        ha, hb,
-        "canonical_hash must change when manifest bytes change"
-    );
+    assert_ne!(ha, hb, "canonical_hash must change when manifest bytes change");
 }

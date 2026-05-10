@@ -57,12 +57,7 @@ pub(crate) fn handle_idl(args: IdlArgs, cfg: &RuntimeConfig) -> ExecResult {
                 "schema_count": schemas.len(),
                 "capnp": capnp_ok,
             });
-            Ok((
-                ExitClass::Success,
-                "idl check passed".to_string(),
-                check.json,
-                Some(data),
-            ))
+            Ok((ExitClass::Success, "idl check passed".to_string(), check.json, Some(data)))
         }
     }
 }
@@ -79,10 +74,7 @@ fn list_schemas(root: &Path) -> Result<Vec<String>, NxError> {
         .map_err(|e| NxError::new(ExitClass::Internal, format!("failed reading idl root: {e}")))?
     {
         let entry = entry.map_err(|e| {
-            NxError::new(
-                ExitClass::Internal,
-                format!("failed iterating idl root: {e}"),
-            )
+            NxError::new(ExitClass::Internal, format!("failed iterating idl root: {e}"))
         })?;
         let path = entry.path();
         if path.extension() == Some(OsStr::new("capnp")) {
@@ -91,10 +83,7 @@ fn list_schemas(root: &Path) -> Result<Vec<String>, NxError> {
     }
     schemas.sort();
     if schemas.is_empty() {
-        return Err(NxError::new(
-            ExitClass::ValidationReject,
-            "no schema files found in idl root",
-        ));
+        return Err(NxError::new(ExitClass::ValidationReject, "no schema files found in idl root"));
     }
     Ok(schemas)
 }

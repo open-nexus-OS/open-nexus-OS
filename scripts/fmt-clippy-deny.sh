@@ -15,7 +15,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export CARGO_TARGET_DIR="${NEXUS_CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
 
 # Format check only (do not rewrite files in hooks/CI).
-cargo fmt --all -- --config-path config/rustfmt.toml --check
+if ! cargo fmt --all -- --config-path config/rustfmt.toml --check; then
+  echo "error: rustfmt check failed." >&2
+  echo "error: do not use plain 'cargo fmt'; use the repo-approved format commands:" >&2
+  echo "  cargo +stable fmt --all -- --config-path config/rustfmt.toml" >&2
+  echo "  cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml" >&2
+  exit 1
+fi
 
 # Host-first lint; avoid OS-only feature sets and no_std kernel (needs -Z build-std).
 RUSTFLAGS_DEFAULT='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="host"'

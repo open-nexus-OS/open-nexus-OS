@@ -30,11 +30,8 @@ fn emulate_statefsd(frame: &[u8], kv: &mut BTreeMap<String, Vec<u8>>) -> Vec<u8>
             }
         }
         sfp::Request::Delete { key } => {
-            let status = if kv.remove(key).is_some() {
-                sfp::STATUS_OK
-            } else {
-                sfp::STATUS_NOT_FOUND
-            };
+            let status =
+                if kv.remove(key).is_some() { sfp::STATUS_OK } else { sfp::STATUS_NOT_FOUND };
             sfp::encode_status_response_with_nonce(sfp::OP_DEL, status, nonce)
         }
         sfp::Request::List { prefix, limit } => {
@@ -126,8 +123,6 @@ fn test_gateway_symbols_are_linked_for_host_seam() {
     let _enc_status: fn(u8, u8, Option<u64>) -> alloc::vec::Vec<u8> =
         statefs_rw::encode_status_response;
 
-    let del_req = sfp::Request::Delete {
-        key: "/state/shared/selftest/link",
-    };
+    let del_req = sfp::Request::Delete { key: "/state/shared/selftest/link" };
     assert!(statefs_rw::is_mutating_request(&del_req));
 }

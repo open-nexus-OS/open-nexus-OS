@@ -16,12 +16,7 @@
 #![forbid(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(
-        feature = "os-lite",
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none"
-    ),
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
     no_std
 )]
 
@@ -114,10 +109,7 @@ impl RuntimeLimits {
                 return Err(ConfigError::InvalidValue);
             };
             let key = k.trim();
-            let value_u64 = v
-                .trim()
-                .parse::<u64>()
-                .map_err(|_| ConfigError::InvalidValue)?;
+            let value_u64 = v.trim().parse::<u64>().map_err(|_| ConfigError::InvalidValue)?;
             match (section, key) {
                 ("metrics", "max_series_total") => cfg.max_series_total = value_u64 as usize,
                 ("metrics", "max_series_per_metric") => {
@@ -426,11 +418,7 @@ struct HistogramState {
 
 impl HistogramState {
     fn new() -> Self {
-        Self {
-            buckets: [0; 5],
-            count: 0,
-            sum: 0,
-        }
+        Self { buckets: [0; 5], count: 0, sum: 0 }
     }
 
     fn observe(&mut self, value: u64) {
@@ -506,11 +494,7 @@ impl Registry {
     }
 
     pub fn new_with_limits(limits: RuntimeLimits) -> Self {
-        Self {
-            series: Vec::new(),
-            live_spans: Vec::new(),
-            limits,
-        }
+        Self { series: Vec::new(), live_spans: Vec::new(), limits }
     }
 
     pub fn counter_inc(
@@ -697,17 +681,12 @@ impl RateLimiter {
     }
 
     pub fn new_with_limits(limits: RuntimeLimits) -> Self {
-        Self {
-            windows: Vec::new(),
-            limits,
-        }
+        Self { windows: Vec::new(), limits }
     }
 
     pub fn is_limited(&mut self, sender_service_id: u64, now_ns: u64) -> bool {
-        if let Some(pos) = self
-            .windows
-            .iter()
-            .position(|window| window.sender_service_id == sender_service_id)
+        if let Some(pos) =
+            self.windows.iter().position(|window| window.sender_service_id == sender_service_id)
         {
             let window = &mut self.windows[pos];
             if now_ns.saturating_sub(window.window_start_ns) >= self.limits.rate_window_ns {
@@ -723,11 +702,7 @@ impl RateLimiter {
         if self.windows.len() >= self.limits.rate_max_subjects {
             return true;
         }
-        self.windows.push(RateWindow {
-            sender_service_id,
-            window_start_ns: now_ns,
-            used: 1,
-        });
+        self.windows.push(RateWindow { sender_service_id, window_start_ns: now_ns, used: 1 });
         false
     }
 }
@@ -763,15 +738,9 @@ mod tests {
     #[test]
     fn histogram_bucket_boundaries_are_deterministic() {
         let mut reg = Registry::new();
-        assert!(reg
-            .hist_observe(1, b"timed.latency", b"", 1_000_000)
-            .is_ok());
-        assert!(reg
-            .hist_observe(1, b"timed.latency", b"", 5_000_000)
-            .is_ok());
-        assert!(reg
-            .hist_observe(1, b"timed.latency", b"", 500_000_000)
-            .is_ok());
+        assert!(reg.hist_observe(1, b"timed.latency", b"", 1_000_000).is_ok());
+        assert!(reg.hist_observe(1, b"timed.latency", b"", 5_000_000).is_ok());
+        assert!(reg.hist_observe(1, b"timed.latency", b"", 500_000_000).is_ok());
         let idx = reg
             .series
             .iter()
@@ -797,19 +766,17 @@ mod tests {
                 attrs: b"phase=run\n",
             })
             .is_ok());
-        let ended = reg
-            .span_end(sender, span_id, 180, 0, b"result=ok\n")
-            .unwrap_or(EndedSpan {
-                sender_service_id: 0,
-                span_id: 0,
-                trace_id: 0,
-                parent_span_id: 0,
-                name: Vec::new(),
-                start_attrs: Vec::new(),
-                end_attrs: Vec::new(),
-                duration_ns: 0,
-                status: 255,
-            });
+        let ended = reg.span_end(sender, span_id, 180, 0, b"result=ok\n").unwrap_or(EndedSpan {
+            sender_service_id: 0,
+            span_id: 0,
+            trace_id: 0,
+            parent_span_id: 0,
+            name: Vec::new(),
+            start_attrs: Vec::new(),
+            end_attrs: Vec::new(),
+            duration_ns: 0,
+            status: 255,
+        });
         assert_eq!(ended.duration_ns, 80);
         assert_eq!(ended.status, 0);
         assert_eq!(ended.parent_span_id, 0);
@@ -957,10 +924,7 @@ gc_batch = 1
 [wire]
 max_metric_name_len = 999
 ";
-        assert_eq!(
-            RuntimeLimits::parse_toml(toml),
-            Err(ConfigError::InvalidValue)
-        );
+        assert_eq!(RuntimeLimits::parse_toml(toml), Err(ConfigError::InvalidValue));
     }
 
     #[test]
@@ -972,10 +936,7 @@ max_metric_name_len = 999
         };
         let mut reg = Registry::new_with_limits(limits);
         assert!(reg.counter_inc(1, b"m.a", b"id=1", 1).is_ok());
-        assert_eq!(
-            reg.counter_inc(1, b"m.b", b"id=2", 1),
-            Err(RejectReason::OverLimit)
-        );
+        assert_eq!(reg.counter_inc(1, b"m.b", b"id=2", 1), Err(RejectReason::OverLimit));
     }
 
     #[test]
@@ -997,10 +958,7 @@ max_metric_name_len = 999
 
     #[test]
     fn test_retention_engine_emits_rollup_deterministically() {
-        let limits = RuntimeLimits {
-            retention_rollup_every: 2,
-            ..RuntimeLimits::default()
-        };
+        let limits = RuntimeLimits { retention_rollup_every: 2, ..RuntimeLimits::default() };
         let mut retention = RetentionEngine::new(limits);
         let first = retention.append(RetentionEventKind::Metric, b"m1").unwrap();
         assert!(first.rollup_10s.is_none());
@@ -1012,18 +970,12 @@ max_metric_name_len = 999
 
     #[test]
     fn test_retention_engine_emits_60s_rollup_after_six_10s_windows() {
-        let limits = RuntimeLimits {
-            retention_rollup_every: 1,
-            ..RuntimeLimits::default()
-        };
+        let limits = RuntimeLimits { retention_rollup_every: 1, ..RuntimeLimits::default() };
         let mut retention = RetentionEngine::new(limits);
         let mut saw_60 = None;
         for i in 0..6 {
-            let kind = if i % 2 == 0 {
-                RetentionEventKind::Metric
-            } else {
-                RetentionEventKind::Span
-            };
+            let kind =
+                if i % 2 == 0 { RetentionEventKind::Metric } else { RetentionEventKind::Span };
             let update = retention.append(kind, b"x").unwrap();
             if update.rollup_60s.is_some() {
                 saw_60 = update.rollup_60s.map(|r| r.bytes);

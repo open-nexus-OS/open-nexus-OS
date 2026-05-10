@@ -37,12 +37,7 @@ impl PointerAccelConfig {
         if max_output <= threshold {
             return Err(PointerAccelError::InvalidMaxOutput);
         }
-        Ok(Self {
-            threshold,
-            numerator,
-            denominator,
-            max_output,
-        })
+        Ok(Self { threshold, numerator, denominator, max_output })
     }
 
     #[must_use]

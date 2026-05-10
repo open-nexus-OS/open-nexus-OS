@@ -45,10 +45,7 @@ pub(crate) fn print_result(
 
     println!("{message}");
     if let Some(data) = data {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&data).unwrap_or_else(|_| "{}".to_string())
-        );
+        println!("{}", serde_json::to_string_pretty(&data).unwrap_or_else(|_| "{}".to_string()));
     }
 }
 

@@ -36,10 +36,7 @@ fn main() {
 
     // If no schema directory exists, there's nothing to generate. Keep the build green.
     if !schemas.exists() {
-        println!(
-            "cargo:warning=nexus-idl-runtime: no schemas at {}",
-            schemas.display()
-        );
+        println!("cargo:warning=nexus-idl-runtime: no schemas at {}", schemas.display());
         return;
     }
 

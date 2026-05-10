@@ -37,9 +37,7 @@ fn test_ro_mapping_enforced() {
     let mapped = vmo.map_ro(0, 8).expect("ro mapping after seal");
     assert_eq!(mapped.as_slice(), b"nexusvmo");
 
-    let err = vmo
-        .write(0, b"reject!!")
-        .expect_err("sealed vmo must reject write");
+    let err = vmo.write(0, b"reject!!").expect_err("sealed vmo must reject write");
     assert_eq!(err, Error::ReadOnlyViolation);
 }
 

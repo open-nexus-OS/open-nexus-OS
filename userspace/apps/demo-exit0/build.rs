@@ -528,11 +528,7 @@ fn deterministic_build_id_bytes(name: &[u8]) -> Vec<u8> {
     out.push(b'b');
     for shift in (0..16).rev() {
         let nibble = ((h >> (shift * 4)) & 0xf) as u8;
-        out.push(if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        });
+        out.push(if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) });
     }
     out
 }

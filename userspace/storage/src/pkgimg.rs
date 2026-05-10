@@ -111,9 +111,7 @@ impl ParsedPkgImg {
         let key = (bundle.to_string(), version.to_string(), path.to_string());
         let idx = *self.index.get(&key)?;
         let entry = self.entries.get(idx)?;
-        let begin = self
-            .data_section_offset
-            .checked_add(entry.data_offset as usize)?;
+        let begin = self.data_section_offset.checked_add(entry.data_offset as usize)?;
         let end = begin.checked_add(entry.data_len as usize)?;
         self.image_bytes.get(begin..end)
     }
@@ -221,12 +219,8 @@ fn write_u64(dst: &mut Vec<u8>, value: u64) {
 }
 
 fn read_exact<'a>(bytes: &'a [u8], off: &mut usize, len: usize) -> Result<&'a [u8], PkgImgError> {
-    let end = off
-        .checked_add(len)
-        .ok_or(PkgImgError::Malformed("offset overflow"))?;
-    let out = bytes
-        .get(*off..end)
-        .ok_or(PkgImgError::Malformed("truncated"))?;
+    let end = off.checked_add(len).ok_or(PkgImgError::Malformed("offset overflow"))?;
+    let out = bytes.get(*off..end).ok_or(PkgImgError::Malformed("truncated"))?;
     *off = end;
     Ok(out)
 }
@@ -243,9 +237,7 @@ fn read_u32(bytes: &[u8], off: &mut usize) -> Result<u32, PkgImgError> {
 
 fn read_u64(bytes: &[u8], off: &mut usize) -> Result<u64, PkgImgError> {
     let data = read_exact(bytes, off, 8)?;
-    Ok(u64::from_le_bytes([
-        data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-    ]))
+    Ok(u64::from_le_bytes([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]]))
 }
 
 /// Builds a deterministic `pkgimg` v2 image from file specs.
@@ -349,12 +341,10 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
     if index_len > caps.max_index_bytes {
         return Err(PkgImgError::IndexCapExceeded);
     }
-    let index_end = index_offset
-        .checked_add(index_len)
-        .ok_or(PkgImgError::Malformed("index overflow"))?;
-    let data_end = data_offset
-        .checked_add(data_len)
-        .ok_or(PkgImgError::Malformed("data overflow"))?;
+    let index_end =
+        index_offset.checked_add(index_len).ok_or(PkgImgError::Malformed("index overflow"))?;
+    let data_end =
+        data_offset.checked_add(data_len).ok_or(PkgImgError::Malformed("data overflow"))?;
     if index_offset < SUPERBLOCK_LEN
         || data_offset < SUPERBLOCK_LEN
         || index_end > image.len()
@@ -363,9 +353,8 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
     {
         return Err(PkgImgError::EntryOutOfBounds);
     }
-    let index_bytes = image
-        .get(index_offset..index_end)
-        .ok_or(PkgImgError::Malformed("index slice"))?;
+    let index_bytes =
+        image.get(index_offset..index_end).ok_or(PkgImgError::Malformed("index slice"))?;
     let digest = Sha256::digest(index_bytes);
     if digest.as_slice() != expected_hash {
         return Err(PkgImgError::IndexHashMismatch);
@@ -404,9 +393,7 @@ pub fn parse_pkgimg(image: &[u8], caps: PkgImgCaps) -> Result<ParsedPkgImg, PkgI
             return Err(PkgImgError::IndexCapExceeded);
         }
         let data_limit = data_len as u64;
-        let end = data_off
-            .checked_add(len)
-            .ok_or(PkgImgError::EntryOutOfBounds)?;
+        let end = data_off.checked_add(len).ok_or(PkgImgError::EntryOutOfBounds)?;
         if end > data_limit {
             return Err(PkgImgError::EntryOutOfBounds);
         }
@@ -472,15 +459,11 @@ mod tests {
         let file = b"ro.nexus.build=dev\n";
         let probes = [(0usize, 2usize), (3, 5), (8, 64), (file.len(), 1)];
         for (off, len) in probes {
-            let got = parsed
-                .read_at("system", "1.0.0", "build.prop", off, len)
-                .expect("slice");
+            let got = parsed.read_at("system", "1.0.0", "build.prop", off, len).expect("slice");
             let expected_end = core::cmp::min(file.len(), off + len);
             assert_eq!(got, &file[off..expected_end]);
         }
-        assert!(parsed
-            .read_at("system", "1.0.0", "build.prop", file.len() + 1, 1)
-            .is_none());
+        assert!(parsed.read_at("system", "1.0.0", "build.prop", file.len() + 1, 1).is_none());
     }
 
     #[test]
@@ -519,12 +502,7 @@ mod tests {
 
     #[test]
     fn test_reject_pkgimg_path_traversal_or_empty_segment() {
-        let bad = vec![PkgImgFileSpec::new(
-            "demo.hello",
-            "1.0.0",
-            "../escape",
-            b"x",
-        )];
+        let bad = vec![PkgImgFileSpec::new("demo.hello", "1.0.0", "../escape", b"x")];
         let err = build_pkgimg(&bad, PkgImgCaps::default()).expect_err("must reject");
         assert_eq!(err, PkgImgError::PathTraversalOrEmptySegment);
     }
@@ -569,10 +547,7 @@ mod tests {
 
     #[test]
     fn test_reject_pkgimg_index_cap_exceeded() {
-        let caps = PkgImgCaps {
-            max_entry_count: 1,
-            ..PkgImgCaps::default()
-        };
+        let caps = PkgImgCaps { max_entry_count: 1, ..PkgImgCaps::default() };
         let err = build_pkgimg(&sample_specs(), caps).expect_err("must reject");
         assert_eq!(err, PkgImgError::IndexCapExceeded);
     }

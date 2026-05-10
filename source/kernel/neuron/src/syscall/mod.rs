@@ -180,9 +180,7 @@ impl SyscallTable {
     /// Creates an empty dispatch table.
     pub const fn new() -> Self {
         const NONE: Option<Handler> = None;
-        Self {
-            handlers: [NONE; MAX_SYSCALL],
-        }
+        Self { handlers: [NONE; MAX_SYSCALL] }
     }
 
     /// Registers a handler.
@@ -210,8 +208,6 @@ impl SyscallTable {
     #[inline]
     #[allow(dead_code)]
     pub fn debug_handler_addr(&self, number: usize) -> Option<usize> {
-        self.handlers
-            .get(number)
-            .and_then(|entry| (*entry).map(|f| f as usize))
+        self.handlers.get(number).and_then(|entry| (*entry).map(|f| f as usize))
     }
 }

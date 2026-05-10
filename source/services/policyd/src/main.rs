@@ -1,8 +1,4 @@
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
 //! CONTEXT: Policy daemon entrypoint wiring to service logic
 //! INTENT: Policy/entitlement/DAC checks, audit
@@ -30,10 +26,7 @@ fn main() {
     policyd::daemon_main(|| {});
 }
 
-#[cfg(all(
-    nexus_env = "os",
-    not(all(target_arch = "riscv64", target_os = "none"))
-))]
+#[cfg(all(nexus_env = "os", not(all(target_arch = "riscv64", target_os = "none"))))]
 fn main() {
     policyd::touch_schemas();
     let notifier = policyd::ReadyNotifier::new(|| {});

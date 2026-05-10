@@ -242,10 +242,21 @@ test-dsoftbus-host:
 
 fmt-check:
     @echo "==> rustfmt (stable)"
-    @cargo +stable fmt --all -- --config-path config/rustfmt.toml --check
+    @if ! cargo +stable fmt --all -- --config-path config/rustfmt.toml --check; then \
+        echo "error: rustfmt check failed."; \
+        echo "error: do not use plain 'cargo fmt'; use the repo-approved format commands:"; \
+        echo "  cargo +stable fmt --all -- --config-path config/rustfmt.toml"; \
+        echo "  cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml"; \
+        exit 1; \
+    fi
     @echo "==> rustfmt (kernel, nightly)"
     @rustup component add --toolchain {{toolchain}} rustfmt >/dev/null 2>&1 || true
-    @cargo +{{toolchain}} fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml --check
+    @if ! cargo +{{toolchain}} fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml --check; then \
+        echo "error: kernel rustfmt check failed."; \
+        echo "error: use the repo-approved kernel format command:"; \
+        echo "  cargo +nightly-2025-01-15 fmt -p neuron -p neuron-boot -- --config-path config/rustfmt.toml"; \
+        exit 1; \
+    fi
 
 lint:
     @echo "==> clippy (host cfg, exclude kernel)"

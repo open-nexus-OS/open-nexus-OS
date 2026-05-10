@@ -112,12 +112,7 @@ impl AddressSpace {
     fn new(asid: Asid) -> Result<Self, MapError> {
         let mut page_table = PageTable::new();
         map_kernel_segments(&mut page_table)?;
-        Ok(Self {
-            page_table,
-            asid,
-            owners: BTreeSet::new(),
-            _not_send_sync: PhantomData,
-        })
+        Ok(Self { page_table, asid, owners: BTreeSet::new(), _not_send_sync: PhantomData })
     }
 
     /// Returns the hardware ASID backing this address space.
@@ -174,20 +169,14 @@ static_assertions::assert_not_impl_any!(AddressSpaceManager: Send, Sync);
 impl AddressSpaceManager {
     /// Creates an empty manager.
     pub fn new() -> Self {
-        let mgr = Self {
-            spaces: Vec::new(),
-            asids: AsidAllocator::new(),
-            _not_send_sync: PhantomData,
-        };
+        let mgr =
+            Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData };
         mgr
     }
 
     /// Allocates a fresh address space and returns its handle.
     pub fn create(&mut self) -> Result<AsHandle, AddressSpaceError> {
-        let asid = self
-            .asids
-            .allocate()
-            .ok_or(AddressSpaceError::AsidExhausted)?;
+        let asid = self.asids.allocate().ok_or(AddressSpaceError::AsidExhausted)?;
         let space = match AddressSpace::new(asid) {
             Ok(space) => space,
             Err(err) => {
@@ -241,20 +230,12 @@ impl AddressSpaceManager {
         let space = self.get(handle)?;
         #[cfg(feature = "selftest_no_satp")]
         let _ = &space; // silence unused when SATP switching is disabled
-        #[cfg(all(
-            target_arch = "riscv64",
-            target_os = "none",
-            not(feature = "selftest_no_satp")
-        ))]
+        #[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
         {
             // CRITICAL: Separate function to ensure all logs/temporaries drop BEFORE AS switch
             do_preflight_checks_and_switch(space.satp_value());
         }
-        #[cfg(all(
-            target_arch = "riscv64",
-            target_os = "none",
-            feature = "selftest_no_satp"
-        ))]
+        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
         {
             // Skip SATP switch for bring-up; emit post-switch marker directly
             fence_i();
@@ -281,10 +262,7 @@ impl AddressSpaceManager {
         set: PageFlags,
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
-        space
-            .page_table_mut()
-            .set_leaf_flags(va, set)
-            .map_err(AddressSpaceError::from)
+        space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)
     }
 
     #[cfg(all(
@@ -317,10 +295,7 @@ impl AddressSpaceManager {
     /// Destroys an address space once no task references remain.
     #[must_use]
     pub fn destroy(&mut self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        let slot = self
-            .spaces
-            .get_mut(handle.index())
-            .ok_or(AddressSpaceError::InvalidHandle)?;
+        let slot = self.spaces.get_mut(handle.index()).ok_or(AddressSpaceError::InvalidHandle)?;
         let asid = match slot.as_ref() {
             None => return Err(AddressSpaceError::InvalidHandle),
             Some(space) if space.refcount() != 0 => return Err(AddressSpaceError::InUse),
@@ -342,10 +317,7 @@ impl AddressSpaceManager {
         flags: PageFlags,
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
-        let res = space
-            .page_table_mut()
-            .map(va, pa, flags)
-            .map_err(AddressSpaceError::from);
+        let res = space.page_table_mut().map(va, pa, flags).map_err(AddressSpaceError::from);
         // Ensure kernel text/UART pages are marked GLOBAL to remain visible across ASIDs
         if res.is_ok() {
             if va >= 0x8000_0000 && va < 0x8100_0000 {
@@ -497,9 +469,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(MapError::OutOfRange);
     }
     let guard_bytes = kernel_stack_guard_bytes();
-    let mapped_start = stack_start
-        .checked_add(guard_bytes)
-        .ok_or(MapError::OutOfRange)?;
+    let mapped_start = stack_start.checked_add(guard_bytes).ok_or(MapError::OutOfRange)?;
     // DATA/BSS identity range may already cover the low portion of the stack; avoid remapping.
     let map_from = core::cmp::max(mapped_start, data_end);
     log_info!(
@@ -630,9 +600,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
 
     // Identity-map the per-service VMO arena at the fixed base used by VMO_POOL.
     let vmo_base = align_up(super::USER_VMO_ARENA_BASE);
-    let vmo_end = vmo_base
-        .checked_add(super::USER_VMO_ARENA_LEN)
-        .ok_or(MapError::OutOfRange)?;
+    let vmo_end = vmo_base.checked_add(super::USER_VMO_ARENA_LEN).ok_or(MapError::OutOfRange)?;
     if let Err(e) = map_identity_range(
         table,
         vmo_base,
@@ -688,9 +656,7 @@ fn map_identity_range(
         let remaining = end.checked_sub(addr).ok_or(MapError::OutOfRange)?;
         if addr % HUGE_PAGE_SIZE_2M == 0 && remaining >= HUGE_PAGE_SIZE_2M {
             table.map_2m(addr, addr, flags)?;
-            addr = addr
-                .checked_add(HUGE_PAGE_SIZE_2M)
-                .ok_or(MapError::OutOfRange)?;
+            addr = addr.checked_add(HUGE_PAGE_SIZE_2M).ok_or(MapError::OutOfRange)?;
         } else {
             table.map(addr, addr, flags)?;
             addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
@@ -728,8 +694,7 @@ fn align_up(addr: usize) -> usize {
     if rem == 0 {
         addr
     } else {
-        addr.checked_add(PAGE_SIZE - rem)
-            .unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
+        addr.checked_add(PAGE_SIZE - rem).unwrap_or_else(|| usize::MAX & !(PAGE_SIZE - 1))
     }
 }
 
@@ -744,11 +709,7 @@ fn fence_i() {
 #[allow(dead_code)]
 fn fence_i() {}
 
-#[cfg(all(
-    target_arch = "riscv64",
-    target_os = "none",
-    not(feature = "selftest_no_satp")
-))]
+#[cfg(all(target_arch = "riscv64", target_os = "none", not(feature = "selftest_no_satp")))]
 #[inline(never)]
 fn do_preflight_checks_and_switch(satp_val: usize) {
     const LOG_LIMIT: usize = 16;
@@ -842,10 +803,7 @@ mod tests {
             let asid = manager.get(handle).unwrap().asid();
             assert!(seen.insert(asid));
         }
-        assert_eq!(
-            manager.create().unwrap_err(),
-            AddressSpaceError::AsidExhausted
-        );
+        assert_eq!(manager.create().unwrap_err(), AddressSpaceError::AsidExhausted);
     }
 
     #[test]

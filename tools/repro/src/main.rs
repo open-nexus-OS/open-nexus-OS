@@ -14,15 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subcommand = args.next().ok_or_else(|| usage("missing subcommand"))?;
     match subcommand.as_str() {
         "capture" => {
-            let manifest = args
-                .next()
-                .ok_or_else(|| usage("missing <manifest.nxb path>"))?;
-            let payload = args
-                .next()
-                .ok_or_else(|| usage("missing <payload.elf path>"))?;
-            let sbom = args
-                .next()
-                .ok_or_else(|| usage("missing <meta/sbom.json path>"))?;
+            let manifest = args.next().ok_or_else(|| usage("missing <manifest.nxb path>"))?;
+            let payload = args.next().ok_or_else(|| usage("missing <payload.elf path>"))?;
+            let sbom = args.next().ok_or_else(|| usage("missing <meta/sbom.json path>"))?;
             let output = args.next().ok_or_else(|| usage("missing <output path>"))?;
             if args.next().is_some() {
                 return Err(usage("too many arguments for `capture`"));
@@ -39,15 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::write(output_path, repro_bytes)?;
         }
         "verify" => {
-            let repro_path = args
-                .next()
-                .ok_or_else(|| usage("missing <repro.env.json path>"))?;
-            let payload_sha = args
-                .next()
-                .ok_or_else(|| usage("missing <payload sha256>"))?;
-            let manifest_sha = args
-                .next()
-                .ok_or_else(|| usage("missing <manifest sha256>"))?;
+            let repro_path = args.next().ok_or_else(|| usage("missing <repro.env.json path>"))?;
+            let payload_sha = args.next().ok_or_else(|| usage("missing <payload sha256>"))?;
+            let manifest_sha = args.next().ok_or_else(|| usage("missing <manifest sha256>"))?;
             let sbom_sha = args.next().ok_or_else(|| usage("missing <sbom sha256>"))?;
             if args.next().is_some() {
                 return Err(usage("too many arguments for `verify`"));

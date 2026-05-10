@@ -1,10 +1,5 @@
 #![cfg_attr(
-    all(
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none",
-        feature = "os-lite"
-    ),
+    all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"),
     no_std,
     no_main
 )]
@@ -15,20 +10,10 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Proven via QEMU markers (scripts/qemu-test.sh)
 
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 nexus_service_entry::declare_entry!(os_entry);
 
-#[cfg(all(
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none",
-    feature = "os-lite"
-))]
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
     use nexus_abi::{debug_println, mmio_map, yield_};
 

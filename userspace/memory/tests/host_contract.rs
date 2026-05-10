@@ -21,10 +21,7 @@ fn test_transfer_and_mapping_accounting_is_deterministic_for_fixed_fixture() {
     let transfer = vmo
         .transfer_to(PeerPid::new(7), TransferRights::MAP)
         .expect("authorized transfer must succeed");
-    assert_eq!(
-        transfer,
-        TransferOutcome::HostCopyFallback { copied_bytes: 8 }
-    );
+    assert_eq!(transfer, TransferOutcome::HostCopyFallback { copied_bytes: 8 });
 
     let first = vmo.map_ro(0, 8).expect("first mapping");
     assert_eq!(first.as_slice(), b"abcdefgh");

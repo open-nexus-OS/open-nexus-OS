@@ -31,9 +31,7 @@ pub struct ImeService {
 impl ImeService {
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            visibility: ImeVisibility::Hidden,
-        }
+        Self { visibility: ImeVisibility::Hidden }
     }
 
     pub fn show(&mut self) -> bool {

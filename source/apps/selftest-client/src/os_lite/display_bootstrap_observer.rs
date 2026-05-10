@@ -134,9 +134,7 @@ fn fetch_live_visible_state() -> Option<VisibleState> {
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client
-        .send_with_cap_move_wait(&request, reply_send_clone, wait)
-        .ok()?;
+    client.send_with_cap_move_wait(&request, reply_send_clone, wait).ok()?;
     let frame = reply.recv(wait).ok()?;
     decode_visible_state(&frame)
 }

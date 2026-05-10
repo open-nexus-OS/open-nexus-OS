@@ -52,11 +52,7 @@ pub struct RepeatEngine {
 impl RepeatEngine {
     #[must_use]
     pub const fn new(config: RepeatConfig) -> Self {
-        Self {
-            config,
-            active: None,
-            last_tick: None,
-        }
+        Self { config, active: None, last_tick: None }
     }
 
     pub fn press(&mut self, key: RepeatKey, now: MonotonicNs) -> Result<(), RepeatError> {
@@ -83,10 +79,7 @@ impl RepeatEngine {
                 if out.len() == MAX_EVENTS_PER_TICK {
                     return Err(RepeatError::TickBudgetExceeded);
                 }
-                out.push(RepeatEvent::new(
-                    active.key,
-                    MonotonicNs::new(active.next_repeat_ns),
-                ));
+                out.push(RepeatEvent::new(active.key, MonotonicNs::new(active.next_repeat_ns)));
                 active.next_repeat_ns += self.config.period_ns();
             }
             self.active = Some(active);

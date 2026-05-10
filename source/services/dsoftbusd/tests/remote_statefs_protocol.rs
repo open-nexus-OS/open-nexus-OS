@@ -29,26 +29,11 @@ fn test_remote_statefs_parse_allows_shared_put_get_delete() {
 
 #[test]
 fn test_remote_statefs_reject_mapping_is_deterministic() {
-    assert_eq!(
-        reject_reason_to_status(RejectReason::BadRequest),
-        sfp::STATUS_MALFORMED
-    );
-    assert_eq!(
-        reject_reason_to_status(RejectReason::Unauthenticated),
-        sfp::STATUS_ACCESS_DENIED
-    );
-    assert_eq!(
-        reject_reason_to_status(RejectReason::WriteOutsideAcl),
-        sfp::STATUS_ACCESS_DENIED
-    );
-    assert_eq!(
-        reject_reason_to_status(RejectReason::PrefixEscape),
-        sfp::STATUS_INVALID_KEY
-    );
-    assert_eq!(
-        reject_reason_to_status(RejectReason::Oversized),
-        sfp::STATUS_VALUE_TOO_LARGE
-    );
+    assert_eq!(reject_reason_to_status(RejectReason::BadRequest), sfp::STATUS_MALFORMED);
+    assert_eq!(reject_reason_to_status(RejectReason::Unauthenticated), sfp::STATUS_ACCESS_DENIED);
+    assert_eq!(reject_reason_to_status(RejectReason::WriteOutsideAcl), sfp::STATUS_ACCESS_DENIED);
+    assert_eq!(reject_reason_to_status(RejectReason::PrefixEscape), sfp::STATUS_INVALID_KEY);
+    assert_eq!(reject_reason_to_status(RejectReason::Oversized), sfp::STATUS_VALUE_TOO_LARGE);
 
     let rsp = encode_reject_response(sfp::OP_PUT, RejectReason::WriteOutsideAcl);
     assert_eq!(rsp[0], sfp::MAGIC0);
@@ -90,10 +75,7 @@ fn test_remote_statefs_v2_nonce_correlation_is_strict() {
 
 #[test]
 fn test_remote_statefs_parse_empty_is_bad_request() {
-    assert!(matches!(
-        parse_request(&[], true),
-        Err(RejectReason::BadRequest)
-    ));
+    assert!(matches!(parse_request(&[], true), Err(RejectReason::BadRequest)));
 }
 
 #[test]
@@ -123,10 +105,7 @@ fn test_remote_statefs_symbols_are_linked_for_host_seam() {
     assert_eq!(parsed.op(), sfp::OP_GET);
     assert_eq!(parsed.nonce(), None);
 
-    let put_req = sfp::Request::Put {
-        key: "/state/shared/selftest/symbol-link",
-        value: b"v",
-    };
+    let put_req = sfp::Request::Put { key: "/state/shared/selftest/symbol-link", value: b"v" };
     assert!(statefs_rw::is_mutating_request(&put_req));
     assert_eq!(
         statefs_rw::reject_label_for_request(sfp::OP_PUT, RejectReason::Oversized),

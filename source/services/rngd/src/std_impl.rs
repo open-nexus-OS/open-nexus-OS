@@ -187,30 +187,14 @@ mod tests {
 
     #[test]
     fn test_parse_response_rejects_wrong_op() {
-        let mut frame = vec![
-            MAGIC0,
-            MAGIC1,
-            VERSION,
-            OP_GET_ENTROPY,
-            STATUS_OK,
-            0,
-            0,
-            0,
-            0,
-        ];
+        let mut frame = vec![MAGIC0, MAGIC1, VERSION, OP_GET_ENTROPY, STATUS_OK, 0, 0, 0, 0];
         frame.push(0xAA);
         assert!(parse_response(&frame).is_none());
     }
 
     #[test]
     fn test_parse_response_too_short() {
-        let frame = vec![
-            MAGIC0,
-            MAGIC1,
-            VERSION,
-            OP_GET_ENTROPY | OP_RESPONSE,
-            STATUS_OK,
-        ];
+        let frame = vec![MAGIC0, MAGIC1, VERSION, OP_GET_ENTROPY | OP_RESPONSE, STATUS_OK];
         assert!(parse_response(&frame).is_none());
     }
 

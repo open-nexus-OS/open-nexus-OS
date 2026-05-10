@@ -89,9 +89,8 @@ fn assert_register_ok(frame: &[u8]) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read register response");
-    let response = message
-        .get_root::<register_response::Reader<'_>>()
-        .expect("register response root");
+    let response =
+        message.get_root::<register_response::Reader<'_>>().expect("register response root");
     assert!(response.get_ok(), "register should succeed");
 }
 
@@ -100,8 +99,7 @@ fn parse_resolve(frame: &[u8]) -> (bool, u32) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read resolve response");
-    let response = message
-        .get_root::<resolve_response::Reader<'_>>()
-        .expect("resolve response root");
+    let response =
+        message.get_root::<resolve_response::Reader<'_>>().expect("resolve response root");
     (response.get_found(), response.get_endpoint())
 }

@@ -26,6 +26,12 @@ pub struct DisplayScanout {
     bytes_flushed: u64,
 }
 
+impl Default for DisplayScanout {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DisplayScanout {
     pub fn new() -> Self {
         Self {
@@ -49,9 +55,7 @@ impl DisplayScanout {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::FlushWithoutConfiguredBackend);
         }
-        let byte_len = handoff
-            .byte_len()
-            .map_err(|_| FbdevdError::PresentWithoutFrame)?;
+        let byte_len = handoff.byte_len().map_err(|_| FbdevdError::PresentWithoutFrame)?;
         if byte_len == 0 {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::PresentWithoutFrame);
@@ -91,16 +95,10 @@ impl DisplayScanout {
         if elapsed < 1_000_000_000 {
             return None;
         }
-        let flush_hz = self
-            .flush_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let vsync_hz = self
-            .vsync_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let flush_hz =
+            self.flush_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let vsync_hz =
+            self.vsync_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let line = format!(
             "fps: fbdevd flush_hz={} vsync_hz={} bytes={} flush_fail={} stale_scanout={}",
             flush_hz, vsync_hz, self.bytes_flushed, self.flush_failures, self.stale_scanout

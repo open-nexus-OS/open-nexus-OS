@@ -117,11 +117,7 @@ pub struct RawIngressBatch {
 impl RawIngressBatch {
     #[must_use]
     pub fn new(role: IngressRole, events: Vec<RawIngressEvent>) -> Self {
-        Self {
-            role,
-            pointer_source: default_pointer_source(role),
-            events,
-        }
+        Self { role, pointer_source: default_pointer_source(role), events }
     }
 
     #[must_use]
@@ -130,11 +126,7 @@ impl RawIngressBatch {
         pointer_source: Option<PointerSource>,
         events: Vec<RawIngressEvent>,
     ) -> Self {
-        Self {
-            role,
-            pointer_source,
-            events,
-        }
+        Self { role, pointer_source, events }
     }
 
     #[must_use]
@@ -162,10 +154,7 @@ pub struct IngressGateEvidence {
 impl IngressGateEvidence {
     #[must_use]
     pub const fn new(raw_event_count: u16, normalized_event_count: u16) -> Self {
-        Self {
-            raw_event_count,
-            normalized_event_count,
-        }
+        Self { raw_event_count, normalized_event_count }
     }
 
     #[must_use]
@@ -237,11 +226,7 @@ pub fn normalize_ingress_batch(
         events.len().min(u16::MAX as usize) as u16,
     );
     if events.is_empty() {
-        return Ok(IngressNormalization {
-            evidence,
-            hid_batch: None,
-            wire_batch: None,
-        });
+        return Ok(IngressNormalization { evidence, hid_batch: None, wire_batch: None });
     }
 
     let hid_batch = service.ingest_device_events(device_id, hid_kind, events)?;
@@ -257,11 +242,7 @@ pub fn normalize_ingress_batch(
         normalized_event_count: evidence.normalized_event_count(),
         events: batch_to_wire_events(&hid_batch),
     };
-    Ok(IngressNormalization {
-        evidence,
-        hid_batch: Some(hid_batch),
-        wire_batch: Some(wire_batch),
-    })
+    Ok(IngressNormalization { evidence, hid_batch: Some(hid_batch), wire_batch: Some(wire_batch) })
 }
 
 fn batch_to_wire_events(batch: &HidBatch) -> Vec<WireHidEvent> {

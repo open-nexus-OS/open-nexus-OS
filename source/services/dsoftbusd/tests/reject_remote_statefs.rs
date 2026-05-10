@@ -11,19 +11,13 @@ type ValidateResponseShapeFn = fn(u8, Option<u64>, &[u8]) -> core::result::Resul
 #[test]
 fn test_reject_statefs_write_outside_acl() {
     let req = sfp::encode_put_request("/state/private/secret", b"deny").expect("encode");
-    assert!(matches!(
-        parse_request(&req, true),
-        Err(RejectReason::WriteOutsideAcl)
-    ));
+    assert!(matches!(parse_request(&req, true), Err(RejectReason::WriteOutsideAcl)));
 }
 
 #[test]
 fn test_reject_statefs_prefix_escape() {
     let req = sfp::encode_put_request("/state/shared/../escape", b"deny").expect("encode");
-    assert!(matches!(
-        parse_request(&req, true),
-        Err(RejectReason::PrefixEscape)
-    ));
+    assert!(matches!(parse_request(&req, true), Err(RejectReason::PrefixEscape)));
 }
 
 #[test]
@@ -31,27 +25,18 @@ fn test_reject_oversize_statefs_write() {
     let oversized = alloc::vec![0xAA; RS_MAX_VALUE_LEN + 1];
     let req =
         sfp::encode_put_request("/state/shared/selftest/oversize", &oversized).expect("encode");
-    assert!(matches!(
-        parse_request(&req, true),
-        Err(RejectReason::Oversized)
-    ));
+    assert!(matches!(parse_request(&req, true), Err(RejectReason::Oversized)));
 }
 
 #[test]
 fn test_reject_unauthenticated_statefs_request() {
     let req = sfp::encode_put_request("/state/shared/selftest/auth", b"v").expect("encode");
-    assert!(matches!(
-        parse_request(&req, false),
-        Err(RejectReason::Unauthenticated)
-    ));
+    assert!(matches!(parse_request(&req, false), Err(RejectReason::Unauthenticated)));
 }
 
 #[test]
 fn test_reject_malformed_empty_frame() {
-    assert!(matches!(
-        parse_request(&[], true),
-        Err(RejectReason::BadRequest)
-    ));
+    assert!(matches!(parse_request(&[], true), Err(RejectReason::BadRequest)));
 }
 
 #[test]
@@ -83,10 +68,7 @@ fn test_statefs_protocol_symbols_are_linked_for_host_seam() {
     let _ = parsed.op();
     let _ = parsed.nonce();
 
-    let put_req = sfp::Request::Put {
-        key: "/state/shared/selftest/link",
-        value: b"v",
-    };
+    let put_req = sfp::Request::Put { key: "/state/shared/selftest/link", value: b"v" };
     assert!(statefs_rw::is_mutating_request(&put_req));
     assert_eq!(statefs_rw::request_op(&put_req), sfp::OP_PUT);
 }

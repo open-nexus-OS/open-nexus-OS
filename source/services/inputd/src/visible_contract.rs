@@ -47,10 +47,7 @@ pub fn visible_route_space() -> Result<PointerSpace, PointerStateError> {
 }
 
 pub fn visible_display_space() -> Result<PointerSpace, PointerStateError> {
-    PointerSpace::new(
-        windowd::VISIBLE_BOOTSTRAP_WIDTH,
-        windowd::VISIBLE_BOOTSTRAP_HEIGHT,
-    )
+    PointerSpace::new(windowd::VISIBLE_BOOTSTRAP_WIDTH, windowd::VISIBLE_BOOTSTRAP_HEIGHT)
 }
 
 pub fn visible_pointer_transform() -> Result<PointerTransform, PointerStateError> {
@@ -58,12 +55,10 @@ pub fn visible_pointer_transform() -> Result<PointerTransform, PointerStateError
 }
 
 pub fn visible_display_start_position() -> Result<PointerPosition, PointerStateError> {
-    Ok(
-        visible_pointer_transform()?.route_to_display(PointerPosition::new(
-            VISIBLE_INPUT_CURSOR_START_X,
-            VISIBLE_INPUT_CURSOR_START_Y,
-        )),
-    )
+    Ok(visible_pointer_transform()?.route_to_display(PointerPosition::new(
+        VISIBLE_INPUT_CURSOR_START_X,
+        VISIBLE_INPUT_CURSOR_START_Y,
+    )))
 }
 
 const fn rect_contains(x: u32, y: u32, rx: u32, ry: u32, width: u32, height: u32) -> bool {

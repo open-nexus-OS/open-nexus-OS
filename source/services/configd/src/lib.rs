@@ -85,11 +85,7 @@ pub struct Configd {
 impl Configd {
     pub fn new(initial_layers: LayerInputs) -> Result<Self, ReloadError> {
         let active = build_effective_snapshot(initial_layers)?;
-        Ok(Self {
-            active,
-            consumers: Vec::new(),
-            subscribers: Vec::new(),
-        })
+        Ok(Self { active, consumers: Vec::new(), subscribers: Vec::new() })
     }
 
     pub fn register_consumer(&mut self, consumer: Box<dyn ConfigConsumer>) {
@@ -204,12 +200,7 @@ mod tests {
 
     impl MockConsumer {
         fn new(mode: Mode) -> Self {
-            Self {
-                mode,
-                prepare_calls: 0,
-                commit_calls: 0,
-                abort_calls: 0,
-            }
+            Self { mode, prepare_calls: 0, commit_calls: 0, abort_calls: 0 }
         }
     }
 
@@ -238,10 +229,7 @@ mod tests {
 
     impl ConfigSubscriber for MockSubscriber {
         fn on_update(&mut self, update: &ConfigUpdate) {
-            self.updates
-                .lock()
-                .expect("subscriber lock")
-                .push(update.version.clone());
+            self.updates.lock().expect("subscriber lock").push(update.version.clone());
         }
     }
 
@@ -285,10 +273,7 @@ mod tests {
         assert!(!report.committed);
         assert_eq!(report.active_version, previous);
         assert_eq!(cfg.get_effective().version, previous);
-        assert_eq!(
-            report.reason.as_deref(),
-            Some("prepare_reject:policy_denied")
-        );
+        assert_eq!(report.reason.as_deref(), Some("prepare_reject:policy_denied"));
     }
 
     #[test]

@@ -128,11 +128,7 @@ pub(crate) fn bundlemgrd_v1_fetch_image_slot(
                 needle.extend_from_slice(b"ro.nexus.slot=");
                 needle.push(slot);
                 needle.push(b'\n');
-                if entry
-                    .data
-                    .windows(needle.len())
-                    .any(|w| w == needle.as_slice())
-                {
+                if entry.data.windows(needle.len()).any(|w| w == needle.as_slice()) {
                     slot_ok = true;
                 }
             }

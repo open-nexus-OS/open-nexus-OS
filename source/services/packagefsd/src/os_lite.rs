@@ -112,19 +112,11 @@ struct Entry {
 
 impl Entry {
     fn directory() -> Self {
-        Self {
-            size: 0,
-            kind: KIND_DIRECTORY,
-            bytes: Vec::new(),
-        }
+        Self { size: 0, kind: KIND_DIRECTORY, bytes: Vec::new() }
     }
 
     fn file(bytes: &[u8]) -> Self {
-        Self {
-            size: bytes.len() as u64,
-            kind: KIND_FILE,
-            bytes: bytes.to_vec(),
-        }
+        Self { size: bytes.len() as u64, kind: KIND_FILE, bytes: bytes.to_vec() }
     }
 }
 
@@ -174,25 +166,19 @@ fn run_loop(
                             response.extend_from_slice(&0u64.to_le_bytes());
                             response.extend_from_slice(&0u16.to_le_bytes());
                         }
-                        server
-                            .send(&response, Wait::Blocking)
-                            .map_err(|_| LiteError::Transport)?;
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                     OPCODE_MOUNT_STATUS => {
                         response.clear();
                         response.push(mount_mode as u8);
-                        server
-                            .send(&response, Wait::Blocking)
-                            .map_err(|_| LiteError::Transport)?;
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                     _ => {
                         response.clear();
                         response.push(0);
                         response.extend_from_slice(&0u64.to_le_bytes());
                         response.extend_from_slice(&0u16.to_le_bytes());
-                        server
-                            .send(&response, Wait::Blocking)
-                            .map_err(|_| LiteError::Transport)?;
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                 }
             }
@@ -210,29 +196,20 @@ fn seed_registry() -> (BundleRegistry, MountMode) {
     // Deterministic system properties for VFS bring-up tests.
     let system_entries = vec![
         (".".to_string(), Entry::directory()),
-        (
-            "build.prop".to_string(),
-            Entry::file(b"ro.nexus.build=dev\n"),
-        ),
+        ("build.prop".to_string(), Entry::file(b"ro.nexus.build=dev\n")),
     ];
     registry.publish("system", "1.0.0", &system_entries);
 
     let hello_entries = vec![
         (".".to_string(), Entry::directory()),
-        (
-            "manifest.nxb".to_string(),
-            Entry::file(DEMO_HELLO_MANIFEST_NXB),
-        ),
+        ("manifest.nxb".to_string(), Entry::file(DEMO_HELLO_MANIFEST_NXB)),
         ("payload.elf".to_string(), Entry::file(DEMO_HELLO_PAYLOAD)),
     ];
     registry.publish("demo.hello", "1.0.0", &hello_entries);
 
     let exit_entries = vec![
         (".".to_string(), Entry::directory()),
-        (
-            "manifest.nxb".to_string(),
-            Entry::file(DEMO_EXIT_MANIFEST_NXB),
-        ),
+        ("manifest.nxb".to_string(), Entry::file(DEMO_EXIT_MANIFEST_NXB)),
         ("payload.elf".to_string(), Entry::file(DEMO_EXIT_PAYLOAD)),
     ];
     registry.publish("demo.exit0", "1.0.0", &exit_entries);
@@ -243,19 +220,9 @@ fn seed_registry() -> (BundleRegistry, MountMode) {
 fn load_registry_from_seed_pkgimg() -> Option<(BundleRegistry, MountMode)> {
     let specs = vec![
         PkgImgFileSpec::new("system", "1.0.0", "build.prop", b"ro.nexus.build=dev\n"),
-        PkgImgFileSpec::new(
-            "demo.hello",
-            "1.0.0",
-            "manifest.nxb",
-            DEMO_HELLO_MANIFEST_NXB,
-        ),
+        PkgImgFileSpec::new("demo.hello", "1.0.0", "manifest.nxb", DEMO_HELLO_MANIFEST_NXB),
         PkgImgFileSpec::new("demo.hello", "1.0.0", "payload.elf", DEMO_HELLO_PAYLOAD),
-        PkgImgFileSpec::new(
-            "demo.exit0",
-            "1.0.0",
-            "manifest.nxb",
-            DEMO_EXIT_MANIFEST_NXB,
-        ),
+        PkgImgFileSpec::new("demo.exit0", "1.0.0", "manifest.nxb", DEMO_EXIT_MANIFEST_NXB),
         PkgImgFileSpec::new("demo.exit0", "1.0.0", "payload.elf", DEMO_EXIT_PAYLOAD),
     ];
     let caps = PkgImgCaps::default();
@@ -304,9 +271,7 @@ fn load_registry_from_bundlemgrd() -> Option<(BundleRegistry, MountMode)> {
             Wait::Timeout(core::time::Duration::from_secs(1)),
         )
         .ok()?;
-    let rsp = bundle
-        .recv(Wait::Timeout(core::time::Duration::from_secs(1)))
-        .ok()?;
+    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
     let (_st, _count) = nexus_abi::bundlemgrd::decode_list_rsp(&rsp)?;
 
     // Fetch the read-only image.
@@ -319,9 +284,7 @@ fn load_registry_from_bundlemgrd() -> Option<(BundleRegistry, MountMode)> {
             Wait::Timeout(core::time::Duration::from_secs(1)),
         )
         .ok()?;
-    let rsp = bundle
-        .recv(Wait::Timeout(core::time::Duration::from_secs(1)))
-        .ok()?;
+    let rsp = bundle.recv(Wait::Timeout(core::time::Duration::from_secs(1))).ok()?;
     let (status, img) = nexus_abi::bundlemgrd::decode_fetch_image_rsp(&rsp)?;
     if status != nexus_abi::bundlemgrd::STATUS_OK {
         return None;
@@ -346,10 +309,7 @@ fn load_registry_from_bundlemgrd() -> Option<(BundleRegistry, MountMode)> {
                 specs.push(PkgImgFileSpec::new(bundle_name, version, path, e.data));
             }
             let converted = build_pkgimg(&specs, caps).ok()?;
-            (
-                parse_pkgimg(&converted, caps).ok()?,
-                MountMode::PkgImgTranscoded,
-            )
+            (parse_pkgimg(&converted, caps).ok()?, MountMode::PkgImgTranscoded)
         }
     };
     let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();

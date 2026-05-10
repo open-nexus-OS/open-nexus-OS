@@ -53,10 +53,7 @@ fn main() {
 
     for input in &args[2..] {
         let bundle_dir = PathBuf::from(input);
-        let file_name = bundle_dir
-            .file_name()
-            .and_then(|v| v.to_str())
-            .unwrap_or_default();
+        let file_name = bundle_dir.file_name().and_then(|v| v.to_str()).unwrap_or_default();
         let (bundle, version) = parse_bundle_and_version(file_name).unwrap_or_else(|| {
             eprintln!(
                 "invalid bundle dir '{}': expected <bundle>@<version>.nxb",

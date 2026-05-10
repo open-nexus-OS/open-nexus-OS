@@ -40,30 +40,18 @@ use windowd::{
 
 #[test]
 fn test_reject_invalid_ramfb_fw_cfg() {
-    assert_eq!(
-        require_fw_cfg_signature(false),
-        Err(FbdevdError::InvalidRamfbFwCfg)
-    );
+    assert_eq!(require_fw_cfg_signature(false), Err(FbdevdError::InvalidRamfbFwCfg));
 }
 
 #[test]
 fn test_reject_ramfb_file_too_small() {
-    assert_eq!(
-        validate_ramfb_file(0x24, 27),
-        Err(FbdevdError::RamfbFileTooSmall)
-    );
+    assert_eq!(validate_ramfb_file(0x24, 27), Err(FbdevdError::RamfbFileTooSmall));
 }
 
 #[test]
 fn test_reject_invalid_dma_capability() {
-    assert_eq!(
-        validate_dma_capability(0, 0x1000, 4096),
-        Err(FbdevdError::DmaCapInvalid)
-    );
-    assert_eq!(
-        validate_dma_capability(1, 0x1000, 1024),
-        Err(FbdevdError::DmaCapInvalid)
-    );
+    assert_eq!(validate_dma_capability(0, 0x1000, 4096), Err(FbdevdError::DmaCapInvalid));
+    assert_eq!(validate_dma_capability(1, 0x1000, 1024), Err(FbdevdError::DmaCapInvalid));
 }
 
 #[test]
@@ -75,10 +63,7 @@ fn test_reject_invalid_framebuffer_cap() {
         writable: true,
     };
 
-    assert_eq!(
-        validate_framebuffer_cap(mode, invalid),
-        Err(FbdevdError::InvalidFramebufferCap)
-    );
+    assert_eq!(validate_framebuffer_cap(mode, invalid), Err(FbdevdError::InvalidFramebufferCap));
 }
 
 #[test]
@@ -100,10 +85,7 @@ fn test_reject_present_without_frame() {
     let mut scanout = DisplayScanout::new();
     scanout.configure();
 
-    assert_eq!(
-        scanout.present(1, &handoff),
-        Err(FbdevdError::PresentWithoutFrame)
-    );
+    assert_eq!(scanout.present(1, &handoff), Err(FbdevdError::PresentWithoutFrame));
 }
 
 #[test]
@@ -111,10 +93,7 @@ fn test_reject_flush_without_configured_backend() {
     let handoff = bootstrap_display_handoff().expect("bootstrap handoff");
     let mut scanout = DisplayScanout::new();
 
-    assert_eq!(
-        scanout.present(1, &handoff),
-        Err(FbdevdError::FlushWithoutConfiguredBackend)
-    );
+    assert_eq!(scanout.present(1, &handoff), Err(FbdevdError::FlushWithoutConfiguredBackend));
 }
 
 #[test]
@@ -124,10 +103,7 @@ fn test_reject_stale_scanout_generation() {
     scanout.configure();
 
     assert_eq!(scanout.present(1, &handoff), Ok(1));
-    assert_eq!(
-        scanout.present(1, &handoff),
-        Err(FbdevdError::StaleScanoutGeneration)
-    );
+    assert_eq!(scanout.present(1, &handoff), Err(FbdevdError::StaleScanoutGeneration));
 }
 
 #[test]
@@ -278,11 +254,7 @@ fn live_cursor_only_changes_dirty_the_cursor_rows_instead_of_full_frame() {
         cursor_y: previous_cursor.y,
         ..VisibleState::default()
     };
-    let next = VisibleState {
-        cursor_x: next_cursor.x,
-        cursor_y: next_cursor.y,
-        ..previous
-    };
+    let next = VisibleState { cursor_x: next_cursor.x, cursor_y: next_cursor.y, ..previous };
 
     assert_eq!(
         live_dirty_rows(previous, next, mode),
@@ -293,14 +265,7 @@ fn live_cursor_only_changes_dirty_the_cursor_rows_instead_of_full_frame() {
     );
     assert_eq!(live_dirty_rows(previous, previous, mode), DirtyRows::None);
     assert_eq!(
-        live_dirty_rows(
-            previous,
-            VisibleState {
-                keyboard_visible: true,
-                ..next
-            },
-            mode
-        ),
+        live_dirty_rows(previous, VisibleState { keyboard_visible: true, ..next }, mode),
         DirtyRows::Full
     );
 }
@@ -312,10 +277,7 @@ fn partial_live_present_accounts_only_dirty_bytes() {
     assert!(service.telemetry_if_due(1).is_none());
     assert!(service.telemetry_if_due(1_000_000_001).is_some());
 
-    assert_eq!(
-        service.present_live_bytes(bootstrap.mode.stride as usize * 4),
-        Ok(2)
-    );
+    assert_eq!(service.present_live_bytes(bootstrap.mode.stride as usize * 4), Ok(2));
     let (_, fbdevd_line) = service.telemetry_if_due(2_000_000_002).expect("fps lines");
 
     assert!(fbdevd_line.contains("bytes=20480"));
@@ -325,10 +287,7 @@ fn partial_live_present_accounts_only_dirty_bytes() {
 fn dma_descriptor_encoding_matches_fw_cfg_contract() {
     let request = encode_ramfb_dma_request(0x41, 0x0123_4567_89ab_cdef);
 
-    assert_eq!(
-        &request[0..4],
-        &((0x41u32 << 16) | (1 << 3) | (1 << 4)).to_be_bytes()
-    );
+    assert_eq!(&request[0..4], &((0x41u32 << 16) | (1 << 3) | (1 << 4)).to_be_bytes());
     assert_eq!(&request[4..8], &28u32.to_be_bytes());
     assert_eq!(&request[8..16], &0x0123_4567_89ab_cdefu64.to_be_bytes());
 }

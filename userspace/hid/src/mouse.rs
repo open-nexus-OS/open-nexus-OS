@@ -22,9 +22,7 @@ pub struct BootMouseParser {
 impl BootMouseParser {
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            previous_buttons: 0,
-        }
+        Self { previous_buttons: 0 }
     }
 
     pub fn parse_report(
@@ -33,9 +31,7 @@ impl BootMouseParser {
         report: &[u8],
     ) -> Result<Vec<HidEvent>, HidError> {
         if report.len() != MOUSE_REPORT_LEN {
-            return Err(HidError::InvalidMouseReportLength {
-                actual: report.len(),
-            });
+            return Err(HidError::InvalidMouseReportLength { actual: report.len() });
         }
         if report[0] & !BUTTON_MASK != 0 {
             return Err(HidError::MouseButtonsOutOfRange { value: report[0] });
@@ -46,11 +42,7 @@ impl BootMouseParser {
             let was_pressed = self.previous_buttons & button.mask() != 0;
             let is_pressed = report[0] & button.mask() != 0;
             if was_pressed != is_pressed {
-                events.push(HidEvent::btn(
-                    timestamp,
-                    button.event_code(),
-                    i32::from(is_pressed),
-                ));
+                events.push(HidEvent::btn(timestamp, button.event_code(), i32::from(is_pressed)));
             }
         }
 

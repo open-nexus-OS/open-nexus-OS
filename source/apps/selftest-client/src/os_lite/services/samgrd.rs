@@ -55,10 +55,8 @@ pub(crate) fn samgrd_v1_register(
             emit_line(crate::markers::M_SELFTEST_SAMGRD_REGISTER_SEND);
             logged_start = true;
         }
-        if let Err(err) = client.send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(50)),
-        ) {
+        if let Err(err) = client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50)))
+        {
             if !logged_send_fail {
                 match err {
                     nexus_ipc::IpcError::NoSpace => {
@@ -155,13 +153,7 @@ pub(crate) fn samgrd_v1_lookup(
     let (_client_send, client_recv) = client.slots();
     let mut logged_rsp = false;
     for _ in 0..64 {
-        if client
-            .send(
-                &req,
-                IpcWait::Timeout(core::time::Duration::from_millis(50)),
-            )
-            .is_err()
-        {
+        if client.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(50))).is_err() {
             let _ = yield_();
             continue;
         }
@@ -234,8 +226,7 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
     frame[2] = 1;
     frame[3] = 5; // OP_SENDER_SERVICE_ID
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    sam.send_with_cap_move(&frame, reply_send_clone)
-        .map_err(|_| ())?;
+    sam.send_with_cap_move(&frame, reply_send_clone).map_err(|_| ())?;
 
     struct ReplyInboxV2 {
         recv_slot: u32,
@@ -266,10 +257,7 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
             }
         }
     }
-    let inbox = ReplyInboxV2 {
-        recv_slot: reply_recv_slot,
-        last_sid: Cell::new(0),
-    };
+    let inbox = ReplyInboxV2 { recv_slot: reply_recv_slot, last_sid: Cell::new(0) };
     let rsp = recv_match_until(&clock, &inbox, &mut pending, nonce, deadline_ns, |frame| {
         if frame.len() == 21
             && frame[0] == b'S'
@@ -294,9 +282,8 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
     if rsp[3] != (5 | 0x80) || rsp[4] != 0 {
         return Err(());
     }
-    let got = u64::from_le_bytes([
-        rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12],
-    ]);
+    let got =
+        u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
     let _sender_sid = inbox.last_sid.get();
     Ok(got)
 }

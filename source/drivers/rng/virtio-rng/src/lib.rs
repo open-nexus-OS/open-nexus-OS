@@ -19,10 +19,7 @@
 
 // NOTE: OS bring-up drivers may require volatile MMIO accesses, which are inherently `unsafe`.
 // We keep `unsafe` forbidden for host builds, but allow it for the OS-only `os-lite` path.
-#![cfg_attr(
-    not(all(feature = "os-lite", not(feature = "std"))),
-    forbid(unsafe_code)
-)]
+#![cfg_attr(not(all(feature = "os-lite", not(feature = "std"))), forbid(unsafe_code))]
 #![cfg_attr(all(feature = "os-lite", not(feature = "std")), no_std)]
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
@@ -171,10 +168,7 @@ impl<B: Bus> VirtioRng<B> {
     ///
     /// The caller must ensure the bus is mapped to a valid virtio-rng MMIO region.
     pub fn new(bus: B) -> Self {
-        Self {
-            bus,
-            initialized: false,
-        }
+        Self { bus, initialized: false }
     }
 
     /// Probes the device to verify it is a valid virtio-rng.
@@ -362,13 +356,7 @@ pub fn read_entropy_via_virtio_mmio(
 
     // Map slot 0 first.
     mmio_map(mmio_cap_slot, mmio_base_va, 0)
-        .or_else(|e| {
-            if e == AbiError::InvalidArgument {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        })
+        .or_else(|e| if e == AbiError::InvalidArgument { Ok(()) } else { Err(e) })
         .map_err(|_| RngError::MapFailed)?;
 
     // Find virtio-rng slot.
@@ -378,13 +366,7 @@ pub fn read_entropy_via_virtio_mmio(
         let va = mmio_base_va + off;
         if slot != 0 {
             mmio_map(mmio_cap_slot, va, off)
-                .or_else(|e| {
-                    if e == AbiError::InvalidArgument {
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                })
+                .or_else(|e| if e == AbiError::InvalidArgument { Ok(()) } else { Err(e) })
                 .map_err(|_| RngError::MapFailed)?;
         }
         let magic = unsafe { core::ptr::read_volatile((va + mmio::REG_MAGIC) as *const u32) };
@@ -455,19 +437,9 @@ pub fn read_entropy_via_virtio_mmio(
                 | nexus_abi::page_flags::WRITE;
             vmo_map_page(q_vmo, Q_VA, 0, flags).map_err(|_| RngError::MapFailed)?;
             vmo_map_page(buf_vmo, BUF_VA, 0, flags).map_err(|_| RngError::MapFailed)?;
-            let mut q_info = CapQuery {
-                kind_tag: 0,
-                reserved: 0,
-                base: 0,
-                len: 0,
-            };
+            let mut q_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
             cap_query(q_vmo, &mut q_info).map_err(|_| RngError::MapFailed)?;
-            let mut b_info = CapQuery {
-                kind_tag: 0,
-                reserved: 0,
-                base: 0,
-                len: 0,
-            };
+            let mut b_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
             cap_query(buf_vmo, &mut b_info).map_err(|_| RngError::MapFailed)?;
             Q_VMO = q_vmo;
             BUF_VMO = buf_vmo;
@@ -497,10 +469,7 @@ pub fn read_entropy_via_virtio_mmio(
             return Err(RngError::NotReady);
         }
         core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_NUM) as *mut u32, N as u32);
-        core::ptr::write_volatile(
-            (dev_va + mmio::REG_QUEUE_DESC_LOW) as *mut u32,
-            desc_pa as u32,
-        );
+        core::ptr::write_volatile((dev_va + mmio::REG_QUEUE_DESC_LOW) as *mut u32, desc_pa as u32);
         core::ptr::write_volatile(
             (dev_va + mmio::REG_QUEUE_DESC_HIGH) as *mut u32,
             (desc_pa >> 32) as u32,
@@ -590,19 +559,11 @@ mod tests {
 
     impl MockRngBus {
         fn valid() -> Self {
-            Self {
-                magic: VIRTIO_MAGIC,
-                device_id: VIRTIO_DEVICE_ID_RNG,
-                status: 0xAB,
-            }
+            Self { magic: VIRTIO_MAGIC, device_id: VIRTIO_DEVICE_ID_RNG, status: 0xAB }
         }
 
         fn invalid_magic() -> Self {
-            Self {
-                magic: 0xDEADBEEF,
-                device_id: VIRTIO_DEVICE_ID_RNG,
-                status: 0,
-            }
+            Self { magic: 0xDEADBEEF, device_id: VIRTIO_DEVICE_ID_RNG, status: 0 }
         }
 
         fn wrong_device() -> Self {

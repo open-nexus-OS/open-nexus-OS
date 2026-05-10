@@ -76,9 +76,7 @@ struct PageTablePage {
 
 impl PageTablePage {
     const fn new() -> Self {
-        Self {
-            entries: [0; PT_ENTRIES],
-        }
+        Self { entries: [0; PT_ENTRIES] }
     }
 }
 
@@ -113,20 +111,12 @@ impl PageTable {
             // early bring-up; higher-level code must ensure single use or add a manager.
             let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
             let root = NonNull::new_unchecked(ptr);
-            return Self {
-                root,
-                owned: vec![],
-                _not_send_sync: PhantomData,
-            };
+            return Self { root, owned: vec![], _not_send_sync: PhantomData };
         }
         #[cfg(not(feature = "pt_static_root"))]
         {
             let root = Self::alloc_page();
-            Self {
-                root,
-                owned: vec![root],
-                _not_send_sync: PhantomData,
-            }
+            Self { root, owned: vec![root], _not_send_sync: PhantomData }
         }
     }
 
@@ -579,17 +569,10 @@ mod tests {
     fn map_2m_translates_entire_huge_page() {
         let mut table = PageTable::new();
         table
-            .map_2m(
-                HUGE_PAGE_SIZE_2M,
-                HUGE_PAGE_SIZE_2M * 2,
-                PageFlags::VALID | PageFlags::READ,
-            )
+            .map_2m(HUGE_PAGE_SIZE_2M, HUGE_PAGE_SIZE_2M * 2, PageFlags::VALID | PageFlags::READ)
             .expect("2m mapping");
 
-        assert_eq!(
-            table.translate(HUGE_PAGE_SIZE_2M),
-            Some(HUGE_PAGE_SIZE_2M * 2)
-        );
+        assert_eq!(table.translate(HUGE_PAGE_SIZE_2M), Some(HUGE_PAGE_SIZE_2M * 2));
         assert_eq!(
             table.translate(HUGE_PAGE_SIZE_2M + PAGE_SIZE),
             Some(HUGE_PAGE_SIZE_2M * 2 + PAGE_SIZE)
@@ -608,11 +591,7 @@ mod tests {
             Err(MapError::Unaligned)
         );
         assert_eq!(
-            table.map_2m(
-                0,
-                0,
-                PageFlags::VALID | PageFlags::WRITE | PageFlags::EXECUTE
-            ),
+            table.map_2m(0, 0, PageFlags::VALID | PageFlags::WRITE | PageFlags::EXECUTE),
             Err(MapError::PermissionDenied)
         );
     }
@@ -622,9 +601,7 @@ mod tests {
         let before = PageTable::allocation_stats();
         {
             let mut table = PageTable::new();
-            table
-                .map(0, 0, PageFlags::VALID | PageFlags::READ)
-                .expect("map");
+            table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("map");
             let during = PageTable::allocation_stats();
             assert!(during.heap_live >= before.heap_live + 1);
             assert!(during.heap_total >= before.heap_total + 1);
@@ -637,9 +614,7 @@ mod tests {
     }
 }
 
-const LEAF_PERMS: PageFlags = PageFlags::READ
-    .union(PageFlags::WRITE)
-    .union(PageFlags::EXECUTE);
+const LEAF_PERMS: PageFlags = PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
 
 fn vpn_indices(va: usize) -> [usize; 3] {
     let vpn0 = (va >> 12) & 0x1ff;

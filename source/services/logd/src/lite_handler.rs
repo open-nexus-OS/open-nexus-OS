@@ -82,18 +82,10 @@ pub fn handle_frame_with_limiter(
                     journal.stats().dropped_records,
                 );
             }
-            match journal.append(
-                sender_service_id,
-                now,
-                a.level,
-                &a.scope,
-                &a.message,
-                &a.fields,
-            ) {
-                Ok(AppendOutcome {
-                    record_id,
-                    dropped_records,
-                }) => encode_append_response(STATUS_OK, record_id, dropped_records),
+            match journal.append(sender_service_id, now, a.level, &a.scope, &a.message, &a.fields) {
+                Ok(AppendOutcome { record_id, dropped_records }) => {
+                    encode_append_response(STATUS_OK, record_id, dropped_records)
+                }
                 Err(JournalError::TooLarge) => encode_append_response(
                     STATUS_OVER_LIMIT,
                     RecordId(0),
@@ -118,18 +110,10 @@ pub fn handle_frame_with_limiter(
                     journal.stats().dropped_records,
                 );
             }
-            match journal.append(
-                sender_service_id,
-                now,
-                a.level,
-                &a.scope,
-                &a.message,
-                &a.fields,
-            ) {
-                Ok(AppendOutcome {
-                    record_id,
-                    dropped_records,
-                }) => encode_append_response_v2(STATUS_OK, a.nonce, record_id, dropped_records),
+            match journal.append(sender_service_id, now, a.level, &a.scope, &a.message, &a.fields) {
+                Ok(AppendOutcome { record_id, dropped_records }) => {
+                    encode_append_response_v2(STATUS_OK, a.nonce, record_id, dropped_records)
+                }
                 Err(JournalError::TooLarge) => encode_append_response_v2(
                     STATUS_OVER_LIMIT,
                     a.nonce,

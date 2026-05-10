@@ -33,21 +33,13 @@ pub enum ReproError {
     #[error("repro digest mismatch: {field}")]
     DigestMismatch { field: &'static str },
     #[error("repro secret scan failed: pattern={pattern} artifact={artifact} line={line}")]
-    SecretLeak {
-        pattern: &'static str,
-        artifact: &'static str,
-        line: usize,
-    },
+    SecretLeak { pattern: &'static str, artifact: &'static str, line: usize },
     #[error("repro secret scan failed: {0}")]
     SecretScanner(String),
     #[error("repro serialization failed: {0}")]
     Serialize(String),
     #[error("input too large: {field} (max={max}, actual={actual})")]
-    InputTooLarge {
-        field: &'static str,
-        max: usize,
-        actual: usize,
-    },
+    InputTooLarge { field: &'static str, max: usize, actual: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,9 +64,7 @@ pub struct ReproEnvV1 {
 
 pub fn source_date_epoch_from_env() -> Result<u64, ReproError> {
     match std::env::var("SOURCE_DATE_EPOCH") {
-        Ok(raw) => raw
-            .parse::<u64>()
-            .map_err(|_| ReproError::InvalidSourceDateEpoch(raw)),
+        Ok(raw) => raw.parse::<u64>().map_err(|_| ReproError::InvalidSourceDateEpoch(raw)),
         Err(std::env::VarError::NotPresent) => Ok(0),
         Err(err) => Err(ReproError::InvalidSourceDateEpoch(err.to_string())),
     }
@@ -164,9 +154,7 @@ pub fn verify_repro_json(
     let parsed: ReproEnvV1 =
         serde_json::from_slice(bytes).map_err(|err| ReproError::SchemaInvalid(err.to_string()))?;
     if parsed.schema_version != 1 {
-        return Err(ReproError::SchemaInvalid(
-            "schema_version must be 1".to_string(),
-        ));
+        return Err(ReproError::SchemaInvalid("schema_version must be 1".to_string()));
     }
     validate_digest(&parsed.payload_sha256, "payload_sha256")?;
     validate_digest(&parsed.manifest_sha256, "manifest_sha256")?;
@@ -176,19 +164,13 @@ pub fn verify_repro_json(
     validate_digest(&expected.sbom_sha256, "expected.sbom_sha256")?;
 
     if parsed.payload_sha256 != expected.payload_sha256 {
-        return Err(ReproError::DigestMismatch {
-            field: "payload_sha256",
-        });
+        return Err(ReproError::DigestMismatch { field: "payload_sha256" });
     }
     if parsed.manifest_sha256 != expected.manifest_sha256 {
-        return Err(ReproError::DigestMismatch {
-            field: "manifest_sha256",
-        });
+        return Err(ReproError::DigestMismatch { field: "manifest_sha256" });
     }
     if parsed.sbom_sha256 != expected.sbom_sha256 {
-        return Err(ReproError::DigestMismatch {
-            field: "sbom_sha256",
-        });
+        return Err(ReproError::DigestMismatch { field: "sbom_sha256" });
     }
     Ok(parsed)
 }
@@ -232,15 +214,9 @@ fn reject_if_secret_leak(bytes: &[u8], allowlist: &ScanAllowlist) -> Result<(), 
     let mut bundle = test_support::empty_bundle();
     bundle.uart.bytes = bytes.to_vec();
     scan_for_secrets_with(&bundle, allowlist).map_err(|err| match err {
-        EvidenceError::SecretLeak {
-            artifact,
-            line,
-            pattern,
-        } => ReproError::SecretLeak {
-            artifact,
-            line,
-            pattern,
-        },
+        EvidenceError::SecretLeak { artifact, line, pattern } => {
+            ReproError::SecretLeak { artifact, line, pattern }
+        }
         other => ReproError::SecretScanner(other.to_string()),
     })
 }
@@ -328,12 +304,7 @@ mod tests {
         };
         let err =
             verify_repro_json(&bytes, &expected).expect_err("payload digest mismatch expected");
-        assert!(matches!(
-            err,
-            ReproError::DigestMismatch {
-                field: "payload_sha256"
-            }
-        ));
+        assert!(matches!(err, ReproError::DigestMismatch { field: "payload_sha256" }));
     }
 
     #[test]
@@ -341,12 +312,6 @@ mod tests {
         let err = with_rustflags("x".repeat(MAX_RUSTFLAGS_LEN + 1), || {
             capture_bundle_repro_json(b"manifest", b"payload", b"sbom").expect_err("size cap")
         });
-        assert!(matches!(
-            err,
-            ReproError::InputTooLarge {
-                field: "rustflags",
-                ..
-            }
-        ));
+        assert!(matches!(err, ReproError::InputTooLarge { field: "rustflags", .. }));
     }
 }

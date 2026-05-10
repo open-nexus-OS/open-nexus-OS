@@ -469,10 +469,7 @@ fn append_probe_to_logd() -> bool {
     frame.extend_from_slice(msg);
 
     // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
-    if logd
-        .send_with_cap_move_wait(&frame, moved, Wait::NonBlocking)
-        .is_err()
-    {
+    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
         let _ = nexus_abi::cap_close(moved);
         return false;
     }
@@ -526,12 +523,7 @@ fn append_probe_to_logd() -> bool {
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }
@@ -616,9 +608,7 @@ mod tests {
 
         let payload = &img[9..];
         assert!(
-            payload
-                .windows(b"ro.nexus.slot=b\n".len())
-                .any(|w| w == b"ro.nexus.slot=b\n"),
+            payload.windows(b"ro.nexus.slot=b\n".len()).any(|w| w == b"ro.nexus.slot=b\n"),
             "expected build.prop to include ro.nexus.slot=b"
         );
     }

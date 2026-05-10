@@ -49,88 +49,41 @@ fn test_parse_stat_open_read_close_roundtrip_sanity() {
 
     assert_eq!(
         parse_request(&stat, true),
-        Ok(PackagefsRequest::Stat {
-            rel_path: "system/build.prop".into()
-        })
+        Ok(PackagefsRequest::Stat { rel_path: "system/build.prop".into() })
     );
     assert_eq!(
         parse_request(&open, true),
-        Ok(PackagefsRequest::Open {
-            rel_path: "system/build.prop".into()
-        })
+        Ok(PackagefsRequest::Open { rel_path: "system/build.prop".into() })
     );
     assert_eq!(
         parse_request(&read, true),
-        Ok(PackagefsRequest::Read {
-            handle: 7,
-            offset: 13,
-            read_len: 64
-        })
+        Ok(PackagefsRequest::Read { handle: 7, offset: 13, read_len: 64 })
     );
-    assert_eq!(
-        parse_request(&close, true),
-        Ok(PackagefsRequest::Close { handle: 7 })
-    );
+    assert_eq!(parse_request(&close, true), Ok(PackagefsRequest::Close { handle: 7 }));
 }
 
 #[test]
 fn test_status_mappings_cover_all_task_required_statuses() {
-    assert_eq!(
-        reject_reason_to_status(RejectReason::BadRequest),
-        PK_STATUS_BAD_REQUEST
-    );
-    assert_eq!(
-        reject_reason_to_status(RejectReason::OversizedReadOrPath),
-        PK_STATUS_OVERSIZED
-    );
+    assert_eq!(reject_reason_to_status(RejectReason::BadRequest), PK_STATUS_BAD_REQUEST);
+    assert_eq!(reject_reason_to_status(RejectReason::OversizedReadOrPath), PK_STATUS_OVERSIZED);
 
     let s_not_found = encode_stat_rsp(PK_STATUS_NOT_FOUND, 0, 0);
     assert_eq!(
         s_not_found[..5],
-        [
-            PK_MAGIC0,
-            PK_MAGIC1,
-            PK_VERSION,
-            PK_OP_STAT | 0x80,
-            PK_STATUS_NOT_FOUND
-        ]
+        [PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_STAT | 0x80, PK_STATUS_NOT_FOUND]
     );
 
     let s_badf = encode_status_only(PK_OP_CLOSE, PK_STATUS_BADF);
-    assert_eq!(
-        s_badf,
-        [
-            PK_MAGIC0,
-            PK_MAGIC1,
-            PK_VERSION,
-            PK_OP_CLOSE | 0x80,
-            PK_STATUS_BADF
-        ]
-    );
+    assert_eq!(s_badf, [PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_CLOSE | 0x80, PK_STATUS_BADF]);
 
     let s_limit = encode_open_rsp(PK_STATUS_LIMIT, 0);
     assert_eq!(
         s_limit[..5],
-        [
-            PK_MAGIC0,
-            PK_MAGIC1,
-            PK_VERSION,
-            PK_OP_OPEN | 0x80,
-            PK_STATUS_LIMIT
-        ]
+        [PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_OPEN | 0x80, PK_STATUS_LIMIT]
     );
 
     let s_io = encode_read_rsp(PK_STATUS_IO, &[]);
-    assert_eq!(
-        s_io[..5],
-        [
-            PK_MAGIC0,
-            PK_MAGIC1,
-            PK_VERSION,
-            PK_OP_READ | 0x80,
-            PK_STATUS_IO
-        ]
-    );
+    assert_eq!(s_io[..5], [PK_MAGIC0, PK_MAGIC1, PK_VERSION, PK_OP_READ | 0x80, PK_STATUS_IO]);
 
     // Keep these constants in active use as part of protocol contract checks.
     assert_eq!(PACKAGEFS_KIND_FILE, 0);
@@ -180,9 +133,7 @@ fn test_decode_packagefs_resolve_response_found_and_missing() {
     found.extend_from_slice(&5u64.to_le_bytes());
     found.extend_from_slice(&0u16.to_le_bytes());
     found.extend_from_slice(b"hello");
-    let parsed = decode_packagefs_resolve_rsp(&found)
-        .expect("decode")
-        .expect("found");
+    let parsed = decode_packagefs_resolve_rsp(&found).expect("decode").expect("found");
     assert_eq!(parsed.size, 5);
     assert_eq!(parsed.bytes, b"hello");
 
@@ -205,23 +156,13 @@ fn test_handler_lifecycle_constraints_model_max_handles_and_close() {
     for i in 0..PK_MAX_HANDLES as u32 {
         handles.insert(i + 1, vec![i as u8]);
     }
-    let status_when_full = if handles.len() >= PK_MAX_HANDLES {
-        PK_STATUS_LIMIT
-    } else {
-        PK_STATUS_OK
-    };
+    let status_when_full =
+        if handles.len() >= PK_MAX_HANDLES { PK_STATUS_LIMIT } else { PK_STATUS_OK };
     assert_eq!(status_when_full, PK_STATUS_LIMIT);
 
-    let status_close_ok = if handles.remove(&2).is_some() {
-        PK_STATUS_OK
-    } else {
-        PK_STATUS_BADF
-    };
+    let status_close_ok = if handles.remove(&2).is_some() { PK_STATUS_OK } else { PK_STATUS_BADF };
     assert_eq!(status_close_ok, PK_STATUS_OK);
-    let status_close_badf = if handles.remove(&2).is_some() {
-        PK_STATUS_OK
-    } else {
-        PK_STATUS_BADF
-    };
+    let status_close_badf =
+        if handles.remove(&2).is_some() { PK_STATUS_OK } else { PK_STATUS_BADF };
     assert_eq!(status_close_badf, PK_STATUS_BADF);
 }

@@ -68,12 +68,7 @@ pub fn symbolize_minidump_with_elf(
             }
         }
 
-        out.push(SymbolizedPc {
-            pc,
-            function,
-            file,
-            line,
-        });
+        out.push(SymbolizedPc { pc, function, file, line });
     }
     Ok(out)
 }

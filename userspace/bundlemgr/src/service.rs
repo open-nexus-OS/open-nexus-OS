@@ -95,9 +95,7 @@ enum Backend {
 impl Service {
     /// Creates a service using the selected backend.
     pub fn new() -> Self {
-        Self {
-            backend: Backend::new(),
-        }
+        Self { backend: Backend::new() }
     }
 
     /// Installs a bundle described by `request`.
@@ -235,10 +233,7 @@ mod tests {
         let service = Service::new();
         let man = manifest_bytes(64);
         let record = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: &man,
-            })
+            .install(InstallRequest { name: "launcher", manifest: &man })
             .expect("install succeeds");
         assert_eq!(record.name, "launcher");
         assert_eq!(record.version, Version::new(1, 0, 0));
@@ -254,18 +249,8 @@ mod tests {
     fn install_duplicate_rejected() {
         let service = Service::new();
         let man = manifest_bytes(64);
-        service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: &man,
-            })
-            .unwrap();
-        let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: &man,
-            })
-            .unwrap_err();
+        service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap();
+        let err = service.install(InstallRequest { name: "launcher", manifest: &man }).unwrap_err();
         assert_eq!(err, ServiceError::AlreadyInstalled);
     }
 
@@ -274,12 +259,8 @@ mod tests {
     fn invalid_signature_length_rejected() {
         let service = Service::new();
         let tampered = manifest_bytes(8);
-        let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: &tampered,
-            })
-            .unwrap_err();
+        let err =
+            service.install(InstallRequest { name: "launcher", manifest: &tampered }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
 
@@ -288,12 +269,7 @@ mod tests {
     fn mismatched_name_rejected() {
         let service = Service::new();
         let man = manifest_bytes(64);
-        let err = service
-            .install(InstallRequest {
-                name: "other",
-                manifest: &man,
-            })
-            .unwrap_err();
+        let err = service.install(InstallRequest { name: "other", manifest: &man }).unwrap_err();
         assert!(matches!(err, ServiceError::Manifest(_)));
     }
 
@@ -301,12 +277,7 @@ mod tests {
     #[test]
     fn backend_unavailable() {
         let service = Service::new();
-        let err = service
-            .install(InstallRequest {
-                name: "launcher",
-                manifest: b"",
-            })
-            .unwrap_err();
+        let err = service.install(InstallRequest { name: "launcher", manifest: b"" }).unwrap_err();
         assert_eq!(err, ServiceError::Unsupported);
     }
 }

@@ -54,11 +54,7 @@ pub const INTERACTIVE_KEYBOARD_TARGET_READY_MARKER: &str =
 pub const INTERACTIVE_FULL_MARKERS_MARKER: &str = "windowd: interactive full markers on";
 
 pub fn present_marker(ack: PresentAck) -> String {
-    format!(
-        "windowd: present ok (seq={} dmg={})",
-        ack.seq.raw(),
-        ack.damage_rects
-    )
+    format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
 }
 
 pub fn focus_marker(surface: SurfaceId) -> String {

@@ -151,12 +151,8 @@ pub(crate) fn logd_hardening_reject_probe(logd: &KernelClient) -> core::result::
 
     // Over limit: oversized fields beyond v1/v2 logd bound must be rejected.
     let oversized_fields = [b'x'; 513];
-    let over_limit_status = logd_append_status_v2(
-        logd,
-        b"selftest",
-        b"logd over-limit attempt",
-        &oversized_fields,
-    )?;
+    let over_limit_status =
+        logd_append_status_v2(logd, b"selftest", b"logd over-limit attempt", &oversized_fields)?;
     if over_limit_status != STATUS_OVER_LIMIT {
         return Err(());
     }

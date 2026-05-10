@@ -41,107 +41,39 @@ fn keymaps_resolve_deterministic_vectors_for_all_layouts() {
 
     let us = Keymap::new(LayoutId::try_from("us").expect("us"));
     assert_eq!(text(us.resolve(KeyboardUsage::A, none).expect("us a")), 'a');
-    assert_eq!(
-        text(us.resolve(KeyboardUsage::A, shift).expect("us shift a")),
-        'A'
-    );
-    assert_eq!(
-        text(us.resolve(KeyboardUsage::DIGIT_2, shift).expect("us @")),
-        '@'
-    );
+    assert_eq!(text(us.resolve(KeyboardUsage::A, shift).expect("us shift a")), 'A');
+    assert_eq!(text(us.resolve(KeyboardUsage::DIGIT_2, shift).expect("us @")), '@');
 
     let de = Keymap::new(LayoutId::try_from("de").expect("de"));
-    assert_eq!(
-        text(
-            de.resolve(KeyboardUsage::LEFT_BRACKET, none)
-                .expect("de ue")
-        ),
-        'ü'
-    );
-    assert_eq!(
-        text(
-            de.resolve(KeyboardUsage::LEFT_BRACKET, shift)
-                .expect("de Ue")
-        ),
-        'Ü'
-    );
-    assert_eq!(
-        text(de.resolve(KeyboardUsage::SEMICOLON, none).expect("de oe")),
-        'ö'
-    );
-    assert_eq!(
-        text(de.resolve(KeyboardUsage::APOSTROPHE, none).expect("de ae")),
-        'ä'
-    );
-    assert_eq!(
-        text(de.resolve(KeyboardUsage::Q, alt_gr).expect("de altgr q")),
-        '@'
-    );
-    assert_eq!(
-        text(de.resolve(KeyboardUsage::E, alt_gr).expect("de altgr e")),
-        '€'
-    );
+    assert_eq!(text(de.resolve(KeyboardUsage::LEFT_BRACKET, none).expect("de ue")), 'ü');
+    assert_eq!(text(de.resolve(KeyboardUsage::LEFT_BRACKET, shift).expect("de Ue")), 'Ü');
+    assert_eq!(text(de.resolve(KeyboardUsage::SEMICOLON, none).expect("de oe")), 'ö');
+    assert_eq!(text(de.resolve(KeyboardUsage::APOSTROPHE, none).expect("de ae")), 'ä');
+    assert_eq!(text(de.resolve(KeyboardUsage::Q, alt_gr).expect("de altgr q")), '@');
+    assert_eq!(text(de.resolve(KeyboardUsage::E, alt_gr).expect("de altgr e")), '€');
 
     let jp = Keymap::new(LayoutId::try_from("jp").expect("jp"));
     assert_eq!(text(jp.resolve(KeyboardUsage::A, none).expect("jp a")), 'a');
-    assert_eq!(
-        text(jp.resolve(KeyboardUsage::DIGIT_2, shift).expect("jp quote")),
-        '"'
-    );
-    assert_eq!(
-        text(
-            jp.resolve(KeyboardUsage::DIGIT_7, shift)
-                .expect("jp apostrophe")
-        ),
-        '\''
-    );
+    assert_eq!(text(jp.resolve(KeyboardUsage::DIGIT_2, shift).expect("jp quote")), '"');
+    assert_eq!(text(jp.resolve(KeyboardUsage::DIGIT_7, shift).expect("jp apostrophe")), '\'');
 
     let kr = Keymap::new(LayoutId::try_from("kr").expect("kr"));
     assert_eq!(text(kr.resolve(KeyboardUsage::A, none).expect("kr a")), 'a');
+    assert_eq!(text(kr.resolve(KeyboardUsage::DIGIT_2, shift).expect("kr @")), '@');
+    assert_eq!(text(kr.resolve(KeyboardUsage::BACKSLASH, none).expect("kr won")), '₩');
+    assert_eq!(text(kr.resolve(KeyboardUsage::BACKSLASH, shift).expect("kr pipe")), '|');
     assert_eq!(
-        text(kr.resolve(KeyboardUsage::DIGIT_2, shift).expect("kr @")),
-        '@'
-    );
-    assert_eq!(
-        text(kr.resolve(KeyboardUsage::BACKSLASH, none).expect("kr won")),
-        '₩'
-    );
-    assert_eq!(
-        text(
-            kr.resolve(KeyboardUsage::BACKSLASH, shift)
-                .expect("kr pipe")
-        ),
-        '|'
-    );
-    assert_eq!(
-        kr.resolve(KeyboardUsage::SPACE, ctrl)
-            .expect("kr ime switch"),
+        kr.resolve(KeyboardUsage::SPACE, ctrl).expect("kr ime switch"),
         KeyOutput::Action(KeyAction::ImeSwitch)
     );
 
     let zh = Keymap::new(LayoutId::try_from("zh").expect("zh"));
     assert_eq!(text(zh.resolve(KeyboardUsage::A, none).expect("zh a")), 'a');
+    assert_eq!(text(zh.resolve(KeyboardUsage::SLASH, none).expect("zh slash")), '/');
+    assert_eq!(text(zh.resolve(KeyboardUsage::NON_US_HASH, none).expect("zh yuan")), '￥');
+    assert_eq!(text(zh.resolve(KeyboardUsage::NON_US_HASH, shift).expect("zh pipe")), '|');
     assert_eq!(
-        text(zh.resolve(KeyboardUsage::SLASH, none).expect("zh slash")),
-        '/'
-    );
-    assert_eq!(
-        text(
-            zh.resolve(KeyboardUsage::NON_US_HASH, none)
-                .expect("zh yuan")
-        ),
-        '￥'
-    );
-    assert_eq!(
-        text(
-            zh.resolve(KeyboardUsage::NON_US_HASH, shift)
-                .expect("zh pipe")
-        ),
-        '|'
-    );
-    assert_eq!(
-        zh.resolve(KeyboardUsage::SPACE, ctrl)
-            .expect("zh ime switch"),
+        zh.resolve(KeyboardUsage::SPACE, ctrl).expect("zh ime switch"),
         KeyOutput::Action(KeyAction::ImeSwitch)
     );
 }
@@ -155,20 +87,13 @@ fn test_reject_unknown_layout_id() {
 #[test]
 fn test_reject_unsupported_key_usage() {
     let us = Keymap::new(LayoutId::Us);
-    let err = us
-        .resolve(KeyboardUsage::F1, Modifiers::default())
-        .unwrap_err();
+    let err = us.resolve(KeyboardUsage::F1, Modifiers::default()).unwrap_err();
     assert_eq!(err.code(), "keymap.key.unsupported");
 }
 
 #[test]
 fn test_reject_alt_gr_on_layout_without_support() {
     let us = Keymap::new(LayoutId::Us);
-    let err = us
-        .resolve(KeyboardUsage::Q, Modifiers::default().with_alt_gr())
-        .unwrap_err();
-    assert_eq!(
-        err.code(),
-        KeymapError::UnsupportedModifierCombination.code()
-    );
+    let err = us.resolve(KeyboardUsage::Q, Modifiers::default().with_alt_gr()).unwrap_err();
+    assert_eq!(err.code(), KeymapError::UnsupportedModifierCombination.code());
 }

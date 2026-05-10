@@ -112,9 +112,8 @@ pub fn parse_append_response_v2_prefix(buf: &[u8]) -> Result<(u8, u64), WireErro
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     Ok((status, nonce))
 }
 
@@ -127,9 +126,7 @@ pub fn extract_nonce_v2(buf: &[u8]) -> Option<u64> {
         return None;
     }
     // Any v2 response has nonce immediately after status.
-    Some(u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]))
+    Some(u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]))
 }
 
 /// Parsed prefix of a STATS response.
@@ -160,17 +157,12 @@ pub fn parse_stats_response_prefix(buf: &[u8]) -> Result<StatsPrefix, WireError>
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let total_records = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let total_records =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let dropped_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
-    Ok(StatsPrefix {
-        status,
-        total_records,
-        dropped_records,
-    })
+    Ok(StatsPrefix { status, total_records, dropped_records })
 }
 
 /// Parses the common prefix of a logd v2 STATS response and returns `(nonce, prefix)`.
@@ -190,23 +182,15 @@ pub fn parse_stats_response_prefix_v2(buf: &[u8]) -> Result<(u64, StatsPrefix), 
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let total_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
     let dropped_records = u64::from_le_bytes([
         buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
     ]);
-    Ok((
-        nonce,
-        StatsPrefix {
-            status,
-            total_records,
-            dropped_records,
-        },
-    ))
+    Ok((nonce, StatsPrefix { status, total_records, dropped_records }))
 }
 
 /// Parsed header of a QUERY response.
@@ -250,11 +234,7 @@ pub struct QueryRecordIter<'a> {
 
 impl<'a> QueryRecordIter<'a> {
     fn new(buf: &'a [u8], idx: usize, remaining: u16) -> Self {
-        Self {
-            buf,
-            idx,
-            remaining,
-        }
+        Self { buf, idx, remaining }
     }
 }
 
@@ -363,19 +343,13 @@ pub fn parse_query_response(buf: &[u8]) -> Result<(QueryHeader, QueryRecordIter<
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let total_records = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let total_records =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let dropped_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
     let count = u16::from_le_bytes([buf[21], buf[22]]);
-    let hdr = QueryHeader {
-        status,
-        total_records,
-        dropped_records,
-        count,
-    };
+    let hdr = QueryHeader { status, total_records, dropped_records, count };
     let iter = QueryRecordIter::new(buf, 23, count);
     Ok((hdr, iter))
 }
@@ -400,9 +374,8 @@ pub fn parse_query_response_v2(
         return Err(WireError::BadOpcode);
     }
     let status = buf[4];
-    let nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     let total_records = u64::from_le_bytes([
         buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
     ]);
@@ -410,12 +383,7 @@ pub fn parse_query_response_v2(
         buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
     ]);
     let count = u16::from_le_bytes([buf[29], buf[30]]);
-    let hdr = QueryHeader {
-        status,
-        total_records,
-        dropped_records,
-        count,
-    };
+    let hdr = QueryHeader { status, total_records, dropped_records, count };
     let iter = QueryRecordIter::new(buf, 31, count);
     Ok((nonce, hdr, iter))
 }
@@ -454,11 +422,7 @@ pub fn scan_query_page(buf: &[u8], needle: &[u8]) -> Result<QueryPageScan, WireE
             }
         }
     }
-    Ok(QueryPageScan {
-        count: hdr.count,
-        found,
-        max_timestamp_nsec: max_ts,
-    })
+    Ok(QueryPageScan { count: hdr.count, found, max_timestamp_nsec: max_ts })
 }
 
 /// Scans a single v2 QUERY response page for `needle` and validates the nonce.
@@ -469,10 +433,7 @@ pub fn scan_query_page_v2(
 ) -> Result<QueryPageScan, WireError> {
     let (nonce, hdr, it) = parse_query_response_v2(buf)?;
     if nonce != expected_nonce {
-        return Err(WireError::BadNonce {
-            expected: expected_nonce,
-            got: nonce,
-        });
+        return Err(WireError::BadNonce { expected: expected_nonce, got: nonce });
     }
     if hdr.status != STATUS_OK {
         return Err(WireError::BadStatus(hdr.status));
@@ -492,11 +453,7 @@ pub fn scan_query_page_v2(
             }
         }
     }
-    Ok(QueryPageScan {
-        count: hdr.count,
-        found,
-        max_timestamp_nsec: max_ts,
-    })
+    Ok(QueryPageScan { count: hdr.count, found, max_timestamp_nsec: max_ts })
 }
 
 /// Computes the next `since_nsec` value for a paged query.
@@ -554,10 +511,7 @@ mod tests {
         assert_eq!(parse_append_response_status(&ok).unwrap(), STATUS_OK);
 
         let bad = [MAGIC0, MAGIC1, VERSION, OP_QUERY | 0x80, STATUS_OK];
-        assert_eq!(
-            parse_append_response_status(&bad).unwrap_err(),
-            WireError::BadOpcode
-        );
+        assert_eq!(parse_append_response_status(&bad).unwrap_err(), WireError::BadOpcode);
     }
 
     #[test]
@@ -627,9 +581,6 @@ mod tests {
         buf.extend_from_slice(&5u16.to_le_bytes());
         buf.extend_from_slice(&0u16.to_le_bytes());
 
-        assert_eq!(
-            scan_query_page(&buf, b"x").unwrap_err(),
-            WireError::Truncated
-        );
+        assert_eq!(scan_query_page(&buf, b"x").unwrap_err(), WireError::Truncated);
     }
 }

@@ -19,9 +19,7 @@ pub(crate) fn parse_keyboard(
     timestamp: TimestampNs,
     report: &[u8],
 ) -> Result<Vec<HidEvent>, HidrawdError> {
-    parser
-        .parse_report(timestamp, report)
-        .map_err(HidrawdError::from)
+    parser.parse_report(timestamp, report).map_err(HidrawdError::from)
 }
 
 pub(crate) fn parse_mouse(
@@ -29,7 +27,5 @@ pub(crate) fn parse_mouse(
     timestamp: TimestampNs,
     report: &[u8],
 ) -> Result<Vec<HidEvent>, HidrawdError> {
-    parser
-        .parse_report(timestamp, report)
-        .map_err(HidrawdError::from)
+    parser.parse_report(timestamp, report).map_err(HidrawdError::from)
 }

@@ -46,22 +46,12 @@ pub struct HidBatch {
 impl HidBatch {
     #[must_use]
     pub fn new(device: DeviceId, kind: HidDeviceKind, events: Vec<HidEvent>) -> Self {
-        Self {
-            device,
-            kind,
-            pointer_source: None,
-            events,
-        }
+        Self { device, kind, pointer_source: None, events }
     }
 
     #[must_use]
     pub fn new_pointer(device: DeviceId, source: PointerSource, events: Vec<HidEvent>) -> Self {
-        Self {
-            device,
-            kind: HidDeviceKind::Mouse,
-            pointer_source: Some(source),
-            events,
-        }
+        Self { device, kind: HidDeviceKind::Mouse, pointer_source: Some(source), events }
     }
 
     #[must_use]

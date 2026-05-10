@@ -57,14 +57,8 @@ pub(crate) fn updated_log_probe(
     frame[1] = nexus_abi::updated::MAGIC1;
     frame[2] = nexus_abi::updated::VERSION;
     frame[3] = 0x7f;
-    let rsp = updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        0x7f,
-        &frame,
-        pending,
-    )?;
+    let rsp =
+        updated_send_with_reply(client, reply_send_slot, reply_recv_slot, 0x7f, &frame, pending)?;
     updated_expect_status(&rsp, 0x7f)?;
     Ok(())
 }

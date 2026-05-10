@@ -96,10 +96,7 @@ impl fmt::Display for InputdError {
                 write!(f, "pointer dispatch out of bounds: ({x}, {y})")
             }
             Self::QueueOverflow { capacity } => {
-                write!(
-                    f,
-                    "input dispatch queue exceeded bounded capacity {capacity}"
-                )
+                write!(f, "input dispatch queue exceeded bounded capacity {capacity}")
             }
             Self::Route(err) => write!(f, "windowd route failed: {err:?}"),
         }

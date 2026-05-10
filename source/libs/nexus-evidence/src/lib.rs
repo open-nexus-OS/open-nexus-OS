@@ -301,17 +301,10 @@ impl Bundle {
         let manifest_tar_bytes = pack_manifest_tree(&manifest_files)?;
 
         Ok(Bundle {
-            meta: BundleMeta {
-                schema_version: 1,
-                profile,
-            },
-            manifest: ManifestArtifact {
-                bytes: manifest_tar_bytes,
-            },
+            meta: BundleMeta { schema_version: 1, profile },
+            manifest: ManifestArtifact { bytes: manifest_tar_bytes },
             uart: UartArtifact { bytes: uart_bytes },
-            trace: TraceArtifact {
-                entries: trace_entries,
-            },
+            trace: TraceArtifact { entries: trace_entries },
             config,
             signature: None,
         })
@@ -387,10 +380,7 @@ impl Bundle {
         verifying_key: &VerifyingKey,
         policy: Option<KeyLabel>,
     ) -> Result<(), EvidenceError> {
-        let sig = self
-            .signature
-            .as_ref()
-            .ok_or(EvidenceError::SignatureMissing)?;
+        let sig = self.signature.as_ref().ok_or(EvidenceError::SignatureMissing)?;
         if let Some(want) = policy {
             if sig.label != want {
                 return Err(EvidenceError::KeyLabelMismatch {
@@ -408,10 +398,7 @@ impl Bundle {
     /// may change between cuts.
     pub fn summary(&self) -> String {
         let mut s = String::new();
-        s.push_str(&format!(
-            "bundle_schema_version: {}\n",
-            self.meta.schema_version
-        ));
+        s.push_str(&format!("bundle_schema_version: {}\n", self.meta.schema_version));
         s.push_str(&format!("profile: {}\n", self.meta.profile));
         s.push_str(&format!("manifest_bytes: {}\n", self.manifest.bytes.len()));
         s.push_str(&format!("uart_bytes: {}\n", self.uart.bytes.len()));
@@ -421,11 +408,7 @@ impl Bundle {
             self.config.profile,
             self.config.env.len(),
             self.config.qemu_args.len(),
-            if self.config.build_sha.is_empty() {
-                "<unset>"
-            } else {
-                &self.config.build_sha
-            }
+            if self.config.build_sha.is_empty() { "<unset>" } else { &self.config.build_sha }
         ));
         s.push_str(&format!(
             "signature: {}\n",
@@ -434,10 +417,7 @@ impl Bundle {
                 None => "absent".to_string(),
             }
         ));
-        s.push_str(&format!(
-            "canonical_hash: {}\n",
-            hex::encode(canonical_hash(self))
-        ));
+        s.push_str(&format!("canonical_hash: {}\n", hex::encode(canonical_hash(self))));
         s
     }
 }
@@ -497,21 +477,17 @@ fn normalize_manifest_source(manifest_path: &Path, source: &str) -> Result<Strin
         .and_then(|m| m.get("default_profile"))
         .and_then(TomlValue::as_str)
         .ok_or_else(|| EvidenceError::CanonicalizationFailed {
-            detail: format!(
-                "manifest {} missing [meta].default_profile",
-                manifest_path.display()
-            ),
+            detail: format!("manifest {} missing [meta].default_profile", manifest_path.display()),
         })?;
 
-    let include = root
-        .get("include")
-        .and_then(TomlValue::as_table)
-        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+    let include = root.get("include").and_then(TomlValue::as_table).ok_or_else(|| {
+        EvidenceError::CanonicalizationFailed {
             detail: format!(
                 "manifest {} missing [include] table for schema v2",
                 manifest_path.display()
             ),
-        })?;
+        }
+    })?;
 
     let root_dir = manifest_path.parent().unwrap_or_else(|| Path::new(""));
     let mut merged = String::new();
@@ -548,24 +524,18 @@ fn resolve_manifest_source_files(manifest_path: &Path) -> Result<Vec<PathBuf>, E
     if !is_schema_v2(&root) {
         return Ok(files);
     }
-    let include = root
-        .get("include")
-        .and_then(TomlValue::as_table)
-        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+    let include = root.get("include").and_then(TomlValue::as_table).ok_or_else(|| {
+        EvidenceError::CanonicalizationFailed {
             detail: format!(
                 "manifest {} missing [include] table for schema v2",
                 manifest_path.display()
             ),
-        })?;
+        }
+    })?;
     let root_dir = manifest_path.parent().unwrap_or_else(|| Path::new(""));
     for category in ["phases", "markers", "profiles"] {
         let pattern = include_pattern(include, category, manifest_path)?;
-        files.extend(expand_include_glob(
-            root_dir,
-            category,
-            pattern,
-            manifest_path,
-        )?);
+        files.extend(expand_include_glob(root_dir, category, pattern, manifest_path)?);
     }
     Ok(files)
 }
@@ -589,16 +559,15 @@ fn include_pattern<'a>(
     category: &'static str,
     manifest_path: &Path,
 ) -> Result<&'a str, EvidenceError> {
-    include
-        .get(category)
-        .and_then(TomlValue::as_str)
-        .ok_or_else(|| EvidenceError::CanonicalizationFailed {
+    include.get(category).and_then(TomlValue::as_str).ok_or_else(|| {
+        EvidenceError::CanonicalizationFailed {
             detail: format!(
                 "manifest {} missing [include].{} for schema v2",
                 manifest_path.display(),
                 category
             ),
-        })
+        }
+    })
 }
 
 fn expand_include_glob(
@@ -611,11 +580,7 @@ fn expand_include_glob(
     let joined_str = joined.to_string_lossy().to_string();
     let mut files = Vec::new();
     for entry in glob(&joined_str).map_err(|e| EvidenceError::CanonicalizationFailed {
-        detail: format!(
-            "expand include glob {} in {}: {e}",
-            pattern,
-            manifest_path.display()
-        ),
+        detail: format!("expand include glob {} in {}: {e}", pattern, manifest_path.display()),
     })? {
         match entry {
             Ok(path) => files.push(path),
@@ -665,10 +630,7 @@ pub mod test_support {
     /// empty; all strings are empty; signature is `None`.
     pub fn empty_bundle() -> Bundle {
         Bundle {
-            meta: BundleMeta {
-                schema_version: 1,
-                profile: String::new(),
-            },
+            meta: BundleMeta { schema_version: 1, profile: String::new() },
             manifest: ManifestArtifact { bytes: Vec::new() },
             uart: UartArtifact { bytes: Vec::new() },
             trace: TraceArtifact::default(),

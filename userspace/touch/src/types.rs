@@ -98,12 +98,7 @@ pub struct RawTouchSample {
 impl RawTouchSample {
     #[must_use]
     pub const fn new(timestamp: TouchTimestampNs, x: u32, y: u32, phase: TouchPhase) -> Self {
-        Self {
-            timestamp,
-            x,
-            y,
-            phase,
-        }
+        Self { timestamp, x, y, phase }
     }
 
     #[must_use]
@@ -138,12 +133,7 @@ pub struct TouchEvent {
 impl TouchEvent {
     #[must_use]
     pub const fn new(timestamp: TouchTimestampNs, x: TouchX, y: TouchY, phase: TouchPhase) -> Self {
-        Self {
-            timestamp,
-            x,
-            y,
-            phase,
-        }
+        Self { timestamp, x, y, phase }
     }
 
     #[must_use]

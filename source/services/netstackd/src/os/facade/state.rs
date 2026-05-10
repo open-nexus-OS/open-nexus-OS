@@ -22,10 +22,7 @@ use crate::os::loopback::LoopBuf;
 /// Loopback TCP listener slot (in-process pairing).
 pub(crate) enum Listener {
     Tcp(OsTcpListener),
-    Loop {
-        port: u16,
-        pending: Option<StreamId>,
-    },
+    Loop { port: u16, pending: Option<StreamId> },
 }
 
 /// TCP or loopback byte stream tracked by the facade.

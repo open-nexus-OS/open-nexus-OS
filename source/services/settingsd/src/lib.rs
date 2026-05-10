@@ -128,9 +128,7 @@ mod tests {
     fn test_reject_invalid_layout_update() {
         let mut snapshot = InputSettingsSnapshot::default();
         snapshot.set_keyboard_layout("neo");
-        let err = snapshot
-            .to_inputd_config(16, 12, 12)
-            .expect_err("unknown layout must reject");
+        let err = snapshot.to_inputd_config(16, 12, 12).expect_err("unknown layout must reject");
         assert_eq!(err.code(), "keymap.layout.unknown");
     }
 

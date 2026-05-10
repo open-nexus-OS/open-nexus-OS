@@ -31,12 +31,7 @@ pub fn compose_for_shell(resolved: &ResolvedShell) -> Result<FirstFrame> {
     let height = resolved.shell.first_frame.height;
     let stride = checked_stride(width)?;
     let len = checked_len(stride, height)?;
-    let mut frame = FirstFrame {
-        width,
-        height,
-        stride,
-        pixels: vec![0u8; len],
-    };
+    let mut frame = FirstFrame { width, height, stride, pixels: vec![0u8; len] };
 
     fill_rect(&mut frame, 0, 0, width, height, [0x24, 0x28, 0x34, 0xff])?;
     fill_rect(&mut frame, 0, 0, width, 16, [0x80, 0x50, 0x20, 0xff])?;
@@ -60,12 +55,8 @@ fn fill_rect(
     height: u32,
     bgra: [u8; 4],
 ) -> Result<()> {
-    let end_x = x
-        .checked_add(width)
-        .ok_or(SystemUiError::ArithmeticOverflow)?;
-    let end_y = y
-        .checked_add(height)
-        .ok_or(SystemUiError::ArithmeticOverflow)?;
+    let end_x = x.checked_add(width).ok_or(SystemUiError::ArithmeticOverflow)?;
+    let end_y = y.checked_add(height).ok_or(SystemUiError::ArithmeticOverflow)?;
     if width == 0 || height == 0 || end_x > frame.width || end_y > frame.height {
         return Err(SystemUiError::InvalidFrameDimensions);
     }
@@ -82,17 +73,10 @@ fn fill_rect(
 }
 
 fn checked_stride(width: u32) -> Result<u32> {
-    let bytes = width
-        .checked_mul(4)
-        .ok_or(SystemUiError::ArithmeticOverflow)?;
-    bytes
-        .checked_add(63)
-        .ok_or(SystemUiError::ArithmeticOverflow)
-        .map(|v| v / 64 * 64)
+    let bytes = width.checked_mul(4).ok_or(SystemUiError::ArithmeticOverflow)?;
+    bytes.checked_add(63).ok_or(SystemUiError::ArithmeticOverflow).map(|v| v / 64 * 64)
 }
 
 fn checked_len(stride: u32, height: u32) -> Result<usize> {
-    (stride as usize)
-        .checked_mul(height as usize)
-        .ok_or(SystemUiError::ArithmeticOverflow)
+    (stride as usize).checked_mul(height as usize).ok_or(SystemUiError::ArithmeticOverflow)
 }

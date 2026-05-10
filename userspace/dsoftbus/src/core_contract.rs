@@ -107,10 +107,7 @@ impl OwnedRecord {
     }
 
     pub fn borrow(&self) -> BorrowedRecord<'_> {
-        BorrowedRecord {
-            channel: self.channel,
-            bytes: self.bytes.as_slice(),
-        }
+        BorrowedRecord { channel: self.channel, bytes: self.bytes.as_slice() }
     }
 }
 
@@ -219,8 +216,6 @@ pub fn validate_payload_identity_spoof_vs_sender_service_id(
     if sender_service_id.as_str() == payload_identity.as_str() {
         Ok(())
     } else {
-        Err(CoreReject::new(
-            REJECT_PAYLOAD_IDENTITY_SPOOF_VS_SENDER_SERVICE_ID,
-        ))
+        Err(CoreReject::new(REJECT_PAYLOAD_IDENTITY_SPOOF_VS_SENDER_SERVICE_ID))
     }
 }

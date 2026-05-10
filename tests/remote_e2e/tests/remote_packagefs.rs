@@ -18,16 +18,11 @@ fn connect_nodes() -> remote_e2e::RemoteConnection {
     let net = FakeNet::new();
     let node_a = Node::start_facade(net.clone(), random_port(), vec!["samgrd".into()]).unwrap();
     let mut announcements = node_a.watch().expect("watch registry");
-    let node_b = Node::start_facade(
-        net,
-        random_port(),
-        vec!["samgrd".into(), "packagefsd".into()],
-    )
-    .unwrap();
+    let node_b =
+        Node::start_facade(net, random_port(), vec!["samgrd".into(), "packagefsd".into()]).unwrap();
 
-    let remote = announcements
-        .find(|ann| ann.device_id() == &node_b.device_id())
-        .expect("discover node b");
+    let remote =
+        announcements.find(|ann| ann.device_id() == &node_b.device_id()).expect("discover node b");
     node_a.connect(&remote).expect("connect to node b")
 }
 
@@ -44,25 +39,20 @@ fn remote_packagefs_roundtrip_stat_open_read_close() {
 fn remote_packagefs_negative_statuses() {
     let connection = connect_nodes();
 
-    let (stat_st, _, _) = connection
-        .remote_pkgfs_stat_status("pkg:/system/missing.prop")
-        .expect("stat missing path");
+    let (stat_st, _, _) =
+        connection.remote_pkgfs_stat_status("pkg:/system/missing.prop").expect("stat missing path");
     assert_eq!(stat_st, PK_STATUS_NOT_FOUND);
 
-    let (open_st, handle) = connection
-        .remote_pkgfs_open_status("pkg:/system/missing.prop")
-        .expect("open missing path");
+    let (open_st, handle) =
+        connection.remote_pkgfs_open_status("pkg:/system/missing.prop").expect("open missing path");
     assert_eq!(open_st, PK_STATUS_NOT_FOUND);
     assert_eq!(handle, 0);
 
-    let (read_st, _) = connection
-        .remote_pkgfs_read_status(0xdecafbad, 0, 16)
-        .expect("read invalid handle");
+    let (read_st, _) =
+        connection.remote_pkgfs_read_status(0xdecafbad, 0, 16).expect("read invalid handle");
     assert_eq!(read_st, PK_STATUS_BADF);
 
-    let close_st = connection
-        .remote_pkgfs_close_status(0xdecafbad)
-        .expect("close invalid handle");
+    let close_st = connection.remote_pkgfs_close_status(0xdecafbad).expect("close invalid handle");
     assert_eq!(close_st, PK_STATUS_BADF);
 }
 
@@ -70,9 +60,8 @@ fn remote_packagefs_negative_statuses() {
 fn remote_packagefs_rejects_invalid_paths_and_read_bounds() {
     let connection = connect_nodes();
 
-    let (traversal_st, _, _) = connection
-        .remote_pkgfs_stat_status("pkg:/../etc/passwd")
-        .expect("traversal request");
+    let (traversal_st, _, _) =
+        connection.remote_pkgfs_stat_status("pkg:/../etc/passwd").expect("traversal request");
     assert_eq!(traversal_st, PK_STATUS_PATH_TRAVERSAL);
 
     let (scheme_st, _, _) = connection
@@ -80,15 +69,13 @@ fn remote_packagefs_rejects_invalid_paths_and_read_bounds() {
         .expect("non pkg scheme request");
     assert_eq!(scheme_st, PK_STATUS_NON_PACKAGEFS_SCHEME);
 
-    let (open_st, handle) = connection
-        .remote_pkgfs_open_status("pkg:/system/build.prop")
-        .expect("open valid path");
+    let (open_st, handle) =
+        connection.remote_pkgfs_open_status("pkg:/system/build.prop").expect("open valid path");
     assert_eq!(open_st, PK_STATUS_OK);
     assert!(handle > 0);
 
-    let (oversized_st, data) = connection
-        .remote_pkgfs_read_status(handle, 0, 129)
-        .expect("oversized read request");
+    let (oversized_st, data) =
+        connection.remote_pkgfs_read_status(handle, 0, 129).expect("oversized read request");
     assert_eq!(oversized_st, PK_STATUS_OVERSIZED);
     assert!(data.is_empty());
 }

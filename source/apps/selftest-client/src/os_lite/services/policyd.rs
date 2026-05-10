@@ -122,15 +122,9 @@ pub(crate) fn policyd_check_cap(
     req.push(cap_b.len() as u8);
     req.extend_from_slice(cap_b);
 
-    policyd
-        .send(
-            &req,
-            IpcWait::Timeout(core::time::Duration::from_millis(100)),
-        )
-        .map_err(|_| ())?;
-    let rsp = policyd
-        .recv(IpcWait::Timeout(core::time::Duration::from_millis(100)))
-        .map_err(|_| ())?;
+    policyd.send(&req, IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
+    let rsp =
+        policyd.recv(IpcWait::Timeout(core::time::Duration::from_millis(100))).map_err(|_| ())?;
     if rsp.len() != 5 || rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
         return Err(());
     }

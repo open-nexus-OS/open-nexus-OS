@@ -77,20 +77,14 @@ mod tests {
             parse_runtime_mode(b" interactive-minimal\n"),
             Some(RuntimeMode::InteractiveMinimal)
         );
-        assert_eq!(
-            parse_runtime_mode(b"interactive-full\0"),
-            Some(RuntimeMode::InteractiveFull)
-        );
+        assert_eq!(parse_runtime_mode(b"interactive-full\0"), Some(RuntimeMode::InteractiveFull));
         assert_eq!(parse_runtime_mode(b"invalid"), None);
     }
 
     #[test]
     fn parse_runtime_profile_tokens() {
         assert_eq!(parse_runtime_profile(b"full"), Some(RuntimeProfile::Full));
-        assert_eq!(
-            parse_runtime_profile(b"bringup\r\n"),
-            Some(RuntimeProfile::Bringup)
-        );
+        assert_eq!(parse_runtime_profile(b"bringup\r\n"), Some(RuntimeProfile::Bringup));
         assert_eq!(parse_runtime_profile(b"quick"), Some(RuntimeProfile::Quick));
         assert_eq!(parse_runtime_profile(b"ota"), Some(RuntimeProfile::Ota));
         assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));

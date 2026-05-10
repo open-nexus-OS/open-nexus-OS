@@ -195,20 +195,12 @@ pub struct FileEntry {
 impl FileEntry {
     /// Constructs a new metadata entry.
     pub fn new(path: &str, kind: u16, bytes: Vec<u8>) -> Self {
-        Self {
-            path: path.to_string(),
-            kind,
-            bytes,
-        }
+        Self { path: path.to_string(), kind, bytes }
     }
 
     /// Creates a directory entry.
     pub fn directory(path: &str) -> Self {
-        Self {
-            path: path.to_string(),
-            kind: KIND_DIRECTORY,
-            bytes: Vec::new(),
-        }
+        Self { path: path.to_string(), kind: KIND_DIRECTORY, bytes: Vec::new() }
     }
 
     fn size(&self) -> u64 {
@@ -249,9 +241,7 @@ impl BundleRecord {
             }
             prefix.push_str(segment);
             let key = prefix.clone();
-            self.files
-                .entry(key.clone())
-                .or_insert_with(|| FileEntry::directory(&key));
+            self.files.entry(key.clone()).or_insert_with(|| FileEntry::directory(&key));
         }
     }
 
@@ -259,11 +249,7 @@ impl BundleRecord {
         self.files
             .get(rel)
             .cloned()
-            .map(|entry| ResolvedEntry {
-                size: entry.size(),
-                kind: entry.kind,
-                bytes: entry.bytes,
-            })
+            .map(|entry| ResolvedEntry { size: entry.size(), kind: entry.kind, bytes: entry.bytes })
             .ok_or(ServiceError::NotFound)
     }
 }
@@ -408,10 +394,8 @@ where
 
 /// Creates a loopback transport pair for host tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -422,10 +406,7 @@ where
 {
     let mut state = ServiceState::new(registry);
     println!("packagefsd: ready");
-    while let Some(frame) = transport
-        .recv()
-        .map_err(|err| ServerError::Transport(err.into()))?
-    {
+    while let Some(frame) = transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
         if frame.is_empty() {
             continue;
         }
@@ -440,9 +421,8 @@ fn handle_frame<T>(state: &mut ServiceState, transport: &mut T, frame: &[u8]) ->
 where
     T: Transport,
 {
-    let (opcode, payload) = frame
-        .split_first()
-        .ok_or_else(|| ServerError::Decode("empty frame".into()))?;
+    let (opcode, payload) =
+        frame.split_first().ok_or_else(|| ServerError::Decode("empty frame".into()))?;
     let opcode = *opcode;
     let response = match opcode {
         OPCODE_PUBLISH => handle_publish(state, payload)?,
@@ -452,9 +432,7 @@ where
             return Ok(());
         }
     };
-    transport
-        .send(&response)
-        .map_err(|err| ServerError::Transport(err.into()))
+    transport.send(&response).map_err(|err| ServerError::Transport(err.into()))
 }
 
 fn handle_publish(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
@@ -476,10 +454,7 @@ fn handle_publish(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
         .to_str()
         .map_err(|err| ServerError::Decode(format!("publish version utf8: {err}")))?
         .to_string();
-    info!(
-        "packagefsd: publish {name}@{version} root={}",
-        request.get_root_vmo()
-    );
+    info!("packagefsd: publish {name}@{version} root={}", request.get_root_vmo());
     let entries_reader = request
         .get_entries()
         .map_err(|err| ServerError::Decode(format!("publish entries: {err}")))?;
@@ -493,9 +468,7 @@ fn handle_publish(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
             .to_string();
         let kind = entry.get_kind();
         if kind != KIND_FILE && kind != KIND_DIRECTORY {
-            return Err(ServerError::Decode(format!(
-                "publish entry kind invalid: {kind}"
-            )));
+            return Err(ServerError::Decode(format!("publish entry kind invalid: {kind}")));
         }
         let bytes = entry
             .get_bytes()
@@ -600,10 +573,7 @@ mod tests {
 
     impl DummyTransport {
         fn new(frame: Vec<u8>) -> Self {
-            Self {
-                frames: vec![frame],
-                sent: Vec::new(),
-            }
+            Self { frames: vec![frame], sent: Vec::new() }
         }
     }
 

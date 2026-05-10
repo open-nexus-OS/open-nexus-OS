@@ -20,26 +20,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (input, output) = match first.as_str() {
         "--hello" => {
             hello = true;
-            let output = args
-                .next()
-                .ok_or_else(|| usage("missing output directory"))?;
+            let output = args.next().ok_or_else(|| usage("missing output directory"))?;
             (None, output)
         }
         "--toml" => {
-            toml_path = Some(
-                args.next()
-                    .ok_or_else(|| usage("missing manifest.toml path"))?,
-            );
+            toml_path = Some(args.next().ok_or_else(|| usage("missing manifest.toml path"))?);
             let input = args.next().ok_or_else(|| usage("missing input ELF path"))?;
-            let output = args
-                .next()
-                .ok_or_else(|| usage("missing output directory"))?;
+            let output = args.next().ok_or_else(|| usage("missing output directory"))?;
             (Some(input), output)
         }
         _ => {
-            let output = args
-                .next()
-                .ok_or_else(|| usage("missing output directory"))?;
+            let output = args.next().ok_or_else(|| usage("missing output directory"))?;
             (Some(first), output)
         }
     };
@@ -64,11 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Default deterministic manifest for bring-up (unsigned placeholder).
         default_manifest_nxb()
     };
-    let payload_bytes = if let Some(path) = input_path {
-        fs::read(path)?
-    } else {
-        HELLO_ELF.to_vec()
-    };
+    let payload_bytes =
+        if let Some(path) = input_path { fs::read(path)? } else { HELLO_ELF.to_vec() };
 
     pack_bundle(&output_dir, &manifest_bytes, &payload_bytes)?;
 
@@ -85,18 +73,10 @@ fn pack_bundle(
         rewrite_manifest_with_digests(manifest_bytes, payload_bytes, None, None)?;
     let manifest_binding_sha256 = sha256_hex(&manifest_with_payload);
     fs::write(output_dir.join("payload.elf"), payload_bytes)?;
-    let sbom_bytes = write_sbom(
-        output_dir,
-        &manifest_with_payload,
-        payload_bytes,
-        &manifest_binding_sha256,
-    )?;
-    let repro_bytes = write_repro(
-        output_dir,
-        payload_bytes,
-        &sbom_bytes,
-        &manifest_binding_sha256,
-    )?;
+    let sbom_bytes =
+        write_sbom(output_dir, &manifest_with_payload, payload_bytes, &manifest_binding_sha256)?;
+    let repro_bytes =
+        write_repro(output_dir, payload_bytes, &sbom_bytes, &manifest_binding_sha256)?;
     let final_manifest = rewrite_manifest_with_digests(
         &manifest_with_payload,
         payload_bytes,
@@ -171,17 +151,9 @@ fn parse_manifest_info(bytes: &[u8]) -> Result<ManifestInfo, Box<dyn std::error:
     let semver = reader.get_semver()?.to_str()?.trim().to_string();
     let publisher = reader.get_publisher()?;
     if publisher.len() != 16 {
-        return Err(format!(
-            "manifest publisher must be 16 bytes, got {}",
-            publisher.len()
-        )
-        .into());
+        return Err(format!("manifest publisher must be 16 bytes, got {}", publisher.len()).into());
     }
-    Ok(ManifestInfo {
-        name,
-        semver,
-        publisher_hex: hex::encode(publisher),
-    })
+    Ok(ManifestInfo { name, semver, publisher_hex: hex::encode(publisher) })
 }
 
 fn rewrite_manifest_with_digests(
@@ -278,9 +250,7 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
     }
 
     let root: Value = toml::from_str(input)?;
-    let table = root
-        .as_table()
-        .ok_or_else(|| "manifest.toml root must be a table".to_string())?;
+    let table = root.as_table().ok_or_else(|| "manifest.toml root must be a table".to_string())?;
 
     // Accept existing key names used throughout the repo:
     // - version -> semver
@@ -360,10 +330,7 @@ fn usage(message: &str) -> Box<dyn std::error::Error> {
     let _ = writeln!(stderr, "nxb-pack: {message}");
     let _ = writeln!(stderr, "usage: nxb-pack <input.elf> <output.nxb>");
     let _ = writeln!(stderr, "   or: nxb-pack --hello <output.nxb>");
-    let _ = writeln!(
-        stderr,
-        "   or: nxb-pack --toml <manifest.toml> <input.elf> <output.nxb>"
-    );
+    let _ = writeln!(stderr, "   or: nxb-pack --toml <manifest.toml> <input.elf> <output.nxb>");
     Box::<dyn std::error::Error>::from(message.to_string())
 }
 

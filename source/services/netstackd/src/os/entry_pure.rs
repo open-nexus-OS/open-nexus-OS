@@ -25,23 +25,14 @@ pub(crate) fn fallback_ipv4_config(
 ) -> ([u8; 4], u8, Option<[u8; 4]>) {
     if is_qemu_smoke {
         // QEMU usernet-compatible static fallback.
-        (
-            QEMU_USERNET_FALLBACK_IP,
-            24u8,
-            Some(QEMU_USERNET_GATEWAY_IP),
-        )
+        (QEMU_USERNET_FALLBACK_IP, 24u8, Some(QEMU_USERNET_GATEWAY_IP))
     } else {
         // Deterministic 2-VM fallback from NIC MAC LSB.
         let host = if mac[5] == 0 { 1 } else { mac[5] };
         let ip = match host {
             10 => OS2VM_NODE_A_IP,
             11 => OS2VM_NODE_B_IP,
-            _ => [
-                OS2VM_STATIC_PREFIX[0],
-                OS2VM_STATIC_PREFIX[1],
-                OS2VM_STATIC_PREFIX[2],
-                host,
-            ],
+            _ => [OS2VM_STATIC_PREFIX[0], OS2VM_STATIC_PREFIX[1], OS2VM_STATIC_PREFIX[2], host],
         };
         (ip, 24u8, None)
     }

@@ -1,12 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(
-        feature = "os-lite",
-        nexus_env = "os",
-        target_arch = "riscv64",
-        target_os = "none"
-    ),
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
     no_std
 )]
 
@@ -16,12 +11,7 @@
 //! DEPENDS_ON: nexus_ipc, nexus_loader (host), nexus_abi (os-lite stubs)
 //! ADR: docs/adr/0017-service-architecture.md
 
-#[cfg(all(
-    feature = "os-lite",
-    nexus_env = "os",
-    target_arch = "riscv64",
-    target_os = "none"
-))]
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
@@ -66,9 +56,7 @@ pub(crate) fn crash_event_publish_allowed(
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 #[must_use]
 pub(crate) fn spawn_caps_respect_vfs_boundary(caps: &[&str]) -> bool {
-    !caps
-        .iter()
-        .any(|cap| *cap == "packagefsd" || *cap == "statefsd")
+    !caps.iter().any(|cap| *cap == "packagefsd" || *cap == "statefsd")
 }
 
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
@@ -131,10 +119,7 @@ mod tests {
     fn test_decode_exec_policy_decision_accepts_matching_nonce() {
         let nonce = 0xA1B2_C3D4;
         let rsp = nexus_abi::policy::encode_exec_check_rsp(nonce, nexus_abi::policy::STATUS_ALLOW);
-        assert_eq!(
-            decode_exec_policy_decision(&rsp, nonce),
-            Some(nexus_abi::policy::STATUS_ALLOW)
-        );
+        assert_eq!(decode_exec_policy_decision(&rsp, nonce), Some(nexus_abi::policy::STATUS_ALLOW));
     }
 
     #[test]
@@ -162,11 +147,7 @@ mod tests {
         let trusted = nexus_abi::service_id_from_name(b"selftest-client");
         let trusted_alt = 0x68c1_66c3_7bcd_7154u64;
         assert!(crash_event_publish_allowed(trusted, trusted, trusted_alt));
-        assert!(crash_event_publish_allowed(
-            trusted_alt,
-            trusted,
-            trusted_alt
-        ));
+        assert!(crash_event_publish_allowed(trusted_alt, trusted, trusted_alt));
     }
 
     #[test]
@@ -203,88 +184,28 @@ mod tests {
     #[test]
     fn test_reported_minidump_frame_matches_expected_rejects_any_mismatch() {
         assert!(reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 0,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 0, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 8,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 8, code: 42, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 43,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 7, code: 43, name: "demo.minidump", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.other",
-                build_id: "b123"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.other", build_id: "b123" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
         assert!(!reported_minidump_frame_matches_expected(
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b999"
-            },
-            MinidumpFrameMetadata {
-                pid: 7,
-                code: 42,
-                name: "demo.minidump",
-                build_id: "b123"
-            },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b999" },
+            MinidumpFrameMetadata { pid: 7, code: 42, name: "demo.minidump", build_id: "b123" },
         ));
     }
 }

@@ -79,11 +79,7 @@ fn handle_frame(registry: &mut TimerRegistry, sender_service_id: u64, frame: &[u
 fn handle_register(registry: &mut TimerRegistry, sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     if frame.len() != REGISTER_REQ_LEN {
         emit_register_audit("deny", "malformed");
-        return rsp_status(
-            OP_REGISTER,
-            STATUS_MALFORMED,
-            read_u32(frame, 4).unwrap_or(0),
-        );
+        return rsp_status(OP_REGISTER, STATUS_MALFORMED, read_u32(frame, 4).unwrap_or(0));
     }
     let nonce = read_u32(frame, 4).unwrap_or(0);
     let qos_raw = frame[8];
@@ -165,10 +161,7 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
         Duration::from_secs(2),
         NonceMismatchBudget::new(64),
     ) {
-        RouteRetryOutcome::Success {
-            send_slot,
-            recv_slot,
-        } => Some((send_slot, recv_slot)),
+        RouteRetryOutcome::Success { send_slot, recv_slot } => Some((send_slot, recv_slot)),
         _ => None,
     }
 }
@@ -222,12 +215,7 @@ fn rsp_sleep(status: u8, nonce: u32, wake_ns: u64) -> Vec<u8> {
 }
 
 fn emit_line(message: &str) {
-    for byte in message
-        .as_bytes()
-        .iter()
-        .copied()
-        .chain(core::iter::once(b'\n'))
-    {
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }
 }

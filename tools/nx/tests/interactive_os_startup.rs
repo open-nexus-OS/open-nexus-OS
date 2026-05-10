@@ -65,10 +65,7 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
 fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
     let justfile = read_repo_file("justfile");
 
-    assert!(
-        justfile.contains("start *args:"),
-        "`just start` recipe must exist"
-    );
+    assert!(justfile.contains("start *args:"), "`just start` recipe must exist");
     assert!(
         justfile.contains("make build"),
         "`just start` must perform its own build before launching"
@@ -101,10 +98,7 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
         "opt/org.open-nexus/selftest-mode",
         "opt/org.open-nexus/selftest-profile",
     ] {
-        assert!(
-            runner.contains(needle),
-            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
-        );
+        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
     }
     assert!(
         runner.contains("RUN_TIMEOUT=0") || runner.contains("\"$RUN_TIMEOUT\" == \"0\""),
@@ -125,10 +119,7 @@ fn interactive_minimal_timeout_is_only_accepted_after_scene_ready() {
         "\"$QEMU_MARKER_LEVEL\" == \"minimal\"",
         "| tee >(monitor_uart) >(monitor_agent_uart) \\",
     ] {
-        assert!(
-            runner.contains(needle),
-            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
-        );
+        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
     }
 }
 
@@ -193,8 +184,13 @@ fn qemu_test_harness_stays_in_proof_mode_for_visible_bootstrap() {
         "`scripts/qemu-test.sh` must force proof runner semantics"
     );
     assert!(
-        harness.contains("NEXUS_SELFTEST_MODE=${NEXUS_SELFTEST_MODE:-proof}")
-            && harness.contains("NEXUS_SELFTEST_PROFILE=${NEXUS_SELFTEST_PROFILE:-bringup}"),
+        harness.contains(concat!("NEXUS_SELFTEST_MODE=$", "{", "NEXUS_SELFTEST_MODE:-proof", "}"))
+            && harness.contains(concat!(
+                "NEXUS_SELFTEST_PROFILE=$",
+                "{",
+                "NEXUS_SELFTEST_PROFILE:-bringup",
+                "}"
+            )),
         "`scripts/qemu-test.sh` visible-bootstrap path must request proof-only guest semantics without broad runtime phases"
     );
     assert!(
@@ -321,11 +317,7 @@ fn kernel_linker_keeps_private_selftest_stack() {
     let base = read_map_symbol(&map, "__selftest_stack_base");
     let top = read_map_symbol(&map, "__selftest_stack_top");
 
-    assert_eq!(
-        base - guard_lo,
-        0x1000,
-        "selftest stack low guard must be one page"
-    );
+    assert_eq!(base - guard_lo, 0x1000, "selftest stack low guard must be one page");
     assert_eq!(top - base, 0x8000, "private selftest stack must be 32 KiB");
 }
 
@@ -424,10 +416,7 @@ fn hidrawd_service_owns_periodic_chain_fps_telemetry() {
         "rebinds={}",
         "idle_yields={}",
     ] {
-        assert!(
-            hidrawd.contains(needle),
-            "`hidrawd` service telemetry must include `{needle}`"
-        );
+        assert!(hidrawd.contains(needle), "`hidrawd` service telemetry must include `{needle}`");
     }
 }
 
@@ -497,10 +486,7 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "kbd_deliv={}",
         "idle_yields={}",
     ] {
-        assert!(
-            inputd.contains(needle),
-            "`inputd` service telemetry must include `{needle}`"
-        );
+        assert!(inputd.contains(needle), "`inputd` service telemetry must include `{needle}`");
     }
 }
 
@@ -645,14 +631,19 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
         "visible-bootstrap proof must enable deterministic real-input injection instead of local selftest replay"
     );
     assert!(
-        harness.contains("QEMU_INPUT_AUTOINJECT=\"${QEMU_INPUT_AUTOINJECT:-0}\"")
+        harness.contains(concat!(
+            "QEMU_INPUT_AUTOINJECT=\"$",
+            "{",
+            "QEMU_INPUT_AUTOINJECT:-0",
+            "}\""
+        ))
             && harness.contains("QEMU_SESSION_MODE=\"$QEMU_SESSION_MODE\"")
             && harness.contains("QEMU_MARKER_LEVEL=\"$QEMU_MARKER_LEVEL\"")
             && harness.contains("RUN_UNTIL_MARKER=\"SELFTEST: ui visible wheel ok\""),
         "qemu-test must forward visible-bootstrap autoinject/session env into run-qemu and stop on the terminal wheel-proof marker so the proof runner cannot silently disable real input injection or linger past closure"
     );
     assert!(
-        runner.contains("QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}")
+        runner.contains(concat!("QEMU_INPUT_AUTOINJECT=$", "{", "QEMU_INPUT_AUTOINJECT:-0", "}"))
             && runner.contains("-qmp \"unix:$QEMU_QMP_SOCKET,server=on,wait=off\"")
             && runner.contains("python3 \"$QEMU_INPUT_INJECTOR_PY\" \"$QEMU_QMP_SOCKET\"")
             && runner.contains("QEMU_PROOF_POINTER_SOURCE")
@@ -721,8 +712,18 @@ fn visible_bootstrap_runner_derives_qemu_input_devices_from_systemui_profile() {
     assert!(
         runner.contains("QEMU_PROFILE_INPUT_HELPER")
             && runner.contains("load_systemui_input_profile")
-            && runner.contains("NEXUS_SYSTEMUI_PROFILE=${NEXUS_SYSTEMUI_PROFILE:-desktop}")
-            && runner.contains("QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-}")
+            && runner.contains(concat!(
+                "NEXUS_SYSTEMUI_PROFILE=$",
+                "{",
+                "NEXUS_SYSTEMUI_PROFILE:-desktop",
+                "}"
+            ))
+            && runner.contains(concat!(
+                "QEMU_PROOF_POINTER_SOURCE=$",
+                "{",
+                "QEMU_PROOF_POINTER_SOURCE:-",
+                "}"
+            ))
             && runner.contains("NEXUS_PROFILE_INPUT_TOUCH")
             && runner.contains("NEXUS_PROFILE_INPUT_MOUSE")
             && runner.contains("NEXUS_PROFILE_INPUT_KBD")
@@ -998,12 +999,9 @@ fn visible_bootstrap_harness_requires_service_owned_display_markers() {
     let harness = read_repo_file("scripts/qemu-test.sh");
     let ui_markers = read_repo_file("source/apps/selftest-client/proof-manifest/markers/ui.toml");
 
-    for marker in [
-        "fbdevd: ready",
-        "fbdevd: map ok",
-        "fbdevd: ramfb configured",
-        "fbdevd: flush ok",
-    ] {
+    for marker in
+        ["fbdevd: ready", "fbdevd: map ok", "fbdevd: ramfb configured", "fbdevd: flush ok"]
+    {
         assert!(
             harness.contains(marker),
             "visible-bootstrap ladder must require service-owned display marker `{marker}`"

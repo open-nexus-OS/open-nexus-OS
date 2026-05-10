@@ -134,10 +134,7 @@ pub(crate) fn validate_response_shape(
 
 #[must_use]
 pub(crate) fn is_mutating_request(request: &sfp::Request<'_>) -> bool {
-    matches!(
-        request,
-        sfp::Request::Put { .. } | sfp::Request::Delete { .. }
-    )
+    matches!(request, sfp::Request::Put { .. } | sfp::Request::Delete { .. })
 }
 
 #[must_use]

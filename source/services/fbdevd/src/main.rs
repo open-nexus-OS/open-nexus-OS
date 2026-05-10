@@ -8,11 +8,7 @@
 //! TEST_COVERAGE: `cargo test -p fbdevd -- --nocapture`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![cfg_attr(
     not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
     forbid(unsafe_code)

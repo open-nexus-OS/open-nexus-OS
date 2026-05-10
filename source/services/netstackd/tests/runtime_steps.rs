@@ -29,14 +29,8 @@ mod validation;
 
 #[test]
 fn test_pending_connect_step_outcome() {
-    assert_eq!(
-        ops::pending_connect_ready(true),
-        validation::StepOutcome::Ready
-    );
-    assert_eq!(
-        ops::pending_connect_ready(false),
-        validation::StepOutcome::WouldBlock
-    );
+    assert_eq!(ops::pending_connect_ready(true), validation::StepOutcome::Ready);
+    assert_eq!(ops::pending_connect_ready(false), validation::StepOutcome::WouldBlock);
 }
 
 #[test]
@@ -48,14 +42,8 @@ fn test_pending_connect_unexpected_state_detection() {
 
 #[test]
 fn test_tcp_wait_writable_outcome() {
-    assert_eq!(
-        tcp::wait_writable_outcome(true),
-        validation::StepOutcome::Ready
-    );
-    assert_eq!(
-        tcp::wait_writable_outcome(false),
-        validation::StepOutcome::WouldBlock
-    );
+    assert_eq!(tcp::wait_writable_outcome(true), validation::StepOutcome::Ready);
+    assert_eq!(tcp::wait_writable_outcome(false), validation::StepOutcome::WouldBlock);
 }
 
 #[test]
@@ -72,10 +60,7 @@ fn test_ping_rtt_cap() {
 
 #[test]
 fn test_validation_outcome_shapes() {
-    assert_eq!(
-        validation::validate_exact_len(8, 8),
-        validation::ValidationOutcome::Valid
-    );
+    assert_eq!(validation::validate_exact_len(8, 8), validation::ValidationOutcome::Valid);
     assert!(validation::ValidationOutcome::Valid.is_valid());
     assert!(
         validation::validate_exact_or_nonce_len(9, 8).is_malformed(),
@@ -129,10 +114,7 @@ fn test_validation_payload_len_rejects_mismatch() {
 
 #[test]
 fn test_validation_exact_len_rejects_mismatch() {
-    assert_eq!(
-        validation::validate_exact_len(12, 12),
-        validation::ValidationOutcome::Valid
-    );
+    assert_eq!(validation::validate_exact_len(12, 12), validation::ValidationOutcome::Valid);
     assert!(
         validation::validate_exact_len(11, 12).is_malformed(),
         "short fixed-size requests must be rejected"

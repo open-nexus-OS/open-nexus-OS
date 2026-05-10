@@ -98,6 +98,10 @@ impl DmaCapabilityInfo {
     pub const fn len(self) -> u64 {
         self.len
     }
+
+    pub const fn is_empty(self) -> bool {
+        self.len == 0
+    }
 }
 
 pub fn validate_ramfb_file(select: u16, size: u32) -> Result<RamfbFileInfo> {
@@ -188,12 +192,7 @@ pub fn configure_ramfb(base: u64, mode: windowd::VisibleBootstrapMode) -> Result
     let file = validate_ramfb_file(select, size)?;
     let config = encode_ramfb_config(base, mode);
     let dma_vmo = vmo_create(DMA_STAGING_LEN as usize).map_err(|_| FbdevdError::DmaVmoCreate)?;
-    let mut query = CapQuery {
-        kind_tag: 0,
-        reserved: 0,
-        base: 0,
-        len: 0,
-    };
+    let mut query = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
     cap_query(dma_vmo, &mut query).map_err(|_| FbdevdError::DmaCapQuery)?;
     let dma_cap = validate_dma_capability(query.kind_tag, query.base, query.len)?;
     ensure_fw_cfg_mapped()?;
@@ -336,14 +335,8 @@ mod tests {
 
     #[test]
     fn test_reject_invalid_dma_capability() {
-        assert_eq!(
-            validate_dma_capability(0, 0x1234, 4096),
-            Err(FbdevdError::DmaCapInvalid)
-        );
-        assert_eq!(
-            validate_dma_capability(1, 0x1234, 4095),
-            Err(FbdevdError::DmaCapInvalid)
-        );
+        assert_eq!(validate_dma_capability(0, 0x1234, 4096), Err(FbdevdError::DmaCapInvalid));
+        assert_eq!(validate_dma_capability(1, 0x1234, 4095), Err(FbdevdError::DmaCapInvalid));
     }
 
     #[test]
@@ -362,10 +355,7 @@ mod tests {
     fn dma_transfer_state_is_success_only_on_zero_control() {
         assert_eq!(dma_transfer_complete(0), Ok(true));
         assert_eq!(dma_transfer_complete(FW_CFG_DMA_CTL_SELECT), Ok(false));
-        assert_eq!(
-            dma_transfer_complete(FW_CFG_DMA_CTL_ERROR),
-            Err(FbdevdError::DmaDeviceError)
-        );
+        assert_eq!(dma_transfer_complete(FW_CFG_DMA_CTL_ERROR), Err(FbdevdError::DmaDeviceError));
     }
 
     #[test]

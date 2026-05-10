@@ -12,11 +12,7 @@
 //!   - All requests MUST be policy-gated
 
 #![forbid(unsafe_code)]
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);

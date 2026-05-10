@@ -70,12 +70,7 @@ impl ExecArgsTyped {
         if elf_len == 0 || stack_pages == 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        Ok(Self {
-            elf_ptr,
-            elf_len,
-            stack_pages,
-            global_pointer,
-        })
+        Ok(Self { elf_ptr, elf_len, stack_pages, global_pointer })
     }
 
     #[inline]
@@ -100,14 +95,7 @@ impl ExecV2ArgsTyped {
         if elf_len == 0 || stack_pages == 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        Ok(Self {
-            elf_ptr,
-            elf_len,
-            stack_pages,
-            global_pointer,
-            name_ptr,
-            name_len,
-        })
+        Ok(Self { elf_ptr, elf_len, stack_pages, global_pointer, name_ptr, name_len })
     }
 
     #[inline]
@@ -140,13 +128,7 @@ impl SpawnArgsTyped {
         let as_handle = AsHandle::from_raw(raw_handle);
         let bootstrap_slot = SlotIndex::decode(args.get(3));
         let global_pointer = args.get(4);
-        Ok(Self {
-            entry_pc,
-            stack_sp,
-            as_handle,
-            bootstrap_slot,
-            global_pointer,
-        })
+        Ok(Self { entry_pc, stack_sp, as_handle, bootstrap_slot, global_pointer })
     }
 
     #[inline]
@@ -182,14 +164,7 @@ impl AsMapArgsTyped {
             .ok_or(AddressSpaceError::InvalidArgs)?;
         let prot = args.get(4) as u32;
         let flags = args.get(5) as u32;
-        Ok(Self {
-            handle,
-            vmo_slot,
-            va,
-            len,
-            prot,
-            flags,
-        })
+        Ok(Self { handle, vmo_slot, va, len, prot, flags })
     }
 
     #[inline]
@@ -202,9 +177,7 @@ impl AsMapArgsTyped {
             return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
         }
         // Range check: ensure va + len fits
-        self.va
-            .checked_add(self.len.raw())
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        self.va.checked_add(self.len.raw()).ok_or(AddressSpaceError::InvalidArgs)?;
         Ok(())
     }
 }
@@ -243,9 +216,7 @@ struct RecvArgsTyped {
 impl RecvArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            slot: SlotIndex::decode(args.get(0)),
-        })
+        Ok(Self { slot: SlotIndex::decode(args.get(0)) })
     }
     #[inline]
     fn check(&self) -> Result<(), Error> {
@@ -415,11 +386,7 @@ struct DeviceCapCreateArgsTyped {
 impl DeviceCapCreateArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            base: args.get(0),
-            len: args.get(1),
-            slot_raw: args.get(2),
-        })
+        Ok(Self { base: args.get(0), len: args.get(1), slot_raw: args.get(2) })
     }
     #[inline]
     fn check(&self) -> Result<(), Error> {
@@ -429,10 +396,7 @@ impl DeviceCapCreateArgsTyped {
         if (self.base & (PAGE_SIZE - 1)) != 0 || (self.len & (PAGE_SIZE - 1)) != 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        let end = self
-            .base
-            .checked_add(self.len)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let end = self.base.checked_add(self.len).ok_or(AddressSpaceError::InvalidArgs)?;
         if end <= self.base {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -449,10 +413,7 @@ struct VmoCreateArgsTyped {
 impl VmoCreateArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            slot_raw: args.get(0),
-            len: args.get(1),
-        })
+        Ok(Self { slot_raw: args.get(0), len: args.get(1) })
     }
     #[inline]
     fn check(&self) -> Result<(), Error> {
@@ -565,14 +526,7 @@ impl<'a> Context<'a> {
         address_spaces: &'a mut AddressSpaceManager,
         timer: &'a dyn Timer,
     ) -> Self {
-        Self {
-            scheduler,
-            tasks,
-            router,
-            address_spaces,
-            timer,
-            last_message: None,
-        }
+        Self { scheduler, tasks, router, address_spaces, timer, last_message: None }
     }
 
     /// Returns the last received message header for inspection.
@@ -605,17 +559,15 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             continue;
         }
         match t.block_reason() {
-            Some(BlockReason::IpcRecv {
-                endpoint,
-                deadline_ns,
-            }) if deadline_ns != 0 && now >= deadline_ns => {
+            Some(BlockReason::IpcRecv { endpoint, deadline_ns })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
                 let _ = ctx.router.remove_recv_waiter(endpoint, pid.as_raw());
                 observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
-            Some(BlockReason::IpcSend {
-                endpoint,
-                deadline_ns,
-            }) if deadline_ns != 0 && now >= deadline_ns => {
+            Some(BlockReason::IpcSend { endpoint, deadline_ns })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
                 let _ = ctx.router.remove_send_waiter(endpoint, pid.as_raw());
                 observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
@@ -650,18 +602,9 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_IPC_ENDPOINT_CREATE, sys_ipc_endpoint_create);
     table.register(crate::syscall::SYSCALL_CAP_CLOSE, sys_cap_close);
     table.register(crate::syscall::SYSCALL_CAP_CLONE, sys_cap_clone);
-    table.register(
-        crate::syscall::SYSCALL_IPC_ENDPOINT_CLOSE,
-        sys_ipc_endpoint_close,
-    );
-    table.register(
-        crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_V2,
-        sys_ipc_endpoint_create_v2,
-    );
-    table.register(
-        crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR,
-        sys_ipc_endpoint_create_for,
-    );
+    table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CLOSE, sys_ipc_endpoint_close);
+    table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_V2, sys_ipc_endpoint_create_v2);
+    table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR, sys_ipc_endpoint_create_for);
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
@@ -767,39 +710,19 @@ fn sys_task_qos(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             let privileged = caller_has_qos_admin(ctx);
 
             if target != current && !privileged {
-                qos_audit(
-                    ctx,
-                    target,
-                    target_qos,
-                    qos,
-                    "deny",
-                    "unauthorized_other_pid",
-                );
+                qos_audit(ctx, target, target_qos, qos, "deny", "unauthorized_other_pid");
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
             if (qos as u8) > (target_qos as u8) && !privileged {
-                qos_audit(
-                    ctx,
-                    target,
-                    target_qos,
-                    qos,
-                    "deny",
-                    "unauthorized_escalation",
-                );
+                qos_audit(ctx, target, target_qos, qos, "deny", "unauthorized_escalation");
                 return Err(Error::Capability(CapError::PermissionDenied));
             }
 
-            if matches!(
-                ctx.scheduler.set_task_qos(target, qos),
-                SetQosOutcome::QueueFull
-            ) {
+            if matches!(ctx.scheduler.set_task_qos(target, qos), SetQosOutcome::QueueFull) {
                 qos_audit(ctx, target, target_qos, qos, "deny", "scheduler_queue_full");
                 return Err(Error::Ipc(ipc::IpcError::QueueFull));
             }
-            let task = ctx
-                .tasks
-                .task_mut(target)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let task = ctx.tasks.task_mut(target).ok_or(AddressSpaceError::InvalidArgs)?;
             task.set_qos(qos);
             qos_audit(ctx, target, target_qos, qos, "allow", "applied");
             Ok(0)
@@ -810,10 +733,8 @@ fn sys_task_qos(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 fn sys_spawn_last_error(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     let pid = ctx.tasks.current_pid();
-    let reason = ctx
-        .tasks
-        .take_last_spawn_fail_reason(pid)
-        .unwrap_or(crate::task::SpawnFailReason::Unknown);
+    let reason =
+        ctx.tasks.take_last_spawn_fail_reason(pid).unwrap_or(crate::task::SpawnFailReason::Unknown);
     Ok(reason.as_u8() as usize)
 }
 
@@ -830,10 +751,8 @@ fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     let current = ctx.tasks.current_pid();
-    let cap_table = ctx
-        .tasks
-        .caps_of(current)
-        .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let cap_table =
+        ctx.tasks.caps_of(current).ok_or(Error::Capability(CapError::PermissionDenied))?;
     let cap = cap_table.get(factory_slot)?;
     if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
@@ -857,10 +776,8 @@ fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<
 
     // Validate factory authority in the current task.
     let current = ctx.tasks.current_pid();
-    let cap_table = ctx
-        .tasks
-        .caps_of(current)
-        .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let cap_table =
+        ctx.tasks.caps_of(current).ok_or(Error::Capability(CapError::PermissionDenied))?;
     let cap = cap_table.get(factory_slot)?;
     if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
@@ -882,9 +799,7 @@ fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) -> SysResult<
         }
     }
 
-    let id = ctx
-        .router
-        .create_endpoint(depth, Some(owner_pid.as_raw()))?;
+    let id = ctx.router.create_endpoint(depth, Some(owner_pid.as_raw()))?;
     #[cfg(feature = "ipc_trace_ring")]
     {
         crate::ipc::trace::record_ep_create(
@@ -951,12 +866,7 @@ fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
             {
                 use core::fmt::Write as _;
                 let mut w = crate::uart::raw_writer();
-                let _ = write!(
-                    w,
-                    "YIELD-I: next pid={} sepc=0x{:x}\n",
-                    next,
-                    task.frame().sepc
-                );
+                let _ = write!(w, "YIELD-I: next pid={} sepc=0x{:x}\n", next, task.frame().sepc);
             }
             #[cfg(not(feature = "debug_uart"))]
             let _ = task; // silence unused when debug UART is disabled
@@ -974,32 +884,20 @@ fn sys_nsec(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
 fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SendArgsTyped::decode(args)?;
     typed.check()?;
-    let endpoint = ctx
-        .tasks
-        .current_caps_mut()
-        .derive_endpoint_ref(typed.slot.0, Rights::SEND)?
-        .endpoint();
-    let header = MessageHeader::new(
-        typed.slot.0 as u32,
-        endpoint,
-        typed.ty,
-        typed.flags,
-        typed.len,
-    );
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
+    let header =
+        MessageHeader::new(typed.slot.0 as u32, endpoint, typed.ty, typed.flags, typed.len);
     let payload = Vec::new();
-    ctx.router
-        .send(endpoint, ipc::Message::new(header, payload, None))?;
+    ctx.router.send(endpoint, ipc::Message::new(header, payload, None))?;
     Ok(typed.len as usize)
 }
 
 fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = RecvArgsTyped::decode(args)?;
     typed.check()?;
-    let endpoint = ctx
-        .tasks
-        .current_caps_mut()
-        .derive_endpoint_ref(typed.slot.0, Rights::RECV)?
-        .endpoint();
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
     let message = ctx.router.recv(endpoint)?;
     let len = message.header.len as usize;
     ctx.last_message = Some(message);
@@ -1015,11 +913,8 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
 
-    let endpoint = ctx
-        .tasks
-        .current_caps_mut()
-        .derive_endpoint_ref(typed.slot.0, Rights::SEND)?
-        .endpoint();
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
 
     let mut hdr_bytes = [0u8; 16];
     unsafe {
@@ -1055,11 +950,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
     }
 
-    let cap_move_slot = if cap_move {
-        Some(user_hdr.src as usize)
-    } else {
-        None
-    };
+    let cap_move_slot = if cap_move { Some(user_hdr.src as usize) } else { None };
 
     // Sender attribution: kernel sets `dst` to the sender PID so receivers can attribute messages.
     // `src` is reserved for CAP_MOVE return value on receive.
@@ -1168,10 +1059,7 @@ fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 // IMPORTANT: if the endpoint is gone, do not block (would deadlock forever).
                 ctx.router.register_send_waiter(endpoint, cur.as_raw())?;
                 ctx.tasks.block_current(
-                    BlockReason::IpcSend {
-                        endpoint,
-                        deadline_ns: typed.deadline_ns,
-                    },
+                    BlockReason::IpcSend { endpoint, deadline_ns: typed.deadline_ns },
                     ctx.scheduler,
                 );
                 wake_expired_blocked(ctx);
@@ -1231,11 +1119,8 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
 
-    let endpoint = ctx
-        .tasks
-        .current_caps_mut()
-        .derive_endpoint_ref(typed.slot.0, Rights::RECV)?
-        .endpoint();
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::RECV)?.endpoint();
 
     let truncate = (typed.sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (typed.sys_flags & IPC_SYS_NONBLOCK) != 0;
@@ -1282,10 +1167,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     }
                 }
                 ctx.tasks.block_current(
-                    BlockReason::IpcRecv {
-                        endpoint,
-                        deadline_ns: typed.deadline_ns,
-                    },
+                    BlockReason::IpcRecv { endpoint, deadline_ns: typed.deadline_ns },
                     ctx.scheduler,
                 );
                 wake_expired_blocked(ctx);
@@ -1348,11 +1230,7 @@ fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             if let CapabilityKind::Endpoint(id) = cap.kind {
                 cap_info = id as usize;
             }
-            let _ = writeln!(
-                u,
-                "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}",
-                endpoint, cap_info
-            );
+            let _ = writeln!(u, "IPC-CAPMOVE recv ep=0x{:x} cap_ep=0x{:x}", endpoint, cap_info);
         }
         match ctx.tasks.current_caps_mut().allocate(cap) {
             Ok(slot) => {
@@ -1481,11 +1359,8 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
 
     // Derive endpoint.
-    let endpoint = ctx
-        .tasks
-        .current_caps_mut()
-        .derive_endpoint_ref(slot as usize, Rights::RECV)?
-        .endpoint();
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(slot as usize, Rights::RECV)?.endpoint();
 
     let truncate = (sys_flags & IPC_SYS_TRUNCATE) != 0;
     let nonblock = (sys_flags & IPC_SYS_NONBLOCK) != 0;
@@ -1526,13 +1401,8 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                         return Err(e.into());
                     }
                 }
-                ctx.tasks.block_current(
-                    BlockReason::IpcRecv {
-                        endpoint,
-                        deadline_ns,
-                    },
-                    ctx.scheduler,
-                );
+                ctx.tasks
+                    .block_current(BlockReason::IpcRecv { endpoint, deadline_ns }, ctx.scheduler);
                 wake_expired_blocked(ctx);
                 if let Some(next) = ctx.scheduler.schedule_next() {
                     ctx.tasks.set_current(next);
@@ -1602,10 +1472,7 @@ fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = MapArgsTyped::decode(args)?;
     typed.check()?;
-    let cap = ctx
-        .tasks
-        .current_caps_mut()
-        .derive(typed.slot.0, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
     match cap.kind {
         CapabilityKind::Vmo { base, len } => {
             if typed.offset >= len {
@@ -1613,11 +1480,8 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
             let va = typed.va;
             let pa = base + (typed.offset & !0xfff);
-            let handle = ctx
-                .tasks
-                .current_task()
-                .address_space()
-                .ok_or(AddressSpaceError::InvalidHandle)?;
+            let handle =
+                ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
             #[cfg(feature = "debug_uart")]
             {
                 use core::fmt::Write as _;
@@ -1631,8 +1495,7 @@ fn sys_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                     typed.flags.bits()
                 );
             }
-            ctx.address_spaces
-                .map_page(handle, va.raw(), pa, typed.flags)?;
+            ctx.address_spaces.map_page(handle, va.raw(), pa, typed.flags)?;
             Ok(0)
         }
         _ => Err(Error::Capability(CapError::PermissionDenied)),
@@ -1643,10 +1506,7 @@ fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = MmioMapArgsTyped::decode(args)?;
     typed.check()?;
 
-    let cap = ctx
-        .tasks
-        .current_caps_mut()
-        .derive(typed.slot.0, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
 
     let (base, len) = match cap.kind {
         CapabilityKind::DeviceMmio { base, len } => (base, len),
@@ -1661,23 +1521,18 @@ fn sys_mmio_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
 
-    let handle = ctx
-        .tasks
-        .current_task()
-        .address_space()
-        .ok_or(AddressSpaceError::InvalidHandle)?;
+    let handle =
+        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
 
     // Enforce the security floor at the boundary:
     // - USER + RW only
     // - never EXEC
     let flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
 
-    let pa = base
-        .checked_add(typed.offset & !(PAGE_SIZE - 1))
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let pa =
+        base.checked_add(typed.offset & !(PAGE_SIZE - 1)).ok_or(AddressSpaceError::InvalidArgs)?;
 
-    ctx.address_spaces
-        .map_page(handle, typed.va.raw(), pa, flags)?;
+    ctx.address_spaces.map_page(handle, typed.va.raw(), pa, flags)?;
     Ok(0)
 }
 
@@ -1698,10 +1553,7 @@ fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     }
 
     let cap = Capability {
-        kind: CapabilityKind::DeviceMmio {
-            base: typed.base,
-            len: typed.len,
-        },
+        kind: CapabilityKind::DeviceMmio { base: typed.base, len: typed.len },
         rights: Rights::MAP,
     };
     let slot = if typed.slot_raw == usize::MAX {
@@ -1757,13 +1609,8 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             aligned_len, base, typed.slot_raw
         );
     }
-    let cap = Capability {
-        kind: CapabilityKind::Vmo {
-            base,
-            len: aligned_len,
-        },
-        rights: Rights::MAP,
-    };
+    let cap =
+        Capability { kind: CapabilityKind::Vmo { base, len: aligned_len }, rights: Rights::MAP };
     let target = if typed.slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(cap)?
     } else {
@@ -1776,10 +1623,7 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = VmoWriteArgsTyped::decode(args)?;
     typed.check()?;
-    let cap = ctx
-        .tasks
-        .current_caps_mut()
-        .derive(typed.slot.0, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
     let (base, vmo_len) = match cap.kind {
         CapabilityKind::Vmo { base, len } => (base, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
@@ -1794,10 +1638,8 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             typed.slot.0, base, typed.offset, typed.len, typed.user_ptr
         );
     }
-    let span_end = typed
-        .offset
-        .checked_add(typed.len)
-        .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let span_end =
+        typed.offset.checked_add(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
     if span_end > vmo_len {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
@@ -1817,11 +1659,8 @@ fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
-        let _ = write!(
-            u,
-            "VMO-WRITE DATA slot=0x{:x} off=0x{:x} head=0x",
-            typed.slot.0, typed.offset
-        );
+        let _ =
+            write!(u, "VMO-WRITE DATA slot=0x{:x} off=0x{:x} head=0x", typed.slot.0, typed.offset);
         for byte in preview_bytes.iter().take(preview_len) {
             let _ = write!(u, "{:02x}", byte);
         }
@@ -1872,11 +1711,7 @@ fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let raw_pid = args.get(0) as i32;
-    let target = if raw_pid <= 0 {
-        None
-    } else {
-        Some(task::Pid::from_raw(raw_pid as u32))
-    };
+    let target = if raw_pid <= 0 { None } else { Some(task::Pid::from_raw(raw_pid as u32)) };
     loop {
         match ctx.tasks.reap_child(target, ctx.address_spaces) {
             Ok((pid, status)) => {
@@ -1887,8 +1722,7 @@ fn sys_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
             Err(task::WaitError::WouldBlock) => {
                 let cur = ctx.tasks.current_pid();
-                ctx.tasks
-                    .block_current(BlockReason::WaitChild { target }, ctx.scheduler);
+                ctx.tasks.block_current(BlockReason::WaitChild { target }, ctx.scheduler);
                 if let Some(next) = ctx.scheduler.schedule_next() {
                     ctx.tasks.set_current(next);
                     return Err(Error::Reschedule);
@@ -1975,9 +1809,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // define `__global_pointer$` as `RW_SEGMENT_VADDR + 0x800`.
     let mut first_rw_vaddr: Option<usize> = None;
     for i in 0..e_phnum {
-        let off = e_phoff
-            .checked_add(i * e_phentsize)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let off = e_phoff.checked_add(i * e_phentsize).ok_or(AddressSpaceError::InvalidArgs)?;
         if off + 56 > elf.len() {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -2016,9 +1848,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         if p_filesz > p_memsz {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        let end = p_offset
-            .checked_add(p_filesz)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let end = p_offset.checked_add(p_filesz).ok_or(AddressSpaceError::InvalidArgs)?;
         if end > elf.len() {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -2033,12 +1863,9 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
         let page_off = p_vaddr & (PAGE_SIZE - 1);
         let aligned_vaddr = p_vaddr - page_off;
-        let alloc_len = align_len(
-            p_memsz
-                .checked_add(page_off)
-                .ok_or(AddressSpaceError::InvalidArgs)?,
-        )
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+        let alloc_len =
+            align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
+                .ok_or(AddressSpaceError::InvalidArgs)?;
         let (base, alloc_len) = VMO_POOL.lock().allocate(alloc_len)?;
 
         // Copy file payload
@@ -2070,9 +1897,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             let va = aligned_vaddr
                 .checked_add(page * PAGE_SIZE)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
-            let pa = base
-                .checked_add(page * PAGE_SIZE)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
             ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
         }
     }
@@ -2095,11 +1920,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
         .or_else(|| e_entry.checked_add(RISCV_GP_BIAS))
         .unwrap_or(0);
-    let gp = if typed.global_pointer != 0 {
-        typed.global_pointer
-    } else {
-        derived_gp
-    };
+    let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
     {
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
@@ -2122,9 +1943,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         .stack_pages
         .checked_add(11) // requested + 9 head pages + boundary page; guard stays unmapped
         .ok_or(AddressSpaceError::InvalidArgs)?;
-    let stack_bytes = total_pages
-        .checked_mul(PAGE_SIZE)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
     let (stack_base, stack_len) = VMO_POOL.lock().allocate(stack_bytes)?;
     // Clear the freshly allocated stack to avoid stale data influencing user
     // register setup/prologue logic.
@@ -2133,23 +1952,16 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     }
     let user_stack_top: usize = 0x2000_0000;
     // Map through the former faulting address (boundary) and leave a guard above.
-    let mapped_top = user_stack_top
-        .checked_add(10 * PAGE_SIZE)
-        .ok_or(AddressSpaceError::InvalidArgs)?; // boundary page mapped; guard sits above
-    let stack_bottom = mapped_top
-        .checked_sub(stack_len)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let mapped_top =
+        user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?; // boundary page mapped; guard sits above
+    let stack_bottom = mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
 
     let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
     for page in 0..total_pages {
-        let va = stack_bottom
-            .checked_add(page * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let pa = stack_base
-            .checked_add(page * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        ctx.address_spaces
-            .map_page(as_handle, va, pa, stack_flags)?;
+        let va =
+            stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
     }
     log_info!(
         target: "exec",
@@ -2161,9 +1973,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         user_stack_top
     );
 
-    let sp_probe = mapped_top
-        .checked_sub(2 * PAGE_SIZE)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let sp_probe = mapped_top.checked_sub(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
     if let Ok(space) = ctx.address_spaces.get(as_handle) {
         let pt = space.page_table();
         let t_sp = pt.translate(sp_probe);
@@ -2264,9 +2074,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let mut load_ranges: alloc::vec::Vec<LoadRange> = alloc::vec::Vec::new();
 
         for i in 0..e_phnum {
-            let off = e_phoff
-                .checked_add(i * e_phentsize)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let off = e_phoff.checked_add(i * e_phentsize).ok_or(AddressSpaceError::InvalidArgs)?;
             if off + 56 > elf.len() {
                 return Err(AddressSpaceError::InvalidArgs.into());
             }
@@ -2286,9 +2094,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             if p_filesz > p_memsz {
                 return Err(AddressSpaceError::InvalidArgs.into());
             }
-            let end = p_offset
-                .checked_add(p_filesz)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let end = p_offset.checked_add(p_filesz).ok_or(AddressSpaceError::InvalidArgs)?;
             if end > elf.len() {
                 return Err(AddressSpaceError::InvalidArgs.into());
             }
@@ -2302,12 +2108,9 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
             let page_off = p_vaddr & (PAGE_SIZE - 1);
             let aligned_vaddr = p_vaddr - page_off;
-            let alloc_len = align_len(
-                p_memsz
-                    .checked_add(page_off)
-                    .ok_or(AddressSpaceError::InvalidArgs)?,
-            )
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+            let alloc_len =
+                align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
+                    .ok_or(AddressSpaceError::InvalidArgs)?;
             let (base, alloc_len) = VMO_POOL.lock().allocate(alloc_len)?;
 
             // Copy file payload (allocation is already zeroed by VmoPool::allocate).
@@ -2337,15 +2140,13 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 let va = aligned_vaddr
                     .checked_add(page * PAGE_SIZE)
                     .ok_or(AddressSpaceError::InvalidArgs)?;
-                let pa = base
-                    .checked_add(page * PAGE_SIZE)
-                    .ok_or(AddressSpaceError::InvalidArgs)?;
+                let pa =
+                    base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
                 ctx.address_spaces.map_page(as_handle, va, pa, flags)?;
             }
 
-            let seg_end = aligned_vaddr
-                .checked_add(alloc_len)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let seg_end =
+                aligned_vaddr.checked_add(alloc_len).ok_or(AddressSpaceError::InvalidArgs)?;
             max_end_va = core::cmp::max(max_end_va, seg_end);
 
             load_ranges.push(LoadRange {
@@ -2362,16 +2163,10 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 if !r.writable {
                     continue;
                 }
-                let next_start = load_ranges
-                    .get(idx + 1)
-                    .map(|n| n.start)
-                    .unwrap_or(usize::MAX);
+                let next_start = load_ranges.get(idx + 1).map(|n| n.start).unwrap_or(usize::MAX);
                 if next_start >= r.end.saturating_add(PAGE_SIZE) && r.end < USER_VADDR_LIMIT {
                     if space.page_table().lookup(r.end).is_some() {
-                        panic!(
-                            "exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}",
-                            r.end
-                        );
+                        panic!("exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}", r.end);
                     }
                 }
             }
@@ -2389,38 +2184,26 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
             .or_else(|| e_entry.checked_add(RISCV_GP_BIAS))
             .unwrap_or(0);
-        let gp = if typed.global_pointer != 0 {
-            typed.global_pointer
-        } else {
-            derived_gp
-        };
+        let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
 
         // Stack (same policy as sys_exec).
-        let total_pages = typed
-            .stack_pages
-            .checked_add(11)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_bytes = total_pages
-            .checked_mul(PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let total_pages =
+            typed.stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
+        let stack_bytes =
+            total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         let (stack_base, stack_len) = VMO_POOL.lock().allocate(stack_bytes)?;
         let user_stack_top: usize = 0x2000_0000;
-        let mapped_top = user_stack_top
-            .checked_add(10 * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let stack_bottom = mapped_top
-            .checked_sub(stack_len)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let mapped_top =
+            user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let stack_bottom =
+            mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
         let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
         for page in 0..total_pages {
-            let va = stack_bottom
-                .checked_add(page * PAGE_SIZE)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
-            let pa = stack_base
-                .checked_add(page * PAGE_SIZE)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
-            ctx.address_spaces
-                .map_page(as_handle, va, pa, stack_flags)?;
+            let va =
+                stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+            let pa =
+                stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+            ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
         }
 
         // Per-service metadata mapping (RO) + bootstrap info page (RO).
@@ -2431,12 +2214,9 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         // - info page: mapped_top + 2 pages
         //
         // This keeps the contract simple for early userland while remaining provenance-safe.
-        let meta_va = mapped_top
-            .checked_add(PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let info_va = mapped_top
-            .checked_add(2 * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let meta_va = mapped_top.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let info_va =
+            mapped_top.checked_add(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         if info_va + PAGE_SIZE >= USER_VADDR_LIMIT {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -2466,8 +2246,7 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
         }
         let meta_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces
-            .map_page(as_handle, meta_va, meta_pa, meta_flags)?;
+        ctx.address_spaces.map_page(as_handle, meta_va, meta_pa, meta_flags)?;
 
         // Bootstrap info page describing the metadata mapping (RO).
         let (info_pa, _info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
@@ -2489,14 +2268,11 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
         }
         let info_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces
-            .map_page(as_handle, info_va, info_pa, info_flags)?;
+        ctx.address_spaces.map_page(as_handle, info_va, info_pa, info_flags)?;
 
         // Guard page above the bootstrap info page must remain unmapped.
         if let Ok(space) = ctx.address_spaces.get(as_handle) {
-            let guard_va = info_va
-                .checked_add(PAGE_SIZE)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
+            let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
             if guard_va < USER_VADDR_LIMIT && space.page_table().lookup(guard_va).is_some() {
                 panic!("exec_v2: info guard page mapped at 0x{:x}", guard_va);
             }
@@ -2521,15 +2297,12 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
 
         let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
-        let sp_probe = mapped_top
-            .checked_sub(2 * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let sp_probe =
+            mapped_top.checked_sub(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         let stack_sp_raw = sp_probe & !0xf;
         let stack_sp = VirtAddr::new(stack_sp_raw).ok_or(AddressSpaceError::InvalidArgs)?;
         let bootstrap_slot = SlotIndex::decode(0);
-        let guard_va = info_va
-            .checked_add(PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
 
         let parent = ctx.tasks.current_pid();
         let pid = ctx.tasks.spawn(
@@ -2627,10 +2400,8 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let parent = ctx.tasks.current_pid();
     #[cfg(feature = "ipc_trace_ring")]
     {
-        if let Ok(parent_caps) = ctx
-            .tasks
-            .caps_of(parent)
-            .ok_or(Error::Transfer(task::TransferError::InvalidParent))
+        if let Ok(parent_caps) =
+            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))
         {
             if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
                 if let CapabilityKind::Endpoint(id) = base.kind {
@@ -2649,10 +2420,8 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
     // hold endpoint-create authority without relying on PID/parentage checks.
     if rights.contains(Rights::MANAGE) {
-        let parent_caps = ctx
-            .tasks
-            .caps_of(parent)
-            .ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
+        let parent_caps =
+            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
         let base = parent_caps
             .get(typed.parent_slot.0)
             .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
@@ -2666,10 +2435,8 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
     // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).
     // This keeps endpoint-mint authority centralized in init-lite during bring-up.
-    if let Ok(parent_caps) = ctx
-        .tasks
-        .caps_of(parent)
-        .ok_or(Error::Transfer(task::TransferError::InvalidParent))
+    if let Ok(parent_caps) =
+        ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))
     {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
@@ -2682,9 +2449,7 @@ fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             }
         }
     }
-    let slot = ctx
-        .tasks
-        .transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
+    let slot = ctx.tasks.transfer_cap(parent, typed.child, typed.parent_slot.0, rights)?;
     Ok(slot)
 }
 
@@ -2697,10 +2462,8 @@ fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Exception: allow transferring MANAGE for the EndpointFactory capability, so init-lite can
     // hold endpoint-create authority without relying on PID/parentage checks.
     if rights.contains(Rights::MANAGE) {
-        let parent_caps = ctx
-            .tasks
-            .caps_of(parent)
-            .ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
+        let parent_caps =
+            ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))?;
         let base = parent_caps
             .get(typed.parent_slot.0)
             .map_err(|e| Error::Transfer(task::TransferError::Capability(e)))?;
@@ -2714,10 +2477,8 @@ fn sys_cap_transfer_to(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Phase-2 hardening (factory distribution): EndpointFactory is not a general transferable cap.
     // Until policyd-gated distribution exists, only bootstrap (PID 0) may transfer it into init-lite (PID 1).
     // This keeps endpoint-mint authority centralized in init-lite during bring-up.
-    if let Ok(parent_caps) = ctx
-        .tasks
-        .caps_of(parent)
-        .ok_or(Error::Transfer(task::TransferError::InvalidParent))
+    if let Ok(parent_caps) =
+        ctx.tasks.caps_of(parent).ok_or(Error::Transfer(task::TransferError::InvalidParent))
     {
         // (This block is structured as "check then act" to keep denial deterministic.)
         if let Ok(base) = parent_caps.get(typed.parent_slot.0) {
@@ -2767,22 +2528,12 @@ struct VmoPoolStats {
 
 impl VmoPool {
     const fn new() -> Self {
-        Self {
-            base: 0,
-            next: 0,
-            limit: 0,
-            peak_next: 0,
-        }
+        Self { base: 0, next: 0, limit: 0, peak_next: 0 }
     }
 
     #[cfg(test)]
     fn with_window(base: usize, len: usize) -> Self {
-        Self {
-            base,
-            next: base,
-            limit: base.saturating_add(len),
-            peak_next: base,
-        }
+        Self { base, next: base, limit: base.saturating_add(len), peak_next: base }
     }
 
     fn ensure_initialized(&mut self) {
@@ -2803,18 +2554,11 @@ impl VmoPool {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
         let aligned = align_len(len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-        let next = self
-            .next
-            .checked_add(aligned)
-            .ok_or(Error::Capability(CapError::PermissionDenied))?;
+        let next =
+            self.next.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
         if next > self.limit {
             let pressure = self.stats();
-            let _ = (
-                pressure.base,
-                pressure.used,
-                pressure.remaining,
-                pressure.peak_used,
-            );
+            let _ = (pressure.base, pressure.used, pressure.remaining, pressure.peak_used);
             return Err(Error::Capability(CapError::PermissionDenied));
         }
         let base = self.next;
@@ -2835,12 +2579,7 @@ impl VmoPool {
         let used = self.next.saturating_sub(self.base);
         let remaining = self.limit.saturating_sub(self.next);
         let peak_used = self.peak_next.saturating_sub(self.base);
-        VmoPoolStats {
-            base: self.base,
-            used,
-            remaining,
-            peak_used,
-        }
+        VmoPoolStats { base: self.base, used, remaining, peak_used }
     }
 
     #[allow(dead_code)]
@@ -2860,8 +2599,7 @@ fn align_len(len: usize) -> Option<usize> {
     if len == 0 {
         Some(0)
     } else {
-        len.checked_add(PAGE_SIZE - 1)
-            .map(|value| value & !(PAGE_SIZE - 1))
+        len.checked_add(PAGE_SIZE - 1).map(|value| value & !(PAGE_SIZE - 1))
     }
 }
 
@@ -2879,9 +2617,7 @@ fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
     // For tests, accept any non-overflowing slice address and rely on Rust/host memory safety.
     #[cfg(test)]
     {
-        let _last = ptr
-            .checked_add(len - 1)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let _last = ptr.checked_add(len - 1).ok_or(AddressSpaceError::InvalidArgs)?;
         return Ok(());
     }
 
@@ -2894,9 +2630,7 @@ fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
         if ptr >= USER_VADDR_LIMIT {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        let last = ptr
-            .checked_add(len - 1)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
+        let last = ptr.checked_add(len - 1).ok_or(AddressSpaceError::InvalidArgs)?;
         if last >= USER_VADDR_LIMIT {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -2913,10 +2647,7 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = AsMapArgsTyped::decode(args)?;
     typed.check()?; // Check phase
 
-    let cap = ctx
-        .tasks
-        .current_caps_mut()
-        .derive(typed.vmo_slot.0, Rights::MAP)?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot.0, Rights::MAP)?;
     let (base, vmo_len) = match cap.kind {
         CapabilityKind::Vmo { base, len } => (base, len as u64),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
@@ -2928,13 +2659,8 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     let pages = (aligned_bytes / PAGE_SIZE as u64) as usize;
-    let span_bytes = pages
-        .checked_mul(PAGE_SIZE)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
-    typed
-        .va
-        .checked_add(span_bytes)
-        .ok_or(AddressSpaceError::InvalidArgs)?;
+    let span_bytes = pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+    typed.va.checked_add(span_bytes).ok_or(AddressSpaceError::InvalidArgs)?;
 
     let mut flags = PageFlags::VALID;
     if typed.prot & PROT_READ != 0 {
@@ -2977,16 +2703,10 @@ fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let mut logged_preview = false;
 
     for page in 0..pages {
-        let page_va = typed
-            .va
-            .raw()
-            .checked_add(page * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        let page_pa = base
-            .checked_add(page * PAGE_SIZE)
-            .ok_or(AddressSpaceError::InvalidArgs)?;
-        ctx.address_spaces
-            .map_page(typed.handle, page_va, page_pa, flags)?;
+        let page_va =
+            typed.va.raw().checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let page_pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        ctx.address_spaces.map_page(typed.handle, page_va, page_pa, flags)?;
         #[cfg(feature = "debug_uart")]
         if !logged_preview {
             logged_preview = true;
@@ -3096,23 +2816,12 @@ mod tests {
         tasks
             .bootstrap_mut()
             .caps_mut()
-            .set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(endpoint),
-                    rights: Rights::SEND,
-                },
-            )
+            .set(0, Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::SEND })
             .unwrap();
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let before = ctx.address_spaces.stats();
         let mut elf = [0u8; 120];
         elf[0..4].copy_from_slice(b"\x7FELF");
@@ -3129,11 +2838,8 @@ mod tests {
         elf[96..104].copy_from_slice(&8usize.to_le_bytes()); // filesz
         elf[104..112].copy_from_slice(&4usize.to_le_bytes()); // memsz < filesz
 
-        let err = sys_exec_v2(
-            &mut ctx,
-            &Args::new([elf.as_ptr() as usize, elf.len(), 1, 0, 0, 0]),
-        )
-        .unwrap_err();
+        let err = sys_exec_v2(&mut ctx, &Args::new([elf.as_ptr() as usize, elf.len(), 1, 0, 0, 0]))
+            .unwrap_err();
 
         assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
         let after = ctx.address_spaces.stats();
@@ -3162,22 +2868,13 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            timer.timer(),
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, timer.timer());
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
-        table
-            .dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0]))
-            .unwrap();
-        let len = table
-            .dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0]))
-            .unwrap();
+        table.dispatch(SYSCALL_SEND, &mut ctx, &Args::new([0, 1, 0, 0, 0, 0])).unwrap();
+        let len = table.dispatch(SYSCALL_RECV, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0])).unwrap();
         assert_eq!(len, 0);
         assert!(ctx.last_message().is_some());
     }
@@ -3203,13 +2900,8 @@ mod tests {
         let timer = MockTimer::default();
         timer.set_now(100);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
@@ -3225,9 +2917,7 @@ mod tests {
             100, // deadline_ns: already expired
         ]);
 
-        let err = table
-            .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Ipc(ipc::IpcError::TimedOut));
     }
 
@@ -3245,21 +2935,13 @@ mod tests {
             let caps = tasks.bootstrap_mut().caps_mut();
             caps.set(
                 0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(endpoint),
-                    rights: Rights::SEND,
-                },
+                Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::SEND },
             )
             .unwrap();
         }
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         // Minimal valid header: len=0 (matches payload_len=0).
         let mut hdr = crate::ipc::header::MessageHeader::new(0, 0, 0, 0, 0).to_le_bytes();
@@ -3295,10 +2977,7 @@ mod tests {
         let endpoint = router.create_endpoint(1, None).unwrap();
         let hdr0 = crate::ipc::header::MessageHeader::new(0, endpoint, 0, 0, 0);
         router
-            .send(
-                endpoint,
-                crate::ipc::Message::new(hdr0, alloc::vec::Vec::new(), None),
-            )
+            .send(endpoint, crate::ipc::Message::new(hdr0, alloc::vec::Vec::new(), None))
             .unwrap();
 
         // Sender has SEND on endpoint in slot 0.
@@ -3306,31 +2985,20 @@ mod tests {
             let caps = tasks.bootstrap_mut().caps_mut();
             caps.set(
                 0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(endpoint),
-                    rights: Rights::SEND,
-                },
+                Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::SEND },
             )
             .unwrap();
             // Movable cap in slot 3 (no MANAGE). Use a live endpoint to avoid hardening rejection.
             let live_cap_ep = router.create_endpoint(1, None).unwrap();
             caps.set(
                 3,
-                Capability {
-                    kind: CapabilityKind::Endpoint(live_cap_ep),
-                    rights: Rights::SEND,
-                },
+                Capability { kind: CapabilityKind::Endpoint(live_cap_ep), rights: Rights::SEND },
             )
             .unwrap();
         }
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         // CAP_MOVE header: src=3, flags=CAP_MOVE, len=0.
         const IPC_HDR_CAP_MOVE: u16 = 1 << 0;
@@ -3372,20 +3040,14 @@ mod tests {
             for i in 0..96 {
                 caps.set(
                     i,
-                    Capability {
-                        kind: CapabilityKind::Endpoint(i as u32),
-                        rights: Rights::SEND,
-                    },
+                    Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
                 )
                 .unwrap();
             }
             // Slot 0 must be a RECV cap for the endpoint we will recv from.
             caps.set(
                 0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(endpoint),
-                    rights: Rights::RECV,
-                },
+                Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::RECV },
             )
             .unwrap();
         }
@@ -3398,21 +3060,13 @@ mod tests {
                 crate::ipc::Message::new(
                     hdr,
                     alloc::vec::Vec::new(),
-                    Some(Capability {
-                        kind: CapabilityKind::Endpoint(999),
-                        rights: Rights::SEND,
-                    }),
+                    Some(Capability { kind: CapabilityKind::Endpoint(999), rights: Rights::SEND }),
                 ),
             )
             .unwrap();
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let mut out_hdr = [0u8; 16];
         let mut out_buf = [0u8; 8];
@@ -3452,22 +3106,14 @@ mod tests {
             for i in 0..96 {
                 caps.set(
                     i,
-                    Capability {
-                        kind: CapabilityKind::Endpoint(i as u32),
-                        rights: Rights::SEND,
-                    },
+                    Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
                 )
                 .unwrap();
             }
         }
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         match sys_cap_clone(&mut ctx, &Args::new([0, 0, 0, 0, 0, 0])) {
             Err(Error::Capability(CapError::NoSpace)) => {}
@@ -3489,14 +3135,8 @@ mod tests {
         // Cap to transfer lives in parent slot 3.
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            caps.set(
-                3,
-                Capability {
-                    kind: CapabilityKind::Endpoint(123),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(3, Capability { kind: CapabilityKind::Endpoint(123), rights: Rights::SEND })
+                .unwrap();
         }
 
         // Fill the child's cap table fully so allocation fails.
@@ -3505,30 +3145,19 @@ mod tests {
             for i in 0..96 {
                 let _ = child_caps.set(
                     i,
-                    Capability {
-                        kind: CapabilityKind::Endpoint(i as u32),
-                        rights: Rights::SEND,
-                    },
+                    Capability { kind: CapabilityKind::Endpoint(i as u32), rights: Rights::SEND },
                 );
             }
         }
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         // Args: child pid, parent slot, rights mask
         let args = Args::new([child.as_index(), 3, Rights::SEND.bits() as usize, 0, 0, 0]);
         match sys_cap_transfer(&mut ctx, &args) {
             Err(Error::Transfer(task::TransferError::Capability(CapError::NoSpace))) => {}
-            other => panic!(
-                "expected TransferError::Capability(NoSpace), got {:?}",
-                other
-            ),
+            other => panic!("expected TransferError::Capability(NoSpace), got {:?}", other),
         }
     }
 
@@ -3557,9 +3186,7 @@ mod tests {
             other => panic!("expected NoSpace, got {:?}", other),
         }
         // Different owner should still be allowed (global limit not hit yet).
-        router
-            .create_endpoint(1, Some(8))
-            .expect("create other owner");
+        router.create_endpoint(1, Some(8)).expect("create other owner");
     }
 
     #[test]
@@ -3569,25 +3196,14 @@ mod tests {
         {
             let caps = tasks.bootstrap_mut().caps_mut();
             // Slot 0 has RECV only (no SEND).
-            caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::RECV,
-                },
-            )
-            .unwrap();
+            caps.set(0, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::RECV })
+                .unwrap();
         }
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3600,9 +3216,7 @@ mod tests {
             IPC_SYS_NONBLOCK,      // sys_flags
             0,                     // deadline_ns
         ]);
-        let err = table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -3613,25 +3227,14 @@ mod tests {
         {
             let caps = tasks.bootstrap_mut().caps_mut();
             // Slot 0 has SEND only (no RECV).
-            caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(0, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND })
+                .unwrap();
         }
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3645,9 +3248,7 @@ mod tests {
             IPC_SYS_NONBLOCK, // sys_flags
             0,                // deadline_ns
         ]);
-        let err = table
-            .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -3669,10 +3270,7 @@ mod tests {
             caps.set(
                 3,
                 Capability {
-                    kind: CapabilityKind::Vmo {
-                        base: 0x9000_0000,
-                        len: PAGE_SIZE,
-                    },
+                    kind: CapabilityKind::Vmo { base: 0x9000_0000, len: PAGE_SIZE },
                     rights: Rights::MAP,
                 },
             )
@@ -3681,13 +3279,8 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3711,15 +3304,10 @@ mod tests {
             IPC_SYS_NONBLOCK as usize,      // sys_flags
             0,                              // deadline
         ]);
-        table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
-            .unwrap();
+        table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args).unwrap();
 
         // Sender cap slot must be empty after send.
-        assert_eq!(
-            ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(),
-            CapError::InvalidSlot
-        );
+        assert_eq!(ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(), CapError::InvalidSlot);
 
         // Receive and verify the cap was allocated back into slot 3.
         let mut out_hdr = [0u8; 16];
@@ -3732,26 +3320,16 @@ mod tests {
             IPC_SYS_NONBLOCK as usize,
             0,
         ]);
-        let n = table
-            .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &recv_args)
-            .unwrap();
+        let n = table.dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &recv_args).unwrap();
         assert_eq!(n, payload.len());
         assert_eq!(&out_payload[..payload.len()], &payload);
 
         let hdr = crate::ipc::header::MessageHeader::from_le_bytes(out_hdr);
         let moved_slot = hdr.src as usize;
-        let cap = ctx
-            .tasks
-            .bootstrap_mut()
-            .caps_mut()
-            .get(moved_slot)
-            .unwrap();
+        let cap = ctx.tasks.bootstrap_mut().caps_mut().get(moved_slot).unwrap();
         assert!(matches!(cap.kind, CapabilityKind::Vmo { .. }));
         // Original slot remains empty (we moved *out* of slot 3).
-        assert_eq!(
-            ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(),
-            CapError::InvalidSlot
-        );
+        assert_eq!(ctx.tasks.bootstrap_mut().caps_mut().get(3).unwrap_err(), CapError::InvalidSlot);
     }
 
     #[test]
@@ -3760,25 +3338,14 @@ mod tests {
         let mut tasks = TaskTable::new();
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::RECV,
-                },
-            )
-            .unwrap();
+            caps.set(0, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::RECV })
+                .unwrap();
         }
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3792,9 +3359,7 @@ mod tests {
             IPC_SYS_NONBLOCK,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_RECV_V1, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Ipc(ipc::IpcError::QueueEmpty));
     }
 
@@ -3804,25 +3369,14 @@ mod tests {
         let mut tasks = TaskTable::new();
         {
             let caps = tasks.bootstrap_mut().caps_mut();
-            caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(0, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND })
+                .unwrap();
         }
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3831,13 +3385,9 @@ mod tests {
 
         // Router endpoint depth is 8. Fill it.
         for _ in 0..8 {
-            table
-                .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args)
-                .expect("send should fit");
+            table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args).expect("send should fit");
         }
-        let err = table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Ipc(ipc::IpcError::QueueFull));
     }
 
@@ -3863,20 +3413,14 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
         let timer = crate::hal::virt::VirtMachine::new();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            timer.timer(),
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, timer.timer());
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
         let child = task::Pid::from_raw(
-            table
-                .dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0]))
-                .unwrap() as u32,
+            table.dispatch(SYSCALL_SPAWN, &mut ctx, &Args::new([0x1000, 0, 0, 0, 0, 0])).unwrap()
+                as u32,
         );
         assert_eq!(child, task::Pid::from_raw(1));
         let msg = ctx.router.recv(0).unwrap();
@@ -3936,13 +3480,8 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -3978,36 +3517,21 @@ mod tests {
             .unwrap();
             // Also keep a non-MANAGE sender reference to the same endpoint so we can observe
             // "global close" (router returns NoSuchEndpoint).
-            caps.set(
-                1,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(1, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND })
+                .unwrap();
         }
 
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
         // Close the cap: local drop only (endpoint stays alive).
         table
-            .dispatch(
-                crate::syscall::SYSCALL_CAP_CLOSE,
-                &mut ctx,
-                &Args::new([0, 0, 0, 0, 0, 0]),
-            )
+            .dispatch(crate::syscall::SYSCALL_CAP_CLOSE, &mut ctx, &Args::new([0, 0, 0, 0, 0, 0]))
             .unwrap();
 
         // Endpoint is still alive, so sending on the other cap should succeed.
@@ -4020,9 +3544,7 @@ mod tests {
             IPC_SYS_NONBLOCK,
             0,
         ]);
-        table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
-            .unwrap();
+        table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args).unwrap();
     }
 
     #[test]
@@ -4042,26 +3564,15 @@ mod tests {
             )
             .unwrap();
             // Slot 1: a sender ref so we can verify the endpoint is still alive after the denied close.
-            caps.set(
-                1,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(1, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND })
+                .unwrap();
         }
 
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4084,9 +3595,7 @@ mod tests {
             IPC_SYS_NONBLOCK,
             0,
         ]);
-        table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
-            .unwrap();
+        table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args).unwrap();
     }
 
     #[test]
@@ -4105,26 +3614,15 @@ mod tests {
             )
             .unwrap();
             // Slot 1: non-MANAGE sender reference used to observe global close.
-            caps.set(
-                1,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND,
-                },
-            )
-            .unwrap();
+            caps.set(1, Capability { kind: CapabilityKind::Endpoint(0), rights: Rights::SEND })
+                .unwrap();
         }
 
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4145,9 +3643,7 @@ mod tests {
             IPC_SYS_NONBLOCK,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_IPC_SEND_V1, &mut ctx, &send_args).unwrap_err();
         assert_eq!(err, Error::Ipc(ipc::IpcError::NoSuchEndpoint));
     }
 
@@ -4170,13 +3666,8 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4203,23 +3694,15 @@ mod tests {
             let caps = tasks.bootstrap_mut().caps_mut();
             caps.set(
                 0,
-                Capability {
-                    kind: CapabilityKind::EndpointFactory,
-                    rights: Rights::MANAGE,
-                },
+                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
             )
             .unwrap();
         }
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4243,10 +3726,7 @@ mod tests {
             caps.set(
                 3,
                 Capability {
-                    kind: CapabilityKind::Vmo {
-                        base: 0x9000_0000,
-                        len: PAGE_SIZE,
-                    },
+                    kind: CapabilityKind::Vmo { base: 0x9000_0000, len: PAGE_SIZE },
                     rights: Rights::MAP,
                 },
             )
@@ -4255,22 +3735,13 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
         let new_slot = table
-            .dispatch(
-                crate::syscall::SYSCALL_CAP_CLONE,
-                &mut ctx,
-                &Args::new([3, 0, 0, 0, 0, 0]),
-            )
+            .dispatch(crate::syscall::SYSCALL_CAP_CLONE, &mut ctx, &Args::new([3, 0, 0, 0, 0, 0]))
             .unwrap();
         assert_ne!(new_slot, 3);
         assert!(matches!(
@@ -4278,12 +3749,7 @@ mod tests {
             CapabilityKind::Vmo { .. }
         ));
         assert!(matches!(
-            ctx.tasks
-                .bootstrap_mut()
-                .caps_mut()
-                .get(new_slot as usize)
-                .unwrap()
-                .kind,
+            ctx.tasks.bootstrap_mut().caps_mut().get(new_slot as usize).unwrap().kind,
             CapabilityKind::Vmo { .. }
         ));
     }
@@ -4306,23 +3772,15 @@ mod tests {
             // Bootstrap holds the endpoint factory in slot 2.
             caps.set(
                 2,
-                Capability {
-                    kind: CapabilityKind::EndpointFactory,
-                    rights: Rights::MANAGE,
-                },
+                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
             )
             .unwrap();
         }
         let mut router = ipc::Router::new(8);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4391,23 +3849,15 @@ mod tests {
             // Seed endpoint factory in bootstrap (slot 2) so it can be transferred to pid1.
             caps.set(
                 2,
-                Capability {
-                    kind: CapabilityKind::EndpointFactory,
-                    rights: Rights::MANAGE,
-                },
+                Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE },
             )
             .unwrap();
         }
         let mut router = ipc::Router::new(8);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4490,13 +3940,8 @@ mod tests {
         let mut router = ipc::Router::new(1);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4510,11 +3955,7 @@ mod tests {
 
         // pid 1 may create endpoints.
         let slot = table
-            .dispatch(
-                SYSCALL_IPC_ENDPOINT_CREATE,
-                &mut ctx,
-                &Args::new([8, 0, 0, 0, 0, 0]),
-            )
+            .dispatch(SYSCALL_IPC_ENDPOINT_CREATE, &mut ctx, &Args::new([8, 0, 0, 0, 0, 0]))
             .unwrap();
         assert_ne!(slot, 0);
 
@@ -4528,11 +3969,7 @@ mod tests {
 
         // pid 2 is userspace too, but must be denied by the endpoint-factory gate.
         let err = table
-            .dispatch(
-                SYSCALL_IPC_ENDPOINT_CREATE,
-                &mut ctx,
-                &Args::new([8, 0, 0, 0, 0, 0]),
-            )
+            .dispatch(SYSCALL_IPC_ENDPOINT_CREATE, &mut ctx, &Args::new([8, 0, 0, 0, 0, 0]))
             .unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
@@ -4544,23 +3981,12 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let self_pid = ctx.tasks.current_pid();
-        let set_args = Args::new([
-            TASK_QOS_OP_SET,
-            self_pid.as_index(),
-            QosClass::Normal as usize,
-            0,
-            0,
-            0,
-        ]);
+        let set_args =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
         assert_eq!(sys_task_qos(&mut ctx, &set_args).unwrap(), 0);
         assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
 
@@ -4576,23 +4002,12 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let self_pid = ctx.tasks.current_pid();
-        let down = Args::new([
-            TASK_QOS_OP_SET,
-            self_pid.as_index(),
-            QosClass::Normal as usize,
-            0,
-            0,
-            0,
-        ]);
+        let down =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
         assert_eq!(sys_task_qos(&mut ctx, &down).unwrap(), 0);
         assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
 
@@ -4620,30 +4035,13 @@ mod tests {
         tasks
             .bootstrap_mut()
             .caps_mut()
-            .set(
-                1,
-                Capability {
-                    kind: CapabilityKind::EndpointFactory,
-                    rights: Rights::MANAGE,
-                },
-            )
+            .set(1, Capability { kind: CapabilityKind::EndpointFactory, rights: Rights::MANAGE })
             .unwrap();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
-        let args = Args::new([
-            TASK_QOS_OP_SET,
-            target.as_index(),
-            QosClass::Idle as usize,
-            0,
-            0,
-            0,
-        ]);
+        let args =
+            Args::new([TASK_QOS_OP_SET, target.as_index(), QosClass::Idle as usize, 0, 0, 0]);
         let err = sys_task_qos(&mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
@@ -4655,13 +4053,8 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let self_pid = ctx.tasks.current_pid();
         let args = Args::new([TASK_QOS_OP_SET, self_pid.as_index(), 0xFF, 0, 0, 0]);
@@ -4676,22 +4069,10 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
-        let args = Args::new([
-            TASK_QOS_OP_SET,
-            usize::MAX,
-            QosClass::Normal as usize,
-            0,
-            0,
-            0,
-        ]);
+        let args = Args::new([TASK_QOS_OP_SET, usize::MAX, QosClass::Normal as usize, 0, 0, 0]);
         let err = sys_task_qos(&mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
     }
@@ -4703,13 +4084,8 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
 
         let self_pid = ctx.tasks.current_pid();
         let args = Args::new([TASK_QOS_OP_SET, self_pid.as_index(), usize::MAX, 0, 0, 0]);
@@ -4725,16 +4101,9 @@ mod tests {
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
         let target = tasks.selftest_create_dummy_task(task::Pid::KERNEL, &mut scheduler);
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
-        ctx.tasks
-            .current_task_mut()
-            .set_service_id(service_id_from_name(b"execd"));
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        ctx.tasks.current_task_mut().set_service_id(service_id_from_name(b"execd"));
 
         let args = Args::new([
             TASK_QOS_OP_SET,
@@ -4755,26 +4124,13 @@ mod tests {
         let mut router = ipc::Router::new(0);
         let mut as_manager = AddressSpaceManager::new();
         let timer = MockTimer::default();
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
-        ctx.tasks
-            .current_task_mut()
-            .set_service_id(service_id_from_name(b"policyd"));
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
+        ctx.tasks.current_task_mut().set_service_id(service_id_from_name(b"policyd"));
 
         let self_pid = ctx.tasks.current_pid();
-        let down = Args::new([
-            TASK_QOS_OP_SET,
-            self_pid.as_index(),
-            QosClass::Normal as usize,
-            0,
-            0,
-            0,
-        ]);
+        let down =
+            Args::new([TASK_QOS_OP_SET, self_pid.as_index(), QosClass::Normal as usize, 0, 0, 0]);
         assert_eq!(sys_task_qos(&mut ctx, &down).unwrap(), 0);
         assert_eq!(ctx.tasks.current_task().qos(), QosClass::Normal);
 
@@ -4812,13 +4168,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4831,9 +4182,7 @@ mod tests {
             0,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::InvalidSlot));
     }
 
@@ -4866,13 +4215,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4885,9 +4229,7 @@ mod tests {
             0,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -4911,10 +4253,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::MAP,
                 },
             )
@@ -4925,13 +4264,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -4944,9 +4278,7 @@ mod tests {
             0,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
 
         // Also test offset way beyond the window.
@@ -4958,9 +4290,7 @@ mod tests {
             0,
             0,
         ]);
-        let err_far = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args_far)
-            .unwrap_err();
+        let err_far = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args_far).unwrap_err();
         assert_eq!(err_far, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -4984,10 +4314,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::SEND, // Wrong rights for MMIO
                 },
             )
@@ -4998,13 +4325,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -5017,9 +4339,7 @@ mod tests {
             0,
             0,
         ]);
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -5044,10 +4364,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::MAP,
                 },
             )
@@ -5058,13 +4375,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -5072,13 +4384,8 @@ mod tests {
         table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
 
         let handle = ctx.tasks.current_task().address_space().unwrap();
-        let flags = ctx
-            .address_spaces
-            .get(handle)
-            .unwrap()
-            .page_table()
-            .leaf_flags(MMIO_VA)
-            .unwrap();
+        let flags =
+            ctx.address_spaces.get(handle).unwrap().page_table().leaf_flags(MMIO_VA).unwrap();
         assert!(flags.contains(PageFlags::USER));
         assert!(flags.contains(PageFlags::READ));
         assert!(flags.contains(PageFlags::WRITE));
@@ -5104,10 +4411,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::MAP,
                 },
             )
@@ -5118,20 +4422,13 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
         let args = Args::new([48, 0x2000_0001, 0, 0, 0, 0]); // va not page-aligned
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
     }
 
@@ -5153,10 +4450,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::MAP,
                 },
             )
@@ -5167,20 +4461,13 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
         let args = Args::new([48, 0x2000_0000, 1, 0, 0, 0]); // offset not page-aligned
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
         assert_eq!(err, Error::Capability(CapError::PermissionDenied));
     }
 
@@ -5204,10 +4491,7 @@ mod tests {
             caps.set(
                 48,
                 Capability {
-                    kind: CapabilityKind::DeviceMmio {
-                        base: MMIO_BASE,
-                        len: MMIO_LEN,
-                    },
+                    kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
                     rights: Rights::MAP,
                 },
             )
@@ -5218,13 +4502,8 @@ mod tests {
         as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
         tasks.bootstrap_mut().address_space = Some(kernel_as);
 
-        let mut ctx = Context::new(
-            &mut scheduler,
-            &mut tasks,
-            &mut router,
-            &mut as_manager,
-            &timer,
-        );
+        let mut ctx =
+            Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
         let mut table = SyscallTable::new();
         install_handlers(&mut table);
 
@@ -5232,12 +4511,7 @@ mod tests {
         table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap();
 
         // Second map to the same VA must fail (overlap).
-        let err = table
-            .dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args)
-            .unwrap_err();
-        assert_eq!(
-            err,
-            Error::AddressSpace(AddressSpaceError::Mapping(MapError::Overlap))
-        );
+        let err = table.dispatch(SYSCALL_MMIO_MAP, &mut ctx, &args).unwrap_err();
+        assert_eq!(err, Error::AddressSpace(AddressSpaceError::Mapping(MapError::Overlap)));
     }
 }

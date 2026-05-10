@@ -14,9 +14,7 @@ use crate::limits::BYTES_PER_PIXEL;
 use crate::units::StrideBytes;
 
 pub(crate) fn checked_row_bytes(width: u32) -> RenderResult<u32> {
-    width
-        .checked_mul(BYTES_PER_PIXEL)
-        .ok_or(RenderError::ArithmeticOverflow)
+    width.checked_mul(BYTES_PER_PIXEL).ok_or(RenderError::ArithmeticOverflow)
 }
 
 pub(crate) fn ensure_row_arithmetic(width: u32) -> RenderResult<()> {
@@ -27,9 +25,7 @@ pub(crate) fn align_up(value: u32, align: u32) -> RenderResult<u32> {
     if align == 0 {
         return Err(RenderError::InvalidStride);
     }
-    let adjusted = value
-        .checked_add(align - 1)
-        .ok_or(RenderError::ArithmeticOverflow)?;
+    let adjusted = value.checked_add(align - 1).ok_or(RenderError::ArithmeticOverflow)?;
     Ok((adjusted / align) * align)
 }
 
@@ -45,9 +41,8 @@ pub(crate) fn checked_raw_buffer_len(stride: StrideBytes, height: u32) -> Render
 }
 
 pub(crate) fn checked_i32_extent(start: i32, size: u32) -> RenderResult<i64> {
-    let end = i64::from(start)
-        .checked_add(i64::from(size))
-        .ok_or(RenderError::ArithmeticOverflow)?;
+    let end =
+        i64::from(start).checked_add(i64::from(size)).ok_or(RenderError::ArithmeticOverflow)?;
     if end > i64::from(i32::MAX) {
         return Err(RenderError::InvalidRect);
     }
@@ -81,13 +76,10 @@ pub(crate) fn rounded_rect_covers(rect: Rect, radius: u32, x: i32, y: i32) -> Re
     let dist = u64::from(dx)
         .checked_mul(u64::from(dx))
         .and_then(|left| {
-            u64::from(dy)
-                .checked_mul(u64::from(dy))
-                .and_then(|right| left.checked_add(right))
+            u64::from(dy).checked_mul(u64::from(dy)).and_then(|right| left.checked_add(right))
         })
         .ok_or(RenderError::ArithmeticOverflow)?;
-    let radius_sq = u64::from(radius)
-        .checked_mul(u64::from(radius))
-        .ok_or(RenderError::ArithmeticOverflow)?;
+    let radius_sq =
+        u64::from(radius).checked_mul(u64::from(radius)).ok_or(RenderError::ArithmeticOverflow)?;
     Ok(dist <= radius_sq)
 }

@@ -38,10 +38,7 @@ fn install_query_roundtrip() {
     let install = build_install_frame("launcher", 42, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(
-        !ok,
-        "install must fail closed without keystore policy backend"
-    );
+    assert!(!ok, "install must fail closed without keystore policy backend");
     assert_eq!(err, InstallError::Eacces);
 
     drop(client);
@@ -65,10 +62,7 @@ fn install_get_payload_roundtrip() {
     let install = build_install_frame("launcher", 99, len);
     let response = call(&client, install);
     let (ok, err) = parse_install(&response);
-    assert!(
-        !ok,
-        "install must fail closed without keystore policy backend"
-    );
+    assert!(!ok, "install must fail closed without keystore policy backend");
     assert_eq!(err, InstallError::Eacces);
 
     drop(client);
@@ -123,13 +117,9 @@ fn parse_install(frame: &[u8]) -> (bool, InstallError) {
     let mut cursor = Cursor::new(&frame[1..]);
     let message = serialize::read_message(&mut cursor, capnp::message::ReaderOptions::new())
         .expect("read install response");
-    let response = message
-        .get_root::<install_response::Reader<'_>>()
-        .expect("install response root");
-    (
-        response.get_ok(),
-        response.get_err().unwrap_or(InstallError::Einval),
-    )
+    let response =
+        message.get_root::<install_response::Reader<'_>>().expect("install response root");
+    (response.get_ok(), response.get_err().unwrap_or(InstallError::Einval))
 }
 
 fn valid_manifest() -> Vec<u8> {
@@ -138,20 +128,15 @@ fn valid_manifest() -> Vec<u8> {
         "1.0.0",
         &["ui"],
         &["gpu"],
-        &hex::decode(PUBLISHER_HEX)
-            .expect("publisher hex")
-            .try_into()
-            .expect("16 bytes"),
+        &hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes"),
         &[0x11; 64],
     )
 }
 
 fn invalid_manifest() -> Vec<u8> {
     // Invalid by schema validation: signature length != 64.
-    let publisher: [u8; 16] = hex::decode(PUBLISHER_HEX)
-        .expect("publisher hex")
-        .try_into()
-        .expect("16 bytes");
+    let publisher: [u8; 16] =
+        hex::decode(PUBLISHER_HEX).expect("publisher hex").try_into().expect("16 bytes");
     let mut message = Builder::new_default();
     {
         let mut m = message.init_root::<bundle_manifest::Builder<'_>>();

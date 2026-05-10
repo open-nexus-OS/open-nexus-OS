@@ -95,9 +95,8 @@ pub(crate) fn bootctl_persist_check() -> core::result::Result<(), ()> {
     if buf[2] != statefs_proto::VERSION_V2 {
         return Err(());
     }
-    let got_nonce = u64::from_le_bytes([
-        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
-    ]);
+    let got_nonce =
+        u64::from_le_bytes([buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12]]);
     if got_nonce != nonce {
         return Err(());
     }

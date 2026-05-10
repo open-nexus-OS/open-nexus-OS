@@ -1,0 +1,207 @@
+# Cline Rules — Open Nexus OS
+
+Cline bekommt diese Datei **zusätzlich** zur `.cursorrules`. Dort stehen die Security/Build/Policy-Invarianten.
+Hier stehen nur die **Arbeitsablauf-Steuerung** (aus `.cursor/rules/*.mdc` konsolidiert).
+
+---
+
+## 1) Task-Start
+
+Immer wenn eine Task-Datei (`tasks/TASK-*.md`) im Fokus ist:
+
+0. **Kontext lesen (low-token, strict)**:
+   - `.cursor/current_state.md`
+   - `.cursor/handoff/current.md` (falls vorhanden)
+   - `.cursor/next_task_prep.md` (falls vorhanden)
+   - die Task-Datei und alle verlinkten RFC/ADR Contracts
+   - **NICHT** das gesamte Codebase scannen. Nur innerhalb der Task's "Touched paths" lesen.
+
+1. **RFC seed (wenn neuer Contract)**:
+   - Wenn die Task einen neuen Syscall, Service-API, Speicherformat oder Protokoll einführt → erst RFC seed erstellen, VOR der Implementierung.
+   - `docs/rfcs/RFC-TEMPLATE.md` und `docs/rfcs/README.md` lesen.
+   - Neue RFC unter `docs/rfcs/RFC-00XX-<topic>.md` anlegen (nächste freie Nummer).
+   - Status: `Draft`. Im Task-Header verlinken. `docs/rfcs/README.md` Index updaten.
+
+2. **Plan Mode**:
+   - Plan erstellen, der jedes Akzeptanzkriterium auf einen Beweis abbildet.
+   - Plan enthält: Contracts (RFCs/ADRs), RFC Checkpoints, Touched paths Allowlist, Security + Determinism + Build Hygiene Invarianten, Tests/Proof, Quality Gates, Docs Sync.
+
+3. **Execution discipline**:
+   - Nur das implementieren, was Task/RFC spezifizieren. Alles andere wird Follow-up Task.
+   - Kein Fake-Success: nie `ready`/`ok` Marker für Stub-Pfade emittieren (stattdessen `stub`/`placeholder`).
+   - Kein `unwrap`/`expect` auf untrusted Input in Services.
+   - RFC Status progressiv updaten: Draft → In Progress → Complete.
+
+4. **Wrap-up (mandatory)**:
+   - RFC Status auf `Complete` updaten wenn alle Proofs grün.
+   - `docs/rfcs/README.md` updaten.
+   - `.cursor/current_state.md` überschreiben (komprimiertes "why").
+   - `.cursor/handoff/current.md` updaten (Proof + nächste Schritte).
+   - `.cursor/next_task_prep.md` updaten (drift-check der nächsten Task).
+
+5. **Post-Done documentation sweep** (vor Done-Claim):
+   - `tasks/IMPLEMENTATION-ORDER.md` und `tasks/STATUS-BOARD.md`
+   - `CHANGELOG.md` (Unreleased section)
+   - `docs/rfcs/README.md` (RFC Status muss mit Realität übereinstimmen)
+   - `docs/testing/**`, `docs/architecture/**`, `docs/adr/**` wenn Contracts/Invarianten geändert wurden
+   - Wenn ein Item bewusst nicht geupdatet wird, im Task dokumentieren + Follow-up Task erstellen.
+
+---
+
+## 2) Testing Discipline
+
+### Philosophy
+- **Autonomous testing OK**: 2-3 Hypothesen/Fixes ohne Rückfrage.
+- **Hard-stop**: vor exponentiellem Context-Wachstum (keine endlosen Retry-Chains).
+- **Systematic > guessing**: Erst `docs/testing/index.md` Troubleshooting lesen, dann testen.
+
+### Workflow
+1. **Vor erster Hypothese**:
+   - `docs/testing/index.md` → Troubleshooting section lesen.
+   - `.cursor/current_state.md` → "Known risks / DON'T DO" lesen.
+   - Exakten Fehler / fehlenden Marker identifizieren.
+
+2. **Autonomous testing (max 3 tries)**:
+   - 1 klare Hypothese formulieren.
+   - Minimale Änderung (1-2 Dateien max).
+   - Test ausführen.
+   - Ergebnis beobachten.
+   - Bis zu 3 Mal wiederholen wenn kein Fortschritt.
+
+3. **Hard-stop nach 3 fehlgeschlagenen Versuchen**:
+   - **STOP**. Keine weiteren Fixes.
+   - `.cursor/handoff/current.md` mit tight rolling summary updaten:
+     - Symptom + exakter fehlender Marker/Error
+     - Hypothesen (1-3) + Outcomes
+     - Was geändert wurde (Dateien) in einer Zeile
+     - Nächstes bestes Experiment
+   - **Dann EINES vorschlagen**:
+     - Fresh Chat starten (mit `.cursor/handoff/current.md` als History-Ersatz).
+     - Bessere Instrumentierung (Logs/Marker/Assertions).
+     - Eskalieren: "Need more info: X is unclear."
+
+### Was zählt als Fortschritt
+- ✅ Error-Message hat sich geändert.
+- ✅ Neuer Marker erschienen.
+- ✅ Klarer Hinweis auf Root Cause.
+- ❌ Gleicher Error 3x mit verschiedenen "Guesses" = KEIN Fortschritt.
+
+### Anti-Patterns (verboten)
+- ❌ 5+ Retry-Loops im selben Chat ohne Fortschritt.
+- ❌ Gesamtes Codebase spekulativ lesen.
+- ❌ 10 Dinge auf einmal ändern.
+- ❌ `docs/testing/index.md` Troubleshooting ignorieren.
+
+---
+
+## 3) Debug Discipline
+
+### Hard Rules (verboten)
+- **Keine Debug-Logs im Kernel** (`source/kernel/**`).
+- **Kein Fake-Success**: nie `*: ready` oder `SELFTEST:* ok` emittieren bevor das Verhalten bewiesen ist.
+- **Keine unbounded "drain/yield"**: nie "drain inbox until empty" oder "yield until it works" Loops ohne harte Grenzen.
+- **Keine nondeterministischen Marker**: keine random IDs, Timestamps, oder variable Counts in Gating-Markern.
+
+### Wo instrumentieren (erlaubt)
+- **Userspace Services**: `source/services/**` (stabile Marker + strukturierte Error-Labels).
+- **Selftests / Proof-Apps**: `source/apps/selftest-client/**` (Assertions + deterministische Probes).
+- **Host Tests**: Unit-Tests vor QEMU-Iteration stärken/hinzufügen.
+- **Harness/Docs**: erklären wie zu reproduzieren (Phase, Timeout, erwartete Marker-Ladder).
+
+### Logging/Marker Guidance
+- Kurze, stabile "state" Marker: `svc: event` (keine variablen Daten).
+- Für Errors: stabiles Label + 1-2 hex codes (bounded): `svc: op fail kernel=NoSuchEndpoint`.
+- Debug-Marker nur für Bring-up mit `dbg:` prefixen und nicht in Gating-Ladders aufnehmen.
+
+---
+
+## 4) Behavior-First Proofs
+
+- **Kleinstes ehrliches Proof-Set** wählen, das das Task-Verhalten demonstriert.
+- **Target behavior** in 1-3 Zeilen: was muss wahr sein wenn die Task Done ist.
+- **Main break point** benennen: welcher Fehler würde die Task dishonest oder unsafe machen.
+- **Primären Proof** wählen, sekundäre Proofs nur wenn sie ein echtes Blind-Spot schließen.
+
+### Proof Selection
+- **Unit**: pure Logic, Parser, Matcher, Error-Mapping, Quotas, State-Machines.
+- **Integration**: Authority Boundaries, Service-to-Service Contracts, Error Propagation.
+- **E2E / QEMU**: Boot, Lifecycle, IPC, Device Paths, Updates/Recovery.
+- **Golden / Vector**: Layout, Rendering, kanonische Serialisierung, Manifests, Traces.
+- **Fuzz / Corpus / Property**: untrusted Input, Protocol Frames, Parser, Codecs.
+
+### Regeln
+- **Host-first** für lokale Logik, OS/QEMU nur wo die echte Boundary zählt.
+- **Negative / Reject-Path Proofs** für Security, IPC, Storage, Networking, Policy, Update, Recovery.
+- **Marker sind unterstützende Evidence**, nicht der Primärbeweis. `*: ready` / `SELFTEST: * ok` erst nach echter Assertion.
+- **Stub/Placeholder/Degraded** Pfade müssen in Tests/Markern explizit so benannt werden.
+- **Kein "completeness"-Test-Ballast**: nicht Unit + Integration + E2E + Golden + Fuzz "for completeness" adden.
+
+### Closure Question
+Vor "Done": **Welcher Test beweist das intendierte Verhalten, und wo würde der Break sich zeigen wenn es regressiert?**
+
+---
+
+## 5) Context Budget Guard
+
+Vor jeder nicht-trivialen Antwort (Planung, Debugging, Implementierung):
+- `git status --short`
+- `git diff --stat`
+- `git diff | wc -l`
+
+### Warnen und Mitigation vorschlagen wenn:
+- `git diff | wc -l` > 400
+- Mehr als ~10 modifizierte Dateien
+- Viele untracked Dateien in neuen Directories
+
+### Mitigations (kleinste die funktioniert):
+- **Fresh Chat** starten (resetet akkumulierte History).
+- **Strict manual context**: nur 1-3 relevante Dateien, keine auto-added Diffs.
+- **Controlled context pack**: max ~5 Files/Paths (kein `@codebase`).
+- Wenn großer Diff unvermeidbar: Arbeit in kleinere Sessions splitten.
+
+### Output Discipline
+Kurz und action-oriented: sagen *warum* (Diff/Files groß) und *was zu tun* (fresh chat / narrow context).
+
+---
+
+## 6) Architecture Sync
+
+Wenn ein Code-Change eines der folgenden betrifft, Docs im selben Task updaten:
+- Service Boundaries / IPC Contracts
+- Capability/Policy Enforcement Shape (wer ist Authority)
+- Security Model oder Invarianten
+- Test/Marker Contract (neue Marker, geänderte Semantik)
+
+### Required Doc Targets
+- `docs/adr/**` (neues/updated ADR wenn Boundaries/Tradeoffs sich ändern)
+- `docs/testing/**` (wie ausführen und was Tests beweisen)
+- `docs/architecture/**` (wenn Architecture Diagrams/Contracts Updates brauchen)
+- Modul-Header (STATUS/ADR/TEST_COVERAGE)
+- Task Closeout: `tasks/IMPLEMENTATION-ORDER.md`, `tasks/STATUS-BOARD.md`, `CHANGELOG.md`
+
+Wenn Docs bewusst deferred werden, explizite Follow-up Task erstellen und in:
+- Task Header Follow-ups eintragen
+- `.cursor/current_state.md` open threads eintragen
+
+---
+
+## 7) RFC Workflow
+
+### Wenn eine neue Task einen stabilen Contract definiert:
+1. **RFC seed VOR Implementierung erstellen**:
+   - `docs/rfcs/RFC-TEMPLATE.md` und `docs/rfcs/README.md` lesen
+   - Nächste freie RFC-Nummer verwenden
+   - Status: `Draft`
+   - Im Task-Header verlinken
+   - `docs/rfcs/README.md` Index updaten
+
+2. **Progressive RFC Updates**:
+   - Wenn Proofs grün: RFC Checkboxes/Implementation Checklist updaten
+   - Wenn Phase complete: Status updaten (Draft → In Progress → Complete)
+   - Wenn Behavior sich ändert: Contract Sections updaten (API, Failure Model, Security)
+   - **Nie Fake-Status**: Nur als Complete markieren wenn alle Proofs grün sind.
+
+3. **RFC bleibt in Sync mit Realität**:
+   - Wenn Implementation von RFC abweicht: RFC updaten (es ist der Contract)
+   - Wenn RFC falsch ist: erst RFC fixen, dann Code alignen
+   - RFC Status gatet Task Status (Task kann nicht Done sein wenn RFC noch Draft ist)

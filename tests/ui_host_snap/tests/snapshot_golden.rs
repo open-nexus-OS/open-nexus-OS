@@ -27,11 +27,7 @@ fn snapshot_golden_comparison_is_canonical_and_metadata_independent() -> Result<
     let mut frame = Frame::new_checked(4, 4)?;
     let mut damage = make_damage(&frame, 4)?;
     frame.clear(PixelBgra::new(0, 0, 0, 0xff), &mut damage)?;
-    frame.draw_rect(
-        Rect::new(1, 1, 2, 2)?,
-        PixelBgra::from_rgba(0xff, 0, 0, 0xff),
-        &mut damage,
-    )?;
+    frame.draw_rect(Rect::new(1, 1, 2, 2)?, PixelBgra::from_rgba(0xff, 0, 0, 0xff), &mut damage)?;
     let bgra = frame.logical_bgra_bytes()?;
     let actual = hex_bytes(&bgra)?;
     compare_hex_golden(

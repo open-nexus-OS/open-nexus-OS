@@ -37,11 +37,7 @@ enum DhcpUpdate {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Event {
-    Configured {
-        ip: [u8; 4],
-        prefix_len: u8,
-        gateway: Option<[u8; 4]>,
-    },
+    Configured { ip: [u8; 4], prefix_len: u8, gateway: Option<[u8; 4]> },
     Deconfigured,
 }
 
@@ -184,11 +180,7 @@ fn dhcp_discover_uses_standard_ports_and_broadcast() {
 impl DhcpState {
     fn handle_event(&mut self, ev: Event) -> Option<DhcpUpdate> {
         match ev {
-            Event::Configured {
-                ip,
-                prefix_len,
-                gateway,
-            } => {
+            Event::Configured { ip, prefix_len, gateway } => {
                 let is_new =
                     self.bound_ip != Some((ip, prefix_len)) || self.bound_gateway != gateway;
                 if !is_new {
@@ -196,11 +188,7 @@ impl DhcpState {
                 }
                 self.bound_ip = Some((ip, prefix_len));
                 self.bound_gateway = gateway;
-                Some(DhcpUpdate::Configured(DhcpConfig {
-                    ip,
-                    prefix_len,
-                    gateway,
-                }))
+                Some(DhcpUpdate::Configured(DhcpConfig { ip, prefix_len, gateway }))
             }
             Event::Deconfigured => {
                 self.bound_ip = None;
@@ -212,11 +200,7 @@ impl DhcpState {
 }
 
 fn mk_cfg(ip: [u8; 4], prefix_len: u8, gateway: Option<[u8; 4]>) -> Event {
-    Event::Configured {
-        ip,
-        prefix_len,
-        gateway,
-    }
+    Event::Configured { ip, prefix_len, gateway }
 }
 
 #[test]
@@ -238,10 +222,7 @@ fn dhcp_configured_first_time_emits_update() {
 fn dhcp_same_config_is_silent() {
     let mut st = DhcpState::default();
     let ev = mk_cfg([10, 0, 2, 15], 24, Some([10, 0, 2, 2]));
-    assert!(matches!(
-        st.handle_event(ev),
-        Some(DhcpUpdate::Configured(_))
-    ));
+    assert!(matches!(st.handle_event(ev), Some(DhcpUpdate::Configured(_))));
     // Same again => None
     let ev2 = mk_cfg([10, 0, 2, 15], 24, Some([10, 0, 2, 2]));
     assert_eq!(st.handle_event(ev2), None);
@@ -270,10 +251,7 @@ fn dhcp_deconfigured_clears_lease() {
     let ev = mk_cfg([10, 0, 2, 15], 24, Some([10, 0, 2, 2]));
     let _ = st.handle_event(ev);
     assert_eq!(st.bound_ip.map(|(ip, _p)| ip), Some([10, 0, 2, 15]));
-    assert_eq!(
-        st.handle_event(Event::Deconfigured),
-        Some(DhcpUpdate::Deconfigured)
-    );
+    assert_eq!(st.handle_event(Event::Deconfigured), Some(DhcpUpdate::Deconfigured));
     assert_eq!(st.bound_ip, None);
     assert_eq!(st.bound_gateway, None);
 }

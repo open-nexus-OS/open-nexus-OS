@@ -127,10 +127,7 @@ impl CapTable {
             let mut u = crate::uart::raw_writer();
             let _ = write!(u, "CAP: with_capacity slots={}\n", slots);
         }
-        Self {
-            slots: table,
-            _not_send_sync: PhantomData,
-        }
+        Self { slots: table, _not_send_sync: PhantomData }
     }
 
     /// Default slot count for task capability tables.
@@ -162,12 +159,7 @@ impl CapTable {
             {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
-                let _ = write!(
-                    u,
-                    "CAP-E: invalid slot {} (len={})\n",
-                    slot,
-                    self.slots.len()
-                );
+                let _ = write!(u, "CAP-E: invalid slot {} (len={})\n", slot, self.slots.len());
             }
             return Err(CapError::InvalidSlot);
         }
@@ -205,10 +197,7 @@ impl CapTable {
 
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
-        self.slots
-            .get(slot)
-            .and_then(|entry| *entry)
-            .ok_or(CapError::InvalidSlot)
+        self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)
     }
 
     /// Removes and returns the capability stored in `slot`.
@@ -223,10 +212,7 @@ impl CapTable {
         if !base.rights.contains(rights) {
             return Err(CapError::PermissionDenied);
         }
-        Ok(Capability {
-            kind: base.kind,
-            rights,
-        })
+        Ok(Capability { kind: base.kind, rights })
     }
 
     /// Derives an endpoint capability reference with compile-time kind tagging.
@@ -239,11 +225,7 @@ impl CapTable {
         let CapabilityKind::Endpoint(endpoint) = cap.kind else {
             return Err(CapError::PermissionDenied);
         };
-        Ok(EndpointCapRef {
-            slot,
-            endpoint,
-            _tag: PhantomData,
-        })
+        Ok(EndpointCapRef { slot, endpoint, _tag: PhantomData })
     }
 }
 

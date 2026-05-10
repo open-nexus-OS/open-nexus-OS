@@ -65,15 +65,8 @@ fn accept_skeleton_parses_with_12_phases_and_default_profile() {
     let m = parse(SKELETON).expect("skeleton must parse");
     assert_eq!(m.meta.schema_version, "1");
     assert_eq!(m.meta.default_profile, "full");
-    assert_eq!(
-        m.phases.len(),
-        12,
-        "manifest must declare exactly 12 phases"
-    );
-    assert!(
-        m.profiles.contains_key("full"),
-        "default profile must be declared"
-    );
+    assert_eq!(m.phases.len(), 12, "manifest must declare exactly 12 phases");
+    assert!(m.profiles.contains_key("full"), "default profile must be declared");
 
     // Spot-check that the canonical RFC-0014 v2 phase names are all present
     // with their declared 1..12 order; this guards against the manifest
@@ -92,10 +85,7 @@ fn accept_skeleton_parses_with_12_phases_and_default_profile() {
         ("remote", 11),
         ("end", 12),
     ] {
-        let phase = m
-            .phases
-            .get(name)
-            .unwrap_or_else(|| panic!("missing phase `{name}`"));
+        let phase = m.phases.get(name).unwrap_or_else(|| panic!("missing phase `{name}`"));
         assert_eq!(phase.order, expected_order, "phase `{name}` order");
     }
 }
@@ -237,11 +227,7 @@ order = 1
 "#;
     let err = parse(src).expect_err("phase order conflict must reject");
     match err {
-        ParseError::PhaseOrderConflict {
-            order,
-            first,
-            second,
-        } => {
+        ParseError::PhaseOrderConflict { order, first, second } => {
             assert_eq!(order, 1);
             // BTreeMap iteration over the raw phase map is alphabetic, so
             // `bringup` is observed before `ipc_kernel`. Pin both names

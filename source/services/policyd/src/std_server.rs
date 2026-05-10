@@ -248,11 +248,7 @@ pub struct PolicyAuthority {
 
 impl PolicyAuthority {
     pub fn new(active: PolicyTree) -> Self {
-        Self {
-            active,
-            mode: PolicyMode::Enforce,
-            audit: Vec::new(),
-        }
+        Self { active, mode: PolicyMode::Enforce, audit: Vec::new() }
     }
 
     pub fn active_version(&self) -> &str {
@@ -284,14 +280,8 @@ impl PolicyAuthority {
         required: &[&str],
         subject: &str,
     ) -> Result<VersionedDecision, nexus_policy::Error> {
-        let decision = self
-            .active
-            .policy()
-            .evaluate(required, subject, self.mode)?;
-        Ok(VersionedDecision {
-            version: self.active_version().to_string(),
-            decision,
-        })
+        let decision = self.active.policy().evaluate(required, subject, self.mode)?;
+        Ok(VersionedDecision { version: self.active_version().to_string(), decision })
     }
 
     pub fn eval_audited(
@@ -302,11 +292,7 @@ impl PolicyAuthority {
         let result = self.eval(required, subject);
         match &result {
             Ok(versioned) => {
-                let outcome = if versioned.decision.allow {
-                    "allow"
-                } else {
-                    "deny"
-                };
+                let outcome = if versioned.decision.allow { "allow" } else { "deny" };
                 self.record_audit(
                     "eval",
                     outcome,
@@ -316,13 +302,7 @@ impl PolicyAuthority {
                 );
             }
             Err(err) => {
-                self.record_audit(
-                    "eval",
-                    "reject",
-                    None,
-                    Some(subject.to_string()),
-                    err.code(),
-                );
+                self.record_audit("eval", "reject", None, Some(subject.to_string()), err.code());
             }
         }
         result
@@ -330,10 +310,7 @@ impl PolicyAuthority {
 
     pub fn prepare_reload_candidate(&mut self, candidate: PolicyTree) -> PolicyReloadTxn {
         self.record_audit("reload_prepare", "allow", None, None, "candidate_validated");
-        PolicyReloadTxn {
-            from_version: self.active.version().clone(),
-            candidate,
-        }
+        PolicyReloadTxn { from_version: self.active.version().clone(), candidate }
     }
 
     pub fn commit_reload(
@@ -366,13 +343,7 @@ impl PolicyAuthority {
             return Err(err);
         }
         self.active = txn.candidate;
-        self.record_audit(
-            "reload_commit",
-            "allow",
-            Some(auth.actor_service_id),
-            None,
-            "committed",
-        );
+        self.record_audit("reload_commit", "allow", Some(auth.actor_service_id), None, "committed");
         Ok(())
     }
 
@@ -386,23 +357,11 @@ impl PolicyAuthority {
         auth: &LifecycleAuth,
     ) -> Result<(), PolicyLifecycleError> {
         if let Err(err) = self.ensure_authorized(auth) {
-            self.record_audit(
-                "mode_set",
-                "reject",
-                Some(auth.actor_service_id),
-                None,
-                err.code(),
-            );
+            self.record_audit("mode_set", "reject", Some(auth.actor_service_id), None, err.code());
             return Err(err);
         }
         self.mode = mode;
-        self.record_audit(
-            "mode_set",
-            "allow",
-            Some(auth.actor_service_id),
-            None,
-            "updated",
-        );
+        self.record_audit("mode_set", "allow", Some(auth.actor_service_id), None, "updated");
         Ok(())
     }
 
@@ -454,11 +413,7 @@ pub struct PolicyConfigConsumer {
 
 impl PolicyConfigConsumer {
     pub fn new(authority: Arc<Mutex<PolicyAuthority>>, actor_service_id: u64) -> Self {
-        Self {
-            authority,
-            actor_service_id,
-            prepared: None,
-        }
+        Self { authority, actor_service_id, prepared: None }
     }
 
     pub fn authority(&self) -> Arc<Mutex<PolicyAuthority>> {
@@ -480,9 +435,7 @@ impl ConfigConsumer for PolicyConfigConsumer {
 
     fn commit(&mut self, _candidate: &EffectiveSnapshot) -> Result<(), ConsumerFailure> {
         let Some(txn) = self.prepared.take() else {
-            return Err(ConsumerFailure::CommitFailed(
-                "policy_reload_without_prepare".to_string(),
-            ));
+            return Err(ConsumerFailure::CommitFailed("policy_reload_without_prepare".to_string()));
         };
         let auth = LifecycleAuth {
             actor_service_id: self.actor_service_id,
@@ -519,9 +472,7 @@ struct PolicyService {
 
 impl PolicyService {
     fn new(tree: PolicyTree) -> Self {
-        Self {
-            authority: PolicyAuthority::new(tree),
-        }
+        Self { authority: PolicyAuthority::new(tree) }
     }
 
     fn handle_frame(&mut self, frame: &[u8]) -> Result<Vec<u8>, ServerError> {
@@ -539,17 +490,11 @@ impl PolicyService {
     }
 
     fn handle_version(&mut self) -> Result<Vec<u8>, ServerError> {
-        encode_json_frame(
-            OPCODE_VERSION,
-            json!({ "version": self.authority.version() }),
-        )
+        encode_json_frame(OPCODE_VERSION, json!({ "version": self.authority.version() }))
     }
 
     fn handle_mode_get(&mut self) -> Result<Vec<u8>, ServerError> {
-        encode_json_frame(
-            OPCODE_MODE_GET,
-            json!({ "mode": mode_label(self.authority.mode_get()) }),
-        )
+        encode_json_frame(OPCODE_MODE_GET, json!({ "mode": mode_label(self.authority.mode_get()) }))
     }
 
     fn handle_eval_json(&mut self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
@@ -594,15 +539,9 @@ impl PolicyService {
             .and_then(Value::as_str)
             .ok_or_else(|| ServerError::Decode("mode_set observed_version missing".to_string()))?
             .to_string();
-        let authorized = value
-            .get("authorized")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let auth = LifecycleAuth {
-            actor_service_id,
-            can_manage_policy: authorized,
-            observed_version,
-        };
+        let authorized = value.get("authorized").and_then(Value::as_bool).unwrap_or(false);
+        let auth =
+            LifecycleAuth { actor_service_id, can_manage_policy: authorized, observed_version };
         self.authority.mode_set(mode, &auth).map_err(|err| {
             ServerError::Decode(format!("policy mode set rejected: {}", err.code()))
         })?;
@@ -615,11 +554,9 @@ impl PolicyService {
             let mut cursor = Cursor::new(payload);
             let message = serialize::read_message(&mut cursor, ReaderOptions::new())
                 .map_err(|err| ServerError::Decode(format!("failed to read request: {err}")))?;
-            let reader = message
-                .get_root::<check_request::Reader<'_>>()
-                .map_err(|err| {
-                    ServerError::Decode(format!("failed to read request root: {err}"))
-                })?;
+            let reader = message.get_root::<check_request::Reader<'_>>().map_err(|err| {
+                ServerError::Decode(format!("failed to read request root: {err}"))
+            })?;
 
             let subject = reader
                 .get_subject()
@@ -756,15 +693,10 @@ where
     T: Transport,
 {
     loop {
-        match transport
-            .recv()
-            .map_err(|err| ServerError::Transport(err.into()))?
-        {
+        match transport.recv().map_err(|err| ServerError::Transport(err.into()))? {
             Some(frame) => {
                 let response = service.handle_frame(&frame)?;
-                transport
-                    .send(&response)
-                    .map_err(|err| ServerError::Transport(err.into()))?;
+                transport.send(&response).map_err(|err| ServerError::Transport(err.into()))?;
             }
             None => return Ok(()),
         }
@@ -780,18 +712,12 @@ fn policy_dir() -> PathBuf {
 
 fn count_policy_files(dir: &Path) -> Result<usize, ServerError> {
     let entries = std::fs::read_dir(dir).map_err(|err| {
-        ServerError::Init(format!(
-            "failed to read policy dir {}: {err}",
-            dir.display()
-        ))
+        ServerError::Init(format!("failed to read policy dir {}: {err}", dir.display()))
     })?;
     let mut count = 0;
     for entry in entries {
         let entry = entry.map_err(|err| {
-            ServerError::Init(format!(
-                "failed to read policy dir {}: {err}",
-                dir.display()
-            ))
+            ServerError::Init(format!("failed to read policy dir {}: {err}", dir.display()))
         })?;
         let path = entry.path();
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
@@ -833,10 +759,8 @@ pub fn daemon_main<R: FnOnce() + Send + 'static>(notify: R) -> ! {
 
 /// Creates a loopback transport pair for host-side tests.
 #[cfg(nexus_env = "host")]
-pub fn loopback_transport() -> (
-    nexus_ipc::LoopbackClient,
-    IpcTransport<nexus_ipc::LoopbackServer>,
-) {
+pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ipc::LoopbackServer>)
+{
     let (client, server) = nexus_ipc::loopback_channel();
     (client, IpcTransport::new(server))
 }
@@ -872,21 +796,10 @@ mod lifecycle_tests {
 
     fn write_policy(root: &Path, caps: &[&str]) {
         fs::create_dir_all(root).expect("policy root");
-        fs::write(
-            root.join("nexus.policy.toml"),
-            "version = 1\ninclude = ['base.toml']\n",
-        )
-        .expect("root");
-        let caps = caps
-            .iter()
-            .map(|cap| format!("'{cap}'"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        fs::write(
-            root.join("base.toml"),
-            format!("[allow]\ndemo = [{caps}]\n"),
-        )
-        .expect("base");
+        fs::write(root.join("nexus.policy.toml"), "version = 1\ninclude = ['base.toml']\n")
+            .expect("root");
+        let caps = caps.iter().map(|cap| format!("'{cap}'")).collect::<Vec<_>>().join(", ");
+        fs::write(root.join("base.toml"), format!("[allow]\ndemo = [{caps}]\n")).expect("base");
     }
 
     fn auth(version: &str) -> LifecycleAuth {
@@ -940,19 +853,11 @@ mod lifecycle_tests {
         assert_eq!(frame.first().copied(), Some(OPCODE_CHECK));
         let mut cursor = Cursor::new(&frame[1..]);
         let message = serialize::read_message(&mut cursor, Default::default()).expect("response");
-        let reader = message
-            .get_root::<check_response::Reader<'_>>()
-            .expect("response root");
+        let reader = message.get_root::<check_response::Reader<'_>>().expect("response root");
         let missing = reader.get_missing().expect("missing");
         let mut missing_caps = Vec::new();
         for idx in 0..missing.len() {
-            missing_caps.push(
-                missing
-                    .get(idx)
-                    .expect("missing cap")
-                    .to_string()
-                    .expect("utf8"),
-            );
+            missing_caps.push(missing.get(idx).expect("missing cap").to_string().expect("utf8"));
         }
         (reader.get_allowed(), missing_caps)
     }
@@ -984,18 +889,10 @@ mod lifecycle_tests {
         let old_version = authority.active_version().to_string();
 
         let txn = authority.prepare_reload_candidate(candidate);
-        authority
-            .commit_reload(txn, &auth(&old_version))
-            .expect("commit");
+        authority.commit_reload(txn, &auth(&old_version)).expect("commit");
 
         assert_ne!(authority.active_version(), old_version);
-        assert!(
-            authority
-                .eval(&["crypto.sign"], "demo")
-                .expect("eval")
-                .decision
-                .allow
-        );
+        assert!(authority.eval(&["crypto.sign"], "demo").expect("eval").decision.allow);
     }
 
     #[test]
@@ -1019,13 +916,7 @@ mod lifecycle_tests {
         let mut locked = authority.lock().expect("lock");
         assert!(report.committed);
         assert_ne!(locked.active_version(), old_version);
-        assert!(
-            locked
-                .eval_audited(&["crypto.sign"], "demo")
-                .expect("eval")
-                .decision
-                .allow
-        );
+        assert!(locked.eval_audited(&["crypto.sign"], "demo").expect("eval").decision.allow);
         assert!(locked
             .audit_log()
             .iter()
@@ -1052,14 +943,8 @@ mod lifecycle_tests {
         let report = configd.reload(changed).expect("reload");
 
         assert!(!report.committed);
-        assert_eq!(
-            report.reason.as_deref(),
-            Some("prepare_reject:policy.invalid_root")
-        );
-        assert_eq!(
-            authority.lock().expect("lock").active_version(),
-            old_version
-        );
+        assert_eq!(report.reason.as_deref(), Some("prepare_reject:policy.invalid_root"));
+        assert_eq!(authority.lock().expect("lock").active_version(), old_version);
     }
 
     #[test]
@@ -1088,16 +973,11 @@ mod lifecycle_tests {
         let mut bad_auth = auth(authority.active_version());
         bad_auth.can_manage_policy = false;
 
-        let err = authority
-            .set_mode(PolicyMode::Learn, &bad_auth)
-            .expect_err("reject");
+        let err = authority.set_mode(PolicyMode::Learn, &bad_auth).expect_err("reject");
 
         assert_eq!(err.code(), "policy.lifecycle.unauthorized");
         assert_eq!(authority.mode(), PolicyMode::Enforce);
-        assert_eq!(
-            authority.audit_log().last().expect("audit").outcome,
-            "reject"
-        );
+        assert_eq!(authority.audit_log().last().expect("audit").outcome, "reject");
     }
 
     #[test]
@@ -1108,9 +988,7 @@ mod lifecycle_tests {
         let mut authority = PolicyAuthority::new(tree);
         let stale_auth = auth("stale-version");
 
-        let err = authority
-            .set_mode(PolicyMode::DryRun, &stale_auth)
-            .expect_err("reject");
+        let err = authority.set_mode(PolicyMode::DryRun, &stale_auth).expect_err("reject");
 
         assert_eq!(err.code(), "policy.lifecycle.stale");
         assert_eq!(authority.mode(), PolicyMode::Enforce);
@@ -1125,9 +1003,7 @@ mod lifecycle_tests {
         let version = authority.version();
 
         assert_eq!(authority.mode_get(), PolicyMode::Enforce);
-        authority
-            .mode_set(PolicyMode::DryRun, &auth(&version))
-            .expect("mode set");
+        authority.mode_set(PolicyMode::DryRun, &auth(&version)).expect("mode set");
 
         assert_eq!(authority.mode(), PolicyMode::DryRun);
         assert!(authority
@@ -1193,18 +1069,13 @@ mod lifecycle_tests {
         let tree = PolicyTree::load_root(temp.path()).expect("tree");
         let mut service = PolicyService::new(tree);
 
-        let allow = service
-            .handle_frame(&encode_check_frame("demo", &["crypto.sign"]))
-            .expect("allow");
-        let deny = service
-            .handle_frame(&encode_check_frame("demo", &["crypto.verify"]))
-            .expect("deny");
+        let allow =
+            service.handle_frame(&encode_check_frame("demo", &["crypto.sign"])).expect("allow");
+        let deny =
+            service.handle_frame(&encode_check_frame("demo", &["crypto.verify"])).expect("deny");
 
         assert_eq!(decode_check_response(&allow), (true, Vec::new()));
-        assert_eq!(
-            decode_check_response(&deny),
-            (false, vec!["crypto.verify".to_string()])
-        );
+        assert_eq!(decode_check_response(&deny), (false, vec!["crypto.verify".to_string()]));
         assert!(service
             .authority
             .audit_log()

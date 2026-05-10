@@ -291,10 +291,7 @@ phase = "end"
 "#,
     );
     let err = parse_path_compat(&root).expect_err("duplicate literal across files must reject");
-    assert!(
-        err.contains("DuplicateMarkerAcrossFiles:hello"),
-        "got {err}"
-    );
+    assert!(err.contains("DuplicateMarkerAcrossFiles:hello"), "got {err}");
     // Glob expansion is lexicographically sorted: bringup.toml < end.toml.
     assert!(err.contains("markers/bringup.toml"), "got {err}");
     assert!(err.contains("markers/end.toml"), "got {err}");
@@ -346,10 +343,7 @@ env = {}
 "#,
     );
     let err = parse_path_compat(&root).expect_err("duplicate phase across files must reject");
-    assert!(
-        err.contains("DuplicatePhaseAcrossFiles:bringup"),
-        "got {err}"
-    );
+    assert!(err.contains("DuplicatePhaseAcrossFiles:bringup"), "got {err}");
 }
 
 // ---------------------------------------------------------------------------
@@ -369,10 +363,7 @@ phases = ["bringup", "end"]
 "#,
     );
     let err = parse_path_compat(&root).expect_err("duplicate profile across files must reject");
-    assert!(
-        err.contains("DuplicateProfileAcrossFiles:full"),
-        "got {err}"
-    );
+    assert!(err.contains("DuplicateProfileAcrossFiles:full"), "got {err}");
 }
 
 // ---------------------------------------------------------------------------
@@ -542,11 +533,7 @@ env = {}
     // Markers preserve declaration order *within a file*, and files are
     // visited in lexicographic order: a → b → c.
     let lits: Vec<&str> = m.markers.iter().map(|mk| mk.literal.as_str()).collect();
-    assert_eq!(
-        lits,
-        vec!["a", "b", "c"],
-        "glob expansion must be lexicographically sorted"
-    );
+    assert_eq!(lits, vec!["a", "b", "c"], "glob expansion must be lexicographically sorted");
 
     // Files are loaded in lexicographic order; marker declaration order
     // therefore stays deterministic (asserted above).

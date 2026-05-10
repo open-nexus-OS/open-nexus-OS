@@ -15,11 +15,7 @@ use std::path::{Component, Path, PathBuf};
 use ui_renderer::{Damage, DamageRectCount, Frame, RenderError};
 
 pub fn make_damage(frame: &Frame, max_count: u16) -> Result<Damage, RenderError> {
-    Damage::for_frame(
-        frame.width(),
-        frame.height(),
-        DamageRectCount::new(max_count)?,
-    )
+    Damage::for_frame(frame.width(), frame.height(), DamageRectCount::new(max_count)?)
 }
 
 pub fn artifact_root() -> IoResult<PathBuf> {
@@ -40,18 +36,12 @@ pub fn temp_artifact_path(name: &str) -> IoResult<PathBuf> {
             Component::Normal(part) => clean.push(part),
             Component::CurDir => {}
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "artifact_path_rejected",
-                ));
+                return Err(Error::new(ErrorKind::InvalidInput, "artifact_path_rejected"));
             }
         }
     }
     if clean.as_os_str().is_empty() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "artifact_path_rejected",
-        ));
+        return Err(Error::new(ErrorKind::InvalidInput, "artifact_path_rejected"));
     }
     Ok(artifact_root()?.join(clean))
 }

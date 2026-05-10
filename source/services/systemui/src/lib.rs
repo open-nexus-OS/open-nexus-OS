@@ -99,12 +99,7 @@ mod tests {
 
     fn pixel(frame: &super::FirstFrame, x: u32, y: u32) -> [u8; 4] {
         let idx = (y as usize * frame.stride as usize) + (x as usize * 4);
-        [
-            frame.pixels[idx],
-            frame.pixels[idx + 1],
-            frame.pixels[idx + 2],
-            frame.pixels[idx + 3],
-        ]
+        [frame.pixels[idx], frame.pixels[idx + 1], frame.pixels[idx + 2], frame.pixels[idx + 3]]
     }
 
     #[test]
@@ -142,14 +137,8 @@ mod tests {
             profile.input.touch,
             "desktop visible profile keeps tablet/touch enabled for the mixed live lane"
         );
-        assert!(
-            profile.input.mouse,
-            "desktop visible profile must keep mouse input on"
-        );
-        assert!(
-            profile.input.kbd,
-            "desktop visible profile must keep keyboard input on"
-        );
+        assert!(profile.input.mouse, "desktop visible profile must keep mouse input on");
+        assert!(profile.input.kbd, "desktop visible profile must keep keyboard input on");
     }
 
     #[test]

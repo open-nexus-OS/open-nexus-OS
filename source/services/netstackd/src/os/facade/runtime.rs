@@ -88,13 +88,8 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
                 }
 
                 let mut reply_fn = reply;
-                let mut ctx = FacadeContext {
-                    net: &mut net,
-                    state: &mut state,
-                    now_ms,
-                    bind_ip,
-                    reply_slot,
-                };
+                let mut ctx =
+                    FacadeContext { net: &mut net, state: &mut state, now_ms, bind_ip, reply_slot };
                 match dispatch_op(&mut ctx, req, &mut reply_fn) {
                     DispatchControl::ContinueLoop => continue,
                     DispatchControl::Handled => {}

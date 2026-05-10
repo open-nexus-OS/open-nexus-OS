@@ -21,15 +21,13 @@ pub(crate) fn parse_nonce(req: &[u8], base_len: usize) -> Option<u64> {
 
 #[inline]
 pub(crate) fn parse_u32_le(req: &[u8], start: usize) -> Option<u32> {
-    req.get(start..start + 4)
-        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    req.get(start..start + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
 /// Little-endian `u16` at `start` (inclusive). Returns `None` if the slice is too short.
 #[inline]
 pub(crate) fn parse_u16_le(req: &[u8], start: usize) -> Option<u16> {
-    req.get(start..start + 2)
-        .map(|s| u16::from_le_bytes([s[0], s[1]]))
+    req.get(start..start + 2).map(|s| u16::from_le_bytes([s[0], s[1]]))
 }
 
 /// Four-byte IPv4 octets at `start`. Returns `None` if the slice is too short.

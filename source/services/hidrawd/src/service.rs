@@ -39,25 +39,15 @@ struct MouseSource {
 impl HidrawdService {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            keyboard: None,
-            mouse: None,
-            recent_batches: Vec::new(),
-        }
+        Self { keyboard: None, mouse: None, recent_batches: Vec::new() }
     }
 
     pub fn register_keyboard(&mut self, device_id: DeviceId) {
-        self.keyboard = Some(KeyboardSource {
-            device_id,
-            parser: BootKeyboardParser::new(),
-        });
+        self.keyboard = Some(KeyboardSource { device_id, parser: BootKeyboardParser::new() });
     }
 
     pub fn register_mouse(&mut self, device_id: DeviceId) {
-        self.mouse = Some(MouseSource {
-            device_id,
-            parser: BootMouseParser::new(),
-        });
+        self.mouse = Some(MouseSource { device_id, parser: BootMouseParser::new() });
     }
 
     #[must_use]
@@ -76,10 +66,7 @@ impl HidrawdService {
         timestamp: TimestampNs,
         report: &[u8],
     ) -> Result<HidBatch, HidrawdError> {
-        let keyboard = self
-            .keyboard
-            .as_mut()
-            .ok_or(HidrawdError::KeyboardUnavailable)?;
+        let keyboard = self.keyboard.as_mut().ok_or(HidrawdError::KeyboardUnavailable)?;
         if keyboard.device_id != device_id {
             return Err(HidrawdError::UnexpectedDevice {
                 expected: HidDeviceKind::Keyboard,
@@ -125,10 +112,7 @@ impl HidrawdService {
     ) -> Result<HidBatch, HidrawdError> {
         match kind {
             HidDeviceKind::Keyboard => {
-                let keyboard = self
-                    .keyboard
-                    .as_ref()
-                    .ok_or(HidrawdError::KeyboardUnavailable)?;
+                let keyboard = self.keyboard.as_ref().ok_or(HidrawdError::KeyboardUnavailable)?;
                 if keyboard.device_id != device_id {
                     return Err(HidrawdError::UnexpectedDevice {
                         expected: HidDeviceKind::Keyboard,

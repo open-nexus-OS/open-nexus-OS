@@ -118,25 +118,16 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
 
         let stack_var = format!("INIT_LITE_SERVICE_{}_STACK_PAGES", upper);
         println!("cargo:rerun-if-env-changed={}", stack_var);
-        let stack_pages = std::env::var(&stack_var)
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(8);
+        let stack_pages =
+            std::env::var(&stack_var).ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8);
 
         let dest = out.join(format!("service-{}.elf", name));
         std::fs::copy(&src_path, &dest).map_err(|err| {
-            format!(
-                "failed to copy service ELF {} -> {}: {err}",
-                src_path,
-                dest.display()
-            )
+            format!("failed to copy service ELF {} -> {}: {err}", src_path, dest.display())
         })?;
 
         let elf_bytes = std::fs::read(&dest).map_err(|err| {
-            format!(
-                "failed to read copied service ELF {}: {err}",
-                dest.display()
-            )
+            format!("failed to read copied service ELF {}: {err}", dest.display())
         })?;
         let global_pointer = {
             let file = object::File::parse(&*elf_bytes)
