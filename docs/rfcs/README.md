@@ -97,7 +97,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0050: UI v2a present scheduler + double-buffer + input routing contract (Done; TASK-0056 execution closure complete, next follow-up is `TASK-0056B`)
 - RFC-0051: UI v2a visible input (cursor + hover + focus + click) contract seed (Done; TASK-0056B closure proofs + quality gates green, live QEMU input intentionally follows in `TASK-0252`/`TASK-0253`)
 - RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (Done; host core crates + `input_v1_0_host` proof package landed and closure gates are green; live marker closure remains delegated to `TASK-0253`)
-- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is now in review, focused proofs plus non-excluded broad gates are green, and only user-deferred repo-wide `scripts/fmt-clippy-deny.sh` / `just test-all` remain outside this closeout)
+- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is Done, focused proofs and full broad closure gates are green)
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; driver ownership, cooperative polling, explicit ingress/adapter truth, and negative-test coverage are landed for the real live-QEMU path)
 - RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Draft; execution SSOT is `TASK-0056C`, carrying forward the closed live-input path from `TASK-0253` / RFC-0053 / RFC-0054 without reopening authority ownership)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
@@ -210,7 +210,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md
 - RFC-0052: Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) contract seed (Done; host proof package and closure gates are green, execution SSOT `TASK-0252`)
   - docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md
-- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is in review, focused proofs and non-excluded broad gates are green, and only user-deferred repo-wide `scripts/fmt-clippy-deny.sh` / `just test-all` remain outside this closeout)
+- RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is Done, focused proofs and full broad closure gates are green)
   - docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; execution SSOT stays `TASK-0253`, and the minimal driver layer plus MMIO ownership contract are now landed and verified)
   - docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md

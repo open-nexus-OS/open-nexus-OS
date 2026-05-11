@@ -539,8 +539,11 @@ fn hidrawd_waits_for_mmio_caps_before_emitting_ready() {
     assert!(
         hidrawd.contains("let mut ready_emitted = false")
             && hidrawd.contains("if live_devices.is_empty()")
-            && hidrawd.contains("live_devices = open_live_devices(&mut service);"),
-        "hidrawd must retry live device open when init-lite transfers MMIO caps after process spawn"
+            && hidrawd.contains("let mut reprobe_budget = 0usize;")
+            && hidrawd.contains("if reprobe_budget == 0")
+            && hidrawd.contains("live_devices = open_live_devices(&mut missing_slots_logged);")
+            && hidrawd.contains("reprobe_budget = EMPTY_DEVICE_REPROBE_YIELDS;"),
+        "hidrawd must retry live device open with a bounded reprobe budget when init-lite transfers MMIO caps after process spawn"
     );
     assert!(
         hidrawd.contains("if !ready_emitted && !live_devices.is_empty() && client.is_some()")

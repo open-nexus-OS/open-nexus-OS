@@ -19,11 +19,7 @@ pub(crate) const FW_CFG_SLOT: Handle = 0x31;
 pub(crate) const FW_CFG_MMIO_VA: usize = 0x2001_0000;
 pub(crate) const FW_CFG_DATA: usize = FW_CFG_MMIO_VA;
 pub(crate) const FW_CFG_SELECTOR: usize = FW_CFG_MMIO_VA + 8;
-pub(crate) const FW_CFG_DMA: usize = FW_CFG_MMIO_VA + 16;
 pub(crate) const FW_CFG_FILE_DIR: u16 = 0x19;
-pub(crate) const FW_CFG_DMA_CTL_ERROR: u32 = 1 << 0;
-pub(crate) const FW_CFG_DMA_CTL_SELECT: u32 = 1 << 3;
-pub(crate) const FW_CFG_DMA_CTL_WRITE: u32 = 1 << 4;
 
 const SELFTEST_MODE_FILE_NAME: &[u8] = b"opt/org.open-nexus/selftest-mode";
 const SELFTEST_PROFILE_FILE_NAME: &[u8] = b"opt/org.open-nexus/selftest-profile";

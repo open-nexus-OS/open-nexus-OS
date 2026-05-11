@@ -1,10 +1,10 @@
 # Next Task Preparation (Drift-Free)
 
-## Active execution snapshot (`TASK-0056C` kickoff after `TASK-0253` review closeout)
+## Active execution snapshot (`TASK-0056C` kickoff after `TASK-0253` done closeout)
 
 - **active task**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` — `Draft`.
 - **active contract seed**: `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` — `Draft`.
-- **carry-in reviewed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`.
+- **carry-in completed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `Done`.
 - **carry-in closed RFCs**:
   - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`.
   - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`.
@@ -19,17 +19,14 @@
   - 0253 must enforce bounded/deterministic handling,
   - perf/latency closure remains in `TASK-0056C`.
 - **current closeout snapshot**:
-  - `hidrawd`, `touchd`, `inputd`, and `virtio-input` are now review-closed as the real live-input chain,
-  - focused proofs plus non-excluded broad gates are green on the current tree,
+  - `hidrawd`, `touchd`, `inputd`, and `virtio-input` are now fully closed as the real live-input chain,
+  - focused proofs plus full broad gates are green on the current tree,
   - `make run` / `just start` are verified through the shared runner with honest time-capped success semantics,
   - `nx input` and `nx postflight input` still exist only as host diagnostics / delegate surfaces.
-- **explicitly deferred by user**:
-  - `scripts/fmt-clippy-deny.sh`
-  - `just test-all`
 - **next-slice caution**:
   - do not back-claim any perf/latency closure from 0253,
   - keep `TASK-0056C` focused on latency/coalescing/no-damage/idle-cheap posture rather than reopening live-input authority questions,
-  - do not silently inherit the 0253 user-deferred gate exception as the permanent 56C closure policy.
+  - do not weaken the now-closed 0253 gate floor when narrowing 56C scope.
 
 ## Latest closure snapshot (TASK-0252 / RFC-0052)
 
@@ -125,7 +122,7 @@
 
 - Next queue head is `TASK-0056C` (present/input perf, latency, coalescing, and embedded reactor/runtime floor).
 - Contract seed now exists: `RFC-0055`.
-- Carry-in is now closed: `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
+- Carry-in is now closed: `TASK-0253` is `Done`; `RFC-0053` and `RFC-0054` are `Done`.
 - `TASK-0055C`/`RFC-0049` are closed and verified as carry-in.
 - `TASK-0056` is `Done`; `RFC-0050` is `Done` as the closed contract authority.
 - `TASK-0056B` and `RFC-0051` are `Done` and locked as deterministic visible-input carry-in.
@@ -137,7 +134,7 @@
   - `selftest-client` compile/test check is green (`cargo test -p selftest-client -- --nocapture`),
   - visible-bootstrap 56B QEMU marker proof is green through `SELFTEST: ui visible input ok` (`RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap`),
   - touched docs/task/RFC/status/handoff notes are synced to partial-closure reality.
-- Immediate follow-up after 0253 review closeout:
+- Immediate follow-up after 0253 done closeout:
   - `TASK-0056C` responsiveness after the live path exists,
   - preserve the now-closed live-input chain while tightening present/input latency and idle-cheap behavior.
 - Current 56C-specific implementation guardrails:
@@ -150,9 +147,10 @@
   - primary host proof is green: `cargo test -p input_v1_0_host -- --nocapture`,
   - host diagnostics are green: `just diag-host`,
   - fmt/clippy/deny gate is green: `scripts/fmt-clippy-deny.sh`.
-- Prior-slice user exception to remember:
-  - the 0253 closeout explicitly excluded `scripts/fmt-clippy-deny.sh` and `just test-all`;
-    that exception belongs to the 0253 review-closeout context and should not be silently generalized to 56C.
+- Prior-slice closure note to remember:
+  - 0253 is now fully closed with `scripts/fmt-clippy-deny.sh`, `just test-all`,
+    `just ci-network`, and `make clean` -> `make build` -> `make test` -> `make run` green;
+    56C must keep that floor intact rather than re-opening already closed carry-in questions.
 - Explicit reruns requested by the user are green:
   - `just test-all`,
   - `just ci-network`,

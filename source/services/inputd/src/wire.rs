@@ -121,7 +121,7 @@ pub fn decode_wire_batch(
                 HidEvent::key(timestamp, event.code, event.value)
             }
             EVENT_KIND_KEY => return Err(WireBatchReject::PointerKeyEvent),
-            EVENT_KIND_REL => match pointer_source.expect("pointer source for pointer device") {
+            EVENT_KIND_REL => match pointer_source.ok_or(WireBatchReject::MissingPointerSource)? {
                 PointerSource::MouseRelative => HidEvent::rel(timestamp, event.code, event.value),
                 _source if event.code == REL_WHEEL_EVENT_CODE => {
                     HidEvent::rel(timestamp, event.code, event.value)
@@ -133,7 +133,7 @@ pub fn decode_wire_batch(
             }
             EVENT_KIND_BTN => return Err(WireBatchReject::KeyboardEventKind(EVENT_KIND_BTN)),
             EVENT_KIND_ABS => {
-                let source = pointer_source.expect("pointer source for pointer device");
+                let source = pointer_source.ok_or(WireBatchReject::MissingPointerSource)?;
                 if source == PointerSource::MouseRelative {
                     return Err(WireBatchReject::AbsoluteOnRelativeSource(source));
                 }

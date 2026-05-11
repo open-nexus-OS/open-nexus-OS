@@ -1,6 +1,6 @@
 ---
 title: TASK-0253 Input v1.0b (OS/QEMU): hidrawd + touchd + inputd + windowd/IME hooks + `nx input` + selftests
-status: In Review
+status: Done
 owner: @ui
 created: 2025-12-29
 depends-on:
@@ -261,7 +261,7 @@ Additional closure floor:
   - 0253 provides bounded/measurable live-input behavior,
   - latency-budget closure remains explicitly owned by `TASK-0056C`.
 
-## Current implementation reality (2026-05-09)
+## Current implementation reality (2026-05-11)
 
 - The full service-owned live-input chain is landed and review-ready:
   - `hidrawd`, `touchd`, and `inputd` boot in the default init-lite/QEMU service set with bounded startup stacks,
@@ -294,6 +294,8 @@ Additional closure floor:
   - `just dep-gate`
   - `just diag-os`
   - `just diag-host`
+  - `scripts/fmt-clippy-deny.sh`
+  - `just test-all`
   - `just ci-network`
   - `make clean -> make build`
   - `make test`
@@ -302,9 +304,6 @@ Additional closure floor:
   - latency/perf-budget closure still belongs to `TASK-0056C`,
   - `nx input keymap set`, `nx input cursor`, and `nx input test type` remain
     bounded host/preflight helpers instead of live daemon RPCs.
-- User-deferred gates before a later `Done` claim:
-  - `scripts/fmt-clippy-deny.sh`
-  - `just test-all`
 
 ## Touched paths (allowlist)
 

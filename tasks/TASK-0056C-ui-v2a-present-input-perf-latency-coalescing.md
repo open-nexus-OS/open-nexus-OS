@@ -48,7 +48,7 @@ without creating a detached parallel subsystem. `TASK-0059`, `TASK-0062`,
 
 Current carry-in reality (2026-05-10):
 
-- `TASK-0253` is now `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
+- `TASK-0253` is now `Done`; `RFC-0053` and `RFC-0054` are `Done`.
 - The live service-owned chain is real and already verified:
   - `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`
   - `selftest-client` remains observer-only for visible/input proof collection.

@@ -393,7 +393,7 @@ This is the anti-fake-success gate.
 - [x] QEMU visible-input marker profile is green.
 
 ## Active prep snapshot (TASK-0056C + RFC-0055, 2026-05-10)
-- [x] `TASK-0253` remains synchronized as `In Review`; `RFC-0053` and `RFC-0054` remain `Done` carry-in.
+- [x] `TASK-0253` is synchronized as `Done`; `RFC-0053` and `RFC-0054` remain `Done` carry-in.
 - [x] `TASK-0056C` is now the active execution SSOT (`Draft`).
 - [x] `RFC-0055` exists and is linked from `TASK-0056C` and `docs/rfcs/README.md`.
 - [x] `.cursor` handoff/current-state/context/prep files are switched from 0253 review-closeout posture to 56C kickoff posture.

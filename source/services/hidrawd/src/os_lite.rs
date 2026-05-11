@@ -32,19 +32,27 @@ const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
 const INPUT_MMIO_VAS: [usize; 3] = [0x2003_0000, 0x2003_1000, 0x2003_2000];
 const INPUT_QUEUE_VAS: [usize; 3] = [0x2004_0000, 0x2005_0000, 0x2006_0000];
 const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
+const EMPTY_DEVICE_REPROBE_YIELDS: usize = 1024;
 
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut service = HidrawdService::new();
-    let mut live_devices = open_live_devices(&mut service);
+    let mut missing_slots_logged = [false; INPUT_CAP_SLOTS.len()];
+    let mut live_devices = open_live_devices(&mut missing_slots_logged);
     let mut client = route_inputd_blocking();
     let mut ready_emitted = false;
     let mut raw_gate_emitted = false;
     let mut normalized_gate_emitted = false;
     let mut chain = HidrawChainTelemetry::new();
+    let mut reprobe_budget = 0usize;
 
     loop {
         if live_devices.is_empty() {
-            live_devices = open_live_devices(&mut service);
+            if reprobe_budget == 0 {
+                live_devices = open_live_devices(&mut missing_slots_logged);
+                reprobe_budget = EMPTY_DEVICE_REPROBE_YIELDS;
+            } else {
+                reprobe_budget = reprobe_budget.saturating_sub(1);
+            }
         }
         if client.is_none() {
             client = route_inputd_blocking();
@@ -62,6 +70,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             ready_emitted = true;
         }
         if live_devices.is_empty() {
+            chain.idle_yields = chain.idle_yields.saturating_add(1);
+            chain.report_if_due();
             let _ = yield_();
             continue;
         }
@@ -216,13 +226,20 @@ impl HidrawChainTelemetry {
     }
 }
 
-fn open_live_devices(service: &mut HidrawdService) -> Vec<LiveDevice> {
+fn open_live_devices(missing_slots_logged: &mut [bool; INPUT_CAP_SLOTS.len()]) -> Vec<LiveDevice> {
     let mut devices = Vec::new();
     let mut emitted_mmio_ready = false;
     for (idx, slot) in INPUT_CAP_SLOTS.into_iter().enumerate() {
         if !slot_present(slot) {
-            let _ = debug_println(&format!("hidrawd: input slot missing {}", slot));
+            if !missing_slots_logged[idx] {
+                let _ = debug_println(&format!("hidrawd: input slot missing {}", slot));
+                missing_slots_logged[idx] = true;
+            }
             continue;
+        }
+        if missing_slots_logged[idx] {
+            let _ = debug_println(&format!("hidrawd: input slot ready {}", slot));
+            missing_slots_logged[idx] = false;
         }
         let driver = match MappedVirtioInputDevice::open(
             slot,

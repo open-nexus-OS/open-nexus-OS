@@ -3,7 +3,7 @@
 - Status: Done
 - Owners: @ui @runtime
 - Created: 2026-05-05
-- Last Updated: 2026-05-10
+- Last Updated: 2026-05-11
 - Links:
   - Tasks: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` (execution + proof)
   - Related RFCs:
@@ -16,7 +16,7 @@
 
 - **Phase 0 (ownership + loop contract freeze)**: ✅
 - **Phase 1 (minimal virtio-input MMIO driver)**: ✅
-- **Phase 2 (hidrawd/inputd live route closure)**: ✅ complete; the real driver-owned `hidrawd -> inputd -> windowd` path, ingress/adapter truth, and time-capped interactive `make run` / `just start` proofs are green, with only user-deferred repo-wide gates still tracked at the TASK-0253 / RFC-0053 level
+- **Phase 2 (hidrawd/inputd live route closure)**: ✅ complete; the real driver-owned `hidrawd -> inputd -> windowd` path, ingress/adapter truth, time-capped interactive `make run` / `just start` proofs, and the remaining broad repo-wide gates are green
 
 Definition:
 

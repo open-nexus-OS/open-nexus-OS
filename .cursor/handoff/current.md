@@ -1,9 +1,9 @@
-# Current Handoff: TASK-0056C kickoff from TASK-0253 review closeout
+# Current Handoff: TASK-0056C kickoff after TASK-0253 done closeout
 
-**Date**: 2026-05-10  
+**Date**: 2026-05-11  
 **Active task**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` — `Draft`  
 **Contract seed**: `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` — `Draft`  
-**Carry-in reviewed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`  
+**Carry-in completed task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `Done`  
 **Carry-in RFCs**: `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` / `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`  
 **Gate policy**: `tasks/TRACK-PRODUCTION-GATES-KERNEL-SERVICES.md` (Gate E: Windowing, UI & Graphics, `production-floor`)  
 

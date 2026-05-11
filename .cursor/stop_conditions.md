@@ -432,12 +432,12 @@ Hard stop conditions: a task is not "Done" unless all applicable items are satis
   - [ ] marker semantics are paired with deterministic assertions and cannot be emitted by stubs,
   - [ ] proof-manifest / harness ordering remains the acceptance authority for the OS ladder.
 
-## Active progress snapshot (TASK-0253 review closeout, 2026-05-10)
+## Active progress snapshot (TASK-0253 done closeout, 2026-05-11)
 - [x] `TASK-0252` / `RFC-0052` are synchronized to `Done` as carry-in authority.
-- [x] `TASK-0253` is now `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
+- [x] `TASK-0253` is now `Done`; `RFC-0053` and `RFC-0054` are `Done`.
 - [x] Header follow-ups and red-flag/perf-boundary notes are synchronized in task/rfc/workfiles.
 - [x] Scope split is explicit: host-core behavior in 0252; OS/QEMU service integration in 0253.
-- [x] `.cursor` workfiles are updated for 0253 review closeout and `TASK-0056C` queue-head prep.
+- [x] `.cursor` workfiles are updated for 0253 done closeout and `TASK-0056C` queue-head prep.
 
 ## Active progress snapshot (TASK-0056C kickoff, 2026-05-10)
 - [x] `TASK-0056C` is now the active execution SSOT.

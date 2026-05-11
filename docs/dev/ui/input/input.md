@@ -133,4 +133,4 @@ Still intentionally out of scope for this slice:
 - perf / latency-budget closure (`TASK-0056C`),
 - turning `nx input keymap set`, `nx input cursor`, and `nx input test type`
   into live daemon-affecting RPC surfaces,
-- user-deferred repo-wide `scripts/fmt-clippy-deny.sh` and `just test-all`.
+- any perf-budget or launcher-UX claims beyond the closed live-input path.

@@ -310,9 +310,9 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0056c_context
-- Status: `TASK-0056C` is the active execution SSOT (`Draft`); `RFC-0055` is the new contract seed (`Draft`); `TASK-0253` remains `In Review` with `RFC-0053` / `RFC-0054` closed as carry-in.
+- Status: `TASK-0056C` is the active execution SSOT (`Draft`); `RFC-0055` is the new contract seed (`Draft`); `TASK-0253` is `Done` with `RFC-0053` / `RFC-0054` closed as carry-in.
 - Scope baseline: embedded reactor/runtime floor across `inputd -> windowd -> fbdevd`, deterministic pointer-motion coalescing, no-damage/no-visible-state-change skip, idle-cheap wakeup collapse, and honest latency counters/markers.
-- Carry-in reality: the live chain `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb` is already real and review-closed enough to consume.
+- Carry-in reality: the live chain `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb` is already real and fully closed enough to consume.
 - Authority boundary: `inputd` remains normalized input authority, `windowd` remains hit-test/focus/click/compose authority, and `fbdevd` remains cadence/scanout authority.
 - Explicit non-claims: no ingress/driver ownership rewrite, no scroll/effects/IME breadth (`TASK-0059`), no runtime/animation or WM breadth (`TASK-0062` / `TASK-0063` / `TASK-0064`), and no kernel perf-floor closure (`TASK-0054B/C/D`).
 - Expected proof shape: host-first coalescing/reject suites plus QEMU marker proof for fastpath/no-damage/idle-cheap/latency honesty.
@@ -386,14 +386,14 @@ Use these in chat prompts to keep work deterministic and low-token.
 - `.cursor/stop_conditions.md`
 
 ### @task_0253_context
-- Status: `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done` after the live-input closure pass.
+- Status: `TASK-0253` is `Done`; `RFC-0053` and `RFC-0054` are `Done` after the live-input closure pass.
 - Scope: live OS/QEMU ingestion via `hidrawd` + `touchd` into `inputd`, with bounded routing to existing UI authorities.
 - Proof posture: deterministic marker order plus behavior assertions and `test_reject_*`; no marker-only closure.
 - Authority split: RFC-0052 crates remain the only parser/keymap/repeat/accel authority; `windowd` remains hit-test/focus authority.
 - Perf boundary: measurable/bounded behavior in 0253; latency-budget closure remains `TASK-0056C`.
 - Current landed slice: host-verified `hidrawd` / `touchd` / `inputd`, bounded IME/SystemUI hook stubs, `settingsd` input snapshot translation, and `nx input` / `nx postflight input`.
 - Current narrow proof state: RFC-0052 carry-ins now compile for the OS target at library level, the `selftest-client` OS-lite visible bootstrap build links the real live-input path, and `just test-os visible-bootstrap` is green with `verify-uart` acceptance.
-- User-deferred gates: `scripts/fmt-clippy-deny.sh` and `just test-all` remain explicitly excluded; `just ci-network` plus `make clean/build/test/run` were rerun green in the closure pass.
+- Broad gates are green: `scripts/fmt-clippy-deny.sh`, `just test-all`, `just ci-network`, and `make clean/build/test/run` were rerun green in the closure pass.
 - `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md`
 - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md`
 - `tasks/TASK-0252-input-v1_0a-host-hid-touch-keymaps-repeat-accel-deterministic.md`

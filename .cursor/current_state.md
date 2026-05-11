@@ -2,7 +2,7 @@
 
 ## Current architecture state
 
-- **last_decision (2026-05-10)**: `TASK-0056C` is now the active UI fast-lane SSOT, `RFC-0055` is created as its new contract seed, and `TASK-0253` remains `In Review` with `RFC-0053` / `RFC-0054` closed as carry-in.
+- **last_decision (2026-05-11)**: `TASK-0056C` remains the active UI fast-lane SSOT, `RFC-0055` remains its contract seed, and `TASK-0253` is now `Done` with `RFC-0053` / `RFC-0054` closed as carry-in after the full broad gate sweep reached green.
 - **active boundary**: `TASK-0056C` consumes the verified live-input chain without reopening ownership:
   - `inputd` remains normalized input authority,
   - `windowd` remains hit-test/focus/click/compose authority,
@@ -22,7 +22,7 @@
 - **completed_contract**: `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` — `Done`
 - **active_task**: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` — `Draft`
 - **active_contract_seed**: `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` — `Draft`
-- **carry_in_reviewed_task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `In Review`
+- **carry_in_completed_task**: `tasks/TASK-0253-input-v1_0b-os-hidrawd-touchd-inputd-ime-hooks-selftests.md` — `Done`
 - **carry_in_closed_contracts**:
   - `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` — `Done`
   - `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` — `Done`
@@ -84,7 +84,7 @@
 
 ## TASK-0253 execution state
 
-- `TASK-0253` is `In Review`; `RFC-0053` and `RFC-0054` are `Done`.
+- `TASK-0253` is `Done`; `RFC-0053` and `RFC-0054` are `Done`.
 - Scope posture is closed and unchanged:
   - in scope: `hidrawd`, `touchd`, `inputd`, `virtio-input`, bounded hooks into `windowd` / SystemUI / IME, and observer-only proof collection,
   - out of scope: perf-budget closure (`TASK-0056C`), full IME/OSK behavior (`TASK-0146`/`TASK-0147`), and broad kernel redesign.
@@ -109,21 +109,20 @@
   - `just dep-gate`
   - `just diag-os`
   - `just diag-host`
+  - `scripts/fmt-clippy-deny.sh`
+  - `just test-all`
   - `just ci-network`
   - `make clean -> make build`
   - `make test`
   - `RUN_TIMEOUT=220s make run`
   - `RUN_TIMEOUT=220s just start`
-- Explicitly deferred by the user and therefore excluded from this closeout:
-  - `scripts/fmt-clippy-deny.sh`
-  - `just test-all`
 - Active follow-up SSOT is now `TASK-0056C` for responsiveness/latency/coalescing; 0253 does not claim perf closure.
 
 ## TASK-0056C execution prep state
 
 - `TASK-0056C` is now the active execution SSOT (`Draft`); `RFC-0055` is the new contract seed (`Draft`).
 - The carry-in is explicit and already closed enough to build on:
-  - `TASK-0253` is `In Review`,
+  - `TASK-0253` is `Done`,
   - `RFC-0053` and `RFC-0054` are `Done`,
   - the live chain remains `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`.
 - Existing repo seams that 56C must extend rather than replace:

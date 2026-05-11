@@ -10,10 +10,8 @@
 
 extern crate alloc;
 
-use alloc::{format, vec::Vec};
+use alloc::format;
 
-use hid::{HidEvent, TimestampNs};
-use hidrawd::{DeviceId, HidBatch};
 use input_live_protocol::{
     decode_push_hid_batch, encode_status, encode_visible_state_frame, frame_has_op, VisibleState,
     WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK,
@@ -24,11 +22,11 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::{
     decode_wire_batch, visible_display_space, visible_display_start_position,
-    visible_hover_target_contains, AbsoluteAxisCalibration, InputDispatch, InputdConfig,
-    InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT,
-    LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X,
-    VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH,
-    VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
+    visible_hover_target_contains, InputDispatch, InputdConfig, InputdService, WireBatchReject,
+    LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
+    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
+    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
+    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
 };
 
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
