@@ -488,7 +488,7 @@ mod tests {
         let ack: ScheduledPresentAck =
             server.present_scheduler_tick().expect("scheduler present").expect("ack");
         assert!(ack.damage_rects > 0);
-        assert!(ack.latency_ms < 100, "latency must be within 100ms for host test");
+        assert!(ack.latency_ms < 16, "latency must be within 100ms for host test");
     }
 
     #[test]

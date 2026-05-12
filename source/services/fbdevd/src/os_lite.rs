@@ -56,7 +56,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     loop {
         service_requests(&server, service.visible_state())?;
         let now_ns = nsec().unwrap_or(0);
-        let mut budget = TickBudget::new(2);
+        let mut budget = TickBudget::new(4);
         if reactor.should_present(now_ns, &mut budget) {
             let input_state = match (&inputd_client, &inputd_reply) {
                 (Some(client), Some(reply)) => fetch_input_visible_state_cached(client, reply),
@@ -157,13 +157,14 @@ fn fetch_input_visible_state_cached(
     reply: &KernelClient,
 ) -> Option<input_live_protocol::VisibleState> {
     // RFC-0026: reuse cached IPC clients instead of creating new ones per frame.
-    const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 2;
-    let wait = Wait::Timeout(Duration::from_millis(INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS));
+    const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 1;
+    let send_wait = Wait::Timeout(Duration::from_millis(INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS));
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client.send_with_cap_move_wait(&request, reply_send_clone, wait).ok()?;
-    let frame = reply.recv(wait).ok()?;
+    client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
+    let recv_wait = Wait::NonBlocking;
+    let frame = reply.recv(recv_wait).ok()?;
     decode_visible_state(&frame)
 }
 
