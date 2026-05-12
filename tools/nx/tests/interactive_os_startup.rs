@@ -47,11 +47,11 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
     );
     assert!(
         makefile.contains("QEMU_SESSION_MODE=interactive")
-            && makefile.contains("QEMU_MARKER_LEVEL=minimal"),
+            && makefile.contains("QEMU_MARKER_LEVEL=full"),
         "`make run` must select the interactive-minimal runner posture"
     );
     assert!(
-        makefile.contains("NEXUS_SELFTEST_MODE=interactive-minimal")
+        makefile.contains("NEXUS_SELFTEST_MODE=interactive-full")
             && makefile.contains("NEXUS_SELFTEST_PROFILE=bringup"),
         "`make run` must switch the guest at runtime without recompiling"
     );

@@ -232,8 +232,8 @@ run:
 	@NEXUS_SKIP_BUILD=1 \
 	  SMP=$${SMP:-$(SMP)} \
 	  QEMU_SESSION_MODE=interactive \
-	  QEMU_MARKER_LEVEL=minimal \
-	  NEXUS_SELFTEST_MODE=interactive-minimal \
+	  QEMU_MARKER_LEVEL=full \
+	  NEXUS_SELFTEST_MODE=interactive-full \
 	  NEXUS_SELFTEST_PROFILE=bringup \
 	  RUN_UNTIL_MARKER=0 \
 	  RUN_TIMEOUT=$${RUN_TIMEOUT:-0} \
