@@ -1,18 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: TASK-0056C host behavior proofs for pointer-motion coalescing, no-damage skip, and latency/perf contracts.
+//! CONTEXT: Host behavior proofs for pointer-motion coalescing, no-damage frame skip,
+//! idle-cheap wakeup bounding, and semantic-edge preservation in the windowd present pipeline.
 //! OWNERS: @ui @runtime
 //! STATUS: Draft
-//! API_STABILITY: Stable for TASK-0056C proof floor
-//! TEST_COVERAGE: Host proof suite for RFC-0055 coalescing and perf contracts
+//! API_STABILITY: Stable for coalescing/skip/perf proof floor
+//! TEST_COVERAGE: Host proof suite for windowd coalescing, skip rules, and latency contracts
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 #[cfg(test)]
 mod tests {
     use windowd::{
-        CallerCtx, CommitSeq, InputEventKind, Layer, Rect, ScheduledPresentAck, SurfaceBuffer,
-        TouchInputPhase, WindowServer, WindowdConfig, WindowdError,
+        CallerCtx, CommitSeq, InputEventKind, Layer, PresentAck, Rect, ScheduledPresentAck,
+        SurfaceBuffer, TouchInputPhase, WindowServer, WindowdConfig, WindowdError,
     };
 
     const LAUNCHER: CallerCtx = CallerCtx::system();
@@ -397,7 +398,7 @@ mod tests {
         let _ = server.present_scheduler_tick().expect("first present");
         server.set_last_frame_hash_for_tests(server.compute_frame_hash());
 
-        // RFC-0055: 100 identical frames → 4-of-5 cycle: 4 skips succeed, 1 forced present resets counter
+        // 100 identical frames -> 4-of-5 cycle: 4 skips succeed, 1 forced present resets counter
         let mut skip_count = 0u32;
         let mut force_count = 0u32;
         for _ in 0..100 {
@@ -425,5 +426,98 @@ mod tests {
         let result = server.try_coalesce_pointer_move(99, 99);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), WindowdError::CoalesceBurstExceeded);
+    }
+
+    // ── Per-hop chain proofs (display output hardening matrix) ──
+
+    fn setup_scene(server: &mut WindowServer) {
+        let buffer = surface_buffer(1, 64, 48, [128, 0, 0, 255]);
+        let sid = server.create_surface(LAUNCHER, buffer.clone()).expect("create_surface");
+        let damage = [Rect::new(0, 0, 64, 48)];
+        server.queue_buffer(LAUNCHER, sid, buffer, &damage).expect("queue_buffer");
+        server
+            .commit_scene(LAUNCHER, CommitSeq::new(1), &[Layer { surface: sid, z: 0, x: 0, y: 0 }])
+            .expect("commit_scene");
+    }
+
+    #[test]
+    fn input_route_triggers_present_with_damage_count() {
+        let mut server = server();
+        setup_scene(&mut server);
+        // Route input to create damage
+        let delivery = server.route_pointer_move(16, 16).expect("pointer move");
+        assert_eq!(delivery.surface.raw(), 1);
+        // Present tick must return a composed frame (damage exists)
+        let ack = server.present_tick().expect("present tick").expect("frame composed");
+        assert!(ack.damage_rects > 0, "composed frame must have damage rects");
+        assert_eq!(ack.seq.raw(), 1);
+    }
+
+    #[test]
+    fn present_sequence_is_monotonic_across_ticks() {
+        let mut server = server();
+        setup_scene(&mut server);
+        // First present
+        let ack1 = server.present_tick().expect("present tick").expect("first frame");
+        // Queue again with new damage
+        let buffer = surface_buffer(2, 64, 48, [0, 128, 0, 255]);
+        let sid = server.create_surface(LAUNCHER, buffer.clone()).expect("create surface 2");
+        server
+            .queue_buffer(LAUNCHER, sid, buffer, &[Rect::new(0, 0, 64, 48)])
+            .expect("queue buffer 2");
+        server.route_pointer_move(32, 32).expect("pointer move 2");
+        let ack2 = server.present_tick().expect("present tick").expect("second frame");
+        assert!(ack2.seq.raw() > ack1.seq.raw(), "present sequence must increase");
+    }
+
+    #[test]
+    fn no_damage_returns_none_from_present_tick() {
+        let mut server = server();
+        setup_scene(&mut server);
+        // First present consumes damage
+        let _ = server.present_tick().expect("present tick").expect("first present");
+        // Second present with no new damage must return None
+        let result = server.present_tick().expect("present tick");
+        assert!(result.is_none(), "no damage should skip compose");
+    }
+
+    #[test]
+    fn scheduler_present_reports_coalesced_frames_and_latency() {
+        let mut server = server();
+        setup_scene(&mut server);
+        let ack: ScheduledPresentAck =
+            server.present_scheduler_tick().expect("scheduler present").expect("ack");
+        assert!(ack.damage_rects > 0);
+        assert!(ack.latency_ms < 100, "latency must be within 100ms for host test");
+    }
+
+    #[test]
+    fn input_delivery_to_present_roundtrip_produces_ack() {
+        let mut server = server();
+        setup_scene(&mut server);
+        // Deliver input event
+        let delivery = server.route_pointer_move(16, 16).expect("pointer move");
+        assert_eq!(delivery.surface.raw(), 1);
+        // Present must produce a composed frame ack
+        let ack: PresentAck = server.present_tick().expect("present").expect("composed");
+        assert!(ack.damage_rects > 0);
+        // After present, last frame must exist
+        assert!(server.last_frame().is_some(), "last frame must be set after present");
+    }
+
+    #[test]
+    fn pointer_move_to_frame_latency_under_16ms_in_host() {
+        // Perf contract: input-to-frame roundtrip must complete within 16ms (60Hz budget)
+        // in the host test environment. This validates the compose path is not a bottleneck.
+        let mut server = server();
+        setup_scene(&mut server);
+
+        use std::time::Instant;
+        let start = Instant::now();
+        let _delivery = server.route_pointer_move(16, 16).expect("pointer move");
+        let _ack = server.present_tick().expect("present").expect("composed");
+        let elapsed_ms = start.elapsed().as_millis();
+
+        assert!(elapsed_ms < 16, "input-to-frame latency {elapsed_ms}ms exceeds 16ms 60Hz budget");
     }
 }

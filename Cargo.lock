@@ -3679,6 +3679,9 @@ name = "windowd"
 version = "0.1.0"
 dependencies = [
  "input-live-protocol",
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
  "pointer-state",
  "systemui",
 ]

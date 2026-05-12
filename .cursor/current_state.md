@@ -1,39 +1,38 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-11 (TASK-0056C Done)
+Last updated: 2026-05-12 (TASK-0056C re-opened)
 
 ## What changed
 
-TASK-0056C (UI v2a present/input perf latency coalescing) is Done. All 22 host tests pass, dep-gate and selftest-arch gates pass, clippy is clean.
+TASK-0056C (UI v2a present/input perf latency coalescing) was marked Done but
+re-opened to In Progress. Root cause: the 56C fastpath/coalescing/skip code
+exists in `windowd/src/server.rs` but is dead in the live OS path — `enable_fastpath()`,
+`try_coalesce_pointer_move()`, `try_no_damage_skip()`, and `present_tick()` are
+never called from any OS service event loop. The 22 host tests pass because they
+call the API directly, but the interactive QEMU path (`just start`) is unchanged.
 
-The task landed deterministic pointer-motion coalescing, explicit no-damage / no-visible-change skip rules, and idle-cheap / wakeup-collapse / stable counter expectations in `windowd`. The embedded runtime/reactor floor across `inputd -> windowd -> fbdevd` is now contract-backed by RFC-0055 (Complete).
+RFC-0055 also back to In Progress.
 
-## Key decisions
+## Pipeline bottlenecks found
 
-- Coalescing only applies to pointer-motion bursts (bounded batch + latest-wins). Click, focus transfer, wheel, and keyboard edges are never coalesced.
-- No-damage skip (frame-level hash match) can skip up to 3 consecutive frames, then forced present on 4th — proven by `test_no_visible_change_skip_unbounded_accumulation_prevented`.
-- No-visible-state-change skip (semantic state) allowed after at least 1 frame shown, bounded counter — proven by `test_no_visible_state_change_skip`.
-- All skip decisions check both damage and visible-state before skipping; if either is true, present proceeds.
-- Authority boundaries unchanged: `inputd` normalizes, `windowd` decides, `fbdevd` cadence/scanout.
+1. `hidrawd -> inputd`: per-batch blocking IPC (send+recv per mouse event)
+2. `inputd`: single-threaded — HID batches and fbdevd queries in same loop
+3. `fbdevd -> inputd`: separate IPC per frame (2ms timeout)
+4. No hardware vsync — software timer at 60Hz
+5. `windowd` is not a daemon — WindowServer embedded in inputd, no own loop
 
-## Proof state
+## Plan
 
-- 22/22 `tests/ui_v2c_host` tests pass (host-first, zero warnings)
-- `just dep-gate` passes
-- `scripts/check-selftest-arch.sh` passes
-- `clippy` clean for `windowd` + `ui_v2c_host`
+1. Wire fastpath + present_tick into inputd OS loop
+2. Add windowd os_lite.rs daemon with own compose/present cadence
+3. fbdevd -> windowd direct present path
+4. IPC optimization: client caching per RFC-0026
+5. Per-hop tests per hardening matrix
+6. Test with `just test-os visible-bootstrap` + `just start`
 
-## Known risks / DON'T DO
+## Known risks
 
-- DON'T coalesce click, focus-transfer, wheel, or keyboard edges — these must stay individually observable.
-- DON'T skip compose/present when there IS damage or visible-state change.
-- DON'T emit `ok`/`ready`/`latency ok` markers before real visible update or proven no-damage/no-visible-change.
-- DON'T reintroduce unbounded "drain/yield" loops in inputd/windowd/fbdevd.
-- DON'T add a separate runtime/platform subsystem beside inputd/windowd/fbdevd.
-- DON'T reopen TASK-0253 or back-claim perf closure into it.
-
-## Open threads
-
-- QEMU marker ladder (56C perf markers) and `just diag-os` RISC-V build check pending.
-- Perf counter vocabulary is provisional; may be hardened in follow-up tasks.
-- Downstream tasks TASK-0059 (scroll/effects), TASK-0062 (animation/runtime), TASK-0063 (virtualized list), TASK-0064 (window management) will extend this floor.
+- DON'T bypass inputd/windowd authority boundaries for speed
+- DON'T coalesce click/focus/wheel/keyboard edges
+- DON'T claim Done until interactive mouse latency is visibly improved
+- DON'T add prints/logs/markers in kernel

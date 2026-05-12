@@ -22,6 +22,8 @@ mod geometry;
 mod ids;
 mod legacy;
 mod markers;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod os_lite;
 mod server;
 mod smoke;
 mod telemetry;
@@ -81,6 +83,9 @@ pub use visible_state::{
     compose_live_visible_frame, copy_live_visible_row, VISIBLE_INPUT_WHEEL_ACTIVE_BGRA,
     VISIBLE_INPUT_WHEEL_IDLE_BGRA,
 };
+
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+pub use os_lite::service_main_loop;
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]
 pub use cli::run;

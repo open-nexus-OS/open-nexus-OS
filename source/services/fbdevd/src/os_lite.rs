@@ -51,12 +51,22 @@ pub fn service_main_loop() -> Result<(), &'static str> {
 
     let mut service = FbdevService::enabled(&bootstrap).map_err(|err| fail(err))?;
     let mut reactor = DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ);
+    let mut inputd_client = KernelClient::new_for("inputd").ok();
+    let mut inputd_reply = KernelClient::new_for("@reply").ok();
     loop {
         service_requests(&server, service.visible_state())?;
         let now_ns = nsec().unwrap_or(0);
-        let mut budget = TickBudget::new(1);
+        let mut budget = TickBudget::new(2);
         if reactor.should_present(now_ns, &mut budget) {
-            if let Some(input_state) = fetch_input_visible_state() {
+            let input_state = match (&inputd_client, &inputd_reply) {
+                (Some(client), Some(reply)) => fetch_input_visible_state_cached(client, reply),
+                _ => {
+                    inputd_client = KernelClient::new_for("inputd").ok();
+                    inputd_reply = KernelClient::new_for("@reply").ok();
+                    None
+                }
+            };
+            if let Some(input_state) = input_state {
                 let previous_state = service.render_state();
                 service.merge_input_state(input_state);
                 let next_state = service.render_state();
@@ -142,11 +152,13 @@ fn service_requests(
     }
 }
 
-fn fetch_input_visible_state() -> Option<input_live_protocol::VisibleState> {
+fn fetch_input_visible_state_cached(
+    client: &KernelClient,
+    reply: &KernelClient,
+) -> Option<input_live_protocol::VisibleState> {
+    // RFC-0026: reuse cached IPC clients instead of creating new ones per frame.
     const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 2;
     let wait = Wait::Timeout(Duration::from_millis(INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS));
-    let client = KernelClient::new_for("inputd").ok()?;
-    let reply = KernelClient::new_for("@reply").ok()?;
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();

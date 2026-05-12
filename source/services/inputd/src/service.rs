@@ -357,8 +357,10 @@ impl<R: RouteTarget> InputdService<R> {
         if absolute_x.is_some() || absolute_y.is_some() {
             let display = self.pointer_state.apply_absolute(absolute_x, absolute_y);
             let route = self.pointer_transform.display_to_route(display);
-            let delivery =
-                self.router.route_pointer_move(route.x, route.y).map_err(InputdError::from)?;
+            let delivery = self
+                .router
+                .try_coalesce_pointer_move(route.x, route.y)
+                .map_err(InputdError::from)?;
             let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = pointer_source.or(Some(PointerSource::TabletAbsolute));
@@ -373,8 +375,10 @@ impl<R: RouteTarget> InputdService<R> {
                 self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?,
             );
             let route = self.pointer_transform.display_to_route(display);
-            let delivery =
-                self.router.route_pointer_move(route.x, route.y).map_err(InputdError::from)?;
+            let delivery = self
+                .router
+                .try_coalesce_pointer_move(route.x, route.y)
+                .map_err(InputdError::from)?;
             let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = Some(PointerSource::MouseRelative);

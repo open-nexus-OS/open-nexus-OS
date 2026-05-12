@@ -1,9 +1,9 @@
 # RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed
 
-- Status: Complete
+- Status: In Progress
 - Owners: @ui @runtime
 - Created: 2026-05-10
-- Last Updated: 2026-05-11
+- Last Updated: 2026-05-12
 - Links:
   - Tasks: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (execution + proof)
   - Related RFCs:
@@ -16,7 +16,7 @@
 
 - **Phase 0 (contract freeze + carry-in map)**: ✅
 - **Phase 1 (deterministic coalescing + skip rules)**: ✅
-- **Phase 2 (latency proof + downstream handoff)**: ✅
+- **Phase 2 (latency proof + downstream handoff)**: ❌ re-opened — 56C code dead in OS path; interactive QEMU mouse latency unchanged; QEMU marker ladder never executed
 
 Definition:
 

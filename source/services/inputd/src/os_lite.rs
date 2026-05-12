@@ -178,7 +178,9 @@ impl LiveRouteRuntime {
                 }],
             )
             .map_err(|_| fail("inputd: init fail commit-scene"))?;
-        let _ = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
+        // RFC-0055: enable pointer-motion coalescing fastpath in the live OS path
+        server.enable_fastpath();
+        let _ack = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
         let display_start = visible_display_start_position()
             .map_err(|_| fail("inputd: init fail pointer-transform"))?;
         let display_space =

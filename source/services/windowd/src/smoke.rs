@@ -573,7 +573,7 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
         CommitSeq::new(1),
         &[Layer { surface, x: VISIBLE_INPUT_SURFACE_X, y: VISIBLE_INPUT_SURFACE_Y, z: 0 }],
     )?;
-    let _ = server.present_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
+    let _ack = server.present_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
 
     let cursor_move =
         server.route_pointer_move(VISIBLE_INPUT_CURSOR_START_X, VISIBLE_INPUT_CURSOR_START_Y)?;
@@ -604,7 +604,7 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
         FrameIndex::new(1),
         &[Rect::new(0, 0, VISIBLE_INPUT_SURFACE_WIDTH, VISIBLE_INPUT_SURFACE_HEIGHT)],
     )?;
-    let _ = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
+    let _sched = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
     let hover_frame = server.render_visible_input_frame()?;
     let cursor_move_visible = cursor_start_visible
         && cursor_move.surface == surface
@@ -673,7 +673,7 @@ pub fn run_visible_input_smoke() -> Result<UiVisibleInputEvidence> {
         FrameIndex::new(3),
         &[Rect::new(0, 0, VISIBLE_INPUT_SURFACE_WIDTH, VISIBLE_INPUT_SURFACE_HEIGHT)],
     )?;
-    let _ = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
+    let _sched = server.present_scheduler_tick()?.ok_or(WindowdError::MarkerBeforePresentState)?;
     let keyboard_frame =
         server.last_frame().cloned().ok_or(WindowdError::MarkerBeforePresentState)?;
     let keyboard_visible = keyboard.surface == surface

@@ -43,6 +43,7 @@ const MAX_IDLE_CHEAP_WAKEUPS: u64 = 6;
 const MAX_FENCES_PER_PRESENT: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "present ack carries damage and sequence; ignoring hides frame progress"]
 pub struct PresentAck {
     pub seq: PresentSeq,
     pub damage_rects: u16,
@@ -61,6 +62,7 @@ pub struct PresentFrameAck {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "scheduled present ack carries coalesced frames and latency; ignoring hides perf regressions"]
 pub struct ScheduledPresentAck {
     pub seq: PresentSeq,
     pub damage_rects: u16,
@@ -96,6 +98,7 @@ pub enum TouchInputPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "input delivery carries event routing result; dropping hides delivery failures"]
 pub struct InputDelivery {
     pub seq: InputSeq,
     pub surface: SurfaceId,
@@ -483,6 +486,7 @@ impl WindowServer {
         Ok(())
     }
 
+    #[must_use = "present outcome must be checked: None means no damage, Some means frame composed"]
     pub fn present_tick(&mut self) -> Result<Option<PresentAck>> {
         if self.layers.is_empty() {
             return Err(WindowdError::NoCommittedScene);
@@ -643,6 +647,7 @@ impl WindowServer {
         Ok(InputStubStatus::UnsupportedStub)
     }
 
+    #[must_use = "routing result carries input delivery; dropping hides event loss"]
     pub fn route_pointer_move(&mut self, x: i32, y: i32) -> Result<InputDelivery> {
         let position = self.validate_pointer_position(x, y)?;
         let surface_id = self.hit_test(x, y).ok_or(WindowdError::StaleSurfaceId)?;
@@ -735,6 +740,7 @@ impl WindowServer {
     /// Returns `Err(CoalesceBurstExceeded)` if the burst limit is hit
     /// (caller must emit a real `route_pointer_move` to reset the window).
     /// Returns `Err(FastPathDisabled)` if `enable_fastpath()` was not called.
+    #[must_use = "coalesce result must be checked: true means skipped, false means full route needed"]
     pub fn try_coalesce_pointer_move(&mut self, x: i32, y: i32) -> Result<bool> {
         if !self.fastpath_enabled {
             return Err(WindowdError::FastPathDisabled);
@@ -759,6 +765,7 @@ impl WindowServer {
     ///
     /// Returns `None` if no frame has been composed. Otherwise returns a hash over the
     /// first 256 pixels of the frame (bounded, deterministic).
+    #[must_use = "frame hash is used for skip eligibility; ignoring it makes skip decisions uninformed"]
     pub fn compute_frame_hash(&self) -> Option<u64> {
         let frame = self.last_frame.as_ref()?;
         let mut hash: u64 = 0xcbf29ce484222325;
@@ -785,6 +792,7 @@ impl WindowServer {
     /// Returns `Ok(true)` if the present can be skipped safely.
     /// Returns `Ok(false)` if a full present is required.
     /// Returns `Err(IdleCheapBudgetExceeded)` if too many idle-cheap wakeups.
+    #[must_use = "skip decision must be checked: true means frame skipped, false means full present needed"]
     pub fn try_no_damage_skip(&mut self) -> Result<bool> {
         let current_hash = self.compute_frame_hash();
         let no_change = match (self.last_frame_hash, current_hash) {
@@ -840,6 +848,7 @@ impl WindowServer {
         self.idle_cheap_wakeups = value;
     }
 
+    #[must_use = "drain count must be checked; zero means no events were pending"]
     pub fn drain_input_events(
         &mut self,
         caller: CallerCtx,
