@@ -1,55 +1,89 @@
-# Handoff — TASK-0056C (Done)
+# Handoff — TASK-0057 (In Progress)
 
-Date: 2026-05-11
+Date: 2026-05-12
 
 ## Summary
 
-TASK-0056C is Done. All 22 host tests pass, zero warnings. dep-gate and selftest-arch gates pass. clippy clean for windowd + ui_v2c_host. RFC-0055 is Complete.
+TASK-0057 builds the complete content/asset stack for the Orbital-Level UX Gate:
+resource directory (OHOS qualifiers + freedesktop icons), theme engine (.nxtheme.toml),
+SVG rich subset, PNG/JPG pipeline, HarfBuzz text shaping, and BreezeX cursor pipeline.
+RFC-0056 defines the architecture contract.
+
+Phase 0 (resource directory + theme engine) has not started yet. All implementation
+is ahead.
 
 ## What was done
 
-- Landed deterministic pointer-motion coalescing in `windowd/src/server.rs` (bounded batch, latest-wins, edge events preserved).
-- Landed explicit no-damage skip (frame-level hash match, max 3 consecutive, forced present on 4th).
-- Landed explicit no-visible-state-change skip (semantic state, bounded counter, requires at least 1 frame shown).
-- Added `test_reject_semantic_edge_coalesced_away` proving click/keyboard/wheel edges are NOT coalesced.
-- Added `test_no_visible_change_skip_unbounded_accumulation_prevented` proving 4-of-5 cycle boundedness.
-- Added idle-cheap / wakeup-collapse telemetry and stable counter infrastructure.
-- Added `tests/ui_v2c_host/Cargo.toml` and top-level workspace membership.
-- Fixed API mismatches with existing `windowd` types (Layer fields, PresentParams, InputEventKind variants).
-- RFC-0055 updated to Complete, RFC-0055 Implementation Checklist all checked.
-- `docs/rfcs/README.md` RFC-0055 entries updated to Complete.
+- TASK-0056C set to Done; handoff archived to `.cursor/handoff/archive/TASK-0056C-20260512.md`
+- `.cursor/current_state.md` updated to reflect TASK-0056C Done, TASK-0057 In Progress
+- RFC-0056 expanded to match `docs/rfcs/RFC-TEMPLATE.md`
+
+## What remains
+
+TASK-0057 plan (8 steps, none started):
+
+1. Resource directory + theme engine — `.nxtheme.toml` parser, qualifier resolver, Runtime API
+2. SVG rich subset — parser, tessellator, BGRA8888 rasterizer
+3. PNG/JPG pipeline — decoder, scaler, bounded memory
+4. Text shaping — HarfBuzz, font fallback, glyph cache
+5. Cursor pipeline — BreezeX SVG → bitmap → windowd cursor asset
+6. Renderer integration — `draw_glyph_run`, `draw_svg_path`, `draw_image`
+7. Proof surface — text target + cursor target + icon target visible in QEMU
+8. Tests + docs — goldens, tolerance policy, schema docs
+
+### Touched paths (allowlist)
+
+- `resources/` (new: themes, icons, cursors, wallpapers, fonts)
+- `userspace/ui/theme/` (new)
+- `userspace/ui/svg/` (new)
+- `userspace/ui/image/` (new)
+- `userspace/ui/shape/` (new)
+- `userspace/ui/cursor/` (new)
+- `userspace/ui/renderer/` (extend: draw_glyph_run, draw_svg, draw_image)
+- `source/services/windowd/` (extend: cursor asset loading)
+- `tests/ui_v2b_host/` (new)
+- `docs/dev/ui/foundations/layout/text.md`
+- `docs/dev/ui/foundations/rendering/svg.md`
+- `docs/dev/ui/foundations/rendering/image.md`
 
 ## Proofs
 
-- `cargo test -p ui_v2c_host` — 22/22 pass (zero warnings)
-- `just dep-gate` — passes
-- `scripts/check-selftest-arch.sh` — passes
-- `cargo clippy -p windowd && cargo clippy -p ui_v2c_host` — clean
+None yet. Expected proofs:
 
-## What remains (open threads)
+```bash
+# Host
+cargo test -p ui_v2b_host -- --nocapture
+cargo test -p nexus-theme -- --nocapture
+cargo test -p nexus-svg -- --nocapture
 
-- `just diag-os` RISC-V build check (not yet run; expected clean given dep-gate pass)
-- QEMU marker ladder for 56C perf markers (markers defined in code, QEMU run not yet executed)
-- Perf counter vocabulary is provisional; may be hardened in follow-up tasks
+# OS/QEMU
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+```
+
+Required QEMU markers:
+- `windowd: cursor svg loaded`
+- `windowd: text target visible`
+- `windowd: icon target visible`
+- `SELFTEST: ui v2b assets ok`
+
+## Open threads / risks
+
+- HarfBuzz in no_std: Phase 1 host-first; OS path uses pre-baked glyph atlases if linking unavailable
+- JPG codec in no_std: formalize existing ramfb bootstrap path
+- SVG complexity: bounded node/segment limits; `test_reject_*` for oversized input
+- DON'T add prints/logs/markers in kernel
 
 ## Next task
 
-Continue with downstream UI tasks that extend this floor:
+Continue with downstream UI tasks after TASK-0057 closes:
 - TASK-0059 (scroll, clip, effects, IME/text-input)
 - TASK-0062 (animation/runtime)
 - TASK-0063 (virtualized list, theme tokens)
 - TASK-0064 (window management, scene transitions)
 
-## Files changed
+## Files changed (this cycle)
 
-- `source/services/windowd/src/server.rs` (coalescing, skip rules, telemetry)
-- `source/services/windowd/src/markers.rs` (new 56C markers)
-- `source/services/windowd/src/lib.rs` (PresentParams, PerfCounters, frame_hash)
-- `source/services/windowd/src/error.rs` (PresentError)
-- `tests/ui_v2c_host/Cargo.toml` (new package)
-- `tests/ui_v2c_host/build.rs` (new)
-- `tests/ui_v2c_host/src/lib.rs` (22 tests)
-- `Cargo.toml` (workspace member)
-- `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` (Complete)
-- `docs/rfcs/README.md` (RFC-0055 status)
-- `.cursor/current_state.md` (Done)
+- `.cursor/handoff/current.md` (this file)
+- `.cursor/current_state.md`
+- `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (status → Done)
+- `docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md` (expanded to template)
