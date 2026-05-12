@@ -1,143 +1,259 @@
 ---
-title: TASK-0057 UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG safe subset pipeline + headless tests
-status: Draft
+title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline
+status: In Progress
 owner: @ui
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+updated: 2026-05-12
+depends-on:
+  - TASK-0054
+  - TASK-0056
+  - TASK-0056C
+follow-up-tasks:
+  - TASK-0058
+  - TASK-0059
+  - TASK-0062
+  - TASK-0063
+  - TASK-0146
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - RFC (contract seed): docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md
   - UI v1a renderer (baseline): tasks/TASK-0054-ui-v1a-cpu-renderer-host-snapshots.md
   - UI v2a (present/input baseline): tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
+  - UI v2a perf floor: tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - Cursor themes: docs/dev/ui/foundations/visual/cursor-themes.md
-  - Drivers/Accelerators contracts (future GPU backend): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Policy as Code (asset access): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
+  - Colors/tokens: docs/dev/ui/foundations/visual/colors.md
+  - Materials: docs/dev/ui/foundations/visual/materials.md
+  - Freedesktop icon spec: https://specifications.freedesktop.org/icon-theme-spec/
+  - OHOS reference: docs/architecture/display-output-service-chain.md
 ---
 
 ## Context
 
-For real UI, we need:
+TASK-0056C is In Review (120Hz, NonBlocking IPC, fastpath coalescing active in live OS path).
+The display chain (`hidrawd→inputd→fbdevd→ramfb`) is responsive at 82-98Hz. Now we need real
+content to make the UI usable before the Orbital-Level UX Gate (Launcher, Dock, real apps).
 
-- correct shaping for complex scripts (bi-di, ligatures),
-- a minimal vector pipeline for icons/theming,
-- and deterministic tests that can run on host.
+Current state:
+- The visible proof surface shows colored rectangles as cursor/target placeholders.
+- No text rendering, no SVG pipeline, no icon system, no theme engine.
+- `docs/dev/ui/foundations/visual/` defines color tokens and cursor themes — docs-only.
+- `make run` / `just start` already use a JPG wallpaper via `ramfb` bootstrap — proving
+  image decode is a live dependency that nobody else will add before fast-path closure.
 
-For the UI fast lane, SVG is the canonical source format for launcher/system icons
-and UI vector assets. PNG is allowed only as a golden, screenshot/export artifact,
-or derived raster cache; product UI must not become PNG-first.
+RFC-0056 defines the architecture contract: OHOS-aligned resource qualifier model,
+freedesktop icon structure, BreezeX cursor pipeline, theme token engine.
 
-This task focuses on the content pipeline and rendering primitives, independent of present scheduling (v2a).
-For the fast lane it must also seed the shared visible proof surface with real text and vector assets,
-so shaping/SVG do not remain invisible host-only capabilities.
-
-Scope note:
-
-- L10n/i18n locale switching and font fallback selection are tracked separately as `TASK-0174`/`TASK-0175`.
-  Shaping here should consume a deterministic font fallback chain rather than inventing its own locale plumbing.
-
-We keep the renderer backend-agnostic:
-
-- CPU rasterization is the initial backend.
-- A future GPU backend can reuse the same shaping outputs and SVG tessellation outputs.
+This task is the complete asset/theme/cursor/text stack — everything needed for a real
+Launcher by end of the UI fast lane.
 
 ## Goal
 
 Deliver:
 
-1. `userspace/ui/shape`:
-   - HarfBuzz-based shaping
-   - script-aware fallback chain (small and explicit)
-   - glyph run output suitable for a raster backend
-2. Renderer glyph cache:
-   - grayscale alpha glyph bitmaps
-   - bounded cache sizes and eviction
-3. `userspace/ui/svg` safe subset:
-   - parse a strict subset and reject the rest
-   - rasterize into BGRA8888 (CPU) deterministically
-   - provide a canonical SVG icon asset path for SystemUI/launcher/design-kit consumers
-   - provide the asset path needed to replace the temporary proof cursor with the BreezeX-oriented cursor family from
-     `docs/dev/ui/foundations/visual/cursor-themes.md` once the visible shell consumes SVG cursor assets
-4. Host tests:
-   - shaping goldens (JSON)
-   - SVG render goldens (PNG with SSIM threshold if needed)
-5. Visible proof-surface handoff:
-   - mount at least one real text target and one SVG-derived icon/cursor target into the shared visible proof surface,
-   - avoid a detached one-off demo scene.
+1. **Resource directory structure** (RFC-0056):
+   - OHOS-aligned qualifier-based layout: `resources/themes/`, `icons/`, `cursors/`, `wallpapers/`, `fonts/`
+   - freedesktop icon theme spec: `<ThemeName>/scalable/`, `<size>/`, `index.theme`
+
+2. **Theme token engine** (`userspace/ui/theme/`):
+   - `.nxtheme.toml` parser → runtime token resolver
+   - Semantic tokens: `accent`, `bg`, `fg`, `surface`, `border`, `muted`, `danger`, etc.
+   - Qualifier resolution: base → dark/light/highcontrast → density → locale
+   - Schema validation; unknown keys rejected
+
+3. **SVG rich subset** (`userspace/ui/svg/`):
+   - Parse: `<svg>`, `<g>`, `<path>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polygon>`,
+     `<defs>`, `<linearGradient>`, `<stop>`, basic transforms
+   - Reject: scripts, external refs, filters, animations
+   - Tessellate → BGRA8888 rasterizer
+   - Bounded: max nodes, max path segments, max dimensions
+
+4. **PNG / JPG pipeline** (`userspace/ui/image/`):
+   - Decode PNG (deflate) and JPG (DCT) → RGBA8
+   - Scale: bilinear + nearest-neighbor (deterministic)
+   - Bounded: max decode size, decompression bomb detection
+   - JPG wallpaper already used in live path — formalize as proper pipeline
+
+5. **Text shaping** (`userspace/ui/shape/`):
+   - HarfBuzz-based shaping with font fallback chain
+   - Glyph cache: grayscale alpha bitmaps, bounded size, deterministic eviction
+   - Host-first; OS path with pre-baked glyph atlases if HarfBuzz linking unavailable
+
+6. **Cursor pipeline** (`userspace/ui/cursor/`):
+   - Parse BreezeX SVG cursors → rasterize → BGRA8888 + hotspot
+   - Integrate into `windowd` cursor display → visible on proof surface
+
+7. **Proof surface targets**:
+   - Real shaped text (multilingual LTR+RTL) rendered on shared proof surface
+   - BreezeX SVG cursor visible as mouse pointer
+   - SVG icon from freedesktop structure visible on proof surface
+   - JPG wallpaper visible behind UI
+
+8. **Host tests** (`tests/ui_v2b_host/`):
+   - Text shaping goldens (JSON glyph runs)
+   - SVG render goldens (PNG, pixel-exact or SSIM)
+   - PNG/JPG decode goldens
+   - Cursor render goldens
+   - Theme resolution determinism
 
 ## Non-Goals
 
-- Kernel changes.
-- Full SVG spec.
-- LCD subpixel text.
-- PNG-first launcher/system icon assets.
+- Kernel changes
+- Full SVG spec (animations, filters, scripts)
+- LCD subpixel text
+- GPU-accelerated rasterization
+- Complete i18n/l10n locale switching (TASK-0174/0175)
+- A detached demo scene — all assets must integrate into shared proof surface
+- SVG-first wallpaper (JPG is acceptable for wallpaper)
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic outputs:
-  - stable shaping inputs/outputs (with explicit tolerances where unavoidable),
-  - stable SVG rasterization rules.
-- Strict safety posture:
-  - SVG subset parser must reject unsupported features (no scripts, no external refs, no filters).
-- Asset posture:
-  - launcher/SystemUI/design-kit icons use SVG sources,
-  - generated PNGs are test/export artifacts and must trace back to SVG sources.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- Bounded memory:
-  - cap glyph cache bytes,
-  - cap SVG complexity (nodes/path segments).
+- Deterministic outputs: stable shaping, stable SVG/PNG/JPG rasterization, stable theme resolution
+- Strict safety: SVG parser rejects unsupported features before rasterization
+- Asset posture: launcher/SystemUI icons are SVG-sourced; PNG only as derived fallback
+- JPG only for wallpaper; no JPG icons
+- No `unwrap`/`expect` on untrusted input
+- Bounded memory: caps on caches, image dimensions, SVG complexity
+- freedesktop icon spec for directory structure
+
+## Resource directory structure (normative)
+
+``` text
+resources/
+├── themes/
+│   ├── base.nxtheme.toml
+│   ├── dark.nxtheme.toml
+│   ├── light.nxtheme.toml
+│   └── highcontrast.nxtheme.toml
+├── icons/
+│   └── <ThemeName>/               # e.g. "breezeX", "default"
+│       ├── index.theme            # freedesktop manifest
+│       ├── scalable/              # SVG (resolution-independent)
+│       │   ├── apps/
+│       │   ├── actions/
+│       │   ├── status/
+│       │   ├── devices/
+│       │   ├── places/
+│       │   ├── mimetypes/
+│       │   └── cursors/
+│       ├── 16x16/                 # PNG fallbacks
+│       ├── 22x22/
+│       ├── 32x32/
+│       ├── 48x48/
+│       ├── 64x64/
+│       ├── 128x128/
+│       └── 256x256/
+├── cursors/
+│   └── breezeX/
+│       ├── base/                  # SVG cursor source
+│       ├── dark/
+│       └── light/
+├── wallpapers/
+│   ├── base/
+│   │   └── default.jpg
+│   ├── dark/
+│   └── light/
+├── fonts/
+│   ├── inter/
+│   ├── noto/
+│   └── monospace/
+└── sounds/                        # deferred
+```
+
+## Security considerations
+
+### Threat model
+- Malicious SVG: scripts, external refs, filters, unbounded path complexity
+- Malformed fonts: buffer overflow, unbounded allocation
+- Decompression bombs: oversized PNG/JPG
+- Theme file injection: crafted `.nxtheme.toml` overriding tokens
+- Glyph cache exhaustion: crafted text sequences
+
+### Security invariants
+- SVG parser rejects unsupported features before rasterization
+- Image decoders have explicit size limits; decompression bombs detected
+- Font parsing bounded with error propagation (no unwrap/expect)
+- Theme files validated against schema; unknown keys rejected
+- All caches have explicit capacity bounds
+- Rasterization outputs carry no authority/identity signal
+
+### DON'T DO
+- Do not execute SVG scripts or process external references
+- Do not accept PNG-first launcher/system icons
+- Do not leak font paths, glyph metrics, or image metadata
+- Do not use rasterization outputs for access control or identity
+
+### Security proof expectation
+- `test_reject_*` for: SVG scripts, SVG external refs, SVG filters, oversized fonts,
+  malformed font headers, decompression-bomb images, invalid theme TOML
+- Boundedness: glyph cache eviction, image decode limits, SVG node limits
 
 ## Red flags / decision points
 
-- **YELLOW (HarfBuzz in OS)**:
-  - If the OS build environment cannot support HarfBuzz (std/alloc constraints), we may need:
-    - host-precomputed shaped runs (asset pipeline), or
-    - a smaller shaping approach for OS.
-  - v2b should start host-first and only enable OS path once feasible.
+- **YELLOW (HarfBuzz in OS)**: If OS-lite cannot link HarfBuzz, use pre-baked glyph atlases.
+  *Neutralized*: Phase 1 starts host-first; Phase 2 OS path uses atlas fallback.
+- **YELLOW (SVG complexity)**: Rich subset still allows complex paths.
+  *Neutralized*: explicit node/segment limits in parser; `test_reject_*` for oversized input.
+- **YELLOW (JPG codec in no_std)**: OS-lite JPG decode needs `no_std` library.
+  *Neutralized*: JPG already used live in `ramfb` bootstrap; formalize existing path.
+- **YELLOW (Wallpaper rendering perf)**: Full-screen JPG decode + scale at 120Hz cadence.
+  *Neutralized*: decode once at boot, cache scaled bitmap; static wallpaper has zero per-frame cost.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-`tests/ui_v2b_host/`:
+```bash
+cargo test -p ui_v2b_host -- --nocapture
+cargo test -p nexus-theme -- --nocapture
+cargo test -p nexus-svg -- --nocapture
+```
 
-- shaping:
-  - multilingual strings (LTR/RTL) produce stable glyph cluster ordering
-  - advance widths within tolerance of goldens
-- glyph cache:
-  - repeated draws hit cache deterministically
-  - eviction occurs at configured cap
-- SVG:
-  - safe subset parses accepted files
-  - rejected features are correctly detected
-  - rendered PNGs match goldens (pixel-exact or SSIM threshold)
-  - canonical launcher/system icon fixtures are SVG-sourced, with no PNG-only UI source accepted.
+- Text shaping: multilingual LTR+RTL → stable glyph cluster ordering
+- Glyph cache: repeated draws hit cache; eviction at configured cap
+- SVG: rich subset parses; unsupported features rejected; renders match goldens
+- PNG/JPG: decode + scale match goldens; oversized images rejected
+- Cursor: BreezeX SVG → bitmap + hotspot correct
+- Theme: token resolution deterministic; dark/light/highcontrast switch correct
+
+### Proof (OS/QEMU) — required
+
+```bash
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+```
+
+- QEMU markers: `windowd: cursor svg loaded`, `windowd: text target visible`,
+  `windowd: icon target visible`, `SELFTEST: ui v2b assets ok`
+- Shared proof surface shows: real shaped text, BreezeX SVG cursor, SVG icon
 
 ### Visual proof handoff — required
 
-- the shared proof surface shows real shaped text, not placeholder blocks only,
-- the visible shell/proof cursor path is ready to switch from the temporary cursor to an SVG-sourced BreezeX asset path,
-- SystemUI/launcher/design-kit consumers use SVG-source fixtures on the proof surface rather than PNG-only UI sources.
+- `just start` shows JPG wallpaper + real text target + SVG cursor + SVG icon
+- Cursor switches from colored rectangle to BreezeX SVG asset
+- Launcher/SystemUI proof surface uses SVG-source fixtures
 
 ## Touched paths (allowlist)
 
-- `userspace/ui/shape/` (new)
+- `resources/` (new: themes, icons, cursors, wallpapers, fonts)
+- `userspace/ui/theme/` (new)
 - `userspace/ui/svg/` (new)
-- `userspace/ui/renderer/` (extend: draw_glyph_run + glyph cache)
+- `userspace/ui/image/` (new)
+- `userspace/ui/shape/` (new)
+- `userspace/ui/cursor/` (new)
+- `userspace/ui/renderer/` (extend: draw_glyph_run, draw_svg, draw_image)
+- `source/services/windowd/` (extend: cursor asset loading)
 - `tests/ui_v2b_host/` (new)
-- `docs/dev/ui/foundations/layout/text.md` + `docs/dev/ui/foundations/rendering/svg.md` (new)
+- `docs/dev/ui/foundations/layout/text.md`
+- `docs/dev/ui/foundations/rendering/svg.md`
+- `docs/dev/ui/foundations/rendering/image.md`
 
-## Plan (small PRs)
+## Plan
 
-1. **Shaping crate**
-   - FontManager with explicit fallback set
-   - `shape_text()` → `GlyphRun`s
-
-2. **Renderer integration**
-   - glyph cache + `draw_glyph_run`
-
-3. **SVG safe subset**
-   - strict parser + deterministic rasterizer
-
-4. **Tests + docs**
-   - goldens + tolerance policy documented
+1. **Resource directory + theme engine** — `.nxtheme.toml` parser, qualifier resolver, Runtime API
+2. **SVG rich subset** — parser, tessellator, BGRA8888 rasterizer
+3. **PNG/JPG pipeline** — decoder, scaler, bounded memory
+4. **Text shaping** — HarfBuzz, font fallback, glyph cache
+5. **Cursor pipeline** — BreezeX SVG → bitmap → windowd cursor asset
+6. **Renderer integration** — `draw_glyph_run`, `draw_svg_path`, `draw_image`
+7. **Proof surface** — text target + cursor target + icon target visible in QEMU
+8. **Tests + docs** — goldens, tolerance policy, schema docs
