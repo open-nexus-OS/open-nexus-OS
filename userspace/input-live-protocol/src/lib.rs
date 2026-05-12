@@ -43,6 +43,7 @@ pub const EVENT_KIND_BTN: u8 = 4;
 
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
+pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 const STATE_LEN: usize = 28;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 
@@ -109,6 +110,47 @@ pub fn encode_push_hid_batch(batch: &WireHidBatch) -> Vec<u8> {
         out.extend_from_slice(&event.timestamp_ns.to_le_bytes());
     }
     out
+}
+
+/// Encode a HID batch into a pre-allocated stack buffer. Returns bytes written.
+pub fn encode_push_hid_batch_into(
+    batch: &WireHidBatch,
+    buf: &mut [u8; MAX_HID_BATCH_FRAME_LEN],
+) -> Option<usize> {
+    let needed = HEADER_LEN + 16 + batch.events.len() * EVENT_LEN;
+    if needed > MAX_HID_BATCH_FRAME_LEN {
+        return None;
+    }
+    let mut pos = 0;
+    buf[pos..pos + 4].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_PUSH_HID_BATCH]);
+    pos += 4;
+    buf[pos..pos + 4].copy_from_slice(&(batch.events.len() as u32).to_le_bytes());
+    pos += 4;
+    buf[pos] = batch.device_kind;
+    pos += 1;
+    buf[pos..pos + 2].copy_from_slice(&batch.device_id.to_le_bytes());
+    pos += 2;
+    buf[pos] = batch.pointer_source;
+    pos += 1;
+    buf[pos..pos + 4].copy_from_slice(&batch.abs_max_x.to_le_bytes());
+    pos += 4;
+    buf[pos..pos + 4].copy_from_slice(&batch.abs_max_y.to_le_bytes());
+    pos += 4;
+    buf[pos..pos + 2].copy_from_slice(&batch.raw_event_count.to_le_bytes());
+    pos += 2;
+    buf[pos..pos + 2].copy_from_slice(&batch.normalized_event_count.to_le_bytes());
+    pos += 2;
+    for event in &batch.events {
+        buf[pos] = event.kind;
+        pos += 1;
+        buf[pos..pos + 2].copy_from_slice(&event.code.to_le_bytes());
+        pos += 2;
+        buf[pos..pos + 4].copy_from_slice(&event.value.to_le_bytes());
+        pos += 4;
+        buf[pos..pos + 8].copy_from_slice(&event.timestamp_ns.to_le_bytes());
+        pos += 8;
+    }
+    Some(pos)
 }
 
 pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {

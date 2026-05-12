@@ -766,10 +766,10 @@ fn fbdevd_polls_inputd_with_owned_cap_move_reply_inbox() {
     assert!(
         fbdevd.contains("KernelClient::new_for(\"inputd\")")
             && fbdevd.contains("KernelClient::new_for(\"@reply\")")
-            && fbdevd.contains("send_with_cap_move_wait(&request, reply_send_clone, wait)")
-            && fbdevd.contains("const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 2;")
+            && fbdevd.contains("send_with_cap_move_wait(&request, reply_send_clone, send_wait)")
+            && fbdevd.contains("const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 1;")
             && fbdevd.contains("DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ)")
-            && fbdevd.contains("TickBudget::new(1)"),
+            && fbdevd.contains("TickBudget::new(4)"),
         "fbdevd must poll inputd through a short bounded CAP_MOVE reply inside a budgeted display reactor"
     );
 }

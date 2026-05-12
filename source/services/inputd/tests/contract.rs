@@ -35,7 +35,7 @@ fn fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
             &[Layer { surface, x: 8, y: 8, z: 0 }],
         )
         .expect("scene");
-    server.present_tick().expect("present tick").expect("present");
+    let _ack = server.present_tick().expect("present tick").expect("present");
     (server, caller, surface)
 }
 
@@ -54,7 +54,7 @@ fn full_surface_fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId
             &[Layer { surface, x: 0, y: 0, z: 0 }],
         )
         .expect("scene");
-    server.present_tick().expect("present tick").expect("present");
+    let _ack = server.present_tick().expect("present tick").expect("present");
     (server, caller, surface)
 }
 

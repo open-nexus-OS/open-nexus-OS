@@ -41,7 +41,7 @@ mod tests {
         server
             .commit_scene(LAUNCHER, CommitSeq::new(1), &[Layer { surface: sid, z: 0, x: 0, y: 0 }])
             .expect("commit_scene");
-        server.route_pointer_move(10, 10).expect("initial pointer move");
+        let _ = server.route_pointer_move(10, 10).expect("initial pointer move");
         server.present_scheduler_tick().expect("first present");
     }
 
@@ -237,7 +237,7 @@ mod tests {
         register_surface(&mut server, 1, 64, 48);
 
         // route_pointer_down to set focused_surface
-        server.route_pointer_down(10, 10).expect("pointer down for focus");
+        let _ = server.route_pointer_down(10, 10).expect("pointer down for focus");
 
         // Route a key event via route_keyboard
         let delivery = server.route_keyboard(0x04).expect("key event");
@@ -298,7 +298,7 @@ mod tests {
         server
             .commit_scene(LAUNCHER, CommitSeq::new(1), &[Layer { surface: sid, z: 0, x: 0, y: 0 }])
             .expect("commit_scene");
-        server.route_pointer_move(10, 10).expect("pointer move");
+        let _ = server.route_pointer_move(10, 10).expect("pointer move");
 
         // Present scheduler tick should produce a ScheduledPresentAck
         let ack: ScheduledPresentAck =
@@ -341,7 +341,7 @@ mod tests {
             )
             .expect("commit_scene");
 
-        server.route_pointer_move(16, 16).expect("pointer move");
+        let _ = server.route_pointer_move(16, 16).expect("pointer move");
 
         let ack: ScheduledPresentAck =
             server.present_scheduler_tick().expect("present scheduler tick").expect("expected ack");
@@ -465,7 +465,7 @@ mod tests {
         server
             .queue_buffer(LAUNCHER, sid, buffer, &[Rect::new(0, 0, 64, 48)])
             .expect("queue buffer 2");
-        server.route_pointer_move(32, 32).expect("pointer move 2");
+        let _ = server.route_pointer_move(32, 32).expect("pointer move 2");
         let ack2 = server.present_tick().expect("present tick").expect("second frame");
         assert!(ack2.seq.raw() > ack1.seq.raw(), "present sequence must increase");
     }
@@ -488,7 +488,7 @@ mod tests {
         let ack: ScheduledPresentAck =
             server.present_scheduler_tick().expect("scheduler present").expect("ack");
         assert!(ack.damage_rects > 0);
-        assert!(ack.latency_ms < 16, "latency must be within 100ms for host test");
+        assert!(ack.latency_ms < 8, "latency must be within 100ms for host test");
     }
 
     #[test]
@@ -518,6 +518,6 @@ mod tests {
         let _ack = server.present_tick().expect("present").expect("composed");
         let elapsed_ms = start.elapsed().as_millis();
 
-        assert!(elapsed_ms < 16, "input-to-frame latency {elapsed_ms}ms exceeds 16ms 60Hz budget");
+        assert!(elapsed_ms < 8, "input-to-frame latency {elapsed_ms}ms exceeds 16ms 60Hz budget");
     }
 }

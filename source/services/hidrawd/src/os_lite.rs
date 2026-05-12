@@ -14,7 +14,10 @@ use alloc::{format, vec::Vec};
 use core::time::Duration;
 
 use hid::TimestampNs;
-use input_live_protocol::{encode_push_hid_batch, WireHidBatch, HID_KIND_KEYBOARD, HID_KIND_MOUSE};
+use input_live_protocol::{
+    encode_push_hid_batch_into, WireHidBatch, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
+    MAX_HID_BATCH_FRAME_LEN,
+};
 use nexus_abi::{cap_clone, cap_close, debug_println, nsec, yield_};
 use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, Wait};
@@ -112,16 +115,17 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 continue;
             };
             chain.wire_batches = chain.wire_batches.saturating_add(1);
-            let frame = encode_push_hid_batch(&batch);
+            let mut frame_buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
+            let Some(frame_len) = encode_push_hid_batch_into(&batch, &mut frame_buf) else {
+                continue;
+            };
+            let frame = &frame_buf[..frame_len];
             let Some(current_client) = client.as_ref() else {
                 break;
             };
-            if current_client.send(&frame, Wait::Blocking).is_err()
-                || current_client.recv(Wait::Blocking).is_err()
-            {
-                chain.send_failures = chain.send_failures.saturating_add(1);
-                client = None;
-                break;
+            while current_client.recv(Wait::NonBlocking).is_ok() {}
+            if current_client.send(&frame, Wait::NonBlocking).is_err() {
+                continue;
             }
             chain.sent_batches = chain.sent_batches.saturating_add(1);
             sent_any = true;

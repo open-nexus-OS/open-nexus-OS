@@ -1,6 +1,6 @@
 # RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed
 
-- Status: In Progress
+- Status: Done
 - Owners: @ui @runtime
 - Created: 2026-05-10
 - Last Updated: 2026-05-12

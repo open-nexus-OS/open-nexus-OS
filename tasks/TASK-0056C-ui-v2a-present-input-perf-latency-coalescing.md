@@ -1,6 +1,6 @@
 ---
 title: TASK-0056C UI v2a extension: embedded reactor/runtime floor + present/input perf polish (input-to-frame latency + event coalescing + short-circuit compose)
-status: In Progress
+status: In Review
 owner: @ui @runtime
 created: 2026-03-29
 depends-on:
