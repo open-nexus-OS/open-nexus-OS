@@ -222,9 +222,10 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0056B | UI v2a: visible input — cursor + hover + focus + click | Done | Deterministic host/reject/QEMU proofs and closure gates are green; live QEMU pointer/keyboard follow-up remains `TASK-0252`/`TASK-0253` |
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | Done | Host-first proofs + reject suites green; closure gates rerun green; live QEMU marker closure remains `TASK-0253` |
 | ✅ TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks + selftests | Done | Real `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb` chain is closed with focused proofs and broad closure gates green |
+| ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | Done | Host-first coalescing + no-damage-skip + idle-cheap proofs green; host-integration tests proving semantic-edge preservation; QEMU diag-os pending downstream |
 
-Current queue head: `TASK-0056C` / UI v2a embedded reactor/runtime floor + present/input perf latency + coalescing.
-Current contract status: `RFC-0053` and `RFC-0054` are `Done`; the live QEMU pointer/keyboard carry-in is closed and 56C now owns the next perf/runtime floor.
+Current queue head: `TASK-0057` / UI v2b text shaping (HarfBuzz) + font fallback/cache + SVG pipeline (next Fast-Lane task after 56C).
+Current contract status: `RFC-0055` is `Done`; 56C host-first proofs closed; QEMU marker ladder + diag-os deferred to follow-up.
 
 ---
 

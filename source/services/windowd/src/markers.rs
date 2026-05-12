@@ -52,6 +52,12 @@ pub const INTERACTIVE_CLICK_TARGET_READY_MARKER: &str = "windowd: interactive cl
 pub const INTERACTIVE_KEYBOARD_TARGET_READY_MARKER: &str =
     "windowd: interactive keyboard target ready";
 pub const INTERACTIVE_FULL_MARKERS_MARKER: &str = "windowd: interactive full markers on";
+pub const PRESENT_FASTPATH_MARKER: &str = "windowd: present fastpath on";
+pub const POINTER_COALESCE_OK_MARKER: &str = "windowd: pointer coalesce ok";
+pub const NO_DAMAGE_SKIP_OK_MARKER: &str = "windowd: no-damage skip ok";
+pub const IDLE_FASTPATH_OK_MARKER: &str = "windowd: idle fastpath ok";
+pub const CLICK_LATENCY_OK_MARKER: &str = "windowd: click latency ok";
+pub const KEYBOARD_LATENCY_OK_MARKER: &str = "windowd: keyboard latency ok";
 
 pub fn present_marker(ack: PresentAck) -> String {
     format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)

@@ -24,6 +24,7 @@ members = [
     "tests/ui_host_snap",
     "tests/ui_windowd_host",
     "tests/ui_v2a_host",
+    "tests/ui_v2c_host",
     "tests/input_v1_0_host"
 ]
 resolver = "2"

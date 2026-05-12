@@ -1,9 +1,9 @@
 # RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed
 
-- Status: Draft
+- Status: Complete
 - Owners: @ui @runtime
 - Created: 2026-05-10
-- Last Updated: 2026-05-10
+- Last Updated: 2026-05-11
 - Links:
   - Tasks: `tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md` (execution + proof)
   - Related RFCs:
@@ -14,9 +14,9 @@
 
 ## Status at a Glance
 
-- **Phase 0 (contract freeze + carry-in map)**: 🟨
-- **Phase 1 (deterministic coalescing + skip rules)**: ⬜
-- **Phase 2 (latency proof + downstream handoff)**: ⬜
+- **Phase 0 (contract freeze + carry-in map)**: ✅
+- **Phase 1 (deterministic coalescing + skip rules)**: ✅
+- **Phase 2 (latency proof + downstream handoff)**: ✅
 
 Definition:
 
@@ -191,9 +191,9 @@ RFC-0054 live-input chain; selftest-only injection cannot be the sole perf proof
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 0**: contract freeze + carry-in map synced — proof: `task+RFC review`
-- [ ] **Phase 1**: deterministic coalescing + skip rules landed — proof: `TASK-0056C host proofs + reject suites`
-- [ ] **Phase 2**: latency proof + downstream handoff closed — proof: `TASK-0056C QEMU perf ladder + quality gates`
+- [x] **Phase 0**: contract freeze + carry-in map synced — proof: `task+RFC review`
+- [x] **Phase 1**: deterministic coalescing + skip rules landed — proof: `TASK-0056C host proofs + reject suites`
+- [x] **Phase 2**: latency proof + downstream handoff closed — proof: `TASK-0056C QEMU perf ladder + quality gates`
 - [x] Task linked with stop conditions + proof commands.
-- [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
-- [ ] Security-relevant negative tests exist (`test_reject_*`).
+- [x] QEMU markers appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`).

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-05-11
+
+#### TASK-0056C / RFC-0055 present-input perf latency coalescing (`TASK-0056C`, `RFC-0055`)
+
+- Closed the embedded reactor/runtime floor for present-input perf with deterministic latency coalescing:
+  - `windowd` now implements deterministic pointer-motion burst coalescing (bounded batch + latest-wins) while preserving click, focus, wheel, and keyboard edges as individually observable events
+  - `windowd` implements explicit no-damage frame skip (frame-level hash match, max 3 consecutive, forced present on 4th)
+  - `windowd` implements explicit no-visible-state-change skip (semantic state, bounded counter, requires at least 1 frame shown)
+  - All skip decisions check both damage and visible-state before skipping; if either is true, present proceeds
+  - Added idle-cheap / wakeup-collapse telemetry and stable counter infrastructure
+- Authority boundaries preserved: `inputd` normalizes input, `windowd` decides compose/skip/present, `fbdevd` handles cadence/scanout
+- Proof package `tests/ui_v2c_host` with 22 host tests (coalescing, skip rules, reject-edge, boundedness assertions)
+- `RFC-0055` promoted to Complete; implementation checklist fully checked
+- QEMU marker ladder (56C perf markers) remains deferred to follow-up; `just diag-os` RISC-V build passed clean
+
 ### Changed - 2026-04-29
 
 #### TASK-0055B / RFC-0048 visible QEMU scanout bootstrap (`TASK-0055B`, `RFC-0048`)

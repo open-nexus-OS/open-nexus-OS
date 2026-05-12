@@ -37,6 +37,10 @@ pub enum WindowdError {
     InputEventQueueFull,
     NoFocusedSurface,
     InvalidPointerPosition,
+    CoalesceBurstExceeded,
+    SemanticEdgeCollapsed,
+    FastPathDisabled,
+    IdleCheapBudgetExceeded,
 }
 
 pub type Result<T> = core::result::Result<T, WindowdError>;

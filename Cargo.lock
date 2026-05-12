@@ -3390,6 +3390,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui_v2c_host"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+ "windowd",
+]
+
+[[package]]
 name = "ui_windowd_host"
 version = "0.1.0"
 dependencies = [
