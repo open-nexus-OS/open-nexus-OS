@@ -1,7 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
+use alloc::string::{String, ToString};
+use core::fmt;
 
 /// Result type alias for SVG operations.
 pub type SvgResult<T> = Result<T, SvgError>;
@@ -81,4 +82,4 @@ impl fmt::Display for SvgError {
     }
 }
 
-impl std::error::Error for SvgError {}
+// std::error::Error removed for no_std

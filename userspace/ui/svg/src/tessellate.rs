@@ -1,7 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
+
+use core::f32::consts;
+
 use crate::elements::{Color, Paint, PathCommand, PathData, SvgDocument, SvgElement, Transform};
+use crate::math::F32Math;
 
 /// A single line segment in screen space (y-sorted: y0 <= y1).
 #[derive(Debug, Clone, Copy)]
@@ -138,7 +143,7 @@ fn tessellate_element(
                     // Approximate line as thin rectangle
                     let dx = ex - sx;
                     let dy = ey - sy;
-                    let len = (dx * dx + dy * dy).sqrt().max(0.001);
+                    let len = (dx * dx + dy * dy).nexus_sqrt().max(0.001);
                     let nx = -dy / len * half;
                     let ny = dx / len * half;
                     let pts = vec![
@@ -455,34 +460,34 @@ fn rect_segments(
 
     // Top edge + top-right corner
     for i in 0..=segments_per_corner {
-        let angle = std::f32::consts::PI * 1.5
-            + std::f32::consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI * 1.5
+            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + w - rx;
         let cy = y + ry;
-        pts.push((cx + rx * angle.cos(), cy + ry * angle.sin()));
+        pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
     }
     // Right edge + bottom-right corner
     for i in 1..=segments_per_corner {
-        let angle = std::f32::consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + w - rx;
         let cy = y + h - ry;
-        pts.push((cx + rx * angle.cos(), cy + ry * angle.sin()));
+        pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
     }
     // Bottom edge + bottom-left corner
     for i in 1..=segments_per_corner {
-        let angle = std::f32::consts::PI * 0.5
-            + std::f32::consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI * 0.5
+            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + rx;
         let cy = y + h - ry;
-        pts.push((cx + rx * angle.cos(), cy + ry * angle.sin()));
+        pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
     }
     // Left edge + top-left corner
     for i in 1..segments_per_corner {
-        let angle = std::f32::consts::PI
-            + std::f32::consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI
+            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + rx;
         let cy = y + ry;
-        pts.push((cx + rx * angle.cos(), cy + ry * angle.sin()));
+        pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
     }
 
     pts.iter().map(|(px, py)| tf.apply(*px, *py)).collect()
@@ -492,9 +497,9 @@ fn circle_segments(cx: f32, cy: f32, r: f32, tf: &Transform) -> Vec<(f32, f32)> 
     let n = 32;
     let mut pts = Vec::with_capacity(n + 1);
     for i in 0..=n {
-        let angle = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
-        let x = cx + r * angle.cos();
-        let y = cy + r * angle.sin();
+        let angle = 2.0 * consts::PI * i as f32 / n as f32;
+        let x = cx + r * angle.nexus_cos();
+        let y = cy + r * angle.nexus_sin();
         pts.push(tf.apply(x, y));
     }
     pts
@@ -504,9 +509,9 @@ fn ellipse_segments(cx: f32, cy: f32, rx: f32, ry: f32, tf: &Transform) -> Vec<(
     let n = 32;
     let mut pts = Vec::with_capacity(n + 1);
     for i in 0..=n {
-        let angle = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
-        let x = cx + rx * angle.cos();
-        let y = cy + ry * angle.sin();
+        let angle = 2.0 * consts::PI * i as f32 / n as f32;
+        let x = cx + rx * angle.nexus_cos();
+        let y = cy + ry * angle.nexus_sin();
         pts.push(tf.apply(x, y));
     }
     pts
@@ -600,7 +605,7 @@ fn stroke_edges(points: &[(f32, f32)], width: f32, color: Color) -> Vec<Edge> {
 
         let dx = x1 - x0;
         let dy = y1 - y0;
-        let len = (dx * dx + dy * dy).sqrt().max(0.001);
+        let len = (dx * dx + dy * dy).nexus_sqrt().max(0.001);
         let nx = -dy / len * half;
         let ny = dx / len * half;
 

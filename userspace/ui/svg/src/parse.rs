@@ -1,8 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-use std::str::Chars;
+use hashbrown::HashMap;
+use core::str::Chars;
+use alloc::string::String as AString;
+use alloc::string::String;
+use alloc::vec::Vec;
+use alloc::string::ToString;
+use alloc::vec::Vec as AVec;
 
 use crate::elements::{
     Color, FillRule, GradientStop, Paint, PathCommand, PathData, SvgDocument, SvgElement, Transform,
@@ -16,15 +21,15 @@ use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES};
 
 #[derive(Debug, Clone, PartialEq)]
 enum XmlToken {
-    /// Start tag: <name attr="val">
-    OpenTag { name: String, attrs: Vec<(String, String)> },
-    /// Self-closing tag: <name attr="val" />
-    SelfCloseTag { name: String, attrs: Vec<(String, String)> },
-    /// Closing tag: </name>
-    CloseTag { name: String },
-    /// Text content between tags
+    // Start tag: <name attr="val">
+    OpenTag { name: AString, attrs: AVec<(String, String)> },
+    // Self-closing tag: <name attr="val" />
+    SelfCloseTag { name: AString, attrs: AVec<(String, String)> },
+    // Closing tag: </name>
+    CloseTag { name: AString },
+    // Text content between tags
     Text(String),
-    /// End of input
+    // End of input
     Eof,
 }
 
@@ -68,8 +73,8 @@ impl<'a> Tokenizer<'a> {
         SvgError::XmlParse { line: self.line, col: self.col, message: message.to_string() }
     }
 
-    fn read_until(&mut self, stop: char) -> String {
-        let mut result = String::new();
+    fn read_until(&mut self, stop: char) -> AString {
+        let mut result = AString::new();
         while let Some(c) = self.current {
             if c == stop {
                 break;
@@ -80,8 +85,8 @@ impl<'a> Tokenizer<'a> {
         result
     }
 
-    fn read_name(&mut self) -> String {
-        let mut result = String::new();
+    fn read_name(&mut self) -> AString {
+        let mut result = AString::new();
         while let Some(c) = self.current {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':' {
                 result.push(c);
@@ -99,7 +104,7 @@ impl<'a> Tokenizer<'a> {
             return Err(self.error("expected quote character"));
         }
         self.advance(); // skip opening quote
-        let mut result = String::new();
+        let mut result = AString::new();
         while let Some(c) = self.current {
             if c == quote {
                 self.advance(); // skip closing quote
@@ -168,7 +173,7 @@ impl<'a> Tokenizer<'a> {
                     }
                     _ => {
                         let name = self.read_name();
-                        let mut attrs = Vec::new();
+                        let mut attrs = AVec::new();
                         loop {
                             self.skip_whitespace();
                             match self.current {
@@ -202,7 +207,7 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             Some(_) => {
-                let mut text = String::new();
+                let mut text = AString::new();
                 while let Some(c) = self.current {
                     if c == '<' {
                         break;
@@ -224,14 +229,14 @@ impl<'a> Tokenizer<'a> {
 // SVG Element Parser
 // ---------------------------------------------------------------------------
 
-/// Parse an SVG string into an `SvgDocument`.
+// Parse an SVG string into an `SvgDocument`.
 pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
     let mut tokenizer = Tokenizer::new(input);
     let mut node_count = 0;
     let mut segments = 0;
 
     let mut root: Option<SvgDocument> = None;
-    let mut stack: Vec<(String, Vec<SvgElement>)> = Vec::new();
+    let mut stack: AVec<(String, Vec<SvgElement>)> = AVec::new();
     let mut defs: HashMap<String, SvgElement> = HashMap::new();
 
     loop {
@@ -253,13 +258,13 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                         root = Some(SvgDocument {
                             width: w,
                             height: h,
-                            elements: Vec::new(),
+                            elements: AVec::new(),
                             defs: HashMap::new(),
                         });
-                        stack.push((tag_lower, Vec::new()));
+                        stack.push((tag_lower, AVec::new()));
                     }
                     "defs" => {
-                        stack.push((tag_lower, Vec::new()));
+                        stack.push((tag_lower, AVec::new()));
                     }
                     _ => {
                         let elem = parse_element(
@@ -467,7 +472,7 @@ fn parse_element(
     let stroke_width = parse_f32_attr(attrs, "stroke-width").unwrap_or(1.0);
 
     match tag {
-        "g" => Ok(SvgElement::Group { children: Vec::new(), transform, opacity }),
+        "g" => Ok(SvgElement::Group { children: AVec::new(), transform, opacity }),
         "path" => {
             let d_str = get_attr(attrs, "d").unwrap_or("");
             let data = parse_path_data(d_str, segments)?;
@@ -538,7 +543,7 @@ fn parse_element(
             let y2 = parse_f32_attr(attrs, "y2").unwrap_or(0.0);
 
             // Collect <stop> children
-            let mut stops = Vec::new();
+            let mut stops = AVec::new();
             loop {
                 let child = tokenizer.next_token()?;
                 match child {
@@ -593,7 +598,7 @@ fn parse_element(
             let color_str = get_attr(attrs, "stop-color").unwrap_or("#000");
             let color = parse_color(color_str);
             Ok(SvgElement::LinearGradient {
-                id: String::new(),
+                id: AString::new(),
                 x1: 0.0,
                 y1: 0.0,
                 x2: 0.0,
@@ -671,7 +676,7 @@ fn parse_transform_attr(attrs: &[(String, String)]) -> Option<Transform> {
     let val = val.trim();
     if val.starts_with("translate(") {
         let args = val.trim_start_matches("translate(").trim_end_matches(')');
-        let parts: Vec<f32> = args
+        let parts: AVec<f32> = args
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
             .filter_map(|s| s.parse::<f32>().ok())
             .collect();
@@ -682,7 +687,7 @@ fn parse_transform_attr(attrs: &[(String, String)]) -> Option<Transform> {
         }
     } else if val.starts_with("scale(") {
         let args = val.trim_start_matches("scale(").trim_end_matches(')');
-        let parts: Vec<f32> = args
+        let parts: AVec<f32> = args
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
             .filter_map(|s| s.parse::<f32>().ok())
             .collect();
@@ -701,7 +706,7 @@ fn parse_transform_attr(attrs: &[(String, String)]) -> Option<Transform> {
         t = Transform::rotate(angle);
     } else if val.starts_with("matrix(") {
         let args = val.trim_start_matches("matrix(").trim_end_matches(')');
-        let parts: Vec<f32> = args
+        let parts: AVec<f32> = args
             .split(|c: char| c == ',' || c.is_ascii_whitespace())
             .filter_map(|s| s.parse::<f32>().ok())
             .collect();
@@ -725,7 +730,7 @@ fn parse_transform_attr(attrs: &[(String, String)]) -> Option<Transform> {
 // ---------------------------------------------------------------------------
 
 fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
-    let mut commands = Vec::new();
+    let mut commands = AVec::new();
     let mut chars = d_str.chars().peekable();
     let fill_rule = FillRule::NonZero;
 
@@ -868,23 +873,23 @@ fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
     Ok(PathData { commands, fill_rule })
 }
 
-fn parse_two_floats(chars: &mut std::iter::Peekable<Chars>) -> (f32, f32) {
+fn parse_two_floats(chars: &mut core::iter::Peekable<Chars>) -> (f32, f32) {
     let a = parse_float(chars);
     let b = parse_float(chars);
     (a, b)
 }
 
-fn try_parse_two_floats(chars: &mut std::iter::Peekable<Chars>) -> Option<(f32, f32)> {
+fn try_parse_two_floats(chars: &mut core::iter::Peekable<Chars>) -> Option<(f32, f32)> {
     let a = try_parse_float(chars)?;
     let b = try_parse_float(chars)?;
     Some((a, b))
 }
 
-fn parse_float(chars: &mut std::iter::Peekable<Chars>) -> f32 {
+fn parse_float(chars: &mut core::iter::Peekable<Chars>) -> f32 {
     try_parse_float(chars).unwrap_or(0.0)
 }
 
-fn try_parse_float(chars: &mut std::iter::Peekable<Chars>) -> Option<f32> {
+fn try_parse_float(chars: &mut core::iter::Peekable<Chars>) -> Option<f32> {
     // Skip whitespace and commas
     while let Some(&c) = chars.peek() {
         if c.is_ascii_whitespace() || c == ',' {
@@ -894,7 +899,7 @@ fn try_parse_float(chars: &mut std::iter::Peekable<Chars>) -> Option<f32> {
         }
     }
 
-    let mut buf = String::new();
+    let mut buf = AString::new();
     let mut has_digit = false;
 
     // Optional sign
@@ -952,7 +957,7 @@ fn try_parse_float(chars: &mut std::iter::Peekable<Chars>) -> Option<f32> {
 // ---------------------------------------------------------------------------
 
 fn parse_points(s: &str) -> SvgResult<Vec<(f32, f32)>> {
-    let mut points = Vec::new();
+    let mut points = AVec::new();
     let mut chars = s.chars().peekable();
     while let Some((x, y)) = try_parse_two_floats(&mut chars) {
         points.push((x, y));

@@ -23,6 +23,10 @@ mod ids;
 mod legacy;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod assets;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod render_assets;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod os_lite;
 mod server;
 mod smoke;

@@ -33,6 +33,12 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     })
     .map_err(|_| "windowd: init fail window-server")?;
     window.enable_fastpath();
+
+    // --- TASK-0057: Load embedded cursor SVG asset ---
+    if let Some((_cw, _ch, _cbuf)) = crate::render_assets::render_cursor_left_ptr() {
+        let _ = debug_println(crate::markers::CURSOR_SVG_LOADED_MARKER);
+    }
+
     let _ = debug_println(READY_MARKER);
     loop {
         match server.recv_request_with_meta(Wait::NonBlocking) {

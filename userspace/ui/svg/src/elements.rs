@@ -1,22 +1,25 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
+use crate::math::F32Math;
+use alloc::string::String as AString;
+use alloc::vec::Vec as AVec;
 
 /// Parsed SVG document.
 #[derive(Debug, Clone)]
 pub struct SvgDocument {
     pub width: f32,
     pub height: f32,
-    pub elements: Vec<SvgElement>,
-    pub defs: HashMap<String, SvgElement>,
+    pub elements: AVec<SvgElement>,
+    pub defs: HashMap<AString, SvgElement>,
 }
 
 /// An SVG element in the parsed tree.
 #[derive(Debug, Clone)]
 pub enum SvgElement {
     Group {
-        children: Vec<SvgElement>,
+        children: AVec<SvgElement>,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -73,7 +76,7 @@ pub enum SvgElement {
         opacity: f32,
     },
     Polygon {
-        points: Vec<(f32, f32)>,
+        points: AVec<(f32, f32)>,
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
@@ -81,12 +84,12 @@ pub enum SvgElement {
         opacity: f32,
     },
     LinearGradient {
-        id: String,
+        id: AString,
         x1: f32,
         y1: f32,
         x2: f32,
         y2: f32,
-        stops: Vec<GradientStop>,
+        stops: AVec<GradientStop>,
     },
 }
 
@@ -102,7 +105,7 @@ pub struct GradientStop {
 pub enum Paint {
     Color(Color),
     /// Reference to a gradient by ID (internal only).
-    GradientRef(String),
+    GradientRef(AString),
     None,
 }
 
@@ -123,7 +126,7 @@ impl Color {
 /// Parsed SVG path data.
 #[derive(Debug, Clone)]
 pub struct PathData {
-    pub commands: Vec<PathCommand>,
+    pub commands: AVec<PathCommand>,
     pub fill_rule: FillRule,
 }
 
@@ -181,8 +184,8 @@ impl Transform {
     }
 
     pub fn rotate(angle_deg: f32) -> Self {
-        let rad = angle_deg.to_radians();
-        let (s, c) = rad.sin_cos();
+        let rad = angle_deg.nexus_to_radians();
+        let (s, c) = rad.nexus_sin_cos();
         Transform { a: c, b: s, c: -s, d: c, e: 0.0, f: 0.0 }
     }
 

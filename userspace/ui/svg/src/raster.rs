@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
+
 use crate::elements::SvgDocument;
 use crate::limits::OUTPUT_BYTES_PER_PIXEL;
 use crate::tessellate::{tessellate_document, Edge};
@@ -15,8 +17,8 @@ pub struct RasterOutput {
 
 /// Rasterize an SVG document to a BGRA8888 buffer.
 pub fn rasterize_document(doc: &SvgDocument) -> Result<RasterOutput, crate::error::SvgError> {
-    let width = doc.width.ceil() as u32;
-    let height = doc.height.ceil() as u32;
+    let width = (doc.width + 0.99999_f32) as u32;
+    let height = (doc.height + 0.99999_f32) as u32;
 
     if width == 0 || height == 0 {
         return Ok(RasterOutput { width, height, buffer: Vec::new() });
@@ -46,8 +48,8 @@ fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
         max_y = max_y.max(e.y1);
     }
 
-    let y_start = (min_y.floor() as isize).max(0) as usize;
-    let y_end = (max_y.ceil() as isize).min(h as isize - 1) as usize;
+    let y_start = (min_y as isize).max(0) as usize;
+    let y_end = ((max_y as isize) + 1).min(h as isize - 1) as usize;
 
     // Sort edges by y0 for active edge management
     let mut sorted_edges: Vec<&Edge> = edges.iter().collect();
