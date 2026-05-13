@@ -1,0 +1,45 @@
+[theme]
+name = "highcontrast"
+version = 1
+
+[tokens]
+accent = "#60a5fa"
+accentFg = "#000000"
+bg = "#000000"
+fg = "#ffffff"
+surface = "#1a1a1a"
+surfaceAlt = "#2a2a2a"
+border = "#ffffff"
+divider = "#cccccc"
+muted = "#cccccc"
+mutedFg = "#ffffff"
+danger = "#ff4444"
+dangerFg = "#000000"
+warning = "#ffaa00"
+warningFg = "#000000"
+success = "#44ff44"
+successFg = "#000000"
+focusRing = "#ffffff"
+
+[material.surface]
+type = "opaque"
+
+[material.glassLow]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.5
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+
+[material.glassHigh]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.5
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 0.15

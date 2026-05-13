@@ -22,6 +22,7 @@
 //! ADR: docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md
 
 pub mod damage;
+pub mod draw;
 pub mod error;
 pub mod font;
 pub mod frame;

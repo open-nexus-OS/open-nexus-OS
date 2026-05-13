@@ -3,7 +3,7 @@ title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shap
 status: In Progress
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-12
+updated: 2026-05-13
 depends-on:
   - TASK-0054
   - TASK-0056

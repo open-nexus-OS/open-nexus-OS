@@ -1,13 +1,11 @@
 [package]
-name = "ui_renderer"
+name = "nexus-cursor"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-nexus-image = { path = "../image" }
 nexus-svg = { path = "../svg" }
-nexus-shape = { path = "../shape" }
 
 [lib]
 path = "src/lib.rs"

@@ -1,0 +1,39 @@
+[theme]
+name = "dark"
+version = 1
+
+[tokens]
+accent = "#60a5fa"
+accentFg = "#1a1a2e"
+bg = "#0f172a"
+fg = "#e2e8f0"
+surface = "#1e293b"
+surfaceAlt = "#334155"
+border = "#334155"
+divider = "#475569"
+muted = "#64748b"
+mutedFg = "#94a3b8"
+focusRing = "#60a5fa"
+
+[material.surface]
+type = "opaque"
+
+[material.glassLow]
+type = "glass"
+blurRadiusDp = 8
+downsampleFactor = 4
+tintColor = "#000000"
+tintAlpha = 0.3
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.08
+
+[material.glassHigh]
+type = "glass"
+blurRadiusDp = 16
+downsampleFactor = 2
+tintColor = "#000000"
+tintAlpha = 0.2
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.05
+borderColor = "#ffffff"
+borderAlpha = 0.05

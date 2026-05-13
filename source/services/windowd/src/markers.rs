@@ -59,6 +59,16 @@ pub const IDLE_FASTPATH_OK_MARKER: &str = "windowd: idle fastpath ok";
 pub const CLICK_LATENCY_OK_MARKER: &str = "windowd: click latency ok";
 pub const KEYBOARD_LATENCY_OK_MARKER: &str = "windowd: keyboard latency ok";
 
+// --- TASK-0057 / RFC-0056: UI v2b asset markers ---
+/// Fired by windowd when a BreezeX SVG cursor asset is successfully loaded.
+pub const CURSOR_SVG_LOADED_MARKER: &str = "windowd: cursor svg loaded";
+/// Fired by windowd when a text target (shaped glyphs) is visible on the proof surface.
+pub const TEXT_TARGET_VISIBLE_MARKER: &str = "windowd: text target visible";
+/// Fired by windowd when an SVG icon target is visible on the proof surface.
+pub const ICON_TARGET_VISIBLE_MARKER: &str = "windowd: icon target visible";
+/// Observer summary: all v2b asset targets verified.
+pub const SELFTEST_UI_V2B_ASSETS_OK_MARKER: &str = "SELFTEST: ui v2b assets ok";
+
 pub fn present_marker(ack: PresentAck) -> String {
     format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
 }

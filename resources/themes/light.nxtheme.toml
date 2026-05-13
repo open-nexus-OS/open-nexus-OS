@@ -1,0 +1,39 @@
+[theme]
+name = "light"
+version = 1
+
+[tokens]
+accent = "#2563eb"
+accentFg = "#ffffff"
+bg = "#fafafa"
+fg = "#171717"
+surface = "#ffffff"
+surfaceAlt = "#f5f5f5"
+border = "#e5e5e5"
+divider = "#d4d4d4"
+muted = "#a3a3a3"
+mutedFg = "#737373"
+focusRing = "#2563eb"
+
+[material.surface]
+type = "opaque"
+
+[material.glassLow]
+type = "glass"
+blurRadiusDp = 8
+downsampleFactor = 4
+tintColor = "#ffffff"
+tintAlpha = 0.35
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.18
+
+[material.glassHigh]
+type = "glass"
+blurRadiusDp = 16
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.25
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.12
+borderColor = "#ffffff"
+borderAlpha = 0.1

@@ -1,0 +1,45 @@
+[theme]
+name = "base"
+version = 1
+
+[tokens]
+accent = "#3b82f6"
+accentFg = "#ffffff"
+bg = "#ffffff"
+fg = "#1a1a2e"
+surface = "#f8f9fa"
+surfaceAlt = "#e9ecef"
+border = "#e2e8f0"
+divider = "#cbd5e1"
+muted = "#94a3b8"
+mutedFg = "#64748b"
+danger = "#ef4444"
+dangerFg = "#ffffff"
+warning = "#f59e0b"
+warningFg = "#1a1a2e"
+success = "#22c55e"
+successFg = "#ffffff"
+focusRing = "#3b82f6"
+
+[material.surface]
+type = "opaque"
+
+[material.glassLow]
+type = "glass"
+blurRadiusDp = 8
+downsampleFactor = 4
+tintColor = "#ffffff"
+tintAlpha = 0.3
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.15
+
+[material.glassHigh]
+type = "glass"
+blurRadiusDp = 16
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.2
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.1
+borderColor = "#ffffff"
+borderAlpha = 0.08

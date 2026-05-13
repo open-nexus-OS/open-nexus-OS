@@ -100,7 +100,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0053: Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) contract seed (Done; execution SSOT `TASK-0253` is Done, focused proofs and full broad closure gates are green)
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; driver ownership, cooperative polling, explicit ingress/adapter truth, and negative-test coverage are landed for the real live-QEMU path)
 - RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Complete; execution SSOT `TASK-0056C` is Done with all phases and quality gates green)
-- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Draft; execution SSOT `TASK-0057`)
+- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (In Progress; execution SSOT `TASK-0057`, all host phases green, QEMU markers wired)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
 - RFC-0042: Sandboxing v1 userspace confinement contract seed (namespace confinement + CapFd authenticity/replay reject + manifest permission bootstrap)
@@ -216,5 +216,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0054: Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) contract seed (Done; execution SSOT stays `TASK-0253`, and the minimal driver layer plus MMIO ownership contract are now landed and verified)
   - docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md
 - RFC-0055: UI v2a embedded reactor/runtime floor + present/input perf contract seed (Complete; execution SSOT `TASK-0056C` is Done with all phases and quality gates green)
-- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Draft)
+- RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (In Progress)
   - docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md
