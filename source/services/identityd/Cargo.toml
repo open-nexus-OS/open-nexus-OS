@@ -8,6 +8,9 @@ license = "Apache-2.0"
 default = ["idl-capnp"]
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 identity = { path = "../../../userspace/identity" }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime" }

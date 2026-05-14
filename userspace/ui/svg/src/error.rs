@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use core::fmt;
 
 /// Result type alias for SVG operations.

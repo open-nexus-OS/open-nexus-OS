@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use hashbrown::HashMap;
 use crate::math::F32Math;
 use alloc::string::String as AString;
 use alloc::vec::Vec as AVec;
+use hashbrown::HashMap;
 
 /// Parsed SVG document.
 #[derive(Debug, Clone)]

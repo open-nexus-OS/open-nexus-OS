@@ -12,6 +12,9 @@ path = "src/lib.rs"
 default = []
 os-lite = ["dep:nexus-abi", "dep:nexus-service-entry"]
 
+[package.metadata.nexus-service]
+stack_pages = 1
+
 [dependencies]
 touch = { path = "../../../userspace/touch" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }

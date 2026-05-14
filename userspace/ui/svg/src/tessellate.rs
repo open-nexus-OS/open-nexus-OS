@@ -444,7 +444,7 @@ fn rect_segments(
 
     if rx <= 0.0 || ry <= 0.0 {
         // Simple rectangle
-        let corners = vec![
+        let corners = [
             (x, y),
             (x + w, y),
             (x + w, y + h),
@@ -460,8 +460,7 @@ fn rect_segments(
 
     // Top edge + top-right corner
     for i in 0..=segments_per_corner {
-        let angle = consts::PI * 1.5
-            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI * 1.5 + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + w - rx;
         let cy = y + ry;
         pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
@@ -475,16 +474,14 @@ fn rect_segments(
     }
     // Bottom edge + bottom-left corner
     for i in 1..=segments_per_corner {
-        let angle = consts::PI * 0.5
-            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI * 0.5 + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + rx;
         let cy = y + h - ry;
         pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
     }
     // Left edge + top-left corner
     for i in 1..segments_per_corner {
-        let angle = consts::PI
-            + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
+        let angle = consts::PI + consts::FRAC_PI_2 * i as f32 / segments_per_corner as f32;
         let cx = x + rx;
         let cy = y + ry;
         pts.push((cx + rx * angle.nexus_cos(), cy + ry * angle.nexus_sin()));
@@ -521,6 +518,7 @@ fn ellipse_segments(cx: f32, cy: f32, rx: f32, ry: f32, tf: &Transform) -> Vec<(
 // Bezier curve segment approximation
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn cubic_bezier_segments(
     x0: f32,
     y0: f32,

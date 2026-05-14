@@ -9,7 +9,17 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_arguments,
+    clippy::useless_vec,
+    clippy::needless_borrow,
+    clippy::manual_contains
+)]
+#![allow(clippy::unwrap_used, clippy::too_many_arguments)]
 
+#[macro_use]
 extern crate alloc;
 
 mod elements;

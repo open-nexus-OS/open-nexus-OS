@@ -212,7 +212,7 @@ fn rewrite_manifest_with_digests(
 
 fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     use capnp::message::Builder;
-    use nexus_idl_runtime::manifest_capnp::bundle_manifest;
+    use nexus_idl_runtime::manifest_capnp::{self as mf, bundle_manifest};
     use toml::Value;
 
     fn req_str<'a>(
@@ -283,14 +283,32 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         .into());
     }
 
+    // v2.0: bundle type (default app for backward compat)
+    let bundle_type = match opt_str(table, "bundle_type").unwrap_or("app") {
+        "app" => mf::BundleType::App,
+        "service" => mf::BundleType::Service,
+        "library" => mf::BundleType::Library,
+        "driver" => mf::BundleType::Driver,
+        "framework" => mf::BundleType::Framework,
+        other => return Err(format!("manifest.toml unknown bundle_type: {other}").into()),
+    };
+
+    // v2.0: dependencies
+    let deps_toml = opt_str_array(table, "dependencies")?;
+    // v2.0: provided services
+    let provides = opt_str_array(table, "provides")?;
+    // v2.0: resources
+    let res_toml = opt_str_array(table, "resources")?;
+
     let mut builder = Builder::new_default();
     let mut msg = builder.init_root::<bundle_manifest::Builder>();
-    msg.set_schema_version(1);
+    msg.set_schema_version(2);
     msg.set_name(name);
     msg.set_semver(semver);
     msg.set_min_sdk(min_sdk);
     msg.set_publisher(&publisher);
     msg.set_signature(&signature);
+    msg.set_bundle_type(bundle_type);
 
     {
         let mut a = msg.reborrow().init_abilities(abilities.len() as u32);
@@ -302,6 +320,49 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         let mut c = msg.reborrow().init_capabilities(capabilities.len() as u32);
         for (i, s) in capabilities.iter().enumerate() {
             c.set(i as u32, s);
+        }
+    }
+    // v2.0: dependencies (simple name-only format: "name" or "name@^1.0")
+    {
+        let mut deps = msg.reborrow().init_dependencies(deps_toml.len() as u32);
+        for (i, dep_str) in deps_toml.iter().enumerate() {
+            let (dep_name, dep_ver) = if let Some(at) = dep_str.find('@') {
+                (&dep_str[..at], &dep_str[at + 1..])
+            } else {
+                (dep_str.as_str(), "*")
+            };
+            let mut dep = deps.reborrow().get(i as u32);
+            dep.set_name(dep_name);
+            dep.set_version_constraint(dep_ver);
+        }
+    }
+    // v2.0: provided services
+    {
+        let mut p = msg.reborrow().init_provided_services(provides.len() as u32);
+        for (i, s) in provides.iter().enumerate() {
+            p.set(i as u32, s);
+        }
+    }
+    // v2.0: resources (format: "kind:path", e.g. "icon:icons/app.svg")
+    {
+        let mut r = msg.reborrow().init_resources(res_toml.len() as u32);
+        for (i, res_str) in res_toml.iter().enumerate() {
+            let (kind_str, res_path) = if let Some(colon) = res_str.find(':') {
+                (&res_str[..colon], &res_str[colon + 1..])
+            } else {
+                ("data", res_str.as_str())
+            };
+            let kind = match kind_str {
+                "icon" => mf::ResourceKind::Icon,
+                "cursor" => mf::ResourceKind::Cursor,
+                "font" => mf::ResourceKind::Font,
+                "wallpaper" => mf::ResourceKind::Wallpaper,
+                "sound" => mf::ResourceKind::Sound,
+                _ => mf::ResourceKind::Data,
+            };
+            let mut res = r.reborrow().get(i as u32);
+            res.set_path(res_path);
+            res.set_kind(kind);
         }
     }
 
@@ -319,6 +380,10 @@ version = "0.0.0"
 abilities = ["demo"]
 caps = []
 min_sdk = "0.1.0"
+bundle_type = "app"
+dependencies = []
+provides = []
+resources = []
 publisher = "00000000000000000000000000000000"
 sig = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 "#;

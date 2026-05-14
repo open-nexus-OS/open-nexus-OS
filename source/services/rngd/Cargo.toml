@@ -17,6 +17,9 @@ os-lite = [
     "rng-virtio/os-lite",
 ]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 thiserror = { version = "2", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

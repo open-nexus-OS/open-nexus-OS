@@ -24,6 +24,9 @@ os-lite = [
 [lib]
 path = "src/lib.rs"
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }

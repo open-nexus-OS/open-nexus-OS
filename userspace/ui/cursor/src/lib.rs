@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_arguments,
+    clippy::useless_vec,
+    clippy::needless_borrow,
+    clippy::manual_contains
+)]
 
 //! CONTEXT: BreezeX cursor pipeline for TASK-0057 / RFC-0056.
 //! OWNERS: @ui

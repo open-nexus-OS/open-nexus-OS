@@ -12,6 +12,9 @@ path = "src/lib.rs"
 default = []
 os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry"]
 
+[package.metadata.nexus-service]
+stack_pages = 1
+
 [dependencies]
 hid = { path = "../../../userspace/hid" }
 hidrawd = { path = "../hidrawd" }

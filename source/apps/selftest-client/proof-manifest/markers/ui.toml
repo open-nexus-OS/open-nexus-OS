@@ -264,3 +264,17 @@ proves = "interactive start rendered the right keyboard target for manual debugg
 [marker."windowd: interactive full markers on"]
 phase = "end"
 proves = "interactive start selected the richer breadcrumb ladder used by `just start`, not the deterministic proof ladder"
+
+[marker."windowd: cursor svg loaded"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd loaded and rasterized the Mocu SVG cursor asset into a visible surface"
+
+[marker."SELFTEST: ui v2b assets ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed the UI v2b asset pipeline (cursor + icons + fonts) loaded and visible"
+[marker."fbdevd: cursor overlay on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "fbdevd blended the cursor bitmap at least once during live framebuffer writes"

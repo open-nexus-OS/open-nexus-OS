@@ -33,3 +33,7 @@ skip = [
     { name = "windows-sys", version = "0.61" },
 ]
 
+
+[[bans.skip]]
+name = "ttf-parser"
+reason = "fontdue 0.9 uses 0.21, nexus-shape needs 0.24 for set_variation()"

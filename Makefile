@@ -71,7 +71,8 @@ ifeq ($(MODE),container)
 		  else \
 		    RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" $(CARGO_BIN) test --workspace --exclude neuron --exclude neuron-boot --no-run; \
 		  fi && \
-		  echo "[1b/2] cross-compile OS services (riscv64, --release) — full DEFAULT_SERVICE_LIST"; \
+		  echo "[1b/2] cross-compile OS services (riscv64, --release) — auto-discovered via cargo metadata"; \
+		  SVC_BUILD_ARGS=$$(scripts/discover-services.sh --build-args); \ \
 		  # CRITICAL: services MUST be --release so they land under \
 		  #   target/riscv64imac-unknown-none-elf/release/<svc> \
 		  # which matches the INIT_LITE_SERVICE_<NAME>_ELF paths set in step \
@@ -81,15 +82,11 @@ ifeq ($(MODE),container)
 		  # release path. Locally it can mask itself when prior `just test-os` \
 		  # runs already populated `release/`. \
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build \
-		    -p keystored -p rngd -p policyd -p logd -p metricsd \
-		    -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
-		    -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
-		    -p hidrawd -p touchd -p inputd -p fbdevd \
-		    -p selftest-client \
+		    $${SVC_BUILD_ARGS} \
 		    --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --release && \
 		  echo "[1c/2] RFC-0009 dep-gate (OS graph)"; \
 		  forbidden="parking_lot parking_lot_core getrandom"; \
-		  services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd hidrawd touchd inputd fbdevd"; \
+		  services=$$(scripts/discover-services.sh --dep-gate-list | xargs); \
 		  found=0; \
 		  for svc in $$services; do \
 		    tree_output=$$($(CARGO_BIN) +$(NIGHTLY) tree -p "$$svc" --target riscv64imac-unknown-none-elf --no-default-features --features os-lite 2>&1 || true); \
@@ -101,13 +98,8 @@ ifeq ($(MODE),container)
 		  RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p nexus-init --lib --target riscv64imac-unknown-none-elf --no-default-features --features os-lite && \
                   RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release && \
 		  echo "[1d/2] build init-lite with INIT_LITE_SERVICE_*_ELF env vars (bakes service ELFs into init-lite)"; \
-		  svc_env=""; \
-		  for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd fbdevd selftest-client; do \
-		    upper=$$(echo "$$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
-		    svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_ELF=/workspace/target/riscv64imac-unknown-none-elf/release/$$svc"; \
-		    case "$$svc" in hidrawd|touchd|inputd|fbdevd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
-		  done; \
-		  env $$svc_env RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p init-lite --target riscv64imac-unknown-none-elf --release && \
+		  svc_env=$$(scripts/discover-services.sh --env-vars); \
+		  env $${svc_env} RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"" $(CARGO_BIN) +$(NIGHTLY) build -p init-lite --target riscv64imac-unknown-none-elf --release && \
 		  echo "[2/2] cross build kernel (riscv) — embeds init-lite via EMBED_INIT_ELF"; \
 		  rustup toolchain list | grep -q "$(NIGHTLY)" || rustup toolchain install "$(NIGHTLY)" --profile minimal; \
 		  rustup component add rust-src --toolchain "$(NIGHTLY)"; \
@@ -134,12 +126,10 @@ else
 	@# with "No such file or directory" on the release path; locally a
 	@# previous `just test-os` can mask the bug because it had already
 	@# populated `release/`.
-	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build \
-	  -p keystored -p rngd -p policyd -p logd -p metricsd \
-	  -p samgrd -p bundlemgrd -p statefsd -p updated -p timed \
-	  -p packagefsd -p vfsd -p execd -p netstackd -p dsoftbusd \
-	  -p hidrawd -p touchd -p inputd -p fbdevd \
-	  -p selftest-client \
+	@echo "==> Discovering services via cargo metadata"
+	@SVC_BUILD_ARGS=$$(scripts/discover-services.sh --build-args); \
+	RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build \
+	  $${SVC_BUILD_ARGS} \
 	  --target $(RV_TARGET) --no-default-features --features os-lite --release
 	@$(MAKE) dep-gate
 	@RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p nexus-init --lib --target $(RV_TARGET) --no-default-features --features os-lite
@@ -149,13 +139,8 @@ else
 	@# the service list and include_bytes! the ELF into the init-lite binary.
 	@# Without these env vars, init-lite is built with NO services embedded and
 	@# the kernel boots into a userspace that immediately page-faults.
-	@svc_env=""; \
-	 for svc in keystored rngd policyd logd metricsd samgrd bundlemgrd statefsd updated timed packagefsd vfsd execd netstackd dsoftbusd hidrawd touchd inputd fbdevd selftest-client; do \
-	   upper=$$(echo "$$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
-	   svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_ELF=$(CURDIR)/$(TARGET_DIR)/$(RV_TARGET)/release/$$svc"; \
-	   case "$$svc" in hidrawd|touchd|inputd|fbdevd) svc_env="$$svc_env INIT_LITE_SERVICE_$${upper}_STACK_PAGES=1" ;; esac; \
-	 done; \
-	 env $$svc_env RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p init-lite --target $(RV_TARGET) --release
+	@svc_env=$$(scripts/discover-services.sh --env-vars); \
+	 env $${svc_env} RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo +$(NIGHTLY) build -p init-lite --target $(RV_TARGET) --release
 	@echo "==> Cross-building kernel (neuron-boot) with EMBED_INIT_ELF=$(INIT_ELF)"
 	@# CRITICAL: neuron-boot's build.rs reads $$EMBED_INIT_ELF and bakes the
 	@# init-lite ELF into the kernel image. Without this env var the kernel

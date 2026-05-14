@@ -27,6 +27,12 @@ pub struct FbdevService {
     display_enabled: bool,
     scanout: DisplayScanout,
     windowd_telemetry: WindowdDisplayTelemetry,
+    /// Cursor BGRA8888 bitmap from windowd bootstrap (None if not loaded).
+    cursor_bitmap: Option<alloc::vec::Vec<u8>>,
+    /// Cursor width in pixels.
+    cursor_width: u32,
+    /// Cursor height in pixels.
+    cursor_height: u32,
 }
 
 impl FbdevService {
@@ -38,6 +44,9 @@ impl FbdevService {
             display_enabled: false,
             scanout: DisplayScanout::new(),
             windowd_telemetry: WindowdDisplayTelemetry::default(),
+            cursor_bitmap: None,
+            cursor_width: 0,
+            cursor_height: 0,
         }
     }
 
@@ -57,6 +66,9 @@ impl FbdevService {
             display_enabled: true,
             scanout,
             windowd_telemetry: WindowdDisplayTelemetry::default(),
+            cursor_bitmap: bootstrap.cursor_bitmap.clone(),
+            cursor_width: bootstrap.cursor_width,
+            cursor_height: bootstrap.cursor_height,
         };
         let _ = service.present(bootstrap)?;
         Ok(service)
@@ -72,6 +84,11 @@ impl FbdevService {
 
     pub const fn render_state(&self) -> VisibleState {
         self.render_state
+    }
+
+    /// Returns the cursor bitmap and dimensions, if loaded.
+    pub fn cursor_overlay(&self) -> Option<(&[u8], u32, u32)> {
+        self.cursor_bitmap.as_ref().map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
     }
 
     pub fn observer_ready(&self) -> bool {

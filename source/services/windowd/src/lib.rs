@@ -13,6 +13,8 @@
 
 extern crate alloc;
 
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod assets;
 mod buffer;
 mod cli;
 mod display_backend;
@@ -23,11 +25,9 @@ mod ids;
 mod legacy;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod assets;
+mod os_lite;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod os_lite;
 mod server;
 mod smoke;
 mod telemetry;

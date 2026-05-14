@@ -108,6 +108,13 @@ pub struct VisibleSystemUiEvidence {
     pub ready: bool,
     pub backend_visible: bool,
     pub systemui_first_frame: bool,
+    pub cursor_surface_created: bool,
+    /// Cursor BGRA8888 pixel data, if cursor was loaded and rasterized.
+    pub cursor_bitmap: Option<alloc::vec::Vec<u8>>,
+    /// Cursor width in pixels.
+    pub cursor_width: u32,
+    /// Cursor height in pixels.
+    pub cursor_height: u32,
     pub mode: VisibleBootstrapMode,
     pub first_present: PresentAck,
     pub frame_source: SurfaceBuffer,
@@ -451,11 +458,68 @@ pub fn run_visible_systemui_smoke() -> Result<VisibleSystemUiEvidence> {
         surface.clone(),
         &[Rect::new(0, 0, surface.width, surface.height)],
     )?;
-    server.commit_scene(
-        CallerCtx::system(),
-        CommitSeq::new(1),
-        &[Layer { surface: surface_id, x: 0, y: 0, z: 0 }],
-    )?;
+    // --- TASK-0057: Create cursor surface as overlay layer ---
+    let cursor_surface_created: bool;
+    let cursor_bitmap: Option<alloc::vec::Vec<u8>>;
+    let cursor_width: u32;
+    let cursor_height: u32;
+    #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+    {
+        let cursor_caller = CallerCtx::system();
+        let render_result = crate::render_assets::render_cursor_surface(cursor_caller);
+        cursor_surface_created = if let Some(ref cursor_buf) = render_result {
+            if let Ok(cursor_sid) = server.create_surface(cursor_caller, cursor_buf.clone()) {
+                let _ = server.queue_buffer(
+                    cursor_caller,
+                    cursor_sid,
+                    cursor_buf.clone(),
+                    &[Rect::new(0, 0, cursor_buf.width, cursor_buf.height)],
+                );
+                server
+                    .commit_scene(
+                        CallerCtx::system(),
+                        CommitSeq::new(1),
+                        &[
+                            Layer { surface: surface_id, x: 0, y: 0, z: 0 },
+                            Layer { surface: cursor_sid, x: 100, y: 100, z: 10 },
+                        ],
+                    )
+                    .is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if let Some(cursor_buf) = render_result {
+            cursor_bitmap = Some(cursor_buf.pixels);
+            cursor_width = cursor_buf.width;
+            cursor_height = cursor_buf.height;
+        } else {
+            cursor_bitmap = None;
+            cursor_width = 0;
+            cursor_height = 0;
+        }
+        if !cursor_surface_created {
+            server.commit_scene(
+                CallerCtx::system(),
+                CommitSeq::new(1),
+                &[Layer { surface: surface_id, x: 0, y: 0, z: 0 }],
+            )?;
+        }
+    }
+    #[cfg(not(all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+    {
+        cursor_surface_created = false;
+        cursor_bitmap = None;
+        cursor_width = 0;
+        cursor_height = 0;
+        server.commit_scene(
+            CallerCtx::system(),
+            CommitSeq::new(1),
+            &[Layer { surface: surface_id, x: 0, y: 0, z: 0 }],
+        )?;
+    }
     let first_present = server.present_bootstrap_scanout_tick()?;
     let composed_frame = server.last_frame().cloned();
     #[cfg(not(all(nexus_env = "os", target_os = "none")))]
@@ -471,6 +535,10 @@ pub fn run_visible_systemui_smoke() -> Result<VisibleSystemUiEvidence> {
         backend_visible: mode.width == VISIBLE_BOOTSTRAP_WIDTH
             && mode.height == VISIBLE_BOOTSTRAP_HEIGHT,
         systemui_first_frame: server.systemui_loaded() && systemui_first_frame,
+        cursor_surface_created,
+        cursor_bitmap,
+        cursor_width,
+        cursor_height,
         mode,
         first_present,
         frame_source: surface,

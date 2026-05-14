@@ -27,6 +27,9 @@ os-lite = [
     "statefs/ipc-client",
 ]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 keystore = { path = "../../../userspace/keystore", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }

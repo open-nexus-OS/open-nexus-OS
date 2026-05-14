@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use hashbrown::HashMap;
-use core::str::Chars;
 use alloc::string::String as AString;
 use alloc::string::String;
-use alloc::vec::Vec;
 use alloc::string::ToString;
 use alloc::vec::Vec as AVec;
+use alloc::vec::Vec;
+use core::str::Chars;
+use hashbrown::HashMap;
 
 use crate::elements::{
     Color, FillRule, GradientStop, Paint, PathCommand, PathData, SvgDocument, SvgElement, Transform,
@@ -291,7 +291,7 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                 check_allowed_tag(&tag_lower, tokenizer.line)?;
                 check_attrs(&tag_lower, &attrs, tokenizer.line)?;
 
-                let _elem = parse_element(
+                let elem = parse_element(
                     &tag_lower,
                     &attrs,
                     &mut tokenizer,
@@ -300,9 +300,10 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                     &mut defs,
                 )?;
 
-                // Self-closing elements like <path ... /> have no children,
-                // so we don't need a stack frame. For defs entries, parse_element
-                // already handled them.
+                // Push self-closing element into parent's children
+                if let Some((_, children)) = stack.last_mut() {
+                    children.push(elem);
+                }
             }
             XmlToken::CloseTag { name } => {
                 let tag_lower = name.to_lowercase();

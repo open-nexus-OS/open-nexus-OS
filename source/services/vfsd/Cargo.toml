@@ -32,6 +32,9 @@ os-lite = [
     "dep:nexus-abi",
 ]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 capnp = { version = "0.24", optional = true }
 log = { version = "0.4", optional = true }

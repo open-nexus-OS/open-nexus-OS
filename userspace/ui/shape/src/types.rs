@@ -23,6 +23,85 @@ pub struct GlyphIndex(pub u32);
 pub struct PixelSize(pub u16);
 
 // ---------------------------------------------------------------------------
+// Variable font support
+// ---------------------------------------------------------------------------
+
+/// An OpenType variation axis tag + target coordinate.
+///
+/// Common axes:
+/// - `wght` (weight): 100–900 (400 = Regular, 700 = Bold)
+/// - `wdth` (width): percentage of normal width (100 = normal)
+/// - `slnt` (slant): angle in degrees (0 = upright)
+/// - `ital` (italic): 0 = Roman, 1 = Italic
+/// - `opsz` (optical size): in points
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VariationAxis {
+    /// OpenType axis tag as 4 ASCII bytes (e.g. `b"wght"`).
+    pub tag: [u8; 4],
+    /// Target coordinate value.
+    pub value: f32,
+}
+
+impl VariationAxis {
+    /// Create a new variation axis setting.
+    pub fn new(tag: [u8; 4], value: f32) -> Self {
+        Self { tag, value }
+    }
+
+    /// Weight axis: `wght` (100–900).
+    pub fn weight(value: f32) -> Self {
+        Self::new(*b"wght", value)
+    }
+
+    /// Width axis: `wdth` (percentage, 100 = normal).
+    pub fn width(value: f32) -> Self {
+        Self::new(*b"wdth", value)
+    }
+
+    /// Optical size axis: `opsz` (in points).
+    pub fn optical_size(value: f32) -> Self {
+        Self::new(*b"opsz", value)
+    }
+
+    /// Slant axis: `slnt` (degrees).
+    pub fn slant(value: f32) -> Self {
+        Self::new(*b"slnt", value)
+    }
+}
+
+/// A set of variation axis coordinates to apply to variable fonts.
+///
+/// Applied to all loaded fonts at context creation time. Fonts without
+/// matching axes silently ignore the settings.
+#[derive(Debug, Clone, Default)]
+pub struct VariationSettings {
+    pub axes: Vec<VariationAxis>,
+}
+
+impl VariationSettings {
+    /// Create empty variation settings (use font defaults).
+    pub fn new() -> Self {
+        Self { axes: Vec::new() }
+    }
+
+    /// Add an axis coordinate.
+    pub fn with_axis(mut self, axis: VariationAxis) -> Self {
+        self.axes.push(axis);
+        self
+    }
+
+    /// Convenience: request Regular weight (400).
+    pub fn regular_weight() -> Self {
+        Self::new().with_axis(VariationAxis::weight(400.0))
+    }
+
+    /// Convenience: request Bold weight (700).
+    pub fn bold_weight() -> Self {
+        Self::new().with_axis(VariationAxis::weight(700.0))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GlyphBitmap
 // ---------------------------------------------------------------------------
 

@@ -31,6 +31,9 @@ os-lite = [
 path = "src/lib.rs"
 doctest = false
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 nexus_policy = { package = "policy", path = "../../../userspace/policy", optional = true }
 configd = { path = "../configd", optional = true }

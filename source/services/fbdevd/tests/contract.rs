@@ -81,6 +81,9 @@ fn test_reject_present_without_frame() {
         backend_visible: true,
         systemui_first_frame_visible: true,
         scanout_ready: true,
+        cursor_bitmap: None,
+        cursor_width: 0,
+        cursor_height: 0,
     };
     let mut scanout = DisplayScanout::new();
     scanout.configure();

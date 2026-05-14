@@ -51,8 +51,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
 
     let mut service = FbdevService::enabled(&bootstrap).map_err(|err| fail(err))?;
     let mut reactor = DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ);
+    // TASK-0059: migrate from inputd to windowd for VisibleState queries.
+    // windowd now runs as a standalone service and composes the full scene.
     let mut inputd_client = KernelClient::new_for("inputd").ok();
     let mut inputd_reply = KernelClient::new_for("@reply").ok();
+    let mut cursor_overlay_emitted = service.cursor_overlay().is_none();
     loop {
         service_requests(&server, service.visible_state())?;
         let now_ns = nsec().unwrap_or(0);
@@ -73,10 +76,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 match live_dirty_rows(previous_state, next_state, bootstrap.mode) {
                     DirtyRows::None => {}
                     DirtyRows::Range { start_y, end_y } => {
+                        let cursor_overlay = service.cursor_overlay();
                         let byte_len = framebuffer
-                            .write_live_visible_rows(next_state, start_y, end_y)
+                            .write_live_visible_rows(next_state, start_y, end_y, cursor_overlay)
                             .map_err(|err| fail(err))?;
                         if byte_len != 0 {
+                            if !cursor_overlay_emitted && cursor_overlay.is_some() {
+                                let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
+                                cursor_overlay_emitted = true;
+                            }
                             service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                         }
                     }
@@ -85,6 +93,23 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             .map_err(|_| fail(FbdevdError::InvalidMode))?;
                         service.present(&handoff).map_err(|err| fail(err))?;
                         framebuffer.write_handoff(&handoff).map_err(|err| fail(err))?;
+                        // Blend cursor overlay on top of the full checkerboard frame
+                        if let Some((bitmap, cw, ch)) = service.cursor_overlay() {
+                            let cx = next_state.cursor_x;
+                            let cy = next_state.cursor_y;
+                            let start_y = (cy.max(0) as u32).min(bootstrap.mode.height);
+                            let end_y = (cy as u32 + ch).min(bootstrap.mode.height);
+                            if start_y < end_y {
+                                let _ = framebuffer.write_live_visible_rows(
+                                    next_state, start_y, end_y,
+                                    Some((bitmap, cw, ch)),
+                                );
+                                if !cursor_overlay_emitted {
+                                    let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
+                                    cursor_overlay_emitted = true;
+                                }
+                            }
+                        }
                     }
                 }
             }

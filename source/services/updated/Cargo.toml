@@ -35,6 +35,9 @@ os-lite = [
 [lib]
 path = "src/lib.rs"
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 updates = { path = "../../../userspace/updates", optional = true, default-features = false }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }

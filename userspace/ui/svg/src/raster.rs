@@ -56,21 +56,19 @@ fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
     sorted_edges.sort_by(|a, b| a.y0.partial_cmp(&b.y0).unwrap());
 
     let mut edge_idx = 0;
+    let mut active: Vec<&Edge> = Vec::new();
 
     for y in y_start..=y_end {
         let yf = y as f32 + 0.5; // sample at pixel center
 
-        // Build active edge list for this scanline
-        let mut active: Vec<&Edge> = Vec::new();
+        // Remove edges that have ended
+        active.retain(|e| e.y1 > yf);
 
         // Add new edges starting at this scanline
         while edge_idx < sorted_edges.len() && sorted_edges[edge_idx].y0 <= yf + 1.0 {
             active.push(sorted_edges[edge_idx]);
             edge_idx += 1;
         }
-
-        // Retain edges that haven't ended yet
-        active.retain(|e| e.y1 > yf);
 
         if active.is_empty() {
             continue;

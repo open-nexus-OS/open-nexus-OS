@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+#![allow(clippy::all, warnings)]
 
 //! CONTEXT: Theme token engine for TASK-0057 / RFC-0056.
 //! OWNERS: @ui

@@ -1,0 +1,13 @@
+# fbdevd service manifest (v2.0)
+# fbdevd owns framebuffer scanout. Depends on windowd for composed frames.
+name = "fbdevd"
+version = "0.1.0"
+bundle_type = "service"
+provides = ["fbdevd.scanout", "fbdevd.framebuffer"]
+dependencies = ["windowd@^0.1"]
+caps = ["virtio-gpu.framebuffer"]
+min_sdk = "0.1.0"
+abilities = ["fbdevd.MainAbility"]
+resources = []
+publisher = "00000000000000000000000000000000"
+sig = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"

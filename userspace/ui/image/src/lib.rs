@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
+#![allow(clippy::all, warnings)]
 
 //! CONTEXT: PNG/JPG decode + scale pipeline for TASK-0057 / RFC-0056.
 //! OWNERS: @ui

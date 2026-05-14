@@ -73,30 +73,50 @@ struct BundleManifest {
   # SHA-256 digest of meta/repro.env.json (32 bytes)
   reproDigest @11 :Data;
 
-  # Future extensions (v2.0+)
-  # Example placeholders (not implemented yet):
-  #
-  # struct Dependency {
-  #   name @0 :Text;
-  #   versionConstraint @1 :Text;  # e.g. "^1.2.0"
-  # }
-  #
-  # struct Permission {
-  #   name @0 :Text;
-  #   reason @1 :Text;  # User-facing explanation
-  # }
-  #
-  # dependencies @12 :List(Dependency);
-  # permissions @13 :List(Permission);
-  # icon @14 :Data;  # PNG/JPEG bytes
-  # metadata @15 :Map(Text, Text);  # Key-value pairs
+  # v2.0 additions (TASK-0057 Phase 4)
+  # Bundle type: what kind of artifact this is.
+  bundleType @12 :BundleType = app;
+  
+  struct Dependency {
+    name @0 :Text;
+    versionConstraint @1 :Text;  # e.g. "^1.2.0"
+  }
+  # Services/libraries this bundle depends on.
+  dependencies @13 :List(Dependency);
+  
+  # Service names this bundle provides (registered with samgrd on install).
+  providedServices @14 :List(Text);
+  
+  struct Resource {
+    path @0 :Text;      # Relative path within bundle (e.g. "icons/app.svg")
+    kind @1 :ResourceKind = icon;  # icon | cursor | font | wallpaper | sound | data
+  }
+  # Resources bundled with this artifact.
+  resources @15 :List(Resource);
+}
+
+enum BundleType {
+  app @0;
+  service @1;
+  library @2;
+  driver @3;
+  framework @4;
+}
+
+enum ResourceKind {
+  icon @0;
+  cursor @1;
+  font @2;
+  wallpaper @3;
+  sound @4;
+  data @5;
 }
 
 # Validation rules (enforced by parser):
 #
 # 1. name: Non-empty, trimmed, valid identifier
 # 2. semver: Valid SemVer (parseable by semver crate)
-# 3. abilities: At least one entry, non-empty strings
+# 3. abilities: At least one entry for app/service; empty OK for library
 # 4. capabilities: Non-empty strings (empty list OK)
 # 5. minSdk: Valid SemVer
 # 6. publisher: Exactly 16 bytes
@@ -105,5 +125,8 @@ struct BundleManifest {
 # 9. payloadSize: > 0 (if present)
 # 10. sbomDigest: Exactly 32 bytes (if present)
 # 11. reproDigest: Exactly 32 bytes (if present)
+# 12. dependencies: Each name non-empty, versionConstraint valid SemVer range
+# 13. providedServices: Non-empty strings (empty list OK)
+# 14. resources: Each path non-empty, kind valid enum value
 #
 # Parser MUST reject manifests violating these rules.

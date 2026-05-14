@@ -14,6 +14,9 @@ pub const READY_MARKER: &str = "fbdevd: ready";
 pub const MAP_OK_MARKER: &str = "fbdevd: map ok";
 pub const RAMFB_CONFIGURED_MARKER: &str = "fbdevd: ramfb configured";
 pub const FLUSH_OK_MARKER: &str = "fbdevd: flush ok";
+/// Fired once when the cursor bitmap is first blended into the live framebuffer.
+#[allow(dead_code)]
+pub const CURSOR_OVERLAY_ON_MARKER: &str = "fbdevd: cursor overlay on";
 
 pub fn vsync_marker(seq: u64) -> String {
     format!("fbdevd: vsync seq={seq}")

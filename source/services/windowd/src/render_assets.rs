@@ -1,19 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Asset rendering functions for windowd.
-//!
-//! These functions render embedded assets (cursors, wallpaper, text)
-//! onto the display framebuffer.
-
 use crate::assets;
-use crate::markers::CURSOR_SVG_LOADED_MARKER;
+use crate::buffer::SurfaceBuffer;
+use crate::ids::CallerCtx;
 
-/// Rasterize the left_ptr cursor SVG into a BGRA8888 pixel buffer.
-///
-/// Returns `Some((width, height, buffer))` on success, or `None`
-/// if the SVG parsing/rasterization failed.
-pub fn render_cursor_left_ptr() -> Option<(u32, u32, alloc::vec::Vec<u8>)> {
+pub fn render_cursor_surface(caller: CallerCtx) -> Option<SurfaceBuffer> {
     let output = nexus_svg::render_svg(assets::CURSOR_LEFT_PTR_SVG).ok()?;
-    Some((output.width, output.height, output.buffer))
+    SurfaceBuffer::from_bgra_pixels(
+        caller,
+        0x5756_4355_5253_4f52,
+        output.width,
+        output.height,
+        output.buffer,
+    )
+    .ok()
 }

@@ -13,27 +13,30 @@ visual pointer assets, variant mapping, and size selection.
 - high-visibility defaults for accessibility and high-contrast operation,
 - HiDPI-safe sizing with bounded fallback behavior.
 
-## Upstream candidate: BreezeX
+## Upstream candidate: Mocu
 
-Current candidate for baseline cursor theming:
+Current cursor theme (via git submodule):
 
-- upstream: [ful1e5/BreezeX_Cursor](https://github.com/ful1e5/BreezeX_Cursor)
-- package (Arch/AUR): [breezex-cursor-theme](https://aur.archlinux.org/packages/breezex-cursor-theme)
-- store page: [BreezeX Black (KDE Store)](https://store.kde.org/p/1640747)
+- upstream: [sevmeyer/mocu-xcursor](https://github.com/sevmeyer/mocu-xcursor)
+- variants: White, Black
+- sizes: 24, 36, 48, 60, 72, 96
+- HiDPI: ✅ (native multi-size SVG source)
+- license: [CC0](https://creativecommons.org/publicdomain/zero/1.0) (Public Domain)
 
 Notes:
 
-- variants: `Dark`, `Light`, `Black`
-- explicit HiDPI support and expanded cursor-size set
-- license: GPL-3.0
+- SVG sources with placeholder colours (`$0a0b0c/shadow`, `$1a1b1c/stroke`, `$fafbfc/fill`)
+- Hotspot specified via `<circle id="hot">` in each SVG
+- inspired by DMZ and cz-Viator cursor themes
+- CC0 = Apache-2.0 compatible, no attribution required, commercial use unrestricted
 
 ## Mode Mapping Policy
 
 Recommended default mapping:
 
-- `light` mode -> `BreezeX-Black`
-- `dark` mode -> `BreezeX-Light` (or `BreezeX-Dark` if visibility tests show better contrast)
-- `black` mode (high-contrast) -> `BreezeX-Black` (required default)
+- `light` mode -> `Mocu-Black`
+- `dark` mode -> `Mocu-White`
+- `black` mode (high-contrast) -> `Mocu-Black` (required default)
 
 Rationale:
 
@@ -68,12 +71,12 @@ App-level overrides are disallowed by default and require explicit policy.
 
 ```toml
 [cursor]
-theme_family = "breezex"
+theme_family = "mocu"
 
 [cursor.mode]
-light = "BreezeX-Black"
-dark = "BreezeX-Light"
-black = "BreezeX-Black"
+light = "Mocu-Black"
+dark = "Mocu-White"
+black = "Mocu-Black"
 
 [cursor.size_by_dpi]
 low = 24

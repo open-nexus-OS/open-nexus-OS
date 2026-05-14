@@ -1,74 +1,80 @@
-# Handoff — TASK-0057 (In Progress, Phase 1+2 complete)
+# Handoff — TASK-0057 (In Progress, Phase 3–5 architecture defined)
 
-Date: 2026-05-13
+Date: 2026-05-14
 
 ## Summary
 
-TASK-0057 builds the complete UI v2b asset pipeline. All 7 implementation phases
-are structurally complete. 65 host tests pass across 5 new crates. QEMU markers
-are wired into windowd + selftest-client per the Observer pattern.
+TASK-0057 builds the complete UI v2b asset pipeline. Phase 0-3 complete (83 host tests).
+Phase 4 adds manifest.capnp v2.0 with type/dependencies for service auto-discovery.
+Phase 5 promotes windowd to standalone IPC service (OHOS WMS model).
 
-## What was done
+## Architecture Insight (corrected)
 
-### New crates
-- `nexus-theme` (`userspace/ui/theme/`) — .nxtheme.toml parser, schema validation, qualifier resolution. 26 tests.
-- `nexus-svg` (`userspace/ui/svg/`) — hand-written XML tokenizer, SVG rich subset parser, tessellator, BGRA8888 scanline rasterizer. Security rejects. 15 tests.
-- `nexus-image` (`userspace/ui/image/`) — PNG/JPEG decode via `png`+`jpeg-decoder` crates, bilinear+nearest scaling, decompression bomb detection. 10 tests.
-- `nexus-shape` (`userspace/ui/shape/`) — rustybuzz HarfBuzz-compatible shaping, fontdue raster primitives, newtypes (FontId, GlyphIndex, PixelSize). 10 tests.
-- `nexus-cursor` (`userspace/ui/cursor/`) — BreezeX cursor loading, SVG rasterization via nexus-svg, hotspot map. 4 tests.
+**Reality**: windowd is used as a LIBRARY by fbdevd and inputd. It is NOT a standalone service.
+`os_lite::service_main_loop()` is never called. windowd is NOT in the Makefile service list.
 
-### Renderer integration
-- `userspace/ui/renderer/src/draw.rs` — `draw_image()`, `draw_svg()`, `draw_glyph_run()` (stub).
+**Target**: windowd as IPC service. inputd sends cursor position via cap-based IPC.
+fbdevd queries windowd for composed frame (scanout-only, no own WindowServer).
+All per OHOS WMS → DisplayCompositor model.
 
-### Resource directory
-- `resources/` tree: themes (4 .nxtheme.toml), icons (freedesktop structure), cursors, wallpapers, fonts.
+## What was done (this session)
 
-### QEMU markers (Observer pattern)
-- `source/services/windowd/src/markers.rs`: `CURSOR_SVG_LOADED_MARKER`, `TEXT_TARGET_VISIBLE_MARKER`, `ICON_TARGET_VISIBLE_MARKER`, `SELFTEST_UI_V2B_ASSETS_OK_MARKER`
-- Wired into `source/apps/selftest-client/src/os_lite/phases/end.rs`
+### Git submodules
+- resources/cursors/mocu → sevmeyer/mocu-xcursor (CC0)
+- resources/icons/lucide → lucide-icons/lucide (ISC)
+- resources/fonts/inter → rsms/inter (SIL OFL)
 
-### Docs
-- `docs/dev/ui/foundations/rendering/image.md` created
+### Variable font support
+- nexus-shape: VariationSettings API, recursive font loading
+- InterVariable.ttf works at default coordinates
+- 13 tests pass
+
+### no_std cross-compile fix
+- nexus-svg: added #[macro_use] extern crate alloc for vec!/format! macros
+- windowd cross-compiles for riscv64imac-unknown-none-elf
+
+### Cursor infrastructure (Phase 3)
+- smoke.rs: cursor_bitmap in VisibleSystemUiEvidence via render_cursor_surface()
+- display_backend.rs: cursor_bitmap in DisplayPresentHandoff
+- fbdevd/service.rs: FbdevService stores cursor bitmap
+- fbdevd/framebuffer.rs: blend_cursor_row() — BGRA8888 alpha blending
+- fbdevd/os_lite.rs: write_live_visible_rows() blends cursor at (cursor_x, cursor_y)
+- fbdevd/markers.rs: CURSOR_OVERLAY_ON_MARKER
+- markers/ui.toml: fbdevd: cursor overlay on registered
+
+### Architecture docs analysis
+- windowd NOT a service (library used by fbdevd/inputd)
+- manifest.capnp v1.2 only — no type/dependencies fields
+- Makefile hardcodes service list 4× — no auto-discovery
+- TRACK-APP-STORE exists but no tasks spawned
+
+## Next: Phase 4 — manifest.capnp v2.0
+
+1. Add type, dependencies, providedServices, resources to manifest.capnp
+2. Update nxb-pack for v2.0 schema
+3. Update bundlemgrd for v2.0 parsing
+4. Create service manifests for windowd, fbdevd, inputd
+5. Makefile auto-discovery via cargo metadata
+
+## Next: Phase 5 — windowd as IPC service
+
+1. windowd os_lite.rs: OP_CREATE_SURFACE, OP_COMMIT_SCENE, OP_GET_COMPOSED_FRAME
+2. inputd → windowd: CURSOR_POSITION IPC (cap-based)
+3. fbdevd queries windowd for composed frame (scanout-only)
+4. fbdevd removes own cursor blending
+5. Service contract tests per hop
 
 ## Proofs
 
 ```bash
-cargo test -p nexus-theme    # 26/26 pass
-cargo test -p nexus-svg      # 15/15 pass
-cargo test -p nexus-image    # 10/10 pass
-cargo test -p nexus-shape    # 10/10 pass
-cargo test -p nexus-cursor   # 4/4 pass
-cargo test -p ui_renderer    # 2/2 pass (existing)
+cargo test -p nexus-theme    # 26/26
+cargo test -p nexus-svg      # 15/15
+cargo test -p nexus-image    # 10/10
+cargo test -p nexus-shape    # 13/13
+cargo test -p nexus-cursor   # 4/4
+cargo test -p windowd        # 29/29
+cargo test -p fbdevd         # 25/25
+make build MODE=host         # PASS
+make test MODE=host          # PASS (full profile)
 just dep-gate                # PASS
 ```
-
-## What remains
-
-### Before claiming Done
-- **QEMU asset loading**: windowd needs to actually load cursor SVGs, render text, and render icons during boot. This requires a QEMU test session with `RUN_UNTIL_MARKER=1 just test-os`.
-- **Cap'n Proto IPC**: `shape.capnp` schema exists; needs compilation + integration into the OS build.
-- **Glyph rasterization**: `draw_glyph_run` is a stub; needs fontdue-backed rasterization via GlyphCache in windowd.
-- **Actual font files**: `resources/fonts/inter/` needs Inter-Regular.ttf (currently .gitkeep).
-- **Actual cursor SVGs**: `resources/cursors/breezeX/` needs BreezeX SVG cursors.
-- **Security reject tests**: `test_reject_decompression_bomb_image` (needs crafted bomb PNG).
-
-## Next task
-
-- Dedicated QEMU session: load assets, fire markers, run `RUN_UNTIL_MARKER=1 just test-os`
-- Then: TASK-0059 (scroll, clip, effects, IME/text-input)
-
-## Files changed (this cycle)
-
-- `Cargo.toml` — workspace members: theme, svg, image, shape, cursor
-- `resources/` — directory tree + 4 theme files
-- `userspace/ui/theme/` — 8 files (new crate)
-- `userspace/ui/svg/` — 8 files (new crate)
-- `userspace/ui/image/` — 6 files (new crate)
-- `userspace/ui/shape/` — 7 files (new crate)
-- `userspace/ui/cursor/` — 5 files (new crate)
-- `userspace/ui/renderer/` — draw.rs + Cargo.toml + lib.rs
-- `source/services/windowd/src/markers.rs` — 4 new markers
-- `source/services/windowd/src/lib.rs` — export new markers
-- `source/apps/selftest-client/src/os_lite/phases/end.rs` — v2b observer
-- `docs/rfcs/RFC-0056-*.md` — checklist updated
-- `docs/dev/ui/foundations/rendering/image.md` — new docs

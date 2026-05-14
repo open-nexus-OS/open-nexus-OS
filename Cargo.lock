@@ -1949,6 +1949,7 @@ version = "0.1.0"
 dependencies = [
  "fontdue",
  "rustybuzz",
+ "ttf-parser 0.24.1",
 ]
 
 [[package]]

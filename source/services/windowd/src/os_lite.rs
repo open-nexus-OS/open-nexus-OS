@@ -10,6 +10,9 @@ use input_live_protocol::{
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
+use crate::frame::Layer;
+use crate::geometry::Rect;
+use crate::ids::{CallerCtx, CommitSeq};
 use crate::markers::READY_MARKER;
 use crate::server::{
     WindowServer, WindowdConfig, VISIBLE_BOOTSTRAP_HEIGHT, VISIBLE_BOOTSTRAP_HZ,
@@ -34,9 +37,25 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     .map_err(|_| "windowd: init fail window-server")?;
     window.enable_fastpath();
 
-    // --- TASK-0057: Load embedded cursor SVG asset ---
-    if let Some((_cw, _ch, _cbuf)) = crate::render_assets::render_cursor_left_ptr() {
-        let _ = debug_println(crate::markers::CURSOR_SVG_LOADED_MARKER);
+    // --- TASK-0057: Load and commit embedded cursor SVG asset ---
+    let cursor_caller = CallerCtx::system();
+    if let Some(cursor_buf) = crate::render_assets::render_cursor_surface(cursor_caller) {
+        if let Ok(cursor_sid) = window.create_surface(cursor_caller, cursor_buf.clone()) {
+            let _ = window.queue_buffer(
+                cursor_caller,
+                cursor_sid,
+                cursor_buf.clone(),
+                &[Rect::new(0, 0, cursor_buf.width, cursor_buf.height)],
+            );
+            let _ = window.commit_scene(
+                CallerCtx::system(),
+                CommitSeq::new(1),
+                &[Layer { surface: cursor_sid, x: 400, y: 300, z: 0 }],
+            );
+            let _ = debug_println(crate::markers::CURSOR_SVG_LOADED_MARKER);
+        }
+    } else {
+        let _ = debug_println("windowd: cursor svg render failed");
     }
 
     let _ = debug_println(READY_MARKER);

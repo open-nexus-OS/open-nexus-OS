@@ -1,9 +1,9 @@
 ---
 title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline
-status: In Progress
+status: In Progress (Phase 3–5: cursor blend + manifest v2.0 + windowd IPC service)
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-13
+updated: 2026-05-14 (Phase 3–5: manifest v2.0 + IPC contracts + auto-discovery)
 depends-on:
   - TASK-0054
   - TASK-0056
@@ -126,35 +126,19 @@ resources/
 │   ├── light.nxtheme.toml
 │   └── highcontrast.nxtheme.toml
 ├── icons/
-│   └── <ThemeName>/               # e.g. "breezeX", "default"
-│       ├── index.theme            # freedesktop manifest
-│       ├── scalable/              # SVG (resolution-independent)
-│       │   ├── apps/
-│       │   ├── actions/
-│       │   ├── status/
-│       │   ├── devices/
-│       │   ├── places/
-│       │   ├── mimetypes/
-│       │   └── cursors/
-│       ├── 16x16/                 # PNG fallbacks
-│       ├── 22x22/
-│       ├── 32x32/
-│       ├── 48x48/
-│       ├── 64x64/
-│       ├── 128x128/
-│       └── 256x256/
+│   └── lucide/                    # git submodule: lucide-icons/lucide (ISC)
+│       └── icons/                 # flat SVG icon set (~3800 icons)
 ├── cursors/
-│   └── breezeX/
-│       ├── base/                  # SVG cursor source
-│       ├── dark/
-│       └── light/
+│   └── mocu/                     # git submodule: sevmeyer/mocu-xcursor (CC0)
+│       └── src/svg/               # SVG cursor source, white+black variants
 ├── wallpapers/
 │   ├── base/
 │   │   └── default.jpg
 │   ├── dark/
 │   └── light/
 ├── fonts/
-│   ├── inter/
+│   ├── inter/                     # git submodule: rsms/inter (SIL OFL 1.1)
+│   │   └── docs/font-files/       # InterVariable.ttf (variable font)
 │   ├── noto/
 │   └── monospace/
 └── sounds/                        # deferred
@@ -234,14 +218,22 @@ RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
 
 ## Touched paths (allowlist)
 
-- `resources/` (new: themes, icons, cursors, wallpapers, fonts)
+- `resources/` (new: themes, icons/lucide, cursors/mocu, wallpapers, fonts/inter — git submodules for icons/cursors/fonts)
 - `userspace/ui/theme/` (new)
 - `userspace/ui/svg/` (new)
 - `userspace/ui/image/` (new)
 - `userspace/ui/shape/` (new)
 - `userspace/ui/cursor/` (new)
 - `userspace/ui/renderer/` (extend: draw_glyph_run, draw_svg, draw_image)
-- `source/services/windowd/` (extend: cursor asset loading)
+- `source/services/windowd/` (extend: cursor asset, IPC service loop, scene composition)
+- `source/services/fbdevd/` (extend: cursor bitmap, blend_cursor_row, scanout-only)
+- `source/services/inputd/` (extend: cursor IPC to windowd, remove own WindowServer)
+- `source/services/fbdevd/src/backend/framebuffer.rs` (new: blend_cursor_row)
+- `source/services/fbdevd/src/service.rs` (extend: cursor bitmap)
+- `tools/nexus-idl/schemas/manifest.capnp` (extend: v2.0 fields)
+- `tools/nxb-pack/` (extend: v2.0 manifest compilation)
+- `source/services/bundlemgrd/` (extend: v2.0 manifest parsing)
+- `Makefile` (extend: auto-discovery from cargo metadata)
 - `tests/ui_v2b_host/` (new)
 - `docs/dev/ui/foundations/layout/text.md`
 - `docs/dev/ui/foundations/rendering/svg.md`
@@ -257,3 +249,6 @@ RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
 6. **Renderer integration** — `draw_glyph_run`, `draw_svg_path`, `draw_image`
 7. **Proof surface** — text target + cursor target + icon target visible in QEMU
 8. **Tests + docs** — goldens, tolerance policy, schema docs
+9. **Live cursor blending** — fbdevd blends cursor bitmap at inputd position
+10. **Manifest v2.0** — type/dependencies/provided_services, auto-discovery
+11. **windowd IPC service** — cap-based IPC, scene composition, fbdevd scanout-only

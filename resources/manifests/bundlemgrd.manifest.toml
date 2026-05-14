@@ -1,0 +1,13 @@
+# bundlemgrd service manifest (v2.0)
+# bundlemgrd installs, verifies, and registers bundles with samgrd.
+name = "bundlemgrd"
+version = "0.1.0"
+bundle_type = "service"
+provides = ["bundlemgrd.install", "bundlemgrd.query", "bundlemgrd.register"]
+dependencies = ["samgrd@^0.1", "packagefsd@^0.1"]
+caps = []
+min_sdk = "0.1.0"
+abilities = ["bundlemgrd.MainAbility"]
+resources = []
+publisher = "00000000000000000000000000000000"
+sig = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"

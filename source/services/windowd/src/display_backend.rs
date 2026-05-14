@@ -30,6 +30,12 @@ pub struct DisplayPresentHandoff {
     pub backend_visible: bool,
     pub systemui_first_frame_visible: bool,
     pub scanout_ready: bool,
+    /// Cursor BGRA8888 bitmap from windowd, or None if cursor not loaded.
+    pub cursor_bitmap: Option<alloc::vec::Vec<u8>>,
+    /// Cursor bitmap width in pixels.
+    pub cursor_width: u32,
+    /// Cursor bitmap height in pixels.
+    pub cursor_height: u32,
 }
 
 pub fn bootstrap_display_handoff() -> Result<DisplayPresentHandoff> {
@@ -38,6 +44,9 @@ pub fn bootstrap_display_handoff() -> Result<DisplayPresentHandoff> {
     let backend_visible = evidence.backend_visible;
     let systemui_first_frame_visible = evidence.systemui_first_frame;
     let scanout_ready = evidence.ready && evidence.backend_visible;
+    let cursor_bitmap = evidence.cursor_bitmap.clone();
+    let cursor_width = evidence.cursor_width;
+    let cursor_height = evidence.cursor_height;
     Ok(DisplayPresentHandoff {
         mode: evidence.mode,
         source: DisplayFrameSource::Bootstrap(evidence),
@@ -45,6 +54,9 @@ pub fn bootstrap_display_handoff() -> Result<DisplayPresentHandoff> {
         backend_visible,
         systemui_first_frame_visible,
         scanout_ready,
+        cursor_bitmap,
+        cursor_width,
+        cursor_height,
     })
 }
 
@@ -57,6 +69,9 @@ pub fn live_visible_state_handoff(state: VisibleState) -> Result<DisplayPresentH
         backend_visible: state.backend_visible,
         systemui_first_frame_visible: state.systemui_first_frame_visible,
         scanout_ready: state.display_scanout_ready,
+        cursor_bitmap: None,
+        cursor_width: 0,
+        cursor_height: 0,
     })
 }
 

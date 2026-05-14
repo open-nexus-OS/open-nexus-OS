@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use nexus_shape::{GlyphRun, PixelSize, ShapeContext, ShapeError};
+use nexus_shape::{PixelSize, ShapeContext, ShapeError, VariationSettings};
 
 fn fonts_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -162,4 +162,59 @@ fn test_reject_invalid_font_data() {
     let err = ShapeContext::new(&tmp).unwrap_err();
     assert!(matches!(err, ShapeError::InvalidFont { .. }));
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ---------------------------------------------------------------------------
+// Variable font support
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_variable_font_default_coordinates() {
+    // InterVariable.ttf at default coordinates (Regular, weight 400) should
+    // parse and shape without error.
+    let dir = fonts_dir();
+    if !dir.exists() {
+        return;
+    }
+    let ctx = match ShapeContext::new(&dir) {
+        Ok(c) => c,
+        Err(ShapeError::NoFonts) => return,
+        Err(e) => panic!("{e}"),
+    };
+    // Shape with the variable font at default instance.
+    let run = ctx.shape("Hello", PixelSize(16), rustybuzz::Direction::LeftToRight).unwrap();
+    assert!(!run.glyphs.is_empty());
+}
+
+#[test]
+fn test_variable_font_bold_variation() {
+    // InterVariable.ttf with weight=700 (Bold) should not crash.
+    let dir = fonts_dir();
+    if !dir.exists() {
+        return;
+    }
+    let variation = VariationSettings::bold_weight();
+    let ctx = match ShapeContext::with_variation(&dir, Some(&variation)) {
+        Ok(c) => c,
+        Err(ShapeError::NoFonts) => return,
+        Err(e) => panic!("{e}"),
+    };
+    let run = ctx.shape("Hello", PixelSize(16), rustybuzz::Direction::LeftToRight).unwrap();
+    assert!(!run.glyphs.is_empty());
+}
+
+#[test]
+fn test_variable_font_empty_settings_noop() {
+    // Empty variation settings are equivalent to None.
+    let dir = fonts_dir();
+    if !dir.exists() {
+        return;
+    }
+    let variation = VariationSettings::new();
+    let ctx = match ShapeContext::with_variation(&dir, Some(&variation)) {
+        Ok(c) => c,
+        Err(ShapeError::NoFonts) => return,
+        Err(e) => panic!("{e}"),
+    };
+    assert!(ctx.font_count() > 0);
 }

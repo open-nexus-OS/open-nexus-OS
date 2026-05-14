@@ -12,6 +12,10 @@ path = "src/lib.rs"
 default = []
 os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry", "dep:nexus-svg"]
 
+[package.metadata.nexus-service]
+kind = "library"
+stack_pages = 0
+
 [dependencies]
 systemui = { path = "../systemui" }
 input-live-protocol = { path = "../../../userspace/input-live-protocol" }

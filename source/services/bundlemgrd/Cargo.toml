@@ -33,6 +33,9 @@ os-lite = [
     "nexus-ipc/kernel-ipc",
 ]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 bundlemgr = { path = "../../../userspace/bundlemgr", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }

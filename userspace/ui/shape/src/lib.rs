@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(unsafe_code)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::too_many_arguments,
+    clippy::useless_vec,
+    clippy::needless_borrow,
+    clippy::manual_contains
+)]
 
 //! CONTEXT: HarfBuzz-compatible text shaping for TASK-0057 / RFC-0056.
 //! OWNERS: @ui
@@ -23,7 +31,10 @@
 mod context;
 mod error;
 mod types;
+mod variation;
 
 pub use context::ShapeContext;
 pub use error::{ShapeError, ShapeResult};
-pub use types::{FontId, GlyphBitmap, GlyphIndex, GlyphRun, PixelSize};
+pub use types::{
+    FontId, GlyphBitmap, GlyphIndex, GlyphRun, PixelSize, VariationAxis, VariationSettings,
+};

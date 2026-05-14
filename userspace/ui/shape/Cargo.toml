@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 rustybuzz = "0.18"
 fontdue = "0.9"
+ttf-parser = "0.24"
 
 [lib]
 path = "src/lib.rs"

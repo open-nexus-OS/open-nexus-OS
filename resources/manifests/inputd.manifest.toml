@@ -1,0 +1,13 @@
+# inputd service manifest (v2.0)
+# inputd owns input routing. Depends on windowd for cursor position delivery.
+name = "inputd"
+version = "0.1.0"
+bundle_type = "service"
+provides = ["inputd.routing", "inputd.pointer"]
+dependencies = ["windowd@^0.1"]
+caps = []
+min_sdk = "0.1.0"
+abilities = ["inputd.MainAbility"]
+resources = []
+publisher = "00000000000000000000000000000000"
+sig = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"

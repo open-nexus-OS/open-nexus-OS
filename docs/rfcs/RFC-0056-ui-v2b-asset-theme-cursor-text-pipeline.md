@@ -1,6 +1,7 @@
 # RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed
 
 - Status: In Progress
+- Last Updated: 2026-05-14 (Phase 3–5: manifest v2.0 + IPC contracts + windowd service + live cursor)
 - Owners: @ui @runtime
 - Created: 2026-05-12
 - Last Updated: 2026-05-12
@@ -31,7 +32,7 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
   - SVG rich subset grammar (allowed elements, attributes, transforms; what is rejected)
   - PNG/JPG decode + scale pipeline with bounded memory contract
   - HarfBuzz text shaping contract (glyph cache bounds, font fallback chain)
-  - BreezeX cursor pipeline (SVG source → hotspot bitmap → windowd integration)
+  - Mocu cursor pipeline (SVG source → hotspot bitmap → windowd integration)
   - proof surface targets: shaped text, SVG cursor, SVG icon all visible on shared surface
   - golden test contract (pixel-exact or SSIM tolerance, deterministic outputs)
 - **This RFC does NOT own**:
@@ -70,8 +71,11 @@ Current state:
 3. SVG rich subset: parse → tessellate → BGRA8888 rasterizer (reject scripts, external refs, filters)
 4. PNG/JPG decode + scale pipeline with decompression bomb detection
 5. HarfBuzz text shaping with font fallback chain and bounded glyph cache
-6. BreezeX cursor pipeline: SVG cursor → rasterize → BGRA8888 + hotspot → windowd integration
-7. Proof surface: real shaped text + BreezeX SVG cursor + SVG icon + JPG wallpaper visible
+6. Mocu cursor pipeline: SVG cursor → rasterize → BGRA8888 + hotspot → windowd integration
+7. Proof surface: real shaped text + Mocu SVG cursor + SVG icon + JPG wallpaper visible
+8. Live cursor blending in fbdevd: cursor bitmap from windowd, position from inputd
+9. `manifest.capnp` v2.0: `type`, `dependencies`, `provided_services` for service discovery
+10. windowd as standalone IPC service: cap-based IPC, scene composition, cursor tracking, fbdevd scanout-only
 
 ## Non-Goals
 
@@ -137,10 +141,10 @@ Rejected: `<script>`, `<foreignObject>`, `<use>` (external), `<filter>`, `<anima
 Bounded: max nodes (default 4096), max path segments (default 16384), max dimensions
 (default 2048×2048).
 
-#### BreezeX cursor pipeline API
+#### Mocu cursor pipeline API
 
 ``` text
-CursorSet::load("breezeX/base") → HashMap<CursorName, CursorAsset>
+CursorSet::load("mocu") → HashMap<CursorName, CursorAsset>
 CursorAsset { frames: Vec<CursorFrame>, hotspot: (u16, u16) }
 CursorFrame { rgba: BGRA8888, width: u16, height: u16, delay_ms: u16 }
 ```
@@ -165,9 +169,19 @@ eviction on overflow.
 - **Phase 1**: SVG rich subset parser + tessellator + rasterizer. PNG/JPG decode +
   scale. HarfBuzz text shaping + glyph cache. Security reject tests for all three
   pipelines. Proof: `cargo test -p ui_v2b_host` passes.
-- **Phase 2**: BreezeX cursor loading + rasterization + windowd integration. Proof
+- **Phase 2**: Mocu cursor loading + rasterization + windowd integration. Proof
   surface shows text target + cursor target + icon target in QEMU. Proof:
   `RUN_UNTIL_MARKER=1 just test-os` passes with all markers fired.
+- **Phase 3**: Live cursor blending in fbdevd. Cursor bitmap from windowd bootstrap is blended
+  at `(cursor_x, cursor_y)` from inputd during live framebuffer writes. fbdevd owns the blend.
+  Proof: `cargo test -p fbdevd -- --nocapture` + QEMU marker `fbdevd: cursor overlay on`.
+- **Phase 4**: `manifest.capnp` v2.0: add `type`, `dependencies`, `provided_services`, `resources`
+  to distinguish apps/services/libraries. Update `nxb-pack` and `bundlemgrd`. Host tests.
+  Proof: `cargo test -p bundlemgr -- --nocapture`
+- **Phase 5**: windowd as standalone IPC service. inputd sends cursor position via cap-based IPC.
+  fbdevd queries windowd for composed frame (no own WindowServer). fbdevd becomes scanout-only.
+  Service contract tests per hop. Proof: `cargo test -p windowd -p fbdevd -p inputd` +
+  QEMU marker `windowd: cursor svg loaded` + `fbdevd: cursor overlay on`.
 
 ## Security considerations
 
@@ -226,7 +240,7 @@ Expected:
 - Glyph cache: repeated draws hit cache; eviction at configured cap
 - SVG: rich subset parses; unsupported features rejected; renders match goldens
 - PNG/JPG: decode + scale match goldens; oversized images rejected
-- Cursor: BreezeX SVG → bitmap + hotspot correct
+- Cursor: Mocu SVG → bitmap + hotspot correct
 - Theme: token resolution deterministic; dark/light/highcontrast switch correct
 
 ### Proof (OS/QEMU)
@@ -244,7 +258,7 @@ Required markers:
 ### Visual proof handoff
 
 - `just start` shows JPG wallpaper + real text target + SVG cursor + SVG icon
-- Cursor switches from colored rectangle to BreezeX SVG asset
+- Cursor switches from colored rectangle to Mocu SVG asset
 - Launcher/SystemUI proof surface uses SVG-source fixtures
 
 ## Alternatives considered
@@ -310,7 +324,7 @@ When writing this RFC, ensure:
   Proof: `cargo test -p ui_v2b_host image:: -- --nocapture`
 - [x] **Phase 1c**: Text shaping (`userspace/ui/shape/`). rustybuzz shaping, fontdue rasterization primitives.
   Proof: `cargo test -p ui_v2b_host shape:: -- --nocapture`
-- [x] **Phase 2a**: Cursor pipeline (`userspace/ui/cursor/`). BreezeX SVG → bitmap → windowd asset.
+- [x] **Phase 2a**: Cursor pipeline (`userspace/ui/cursor/`). Mocu SVG → bitmap → windowd asset (git submodule: `sevmeyer/mocu-xcursor`, CC0).
   Proof: `cargo test -p ui_v2b_host cursor:: -- --nocapture`
 - [x] **Phase 2b**: Renderer integration. `draw_image`, `draw_svg`, `draw_glyph_run` (stub) in `userspace/ui/renderer/src/draw.rs`.
   Proof: existing renderer tests pass with new deps.
@@ -319,6 +333,28 @@ When writing this RFC, ensure:
   wired into `selftest-client/src/os_lite/phases/end.rs`. Asset loading in windowd boot path deferred
   to dedicated QEMU session.
   Markers: `cursor svg loaded`, `text target visible`, `icon target visible`, `SELFTEST: ui v2b assets ok`.
+- [ ] Task linked with stop conditions + proof commands (TASK-0057).
+- [ ] Security-relevant negative tests exist (`test_reject_*` for SVG scripts/refs/filters,
+  malformed fonts, decompression bombs, invalid theme TOML).
+- [x] **Phase 3a**: Cursor bitmap handoff. `DisplayPresentHandoff` + `VisibleSystemUiEvidence` carry
+  `cursor_bitmap`. Proof: `cargo test -p windowd -- --nocapture` (29/29 pass)
+- [x] **Phase 3b**: fbdevd cursor overlay. `FbdevService` stores bitmap, `blend_cursor_row()` blends at
+  `(cursor_x, cursor_y)`. Marker: `fbdevd: cursor overlay on`. Proof: `cargo test -p fbdevd` (25/25 pass)
+- [ ] **Phase 4a**: `manifest.capnp` v2.0. Add `type` (app|service|library|driver), `dependencies`,
+  `providedServices`, `resources` fields. Update `nxb-pack`, `bundlemgrd` schema. Host tests.
+  Proof: `cargo test -p bundlemgr -- --nocapture`
+- [ ] **Phase 4b**: Service manifests for windowd (type=library), fbdevd (type=service, deps=[windowd]),
+  inputd (type=service, deps=[windowd]). Auto-discovery in Makefile via `cargo metadata`.
+  Proof: `make build` without hardcoded service list.
+- [ ] **Phase 5a**: windowd as IPC service. `os_lite::service_main_loop()` handles full IPC:
+  `OP_CREATE_SURFACE`, `OP_COMMIT_SCENE`, `OP_GET_COMPOSED_FRAME` with composed frame including
+  cursor at tracked position. Proof: IPC contract tests.
+- [ ] **Phase 5b**: inputd → windowd cursor position IPC. inputd sends `CURSOR_POSITION(x, y)` via
+  cap-based IPC to windowd each frame. inputd removes own WindowServer.
+  Proof: `cargo test -p inputd -- --nocapture`
+- [ ] **Phase 5c**: fbdevd scanout-only. Queries windowd (not inputd) for composed frame via
+  `OP_GET_COMPOSED_FRAME`. Removes own cursor blending (delegated to windowd).
+  Proof: `cargo test -p fbdevd` + QEMU `RUN_UNTIL_MARKER=1 just test-os` with all markers unchanged.
 - [ ] Task linked with stop conditions + proof commands (TASK-0057).
 - [ ] Security-relevant negative tests exist (`test_reject_*` for SVG scripts/refs/filters,
   malformed fonts, decompression bombs, invalid theme TOML).

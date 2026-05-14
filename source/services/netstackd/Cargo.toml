@@ -15,6 +15,9 @@ os-lite = []
 # - 2-VM os2vm profile keeps deterministic MAC-derived fallback in 10.42.0.0/24
 qemu-smoke = []
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
 [dependencies]
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
