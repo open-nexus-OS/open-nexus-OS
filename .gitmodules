@@ -1,0 +1,9 @@
+[submodule "resources/fonts/inter"]
+	path = resources/fonts/inter
+	url = https://github.com/rsms/inter.git
+[submodule "resources/icons/lucide"]
+	path = resources/icons/lucide
+	url = https://github.com/lucide-icons/lucide.git
+[submodule "resources/cursors/mocu"]
+	path = resources/cursors/mocu
+	url = https://github.com/sevmeyer/mocu-xcursor.git
