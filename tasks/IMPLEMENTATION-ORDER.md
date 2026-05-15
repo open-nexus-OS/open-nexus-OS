@@ -109,6 +109,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | 2026-05-04 |
 | ✅ TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks | 2026-05-11 |
 | ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | 2026-05-11 |
+| ✅ TASK-0057 | UI v2b: Minimal DisplayServer v0 — Mocu cursor, JPEG wallpaper, Inter text, input targets | 2026-05-15 |
 
 ---
 

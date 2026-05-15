@@ -1,12 +1,19 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-14 (TASK-0057 cursor fix: feature propagation in fbdevd/Cargo.toml)
+Last updated: 2026-05-15 (TASK-0058 In Progress: RFC-0057 contract seed complete, implementation starting)
 
 ## Active task
 
-TASK-0057: UI v2b asset pipeline + manifest v2.0 + windowd IPC service.
-Status: In Progress (Phase 0–4 complete, Phase 5 pending).
-RFC-0056: In Progress (Phase 3–5 scope defined).
+TASK-0058: UI v3a layout engine (flex/grid/stack) + text wrapping + host goldens. — **In Progress**
+Status: **In Progress** (RFC-0057 contract seed complete; Phase 0 implementation pending).
+RFC-0057: In Progress (contract defined, proof gates pending).
+Depends on: TASK-0057 (DONE), TASK-0056 (DONE).
+
+## Previous task
+
+TASK-0057: UI v2b asset pipeline + manifest v2.0 + windowd IPC service. — **DONE** (2026-05-15)
+Status: **DONE** (Minimal DisplayServer v0 complete).
+RFC-0056: Done (TASK-0057 delivered).
 
 ## Completed phases
 

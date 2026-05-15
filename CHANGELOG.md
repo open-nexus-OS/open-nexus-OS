@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-05-15
+
+#### RFC-0057: UI v3a layout engine contract seed (pretext philosophy)
+
+- Created design seed for the deterministic layout engine (`docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md`):
+  - Rust type system: `Stack` (flex row/column), `Grid` (fraction columns), `Spacer`, `FlexItem`, `EdgeInsets`
+  - `MeasureText` callback trait decoupling layout from `nexus-shape` (pure Rust: rustybuzz + fontdue, no C libs)
+  - Naming aligned with DSL v0.1a (`Stack` not VStack/HStack; `padding`/`margin`/`gap` mirror modifiers)
+  - Paragraph/run cache + line-layout cache split following chenglou/pretext prepare/layout philosophy
+  - Fixed-point arithmetic (no `f32`/`f64` in layout math)
+  - windowd proof panel replacement contract (hardcoded positions → layout-tree-driven)
+  - Invalidation matrix for TASK-0059 scroll-as-place-only handoff
+- TASK-0058 updated: concrete types, pretext reference, shape cache integration, windowd integration plan
+- TASK-0059 updated: `depends-on: [TASK-0058]`, pretext reuse for scroll damage math, place-only contract
+- RFC-0057 v2: Visual primitives (`Rgba8`, `Border`, `EdgeBorder`, `CornerRadius`, `VisualStyle`), Text styling (`TextAlign`, `LineHeight`, `FontWeight`, `WhiteSpace`, `TextStyle`), Container features (`Overflow`, `Position`, `ZIndex`, `flex_wrap`, `row_gap`), Theme token integration contract
+- Phases restructured: 0=Container layout, 1=Visual+Text primitives, 2=Text wrapping+caches, 3=Host tests, 4=windowd
+- TASK-0058: `flex_wrap`, `Position`, `ZIndex`, `row_gap`, `WhiteSpace` added to type system
+- RFC-0057 status: Draft → In Progress; TASK-0058: In Progress (implementation starting)
+- .cursor files synced: current_state, next_task_prep, context_bundles, pre_flight, stop_conditions
+
+### Changed - 2026-05-11
+
 ### Changed - 2026-05-11
 
 #### TASK-0056C / RFC-0055 present-input perf latency coalescing (`TASK-0056C`, `RFC-0055`)

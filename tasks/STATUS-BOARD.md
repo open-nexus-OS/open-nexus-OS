@@ -143,7 +143,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `5 / 76` done (`7%`)
+- Progress: `6 / 76` done (`8%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0088`, `TASK-0091`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
@@ -223,8 +223,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0252 | Input v1.0a: host HID/touch/keymaps/repeat/pointer-accel core | Done | Host-first proofs + reject suites green; closure gates rerun green; live QEMU marker closure remains `TASK-0253` |
 | ✅ TASK-0253 | Input v1.0b: OS/QEMU hidrawd + touchd + inputd + windowd/IME hooks + selftests | Done | Real `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb` chain is closed with focused proofs and broad closure gates green |
 | ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | Done | Host-first coalescing + no-damage-skip + idle-cheap proofs green; host-integration tests proving semantic-edge preservation; QEMU diag-os pending downstream |
+| ✅ TASK-0057 | UI v2b: Minimal DisplayServer v0 (cursor/wallpaper/text/assets/input targets) | Done | Mocu cursor, JPEG wallpaper, Inter proof text, hover/click/scroll/key targets; visible-bootstrap ladder green; just test-all green |
 
-Current queue head: `TASK-0057` / UI v2b text shaping (HarfBuzz) + font fallback/cache + SVG pipeline (next Fast-Lane task after 56C).
+Current queue head: `TASK-0058` / UI v3a layout wrapping + deterministic box model (next Fast-Lane task after 0057).
 Current contract status: `RFC-0055` is `Done`; 56C host-first proofs closed; QEMU marker ladder + diag-os deferred to follow-up.
 
 ---

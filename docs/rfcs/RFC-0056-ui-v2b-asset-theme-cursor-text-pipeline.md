@@ -1,6 +1,6 @@
 # RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed
 
-- Status: Accepted / Implementation in progress
+- Status: Done
 - Last Updated: 2026-05-15 (TASK-0057 Minimal DisplayServer v0 actual state)
 - Owners: @ui @runtime
 - Created: 2026-05-12

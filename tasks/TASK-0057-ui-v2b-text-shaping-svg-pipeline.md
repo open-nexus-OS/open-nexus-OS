@@ -1,6 +1,6 @@
 ---
 title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline
-status: In Progress (Minimal DisplayServer v0 live asset closure)
+status: Done
 owner: @ui
 created: 2025-12-23
 updated: 2026-05-15 (Minimal DisplayServer v0: Mocu cursor + Inter text + transient input targets)
