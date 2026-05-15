@@ -411,7 +411,7 @@ const KNOWN_ATTRS: &[&str] = &[
 ];
 
 fn check_allowed_tag(tag: &str, line: usize) -> SvgResult<()> {
-    if ALLOWED_TAGS.iter().any(|&t| t == tag) {
+    if ALLOWED_TAGS.contains(&tag) {
         return Ok(());
     }
     for (rejected, reason) in REJECTED_TAGS {
@@ -429,7 +429,7 @@ fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<
             continue;
         }
 
-        if !KNOWN_ATTRS.iter().any(|&a| a == name.as_str()) {
+        if !KNOWN_ATTRS.contains(&name.as_str()) {
             return Err(SvgError::UnsupportedAttribute {
                 tag: tag.to_string(),
                 attr: name.clone(),
