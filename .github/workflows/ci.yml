@@ -21,6 +21,8 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
       - uses: dtolnay/rust-toolchain@stable
@@ -55,6 +57,8 @@ jobs:
       RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y capnproto
@@ -69,6 +73,8 @@ jobs:
       RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y capnproto
@@ -83,6 +89,8 @@ jobs:
       RUSTFLAGS: --cfg nexus_env="host"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2025-01-15
@@ -106,6 +114,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Dead code scan
         run: bash tools/deadcode-scan.sh
 
@@ -116,6 +126,8 @@ jobs:
       RUSTUP_TOOLCHAIN: nightly-2025-01-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install dependencies
         run: |
           sudo apt-get update
