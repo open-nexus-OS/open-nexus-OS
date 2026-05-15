@@ -13,8 +13,9 @@ extern crate alloc;
 use alloc::format;
 use core::time::Duration;
 use input_live_protocol::{
-    decode_visible_state, encode_get_visible_state, encode_status, encode_visible_state_frame,
-    frame_has_op, OP_GET_VISIBLE_STATE, STATUS_UNSUPPORTED,
+    decode_status, decode_visible_state, encode_get_visible_state, encode_send_composed_frame_vmo,
+    encode_status, encode_visible_state_frame, frame_has_op, VisibleState, OP_GET_VISIBLE_STATE,
+    OP_SEND_COMPOSED_FRAME_VMO, STATUS_OK, STATUS_UNSUPPORTED,
 };
 use nexus_abi::{cap_clone, debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, IpcError, KernelClient, KernelServer, Server as _, Wait};
@@ -39,33 +40,49 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         }
     }
 
-    let bootstrap =
-        windowd::bootstrap_display_handoff().map_err(|_| fail(FbdevdError::InvalidMode))?;
-    let framebuffer = FramebufferOwner::allocate(bootstrap.mode).map_err(|err| fail(err))?;
+    // Allocate framebuffer VMO (fbdevd is the scanout owner)
+    let mode =
+        windowd::VisibleBootstrapMode::fixed().map_err(|_| fail(FbdevdError::InvalidMode))?;
+    let framebuffer = FramebufferOwner::allocate(mode).map_err(|err| fail(err))?;
     debug_println(READY_MARKER).map_err(|_| "fbdevd ready log failed")?;
     debug_println(MAP_OK_MARKER).map_err(|_| "fbdevd map log failed")?;
-    configure_ramfb(framebuffer.base, bootstrap.mode).map_err(|err| fail(err))?;
-    debug_println(RAMFB_CONFIGURED_MARKER).map_err(|_| "fbdevd ramfb log failed")?;
-    framebuffer.write_handoff(&bootstrap).map_err(|err| fail(err))?;
-    debug_println(FLUSH_OK_MARKER).map_err(|_| "fbdevd flush log failed")?;
 
-    let mut service = FbdevService::enabled(&bootstrap).map_err(|err| fail(err))?;
+    configure_ramfb(framebuffer.base, mode).map_err(|err| fail(err))?;
+    debug_println(RAMFB_CONFIGURED_MARKER).map_err(|_| "fbdevd ramfb log failed")?;
+
+    // fbdevd is now scanout-only. windowd composes and writes frames into our VMO.
+    // We handle observer queries and telemetry.
+    let mut service = FbdevService::disabled();
+    service.set_display_enabled(true);
     let mut reactor = DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ);
-    // TASK-0059: migrate from inputd to windowd for VisibleState queries.
-    // windowd now runs as a standalone service and composes the full scene.
-    let mut inputd_client = KernelClient::new_for("inputd").ok();
-    let mut inputd_reply = KernelClient::new_for("@reply").ok();
-    let mut cursor_overlay_emitted = service.cursor_overlay().is_none();
+    let mut windowd_frame_client = KernelClient::new_for("windowd").ok();
+    let mut windowd_obs_client = KernelClient::new_for("windowd").ok();
+    let mut windowd_obs_reply = KernelClient::new_for("@reply").ok();
+    let mut framebuffer_registered = false;
+    let mut flush_ok_emitted = false;
+    let mut cursor_overlay_emitted = false;
+
     loop {
         service_requests(&server, service.visible_state())?;
+        if !framebuffer_registered {
+            framebuffer_registered = register_framebuffer_with_windowd(
+                &mut windowd_frame_client,
+                framebuffer.handle as u32,
+            );
+            if framebuffer_registered && !flush_ok_emitted {
+                debug_println(FLUSH_OK_MARKER).map_err(|_| "fbdevd flush log failed")?;
+                flush_ok_emitted = true;
+            }
+        }
         let now_ns = nsec().unwrap_or(0);
         let mut budget = TickBudget::new(4);
         if reactor.should_present(now_ns, &mut budget) {
-            let input_state = match (&inputd_client, &inputd_reply) {
-                (Some(client), Some(reply)) => fetch_input_visible_state_cached(client, reply),
+            // Query windowd for visible state (observer-only, no composition)
+            let input_state = match (&windowd_obs_client, &windowd_obs_reply) {
+                (Some(client), Some(reply)) => fetch_visible_state_cached(client, reply),
                 _ => {
-                    inputd_client = KernelClient::new_for("inputd").ok();
-                    inputd_reply = KernelClient::new_for("@reply").ok();
+                    windowd_obs_client = KernelClient::new_for("windowd").ok();
+                    windowd_obs_reply = KernelClient::new_for("@reply").ok();
                     None
                 }
             };
@@ -73,43 +90,28 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 let previous_state = service.render_state();
                 service.merge_input_state(input_state);
                 let next_state = service.render_state();
-                match live_dirty_rows(previous_state, next_state, bootstrap.mode) {
+                if next_state.cursor_overlay_visible && !cursor_overlay_emitted {
+                    let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
+                    cursor_overlay_emitted = true;
+                }
+                // Track dirty row count for telemetry
+                match live_dirty_rows(previous_state, next_state, mode) {
                     DirtyRows::None => {}
                     DirtyRows::Range { start_y, end_y } => {
-                        let cursor_overlay = service.cursor_overlay();
-                        let byte_len = framebuffer
-                            .write_live_visible_rows(next_state, start_y, end_y, cursor_overlay)
-                            .map_err(|err| fail(err))?;
+                        let byte_len = (end_y - start_y) as usize * mode.stride as usize;
                         if byte_len != 0 {
-                            if !cursor_overlay_emitted && cursor_overlay.is_some() {
-                                let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
-                                cursor_overlay_emitted = true;
-                            }
-                            service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
+                            service
+                                .present_live_bytes(byte_len)
+                                .map_err(|err| fail(err))?;
                         }
                     }
                     DirtyRows::Full => {
-                        let handoff = windowd::live_visible_state_handoff(next_state)
+                        let byte_len = mode
+                            .byte_len()
                             .map_err(|_| fail(FbdevdError::InvalidMode))?;
-                        service.present(&handoff).map_err(|err| fail(err))?;
-                        framebuffer.write_handoff(&handoff).map_err(|err| fail(err))?;
-                        // Blend cursor overlay on top of the full checkerboard frame
-                        if let Some((bitmap, cw, ch)) = service.cursor_overlay() {
-                            let cx = next_state.cursor_x;
-                            let cy = next_state.cursor_y;
-                            let start_y = (cy.max(0) as u32).min(bootstrap.mode.height);
-                            let end_y = (cy as u32 + ch).min(bootstrap.mode.height);
-                            if start_y < end_y {
-                                let _ = framebuffer.write_live_visible_rows(
-                                    next_state, start_y, end_y,
-                                    Some((bitmap, cw, ch)),
-                                );
-                                if !cursor_overlay_emitted {
-                                    let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
-                                    cursor_overlay_emitted = true;
-                                }
-                            }
-                        }
+                        service
+                            .present_live_bytes(byte_len)
+                            .map_err(|err| fail(err))?;
                     }
                 }
             }
@@ -126,10 +128,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 }
 
-fn service_requests(
-    server: &KernelServer,
-    state: input_live_protocol::VisibleState,
-) -> Result<(), &'static str> {
+fn service_requests(server: &KernelServer, state: VisibleState) -> Result<(), &'static str> {
     loop {
         match server.recv_request_with_meta(Wait::NonBlocking) {
             Ok((frame, _sender_service_id, reply)) => {
@@ -177,20 +176,48 @@ fn service_requests(
     }
 }
 
-fn fetch_input_visible_state_cached(
-    client: &KernelClient,
-    reply: &KernelClient,
-) -> Option<input_live_protocol::VisibleState> {
-    // RFC-0026: reuse cached IPC clients instead of creating new ones per frame.
-    const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 1;
-    let send_wait = Wait::Timeout(Duration::from_millis(INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS));
+fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Option<VisibleState> {
+    const RPC_TIMEOUT_MS: u64 = 2;
+    let send_wait = Wait::Timeout(Duration::from_millis(RPC_TIMEOUT_MS));
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
+    client
+        .send_with_cap_move_wait(&request, reply_send_clone, send_wait)
+        .ok()?;
     let recv_wait = Wait::NonBlocking;
     let frame = reply.recv(recv_wait).ok()?;
     decode_visible_state(&frame)
+}
+
+fn register_framebuffer_with_windowd(
+    client: &mut Option<KernelClient>,
+    framebuffer_handle: u32,
+) -> bool {
+    if client.is_none() {
+        *client = KernelClient::new_for("windowd").ok();
+    }
+    let Some(windowd) = client.as_ref() else {
+        return false;
+    };
+    let Ok(clone) = cap_clone(framebuffer_handle) else {
+        return false;
+    };
+    let request = encode_send_composed_frame_vmo();
+    if windowd
+        .send_with_cap_move_wait(&request, clone, Wait::Timeout(Duration::from_millis(10)))
+        .is_err()
+    {
+        *client = None;
+        return false;
+    }
+    match windowd.recv(Wait::Timeout(Duration::from_millis(500))) {
+        Ok(frame) if decode_status(&frame, OP_SEND_COMPOSED_FRAME_VMO) == Some(STATUS_OK) => true,
+        _ => {
+            *client = None;
+            false
+        }
+    }
 }
 
 fn fail(err: FbdevdError) -> &'static str {
@@ -203,29 +230,10 @@ fn log_and_fail(label: &'static str) -> &'static str {
     label
 }
 
-fn ipc_error_kind(err: nexus_ipc::IpcError) -> &'static str {
-    match err {
-        nexus_ipc::IpcError::WouldBlock => "would_block",
-        nexus_ipc::IpcError::Timeout => "timeout",
-        nexus_ipc::IpcError::Disconnected => "disconnected",
-        nexus_ipc::IpcError::NoSpace => "no_space",
-        nexus_ipc::IpcError::Kernel(_) => "kernel",
-        nexus_ipc::IpcError::Unsupported => "unsupported",
-        _ => "other",
-    }
+fn ipc_error_kind(_err: IpcError) -> &'static str {
+    "ipc"
 }
 
-fn ipc_error_detail(err: nexus_ipc::IpcError) -> &'static str {
-    match err {
-        nexus_ipc::IpcError::Kernel(kernel) => match kernel {
-            nexus_abi::IpcError::NoSuchEndpoint => "kernel_no_such_endpoint",
-            nexus_abi::IpcError::QueueFull => "kernel_queue_full",
-            nexus_abi::IpcError::QueueEmpty => "kernel_queue_empty",
-            nexus_abi::IpcError::PermissionDenied => "kernel_permission_denied",
-            nexus_abi::IpcError::TimedOut => "kernel_timed_out",
-            nexus_abi::IpcError::NoSpace => "kernel_no_space",
-            nexus_abi::IpcError::Unsupported => "kernel_unsupported",
-        },
-        _ => ipc_error_kind(err),
-    }
+fn ipc_error_detail(_err: IpcError) -> &'static str {
+    "error"
 }

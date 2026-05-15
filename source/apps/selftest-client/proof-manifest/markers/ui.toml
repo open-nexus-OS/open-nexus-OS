@@ -270,6 +270,21 @@ phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "windowd loaded and rasterized the Mocu SVG cursor asset into a visible surface"
 
+[marker."windowd: wallpaper visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd composed the JPEG-sourced wallpaper background into the DisplayServer root scene"
+
+[marker."windowd: text target visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd composed the deterministic v2b text proof target into the DisplayServer scene"
+
+[marker."windowd: icon target visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd composed the deterministic SVG-sourced icon proof target into the DisplayServer scene"
+
 [marker."SELFTEST: ui v2b assets ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }

@@ -22,11 +22,19 @@ use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES};
 #[derive(Debug, Clone, PartialEq)]
 enum XmlToken {
     // Start tag: <name attr="val">
-    OpenTag { name: AString, attrs: AVec<(String, String)> },
+    OpenTag {
+        name: AString,
+        attrs: AVec<(String, String)>,
+    },
     // Self-closing tag: <name attr="val" />
-    SelfCloseTag { name: AString, attrs: AVec<(String, String)> },
+    SelfCloseTag {
+        name: AString,
+        attrs: AVec<(String, String)>,
+    },
     // Closing tag: </name>
-    CloseTag { name: AString },
+    CloseTag {
+        name: AString,
+    },
     // Text content between tags
     Text(String),
     // End of input
@@ -44,7 +52,12 @@ impl<'a> Tokenizer<'a> {
     fn new(input: &'a str) -> Self {
         let mut chars = input.chars();
         let current = chars.next();
-        Tokenizer { chars, current, line: 1, col: 1 }
+        Tokenizer {
+            chars,
+            current,
+            line: 1,
+            col: 1,
+        }
     }
 
     fn advance(&mut self) {
@@ -70,7 +83,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn error(&self, message: &str) -> SvgError {
-        SvgError::XmlParse { line: self.line, col: self.col, message: message.to_string() }
+        SvgError::XmlParse {
+            line: self.line,
+            col: self.col,
+            message: message.to_string(),
+        }
     }
 
     fn read_until(&mut self, stop: char) -> AString {
@@ -99,7 +116,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn read_quoted_string(&mut self) -> SvgResult<String> {
-        let quote = self.current.ok_or_else(|| self.error("unexpected end in quoted string"))?;
+        let quote = self
+            .current
+            .ok_or_else(|| self.error("unexpected end in quoted string"))?;
         if quote != '"' && quote != '\'' {
             return Err(self.error("expected quote character"));
         }
@@ -245,7 +264,10 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
             XmlToken::OpenTag { name, attrs } => {
                 node_count += 1;
                 if node_count > MAX_SVG_NODES {
-                    return Err(SvgError::TooManyNodes { count: node_count, limit: MAX_SVG_NODES });
+                    return Err(SvgError::TooManyNodes {
+                        count: node_count,
+                        limit: MAX_SVG_NODES,
+                    });
                 }
 
                 let tag_lower = name.to_lowercase();
@@ -284,7 +306,10 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
             XmlToken::SelfCloseTag { name, attrs } => {
                 node_count += 1;
                 if node_count > MAX_SVG_NODES {
-                    return Err(SvgError::TooManyNodes { count: node_count, limit: MAX_SVG_NODES });
+                    return Err(SvgError::TooManyNodes {
+                        count: node_count,
+                        limit: MAX_SVG_NODES,
+                    });
                 }
 
                 let tag_lower = name.to_lowercase();
@@ -323,8 +348,11 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                     }
                     "g" => {
                         if let Some((_, children)) = stack.pop() {
-                            let group =
-                                SvgElement::Group { children, transform: None, opacity: 1.0 };
+                            let group = SvgElement::Group {
+                                children,
+                                transform: None,
+                                opacity: 1.0,
+                            };
                             if let Some((_, parent_children)) = stack.last_mut() {
                                 parent_children.push(group);
                             }
@@ -416,10 +444,16 @@ fn check_allowed_tag(tag: &str, line: usize) -> SvgResult<()> {
     }
     for (rejected, reason) in REJECTED_TAGS {
         if *rejected == tag {
-            return Err(SvgError::UnsupportedElement { tag: format!("<{tag}> ({reason})"), line });
+            return Err(SvgError::UnsupportedElement {
+                tag: format!("<{tag}> ({reason})"),
+                line,
+            });
         }
     }
-    Err(SvgError::UnsupportedElement { tag: tag.to_string(), line })
+    Err(SvgError::UnsupportedElement {
+        tag: tag.to_string(),
+        line,
+    })
 }
 
 fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<()> {
@@ -444,11 +478,17 @@ fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<
                 // Internal reference — allowed (gradient refs)
                 continue;
             }
-            return Err(SvgError::ExternalReference { kind: format!("url({inner})"), line });
+            return Err(SvgError::ExternalReference {
+                kind: format!("url({inner})"),
+                line,
+            });
         }
 
         if value.starts_with("data:") {
-            return Err(SvgError::ExternalReference { kind: "data: URI".to_string(), line });
+            return Err(SvgError::ExternalReference {
+                kind: "data: URI".to_string(),
+                line,
+            });
         }
     }
     Ok(())
@@ -473,11 +513,22 @@ fn parse_element(
     let stroke_width = parse_f32_attr(attrs, "stroke-width").unwrap_or(1.0);
 
     match tag {
-        "g" => Ok(SvgElement::Group { children: AVec::new(), transform, opacity }),
+        "g" => Ok(SvgElement::Group {
+            children: AVec::new(),
+            transform,
+            opacity,
+        }),
         "path" => {
             let d_str = get_attr(attrs, "d").unwrap_or("");
             let data = parse_path_data(d_str, segments)?;
-            Ok(SvgElement::Path { data, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Path {
+                data,
+                fill,
+                stroke,
+                stroke_width,
+                transform,
+                opacity,
+            })
         }
         "rect" => {
             let x = parse_f32_attr(attrs, "x").unwrap_or(0.0);
@@ -504,7 +555,16 @@ fn parse_element(
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
             let cy = parse_f32_attr(attrs, "cy").unwrap_or(0.0);
             let r = parse_f32_attr(attrs, "r").unwrap_or(0.0);
-            Ok(SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Circle {
+                cx,
+                cy,
+                r,
+                fill,
+                stroke,
+                stroke_width,
+                transform,
+                opacity,
+            })
         }
         "ellipse" => {
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
@@ -528,12 +588,28 @@ fn parse_element(
             let y1 = parse_f32_attr(attrs, "y1").unwrap_or(0.0);
             let x2 = parse_f32_attr(attrs, "x2").unwrap_or(0.0);
             let y2 = parse_f32_attr(attrs, "y2").unwrap_or(0.0);
-            Ok(SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                stroke,
+                stroke_width,
+                transform,
+                opacity,
+            })
         }
         "polygon" => {
             let points_str = get_attr(attrs, "points").unwrap_or("");
             let points = parse_points(points_str)?;
-            Ok(SvgElement::Polygon { points, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Polygon {
+                points,
+                fill,
+                stroke,
+                stroke_width,
+                transform,
+                opacity,
+            })
         }
         "lineargradient" => {
             // LinearGradient is a defs entry — parsed inline
@@ -548,7 +624,10 @@ fn parse_element(
             loop {
                 let child = tokenizer.next_token()?;
                 match child {
-                    XmlToken::OpenTag { name, attrs: child_attrs } => {
+                    XmlToken::OpenTag {
+                        name,
+                        attrs: child_attrs,
+                    } => {
                         if name.to_lowercase() == "stop" {
                             let offset = parse_f32_attr(&child_attrs, "offset").unwrap_or(0.0);
                             let color_str = get_attr(&child_attrs, "stop-color").unwrap_or("#000");
@@ -565,7 +644,10 @@ fn parse_element(
                             });
                         }
                     }
-                    XmlToken::SelfCloseTag { name, attrs: child_attrs } => {
+                    XmlToken::SelfCloseTag {
+                        name,
+                        attrs: child_attrs,
+                    } => {
                         if name.to_lowercase() == "stop" {
                             let offset = parse_f32_attr(&child_attrs, "offset").unwrap_or(0.0);
                             let color_str = get_attr(&child_attrs, "stop-color").unwrap_or("#000");
@@ -587,8 +669,14 @@ fn parse_element(
                 }
             }
 
-            let grad =
-                SvgElement::LinearGradient { id: id_attr.to_string(), x1, y1, x2, y2, stops };
+            let grad = SvgElement::LinearGradient {
+                id: id_attr.to_string(),
+                x1,
+                y1,
+                x2,
+                y2,
+                stops,
+            };
             if !id_attr.is_empty() {
                 defs.insert(id_attr.to_string(), grad.clone());
             }
@@ -607,7 +695,10 @@ fn parse_element(
                 stops: vec![GradientStop { offset, color }],
             })
         }
-        _ => Err(SvgError::UnsupportedElement { tag: tag.to_string(), line: tokenizer.line }),
+        _ => Err(SvgError::UnsupportedElement {
+            tag: tag.to_string(),
+            line: tokenizer.line,
+        }),
     }
 }
 
@@ -616,7 +707,10 @@ fn parse_element(
 // ---------------------------------------------------------------------------
 
 fn get_attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    attrs
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.as_str())
 }
 
 fn parse_f32_attr(attrs: &[(String, String)], name: &str) -> Option<f32> {
@@ -624,7 +718,9 @@ fn parse_f32_attr(attrs: &[(String, String)], name: &str) -> Option<f32> {
 }
 
 fn parse_opacity_attr(attrs: &[(String, String)]) -> f32 {
-    parse_f32_attr(attrs, "opacity").unwrap_or(1.0).clamp(0.0, 1.0)
+    parse_f32_attr(attrs, "opacity")
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0)
 }
 
 fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
@@ -632,7 +728,11 @@ fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
     let h = parse_f32_attr(attrs, "height").unwrap_or(100.0);
 
     if w > MAX_SVG_DIMENSION || h > MAX_SVG_DIMENSION {
-        return Err(SvgError::DimensionTooLarge { width: w, height: h, max: MAX_SVG_DIMENSION });
+        return Err(SvgError::DimensionTooLarge {
+            width: w,
+            height: h,
+            max: MAX_SVG_DIMENSION,
+        });
     }
 
     Ok((w, h))
@@ -815,7 +915,14 @@ fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
                 let (x1, y1) = parse_two_floats(&mut chars);
                 let (x2, y2) = parse_two_floats(&mut chars);
                 let (x, y) = parse_two_floats(&mut chars);
-                commands.push(PathCommand::CubicTo { x1, y1, x2, y2, x, y });
+                commands.push(PathCommand::CubicTo {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                });
                 _last_cx = x2;
                 _last_cy = y2;
             }
@@ -823,7 +930,14 @@ fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
                 let (dx1, dy1) = parse_two_floats(&mut chars);
                 let (dx2, dy2) = parse_two_floats(&mut chars);
                 let (dx, dy) = parse_two_floats(&mut chars);
-                commands.push(PathCommand::CubicToRel { dx1, dy1, dx2, dy2, dx, dy });
+                commands.push(PathCommand::CubicToRel {
+                    dx1,
+                    dy1,
+                    dx2,
+                    dy2,
+                    dx,
+                    dy,
+                });
             }
             'S' => {
                 let (x2, y2) = parse_two_floats(&mut chars);
@@ -867,11 +981,17 @@ fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
 
         *segments += 1;
         if *segments > MAX_PATH_SEGMENTS {
-            return Err(SvgError::TooManySegments { count: *segments, limit: MAX_PATH_SEGMENTS });
+            return Err(SvgError::TooManySegments {
+                count: *segments,
+                limit: MAX_PATH_SEGMENTS,
+            });
         }
     }
 
-    Ok(PathData { commands, fill_rule })
+    Ok(PathData {
+        commands,
+        fill_rule,
+    })
 }
 
 fn parse_two_floats(chars: &mut core::iter::Peekable<Chars>) -> (f32, f32) {

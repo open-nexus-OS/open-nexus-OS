@@ -41,6 +41,11 @@ impl ProofVisibleInputWitness {
         self.observed_state.wheel_down_visible |= state.wheel_down_visible;
         self.observed_state.pointer_route_live |= state.pointer_route_live;
         self.observed_state.keyboard_route_live |= state.keyboard_route_live;
+        self.observed_state.cursor_svg_visible |= state.cursor_svg_visible;
+        self.observed_state.text_target_visible |= state.text_target_visible;
+        self.observed_state.icon_target_visible |= state.icon_target_visible;
+        self.observed_state.wallpaper_visible |= state.wallpaper_visible;
+        self.observed_state.cursor_overlay_visible |= state.cursor_overlay_visible;
         self.observed_state.cursor_x = state.cursor_x;
         self.observed_state.cursor_y = state.cursor_y;
     }
@@ -81,6 +86,14 @@ pub(crate) fn proof_visible_input_ready(state: VisibleState) -> bool {
 
 pub(crate) fn proof_visible_wheel_ready(state: VisibleState) -> bool {
     state.wheel_up_visible || state.wheel_down_visible
+}
+
+pub(crate) fn proof_v2b_assets_ready(state: VisibleState) -> bool {
+    state.cursor_svg_visible
+        && state.text_target_visible
+        && state.icon_target_visible
+        && state.wallpaper_visible
+        && state.cursor_overlay_visible
 }
 
 pub(crate) fn interactive_scene_ready(state: VisibleState) -> bool {
@@ -153,5 +166,20 @@ pub(crate) fn emit_missing_visible_input_bits(state: VisibleState) {
     }
     if !state.keyboard_route_live {
         emit_debug("bootstrap: missing keyboard-route-live");
+    }
+    if !state.cursor_svg_visible {
+        emit_debug("bootstrap: missing cursor-svg-visible");
+    }
+    if !state.text_target_visible {
+        emit_debug("bootstrap: missing text-target-visible");
+    }
+    if !state.icon_target_visible {
+        emit_debug("bootstrap: missing icon-target-visible");
+    }
+    if !state.wallpaper_visible {
+        emit_debug("bootstrap: missing wallpaper-visible");
+    }
+    if !state.cursor_overlay_visible {
+        emit_debug("bootstrap: missing cursor-overlay-visible");
     }
 }

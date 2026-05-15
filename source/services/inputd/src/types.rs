@@ -20,10 +20,30 @@ pub enum ImeHook {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputDispatch {
-    PointerMove { delivery: InputDelivery, x: i32, y: i32 },
-    PointerDown { delivery: InputDelivery, x: i32, y: i32 },
-    PointerWheel { delta_y: i32 },
-    Keyboard { delivery: InputDelivery, key_code: u32, output: KeyOutput, repeated: bool },
-    Touch { delivery: InputDelivery, event: TouchEvent, x: i32, y: i32 },
+    PointerMove {
+        delivery: InputDelivery,
+        x: i32,
+        y: i32,
+    },
+    PointerDown {
+        delivery: InputDelivery,
+        x: i32,
+        y: i32,
+    },
+    PointerWheel {
+        delta_y: i32,
+    },
+    Keyboard {
+        delivery: InputDelivery,
+        key_code: u32,
+        output: KeyOutput,
+        repeated: bool,
+    },
+    Touch {
+        delivery: InputDelivery,
+        event: TouchEvent,
+        x: i32,
+        y: i32,
+    },
     ImeHook(ImeHook),
 }

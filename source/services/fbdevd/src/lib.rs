@@ -24,7 +24,7 @@ mod scanout;
 mod service;
 mod vsync;
 
-pub use backend::framebuffer::{validate_framebuffer_cap, validate_handoff};
+pub use backend::framebuffer::{blend_cursor_row, validate_framebuffer_cap, validate_handoff};
 pub use backend::ramfb::{
     dma_transfer_complete, encode_ramfb_config, encode_ramfb_dma_request, require_fw_cfg_signature,
     validate_dma_capability, validate_ramfb_file, DmaCapabilityInfo, RamfbFileInfo,

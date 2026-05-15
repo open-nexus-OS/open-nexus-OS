@@ -101,15 +101,25 @@ fn proof_visible_input_ready_requires_full_live_chain() {
         wheel_down_visible: false,
         pointer_route_live: true,
         keyboard_route_live: true,
+        cursor_svg_visible: true,
+        text_target_visible: true,
+        icon_target_visible: true,
+        wallpaper_visible: true,
+        cursor_overlay_visible: true,
         cursor_x: 8,
         cursor_y: 40,
     };
     assert!(display_observer::proof_visible_input_ready(state));
+    assert!(display_observer::proof_v2b_assets_ready(state));
     assert!(display_observer::interactive_scene_ready(state));
 
     let mut missing_keyboard = state;
     missing_keyboard.keyboard_visible = false;
     assert!(!display_observer::proof_visible_input_ready(missing_keyboard));
+
+    let mut missing_cursor_asset = state;
+    missing_cursor_asset.cursor_svg_visible = false;
+    assert!(!display_observer::proof_v2b_assets_ready(missing_cursor_asset));
 
     let mut missing_wheel = state;
     missing_wheel.wheel_up_visible = false;
@@ -138,6 +148,11 @@ fn proof_visible_input_witness_latches_transient_hold_and_wheel_bits() {
         wheel_down_visible: false,
         pointer_route_live: true,
         keyboard_route_live: true,
+        cursor_svg_visible: true,
+        text_target_visible: true,
+        icon_target_visible: true,
+        wallpaper_visible: true,
+        cursor_overlay_visible: true,
         cursor_x: 8,
         cursor_y: 40,
     };

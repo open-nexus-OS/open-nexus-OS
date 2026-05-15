@@ -5,3 +5,6 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+
+[build-dependencies]
+jpeg-decoder = { version = "0.3.2", default-features = false }

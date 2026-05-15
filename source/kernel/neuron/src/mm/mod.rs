@@ -21,11 +21,11 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 /// exec, metadata, and proof buffers.
 pub const USER_VMO_ARENA_LEN: usize = 32 * 1024 * 1024;
 /// Base address of the kernel-managed user VMO arena.
-pub const USER_VMO_ARENA_BASE: usize = 0x8100_0000;
+pub const USER_VMO_ARENA_BASE: usize = 0x8180_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.
-pub const KERNEL_PAGE_POOL_BASE: usize = 0x8080_0000;
+pub const KERNEL_PAGE_POOL_BASE: usize = 0x80c0_0000;
 /// Size of the temporary kernel page-pool window.
-pub const KERNEL_PAGE_POOL_LEN: usize = 3 * 1024 * 1024;
+pub const KERNEL_PAGE_POOL_LEN: usize = 8 * 1024 * 1024;
 /// Typed memory window descriptor used to avoid base/length mixups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AddressWindow {

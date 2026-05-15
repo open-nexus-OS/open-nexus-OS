@@ -39,14 +39,25 @@ fn tessellate_element(
     doc: &SvgDocument,
 ) {
     match elem {
-        SvgElement::Group { children, transform, opacity } => {
+        SvgElement::Group {
+            children,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
             for child in children {
                 tessellate_element(child, &tf, op, edges, doc);
             }
         }
-        SvgElement::Path { data, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Path {
+            data,
+            fill,
+            stroke,
+            stroke_width,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -94,7 +105,16 @@ fn tessellate_element(
                 }
             }
         }
-        SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Circle {
+            cx,
+            cy,
+            r,
+            fill,
+            stroke,
+            stroke_width,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -112,7 +132,17 @@ fn tessellate_element(
                 }
             }
         }
-        SvgElement::Ellipse { cx, cy, rx, ry, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Ellipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            fill,
+            stroke,
+            stroke_width,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -130,7 +160,16 @@ fn tessellate_element(
                 }
             }
         }
-        SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            stroke,
+            stroke_width,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -156,7 +195,14 @@ fn tessellate_element(
                 }
             }
         }
-        SvgElement::Polygon { points, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Polygon {
+            points,
+            fill,
+            stroke,
+            stroke_width,
+            transform,
+            opacity,
+        } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -207,7 +253,10 @@ fn resolve_paint(paint: &Paint, doc: &SvgDocument) -> Option<Color> {
                 let mid = stops
                     .iter()
                     .min_by(|a, b| {
-                        (a.offset - 0.5).abs().partial_cmp(&(b.offset - 0.5).abs()).unwrap()
+                        (a.offset - 0.5)
+                            .abs()
+                            .partial_cmp(&(b.offset - 0.5).abs())
+                            .unwrap()
                     })
                     .unwrap();
                 Some(mid.color)
@@ -303,7 +352,14 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 points.push((px, py));
                 cy = ny;
             }
-            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCommand::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 prev_cx2 = *x2;
                 prev_cy2 = *y2;
                 let pts = cubic_bezier_segments(cx, cy, *x1, *y1, *x2, *y2, *x, *y);
@@ -314,7 +370,14 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 cx = *x;
                 cy = *y;
             }
-            PathCommand::CubicToRel { dx1, dy1, dx2, dy2, dx, dy } => {
+            PathCommand::CubicToRel {
+                dx1,
+                dy1,
+                dx2,
+                dy2,
+                dx,
+                dy,
+            } => {
                 let x1 = cx + dx1;
                 let y1 = cy + dy1;
                 let x2 = cx + dx2;
@@ -581,9 +644,19 @@ fn polygon_edges(points: &[(f32, f32)], color: Color) -> Vec<Edge> {
         }
 
         // Ensure y0 <= y1
-        let (x0, y0, x1, y1) = if y0 <= y1 { (x0, y0, x1, y1) } else { (x1, y1, x0, y0) };
+        let (x0, y0, x1, y1) = if y0 <= y1 {
+            (x0, y0, x1, y1)
+        } else {
+            (x1, y1, x0, y0)
+        };
 
-        edges.push(Edge { x0, y0, x1, y1, color });
+        edges.push(Edge {
+            x0,
+            y0,
+            x1,
+            y1,
+            color,
+        });
     }
 
     edges
@@ -607,8 +680,12 @@ fn stroke_edges(points: &[(f32, f32)], width: f32, color: Color) -> Vec<Edge> {
         let nx = -dy / len * half;
         let ny = dx / len * half;
 
-        let quad =
-            vec![(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)];
+        let quad = vec![
+            (x0 + nx, y0 + ny),
+            (x1 + nx, y1 + ny),
+            (x1 - nx, y1 - ny),
+            (x0 - nx, y0 - ny),
+        ];
         edges.extend(polygon_edges(&quad, color));
     }
 

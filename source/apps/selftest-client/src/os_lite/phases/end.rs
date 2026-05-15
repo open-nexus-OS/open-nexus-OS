@@ -21,7 +21,9 @@ use input_live_protocol::VisibleState;
 
 use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::{
-    context::PhaseCtx, display_bootstrap, display_observer::ProofVisibleInputWitness,
+    context::PhaseCtx,
+    display_bootstrap,
+    display_observer::{proof_v2b_assets_ready, ProofVisibleInputWitness},
 };
 use crate::runtime_mode::RuntimeMode;
 
@@ -276,11 +278,10 @@ fn emit_proof_mode_markers(visible_input: VisibleState) -> bool {
         && (visible_input.wheel_up_visible || visible_input.wheel_down_visible)
     {
         emit_line(windowd::SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER);
-        // --- TASK-0057: UI v2b asset targets ---
-        // Observer pattern: windowd fires per-service markers when assets are loaded.
-        // When all asset targets are observed, emit the summary marker.
-        emit_line(windowd::SELFTEST_UI_V2B_ASSETS_OK_MARKER);
-        return true;
+        if proof_v2b_assets_ready(visible_input) {
+            emit_line(windowd::SELFTEST_UI_V2B_ASSETS_OK_MARKER);
+            return true;
+        }
     }
     false
 }

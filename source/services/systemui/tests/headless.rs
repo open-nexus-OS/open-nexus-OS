@@ -10,5 +10,7 @@
 
 #[test]
 fn systemui_checksum() {
-    assert_eq!(systemui::checksum(), 1_999_217_024);
+    assert!(systemui::wallpaper_source_is_jpeg());
+    assert_eq!(systemui::wallpaper_decoded_size(), (1280, 800));
+    assert_eq!(systemui::checksum(), 3_222_117_274);
 }

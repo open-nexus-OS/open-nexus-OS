@@ -373,6 +373,8 @@ struct CtrlChannel {
     rng_recv_slot: Option<u32>,
     timed_send_slot: Option<u32>,
     timed_recv_slot: Option<u32>,
+    window_send_slot: Option<u32>,
+    window_recv_slot: Option<u32>,
     input_send_slot: Option<u32>,
     input_recv_slot: Option<u32>,
     fbdev_send_slot: Option<u32>,
@@ -832,6 +834,8 @@ where
                     rng_recv_slot: None,
                     timed_send_slot: None,
                     timed_recv_slot: None,
+                    window_send_slot: None,
+                    window_recv_slot: None,
                     input_send_slot: None,
                     input_recv_slot: None,
                     fbdev_send_slot: None,
@@ -918,6 +922,7 @@ where
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
     let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
+    let windowd_pid = find_pid(&ctrl_channels, "windowd").ok_or(InitError::MissingElf)?;
     let inputd_pid = find_pid(&ctrl_channels, "inputd").ok_or(InitError::MissingElf)?;
     let fbdevd_pid = find_pid(&ctrl_channels, "fbdevd").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
@@ -1016,6 +1021,10 @@ where
     let timed_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, timed_pid, 8)
         .map_err(InitError::Abi)?;
     let timed_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
+        .map_err(InitError::Abi)?;
+    let window_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, windowd_pid, 32)
+        .map_err(InitError::Abi)?;
+    let window_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, windowd_pid, 8)
         .map_err(InitError::Abi)?;
     let input_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, inputd_pid, 8)
         .map_err(InitError::Abi)?;
@@ -1991,6 +2000,19 @@ where
                 debug_write_hex(recv_slot as usize);
                 debug_write_byte(b'\n');
             }
+            "windowd" => {
+                let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                let send_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                chan.window_send_slot = Some(send_slot);
+                chan.window_recv_slot = Some(recv_slot);
+                debug_write_bytes(b"init: windowd slots recv=0x");
+                debug_write_hex(recv_slot as usize);
+                debug_write_bytes(b" send=0x");
+                debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
+            }
             "inputd" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
@@ -1998,10 +2020,21 @@ where
                     .map_err(InitError::Abi)?;
                 chan.input_send_slot = Some(send_slot);
                 chan.input_recv_slot = Some(recv_slot);
+                let window_send_slot = nexus_abi::cap_transfer(pid, window_req, Rights::SEND)
+                    .map_err(InitError::Abi)?;
+                let window_recv_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                chan.window_send_slot = Some(window_send_slot);
+                chan.window_recv_slot = Some(window_recv_slot);
                 debug_write_bytes(b"init: inputd slots recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_bytes(b" send=0x");
                 debug_write_hex(send_slot as usize);
+                debug_write_byte(b'\n');
+                debug_write_bytes(b"init: inputd windowd slots send=0x");
+                debug_write_hex(window_send_slot as usize);
+                debug_write_bytes(b" recv=0x");
+                debug_write_hex(window_recv_slot as usize);
                 debug_write_byte(b'\n');
             }
             "fbdevd" => {
@@ -2021,19 +2054,21 @@ where
                 chan.reply_recv_slot = Some(reply_recv_slot);
                 chan.reply_send_slot = Some(reply_send_slot);
                 let _ = nexus_abi::cap_close(reply_ep);
-                let input_send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
+                let window_send_slot = nexus_abi::cap_transfer(pid, window_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.input_send_slot = Some(input_send_slot);
-                chan.input_recv_slot = Some(reply_recv_slot);
+                let window_recv_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV)
+                    .map_err(InitError::Abi)?;
+                chan.window_send_slot = Some(window_send_slot);
+                chan.window_recv_slot = Some(window_recv_slot);
                 debug_write_bytes(b"init: fbdevd slots recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_bytes(b" send=0x");
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
-                debug_write_bytes(b"init: fbdevd inputd slots send=0x");
-                debug_write_hex(input_send_slot as usize);
+                debug_write_bytes(b"init: fbdevd windowd slots send=0x");
+                debug_write_hex(window_send_slot as usize);
                 debug_write_bytes(b" recv=0x");
-                debug_write_hex(reply_recv_slot as usize);
+                debug_write_hex(window_recv_slot as usize);
                 debug_write_byte(b'\n');
             }
             "metricsd" => {
@@ -2730,6 +2765,11 @@ where
                 }
             } else if name == b"timed" {
                 match (chan.timed_send_slot, chan.timed_recv_slot) {
+                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
+                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                }
+            } else if name == b"windowd" {
+                match (chan.window_send_slot, chan.window_recv_slot) {
                     (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
                     _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 }

@@ -235,9 +235,11 @@ if [[ -z "${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}" ]]; then
   export INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS="--no-default-features --features os-lite,qemu-smoke"
 fi
 
-# TASK-0014: enforce canonical os-lite service payload set for deterministic QEMU proofs.
-# Keep this fixed so marker contracts do not depend on inherited shell environment.
-export INIT_LITE_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,fbdevd,selftest-client"
+# TASK-0014/TASK-0057: enforce the canonical os-lite service payload set for
+# deterministic QEMU proofs from cargo metadata. The order policy lives in
+# `scripts/discover-services.sh`; do not duplicate a static list here.
+INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
+export INIT_LITE_SERVICE_LIST
 if [[ -z "${INIT_LITE_SERVICE_METRICSD_STACK_PAGES:-}" ]]; then
   # Keep added observability service footprint bounded in bring-up proofs.
   export INIT_LITE_SERVICE_METRICSD_STACK_PAGES=1
@@ -387,6 +389,8 @@ expected_sequence=(
   "init: up hidrawd"
   "init: start touchd"
   "init: up touchd"
+  "init: start windowd"
+  "init: up windowd"
   "init: start inputd"
   "init: up inputd"
   "init: start fbdevd"
@@ -535,6 +539,8 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "init: up hidrawd"
     "init: start touchd"
     "init: up touchd"
+    "init: start windowd"
+    "init: up windowd"
     "init: start inputd"
     "init: up inputd"
     "init: start fbdevd"
@@ -571,13 +577,19 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "SELFTEST: ui visible input ok"
     "windowd: wheel visible"
     "SELFTEST: ui visible wheel ok"
+    "windowd: cursor svg loaded"
+    "windowd: wallpaper visible"
+    "windowd: text target visible"
+    "windowd: icon target visible"
+    "fbdevd: cursor overlay on"
+    "SELFTEST: ui v2b assets ok"
     "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui visible wheel ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui v2b assets ok"
   fi
 fi
 
@@ -631,6 +643,8 @@ if [[ -n "$RUN_PHASE" ]]; then
       "init: up hidrawd"
       "init: start touchd"
       "init: up touchd"
+      "init: start windowd"
+      "init: up windowd"
       "init: start inputd"
       "init: up inputd"
       "${INPUT_STARTUP_MARKERS[@]}"
@@ -1411,6 +1425,23 @@ if grep -aFq "SELFTEST: ui visible wheel ok" "$UART_LOG"; then
       echo "[error] first_failed_phase=end missing_marker='$m'" >&2
       echo "[error] UI visible wheel marker appeared before required wheel proof: $m" >&2
       print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      exit 1
+    fi
+  done
+fi
+
+# TASK-0057 DisplayServer v0 fake-green guard: the v2b summary marker is valid
+# only after service-owned asset and scanout evidence is visible.
+if grep -aFq "SELFTEST: ui v2b assets ok" "$UART_LOG"; then
+  for m in \
+    "SELFTEST: ui visible wheel ok" \
+    "windowd: cursor svg loaded" \
+    "windowd: wallpaper visible" \
+    "windowd: text target visible" \
+    "windowd: icon target visible" \
+    "fbdevd: cursor overlay on"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] fake-green guard: '$m' missing before ui v2b assets ok" >&2
       exit 1
     fi
   done

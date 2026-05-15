@@ -379,11 +379,11 @@ prepare_build_tmpdir() {
 
 declare -a SERVICES=()
 
-DEFAULT_SERVICE_LIST="keystored,rngd,policyd,logd,metricsd,samgrd,bundlemgrd,statefsd,updated,timed,packagefsd,vfsd,execd,netstackd,dsoftbusd,hidrawd,touchd,inputd,fbdevd,selftest-client"
+DEFAULT_SERVICE_LIST=""
 
 prepare_service_payloads() {
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
-    INIT_LITE_SERVICE_LIST=$DEFAULT_SERVICE_LIST
+    INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
     export INIT_LITE_SERVICE_LIST
   fi
 

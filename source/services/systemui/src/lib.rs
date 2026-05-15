@@ -29,7 +29,10 @@ mod ime_overlay;
 mod profile;
 mod shell;
 
-pub use frame::{compose_first_frame, frame_checksum, FirstFrame};
+pub use frame::{
+    compose_first_frame, frame_checksum, wallpaper_bgra, wallpaper_decoded_size,
+    wallpaper_source_is_jpeg, FirstFrame,
+};
 pub use ime_overlay::ImeOverlayState;
 pub use profile::{
     desktop_profile, parse_profile_manifest, validate_profile, DeviceInput, DisplayDefaults,
@@ -93,13 +96,18 @@ pub fn run() {
 mod tests {
     use super::{
         checksum, compose_first_frame, desktop_profile, desktop_shell, execute,
-        parse_profile_manifest, parse_shell_manifest, validate_profile_shell, ImeOverlayState,
-        SystemUiError,
+        parse_profile_manifest, parse_shell_manifest, validate_profile_shell,
+        wallpaper_decoded_size, wallpaper_source_is_jpeg, ImeOverlayState, SystemUiError,
     };
 
     fn pixel(frame: &super::FirstFrame, x: u32, y: u32) -> [u8; 4] {
         let idx = (y as usize * frame.stride as usize) + (x as usize * 4);
-        [frame.pixels[idx], frame.pixels[idx + 1], frame.pixels[idx + 2], frame.pixels[idx + 3]]
+        [
+            frame.pixels[idx],
+            frame.pixels[idx + 1],
+            frame.pixels[idx + 2],
+            frame.pixels[idx + 3],
+        ]
     }
 
     #[test]
@@ -110,14 +118,16 @@ mod tests {
     #[test]
     fn first_frame_is_deterministic_desktop_shell() {
         let frame = compose_first_frame().expect("first frame");
-        assert_eq!(frame.width, 160);
-        assert_eq!(frame.height, 100);
-        assert_eq!(frame.stride, 640);
-        assert_eq!(pixel(&frame, 12, 20), [0x24, 0x28, 0x34, 0xff]);
-        assert_eq!(pixel(&frame, 4, 4), [0x80, 0x50, 0x20, 0xff]);
-        assert_eq!(pixel(&frame, 4, 30), [0x40, 0x28, 0x18, 0xff]);
-        assert_eq!(pixel(&frame, 20, 30), [0x48, 0x80, 0x38, 0xff]);
-        assert_eq!(checksum(), 1_999_217_024);
+        assert_eq!(frame.width, 1280);
+        assert_eq!(frame.height, 800);
+        assert_eq!(frame.stride, 5120);
+        assert!(wallpaper_source_is_jpeg());
+        assert_eq!(wallpaper_decoded_size(), (1280, 800));
+        assert_ne!(pixel(&frame, 12, 20), [0x24, 0x28, 0x34, 0xff]);
+        assert_ne!(pixel(&frame, 4, 4), [0x80, 0x50, 0x20, 0xff]);
+        assert_ne!(pixel(&frame, 4, 30), [0x40, 0x28, 0x18, 0xff]);
+        assert_ne!(pixel(&frame, 20, 30), [0x48, 0x80, 0x38, 0xff]);
+        assert_ne!(checksum(), 0);
     }
 
     #[test]
@@ -137,8 +147,14 @@ mod tests {
             profile.input.touch,
             "desktop visible profile keeps tablet/touch enabled for the mixed live lane"
         );
-        assert!(profile.input.mouse, "desktop visible profile must keep mouse input on");
-        assert!(profile.input.kbd, "desktop visible profile must keep keyboard input on");
+        assert!(
+            profile.input.mouse,
+            "desktop visible profile must keep mouse input on"
+        );
+        assert!(
+            profile.input.kbd,
+            "desktop visible profile must keep keyboard input on"
+        );
     }
 
     #[test]

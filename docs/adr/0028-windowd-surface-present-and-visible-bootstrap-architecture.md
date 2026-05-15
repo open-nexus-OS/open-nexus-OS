@@ -56,6 +56,17 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - A missing stable marker in `visible-bootstrap` is treated as a missing host/service proof for the first broken hop.
    - Current fast-closure matrix: `docs/testing/display-output-hardening-matrix.md`.
 
+10. **TASK-0057 grows `windowd` into Minimal DisplayServer v0**
+   - `windowd` is now a standalone os-lite service, not only an in-process library.
+   - `fbdevd` owns framebuffer allocation and `ramfb` setup, then transfers a cloned
+     framebuffer VMO capability to `windowd` for composition.
+   - `windowd` owns JPEG-sourced wallpaper, SVG cursor, text/icon proof targets,
+     focus/hit-test state, and composed-frame writes.
+   - `inputd` sends bounded visible-input updates to `windowd`; it does not own
+     cursor pixels or a second display scene.
+   - `SELFTEST: ui v2b assets ok` is valid only after visible input plus
+     service-owned cursor/wallpaper/text/icon/overlay evidence.
+
 ## Current State
 
 - `TASK-0056` / `RFC-0050` and `TASK-0056B` / `RFC-0051` are `Done`.
@@ -65,8 +76,13 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 - `TASK-0253` / `RFC-0053` / `RFC-0054` are now review-closed for the service-owned
   live chain: `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`,
   with `selftest-client` kept observer-only.
-- The next follow-up remains `TASK-0056C`; this ADR still does not claim
-  latency/perf closure for the UI fast lane.
+- `TASK-0057` has lifted the visible asset slice into a Minimal DisplayServer v0:
+  `inputd -> windowd -> fbdevd -> ramfb` is the authoritative live chain, and
+  `visible-bootstrap` now gates on v2b asset evidence rather than the older wheel
+  marker alone.
+- The next follow-up remains broader production display closure; this ADR still
+  does not claim GPU, Wayland, multi-window WM, full text input/IME, or kernel/core
+  production-grade display closure.
 
 ## Consequences
 - **Positive**
@@ -75,6 +91,8 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   - Architecture docs can link one canonical ADR instead of duplicating semantics.
   - v2a present/input keeps a single `windowd` authority path instead of creating launcher/selftest sidecar authority.
   - 56B visible input keeps marker honesty while preserving the architecture boundary for the real input pipeline.
+  - TASK-0057 removes the live white-cursor-square truth by routing visible output
+    through `windowd`'s SVG cursor and JPEG-sourced root scene.
 
 - **Negative**
   - Additional doc-sync burden when marker semantics or authority boundaries change.
@@ -86,6 +104,8 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   - `TASK-0055C` can regress into fake visibility if marker proofs stop checking the composed `windowd` frame.
   - `TASK-0056` can regress into fake input/present success if marker proofs are accepted without the `ui_v2a_host` behavior assertions.
   - `TASK-0056B` can regress into fake visible input if cursor/hover/focus/click markers are emitted without `windowd`-composed frame evidence or if deterministic input is described as live host input.
+  - `TASK-0057` can regress into fake asset success if `selftest-client` emits the
+    v2b summary without observing `windowd` and `fbdevd` service-owned asset state.
 
 ## Links
 - `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`
@@ -98,4 +118,5 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 - `tasks/TASK-0055C-ui-v1d-windowd-visible-present-systemui-first-frame.md`
 - `tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md`
 - `tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md`
+- `tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md`
 - `tasks/TASK-0010-device-mmio-access-model.md`

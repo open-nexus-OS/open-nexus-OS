@@ -44,8 +44,33 @@ for pkg in data.get('packages', []):
         continue
     stack = meta.get('stack_pages', 0)
     svcs.append((name, stack))
-# Sort by name for determinism
-svcs.sort(key=lambda x: x[0])
+# Deterministic boot order for init-lite. Keep this as the single service-order
+# policy so harnesses do not each carry their own stale service list.
+ORDER = [
+    'keystored',
+    'rngd',
+    'policyd',
+    'logd',
+    'metricsd',
+    'samgrd',
+    'bundlemgrd',
+    'statefsd',
+    'updated',
+    'timed',
+    'packagefsd',
+    'vfsd',
+    'execd',
+    'netstackd',
+    'dsoftbusd',
+    'hidrawd',
+    'touchd',
+    'windowd',
+    'inputd',
+    'fbdevd',
+    'selftest-client',
+]
+rank = {name: idx for idx, name in enumerate(ORDER)}
+svcs.sort(key=lambda x: (rank.get(x[0], len(ORDER)), x[0]))
 for name, stack in svcs:
     print(f'{name} {stack}')
 ")

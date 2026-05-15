@@ -22,6 +22,8 @@ pub const VERSION: u8 = 1;
 
 pub const OP_PUSH_HID_BATCH: u8 = 1;
 pub const OP_GET_VISIBLE_STATE: u8 = 2;
+pub const OP_SEND_COMPOSED_FRAME_VMO: u8 = 3;
+pub const OP_UPDATE_VISIBLE_STATE: u8 = 4;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
@@ -44,7 +46,7 @@ pub const EVENT_KIND_BTN: u8 = 4;
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
-const STATE_LEN: usize = 28;
+const STATE_LEN: usize = 32;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +90,11 @@ pub struct VisibleState {
     pub wheel_down_visible: bool,
     pub pointer_route_live: bool,
     pub keyboard_route_live: bool,
+    pub cursor_svg_visible: bool,
+    pub text_target_visible: bool,
+    pub icon_target_visible: bool,
+    pub wallpaper_visible: bool,
+    pub cursor_overlay_visible: bool,
     pub cursor_x: i32,
     pub cursor_y: i32,
 }
@@ -209,17 +216,32 @@ pub fn encode_get_visible_state() -> [u8; HEADER_LEN] {
     [MAGIC0, MAGIC1, VERSION, OP_GET_VISIBLE_STATE, 0, 0, 0, 0]
 }
 
+#[must_use]
+pub fn encode_send_composed_frame_vmo() -> [u8; HEADER_LEN] {
+    [MAGIC0, MAGIC1, VERSION, OP_SEND_COMPOSED_FRAME_VMO, 0, 0, 0, 0]
+}
+
+#[must_use]
+pub fn encode_update_visible_state(state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_LEN] {
+    encode_state_frame(OP_UPDATE_VISIBLE_STATE, state)
+}
+
 pub fn encode_visible_state(state: VisibleState) -> Vec<u8> {
     encode_visible_state_frame(state).to_vec()
 }
 
 #[must_use]
 pub fn encode_visible_state_frame(state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_LEN] {
+    encode_state_frame(OP_GET_VISIBLE_STATE | 0x80, state)
+}
+
+#[must_use]
+fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_LEN] {
     let mut out = [0u8; VISIBLE_STATE_FRAME_LEN];
     out[0] = MAGIC0;
     out[1] = MAGIC1;
     out[2] = VERSION;
-    out[3] = OP_GET_VISIBLE_STATE | 0x80;
+    out[3] = op;
     out[4..8].copy_from_slice(&(STATE_LEN as u32).to_le_bytes());
     out[8..25].copy_from_slice(&[
         u8::from(state.virtio_raw_seen),
@@ -244,6 +266,11 @@ pub fn encode_visible_state_frame(state: VisibleState) -> [u8; VISIBLE_STATE_FRA
     out[29..33].copy_from_slice(&state.cursor_y.to_le_bytes());
     out[33] = u8::from(state.wheel_up_visible);
     out[34] = u8::from(state.wheel_down_visible);
+    out[35] = u8::from(state.cursor_svg_visible);
+    out[36] = u8::from(state.text_target_visible);
+    out[37] = u8::from(state.icon_target_visible);
+    out[38] = u8::from(state.wallpaper_visible);
+    out[39] = u8::from(state.cursor_overlay_visible);
     out
 }
 
@@ -261,6 +288,17 @@ pub fn decode_visible_state(frame: &[u8]) -> Option<VisibleState> {
     if frame.len() != HEADER_LEN + STATE_LEN || !frame_has_op(frame, OP_GET_VISIBLE_STATE | 0x80) {
         return None;
     }
+    decode_state_payload(frame)
+}
+
+pub fn decode_update_visible_state(frame: &[u8]) -> Option<VisibleState> {
+    if frame.len() != HEADER_LEN + STATE_LEN || !frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
+        return None;
+    }
+    decode_state_payload(frame)
+}
+
+fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
     Some(VisibleState {
         virtio_raw_seen: frame[8] != 0,
         hid_normalized_seen: frame[9] != 0,
@@ -283,6 +321,11 @@ pub fn decode_visible_state(frame: &[u8]) -> Option<VisibleState> {
         cursor_y: i32::from_le_bytes([frame[29], frame[30], frame[31], frame[32]]),
         wheel_up_visible: frame[33] != 0,
         wheel_down_visible: frame[34] != 0,
+        cursor_svg_visible: frame[35] != 0,
+        text_target_visible: frame[36] != 0,
+        icon_target_visible: frame[37] != 0,
+        wallpaper_visible: frame[38] != 0,
+        cursor_overlay_visible: frame[39] != 0,
     })
 }
 
@@ -357,11 +400,25 @@ mod tests {
             keyboard_visible: false,
             pointer_route_live: true,
             keyboard_route_live: false,
+            cursor_svg_visible: true,
+            text_target_visible: true,
+            icon_target_visible: true,
+            wallpaper_visible: true,
+            cursor_overlay_visible: true,
             cursor_x: 320,
             cursor_y: 200,
             wheel_up_visible: true,
             wheel_down_visible: false,
         };
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
+        assert_eq!(decode_update_visible_state(&encode_update_visible_state(state)), Some(state));
+    }
+
+    #[test]
+    fn update_visible_state_rejects_response_and_truncated_frames() {
+        let state = VisibleState { cursor_svg_visible: true, ..VisibleState::default() };
+        let update = encode_update_visible_state(state);
+        assert_eq!(decode_visible_state(&update), None);
+        assert_eq!(decode_update_visible_state(&update[..update.len() - 1]), None);
     }
 }

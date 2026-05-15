@@ -3264,6 +3264,9 @@ dependencies = [
 [[package]]
 name = "systemui"
 version = "0.1.0"
+dependencies = [
+ "jpeg-decoder",
+]
 
 [[package]]
 name = "tar"

@@ -21,7 +21,11 @@ pub fn rasterize_document(doc: &SvgDocument) -> Result<RasterOutput, crate::erro
     let height = (doc.height + 0.99999_f32) as u32;
 
     if width == 0 || height == 0 {
-        return Ok(RasterOutput { width, height, buffer: Vec::new() });
+        return Ok(RasterOutput {
+            width,
+            height,
+            buffer: Vec::new(),
+        });
     }
 
     let edges = tessellate_document(doc);
@@ -31,7 +35,11 @@ pub fn rasterize_document(doc: &SvgDocument) -> Result<RasterOutput, crate::erro
 
     scanline_fill(&edges, width as usize, height as usize, &mut buffer);
 
-    Ok(RasterOutput { width, height, buffer })
+    Ok(RasterOutput {
+        width,
+        height,
+        buffer,
+    })
 }
 
 /// Simple scanline polygon fill with alpha blending.
@@ -77,7 +85,11 @@ fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
         // Compute x-intersections
         let mut intersections: Vec<(f32, &Edge)> = Vec::new();
         for e in &active {
-            let t = if (e.y1 - e.y0).abs() < 0.0001 { 0.0 } else { (yf - e.y0) / (e.y1 - e.y0) };
+            let t = if (e.y1 - e.y0).abs() < 0.0001 {
+                0.0
+            } else {
+                (yf - e.y0) / (e.y1 - e.y0)
+            };
             let x = e.x0 + t * (e.x1 - e.x0);
             intersections.push((x, e));
         }

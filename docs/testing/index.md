@@ -235,13 +235,13 @@ a missing per-service proof first, not as a reason to add marker-only retries.
 
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
-| Fixed 1280x800 ARGB8888 mode, `windowd -> fbdevd` display handoff, framebuffer-capability rejection, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p fbdevd -p ui_windowd_host -- --nocapture` |
+| Fixed 1280x800 ARGB8888 mode, `fbdevd -> windowd` framebuffer registration, framebuffer-capability rejection, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p fbdevd -- --nocapture` |
 | `selftest-client` visible bootstrap and `init-lite` `fw_cfg` capability path compile for the OS target | OS target compile assertions | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` and `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` |
 | Service-owned visible ladder (`fbdevd: ready`, `fbdevd: map ok`, `fbdevd: ramfb configured`, `fbdevd: flush ok`, `display: bootstrap on`, `display: mode 1280x800 argb8888`, `display: first scanout ok`) with proof-manifest verification | single-VM QEMU visible scanout proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
 
-This closes only the bootstrap scanout path. Visible SystemUI/launcher profile
-selection, input, cursor, dirty-rect display services, perf budgets, virtio-gpu,
-and kernel/core production-grade display closure remain follow-up scope.
+This closes the bootstrap scanout path. TASK-0057 extends the same
+`visible-bootstrap` harness to prove the Minimal DisplayServer v0 asset scene;
+`just start` is the separate live interactive check.
 
 ### TASK-0055C visible windowd present + SystemUI first frame
 
@@ -259,14 +259,33 @@ be derived from that manifest rather than duplicated inside shell scripts.
 
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
-| TOML-backed `desktop` SystemUI profile/shell seed and deterministic BGRA first-frame pixels/checksum | host behavior assertions | `cargo test -p systemui -- --nocapture` |
-| Visible present evidence uses `windowd` composition (full composed frame on host, composed rows in OS to fit selftest heap), not a raw SystemUI source-buffer write; invalid mode/capability/pre-marker paths reject | host behavior/reject assertions | `cargo test -p windowd -p ui_windowd_host -- --nocapture` and `cargo test -p ui_windowd_host reject -- --nocapture` |
+| TOML-backed `desktop` SystemUI profile/shell seed and JPEG-sourced deterministic first-frame pixels/checksum | host behavior assertions | `cargo test -p systemui -- --nocapture` |
+| Visible present evidence uses `windowd` DisplayServer composition, not a raw SystemUI source-buffer write; invalid mode/capability/pre-marker paths reject | host behavior/reject assertions | `cargo test -p windowd -- --nocapture` |
 | `selftest-client` visible SystemUI path compiles for the OS target | OS target compile assertion | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` |
 | Service-owned visible-present ladder (`windowd: backend=visible`, `windowd: present visible ok`, `systemui: first frame visible`, `SELFTEST: ui visible present ok`) plus `fps: windowd` / `fps: fbdevd` failure-summary traces | single-VM QEMU visible SystemUI proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
 
 This slice still does not prove input, cursor/focus/click, display-service
 integration, dirty-rect scanout, frame-budget smoothness, dev display/profile
 preset matrices, or kernel/core production-grade display closure.
+
+### TASK-0057 Minimal DisplayServer v0 asset scene
+
+`TASK-0057` proves that the visible path has one scene authority:
+`inputd -> windowd -> fbdevd -> ramfb`. `windowd` owns JPEG-sourced wallpaper,
+SVG cursor, text/icon proof targets, and composition into the framebuffer VMO.
+`fbdevd` owns scanout only, and `selftest-client` remains observer-only.
+
+| Requirement surface | Proof type | Canonical command |
+| --- | --- | --- |
+| DisplayServer-v0 protocol frames and reject paths (`OP_UPDATE_VISIBLE_STATE`, visible-state response, malformed/truncated rejects) | host protocol assertions | `cargo test -p input-live-protocol -- --nocapture` |
+| JPEG-sourced SystemUI seed and SVG cursor/assets visible in service-owned state | host service assertions | `cargo test -p systemui -p windowd -p fbdevd -- --nocapture` |
+| Observer cannot synthesize asset success; summary waits for cursor/wallpaper/text/icon/overlay evidence | host observer assertions | `cargo test -p selftest-client -- --nocapture` |
+| Display services compile as os-lite daemons, including standalone `windowd` | OS target compile assertion | `RUSTFLAGS='--cfg nexus_env="os"' cargo +nightly-2025-01-15 check --target riscv64imac-unknown-none-elf --no-default-features --features os-lite -p windowd -p fbdevd -p inputd` |
+| Asset marker ladder ends at v2b success, not wheel success | single-VM QEMU visible proof | `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` |
+
+The live proof is `just start`: the GTK/QEMU window should show the same
+DisplayServer scene with JPEG wallpaper, SVG cursor, text/icon targets, and
+live pointer movement.
 
 ### TASK-0056 v2a present scheduler + input routing
 
@@ -429,7 +448,7 @@ The QEMU marker ladder, harness profile catalog, and runtime selftest profile ca
 | Kind     | Profile         | Driver                          | Purpose |
 |---       |---              |---                              |---|
 | Harness  | `full`          | `scripts/qemu-test.sh`          | Default 12-phase ladder (`just test-os` / `just ci-os-full`). |
-| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056 visible `ramfb`, SystemUI, and v2a marker ladder plus the current `TASK-0253` in-process live-input marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile, screenshot proof, or separate-daemon service proof. |
+| Harness  | `visible-bootstrap` | `scripts/qemu-test.sh`      | TASK-0055B/0055C/0056/TASK-0057 visible `ramfb`, SystemUI, v2a, live-input, and Minimal DisplayServer v0 asset marker ladder (`just test-os visible-bootstrap`); not a SystemUI start profile or screenshot proof. |
 | Harness  | `smp`           | `scripts/qemu-test.sh`          | SMP-only marker contract; consumed by `just ci-os-smp` (SMP=2 strict + SMP=1 parity). |
 | Harness  | `dhcp`          | `scripts/qemu-test.sh`          | DHCP requested; deterministic fallback allowed (`just ci-os-dhcp`). |
 | Harness  | `dhcp-strict`   | `scripts/qemu-test.sh`          | DHCP must bind (`just ci-os-dhcp-strict`); extends `dhcp`. |

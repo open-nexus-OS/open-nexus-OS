@@ -13,12 +13,12 @@ extern crate alloc;
 use alloc::format;
 
 use input_live_protocol::{
-    decode_push_hid_batch, encode_status, encode_visible_state_frame, frame_has_op, VisibleState,
-    WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH, STATUS_MALFORMED, STATUS_OK,
-    STATUS_OVERFLOW, STATUS_UNSUPPORTED,
+    decode_push_hid_batch, encode_status, encode_update_visible_state, encode_visible_state_frame,
+    frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
+    STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
 use nexus_abi::{debug_println, nsec, yield_};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
     decode_wire_batch, visible_display_space, visible_display_start_position,
@@ -37,6 +37,8 @@ const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
 const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
 const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
+const WINDOWD_FALLBACK_SEND_SLOT: u32 = 5;
+const WINDOWD_FALLBACK_RECV_SLOT: u32 = 6;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let mut runtime = LiveRouteRuntime::new()?;
@@ -122,8 +124,12 @@ struct LiveRouteRuntime {
     focus_debug_emitted: bool,
     keyboard_dispatch_debug_emitted: bool,
     keyboard_delivery_debug_emitted: bool,
+    windowd_push_ok_emitted: bool,
+    windowd_route_fallback_emitted: bool,
+    windowd_push_fail_emitted: bool,
     wheel_indicator_direction: WheelIndicatorDirection,
     wheel_indicator_deadline_ns: u64,
+    windowd_client: Option<KernelClient>,
     chain: InputdChainTelemetry,
 }
 
@@ -180,7 +186,9 @@ impl LiveRouteRuntime {
             .map_err(|_| fail("inputd: init fail commit-scene"))?;
         // RFC-0055: enable pointer-motion coalescing fastpath in the live OS path
         server.enable_fastpath();
-        let _ack = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
+        let _ack = server
+            .present_tick()
+            .map_err(|_| fail("inputd: init fail present-tick"))?;
         let display_start = visible_display_start_position()
             .map_err(|_| fail("inputd: init fail pointer-transform"))?;
         let display_space =
@@ -221,8 +229,12 @@ impl LiveRouteRuntime {
             focus_debug_emitted: false,
             keyboard_dispatch_debug_emitted: false,
             keyboard_delivery_debug_emitted: false,
+            windowd_push_ok_emitted: false,
+            windowd_route_fallback_emitted: false,
+            windowd_push_fail_emitted: false,
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
+            windowd_client: KernelClient::new_for("windowd").ok(),
             chain: InputdChainTelemetry::new(),
         })
     }
@@ -252,10 +264,14 @@ impl LiveRouteRuntime {
         // OS-lite consumes the per-batch dispatch result directly for telemetry and visible-state
         // updates, so the internal dispatch history must not accumulate across live batches.
         self.input.clear_dispatches();
-        self.chain.raw_events =
-            self.chain.raw_events.saturating_add(u64::from(batch.raw_event_count));
-        self.chain.normalized_events =
-            self.chain.normalized_events.saturating_add(u64::from(batch.normalized_event_count));
+        self.chain.raw_events = self
+            .chain
+            .raw_events
+            .saturating_add(u64::from(batch.raw_event_count));
+        self.chain.normalized_events = self
+            .chain
+            .normalized_events
+            .saturating_add(u64::from(batch.normalized_event_count));
         if batch.raw_event_count > 0 {
             self.visible_state.virtio_raw_seen = true;
         }
@@ -315,16 +331,20 @@ impl LiveRouteRuntime {
                     .any(|dispatch| matches!(dispatch, InputDispatch::Keyboard { .. })),
             )
         };
-        let Ok(delivered_count) =
-            self.input.router_mut().drain_input_events(self.launcher, self.surface)
+        let Ok(delivered_count) = self
+            .input
+            .router_mut()
+            .drain_input_events(self.launcher, self.surface)
         else {
             self.chain.route_overflow_delivery =
                 self.chain.route_overflow_delivery.saturating_add(1);
             return STATUS_OVERFLOW;
         };
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
-        self.chain.delivered_events =
-            self.chain.delivered_events.saturating_add(delivered_count as u64);
+        self.chain.delivered_events = self
+            .chain
+            .delivered_events
+            .saturating_add(delivered_count as u64);
         if pointer_dispatch_batch {
             self.chain.pointer_dispatch_batches =
                 self.chain.pointer_dispatch_batches.saturating_add(1);
@@ -425,6 +445,7 @@ impl LiveRouteRuntime {
             self.keyboard_marker_emitted = true;
         }
         self.sync_wheel_indicator(now_ns);
+        self.push_visible_state_to_windowd();
     }
 
     fn note_wheel_indicator(&mut self, delta_y: i32, now_ns: u64) {
@@ -446,6 +467,38 @@ impl LiveRouteRuntime {
             active && self.wheel_indicator_direction == WheelIndicatorDirection::Down;
         if !active {
             self.wheel_indicator_direction = WheelIndicatorDirection::None;
+        }
+    }
+
+    fn push_visible_state_to_windowd(&mut self) {
+        if self.windowd_client.is_none() {
+            self.windowd_client = KernelClient::new_for("windowd").ok().or_else(|| {
+                if !self.windowd_route_fallback_emitted {
+                    let _ = debug_println("inputd: windowd route fallback");
+                    self.windowd_route_fallback_emitted = true;
+                }
+                KernelClient::new_with_slots(WINDOWD_FALLBACK_SEND_SLOT, WINDOWD_FALLBACK_RECV_SLOT)
+                    .ok()
+            });
+        }
+        let Some(client) = &self.windowd_client else {
+            return;
+        };
+        let frame = encode_update_visible_state(self.visible_state);
+        match client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(2))) {
+            Ok(()) => {
+                if !self.windowd_push_ok_emitted {
+                    let _ = debug_println("inputd: windowd visible-state pushed");
+                    self.windowd_push_ok_emitted = true;
+                }
+            }
+            Err(_) => {
+                if !self.windowd_push_fail_emitted {
+                    let _ = debug_println("inputd: windowd visible-state push fail");
+                    self.windowd_push_fail_emitted = true;
+                }
+                self.windowd_client = None;
+            }
         }
     }
 }
@@ -574,9 +627,16 @@ impl InputdChainTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return;
         }
-        let recv_hz =
-            self.total_frames.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let hid_ok_hz = self.hid_ok.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let recv_hz = self
+            .total_frames
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
+        let hid_ok_hz = self
+            .hid_ok
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
         let poll_hz = self
             .visible_state_polls
             .saturating_mul(1_000_000_000)

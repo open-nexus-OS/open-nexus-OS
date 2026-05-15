@@ -1,6 +1,6 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-14 (TASK-0057 Phase 4b complete: auto-discovery + manifest v2.0)
+Last updated: 2026-05-14 (TASK-0057 cursor fix: feature propagation in fbdevd/Cargo.toml)
 
 ## Active task
 
@@ -55,7 +55,62 @@ Display chain: hidrawd → inputd → fbdevd → ramfb
   and within inputd (LiveRouteRuntime WindowServer)
 ```
 
+### Phase 4c: Cursor Feature Propagation Fix (2026-05-14)
+
+**Root cause found**: `fbdevd/Cargo.toml` declared `windowd = { path = "../windowd" }` without
+`features = ["os-lite"]`. Cargo features are not transitive — `fbdevd` with `--features os-lite`
+did NOT enable `windowd/os-lite`. This meant:
+- `windowd/src/render_assets.rs` never compiled for the OS target
+- `run_visible_systemui_smoke()` always took the `#[cfg(not(...))]` branch → `cursor_bitmap = None`
+- `blend_cursor_row()` never called → `fbdevd: cursor overlay on` never emitted
+- SVG cursor never appeared on display
+
+**Fix**: Added `"windowd/os-lite"` to `fbdevd`'s `os-lite` feature list. Now `cursor_bitmap`
+flows: `render_cursor_surface()` → `DisplayPresentHandoff` → `FbdevService` → `blend_cursor_row()`.
+
+**Two competing WindowServer instances identified**:
+- `windowd` standalone service creates WindowServer #1 (renders SVG, emits `cursor svg loaded`,
+  but frame never consumed by fbdevd)
+- `fbdevd` → `bootstrap_display_handoff()` creates WindowServer #2 (via `run_visible_systemui_smoke`,
+  provides cursor_bitmap to fbdevd for live blending)
+- Phase 5 (windowd IPC service) is supposed to consolidate these.
+
+**JPEG wallpaper**: Not yet integrated into compositor. `nexus_image::decode_image()` exists but
+nobody calls it in the display chain. Requires adding `nexus-image` dep to windowd/systemui
+and composing wallpaper as background layer. Scoped as follow-up.
+
+**TASK-0057 markers not in test ladder**: `qemu-test.sh` visible-bootstrap ladder ends at
+`SELFTEST: ui visible wheel ok`. TASK-0057 markers (`cursor svg loaded`, `cursor overlay on`,
+`ui v2b assets ok`) are NOT checked. Marker manifest defines them but no test enforces them.
+
 ## Pending: Phase 5 (windowd as IPC service)
+
+### 5a: windowd IPC service main loop
+- os_lite::service_main_loop() handles: OP_CREATE_SURFACE, OP_COMMIT_SCENE, OP_GET_COMPOSED_FRAME
+- Cursor position tracking from inputd IPC
+- Composes full scene including cursor at live position
+
+### 5b: inputd → windowd cursor position IPC
+- inputd sends CURSOR_POSITION(x, y) via cap-based IPC each frame
+- inputd removes own WindowServer (delegates to windowd)
+
+### 5c: fbdevd scanout-only
+- fbdevd queries windowd (not inputd) for composed frame
+- Removes own cursor blending (now done by windowd)
+- Becomes pure "dumb scanout owner"
+
+### Phase 5 tests needed
+- IPC contract tests: windowd create_surface, commit_scene, get_composed_frame
+- inputd → windowd cursor position IPC test
+- fbdevd → windowd composed frame query test
+- Service contract: blend_cursor_row → correct pixels at (x,y)
+
+### Phase 5 docs needed
+- docs/architecture/display-output-service-chain.md: update with windowd service
+- ADR update: windowd library → service migration
+- manifest.capnp comments: document v2.0 usage
+
+##
 
 ### 5a: windowd IPC service main loop
 - os_lite::service_main_loop() handles: OP_CREATE_SURFACE, OP_COMMIT_SCENE, OP_GET_COMPOSED_FRAME

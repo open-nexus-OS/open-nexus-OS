@@ -11,8 +11,8 @@ dsl_root = "ui/shells/desktop"
 supported_profiles = ["desktop"]
 
 [first_frame]
-width = 160
-height = 100
+width = 1280
+height = 800
 
 [features]
 launcher = false

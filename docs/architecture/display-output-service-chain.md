@@ -14,10 +14,16 @@ contains the required evidence.
 ## Authority Boundaries
 
 - `hidrawd` owns hardware ingress and normalized HID delivery.
-- `inputd` owns live pointer/keyboard routing state and delivery accounting.
-- `windowd` owns scene state, hit-test, focus, compose, and present generation.
-- `fbdevd` owns framebuffer capability use, `ramfb` setup, final scanout writes,
-  and visible-state replies.
+- `inputd` owns normalized pointer/keyboard state and delivery accounting. It
+  sends bounded visible-input updates to `windowd`; it does not own scene or
+  cursor pixels.
+- `windowd` is the Minimal DisplayServer v0. It owns root scene state,
+  hit-test/focus, JPEG-sourced wallpaper, SVG cursor, text/icon proof targets,
+  composition, and writes composed rows into the framebuffer VMO registered by
+  `fbdevd`.
+- `fbdevd` owns framebuffer capability use, `ramfb` setup, final scanout
+  ownership, and visible-state replies. It does not own scene composition or a
+  second cursor truth.
 - `init-lite` owns capability routing and endpoint rights.
 
 ## Minimal Userspace Reactor
@@ -25,21 +31,21 @@ contains the required evidence.
 Long-lived display/input work runs in service-owned userspace reactors, not in
 the kernel and not in `selftest-client`.
 
-For the live cursor path, `fbdevd` drives a small budgeted display tick:
+For the live display path, `fbdevd` drives a small budgeted scanout observer tick:
 
 - drain bounded service requests,
-- sample upstream `VisibleState` through a short bounded `inputd` RPC,
-- compose/present through `windowd`,
-- write the latest frame or cursor-only dirty rows to `ramfb`,
+- register its framebuffer VMO with `windowd` by `CAP_MOVE`,
+- sample composed `VisibleState` through a short bounded `windowd` RPC,
+- update scanout/telemetry from service-owned evidence,
 - yield cooperatively.
 
 The reactor must not let a slow upstream poll block a display refresh for a full
-frame budget. If `inputd` does not answer quickly, `fbdevd` keeps ownership of
-the last service state and tries again on the next tick.
+frame budget. If `windowd` does not answer quickly, `fbdevd` keeps ownership of
+the last observed state and tries again on the next tick.
 
-Cursor-only movement is the latency-sensitive case. It redraws only the physical
-rows that contain the old and new cursor rectangles; keyboard, click, scene, or
-display-bit changes still use a full service-owned present.
+Cursor-only movement is the latency-sensitive case. `inputd` forwards bounded
+visible-input updates to `windowd`, `windowd` recomposes the SVG cursor over the
+root scene, and `fbdevd` only reports the dirty-row/flush evidence it observes.
 
 The coordinate contract follows normal screen-space direction:
 
@@ -48,10 +54,10 @@ The coordinate contract follows normal screen-space direction:
 - positive relative Y moves the cursor down,
 - negative relative Y moves the cursor up.
 
-`inputd` owns the canonical pointer state in physical display coordinates.
-`windowd` remains hit-test/focus authority on the proof scene by transforming
-that display position into its logical `64x48` route space, while the live
-visible framebuffer consumes the physical display position directly.
+`inputd` owns the canonical pointer state in physical display coordinates and
+never turns it into cursor pixels. `windowd` remains hit-test/focus and
+composition authority; the visible framebuffer consumes only rows composed by
+the DisplayServer.
 
 This intentionally mirrors the OpenHarmony/OHOS split: pointer events carry a
 screen/display-relative position for global routing and a window/component
@@ -60,6 +66,60 @@ canonical state in display space, maps absolute devices across the full visible
 bootstrap mode, transforms to window-space only for `windowd` delivery, and
 derives hover from the routed proof-scene position instead of from a framebuffer
 scale-back shortcut.
+
+
+## DisplayServer v0 Asset Pipeline (TASK-0057)
+
+The cursor rendering follows the OHOS hardware-cursor model mapped to software,
+with `windowd` as the single display-scene authority:
+
+1. **windowd** (DisplayServer authority): composes the root scene.
+   - SVG source: `assets::CURSOR_LEFT_PTR_SVG` (Mocu theme, CC0)
+   - Wallpaper source: `resources/wallpapers/base/default.jpeg`
+   - Rendering: `nexus-svg` cursor raster output + JPEG-sourced wallpaper seed
+     + deterministic text/icon proof targets
+   - Composition target: framebuffer VMO registered by `fbdevd`
+
+2. **inputd** (input authority): supplies bounded input updates.
+   - Tracks `display_pointer_position()` from HID events
+   - Sends `OP_UPDATE_VISIBLE_STATE` to `windowd`
+   - Does not render the cursor or own a display scene
+
+3. **fbdevd** (scanout authority): owns the framebuffer and ramfb device.
+   - Allocates the framebuffer VMO and sends a cloned capability to `windowd`
+   - Serves observer-visible state after it sees `windowd` asset/overlay evidence
+   - Emits `fbdevd: cursor overlay on` only after the DisplayServer-composed cursor
+     is visible in service state
+
+4. **selftest-client** (observer): validates cursor markers.
+   - `windowd: cursor svg loaded` — cursor bitmap successfully rasterized
+   - `windowd: wallpaper visible` — JPEG-sourced wallpaper is in the root scene
+   - `windowd: text target visible` / `windowd: icon target visible` — v2b proof
+     targets are composed by `windowd`
+   - `fbdevd: cursor overlay on` — scanout observed the DisplayServer cursor
+   - `SELFTEST: ui v2b assets ok` — all asset targets verified
+
+### Contract Tests
+
+| Test | Crate | Verifies |
+|---|---|---|
+| `cursor_svg_renders_non_empty` | nexus-svg | CURSOR_LEFT_PTR_SVG → non-zero pixels |
+| `update_visible_state_rejects_response_and_truncated_frames` | input-live-protocol | DisplayServer-v0 input frame rejects |
+| `observer_state_latches_displayserver_asset_evidence` | fbdevd | scanout observer latches service-owned asset evidence |
+| `blend_cursor_row_replaces_opaque_pixels` | fbdevd | Opaque cursor replaces destination |
+| `blend_cursor_row_skips_transparent_pixels` | fbdevd | Transparent pixels don't overwrite |
+| `blend_cursor_row_ignores_out_of_bounds` | fbdevd | OOB cursor position is safe |
+
+### Automated vs Live Proof
+
+- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap` is the
+  automated injected-input proof. It must stop at
+  `SELFTEST: ui v2b assets ok`, not the older wheel marker.
+- `just start` is the live interactive proof. It should show the same
+  DisplayServer scene: JPEG wallpaper, SVG cursor, text/icon targets, and live
+  pointer movement.
+- White cursor-square proof pixels are legacy host affordances only; they are
+  not accepted as the live mouse truth in the DisplayServer chain.
 
 ## Minimal Closure Rule
 

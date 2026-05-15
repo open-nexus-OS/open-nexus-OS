@@ -78,6 +78,18 @@ impl FbdevService {
         self.display_enabled
     }
 
+    /// Enable display for scanout-only operation (windowd composes frames).
+    pub fn set_display_enabled(&mut self, enabled: bool) {
+        self.display_enabled = enabled;
+        if enabled {
+            self.render_state.backend_visible = true;
+            self.render_state.display_scanout_ready = true;
+            self.observer_state.backend_visible = true;
+            self.observer_state.display_scanout_ready = true;
+            self.scanout.configure();
+        }
+    }
+
     pub const fn visible_state(&self) -> VisibleState {
         self.observer_state
     }
@@ -88,7 +100,9 @@ impl FbdevService {
 
     /// Returns the cursor bitmap and dimensions, if loaded.
     pub fn cursor_overlay(&self) -> Option<(&[u8], u32, u32)> {
-        self.cursor_bitmap.as_ref().map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
+        self.cursor_bitmap
+            .as_ref()
+            .map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
     }
 
     pub fn observer_ready(&self) -> bool {

@@ -13,8 +13,8 @@ default = []
 os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry", "dep:nexus-svg"]
 
 [package.metadata.nexus-service]
-kind = "library"
-stack_pages = 0
+kind = "service"
+stack_pages = 4
 
 [dependencies]
 systemui = { path = "../systemui" }

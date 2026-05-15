@@ -1,14 +1,14 @@
 # windowd service manifest (v2.0)
-# windowd is a LIBRARY used by fbdevd and inputd — not a standalone service.
-# It provides surface composition, cursor rendering, and scene management.
+# windowd is the Minimal DisplayServer v0 service. It owns scene composition,
+# cursor rendering, wallpaper, text/icon proof targets, focus, and present state.
 name = "windowd"
 version = "0.1.0"
-bundle_type = "library"
-provides = ["windowd.compose", "windowd.surface", "windowd.cursor"]
+bundle_type = "service"
+provides = ["windowd.display_server", "windowd.compose", "windowd.surface", "windowd.cursor"]
 dependencies = []
 caps = []
 min_sdk = "0.1.0"
-abilities = []
-resources = ["cursor:cursors/left_ptr.svg", "icon:icons/window.svg"]
+abilities = ["windowd.MainAbility"]
+resources = ["cursor:cursors/left_ptr.svg", "icon:icons/window.svg", "wallpaper:wallpapers/base/default.jpeg"]
 publisher = "00000000000000000000000000000000"
 sig = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"

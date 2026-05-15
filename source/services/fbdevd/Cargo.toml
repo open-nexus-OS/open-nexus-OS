@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry"]
+os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry", "windowd/os-lite"]
 
 [package.metadata.nexus-service]
 stack_pages = 1

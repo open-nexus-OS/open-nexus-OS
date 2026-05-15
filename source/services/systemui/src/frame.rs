@@ -14,6 +14,12 @@ use alloc::vec::Vec;
 use crate::profile::{Result, SystemUiError};
 use crate::shell::{resolve_desktop_shell, ResolvedShell};
 
+const WALLPAPER_JPEG_BYTES: &[u8] =
+    include_bytes!("../../../../resources/wallpapers/base/default.jpeg");
+mod generated_wallpaper {
+    include!(concat!(env!("OUT_DIR"), "/wallpaper_generated.rs"));
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirstFrame {
     pub width: u32,
@@ -31,14 +37,36 @@ pub fn compose_for_shell(resolved: &ResolvedShell) -> Result<FirstFrame> {
     let height = resolved.shell.first_frame.height;
     let stride = checked_stride(width)?;
     let len = checked_len(stride, height)?;
-    let mut frame = FirstFrame { width, height, stride, pixels: vec![0u8; len] };
+    let mut frame = FirstFrame {
+        width,
+        height,
+        stride,
+        pixels: vec![0u8; len],
+    };
 
-    fill_rect(&mut frame, 0, 0, width, height, [0x24, 0x28, 0x34, 0xff])?;
-    fill_rect(&mut frame, 0, 0, width, 16, [0x80, 0x50, 0x20, 0xff])?;
-    fill_rect(&mut frame, 0, 16, 10, height - 16, [0x40, 0x28, 0x18, 0xff])?;
-    fill_rect(&mut frame, 18, 28, 92, 54, [0x48, 0x80, 0x38, 0xff])?;
-    fill_rect(&mut frame, 118, 28, 24, 8, [0xb0, 0xa0, 0x40, 0xff])?;
+    fill_wallpaper(&mut frame)?;
     Ok(frame)
+}
+
+#[must_use]
+pub fn wallpaper_source_is_jpeg() -> bool {
+    WALLPAPER_JPEG_BYTES.len() >= 3
+        && WALLPAPER_JPEG_BYTES[0] == 0xff
+        && WALLPAPER_JPEG_BYTES[1] == 0xd8
+        && WALLPAPER_JPEG_BYTES[2] == 0xff
+}
+
+#[must_use]
+pub const fn wallpaper_decoded_size() -> (u32, u32) {
+    (
+        generated_wallpaper::WALLPAPER_WIDTH,
+        generated_wallpaper::WALLPAPER_HEIGHT,
+    )
+}
+
+#[must_use]
+pub const fn wallpaper_bgra() -> &'static [u8] {
+    generated_wallpaper::WALLPAPER_BGRA
 }
 
 pub fn frame_checksum(frame: &FirstFrame) -> u32 {
@@ -47,36 +75,46 @@ pub fn frame_checksum(frame: &FirstFrame) -> u32 {
     })
 }
 
-fn fill_rect(
-    frame: &mut FirstFrame,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    bgra: [u8; 4],
-) -> Result<()> {
-    let end_x = x.checked_add(width).ok_or(SystemUiError::ArithmeticOverflow)?;
-    let end_y = y.checked_add(height).ok_or(SystemUiError::ArithmeticOverflow)?;
-    if width == 0 || height == 0 || end_x > frame.width || end_y > frame.height {
+fn fill_wallpaper(frame: &mut FirstFrame) -> Result<()> {
+    if !wallpaper_source_is_jpeg() {
         return Err(SystemUiError::InvalidFrameDimensions);
     }
-    for py in y..end_y {
-        for px in x..end_x {
-            let idx = (py as usize)
+    for y in 0..frame.height {
+        for x in 0..frame.width {
+            let idx = (y as usize)
                 .checked_mul(frame.stride as usize)
-                .and_then(|row| row.checked_add((px as usize).checked_mul(4)?))
+                .and_then(|row| row.checked_add((x as usize).checked_mul(4)?))
                 .ok_or(SystemUiError::ArithmeticOverflow)?;
-            frame.pixels[idx..idx + 4].copy_from_slice(&bgra);
+            let src_x = ((u64::from(x) * u64::from(generated_wallpaper::WALLPAPER_WIDTH))
+                / u64::from(frame.width)) as usize;
+            let src_y = ((u64::from(y) * u64::from(generated_wallpaper::WALLPAPER_HEIGHT))
+                / u64::from(frame.height)) as usize;
+            let src = src_y
+                .checked_mul(generated_wallpaper::WALLPAPER_WIDTH as usize * 4)
+                .and_then(|row| row.checked_add(src_x.checked_mul(4)?))
+                .ok_or(SystemUiError::ArithmeticOverflow)?;
+            frame.pixels[idx..idx + 4].copy_from_slice(
+                generated_wallpaper::WALLPAPER_BGRA
+                    .get(src..src + 4)
+                    .ok_or(SystemUiError::InvalidFrameDimensions)?,
+            );
         }
     }
     Ok(())
 }
 
 fn checked_stride(width: u32) -> Result<u32> {
-    let bytes = width.checked_mul(4).ok_or(SystemUiError::ArithmeticOverflow)?;
-    bytes.checked_add(63).ok_or(SystemUiError::ArithmeticOverflow).map(|v| v / 64 * 64)
+    let bytes = width
+        .checked_mul(4)
+        .ok_or(SystemUiError::ArithmeticOverflow)?;
+    bytes
+        .checked_add(63)
+        .ok_or(SystemUiError::ArithmeticOverflow)
+        .map(|v| v / 64 * 64)
 }
 
 fn checked_len(stride: u32, height: u32) -> Result<usize> {
-    (stride as usize).checked_mul(height as usize).ok_or(SystemUiError::ArithmeticOverflow)
+    (stride as usize)
+        .checked_mul(height as usize)
+        .ok_or(SystemUiError::ArithmeticOverflow)
 }

@@ -53,12 +53,16 @@ pub struct Frame {
 
 pub(crate) fn blit_surface(frame: &mut Frame, layer: &Layer, buffer: &SurfaceBuffer) -> Result<()> {
     for sy in 0..buffer.height as i32 {
-        let dy = sy.checked_add(layer.y).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dy = sy
+            .checked_add(layer.y)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         if dy < 0 || dy >= frame.height as i32 {
             continue;
         }
         for sx in 0..buffer.width as i32 {
-            let dx = sx.checked_add(layer.x).ok_or(WindowdError::ArithmeticOverflow)?;
+            let dx = sx
+                .checked_add(layer.x)
+                .ok_or(WindowdError::ArithmeticOverflow)?;
             if dx < 0 || dx >= frame.width as i32 {
                 continue;
             }

@@ -21,9 +21,10 @@ pub fn merge_visible_state(
     systemui_first_frame_visible: bool,
 ) -> VisibleState {
     VisibleState {
-        backend_visible,
-        display_scanout_ready,
-        systemui_first_frame_visible,
+        backend_visible: backend_visible || upstream.backend_visible,
+        display_scanout_ready: display_scanout_ready || upstream.display_scanout_ready,
+        systemui_first_frame_visible: systemui_first_frame_visible
+            || upstream.systemui_first_frame_visible,
         scene_ready: previous.scene_ready || upstream.scene_ready,
         full_window_visible: previous.full_window_visible || upstream.full_window_visible,
         click_target_visible: previous.click_target_visible || upstream.click_target_visible,
@@ -41,9 +42,10 @@ pub fn merge_observer_visible_state(
     systemui_first_frame_visible: bool,
 ) -> VisibleState {
     VisibleState {
-        backend_visible,
-        display_scanout_ready,
-        systemui_first_frame_visible,
+        backend_visible: backend_visible || upstream.backend_visible,
+        display_scanout_ready: display_scanout_ready || upstream.display_scanout_ready,
+        systemui_first_frame_visible: systemui_first_frame_visible
+            || upstream.systemui_first_frame_visible,
         virtio_raw_seen: previous.virtio_raw_seen || upstream.virtio_raw_seen,
         hid_normalized_seen: previous.hid_normalized_seen || upstream.hid_normalized_seen,
         scene_ready: previous.scene_ready || upstream.scene_ready,
@@ -61,6 +63,11 @@ pub fn merge_observer_visible_state(
         wheel_down_visible: previous.wheel_down_visible || upstream.wheel_down_visible,
         pointer_route_live: previous.pointer_route_live || upstream.pointer_route_live,
         keyboard_route_live: previous.keyboard_route_live || upstream.keyboard_route_live,
+        cursor_svg_visible: previous.cursor_svg_visible || upstream.cursor_svg_visible,
+        text_target_visible: previous.text_target_visible || upstream.text_target_visible,
+        icon_target_visible: previous.icon_target_visible || upstream.icon_target_visible,
+        wallpaper_visible: previous.wallpaper_visible || upstream.wallpaper_visible,
+        cursor_overlay_visible: previous.cursor_overlay_visible || upstream.cursor_overlay_visible,
         cursor_x: upstream.cursor_x,
         cursor_y: upstream.cursor_y,
     }

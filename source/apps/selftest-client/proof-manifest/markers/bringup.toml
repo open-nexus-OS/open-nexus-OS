@@ -115,6 +115,14 @@ proves = "TASK-0253 touchd is embedded as an init-lite OS service image"
 phase = "bringup"
 proves = "TASK-0253 touchd service image was spawned by init-lite"
 
+[marker."init: start windowd"]
+phase = "bringup"
+proves = "TASK-0057 windowd DisplayServer v0 is embedded as an init-lite OS service image"
+
+[marker."init: up windowd"]
+phase = "bringup"
+proves = "TASK-0057 windowd DisplayServer v0 service image was spawned by init-lite before input/scanout wiring"
+
 [marker."init: start inputd"]
 phase = "bringup"
 proves = "TASK-0253 inputd is embedded as an init-lite OS service image"
