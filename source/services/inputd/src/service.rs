@@ -83,16 +83,14 @@ impl<R: RouteTarget> InputdService<R> {
         let pointer_transform =
             PointerTransform::new(display_space, route_space).map_err(InputdError::from)?;
         let pointer = config.initial_pointer();
-        let pointer_state = PointerState::new(
-            display_space,
-            PointerPosition::new(pointer.x(), pointer.y()),
-        )
-        .map_err(|err| match err {
-            pointer_state::PointerStateError::InitialPositionOutOfBounds { x, y } => {
-                InputdError::InitialPointerOutOfBounds { x, y }
-            }
-            other => InputdError::from(other),
-        })?;
+        let pointer_state =
+            PointerState::new(display_space, PointerPosition::new(pointer.x(), pointer.y()))
+                .map_err(|err| match err {
+                    pointer_state::PointerStateError::InitialPositionOutOfBounds { x, y } => {
+                        InputdError::InitialPointerOutOfBounds { x, y }
+                    }
+                    other => InputdError::from(other),
+                })?;
 
         Ok(Self {
             router,
@@ -235,32 +233,18 @@ impl<R: RouteTarget> InputdService<R> {
             TouchPhase::Move => windowd::TouchInputPhase::Move,
             TouchPhase::Up => windowd::TouchInputPhase::Up,
         };
-        let delivery = self
-            .router
-            .route_touch(x, y, phase)
-            .map_err(InputdError::from)?;
-        let dispatch = InputDispatch::Touch {
-            delivery,
-            event,
-            x,
-            y,
-        };
+        let delivery = self.router.route_touch(x, y, phase).map_err(InputdError::from)?;
+        let dispatch = InputDispatch::Touch { delivery, event, x, y };
         self.push_dispatch(dispatch.clone())?;
         Ok(dispatch)
     }
 
     pub fn tick_repeat(&mut self, now_ns: u64) -> Result<Vec<InputDispatch>, InputdError> {
         let mut out = Vec::new();
-        for event in self
-            .repeat
-            .tick(MonotonicNs::new(now_ns))
-            .map_err(InputdError::from)?
-        {
+        for event in self.repeat.tick(MonotonicNs::new(now_ns)).map_err(InputdError::from)? {
             let usage = KeyboardUsage::from_raw(event.key().raw() as u8);
-            let output = self
-                .keymap
-                .resolve(usage, self.modifiers.snapshot())
-                .map_err(InputdError::from)?;
+            let output =
+                self.keymap.resolve(usage, self.modifiers.snapshot()).map_err(InputdError::from)?;
             let delivery = self
                 .router
                 .route_keyboard(u32::from(event.key().raw()))
@@ -377,11 +361,7 @@ impl<R: RouteTarget> InputdService<R> {
                 .router
                 .try_coalesce_pointer_move(route.x, route.y)
                 .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerMove {
-                delivery,
-                x: route.x,
-                y: route.y,
-            };
+            let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = pointer_source.or(Some(PointerSource::TabletAbsolute));
         } else if dx != 0 || dy != 0 {
@@ -391,23 +371,15 @@ impl<R: RouteTarget> InputdService<R> {
                 return self.finish_pointer_side_effects(pointer_down, wheel_delta);
             }
             let display = self.pointer_state.apply_relative(
-                self.pointer_accel
-                    .apply_axis(dx)
-                    .map_err(InputdError::from)?,
-                self.pointer_accel
-                    .apply_axis(dy)
-                    .map_err(InputdError::from)?,
+                self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?,
+                self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?,
             );
             let route = self.pointer_transform.display_to_route(display);
             let delivery = self
                 .router
                 .try_coalesce_pointer_move(route.x, route.y)
                 .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerMove {
-                delivery,
-                x: route.x,
-                y: route.y,
-            };
+            let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = Some(PointerSource::MouseRelative);
         }
@@ -429,9 +401,7 @@ impl<R: RouteTarget> InputdService<R> {
 
     fn push_dispatch(&mut self, dispatch: InputDispatch) -> Result<(), InputdError> {
         if self.dispatch_log.len() >= self.queue_capacity {
-            return Err(InputdError::QueueOverflow {
-                capacity: self.queue_capacity,
-            });
+            return Err(InputdError::QueueOverflow { capacity: self.queue_capacity });
         }
         self.dispatch_log.push(dispatch);
         Ok(())
@@ -445,21 +415,13 @@ impl<R: RouteTarget> InputdService<R> {
         if pointer_down {
             let route = self.pointer_state.route_position(self.pointer_transform);
             self.validate_pointer_bounds(route.x, route.y)?;
-            let delivery = self
-                .router
-                .route_pointer_down(route.x, route.y)
-                .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerDown {
-                delivery,
-                x: route.x,
-                y: route.y,
-            };
+            let delivery =
+                self.router.route_pointer_down(route.x, route.y).map_err(InputdError::from)?;
+            let dispatch = InputDispatch::PointerDown { delivery, x: route.x, y: route.y };
             self.push_dispatch(dispatch.clone())?;
         }
         if wheel_delta != 0 {
-            self.push_dispatch(InputDispatch::PointerWheel {
-                delta_y: wheel_delta,
-            })?;
+            self.push_dispatch(InputDispatch::PointerWheel { delta_y: wheel_delta })?;
             self.active_pointer_source = Some(PointerSource::MouseRelative);
         }
         Ok(())
@@ -496,16 +458,10 @@ fn is_modifier(usage: KeyboardUsage) -> bool {
 }
 
 fn infer_pointer_source(events: &[HidEvent]) -> Option<PointerSource> {
-    if events
-        .iter()
-        .any(|event| matches!(event.kind(), HidEventKind::Abs))
-    {
+    if events.iter().any(|event| matches!(event.kind(), HidEventKind::Abs)) {
         return Some(PointerSource::TabletAbsolute);
     }
-    if events
-        .iter()
-        .any(|event| matches!(event.kind(), HidEventKind::Rel | HidEventKind::Btn))
-    {
+    if events.iter().any(|event| matches!(event.kind(), HidEventKind::Rel | HidEventKind::Btn)) {
         return Some(PointerSource::MouseRelative);
     }
     None

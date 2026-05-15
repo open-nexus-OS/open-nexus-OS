@@ -11,44 +11,38 @@ const MOCU_DEFAULT: &str = "../../../resources/cursors/mocu/src/svg/default.svg"
 const TEXT_WIDTH: usize = 610;
 const TEXT_HEIGHT: usize = 260;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={INTER_FONT}");
     println!("cargo:rerun-if-changed={MOCU_DEFAULT}");
 
-    let text = render_text_overlay(Path::new(INTER_FONT)).expect("render Inter proof text");
-    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR");
+    let text = render_text_overlay(Path::new(INTER_FONT)).map_err(std::io::Error::other)?;
+    let out_dir = env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
     let out_dir = Path::new(&out_dir);
     let text_path = out_dir.join("proof_text_inter.bgra");
-    fs::write(&text_path, text).expect("write proof text overlay");
+    fs::write(&text_path, text)?;
 
-    let mocu = fs::read_to_string(MOCU_DEFAULT).expect("read Mocu default cursor");
-    assert!(
-        mocu.contains("#fafbfc") && mocu.contains("#1a1b1c") && mocu.contains("id=\"hot\""),
-        "Mocu default cursor source shape changed"
-    );
+    let mocu = fs::read_to_string(MOCU_DEFAULT)?;
+    if !(mocu.contains("#fafbfc") && mocu.contains("#1a1b1c") && mocu.contains("id=\"hot\"")) {
+        return Err("Mocu default cursor source shape changed".into());
+    }
 
     let generated_path = out_dir.join("windowd_generated_assets.rs");
-    let mut generated = File::create(generated_path).expect("create generated assets");
-    writeln!(generated, "pub const PROOF_TEXT_WIDTH: u32 = {TEXT_WIDTH};").unwrap();
-    writeln!(
-        generated,
-        "pub const PROOF_TEXT_HEIGHT: u32 = {TEXT_HEIGHT};"
-    )
-    .unwrap();
+    let mut generated = File::create(generated_path)?;
+    writeln!(generated, "pub const PROOF_TEXT_WIDTH: u32 = {TEXT_WIDTH};")?;
+    writeln!(generated, "pub const PROOF_TEXT_HEIGHT: u32 = {TEXT_HEIGHT};")?;
     writeln!(
         generated,
         "pub const PROOF_TEXT_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
         text_path.display()
-    )
-    .unwrap();
-    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;").unwrap();
-    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;").unwrap();
+    )?;
+    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
+    writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
     writeln!(
         generated,
         "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;",
         normalized_mocu_cursor_svg()
-    )
-    .unwrap();
+    )?;
+    Ok(())
 }
 
 fn render_text_overlay(path: &Path) -> Result<Vec<u8>, String> {
@@ -57,15 +51,7 @@ fn render_text_overlay(path: &Path) -> Result<Vec<u8>, String> {
         .map_err(|err| format!("parse Inter font: {err:?}"))?;
     let mut out = vec![0u8; TEXT_WIDTH * TEXT_HEIGHT * 4];
 
-    draw_text(
-        &font,
-        &mut out,
-        24,
-        45,
-        30.0,
-        "Open Nexus OS",
-        [0xff, 0xff, 0xff, 0xff],
-    );
+    draw_text(&font, &mut out, 24, 45, 30.0, "Open Nexus OS", [0xff, 0xff, 0xff, 0xff]);
     draw_text(
         &font,
         &mut out,
@@ -84,42 +70,10 @@ fn render_text_overlay(path: &Path) -> Result<Vec<u8>, String> {
         "Hover, click, scroll up/down, keyboard press",
         [0x9c, 0xac, 0xc8, 0xff],
     );
-    draw_text(
-        &font,
-        &mut out,
-        38,
-        231,
-        16.0,
-        "Hover",
-        [0xf4, 0xf6, 0xff, 0xff],
-    );
-    draw_text(
-        &font,
-        &mut out,
-        180,
-        231,
-        16.0,
-        "Click",
-        [0xf4, 0xf6, 0xff, 0xff],
-    );
-    draw_text(
-        &font,
-        &mut out,
-        322,
-        231,
-        16.0,
-        "Scroll",
-        [0xf4, 0xf6, 0xff, 0xff],
-    );
-    draw_text(
-        &font,
-        &mut out,
-        464,
-        231,
-        16.0,
-        "Key",
-        [0xf4, 0xf6, 0xff, 0xff],
-    );
+    draw_text(&font, &mut out, 38, 231, 16.0, "Hover", [0xf4, 0xf6, 0xff, 0xff]);
+    draw_text(&font, &mut out, 180, 231, 16.0, "Click", [0xf4, 0xf6, 0xff, 0xff]);
+    draw_text(&font, &mut out, 322, 231, 16.0, "Scroll", [0xf4, 0xf6, 0xff, 0xff]);
+    draw_text(&font, &mut out, 464, 231, 16.0, "Key", [0xf4, 0xf6, 0xff, 0xff]);
     Ok(out)
 }
 

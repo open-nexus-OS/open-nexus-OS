@@ -34,14 +34,20 @@ use std::fs;
 use std::path::PathBuf;
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("source/apps")
-        .parent()
-        .expect("source")
-        .parent()
-        .expect("repo root")
-        .to_path_buf()
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let source_apps = match base.parent() {
+        Some(path) => path,
+        None => panic!("source/apps"),
+    };
+    let source = match source_apps.parent() {
+        Some(path) => path,
+        None => panic!("source"),
+    };
+    let root = match source.parent() {
+        Some(path) => path,
+        None => panic!("repo root"),
+    };
+    root.to_path_buf()
 }
 
 #[test]
@@ -185,10 +191,10 @@ fn emit_missing_visible_input_bits_accepts_partial_state_on_host() {
 
 #[test]
 fn test_reject_observer_display_authority() {
-    let display = fs::read_to_string(
-        repo_root().join("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs"),
-    )
-    .expect("read display bootstrap");
+    let display_path =
+        repo_root().join("source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs");
+    let display = fs::read_to_string(&display_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", display_path.display()));
 
     assert!(
         display.contains("route_with_retry(\"fbdevd\")")

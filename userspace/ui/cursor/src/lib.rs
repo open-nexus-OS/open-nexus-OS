@@ -7,8 +7,7 @@
     clippy::expect_used,
     clippy::too_many_arguments,
     clippy::useless_vec,
-    clippy::needless_borrow,
-    clippy::manual_contains
+    clippy::needless_borrow
 )]
 
 //! CONTEXT: BreezeX cursor pipeline for TASK-0057 / RFC-0056.

@@ -52,16 +52,10 @@ impl WindowdDisplayTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return None;
         }
-        let compose_hz = self
-            .compose_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let present_hz = self
-            .present_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let compose_hz =
+            self.compose_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let present_hz =
+            self.present_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let line = format!(
             "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={}",
             compose_hz, present_hz, self.coalesced_events, self.dropped_events, self.damage_pixels

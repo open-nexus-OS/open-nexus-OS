@@ -100,9 +100,7 @@ impl FbdevService {
 
     /// Returns the cursor bitmap and dimensions, if loaded.
     pub fn cursor_overlay(&self) -> Option<(&[u8], u32, u32)> {
-        self.cursor_bitmap
-            .as_ref()
-            .map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
+        self.cursor_bitmap.as_ref().map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
     }
 
     pub fn observer_ready(&self) -> bool {

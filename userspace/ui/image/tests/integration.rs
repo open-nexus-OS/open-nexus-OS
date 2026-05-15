@@ -112,7 +112,7 @@ fn test_reject_unknown_format() {
 fn test_scale_nearest_downscale() {
     // 4x4 red image
     let img =
-        nexus_image::DecodedImage { width: 4, height: 4, data: vec![255, 0, 0, 255].repeat(4 * 4) };
+        nexus_image::DecodedImage { width: 4, height: 4, data: [255, 0, 0, 255].repeat(4 * 4) };
     let scaled = scale_image(&img, 2, 2, ScaleFilter::Nearest).unwrap();
     assert_eq!(scaled.width, 2);
     assert_eq!(scaled.height, 2);
@@ -122,15 +122,14 @@ fn test_scale_nearest_downscale() {
 #[test]
 fn test_scale_bilinear_same_size() {
     let img =
-        nexus_image::DecodedImage { width: 2, height: 2, data: vec![128, 0, 0, 255].repeat(2 * 2) };
+        nexus_image::DecodedImage { width: 2, height: 2, data: [128, 0, 0, 255].repeat(2 * 2) };
     let scaled = scale_image(&img, 2, 2, ScaleFilter::Bilinear).unwrap();
     assert_eq!(scaled.data, img.data);
 }
 
 #[test]
 fn test_scale_invalid_target_zero() {
-    let img =
-        nexus_image::DecodedImage { width: 4, height: 4, data: vec![255, 0, 0, 255].repeat(16) };
+    let img = nexus_image::DecodedImage { width: 4, height: 4, data: [255, 0, 0, 255].repeat(16) };
     let err = scale_image(&img, 0, 4, ScaleFilter::Nearest).unwrap_err();
     assert!(matches!(err, ImageError::InvalidScaleTarget { .. }));
 }

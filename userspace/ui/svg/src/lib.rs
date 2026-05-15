@@ -14,10 +14,8 @@
     clippy::expect_used,
     clippy::too_many_arguments,
     clippy::useless_vec,
-    clippy::needless_borrow,
-    clippy::manual_contains
+    clippy::needless_borrow
 )]
-#![allow(clippy::unwrap_used, clippy::too_many_arguments)]
 
 #[macro_use]
 extern crate alloc;

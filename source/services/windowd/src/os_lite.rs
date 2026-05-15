@@ -469,27 +469,17 @@ fn copy_scaled_systemui_row(
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize)
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame
-                .pixels
-                .get(src..src + 4)
-                .ok_or(WindowdError::BufferLengthMismatch)?,
+            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
         );
     }
     Ok(())
 }
 
 fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width
-        .checked_mul(4)
-        .ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes
-        .checked_add(63)
-        .ok_or(WindowdError::ArithmeticOverflow)
-        .map(|v| v / 64 * 64)
+    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
 }
 
 fn draw_proof_surface_row(state: VisibleState, y: u32, row: &mut [u8]) -> Result<(), WindowdError> {
@@ -538,14 +528,7 @@ fn draw_proof_surface_row(state: VisibleState, y: u32, row: &mut [u8]) -> Result
         [0xff, 0xb0, 0x45, 0xff],
     )?;
     draw_scroll_direction_row(y, row, scroll_x, TARGET_ROW_Y, state.wheel_up_visible, true)?;
-    draw_scroll_direction_row(
-        y,
-        row,
-        scroll_x,
-        TARGET_ROW_Y,
-        state.wheel_down_visible,
-        false,
-    )?;
+    draw_scroll_direction_row(y, row, scroll_x, TARGET_ROW_Y, state.wheel_down_visible, false)?;
     draw_target_card_row(
         y,
         row,
@@ -572,16 +555,8 @@ fn draw_target_card_row(
     active: bool,
     accent: [u8; 4],
 ) -> Result<(), WindowdError> {
-    let bg = if active {
-        [0x28, 0x34, 0x28, 0xf0]
-    } else {
-        [0x28, 0x24, 0x20, 0xd8]
-    };
-    let border = if active {
-        accent
-    } else {
-        [0x88, 0x88, 0x88, 0x88]
-    };
+    let bg = if active { [0x28, 0x34, 0x28, 0xf0] } else { [0x28, 0x24, 0x20, 0xd8] };
+    let border = if active { accent } else { [0x88, 0x88, 0x88, 0x88] };
     fill_row_rect(y, row, x, top, TARGET_CARD_W, TARGET_CARD_H, bg)?;
     stroke_row_rect(y, row, x, top, TARGET_CARD_W, TARGET_CARD_H, border)?;
     fill_row_rect(y, row, x + 14, top + 14, 24, 24, accent)?;
@@ -599,11 +574,7 @@ fn draw_scroll_direction_row(
     active: bool,
     up: bool,
 ) -> Result<(), WindowdError> {
-    let color = if active {
-        [0xff, 0xf0, 0x90, 0xff]
-    } else {
-        [0x90, 0x80, 0x60, 0xff]
-    };
+    let color = if active { [0xff, 0xf0, 0x90, 0xff] } else { [0x90, 0x80, 0x60, 0xff] };
     let arrow_top = if up { top + 18 } else { top + 32 };
     let center = x + 96;
     for step in 0..8 {
@@ -678,9 +649,7 @@ fn blend_overlay_row(row: &mut [u8], x: usize, source: &[u8]) -> Result<(), Wind
         if alpha == 0 {
             continue;
         }
-        let dst = dst_col
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = dst_col.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         if alpha == 255 {
             row[dst..dst + 4].copy_from_slice(pixel);
             continue;

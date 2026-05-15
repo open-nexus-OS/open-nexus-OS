@@ -37,12 +37,7 @@ pub fn compose_for_shell(resolved: &ResolvedShell) -> Result<FirstFrame> {
     let height = resolved.shell.first_frame.height;
     let stride = checked_stride(width)?;
     let len = checked_len(stride, height)?;
-    let mut frame = FirstFrame {
-        width,
-        height,
-        stride,
-        pixels: vec![0u8; len],
-    };
+    let mut frame = FirstFrame { width, height, stride, pixels: vec![0u8; len] };
 
     fill_wallpaper(&mut frame)?;
     Ok(frame)
@@ -58,10 +53,7 @@ pub fn wallpaper_source_is_jpeg() -> bool {
 
 #[must_use]
 pub const fn wallpaper_decoded_size() -> (u32, u32) {
-    (
-        generated_wallpaper::WALLPAPER_WIDTH,
-        generated_wallpaper::WALLPAPER_HEIGHT,
-    )
+    (generated_wallpaper::WALLPAPER_WIDTH, generated_wallpaper::WALLPAPER_HEIGHT)
 }
 
 #[must_use]
@@ -104,17 +96,10 @@ fn fill_wallpaper(frame: &mut FirstFrame) -> Result<()> {
 }
 
 fn checked_stride(width: u32) -> Result<u32> {
-    let bytes = width
-        .checked_mul(4)
-        .ok_or(SystemUiError::ArithmeticOverflow)?;
-    bytes
-        .checked_add(63)
-        .ok_or(SystemUiError::ArithmeticOverflow)
-        .map(|v| v / 64 * 64)
+    let bytes = width.checked_mul(4).ok_or(SystemUiError::ArithmeticOverflow)?;
+    bytes.checked_add(63).ok_or(SystemUiError::ArithmeticOverflow).map(|v| v / 64 * 64)
 }
 
 fn checked_len(stride: u32, height: u32) -> Result<usize> {
-    (stride as usize)
-        .checked_mul(height as usize)
-        .ok_or(SystemUiError::ArithmeticOverflow)
+    (stride as usize).checked_mul(height as usize).ok_or(SystemUiError::ArithmeticOverflow)
 }

@@ -6,9 +6,9 @@
 # STATUS: Done
 # API_STABILITY: Stable literals once TASK-0055 closes
 
-[marker."windowd: ready (w=64, h=48, hz=60)"]
+[marker."windowd: ready (w=1280, h=800, hz=120)"]
 phase = "end"
-proves = "windowd initialized a bounded headless desktop profile"
+proves = "windowd initialized the fixed visible desktop profile used by current closure proofs"
 
 [marker."windowd: systemui loaded (profile=desktop)"]
 phase = "end"

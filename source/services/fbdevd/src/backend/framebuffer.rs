@@ -88,13 +88,8 @@ pub fn blend_cursor_row(
 }
 
 pub fn validate_handoff(handoff: &DisplayPresentHandoff) -> Result<()> {
-    let mode = handoff
-        .mode
-        .validate()
-        .map_err(|_| FbdevdError::InvalidMode)?;
-    if handoff
-        .byte_len()
-        .map_err(|_| FbdevdError::PresentWithoutFrame)?
+    let mode = handoff.mode.validate().map_err(|_| FbdevdError::InvalidMode)?;
+    if handoff.byte_len().map_err(|_| FbdevdError::PresentWithoutFrame)?
         < mode.byte_len().map_err(|_| FbdevdError::InvalidMode)?
     {
         return Err(FbdevdError::PresentWithoutFrame);
@@ -117,29 +112,16 @@ impl FramebufferOwner {
         let mode = mode.validate().map_err(|_| FbdevdError::InvalidMode)?;
         let byte_len = mode.byte_len().map_err(|_| FbdevdError::InvalidMode)?;
         let handle = vmo_create(byte_len).map_err(|_| FbdevdError::FramebufferVmo)?;
-        let mut query = CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut query = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         cap_query(handle, &mut query).map_err(|_| FbdevdError::InvalidFramebufferCap)?;
         validate_framebuffer_cap(
             mode,
-            VisibleDisplayCapability {
-                byte_len,
-                mapped: true,
-                writable: true,
-            },
+            VisibleDisplayCapability { byte_len, mapped: true, writable: true },
         )?;
         if query.kind_tag != 1 || query.len < byte_len as u64 {
             return Err(FbdevdError::InvalidFramebufferCap);
         }
-        Ok(Self {
-            handle,
-            base: query.base,
-            mode,
-        })
+        Ok(Self { handle, base: query.base, mode })
     }
 
     pub fn write_handoff(&self, handoff: &DisplayPresentHandoff) -> Result<()> {
@@ -148,9 +130,7 @@ impl FramebufferOwner {
         let mut row = [0u8; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
         for y in 0..self.mode.height {
             let offset = y as usize * row_len;
-            handoff
-                .copy_row(y, &mut row[..row_len])
-                .map_err(|_| FbdevdError::FrameWrite)?;
+            handoff.copy_row(y, &mut row[..row_len]).map_err(|_| FbdevdError::FrameWrite)?;
             vmo_write(self.handle, offset, &row[..row_len]).map_err(|_| FbdevdError::FrameWrite)?;
         }
         Ok(())

@@ -186,7 +186,7 @@ fn test_deterministic_resolution() {
 fn test_reject_unknown_section() {
     let err = nexus_theme::parse_theme_file(
         "[theme]\nname = \"x\"\nversion = 1\n[foobar]\nkey = \"val\"\n",
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::UnknownSection { .. }));
@@ -196,7 +196,7 @@ fn test_reject_unknown_section() {
 fn test_reject_unknown_theme_key() {
     let err = nexus_theme::parse_theme_file(
         "[theme]\nname = \"x\"\nversion = 1\nauthor = \"me\"\n",
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::UnknownKey { .. }));
@@ -206,7 +206,7 @@ fn test_reject_unknown_theme_key() {
 fn test_reject_invalid_version() {
     let err = nexus_theme::parse_theme_file(
         "[theme]\nname = \"x\"\nversion = 0\n",
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
@@ -216,7 +216,7 @@ fn test_reject_invalid_version() {
 fn test_reject_invalid_material_type() {
     let err = nexus_theme::parse_theme_file(
         concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.test]\ntype = \"metallic\"\n",),
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
@@ -227,7 +227,7 @@ fn test_reject_invalid_theme_toml() {
     // Missing required [theme] section
     let err = nexus_theme::parse_theme_file(
         "[tokens]\naccent = \"#ff0000\"\n",
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::MissingSection { .. }));
@@ -237,7 +237,7 @@ fn test_reject_invalid_theme_toml() {
 fn test_reject_non_string_token() {
     let err = nexus_theme::parse_theme_file(
         "[theme]\nname = \"x\"\nversion = 1\n[tokens]\naccent = 123\n",
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
@@ -247,7 +247,7 @@ fn test_reject_non_string_token() {
 fn test_reject_missing_glass_fields() {
     let err = nexus_theme::parse_theme_file(
         concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.test]\ntype = \"glass\"\n",),
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap_err();
     assert!(matches!(err, ThemeError::SchemaValidation { .. }));
@@ -261,7 +261,7 @@ fn test_reject_missing_glass_fields() {
 fn test_material_opaque() {
     let theme = nexus_theme::parse_theme_file(
         concat!("[theme]\nname = \"x\"\nversion = 1\n", "[material.surface]\ntype = \"opaque\"\n",),
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap();
     let mat = theme.materials.get("surface").unwrap();
@@ -282,7 +282,7 @@ fn test_material_glass() {
             "edgeHighlightColor = \"#ffffff\"\n",
             "edgeHighlightAlpha = 0.15\n",
         ),
-        &std::path::Path::new("test.toml"),
+        std::path::Path::new("test.toml"),
     )
     .unwrap();
     let mat = theme.materials.get("glassLow").unwrap();

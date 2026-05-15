@@ -9,37 +9,29 @@ use std::path::{Path, PathBuf};
 const WALLPAPER: &str = "../../../resources/wallpapers/base/default.jpeg";
 const SHELL_MANIFEST: &str = "manifests/shells/desktop/shell.toml";
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={WALLPAPER}");
     println!("cargo:rerun-if-changed={SHELL_MANIFEST}");
 
     let (target_width, target_height) =
         first_frame_size(Path::new(SHELL_MANIFEST)).unwrap_or((160, 100));
     let wallpaper = decode_wallpaper(Path::new(WALLPAPER), target_width, target_height)
-        .expect("decode default JPEG wallpaper");
+        .map_err(std::io::Error::other)?;
 
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?);
     let bgra_path = out_dir.join("default_wallpaper.bgra");
-    fs::write(&bgra_path, wallpaper).expect("write generated wallpaper BGRA");
+    fs::write(&bgra_path, wallpaper)?;
 
     let generated_path = out_dir.join("wallpaper_generated.rs");
-    let mut generated = File::create(&generated_path).expect("create wallpaper generated rs");
-    writeln!(
-        generated,
-        "pub const WALLPAPER_WIDTH: u32 = {target_width};"
-    )
-    .unwrap();
-    writeln!(
-        generated,
-        "pub const WALLPAPER_HEIGHT: u32 = {target_height};"
-    )
-    .unwrap();
+    let mut generated = File::create(&generated_path)?;
+    writeln!(generated, "pub const WALLPAPER_WIDTH: u32 = {target_width};")?;
+    writeln!(generated, "pub const WALLPAPER_HEIGHT: u32 = {target_height};")?;
     writeln!(
         generated,
         "pub const WALLPAPER_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
         bgra_path.display()
-    )
-    .unwrap();
+    )?;
+    Ok(())
 }
 
 fn first_frame_size(path: &Path) -> Option<(u32, u32)> {
@@ -74,9 +66,7 @@ fn first_frame_size(path: &Path) -> Option<(u32, u32)> {
 fn decode_wallpaper(path: &Path, target_width: u32, target_height: u32) -> Result<Vec<u8>, String> {
     let file = File::open(path).map_err(|err| format!("open {}: {err}", path.display()))?;
     let mut decoder = jpeg_decoder::Decoder::new(file);
-    let pixels = decoder
-        .decode()
-        .map_err(|err| format!("decode JPEG: {err}"))?;
+    let pixels = decoder.decode().map_err(|err| format!("decode JPEG: {err}"))?;
     let info = decoder.info().ok_or("missing JPEG info")?;
     let src_width = usize::from(info.width);
     let src_height = usize::from(info.height);
@@ -120,9 +110,7 @@ fn rgb_at(
         }
         jpeg_decoder::PixelFormat::CMYK32 => {
             let offset = idx.checked_mul(4).ok_or("wallpaper CMYK index overflow")?;
-            let cmyk = pixels
-                .get(offset..offset + 4)
-                .ok_or("truncated CMYK JPEG")?;
+            let cmyk = pixels.get(offset..offset + 4).ok_or("truncated CMYK JPEG")?;
             let c = u16::from(cmyk[0]);
             let m = u16::from(cmyk[1]);
             let y = u16::from(cmyk[2]);

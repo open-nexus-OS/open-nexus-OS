@@ -11,38 +11,22 @@ pub type SvgResult<T> = Result<T, SvgError>;
 #[derive(Debug)]
 pub enum SvgError {
     /// XML tokenization error (unclosed tag, invalid character, etc.).
-    XmlParse {
-        line: usize,
-        col: usize,
-        message: String,
-    },
+    XmlParse { line: usize, col: usize, message: String },
 
     /// Unsupported SVG element encountered (script, filter, animate, etc.).
     UnsupportedElement { tag: String, line: usize },
 
     /// Unsupported attribute on an element.
-    UnsupportedAttribute {
-        tag: String,
-        attr: String,
-        line: usize,
-    },
+    UnsupportedAttribute { tag: String, attr: String, line: usize },
 
     /// External reference detected (external URL, data: URI).
     ExternalReference { kind: String, line: usize },
 
     /// Missing required attribute.
-    MissingAttribute {
-        tag: String,
-        attr: String,
-        line: usize,
-    },
+    MissingAttribute { tag: String, attr: String, line: usize },
 
     /// Invalid numeric value in attribute.
-    InvalidValue {
-        tag: String,
-        attr: String,
-        value: String,
-    },
+    InvalidValue { tag: String, attr: String, value: String },
 
     /// SVG has no `<svg>` root element.
     MissingRoot,
@@ -70,19 +54,13 @@ impl fmt::Display for SvgError {
                 write!(f, "unsupported SVG element <{tag}> at line {line}")
             }
             SvgError::UnsupportedAttribute { tag, attr, line } => {
-                write!(
-                    f,
-                    "unsupported attribute '{attr}' on <{tag}> at line {line}"
-                )
+                write!(f, "unsupported attribute '{attr}' on <{tag}> at line {line}")
             }
             SvgError::ExternalReference { kind, line } => {
                 write!(f, "external reference ({kind}) at line {line} is rejected")
             }
             SvgError::MissingAttribute { tag, attr, line } => {
-                write!(
-                    f,
-                    "missing required attribute '{attr}' on <{tag}> at line {line}"
-                )
+                write!(f, "missing required attribute '{attr}' on <{tag}> at line {line}")
             }
             SvgError::InvalidValue { tag, attr, value } => {
                 write!(f, "invalid value '{value}' for '{attr}' on <{tag}>")

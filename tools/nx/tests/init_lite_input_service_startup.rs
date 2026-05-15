@@ -32,13 +32,11 @@ fn input_services_are_in_default_qemu_payload_list() {
     // Phase 4b: auto-discovery via scripts/discover-services.sh and cargo metadata.
     // The Makefile no longer hardcodes service lists; services declare themselves
     // via [package.metadata.nexus-service] in their Cargo.toml.
-    let discover_script = read_repo_file("scripts/discover-services.sh");
-
     for service in INPUT_SERVICES {
         assert_service_list_contains(&qemu_test, service, "scripts/qemu-test.sh");
         assert_service_list_contains(&run_qemu, service, "scripts/run-qemu-rv64.sh");
         // Verify the service has nexus-service metadata (auto-discovered)
-        let cargo_toml = read_repo_file(&format!("source/services/{service}/Cargo.toml"));
+        let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
         assert!(
             cargo_toml.contains("[package.metadata.nexus-service]"),
             "`source/services/{service}/Cargo.toml` must declare [package.metadata.nexus-service] for auto-discovery"
@@ -64,7 +62,7 @@ fn input_services_use_bounded_os_stack_pages() {
     // Phase 4b: stack_pages is declared in Cargo.toml metadata,
     // resolved by scripts/discover-services.sh --env-vars.
     for service in INPUT_SERVICES {
-        let cargo_toml = read_repo_file(&format!("source/services/{service}/Cargo.toml"));
+        let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
         assert!(
             cargo_toml.contains("stack_pages = 1"),
             "`source/services/{service}/Cargo.toml` must have stack_pages = 1"

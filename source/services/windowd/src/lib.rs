@@ -108,18 +108,13 @@ mod tests {
     fn smoke_markers_require_real_present() {
         let lines = execute(&[]);
         assert_eq!(lines[0], READY_MARKER);
-        assert!(lines
-            .iter()
-            .any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
+        assert!(lines.iter().any(|line| line == "windowd: present ok (seq=1 dmg=1)"));
         assert!(lines.contains(&String::from(SELFTEST_RESIZE_MARKER)));
     }
 
     #[test]
     fn marker_postflight_rejects_missing_present() {
-        assert_eq!(
-            marker_postflight_ready(None),
-            Err(WindowdError::MarkerBeforePresentState)
-        );
+        assert_eq!(marker_postflight_ready(None), Err(WindowdError::MarkerBeforePresentState));
     }
 
     #[test]
@@ -145,8 +140,8 @@ mod tests {
         assert!(evidence.backend_visible);
         assert!(evidence.systemui_first_frame);
         assert_eq!(evidence.first_present.seq.raw(), 1);
-        assert_eq!(evidence.frame_source.width, 160);
-        assert_eq!(evidence.frame_source.height, 100);
+        assert_eq!(evidence.frame_source.width, VISIBLE_BOOTSTRAP_WIDTH);
+        assert_eq!(evidence.frame_source.height, VISIBLE_BOOTSTRAP_HEIGHT);
         assert!(visible_systemui_marker_postflight_ready(Some(evidence)).is_ok());
         assert_eq!(
             visible_systemui_marker_postflight_ready(None),
@@ -158,27 +153,15 @@ mod tests {
     fn visible_bootstrap_rejects_invalid_mode_and_capability() {
         let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
         assert_eq!(
-            VisibleBootstrapMode {
-                width: 1024,
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { width: 1024, ..mode }.validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                stride: mode.stride - 4,
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { stride: mode.stride - 4, ..mode }.validate(),
             Err(WindowdError::InvalidStride)
         );
         assert_eq!(
-            VisibleBootstrapMode {
-                format: PixelFormat::Unsupported(1),
-                ..mode
-            }
-            .validate(),
+            VisibleBootstrapMode { format: PixelFormat::Unsupported(1), ..mode }.validate(),
             Err(WindowdError::UnsupportedFormat)
         );
         assert_eq!(

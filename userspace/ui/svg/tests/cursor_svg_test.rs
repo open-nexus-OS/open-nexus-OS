@@ -35,10 +35,7 @@ fn test_all_svg_render() {
 </svg>"##).unwrap();
     let nz5 = r5.buffer.iter().filter(|&&b| b != 0).count();
     eprintln!("CURSOR: non-zero={}/{}", nz5, r5.buffer.len());
-    assert!(
-        nz5 > 100,
-        "CURSOR must render substantial pixels (arrow shape)"
-    );
+    assert!(nz5 > 100, "CURSOR must render substantial pixels (arrow shape)");
 
     eprintln!("ALL SVG TESTS PASSED!");
 }

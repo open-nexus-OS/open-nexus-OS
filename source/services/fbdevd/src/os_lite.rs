@@ -100,18 +100,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     DirtyRows::Range { start_y, end_y } => {
                         let byte_len = (end_y - start_y) as usize * mode.stride as usize;
                         if byte_len != 0 {
-                            service
-                                .present_live_bytes(byte_len)
-                                .map_err(|err| fail(err))?;
+                            service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                         }
                     }
                     DirtyRows::Full => {
-                        let byte_len = mode
-                            .byte_len()
-                            .map_err(|_| fail(FbdevdError::InvalidMode))?;
-                        service
-                            .present_live_bytes(byte_len)
-                            .map_err(|err| fail(err))?;
+                        let byte_len =
+                            mode.byte_len().map_err(|_| fail(FbdevdError::InvalidMode))?;
+                        service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                     }
                 }
             }
@@ -182,9 +177,7 @@ fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Op
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client
-        .send_with_cap_move_wait(&request, reply_send_clone, send_wait)
-        .ok()?;
+    client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
     let recv_wait = Wait::NonBlocking;
     let frame = reply.recv(recv_wait).ok()?;
     decode_visible_state(&frame)

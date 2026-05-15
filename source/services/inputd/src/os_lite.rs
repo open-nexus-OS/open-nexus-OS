@@ -187,9 +187,7 @@ impl LiveRouteRuntime {
             .map_err(|_| fail("inputd: init fail commit-scene"))?;
         // RFC-0055: enable pointer-motion coalescing fastpath in the live OS path
         server.enable_fastpath();
-        let _ack = server
-            .present_tick()
-            .map_err(|_| fail("inputd: init fail present-tick"))?;
+        let _ack = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
         let display_start = visible_display_start_position()
             .map_err(|_| fail("inputd: init fail pointer-transform"))?;
         let display_space =
@@ -265,14 +263,10 @@ impl LiveRouteRuntime {
         // OS-lite consumes the per-batch dispatch result directly for telemetry and visible-state
         // updates, so the internal dispatch history must not accumulate across live batches.
         self.input.clear_dispatches();
-        self.chain.raw_events = self
-            .chain
-            .raw_events
-            .saturating_add(u64::from(batch.raw_event_count));
-        self.chain.normalized_events = self
-            .chain
-            .normalized_events
-            .saturating_add(u64::from(batch.normalized_event_count));
+        self.chain.raw_events =
+            self.chain.raw_events.saturating_add(u64::from(batch.raw_event_count));
+        self.chain.normalized_events =
+            self.chain.normalized_events.saturating_add(u64::from(batch.normalized_event_count));
         if batch.raw_event_count > 0 {
             self.visible_state.virtio_raw_seen = true;
         }
@@ -332,20 +326,16 @@ impl LiveRouteRuntime {
                     .any(|dispatch| matches!(dispatch, InputDispatch::Keyboard { .. })),
             )
         };
-        let Ok(delivered_count) = self
-            .input
-            .router_mut()
-            .drain_input_events(self.launcher, self.surface)
+        let Ok(delivered_count) =
+            self.input.router_mut().drain_input_events(self.launcher, self.surface)
         else {
             self.chain.route_overflow_delivery =
                 self.chain.route_overflow_delivery.saturating_add(1);
             return STATUS_OVERFLOW;
         };
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
-        self.chain.delivered_events = self
-            .chain
-            .delivered_events
-            .saturating_add(delivered_count as u64);
+        self.chain.delivered_events =
+            self.chain.delivered_events.saturating_add(delivered_count as u64);
         if pointer_dispatch_batch {
             self.chain.pointer_dispatch_batches =
                 self.chain.pointer_dispatch_batches.saturating_add(1);
@@ -640,16 +630,9 @@ impl InputdChainTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return;
         }
-        let recv_hz = self
-            .total_frames
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let hid_ok_hz = self
-            .hid_ok
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let recv_hz =
+            self.total_frames.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let hid_ok_hz = self.hid_ok.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let poll_hz = self
             .visible_state_polls
             .saturating_mul(1_000_000_000)

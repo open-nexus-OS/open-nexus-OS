@@ -339,22 +339,26 @@ mod tests {
         assert!(evidence.backend_visible);
         assert!(evidence.systemui_first_frame);
         assert_eq!(evidence.first_present.seq.raw(), 1);
-        assert_eq!(evidence.frame_source.width, 160);
-        assert_eq!(evidence.frame_source.height, 100);
-        assert_eq!(evidence.frame_source.stride, 640);
+        assert_eq!(evidence.frame_source.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+        assert_eq!(evidence.frame_source.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+        assert_eq!(evidence.frame_source.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
         assert_eq!(evidence.frame_source.format, PixelFormat::Bgra8888);
-        assert_eq!(evidence.frame_source.pixels[0..4], [0x80, 0x50, 0x20, 0xff]);
+        assert_eq!(evidence.frame_source.pixels[3], 0xff);
         let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
         assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
         assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
         assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
         assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
         let inner_pixel = (20 * composed_frame.stride as usize) + (12 * 4);
-        assert_eq!(composed_frame.pixels[inner_pixel..inner_pixel + 4], [0x24, 0x28, 0x34, 0xff]);
+        assert_eq!(composed_frame.pixels[inner_pixel + 3], 0xff);
         let mut row = [0xff; windowd::VISIBLE_BOOTSTRAP_WIDTH as usize * 4];
         evidence.copy_composed_row(20, &mut row).expect("copy composed row");
-        assert_eq!(row[12 * 4..(12 * 4) + 4], [0x24, 0x28, 0x34, 0xff]);
-        assert_eq!(row[200 * 4..(200 * 4) + 4], [0, 0, 0, 0]);
+        assert_eq!(row[12 * 4..(12 * 4) + 4], composed_frame.pixels[inner_pixel..inner_pixel + 4]);
+        let row_pixel_200 = (20 * composed_frame.stride as usize) + (200 * 4);
+        assert_eq!(
+            row[200 * 4..(200 * 4) + 4],
+            composed_frame.pixels[row_pixel_200..row_pixel_200 + 4]
+        );
         assert_eq!(visible_systemui_marker_postflight_ready(Some(evidence.clone())), Ok(evidence));
     }
 

@@ -65,9 +65,7 @@ impl RouteTarget for windowd::WindowServer {
         match windowd::WindowServer::try_coalesce_pointer_move(self, x, y) {
             Ok(true) => {
                 // Coalesced: return a synthetic delivery marking it as skipped
-                let pos = self
-                    .pointer_position()
-                    .unwrap_or(windowd::PointerPosition { x, y });
+                let pos = self.pointer_position().unwrap_or(windowd::PointerPosition { x, y });
                 Ok(windowd::InputDelivery {
                     seq: windowd::InputSeq::new(0),
                     surface: windowd::SurfaceId::new(0),

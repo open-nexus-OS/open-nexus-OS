@@ -354,9 +354,9 @@ fn live_framebuffer_service_keeps_dedicated_vmo_budget_and_error_label() {
         "service-owned ramfb scanout must have enough VMO arena headroom after service bring-up"
     );
     assert!(
-        mm.contains("USER_VMO_ARENA_BASE: usize = 0x8100_0000")
-            && mm.contains("KERNEL_PAGE_POOL_BASE: usize = 0x8080_0000")
-            && mm.contains("KERNEL_PAGE_POOL_LEN: usize = 3 * 1024 * 1024"),
+        mm.contains("USER_VMO_ARENA_BASE: usize = 0x8180_0000")
+            && mm.contains("KERNEL_PAGE_POOL_BASE: usize = 0x80c0_0000")
+            && mm.contains("KERNEL_PAGE_POOL_LEN: usize = 8 * 1024 * 1024"),
         "VMO arena and kernel page-pool windows must stay explicit and non-overlapping"
     );
     assert!(
@@ -371,12 +371,12 @@ fn fbdevd_service_owns_initial_committed_frame() {
     let fbdevd = read_repo_file("source/services/fbdevd/src/os_lite.rs");
 
     assert!(
-        fbdevd.contains("windowd::bootstrap_display_handoff()")
-            && fbdevd.contains("FramebufferOwner::allocate(bootstrap.mode)")
-            && fbdevd.contains("configure_ramfb(framebuffer.base, bootstrap.mode)")
-            && fbdevd.contains("framebuffer")
-            && fbdevd.contains(".write_handoff(&bootstrap)"),
-        "fbdevd must own the initial bootstrap present before any observer-only selftest polling begins"
+        fbdevd.contains("FramebufferOwner::allocate(mode)")
+            && fbdevd.contains("configure_ramfb(framebuffer.base, mode)")
+            && fbdevd.contains("register_framebuffer_with_windowd(")
+            && fbdevd.contains("encode_send_composed_frame_vmo()")
+            && fbdevd.contains("decode_status(&frame, OP_SEND_COMPOSED_FRAME_VMO) == Some(STATUS_OK)"),
+        "fbdevd must own scanout setup and register its framebuffer with windowd before observer polling proceeds"
     );
 }
 
@@ -642,7 +642,7 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
         ))
             && harness.contains("QEMU_SESSION_MODE=\"$QEMU_SESSION_MODE\"")
             && harness.contains("QEMU_MARKER_LEVEL=\"$QEMU_MARKER_LEVEL\"")
-            && harness.contains("RUN_UNTIL_MARKER=\"SELFTEST: ui visible wheel ok\""),
+            && harness.contains("RUN_UNTIL_MARKER=\"SELFTEST: ui v2b assets ok\""),
         "qemu-test must forward visible-bootstrap autoinject/session env into run-qemu and stop on the terminal wheel-proof marker so the proof runner cannot silently disable real input injection or linger past closure"
     );
     assert!(
@@ -752,25 +752,25 @@ fn visible_bootstrap_runner_derives_qemu_input_devices_from_systemui_profile() {
 }
 
 #[test]
-fn fbdevd_polls_inputd_with_owned_cap_move_reply_inbox() {
+fn fbdevd_polls_windowd_with_owned_cap_move_reply_inbox() {
     let init = read_repo_file("source/init/nexus-init/src/os_payload.rs");
     let fbdevd = read_repo_file("source/services/fbdevd/src/os_lite.rs");
 
     assert!(
-        init.contains("init: fbdevd inputd slots send=0x")
-            && init.contains("chan.input_send_slot = Some(input_send_slot);")
-            && init.contains("chan.input_recv_slot = Some(reply_recv_slot);")
+        init.contains("init: fbdevd slots recv=0x")
+            && init.contains("chan.input_send_slot = Some(send_slot);")
+            && init.contains("chan.input_recv_slot = Some(recv_slot);")
             && init.contains("chan.reply_send_slot = Some(reply_send_slot);"),
-        "init-lite must wire fbdevd as an inputd client with its own reply inbox"
+        "init-lite must wire fbdevd service slots plus observer wiring with dedicated reply capability distribution"
     );
     assert!(
-        fbdevd.contains("KernelClient::new_for(\"inputd\")")
+        fbdevd.contains("KernelClient::new_for(\"windowd\")")
             && fbdevd.contains("KernelClient::new_for(\"@reply\")")
-            && fbdevd.contains("send_with_cap_move_wait(&request, reply_send_clone, send_wait)")
-            && fbdevd.contains("const INPUT_VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 1;")
+            && fbdevd.contains("client.send_with_cap_move_wait(&request, reply_send_clone, send_wait)")
+            && fbdevd.contains("const RPC_TIMEOUT_MS: u64 = 2;")
             && fbdevd.contains("DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ)")
             && fbdevd.contains("TickBudget::new(4)"),
-        "fbdevd must poll inputd through a short bounded CAP_MOVE reply inside a budgeted display reactor"
+        "fbdevd must poll windowd through a short bounded CAP_MOVE reply inside a budgeted display reactor"
     );
 }
 

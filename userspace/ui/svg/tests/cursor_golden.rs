@@ -33,18 +33,10 @@ fn cursor_svg_renders_non_empty() {
 fn cursor_svg_has_mocu_stroke_and_fill() {
     let output = render_svg(CURSOR_SVG).expect("cursor SVG must render");
     let has_white_fill = output.buffer.chunks(4).any(|p| p[3] > 0 && p[0] > 0xf0);
-    let has_dark_stroke = output
-        .buffer
-        .chunks(4)
-        .any(|p| p[3] > 0 && p[0] < 0x30 && p[1] < 0x30 && p[2] < 0x30);
-    assert!(
-        has_white_fill,
-        "Mocu cursor must keep the white #fafbfc fill"
-    );
-    assert!(
-        has_dark_stroke,
-        "Mocu cursor must keep the dark #1a1b1c stroke/shadow"
-    );
+    let has_dark_stroke =
+        output.buffer.chunks(4).any(|p| p[3] > 0 && p[0] < 0x30 && p[1] < 0x30 && p[2] < 0x30);
+    assert!(has_white_fill, "Mocu cursor must keep the white #fafbfc fill");
+    assert!(has_dark_stroke, "Mocu cursor must keep the dark #1a1b1c stroke/shadow");
 }
 
 #[test]
@@ -68,14 +60,8 @@ fn cursor_svg_uses_sensible_32px_extents() {
     }
     assert!(max_x > min_x, "cursor must render visible pixels");
     assert!(max_y > min_y, "cursor must render visible pixels");
-    assert!(
-        max_x - min_x >= 18,
-        "32px cursor must not contain a collapsed glyph"
-    );
-    assert!(
-        max_y - min_y >= 26,
-        "32px cursor must use a practical screen cursor height"
-    );
+    assert!(max_x - min_x >= 18, "32px cursor must not contain a collapsed glyph");
+    assert!(max_y - min_y >= 26, "32px cursor must use a practical screen cursor height");
 }
 
 #[test]
@@ -109,22 +95,10 @@ fn cursor_svg_fill_stays_inside_mocu_outline() {
             }
         }
     }
-    assert!(
-        white_min_x > dark_min_x,
-        "white fill must be inset from left outline"
-    );
-    assert!(
-        white_min_y > dark_min_y,
-        "white fill must be inset from top outline"
-    );
-    assert!(
-        white_max_x < dark_max_x,
-        "white fill must be inset from right outline"
-    );
-    assert!(
-        white_max_y < dark_max_y,
-        "white fill must be inset from bottom outline"
-    );
+    assert!(white_min_x > dark_min_x, "white fill must be inset from left outline");
+    assert!(white_min_y > dark_min_y, "white fill must be inset from top outline");
+    assert!(white_max_x < dark_max_x, "white fill must be inset from right outline");
+    assert!(white_max_y < dark_max_y, "white fill must be inset from bottom outline");
     let dark_center_x = (dark_min_x + dark_max_x) / 2;
     let white_center_x = (white_min_x + white_max_x) / 2;
     assert!(
@@ -137,10 +111,7 @@ fn cursor_svg_fill_stays_inside_mocu_outline() {
 fn cursor_svg_deterministic() {
     let r1 = render_svg(CURSOR_SVG).expect("first render");
     let r2 = render_svg(CURSOR_SVG).expect("second render");
-    assert_eq!(
-        r1.buffer, r2.buffer,
-        "cursor rendering must be deterministic"
-    );
+    assert_eq!(r1.buffer, r2.buffer, "cursor rendering must be deterministic");
     assert_eq!(r1.width, r2.width);
     assert_eq!(r1.height, r2.height);
 }

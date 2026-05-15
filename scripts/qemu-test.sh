@@ -515,7 +515,7 @@ expected_sequence=(
   "SELFTEST: vfs ebadf ok"
   "vfsd: access denied"
   "SELFTEST: sandbox deny ok"
-  "windowd: ready (w=64, h=48, hz=60)"
+  "windowd: ready (w=1280, h=800, hz=120)"
   "windowd: systemui loaded (profile=desktop)"
   "windowd: present ok (seq=1 dmg=1)"
   "launcher: first frame ok"
@@ -1328,7 +1328,7 @@ fi
 # `windowd` present state and must not appear without their prerequisites.
 if grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
   for m in \
-    "windowd: ready (w=64, h=48, hz=60)" \
+    "windowd: ready (w=1280, h=800, hz=120)" \
     "windowd: systemui loaded (profile=desktop)" \
     "windowd: present ok (seq=1 dmg=1)" \
     "launcher: first frame ok"; do

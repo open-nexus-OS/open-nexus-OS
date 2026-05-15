@@ -60,9 +60,7 @@ pub struct DisplayReactor {
 
 impl DisplayReactor {
     pub fn new(hz: u16) -> Self {
-        Self {
-            cadence: VsyncCadence::new(hz),
-        }
+        Self { cadence: VsyncCadence::new(hz) }
     }
 
     pub fn should_present(&mut self, now_ns: u64, budget: &mut TickBudget) -> bool {
@@ -100,10 +98,7 @@ pub fn live_dirty_rows(
         return DirtyRows::Full;
     };
 
-    DirtyRows::Range {
-        start_y: previous_start.min(next_start),
-        end_y: previous_end.max(next_end),
-    }
+    DirtyRows::Range { start_y: previous_start.min(next_start), end_y: previous_end.max(next_end) }
 }
 
 fn cursor_physical_y_range(cursor_x: i32, cursor_y: i32, height: u32) -> Option<(u32, u32)> {
