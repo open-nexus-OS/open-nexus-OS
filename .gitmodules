@@ -7,3 +7,6 @@
 [submodule "resources/cursors/mocu"]
 	path = resources/cursors/mocu
 	url = https://github.com/sevmeyer/mocu-xcursor.git
+[submodule "tools/qemu-src"]
+	path = tools/qemu-src
+	url = https://gitlab.com/qemu-project/qemu.git
