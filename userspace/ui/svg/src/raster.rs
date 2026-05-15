@@ -48,6 +48,25 @@ fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
         return;
     }
 
+    let mut start = 0;
+    while start < edges.len() {
+        let shape_id = edges[start].shape_id;
+        let mut end = start + 1;
+        while end < edges.len() && edges[end].shape_id == shape_id {
+            end += 1;
+        }
+        scanline_fill_shape(&edges[start..end], w, h, buffer);
+        start = end;
+    }
+}
+
+/// Fill one shape at a time. A global edge list breaks overlapping filled
+/// paths because scanline pairs from different paths get matched together.
+fn scanline_fill_shape(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
+    if edges.is_empty() {
+        return;
+    }
+
     // Find y-range
     let mut min_y = f32::MAX;
     let mut max_y = f32::MIN;

@@ -33,6 +33,27 @@ fn test_render_simple_path() {
 }
 
 #[test]
+fn overlapping_filled_paths_render_in_document_order() {
+    let svg = r##"<svg width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M 2,2 L 22,2 L 22,22 L 2,22 Z" fill="#000000" />
+        <path d="M 7,7 L 17,7 L 17,17 L 7,17 Z" fill="#ffffff" />
+    </svg>"##;
+    let output = render_svg(svg).unwrap();
+    let center = ((12 * output.width + 12) * 4) as usize;
+    assert_eq!(
+        &output.buffer[center..center + 4],
+        &[0xff, 0xff, 0xff, 0xff],
+        "later filled path must paint over earlier filled path"
+    );
+    let outline = ((4 * output.width + 4) * 4) as usize;
+    assert_eq!(
+        &output.buffer[outline..outline + 4],
+        &[0x00, 0x00, 0x00, 0xff],
+        "earlier filled path must remain visible outside the later fill"
+    );
+}
+
+#[test]
 fn test_render_line() {
     let svg = r##"<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
         <line x1="10" y1="10" x2="90" y2="90" stroke="#000000" stroke-width="2" />

@@ -65,7 +65,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     debug_println("inputd: keymap=de").map_err(|_| "inputd keymap log failed")?;
     debug_println("inputd: os service payload ready").map_err(|_| "inputd payload log failed")?;
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
+        match server.recv_request_with_meta(Wait::Timeout(core::time::Duration::from_millis(16))) {
             Ok((frame, _sender_service_id, reply)) => {
                 runtime.chain.total_frames = runtime.chain.total_frames.saturating_add(1);
                 if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
@@ -101,6 +101,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 runtime.report_chain_if_due();
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                runtime.expire_transient_input_state();
                 runtime.chain.idle_yields = runtime.chain.idle_yields.saturating_add(1);
                 runtime.report_chain_if_due();
                 let _ = yield_();
@@ -409,6 +410,7 @@ impl LiveRouteRuntime {
             self.visible_state.input_visible_on = true;
             self.visible_state.cursor_move_visible = true;
         }
+        self.visible_state.focus_visible = false;
         if pointer_down_dispatched {
             self.visible_state.pointer_route_live = true;
             self.visible_state.input_visible_on = true;
@@ -467,6 +469,17 @@ impl LiveRouteRuntime {
             active && self.wheel_indicator_direction == WheelIndicatorDirection::Down;
         if !active {
             self.wheel_indicator_direction = WheelIndicatorDirection::None;
+        }
+    }
+
+    fn expire_transient_input_state(&mut self) {
+        let old_up = self.visible_state.wheel_up_visible;
+        let old_down = self.visible_state.wheel_down_visible;
+        self.sync_wheel_indicator(nsec().unwrap_or(0));
+        if old_up != self.visible_state.wheel_up_visible
+            || old_down != self.visible_state.wheel_down_visible
+        {
+            self.push_visible_state_to_windowd();
         }
     }
 

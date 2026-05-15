@@ -16,16 +16,25 @@ pub struct Edge {
     pub x1: f32,
     pub y1: f32,
     pub color: Color,
+    pub shape_id: u32,
 }
 
 /// Convert an `SvgDocument` into a flat list of edges for scanline rendering.
 pub fn tessellate_document(doc: &SvgDocument) -> Vec<Edge> {
     let mut edges = Vec::new();
+    let mut next_shape_id = 0;
     let parent_transform = Transform::IDENTITY;
     let parent_opacity = 1.0;
 
     for elem in &doc.elements {
-        tessellate_element(elem, &parent_transform, parent_opacity, &mut edges, doc);
+        tessellate_element(
+            elem,
+            &parent_transform,
+            parent_opacity,
+            &mut edges,
+            &mut next_shape_id,
+            doc,
+        );
     }
 
     edges
@@ -36,6 +45,7 @@ fn tessellate_element(
     parent_tf: &Transform,
     parent_opacity: f32,
     edges: &mut Vec<Edge>,
+    next_shape_id: &mut u32,
     doc: &SvgDocument,
 ) {
     match elem {
@@ -47,7 +57,7 @@ fn tessellate_element(
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
             for child in children {
-                tessellate_element(child, &tf, op, edges, doc);
+                tessellate_element(child, &tf, op, edges, next_shape_id, doc);
             }
         }
         SvgElement::Path {
@@ -65,13 +75,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(stroke_edges(&segments, *stroke_width, c));
+                    append_shape(
+                        edges,
+                        next_shape_id,
+                        stroke_edges(&segments, *stroke_width, c),
+                    );
                 }
             }
         }
@@ -95,13 +109,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(stroke_edges(&segments, *stroke_width, c));
+                    append_shape(
+                        edges,
+                        next_shape_id,
+                        stroke_edges(&segments, *stroke_width, c),
+                    );
                 }
             }
         }
@@ -122,13 +140,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(stroke_edges(&segments, *stroke_width, c));
+                    append_shape(
+                        edges,
+                        next_shape_id,
+                        stroke_edges(&segments, *stroke_width, c),
+                    );
                 }
             }
         }
@@ -150,13 +172,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(stroke_edges(&segments, *stroke_width, c));
+                    append_shape(
+                        edges,
+                        next_shape_id,
+                        stroke_edges(&segments, *stroke_width, c),
+                    );
                 }
             }
         }
@@ -191,7 +217,7 @@ fn tessellate_element(
                         (ex - nx, ey - ny),
                         (sx - nx, sy - ny),
                     ];
-                    edges.extend(polygon_edges(&pts, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&pts, c));
                 }
             }
         }
@@ -210,13 +236,13 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(polygon_edges(&pts, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&pts, c));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    edges.extend(stroke_edges(&pts, *stroke_width, c));
+                    append_shape(edges, next_shape_id, stroke_edges(&pts, *stroke_width, c));
                 }
             }
         }
@@ -628,6 +654,18 @@ fn quadratic_bezier_segments(
 // Polygon edge generation for scanline renderer
 // ---------------------------------------------------------------------------
 
+fn append_shape(edges: &mut Vec<Edge>, next_shape_id: &mut u32, mut shape_edges: Vec<Edge>) {
+    if shape_edges.is_empty() {
+        return;
+    }
+    let shape_id = *next_shape_id;
+    *next_shape_id = (*next_shape_id).saturating_add(1);
+    for edge in &mut shape_edges {
+        edge.shape_id = shape_id;
+    }
+    edges.extend(shape_edges);
+}
+
 fn polygon_edges(points: &[(f32, f32)], color: Color) -> Vec<Edge> {
     if points.len() < 3 {
         return Vec::new();
@@ -656,6 +694,7 @@ fn polygon_edges(points: &[(f32, f32)], color: Color) -> Vec<Edge> {
             x1,
             y1,
             color,
+            shape_id: 0,
         });
     }
 

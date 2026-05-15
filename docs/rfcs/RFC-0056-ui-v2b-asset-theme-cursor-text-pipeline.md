@@ -1,10 +1,9 @@
 # RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed
 
-- Status: In Progress
-- Last Updated: 2026-05-14 (Phase 3–5: manifest v2.0 + IPC contracts + windowd service + live cursor)
+- Status: Accepted / Implementation in progress
+- Last Updated: 2026-05-15 (TASK-0057 Minimal DisplayServer v0 actual state)
 - Owners: @ui @runtime
 - Created: 2026-05-12
-- Last Updated: 2026-05-12
 - Links:
   - Tasks: `tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md` (execution + proof)
   - Related RFCs:
@@ -15,12 +14,16 @@
 ## Status at a Glance
 
 - **Phase 0 (resource manager + theme tokens)**: ✅
-- **Phase 1 (SVG + PNG/JPG + text shaping)**: ⬜
-- **Phase 2 (cursor pipeline + proof surface integration)**: ⬜
+- **Phase 1 (SVG + PNG/JPG + text shaping)**: ✅ host-first, OS proof overlay generated from Inter
+- **Phase 2 (cursor pipeline + proof surface integration)**: ✅ Mocu SVG cursor + v2b proof scene
+- **Phase 3 (service-owned live display chain)**: ✅ `hidrawd -> inputd -> windowd -> fbdevd -> ramfb`
+- **Phase 4 (manifest discovery)**: ✅ implemented for current services via resource manifests and service ordering
+- **Phase 5 (Minimal DisplayServer v0)**: ✅ `windowd` is a standalone os-lite service and scene authority
 
 Definition:
 
 - "Complete" means the contract is defined AND the proof gates are green (host tests pass, QEMU markers fire). It does not mean "never changes again".
+- "Implementation in progress" means the v2b slice is behaviorally wired, but broader production display features such as GPU, full IME, multi-window WM, and full HarfBuzz-in-OS remain out of scope.
 
 ## Scope boundaries (anti-drift)
 
@@ -32,8 +35,8 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
   - SVG rich subset grammar (allowed elements, attributes, transforms; what is rejected)
   - PNG/JPG decode + scale pipeline with bounded memory contract
   - HarfBuzz text shaping contract (glyph cache bounds, font fallback chain)
-  - Mocu cursor pipeline (SVG source → hotspot bitmap → windowd integration)
-  - proof surface targets: shaped text, SVG cursor, SVG icon all visible on shared surface
+  - Mocu cursor pipeline (SVG source → hotspot bitmap → `windowd` integration)
+  - proof surface targets: Inter-rendered text, SVG cursor, SVG icon, and JPG wallpaper visible on one `windowd` scene
   - golden test contract (pixel-exact or SSIM tolerance, deterministic outputs)
 - **This RFC does NOT own**:
   - full SVG spec (animations, filters, scripts, external refs)
@@ -52,17 +55,32 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
 
 ## Context
 
-TASK-0056C established the 120Hz present/input floor. The display chain
-(`hidrawd → inputd → fbdevd → ramfb`) is responsive at 82-98Hz. Now we need real
-content to make the UI usable before the Orbital-Level UX Gate (Launcher, Dock,
-real apps).
+TASK-0056C established the present/input floor. During TASK-0057 the original
+library-style display path was promoted into a service-owned Minimal
+DisplayServer v0 chain:
 
-Current state:
-- The visible proof surface shows colored rectangles as cursor/target placeholders.
-- No text rendering, no SVG pipeline, no icon system, no theme engine.
-- `docs/dev/ui/foundations/visual/` defines color tokens and cursor themes — docs-only.
-- `make run` / `just start` already use a JPG wallpaper via `ramfb` bootstrap — proving
-  image decode is a live dependency.
+``` text
+hidrawd -> inputd -> windowd -> fbdevd -> ramfb
+```
+
+Current implementation state:
+
+- `windowd` is the DisplayServer authority. It receives visible-input state from
+  `inputd`, receives a framebuffer VMO capability from `fbdevd`, composes rows,
+  and owns cursor/wallpaper/text/icon pixels.
+- `fbdevd` is scanout-only. It configures `ramfb`, registers the framebuffer VMO
+  with `windowd`, and reports visible-state evidence after observing service
+  state from `windowd`.
+- `selftest-client` is observer-only. It does not render, synthesize final
+  success, or own display/input authority.
+- The visible scene uses the full 1280x800 bootstrap mode, a JPEG wallpaper from
+  `resources/wallpapers/base/default.jpeg`, a normalized Mocu cursor from
+  `resources/cursors/mocu/src/svg/default.svg`, and Inter proof text generated
+  from `resources/fonts/inter/docs/font-files/InterVariable.ttf`.
+- Hover/click/key/scroll targets are transient service state: hover only while
+  the routed pointer is over the target, click only while the primary button is
+  held, keyboard only while a non-modifier key is held, and scroll up/down pulses
+  are distinguishable and expire on a bounded `inputd` tick.
 
 ## Goals
 
@@ -73,9 +91,12 @@ Current state:
 5. HarfBuzz text shaping with font fallback chain and bounded glyph cache
 6. Mocu cursor pipeline: SVG cursor → rasterize → BGRA8888 + hotspot → windowd integration
 7. Proof surface: real shaped text + Mocu SVG cursor + SVG icon + JPG wallpaper visible
-8. Live cursor blending in fbdevd: cursor bitmap from windowd, position from inputd
-9. `manifest.capnp` v2.0: `type`, `dependencies`, `provided_services` for service discovery
-10. windowd as standalone IPC service: cap-based IPC, scene composition, cursor tracking, fbdevd scanout-only
+8. `windowd`-owned live cursor composition: cursor bitmap and position are
+   composed in the DisplayServer, not in `fbdevd`
+9. Manifest/resource discovery: service manifests provide resources and
+   deterministic service ordering for the live chain
+10. `windowd` as standalone IPC service: cap-based IPC, scene composition,
+    cursor tracking, framebuffer VMO registration, `fbdevd` scanout-only
 
 ## Non-Goals
 
@@ -149,6 +170,15 @@ CursorAsset { frames: Vec<CursorFrame>, hotspot: (u16, u16) }
 CursorFrame { rgba: BGRA8888, width: u16, height: u16, delay_ms: u16 }
 ```
 
+TASK-0057 OS-lite implementation note: `windowd` currently normalizes
+`resources/cursors/mocu/src/svg/default.svg` into the bounded SVG subset at build
+time because the upstream Mocu source uses `<defs>`, `<use>`, style attributes,
+and stroke semantics that the minimal OS rasterizer does not yet implement at
+production quality. The normalized cursor preserves the Mocu colors
+(`#0a0b0c` shadow, `#1a1b1c` stroke, `#fafbfc` fill), uses a 32x32 canvas, and
+keeps the source hotspot at `(2, 2)` after scaling. The golden test must reject a
+32px canvas that contains a collapsed glyph.
+
 #### Text shaping API
 
 ``` text
@@ -161,6 +191,13 @@ Glyph { index: u32, x: i32, y: i32, advance: i32 }
 Glyph cache: bounded size (configurable, default 4096 entries). Deterministic LRU
 eviction on overflow.
 
+TASK-0057 OS-lite implementation note: host text shaping remains in
+`userspace/ui/shape`. The current visible OS proof does not link HarfBuzz into
+the OS image; instead, `windowd` build-time rasterizes an Inter proof overlay
+from `resources/fonts/inter/docs/font-files/InterVariable.ttf` using `fontdue`.
+This is a real Inter-derived text asset, not the former hardcoded bitmap atlas.
+Full runtime shaping in OS remains follow-up scope.
+
 ### Phases / milestones (contract-level)
 
 - **Phase 0**: resource directory structure created. `.nxtheme.toml` parser with
@@ -169,18 +206,20 @@ eviction on overflow.
 - **Phase 1**: SVG rich subset parser + tessellator + rasterizer. PNG/JPG decode +
   scale. HarfBuzz text shaping + glyph cache. Security reject tests for all three
   pipelines. Proof: `cargo test -p ui_v2b_host` passes.
-- **Phase 2**: Mocu cursor loading + rasterization + windowd integration. Proof
+- **Phase 2**: Mocu cursor loading + rasterization + `windowd` integration. Proof
   surface shows text target + cursor target + icon target in QEMU. Proof:
   `RUN_UNTIL_MARKER=1 just test-os` passes with all markers fired.
-- **Phase 3**: Live cursor blending in fbdevd. Cursor bitmap from windowd bootstrap is blended
-  at `(cursor_x, cursor_y)` from inputd during live framebuffer writes. fbdevd owns the blend.
-  Proof: `cargo test -p fbdevd -- --nocapture` + QEMU marker `fbdevd: cursor overlay on`.
-- **Phase 4**: `manifest.capnp` v2.0: add `type`, `dependencies`, `provided_services`, `resources`
-  to distinguish apps/services/libraries. Update `nxb-pack` and `bundlemgrd`. Host tests.
-  Proof: `cargo test -p bundlemgr -- --nocapture`
-- **Phase 5**: windowd as standalone IPC service. inputd sends cursor position via cap-based IPC.
-  fbdevd queries windowd for composed frame (no own WindowServer). fbdevd becomes scanout-only.
-  Service contract tests per hop. Proof: `cargo test -p windowd -p fbdevd -p inputd` +
+- **Phase 3**: Service-owned live display chain. `inputd` forwards bounded
+  visible-input state to `windowd`; `windowd` composes cursor/proof-scene rows;
+  `fbdevd` stays scanout-only. Proof: `cargo test -p fbdevd -- --nocapture` +
+  QEMU marker `fbdevd: cursor overlay on`.
+- **Phase 4**: Manifest/resource discovery. Service/resource manifests avoid
+  adding the same service in multiple hardcoded locations and maintain
+  deterministic boot order for `windowd`, `inputd`, and `fbdevd`.
+- **Phase 5**: `windowd` as standalone IPC service. `inputd` sends visible state
+  via `OP_UPDATE_VISIBLE_STATE`; `fbdevd` registers the framebuffer VMO with
+  `windowd`; `windowd` writes composed rows directly into that VMO. Service
+  contract tests per hop. Proof: `cargo test -p windowd -p fbdevd -p inputd` +
   QEMU marker `windowd: cursor svg loaded` + `fbdevd: cursor overlay on`.
 
 ## Security considerations
@@ -233,33 +272,42 @@ variants. No silent fallback: if a fallback exists, it must be explicit and prov
 cargo test -p ui_v2b_host -- --nocapture
 cargo test -p nexus-theme -- --nocapture
 cargo test -p nexus-svg -- --nocapture
+cargo test -p nexus-svg --test cursor_golden -- --nocapture
 ```
 
 Expected:
-- Text shaping: multilingual LTR+RTL → stable glyph cluster ordering
+- Text shaping: multilingual LTR+RTL → stable glyph cluster ordering; OS proof
+  overlay is generated from InterVariable.ttf
 - Glyph cache: repeated draws hit cache; eviction at configured cap
 - SVG: rich subset parses; unsupported features rejected; renders match goldens
 - PNG/JPG: decode + scale match goldens; oversized images rejected
-- Cursor: Mocu SVG → bitmap + hotspot correct
+- Cursor: normalized Mocu SVG → bitmap + hotspot correct, with a 32px cursor
+  using practical on-screen extents rather than a narrow 24px glyph
 - Theme: token resolution deterministic; dark/light/highcontrast switch correct
 
 ### Proof (OS/QEMU)
 
 ```bash
-RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
+RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os visible-bootstrap
 ```
 
 Required markers:
+- `display: mode 1280x800 argb8888`
+- `windowd: wallpaper visible`
 - `windowd: cursor svg loaded`
 - `windowd: text target visible`
 - `windowd: icon target visible`
+- `fbdevd: cursor overlay on`
 - `SELFTEST: ui v2b assets ok`
 
 ### Visual proof handoff
 
-- `just start` shows JPG wallpaper + real text target + SVG cursor + SVG icon
-- Cursor switches from colored rectangle to Mocu SVG asset
-- Launcher/SystemUI proof surface uses SVG-source fixtures
+- `just start` shows full-resolution JPG wallpaper, Inter text target, Mocu SVG
+  cursor, SVG icon/proof targets, and live pointer movement.
+- Hover/click/key targets are not permanent latches; scroll up/down are visually
+  distinguishable and expire after the bounded pulse window.
+- `selftest-client` remains observer-only; visual success must come from
+  service-owned `windowd`/`fbdevd` state.
 
 ## Alternatives considered
 
@@ -268,8 +316,8 @@ Required markers:
   follows freedesktop conventions.
 - **Own text shaping instead of HarfBuzz**: rejected. HarfBuzz is the industry
   standard for complex text layout (LTR/RTL, ligatures, script-specific rules).
-  Custom shaping would duplicate decades of work. OS-lite fallback uses pre-baked
-  glyph atlases, not a custom shaper.
+  Custom shaping would duplicate decades of work. TASK-0057's OS-lite proof uses
+  build-time Inter rasterization, not a custom shaper or hardcoded atlas.
 - **TinyVG or NanoSVG instead of custom SVG subset**: considered. Rejected because
   we need bounded, deterministic, no_std-compatible processing. A custom rich subset
   parser gives precise control over what is accepted/rejected.
@@ -285,16 +333,16 @@ Required markers:
 
 ## Open questions
 
-- **HarfBuzz in OS-lite**: Can we link HarfBuzz in the no_std OS path? If not,
-  pre-baked glyph atlases must cover the needed codepoints. Owner: @runtime.
-  Decision needed before Phase 2.
-- **JPG codec in no_std**: Which library for JPG decode in the OS path? The existing
-  ramfb bootstrap path uses host-side decode. Owner: @ui. Decision needed before
-  Phase 2.
+- **HarfBuzz in OS-lite**: current decision for TASK-0057 is build-time Inter
+  rasterization for the proof overlay. Full runtime HarfBuzz in OS remains a
+  follow-up.
+- **JPG codec in no_std**: current decision for TASK-0057 is build-time JPEG
+  decode/scale for `systemui`, embedded as BGRA for the OS scene. Runtime JPEG
+  decode in OS remains follow-up.
 - **SVG golden tolerance**: pixel-exact or SSIM > 0.99? SSIM allows minor
   antialiasing differences across platforms. Owner: @ui. Decide during Phase 1 test
   development.
-- **Cursor animation frames**: BreezeX cursors may have multi-frame (animated)
+- **Cursor animation frames**: Mocu cursors may have multi-frame (animated)
   definitions. Phase 2 scope is single-frame static cursors. Multi-frame deferred
   to TASK-0062.
 
@@ -329,33 +377,29 @@ When writing this RFC, ensure:
 - [x] **Phase 2b**: Renderer integration. `draw_image`, `draw_svg`, `draw_glyph_run` (stub) in `userspace/ui/renderer/src/draw.rs`.
   Proof: existing renderer tests pass with new deps.
 - [x] **Phase 2c**: QEMU markers. `CURSOR_SVG_LOADED_MARKER`, `TEXT_TARGET_VISIBLE_MARKER`,
-  `ICON_TARGET_VISIBLE_MARKER`, `SELFTEST_UI_V2B_ASSETS_OK_MARKER` in `windowd/src/markers.rs`,
-  wired into `selftest-client/src/os_lite/phases/end.rs`. Asset loading in windowd boot path deferred
-  to dedicated QEMU session.
-  Markers: `cursor svg loaded`, `text target visible`, `icon target visible`, `SELFTEST: ui v2b assets ok`.
-- [ ] Task linked with stop conditions + proof commands (TASK-0057).
-- [ ] Security-relevant negative tests exist (`test_reject_*` for SVG scripts/refs/filters,
-  malformed fonts, decompression bombs, invalid theme TOML).
-- [x] **Phase 3a**: Cursor bitmap handoff. `DisplayPresentHandoff` + `VisibleSystemUiEvidence` carry
-  `cursor_bitmap`. Proof: `cargo test -p windowd -- --nocapture` (29/29 pass)
-- [x] **Phase 3b**: fbdevd cursor overlay. `FbdevService` stores bitmap, `blend_cursor_row()` blends at
-  `(cursor_x, cursor_y)`. Marker: `fbdevd: cursor overlay on`. Proof: `cargo test -p fbdevd` (25/25 pass)
-- [ ] **Phase 4a**: `manifest.capnp` v2.0. Add `type` (app|service|library|driver), `dependencies`,
-  `providedServices`, `resources` fields. Update `nxb-pack`, `bundlemgrd` schema. Host tests.
-  Proof: `cargo test -p bundlemgr -- --nocapture`
-- [ ] **Phase 4b**: Service manifests for windowd (type=library), fbdevd (type=service, deps=[windowd]),
-  inputd (type=service, deps=[windowd]). Auto-discovery in Makefile via `cargo metadata`.
-  Proof: `make build` without hardcoded service list.
-- [ ] **Phase 5a**: windowd as IPC service. `os_lite::service_main_loop()` handles full IPC:
-  `OP_CREATE_SURFACE`, `OP_COMMIT_SCENE`, `OP_GET_COMPOSED_FRAME` with composed frame including
-  cursor at tracked position. Proof: IPC contract tests.
-- [ ] **Phase 5b**: inputd → windowd cursor position IPC. inputd sends `CURSOR_POSITION(x, y)` via
-  cap-based IPC to windowd each frame. inputd removes own WindowServer.
-  Proof: `cargo test -p inputd -- --nocapture`
-- [ ] **Phase 5c**: fbdevd scanout-only. Queries windowd (not inputd) for composed frame via
-  `OP_GET_COMPOSED_FRAME`. Removes own cursor blending (delegated to windowd).
-  Proof: `cargo test -p fbdevd` + QEMU `RUN_UNTIL_MARKER=1 just test-os` with all markers unchanged.
-- [ ] Task linked with stop conditions + proof commands (TASK-0057).
-- [ ] Security-relevant negative tests exist (`test_reject_*` for SVG scripts/refs/filters,
-  malformed fonts, decompression bombs, invalid theme TOML).
-- [ ] `docs/rfcs/README.md` updated with RFC-0056 status.
+  `ICON_TARGET_VISIBLE_MARKER`, `WALLPAPER_VISIBLE_MARKER`, and
+  `SELFTEST_UI_V2B_ASSETS_OK_MARKER` are wired through service-owned evidence.
+  Markers: `cursor svg loaded`, `wallpaper visible`, `text target visible`,
+  `icon target visible`, `SELFTEST: ui v2b assets ok`.
+- [x] **Phase 3a**: Cursor handoff corrected into `windowd` composition.
+  `fbdevd` no longer owns a second cursor truth for the live chain; it observes
+  DisplayServer-composed cursor state and reports scanout evidence.
+- [x] **Phase 3b**: Full-resolution scanout. `visible-bootstrap` reports
+  `display: mode 1280x800 argb8888`; the wallpaper is decoded/scaled at build
+  time and embedded as BGRA for deterministic OS use.
+- [x] **Phase 3c**: Transient input target semantics. Hover, click, key, and
+  scroll pulse state are not permanent latches. Scroll up/down are distinct.
+- [x] **Phase 4**: Manifest/resource discovery for current services. `windowd`
+  is a service with resources; boot order keeps `windowd` before `inputd` and
+  `fbdevd`.
+- [x] **Phase 5a**: `windowd` as IPC service. `os_lite::service_main_loop()`
+  receives framebuffer registration and visible-input updates, then composes
+  rows into the framebuffer VMO.
+- [x] **Phase 5b**: `inputd -> windowd` visible-state IPC. `inputd` sends
+  `OP_UPDATE_VISIBLE_STATE` with cursor and transient target state.
+- [x] **Phase 5c**: `fbdevd` scanout-only. `fbdevd` registers the framebuffer
+  VMO with `windowd`, waits for `STATUS_OK`, then emits flush/overlay evidence.
+- [x] Task linked with stop conditions + proof commands (TASK-0057).
+- [x] Service contract and reject-path tests exist for the display/input protocol
+  and observer-owned evidence paths.
+- [x] `docs/rfcs/README.md` updated with RFC-0056 status.

@@ -881,6 +881,8 @@ fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
         inputd::VISIBLE_INPUT_CURSOR_END_X,
         inputd::VISIBLE_INPUT_CURSOR_END_Y
     ));
+    assert!(!inputd::visible_hover_target_contains(10, 40));
+    assert!(!inputd::visible_hover_target_contains(8, 41));
     assert!(!inputd::visible_hover_target_contains(0, 47));
     assert!(!inputd::visible_hover_target_contains(63, 47));
 

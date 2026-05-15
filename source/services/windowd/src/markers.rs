@@ -60,7 +60,7 @@ pub const CLICK_LATENCY_OK_MARKER: &str = "windowd: click latency ok";
 pub const KEYBOARD_LATENCY_OK_MARKER: &str = "windowd: keyboard latency ok";
 
 // --- TASK-0057 / RFC-0056: UI v2b asset markers ---
-/// Fired by windowd when a BreezeX SVG cursor asset is successfully loaded.
+/// Fired by windowd when the Mocu SVG cursor asset is successfully loaded.
 pub const CURSOR_SVG_LOADED_MARKER: &str = "windowd: cursor svg loaded";
 /// Fired by windowd when a text target (shaped glyphs) is visible on the proof surface.
 pub const TEXT_TARGET_VISIBLE_MARKER: &str = "windowd: text target visible";

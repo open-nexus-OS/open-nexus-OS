@@ -1,9 +1,9 @@
 ---
 title: TASK-0057 UI v2b: asset pipeline + theme system + SVG/PNG/JPG + text shaping + cursor pipeline
-status: In Progress (Phase 3–5: cursor blend + manifest v2.0 + windowd IPC service)
+status: In Progress (Minimal DisplayServer v0 live asset closure)
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-14 (Phase 3–5: manifest v2.0 + IPC contracts + auto-discovery)
+updated: 2026-05-15 (Minimal DisplayServer v0: Mocu cursor + Inter text + transient input targets)
 depends-on:
   - TASK-0054
   - TASK-0056
@@ -34,15 +34,18 @@ TASK-0056C is In Review (120Hz, NonBlocking IPC, fastpath coalescing active in l
 The display chain (`hidrawd→inputd→fbdevd→ramfb`) is responsive at 82-98Hz. Now we need real
 content to make the UI usable before the Orbital-Level UX Gate (Launcher, Dock, real apps).
 
-Current state:
-- The visible proof surface shows colored rectangles as cursor/target placeholders.
-- No text rendering, no SVG pipeline, no icon system, no theme engine.
-- `docs/dev/ui/foundations/visual/` defines color tokens and cursor themes — docs-only.
-- `make run` / `just start` already use a JPG wallpaper via `ramfb` bootstrap — proving
-  image decode is a live dependency that nobody else will add before fast-path closure.
+Current implementation state:
+- The live visible path is now service-owned:
+  `hidrawd -> inputd -> windowd -> fbdevd -> ramfb`.
+- `windowd` is the Minimal DisplayServer v0 authority for wallpaper, Mocu cursor,
+  Inter-rendered proof text, icon/target scene, hit-test/focus, and composition.
+- `fbdevd` is scanout-only: it owns framebuffer/ramfb setup and observes
+  `windowd`-composed state rather than owning a second cursor truth.
+- `selftest-client` remains observer-only and may only summarize evidence already
+  present in service-owned state.
 
 RFC-0056 defines the architecture contract: OHOS-aligned resource qualifier model,
-freedesktop icon structure, BreezeX cursor pipeline, theme token engine.
+freedesktop icon structure, Mocu cursor pipeline, theme token engine.
 
 This task is the complete asset/theme/cursor/text stack — everything needed for a real
 Launcher by end of the UI fast lane.
@@ -77,15 +80,16 @@ Deliver:
 5. **Text shaping** (`userspace/ui/shape/`):
    - HarfBuzz-based shaping with font fallback chain
    - Glyph cache: grayscale alpha bitmaps, bounded size, deterministic eviction
-   - Host-first; OS path with pre-baked glyph atlases if HarfBuzz linking unavailable
+   - Host-first; OS path uses `resources/fonts/inter/docs/font-files/InterVariable.ttf`
+     at build time for the v2b proof overlay while full HarfBuzz-in-OS remains follow-up
 
 6. **Cursor pipeline** (`userspace/ui/cursor/`):
-   - Parse BreezeX SVG cursors → rasterize → BGRA8888 + hotspot
+   - Parse Mocu SVG cursors → rasterize → BGRA8888 + hotspot
    - Integrate into `windowd` cursor display → visible on proof surface
 
 7. **Proof surface targets**:
    - Real shaped text (multilingual LTR+RTL) rendered on shared proof surface
-   - BreezeX SVG cursor visible as mouse pointer
+   - Mocu SVG cursor visible as mouse pointer
    - SVG icon from freedesktop structure visible on proof surface
    - JPG wallpaper visible behind UI
 
@@ -174,8 +178,9 @@ resources/
 
 ## Red flags / decision points
 
-- **YELLOW (HarfBuzz in OS)**: If OS-lite cannot link HarfBuzz, use pre-baked glyph atlases.
-  *Neutralized*: Phase 1 starts host-first; Phase 2 OS path uses atlas fallback.
+- **YELLOW (HarfBuzz in OS)**: If OS-lite cannot link HarfBuzz, use pre-baked glyph assets.
+  *Neutralized*: Phase 1 starts host-first; the current OS path rasterizes InterVariable.ttf
+  at build time for the proof overlay.
 - **YELLOW (SVG complexity)**: Rich subset still allows complex paths.
   *Neutralized*: explicit node/segment limits in parser; `test_reject_*` for oversized input.
 - **YELLOW (JPG codec in no_std)**: OS-lite JPG decode needs `no_std` library.
@@ -193,11 +198,12 @@ cargo test -p nexus-theme -- --nocapture
 cargo test -p nexus-svg -- --nocapture
 ```
 
-- Text shaping: multilingual LTR+RTL → stable glyph cluster ordering
+- Text shaping: multilingual LTR+RTL → stable glyph cluster ordering; OS proof
+  overlay uses InterVariable.ttf from the resource submodule
 - Glyph cache: repeated draws hit cache; eviction at configured cap
 - SVG: rich subset parses; unsupported features rejected; renders match goldens
 - PNG/JPG: decode + scale match goldens; oversized images rejected
-- Cursor: BreezeX SVG → bitmap + hotspot correct
+- Cursor: Mocu SVG → bitmap + hotspot correct
 - Theme: token resolution deterministic; dark/light/highcontrast switch correct
 
 ### Proof (OS/QEMU) — required
@@ -208,12 +214,15 @@ RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
 
 - QEMU markers: `windowd: cursor svg loaded`, `windowd: text target visible`,
   `windowd: icon target visible`, `SELFTEST: ui v2b assets ok`
-- Shared proof surface shows: real shaped text, BreezeX SVG cursor, SVG icon
+- Shared proof surface shows: Inter-rendered text, Mocu SVG cursor, SVG icon,
+  JPG wallpaper, and transient hover/click/key/scroll-up/scroll-down targets
 
 ### Visual proof handoff — required
 
 - `just start` shows JPG wallpaper + real text target + SVG cursor + SVG icon
-- Cursor switches from colored rectangle to BreezeX SVG asset
+- Cursor switches from colored rectangle to Mocu SVG asset
+- Hover/click/key targets are not permanent latches; scroll up/down are visually
+  distinguishable and expire after the bounded pulse window
 - Launcher/SystemUI proof surface uses SVG-source fixtures
 
 ## Touched paths (allowlist)
@@ -245,7 +254,7 @@ RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-os
 2. **SVG rich subset** — parser, tessellator, BGRA8888 rasterizer
 3. **PNG/JPG pipeline** — decoder, scaler, bounded memory
 4. **Text shaping** — HarfBuzz, font fallback, glyph cache
-5. **Cursor pipeline** — BreezeX SVG → bitmap → windowd cursor asset
+5. **Cursor pipeline** — Mocu SVG → bitmap → windowd cursor asset
 6. **Renderer integration** — `draw_glyph_run`, `draw_svg_path`, `draw_image`
 7. **Proof surface** — text target + cursor target + icon target visible in QEMU
 8. **Tests + docs** — goldens, tolerance policy, schema docs

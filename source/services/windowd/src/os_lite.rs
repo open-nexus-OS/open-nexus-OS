@@ -27,10 +27,10 @@ use crate::smoke::VisibleBootstrapMode;
 
 const ROUTE_NAME: &str = "windowd";
 const PROOF_PANEL_X: u32 = 56;
-const PROOF_PANEL_Y: u32 = 56;
+const PROOF_PANEL_Y: u32 = 440;
 const PROOF_PANEL_W: u32 = 610;
 const PROOF_PANEL_H: u32 = 260;
-const TARGET_ROW_Y: u32 = 166;
+const TARGET_ROW_Y: u32 = 600;
 const TARGET_CARD_W: u32 = 126;
 const TARGET_CARD_H: u32 = 82;
 const TARGET_GAP: u32 = 16;
@@ -224,12 +224,12 @@ impl DisplayServerRuntime {
             || upstream.keyboard_route_live;
         self.state.cursor_move_visible |=
             upstream.cursor_move_visible || upstream.pointer_route_live;
-        self.state.hover_visible |= upstream.hover_visible || upstream.pointer_route_live;
-        self.state.focus_visible |= upstream.focus_visible || upstream.launcher_click_visible;
-        self.state.launcher_click_visible |= upstream.launcher_click_visible;
-        self.state.keyboard_visible |= upstream.keyboard_visible || upstream.keyboard_route_live;
-        self.state.wheel_up_visible |= upstream.wheel_up_visible;
-        self.state.wheel_down_visible |= upstream.wheel_down_visible;
+        self.state.hover_visible = upstream.hover_visible;
+        self.state.focus_visible = upstream.focus_visible;
+        self.state.launcher_click_visible = upstream.launcher_click_visible;
+        self.state.keyboard_visible = upstream.keyboard_visible;
+        self.state.wheel_up_visible = upstream.wheel_up_visible;
+        self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
         self.queue_cursor_damage(
@@ -350,8 +350,16 @@ impl DisplayServerRuntime {
         new_cursor_x: i32,
         new_cursor_y: i32,
     ) {
-        let old_rows = cursor_row_range(old_cursor_y, self.cursor_height, self.mode.height);
-        let new_rows = cursor_row_range(new_cursor_y, self.cursor_height, self.mode.height);
+        let old_rows = cursor_row_range(
+            old_cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+            self.cursor_height,
+            self.mode.height,
+        );
+        let new_rows = cursor_row_range(
+            new_cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+            self.cursor_height,
+            self.mode.height,
+        );
         let Some((start, end)) = merge_optional_ranges(old_rows, new_rows) else {
             return;
         };
@@ -409,10 +417,10 @@ fn merge_optional_ranges(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> Option
 
 fn target_state_bits(state: VisibleState) -> u8 {
     u8::from(state.hover_visible)
-        | (u8::from(state.focus_visible) << 1)
-        | (u8::from(state.launcher_click_visible) << 2)
-        | (u8::from(state.keyboard_visible) << 3)
-        | (u8::from(state.wheel_up_visible || state.wheel_down_visible) << 4)
+        | (u8::from(state.launcher_click_visible) << 1)
+        | (u8::from(state.keyboard_visible) << 2)
+        | (u8::from(state.wheel_up_visible) << 3)
+        | (u8::from(state.wheel_down_visible) << 4)
 }
 
 fn copy_scene_row(
@@ -437,8 +445,8 @@ fn copy_scene_row(
             cursor,
             cursor_width,
             cursor_height,
-            cursor_x,
-            cursor_y,
+            cursor_x - crate::assets::CURSOR_HOTSPOT_X,
+            cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
         );
     }
     Ok(())
@@ -503,39 +511,12 @@ fn draw_proof_surface_row(state: VisibleState, y: u32, row: &mut [u8]) -> Result
         PROOF_PANEL_H,
         [0xff, 0xff, 0xff, 0x70],
     )?;
-    draw_atlas_text_row(
-        y,
-        row,
-        PROOF_PANEL_X + 24,
-        PROOF_PANEL_Y + 24,
-        3,
-        "OPEN NEXUS OS",
-        [0xff, 0xff, 0xff, 0xff],
-    )?;
-    draw_atlas_text_row(
-        y,
-        row,
-        PROOF_PANEL_X + 25,
-        PROOF_PANEL_Y + 58,
-        2,
-        "DISPLAYSERVER V0  INTER ATLAS FALLBACK",
-        [0xc8, 0xd8, 0xff, 0xff],
-    )?;
-    draw_atlas_text_row(
-        y,
-        row,
-        PROOF_PANEL_X + 25,
-        PROOF_PANEL_Y + 86,
-        2,
-        "HOVER CLICK SCROLL KEYBOARD TARGETS",
-        [0x9c, 0xac, 0xc8, 0xff],
-    )?;
+    draw_inter_text_overlay_row(y, row)?;
     draw_target_card_row(
         y,
         row,
         PROOF_PANEL_X + 24,
         TARGET_ROW_Y,
-        "HOVER",
         state.hover_visible,
         [0x48, 0xa8, 0xff, 0xff],
     )?;
@@ -544,25 +525,32 @@ fn draw_proof_surface_row(state: VisibleState, y: u32, row: &mut [u8]) -> Result
         row,
         PROOF_PANEL_X + 24 + (TARGET_CARD_W + TARGET_GAP),
         TARGET_ROW_Y,
-        "CLICK",
-        state.launcher_click_visible || state.focus_visible,
+        state.launcher_click_visible,
         [0x5a, 0xe0, 0x74, 0xff],
     )?;
+    let scroll_x = PROOF_PANEL_X + 24 + 2 * (TARGET_CARD_W + TARGET_GAP);
     draw_target_card_row(
         y,
         row,
-        PROOF_PANEL_X + 24 + 2 * (TARGET_CARD_W + TARGET_GAP),
+        scroll_x,
         TARGET_ROW_Y,
-        "SCROLL",
         state.wheel_up_visible || state.wheel_down_visible,
         [0xff, 0xb0, 0x45, 0xff],
+    )?;
+    draw_scroll_direction_row(y, row, scroll_x, TARGET_ROW_Y, state.wheel_up_visible, true)?;
+    draw_scroll_direction_row(
+        y,
+        row,
+        scroll_x,
+        TARGET_ROW_Y,
+        state.wheel_down_visible,
+        false,
     )?;
     draw_target_card_row(
         y,
         row,
         PROOF_PANEL_X + 24 + 3 * (TARGET_CARD_W + TARGET_GAP),
         TARGET_ROW_Y,
-        "KEY",
         state.keyboard_visible,
         [0xdf, 0x90, 0xff, 0xff],
     )?;
@@ -581,7 +569,6 @@ fn draw_target_card_row(
     row: &mut [u8],
     x: u32,
     top: u32,
-    label: &str,
     active: bool,
     accent: [u8; 4],
 ) -> Result<(), WindowdError> {
@@ -601,7 +588,30 @@ fn draw_target_card_row(
     if active {
         fill_row_rect(y, row, x + 20, top + 20, 12, 12, [0xff, 0xff, 0xff, 0xff])?;
     }
-    draw_atlas_text_row(y, row, x + 14, top + 50, 2, label, [0xf4, 0xf6, 0xff, 0xff])
+    Ok(())
+}
+
+fn draw_scroll_direction_row(
+    y: u32,
+    row: &mut [u8],
+    x: u32,
+    top: u32,
+    active: bool,
+    up: bool,
+) -> Result<(), WindowdError> {
+    let color = if active {
+        [0xff, 0xf0, 0x90, 0xff]
+    } else {
+        [0x90, 0x80, 0x60, 0xff]
+    };
+    let arrow_top = if up { top + 18 } else { top + 32 };
+    let center = x + 96;
+    for step in 0..8 {
+        let width = if up { 2 * step + 2 } else { 16 - 2 * step };
+        let start = center.saturating_sub(width / 2);
+        fill_row_rect(y, row, start, arrow_top + step, width, 1, color)?;
+    }
+    Ok(())
 }
 
 fn fill_row_rect(
@@ -644,126 +654,47 @@ fn stroke_row_rect(
     fill_row_rect(y, row, x + width.saturating_sub(2), rect_y, 2, height, bgra)
 }
 
-fn draw_atlas_text_row(
-    y: u32,
-    row: &mut [u8],
-    mut x: u32,
-    top: u32,
-    scale: u32,
-    text: &str,
-    bgra: [u8; 4],
-) -> Result<(), WindowdError> {
-    if y < top || y >= top.saturating_add(7 * scale) {
+fn draw_inter_text_overlay_row(y: u32, row: &mut [u8]) -> Result<(), WindowdError> {
+    if y < PROOF_PANEL_Y || y >= PROOF_PANEL_Y + crate::assets::PROOF_TEXT_HEIGHT {
         return Ok(());
     }
-    let glyph_row = (y - top) / scale;
-    let subrow = (y - top) % scale;
-    for ch in text.bytes() {
-        let bits = glyph_bits(ch, glyph_row);
-        for col in 0..5 {
-            if (bits & (1 << (4 - col))) != 0 {
-                fill_row_rect(
-                    y,
-                    row,
-                    x + col * scale,
-                    top + glyph_row * scale + subrow,
-                    scale,
-                    1,
-                    bgra,
-                )?;
-            }
-        }
-        x = x.saturating_add(6 * scale);
-    }
-    Ok(())
+    let source_y = y - PROOF_PANEL_Y;
+    let width = crate::assets::PROOF_TEXT_WIDTH as usize;
+    let src_row = source_y as usize * width * 4;
+    let source = crate::assets::PROOF_TEXT_BGRA
+        .get(src_row..src_row + width * 4)
+        .ok_or(WindowdError::BufferLengthMismatch)?;
+    blend_overlay_row(row, PROOF_PANEL_X as usize, source)
 }
 
-fn glyph_bits(ch: u8, row: u32) -> u8 {
-    let rows = match ch {
-        b'A' => [
-            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        b'B' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
-        ],
-        b'C' => [
-            0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111,
-        ],
-        b'D' => [
-            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
-        ],
-        b'E' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
-        ],
-        b'F' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        b'G' => [
-            0b01111, 0b10000, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111,
-        ],
-        b'H' => [
-            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        b'I' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
-        ],
-        b'K' => [
-            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
-        ],
-        b'L' => [
-            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
-        ],
-        b'M' => [
-            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
-        ],
-        b'N' => [
-            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
-        ],
-        b'O' => [
-            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        b'P' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        b'R' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
-        ],
-        b'S' => [
-            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
-        ],
-        b'T' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        b'U' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        b'V' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
-        ],
-        b'W' => [
-            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
-        ],
-        b'X' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
-        ],
-        b'Y' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        b'0' => [
-            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
-        ],
-        b'1' => [
-            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
-        ],
-        b'8' => [
-            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
-        ],
-        b' ' => [0, 0, 0, 0, 0, 0, 0],
-        _ => [
-            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
-        ],
-    };
-    rows.get(row as usize).copied().unwrap_or(0)
+fn blend_overlay_row(row: &mut [u8], x: usize, source: &[u8]) -> Result<(), WindowdError> {
+    let row_pixels = row.len() / 4;
+    for (col, pixel) in source.chunks_exact(4).enumerate() {
+        let dst_col = x.saturating_add(col);
+        if dst_col >= row_pixels {
+            break;
+        }
+        let alpha = pixel[3];
+        if alpha == 0 {
+            continue;
+        }
+        let dst = dst_col
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
+        if alpha == 255 {
+            row[dst..dst + 4].copy_from_slice(pixel);
+            continue;
+        }
+        let alpha = u32::from(alpha);
+        let inv = 255u32.saturating_sub(alpha);
+        for channel in 0..3 {
+            row[dst + channel] = ((u32::from(pixel[channel]) * alpha
+                + u32::from(row[dst + channel]) * inv)
+                / 255) as u8;
+        }
+        row[dst + 3] = 255;
+    }
+    Ok(())
 }
 
 fn blend_cursor_row(

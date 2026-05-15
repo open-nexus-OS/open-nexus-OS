@@ -24,3 +24,6 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-svg = { path = "../../../userspace/ui/svg", default-features = false, optional = true }
+
+[build-dependencies]
+fontdue = "0.9"

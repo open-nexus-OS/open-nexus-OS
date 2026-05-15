@@ -18,9 +18,9 @@ contains the required evidence.
   sends bounded visible-input updates to `windowd`; it does not own scene or
   cursor pixels.
 - `windowd` is the Minimal DisplayServer v0. It owns root scene state,
-  hit-test/focus, JPEG-sourced wallpaper, SVG cursor, text/icon proof targets,
-  composition, and writes composed rows into the framebuffer VMO registered by
-  `fbdevd`.
+  hit-test/focus, JPEG-sourced wallpaper, Mocu SVG cursor, Inter-rendered
+  text/icon proof targets, composition, and writes composed rows into the
+  framebuffer VMO registered by `fbdevd`.
 - `fbdevd` owns framebuffer capability use, `ramfb` setup, final scanout
   ownership, and visible-state replies. It does not own scene composition or a
   second cursor truth.
@@ -44,8 +44,9 @@ frame budget. If `windowd` does not answer quickly, `fbdevd` keeps ownership of
 the last observed state and tries again on the next tick.
 
 Cursor-only movement is the latency-sensitive case. `inputd` forwards bounded
-visible-input updates to `windowd`, `windowd` recomposes the SVG cursor over the
-root scene, and `fbdevd` only reports the dirty-row/flush evidence it observes.
+visible-input updates to `windowd`, `windowd` recomposes only the damaged rows
+of the Mocu SVG cursor over the root scene, and `fbdevd` only reports the
+dirty-row/flush evidence it observes.
 
 The coordinate contract follows normal screen-space direction:
 
@@ -74,10 +75,13 @@ The cursor rendering follows the OHOS hardware-cursor model mapped to software,
 with `windowd` as the single display-scene authority:
 
 1. **windowd** (DisplayServer authority): composes the root scene.
-   - SVG source: `assets::CURSOR_LEFT_PTR_SVG` (Mocu theme, CC0)
+   - SVG source: `resources/cursors/mocu/src/svg/default.svg` (Mocu theme, CC0),
+     build-normalized for the bounded OS SVG renderer
    - Wallpaper source: `resources/wallpapers/base/default.jpeg`
-   - Rendering: `nexus-svg` cursor raster output + JPEG-sourced wallpaper seed
-     + deterministic text/icon proof targets
+   - Text source: `resources/fonts/inter/docs/font-files/InterVariable.ttf`,
+     build-rasterized as an Inter proof overlay for the OS path
+   - Rendering: `nexus-svg` cursor raster output + JPEG-sourced wallpaper
+     + deterministic Inter text/icon proof targets
    - Composition target: framebuffer VMO registered by `fbdevd`
 
 2. **inputd** (input authority): supplies bounded input updates.
@@ -118,6 +122,9 @@ with `windowd` as the single display-scene authority:
 - `just start` is the live interactive proof. It should show the same
   DisplayServer scene: JPEG wallpaper, SVG cursor, text/icon targets, and live
   pointer movement.
+- Proof target highlighting is transient: hover is active only while the routed
+  pointer is over the target, click only while primary pointer is held, keyboard
+  only while a non-modifier key is held, and wheel pulses distinguish up/down.
 - White cursor-square proof pixels are legacy host affordances only; they are
   not accepted as the live mouse truth in the DisplayServer chain.
 

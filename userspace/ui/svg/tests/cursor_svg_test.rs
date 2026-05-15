@@ -1,5 +1,3 @@
-use nexus_svg::render_svg;
-
 #[test]
 fn test_all_svg_render() {
     use nexus_svg::render_svg;

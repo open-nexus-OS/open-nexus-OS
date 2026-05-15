@@ -60,10 +60,14 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - `windowd` is now a standalone os-lite service, not only an in-process library.
    - `fbdevd` owns framebuffer allocation and `ramfb` setup, then transfers a cloned
      framebuffer VMO capability to `windowd` for composition.
-   - `windowd` owns JPEG-sourced wallpaper, SVG cursor, text/icon proof targets,
-     focus/hit-test state, and composed-frame writes.
+   - `windowd` owns JPEG-sourced wallpaper, the Mocu SVG cursor,
+     Inter-rendered text/icon proof targets, focus/hit-test state, and
+     composed-frame writes.
    - `inputd` sends bounded visible-input updates to `windowd`; it does not own
      cursor pixels or a second display scene.
+   - Hover/click/keyboard/wheel target highlights are transient service state,
+     not success latches: wheel pulses preserve up/down direction and expire via
+     a bounded inputd tick.
    - `SELFTEST: ui v2b assets ok` is valid only after visible input plus
      service-owned cursor/wallpaper/text/icon/overlay evidence.
 
@@ -80,6 +84,10 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   `inputd -> windowd -> fbdevd -> ramfb` is the authoritative live chain, and
   `visible-bootstrap` now gates on v2b asset evidence rather than the older wheel
   marker alone.
+- The OS v2b text and cursor assets come from checked-in resource submodules:
+  `resources/fonts/inter/docs/font-files/InterVariable.ttf` is rasterized at
+  build time for the proof overlay, and `resources/cursors/mocu/src/svg/default.svg`
+  is normalized into the bounded SVG subset before rasterization.
 - The next follow-up remains broader production display closure; this ADR still
   does not claim GPU, Wayland, multi-window WM, full text input/IME, or kernel/core
   production-grade display closure.
