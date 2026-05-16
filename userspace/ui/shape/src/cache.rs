@@ -1,155 +1,105 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+//! Paragraph/run cache + line-layout cache (pretext model).
+//! - ParagraphCache: keyed by text+style, width-independent.
+//! - LineLayoutCache: keyed by paragraph_key+width_bucket, width-dependent.
 
-use crate::error::ShapeResult;
-use crate::types::{FontId, GlyphBitmap, GlyphIndex, PixelSize};
+use std::collections::BTreeMap;
+use std::vec::Vec;
+use nexus_layout_types::{FxPx, LineLayout, PreparedTextHandle};
+use crate::wrap;
 
-/// Cache key: (FontId, GlyphIndex, PixelSize).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct CacheKey {
-    font_id: FontId,
-    glyph_index: GlyphIndex,
-    pixel_size: PixelSize,
+/// Maximum number of cached paragraphs.
+const MAX_PARAGRAPH_ENTRIES: usize = 256;
+
+/// Maximum number of cached line layouts.
+const MAX_LINE_ENTRIES: usize = 512;
+
+/// Cache key for a prepared paragraph.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ParagraphKey {
+    pub text_hash: u64,
+    pub font_size: i32,
 }
 
-/// Bounded LRU glyph cache.
-///
-/// Rasterizes glyphs via fontdue and caches the resulting grayscale
-/// bitmaps. When the cache reaches capacity, the least-recently-used
-/// entry is evicted.
-///
-/// # Determinism
-///
-/// Rasterization is deterministic for a given (font, glyph, size) tuple.
-/// The cache does not affect output correctness, only performance.
-#[derive(Debug)]
-pub struct GlyphCache {
-    /// Maximum number of cached glyphs.
-    capacity: usize,
-    /// Cached bitmaps, keyed by (font, glyph, size).
-    entries: HashMap<CacheKey, GlyphBitmap>,
-    /// LRU order: most-recently-used at the end.
-    lru: Vec<CacheKey>,
+/// A prepared paragraph: shaped text ready for line breaking.
+#[derive(Debug, Clone)]
+pub struct PreparedParagraph {
+    pub text: String,
+    pub char_advance: FxPx,
+    pub line_height: FxPx,
 }
 
-impl GlyphCache {
-    /// Create a new glyph cache with the given capacity.
-    pub fn new(capacity: usize) -> Self {
-        GlyphCache {
-            capacity,
-            entries: HashMap::with_capacity(capacity),
-            lru: Vec::with_capacity(capacity),
-        }
+/// Width-independent paragraph cache.
+pub struct ParagraphCache {
+    entries: BTreeMap<ParagraphKey, PreparedParagraph>,
+}
+
+impl ParagraphCache {
+    pub fn new() -> Self {
+        ParagraphCache { entries: BTreeMap::new() }
     }
 
-    /// Get a rasterized glyph bitmap, either from cache or by rasterizing.
-    ///
-    /// Returns a reference to the cached bitmap. The reference is valid
-    /// until the next mutating operation on the cache.
-    pub fn get_or_rasterize(
+    pub fn get_or_insert(
         &mut self,
-        font: &fontdue::Font,
-        font_id: FontId,
-        glyph_index: GlyphIndex,
-        pixel_size: PixelSize,
-    ) -> ShapeResult<&GlyphBitmap> {
-        let key = CacheKey {
-            font_id,
-            glyph_index,
-            pixel_size,
-        };
-
-        // Cache hit — move to end of LRU
-        if let Some(pos) = self.lru.iter().position(|k| *k == key) {
-            self.lru.remove(pos);
-            self.lru.push(key);
-            return Ok(&self.entries[&key]);
+        key: ParagraphKey,
+        text: &str,
+        char_advance: FxPx,
+        line_height: FxPx,
+    ) -> PreparedParagraph {
+        if let Some(entry) = self.entries.get(&key) {
+            return entry.clone();
         }
-
-        // Cache miss — rasterize
-        let (metrics, bitmap_data) =
-            font.rasterize(glyph_index.0 as u16, pixel_size.0 as f32);
-
-        let bitmap = GlyphBitmap::new(
-            metrics.width as u32,
-            metrics.height as u32,
-            bitmap_data,
-        );
-
-        // Evict if at capacity
-        if self.lru.len() >= self.capacity {
-            if let Some(evicted_key) = self.lru.first().copied() {
-                self.entries.remove(&evicted_key);
-                self.lru.remove(0);
+        let para = PreparedParagraph {
+            text: text.to_string(),
+            char_advance,
+            line_height,
+        };
+        self.entries.insert(key, para.clone());
+        // LRU-like: evict oldest if over budget
+        if self.entries.len() > MAX_PARAGRAPH_ENTRIES {
+            // Simple: remove first entry (BTreeMap iteration is ordered)
+            if let Some(first_key) = self.entries.keys().next().cloned() {
+                self.entries.remove(&first_key);
             }
         }
-
-        self.entries.insert(key, bitmap);
-        self.lru.push(key);
-        Ok(&self.entries[&key])
+        para
     }
 
-    /// Number of cached glyphs.
-    pub fn len(&self) -> usize {
-        self.lru.len()
-    }
-
-    /// Whether the cache is empty.
-    pub fn is_empty(&self) -> bool {
-        self.lru.is_empty()
-    }
-
-    /// Clear all cached glyphs.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.lru.clear();
-    }
+    pub fn len(&self) -> usize { self.entries.len() }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Width-dependent line layout cache.
+pub struct LineLayoutCache {
+    entries: BTreeMap<(usize, i32), LineLayout>,
+}
 
-    /// Load the Inter-Regular font from resources.
-    fn load_test_font() -> fontdue::Font {
-        // Use a minimal embedded font for testing
-        // Created from Inter-Regular which is in resources/fonts/inter/
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("resources")
-            .join("fonts")
-            .join("inter");
-        // For host tests, we'd need an actual font file.
-        // Use fontdue's built-in test if no file is available.
-        match std::fs::read_dir(&path) {
-            Ok(mut entries) => {
-                if let Some(Ok(entry)) = entries.next() {
-                    let p = entry.path();
-                    if p.extension().map(|e| e == "ttf").unwrap_or(false) {
-                        let data = std::fs::read(&p).unwrap();
-                        return fontdue::Font::from_bytes(data, fontdue::FontSettings::default())
-                            .unwrap();
-                    }
-                }
-                panic!("no ttf font found in resources/fonts/inter/")
-            }
-            Err(_) => {
-                // Fallback for tests without font files
-                // Use fontdue's embedded default
-                fontdue::Font::from_bytes(
-                    include_bytes!("../../../../../resources/fonts/inter/Inter-Regular.ttf")
-                        .to_vec(),
-                    fontdue::FontSettings::default(),
-                )
-                .unwrap()
+impl LineLayoutCache {
+    pub fn new() -> Self {
+        LineLayoutCache { entries: BTreeMap::new() }
+    }
+
+    pub fn get_or_compute(
+        &mut self,
+        para_handle: PreparedTextHandle,
+        width: FxPx,
+        max_lines: Option<u32>,
+        para: &PreparedParagraph,
+    ) -> LineLayout {
+        let key = (para_handle.0, width.0);
+        if let Some(layout) = self.entries.get(&key) {
+            return layout.clone();
+        }
+        let layout = wrap::break_lines(&para.text, width, para.char_advance, para.line_height, max_lines);
+        self.entries.insert(key, layout.clone());
+        if self.entries.len() > MAX_LINE_ENTRIES {
+            if let Some(first_key) = self.entries.keys().next().cloned() {
+                self.entries.remove(&first_key);
             }
         }
+        layout
     }
+
+    pub fn len(&self) -> usize { self.entries.len() }
 }

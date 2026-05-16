@@ -1,6 +1,6 @@
 # RFC-0057: UI v3a layout engine — deterministic flex/grid/stack + text wrapping contract seed
 
-- Status: In Progress
+- Status: In Progress (implementation done, 31 host tests green, QEMU pending)
 - Last Updated: 2026-05-15 (v2: +colors, border, TextStyle, VisualStyle, overflow, position, flex_wrap, z_index, white_space)
 - Owners: @ui
 - Created: 2026-05-15

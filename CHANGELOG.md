@@ -27,7 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC-0057 status: Draft → In Progress; TASK-0058: In Progress (implementation starting)
 - .cursor files synced: current_state, next_task_prep, context_bundles, pre_flight, stop_conditions
 
+### Added - 2026-05-16
+
+#### TASK-0058 impl done (31 tests)
+- nexus-layout-types + nexus-layout (Flex+Grid engine)
+- nexus-shape wrap.rs (UAX#14) + cache.rs
+- tests/ui_v3a_host JSON goldens (4 tests)
+- windowd proof_panel.rs + layout markers
+
 ### Changed - 2026-05-11
+
+### Added - 2026-05-16
+
+#### TASK-0058 impl done (31 tests)
+- nexus-layout-types + nexus-layout (Flex+Grid engine)
+- nexus-shape wrap.rs (UAX#14) + cache.rs
+- tests/ui_v3a_host JSON goldens (4 tests)
+- windowd proof_panel.rs + layout markers
 
 ### Changed - 2026-05-11
 

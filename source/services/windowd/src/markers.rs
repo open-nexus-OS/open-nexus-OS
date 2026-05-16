@@ -86,3 +86,7 @@ pub fn damage_rects_marker(rects: u16) -> String {
 pub fn marker_postflight_ready(evidence: Option<PresentAck>) -> Result<PresentAck> {
     evidence.ok_or(WindowdError::MarkerBeforePresentState)
 }
+
+// --- TASK-0058 / RFC-0057: UI v3a layout engine markers ---
+pub const LAYOUT_ENGINE_ON_MARKER: &str = "layout: engine on";
+pub const TEXT_WRAPPING_ON_MARKER: &str = "text: wrapping on";

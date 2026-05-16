@@ -31,6 +31,8 @@ mod context;
 mod error;
 mod types;
 mod variation;
+mod wrap;
+mod cache;
 
 pub use context::ShapeContext;
 pub use error::{ShapeError, ShapeResult};

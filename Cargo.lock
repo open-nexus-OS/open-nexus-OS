@@ -1853,6 +1853,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-layout"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+]
+
+[[package]]
+name = "nexus-layout-types"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-loader"
 version = "0.1.0"
 dependencies = [
@@ -1948,6 +1959,7 @@ name = "nexus-shape"
 version = "0.1.0"
 dependencies = [
  "fontdue",
+ "nexus-layout-types",
  "rustybuzz",
  "ttf-parser 0.24.1",
 ]
@@ -3566,6 +3578,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui_v3a_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout",
+ "nexus-layout-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ui_windowd_host"
 version = "0.1.0"
 dependencies = [
@@ -3873,6 +3895,8 @@ dependencies = [
  "input-live-protocol",
  "nexus-abi",
  "nexus-ipc",
+ "nexus-layout",
+ "nexus-layout-types",
  "nexus-service-entry",
  "nexus-svg",
  "pointer-state",

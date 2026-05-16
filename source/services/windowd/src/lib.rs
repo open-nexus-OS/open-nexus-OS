@@ -25,6 +25,7 @@ mod ids;
 mod legacy;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod proof_panel;
 mod os_lite;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
