@@ -92,19 +92,14 @@ impl PathShape {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ShapeKind {
+    #[default]
     Rect,
     Circle,
     TriangleUp,
     TriangleDown,
     Path(PathShape),
-}
-
-impl Default for ShapeKind {
-    fn default() -> Self {
-        Self::Rect
-    }
 }
 
 /// Visual style attached to container and text nodes.
