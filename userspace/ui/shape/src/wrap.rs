@@ -1,6 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//!
+//! CONTEXT: UAX#14 text wrapping for TASK-0058 / RFC-0057.
+//! OWNERS: @ui
+//! STATUS: Done
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 6 wrap tests in module
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
 //! Minimal UAX#14 line-breaking subset for deterministic text wrapping.
 //! Excluded: SHY (soft hyphen), CM (combining mark), SA (complex scripts).
 //! Fallback: grapheme cluster boundary or hard break at nearest opportunity.

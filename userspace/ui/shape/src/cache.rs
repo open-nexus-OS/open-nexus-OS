@@ -1,6 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//!
+//! CONTEXT: Paragraph/line-layout caches for TASK-0058 / RFC-0057 (pretext model).
+//! OWNERS: @ui
+//! STATUS: Done
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: See nexus-shape tests
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
 //! Paragraph/run cache + line-layout cache (pretext model).
 //! - ParagraphCache: keyed by text+style, width-independent.
 //! - LineLayoutCache: keyed by paragraph_key+width_bucket, width-dependent.

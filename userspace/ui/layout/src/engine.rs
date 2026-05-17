@@ -1,6 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//!
+//! CONTEXT: Layout engine algorithms for TASK-0058 / RFC-0057.
+//! OWNERS: @ui
+//! STATUS: Done
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: engine_tests (8 tests)
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
 use crate::error::LayoutError;
 use alloc::vec::Vec;
 use nexus_layout_types::{

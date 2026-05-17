@@ -5,8 +5,15 @@
 #![deny(unsafe_code)]
 #![allow(clippy::too_many_arguments)]
 
-//! Layout type system for TASK-0058 / RFC-0057.
-//! `no_std` + `alloc`. Consumers use layout types without pulling in algorithms.
+//! CONTEXT: Layout type system for TASK-0058 / RFC-0057.
+//! OWNERS: @ui
+//! STATUS: Done
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: tests/ui_v3a_host/ + nexus-layout engine_tests
+//!
+//! no_std + alloc / RFC-0057.
+//!
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 
 extern crate alloc;
 

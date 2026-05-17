@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//!
+//! CONTEXT: Layout errors for TASK-0058 / RFC-0057.
+//! OWNERS: @ui
+//! STATUS: Done
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
 use core::fmt;
 
 /// Errors that can occur during layout computation.

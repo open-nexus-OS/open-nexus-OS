@@ -1,3 +1,10 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Layout tree builder for TASK-0058 proof panel.
+//! OWNERS: @ui
+//! STATUS: Done
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 use alloc::vec;
 use alloc::vec::Vec;
 use input_live_protocol::VisibleState;

@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//!
+//! CONTEXT: Host goldens for TASK-0058 / RFC-0057.
+//! OWNERS: @ui
+//! STATUS: Done
+//! TEST_COVERAGE: 4 JSON golden tests
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
 //! Host tests for TASK-0058: layout JSON goldens.
 //! JSON is a derived view (ADR-0021), diffable for regression detection.
 

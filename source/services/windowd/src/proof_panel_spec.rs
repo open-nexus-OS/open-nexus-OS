@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Proof panel constants for TASK-0058 windowd integration.
+//! OWNERS: @ui
+//! STATUS: Done
+//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 pub const PANEL_WIDTH: i32 = 610;
 pub const PANEL_HEIGHT: i32 = 260;
 pub const PANEL_PADDING: i32 = 24;
