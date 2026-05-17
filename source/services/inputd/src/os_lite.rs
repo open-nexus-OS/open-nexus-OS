@@ -12,12 +12,12 @@ extern crate alloc;
 
 use alloc::format;
 
+use hidrawd::PointerSource;
 use input_live_protocol::{
     decode_push_hid_batch, encode_status, encode_update_visible_state, encode_visible_state_frame,
     frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
-use hidrawd::PointerSource;
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
@@ -47,13 +47,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         Ok(server) => server,
         Err(err) => {
             let _ = debug_println(match err {
-                nexus_ipc::IpcError::WouldBlock => "inputd: route err would-block",
-                nexus_ipc::IpcError::Timeout => "inputd: route err timeout",
-                nexus_ipc::IpcError::Disconnected => "inputd: route err disconnected",
-                nexus_ipc::IpcError::NoSpace => "inputd: route err no-space",
-                nexus_ipc::IpcError::Kernel(_) => "inputd: route err kernel",
-                nexus_ipc::IpcError::Unsupported => "inputd: route err unsupported",
-                _ => "inputd: route err other",
+                nexus_ipc::IpcError::WouldBlock => "inputd: route probe would-block",
+                nexus_ipc::IpcError::Timeout => "inputd: route probe miss",
+                nexus_ipc::IpcError::Disconnected => "inputd: route probe disconnected",
+                nexus_ipc::IpcError::NoSpace => "inputd: route probe no-space",
+                nexus_ipc::IpcError::Kernel(_) => "inputd: route probe kernel",
+                nexus_ipc::IpcError::Unsupported => "inputd: route probe unsupported",
+                _ => "inputd: route probe other",
             });
             let _ = debug_println("inputd: route fallback");
             let _ = debug_println("inputd: fallback slots 3/4");

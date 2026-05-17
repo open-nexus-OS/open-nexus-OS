@@ -501,27 +501,17 @@ fn copy_scaled_systemui_row(
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize)
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame
-                .pixels
-                .get(src..src + 4)
-                .ok_or(WindowdError::BufferLengthMismatch)?,
+            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
         );
     }
     Ok(())
 }
 
 fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width
-        .checked_mul(4)
-        .ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes
-        .checked_add(63)
-        .ok_or(WindowdError::ArithmeticOverflow)
-        .map(|v| v / 64 * 64)
+    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
 }
 
 fn draw_proof_surface_row(
@@ -544,15 +534,7 @@ fn draw_proof_surface_row(
         draw_layout_box_row(state, y, row, layout_box, rect, paint_role)?;
         if let Some(id) = layout_box.id {
             if let Some(asset) = crate::assets::proof_text_asset(id) {
-                blend_asset_row(
-                    y,
-                    row,
-                    rect.x,
-                    rect.y,
-                    asset.width,
-                    asset.height,
-                    asset.bgra,
-                )?;
+                blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
             }
         }
     }
@@ -715,11 +697,9 @@ fn proof_box_background(
         } else {
             crate::assets::PROOF_CARD_BORDER
         }),
-        ProofPaintPart::ScrollUp => Some(if state.wheel_up_visible {
-            crate::assets::PROOF_ICON_FG
-        } else {
-            card.accent
-        }),
+        ProofPaintPart::ScrollUp => {
+            Some(if state.wheel_up_visible { crate::assets::PROOF_ICON_FG } else { card.accent })
+        }
         ProofPaintPart::ScrollDown => Some(if state.wheel_down_visible {
             crate::assets::PROOF_ICON_FG
         } else {
@@ -736,10 +716,7 @@ fn proof_box_border(
     let border = layout_box.visual.border.top?;
     let width = border.width.as_u32().unwrap_or(1);
     let color = match paint_role {
-        Some(ProofPaintRole {
-            card,
-            part: ProofPaintPart::Root | ProofPaintPart::Icon,
-        }) => {
+        Some(ProofPaintRole { card, part: ProofPaintPart::Root | ProofPaintPart::Icon }) => {
             let paint = card.paint(state);
             if paint.active {
                 paint.accent
@@ -775,10 +752,9 @@ enum ProofCard {
 impl ProofCard {
     fn paint(self, state: VisibleState) -> ProofCardPaint {
         match self {
-            Self::Hover => ProofCardPaint {
-                active: state.hover_visible,
-                accent: crate::assets::PROOF_HOVER,
-            },
+            Self::Hover => {
+                ProofCardPaint { active: state.hover_visible, accent: crate::assets::PROOF_HOVER }
+            }
             Self::Click => ProofCardPaint {
                 active: state.launcher_click_visible,
                 accent: crate::assets::PROOF_CLICK,
@@ -960,11 +936,7 @@ fn fill_triangle_row(
         return Ok(());
     }
     let local_y = y - rect_y;
-    let progress = if up {
-        height.saturating_sub(local_y + 1)
-    } else {
-        local_y
-    };
+    let progress = if up { height.saturating_sub(local_y + 1) } else { local_y };
     let span = ((progress + 1) * width).max(height) / height.max(1);
     let span = span.max(1).min(width);
     let start = x + (width.saturating_sub(span)) / 2;
@@ -990,9 +962,7 @@ fn draw_path_row(
         return Ok(());
     }
     for segment in path.points.windows(2) {
-        draw_line_segment_row(
-            y, row, x, rect_y, width, height, segment[0], segment[1], bgra,
-        )?;
+        draw_line_segment_row(y, row, x, rect_y, width, height, segment[0], segment[1], bgra)?;
     }
     if path.closed {
         draw_line_segment_row(
@@ -1002,10 +972,7 @@ fn draw_path_row(
             rect_y,
             width,
             height,
-            *path
-                .points
-                .last()
-                .unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
+            *path.points.last().unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
             path.points[0],
             bgra,
         )?;
@@ -1076,25 +1043,9 @@ fn stroke_row_rect_width(
     }
     let stroke = stroke.min(width).min(height);
     fill_row_rect(y, row, x, rect_y, width, stroke, bgra)?;
-    fill_row_rect(
-        y,
-        row,
-        x,
-        rect_y + height.saturating_sub(stroke),
-        width,
-        stroke,
-        bgra,
-    )?;
+    fill_row_rect(y, row, x, rect_y + height.saturating_sub(stroke), width, stroke, bgra)?;
     fill_row_rect(y, row, x, rect_y, stroke, height, bgra)?;
-    fill_row_rect(
-        y,
-        row,
-        x + width.saturating_sub(stroke),
-        rect_y,
-        stroke,
-        height,
-        bgra,
-    )
+    fill_row_rect(y, row, x + width.saturating_sub(stroke), rect_y, stroke, height, bgra)
 }
 
 fn rgba_to_bgra(color: nexus_layout_types::Rgba8) -> [u8; 4] {
@@ -1112,9 +1063,7 @@ fn blend_overlay_row(row: &mut [u8], x: usize, source: &[u8]) -> Result<(), Wind
         if alpha == 0 {
             continue;
         }
-        let dst = dst_col
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = dst_col.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         if alpha == 255 {
             row[dst..dst + 4].copy_from_slice(pixel);
             continue;

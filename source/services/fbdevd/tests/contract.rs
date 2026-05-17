@@ -370,8 +370,5 @@ fn service_recv_backpressure_is_non_fatal() {
         classify_service_recv_error(ServiceRecvErrorClass::PeerClosed),
         ServiceRecvAction::ReturnOk
     );
-    assert_eq!(
-        classify_service_recv_error(ServiceRecvErrorClass::Fatal),
-        ServiceRecvAction::Fatal
-    );
+    assert_eq!(classify_service_recv_error(ServiceRecvErrorClass::Fatal), ServiceRecvAction::Fatal);
 }

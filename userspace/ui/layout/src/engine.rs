@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::vec::Vec;
 use crate::error::LayoutError;
+use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Rect, VisualStyle,
+    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Rect, VisualStyle,
 };
 
 const DEFAULT_MAX_NODES: usize = 4096;
@@ -14,10 +14,6 @@ const DEFAULT_MAX_DEPTH: usize = 64;
 struct NodeSize {
     width: FxPx,
     height: FxPx,
-}
-
-impl NodeSize {
-    const ZERO: Self = Self { width: FxPx::ZERO, height: FxPx::ZERO };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,12 +88,32 @@ impl LayoutEngine {
         }
         let node_id = *node_count;
         match node {
-            LayoutNode::Stack(stack, style, children) => {
-                self.place_stack(node_id, stack, style, children, x, y, available_width, depth, measure, node_count, boxes)
-            }
-            LayoutNode::Grid(grid, style, children) => {
-                self.place_grid(node_id, grid, style, children, x, y, available_width, depth, measure, node_count, boxes)
-            }
+            LayoutNode::Stack(stack, style, children) => self.place_stack(
+                node_id,
+                stack,
+                style,
+                children,
+                x,
+                y,
+                available_width,
+                depth,
+                measure,
+                node_count,
+                boxes,
+            ),
+            LayoutNode::Grid(grid, style, children) => self.place_grid(
+                node_id,
+                grid,
+                style,
+                children,
+                x,
+                y,
+                available_width,
+                depth,
+                measure,
+                node_count,
+                boxes,
+            ),
             LayoutNode::Spacer(spacer) => {
                 let main = spacer.min_size.unwrap_or(FxPx::ZERO);
                 boxes.push(LayoutBox {
@@ -109,7 +125,9 @@ impl LayoutEngine {
                 });
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
-            LayoutNode::Text(text, style) => self.place_text(node_id, text, style, x, y, available_width, measure, boxes),
+            LayoutNode::Text(text, style) => {
+                self.place_text(node_id, text, style, x, y, available_width, measure, boxes)
+            }
         }
     }
 
@@ -172,7 +190,12 @@ impl LayoutEngine {
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
         let measured = self.measure_stack(stack, children, available_width, depth, measure)?;
-        let width = clamp_width(measured.width, stack.min_width.or(stack.item.min_width), stack.max_width.or(stack.item.max_width)).min(available_width.max(measured.width));
+        let width = clamp_width(
+            measured.width,
+            stack.min_width.or(stack.item.min_width),
+            stack.max_width.or(stack.item.max_width),
+        )
+        .min(available_width.max(measured.width));
         let container_index = boxes.len();
         boxes.push(LayoutBox {
             node_id,
@@ -210,11 +233,8 @@ impl LayoutEngine {
                 boxes,
             )?
         };
-        let height = clamp_height(
-            size.height + padding.vertical(),
-            stack.min_height,
-            stack.max_height,
-        );
+        let height =
+            clamp_height(size.height + padding.vertical(), stack.min_height, stack.max_height);
         boxes[container_index].rect.height = height;
         Ok(NodeSize { width, height })
     }
@@ -270,7 +290,12 @@ impl LayoutEngine {
         if !in_flow.is_empty() {
             used_main += stack.gap * gap_count;
         }
-        let (mut cursor, extra_gap) = justify_offsets(stack.justify, content_width.saturating_sub(used_main), in_flow.len(), stack.gap);
+        let (mut cursor, extra_gap) = justify_offsets(
+            stack.justify,
+            content_width.saturating_sub(used_main),
+            in_flow.len(),
+            stack.gap,
+        );
         cursor += content_x;
         for ((_, child, item, _, _), allocation) in in_flow.iter().zip(allocations.iter()) {
             let child_width = allocation.saturating_sub(item.margin.horizontal());
@@ -278,9 +303,7 @@ impl LayoutEngine {
             let align = item.align_self.unwrap_or(stack.align);
             let child_x = cursor + item.margin.left;
             let cross_space = row_height.saturating_sub(measured.height + item.margin.vertical());
-            let child_y = content_y
-                + item.margin.top
-                + align_offset(align, cross_space);
+            let child_y = content_y + item.margin.top + align_offset(align, cross_space);
             self.place_node(
                 child,
                 child_x,
@@ -344,7 +367,12 @@ impl LayoutEngine {
         }
         let gap_count = in_flow.len().saturating_sub(1) as i32;
         let fixed_with_gap = fixed_main + stack.gap * gap_count;
-        let free_space = FxPx::ZERO.max(self.measure_stack(stack, children, content_width, depth + 1, measure)?.height.saturating_sub(stack.padding.vertical()).saturating_sub(fixed_with_gap));
+        let free_space = FxPx::ZERO.max(
+            self.measure_stack(stack, children, content_width, depth + 1, measure)?
+                .height
+                .saturating_sub(stack.padding.vertical())
+                .saturating_sub(fixed_with_gap),
+        );
         let mut allocations: Vec<FxPx> = Vec::with_capacity(in_flow.len());
         let mut used_main = FxPx::ZERO;
         for (_, item, _, base_main) in &in_flow {
@@ -360,8 +388,12 @@ impl LayoutEngine {
         if !in_flow.is_empty() {
             used_main += stack.gap * gap_count;
         }
-        let (mut cursor, extra_gap) =
-            justify_offsets(stack.justify, FxPx::ZERO.max(free_space.saturating_sub(used_main.saturating_sub(fixed_main))), in_flow.len(), stack.gap);
+        let (mut cursor, extra_gap) = justify_offsets(
+            stack.justify,
+            FxPx::ZERO.max(free_space.saturating_sub(used_main.saturating_sub(fixed_main))),
+            in_flow.len(),
+            stack.gap,
+        );
         cursor += content_y;
         let mut column_height = FxPx::ZERO;
         for ((child, item, measured, _), allocation) in in_flow.iter().zip(allocations.iter()) {
@@ -372,9 +404,7 @@ impl LayoutEngine {
                 measured.width
             };
             let cross_space = content_width.saturating_sub(child_width + item.margin.horizontal());
-            let child_x = content_x
-                + item.margin.left
-                + align_offset(align, cross_space);
+            let child_x = content_x + item.margin.left + align_offset(align, cross_space);
             let child_y = cursor + item.margin.top;
             self.place_node(
                 child,
@@ -465,26 +495,26 @@ impl LayoutEngine {
         while child_idx < children.len() {
             let row_start = child_idx;
             let mut row_height = FxPx::ZERO;
-            for col in 0..n_cols {
+            for col_width in col_widths.iter().take(n_cols) {
                 if child_idx >= children.len() {
                     break;
                 }
                 let child = &children[child_idx];
                 let item = child.item();
-                let child_width = col_widths[col].saturating_sub(item.margin.horizontal());
+                let child_width = col_width.saturating_sub(item.margin.horizontal());
                 let measured = self.measure_node(child, child_width, depth + 1, measure)?;
                 row_height = row_height.max(measured.height + item.margin.vertical());
                 child_idx += 1;
             }
             let mut col_x = x + padding.left;
-            for col in 0..n_cols {
+            for (col, col_width) in col_widths.iter().enumerate().take(n_cols) {
                 let index = row_start + col;
                 if index >= child_idx {
                     break;
                 }
                 let child = &children[index];
                 let item = child.item();
-                let child_width = col_widths[col].saturating_sub(item.margin.horizontal());
+                let child_width = col_width.saturating_sub(item.margin.horizontal());
                 self.place_node(
                     child,
                     col_x + item.margin.left,
@@ -495,12 +525,13 @@ impl LayoutEngine {
                     node_count,
                     boxes,
                 )?;
-                col_x += col_widths[col] + grid.gap;
+                col_x += *col_width + grid.gap;
             }
             total_height += row_height;
             row_y += row_height + row_gap;
         }
-        let height = clamp_height(total_height + padding.vertical(), grid.min_height, grid.max_height);
+        let height =
+            clamp_height(total_height + padding.vertical(), grid.min_height, grid.max_height);
         boxes[container_index].rect.height = height;
         Ok(NodeSize { width, height })
     }
@@ -516,8 +547,12 @@ impl LayoutEngine {
             return Err(LayoutError::TooDeep { max: self.max_depth, actual: depth });
         }
         match node {
-            LayoutNode::Stack(stack, _, children) => self.measure_stack(stack, children, available_width, depth, measure),
-            LayoutNode::Grid(grid, _, children) => self.measure_grid(grid, children, available_width, depth, measure),
+            LayoutNode::Stack(stack, _, children) => {
+                self.measure_stack(stack, children, available_width, depth, measure)
+            }
+            LayoutNode::Grid(grid, _, children) => {
+                self.measure_grid(grid, children, available_width, depth, measure)
+            }
             LayoutNode::Spacer(spacer) => {
                 let main = spacer.min_size.unwrap_or(FxPx::ZERO);
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
@@ -547,7 +582,8 @@ impl LayoutEngine {
             text.max_width.or(text.item.max_width),
         )
         .min(width_limit.max(target_width));
-        let height = lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1));
+        let height =
+            lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1));
         Ok(NodeSize { width, height })
     }
 
@@ -598,7 +634,12 @@ impl LayoutEngine {
             main + stack.padding.vertical()
         };
         Ok(NodeSize {
-            width: clamp_width(preferred_width, stack.min_width.or(stack.item.min_width), stack.max_width.or(stack.item.max_width)).min(width_limit.max(preferred_width)),
+            width: clamp_width(
+                preferred_width,
+                stack.min_width.or(stack.item.min_width),
+                stack.max_width.or(stack.item.max_width),
+            )
+            .min(width_limit.max(preferred_width)),
             height: clamp_height(preferred_height, stack.min_height, stack.max_height),
         })
     }
@@ -634,13 +675,13 @@ impl LayoutEngine {
         let mut child_idx = 0usize;
         while child_idx < children.len() {
             let mut row_height = FxPx::ZERO;
-            for col in 0..n_cols {
+            for col_width in col_widths.iter().take(n_cols) {
                 if child_idx >= children.len() {
                     break;
                 }
                 let child = &children[child_idx];
                 let item = child.item();
-                let width = col_widths[col].saturating_sub(item.margin.horizontal());
+                let width = col_width.saturating_sub(item.margin.horizontal());
                 let measured = self.measure_node(child, width, depth + 1, measure)?;
                 row_height = row_height.max(measured.height + item.margin.vertical());
                 child_idx += 1;
@@ -652,7 +693,11 @@ impl LayoutEngine {
         }
         Ok(NodeSize {
             width,
-            height: clamp_height(total_height + grid.padding.vertical(), grid.min_height, grid.max_height),
+            height: clamp_height(
+                total_height + grid.padding.vertical(),
+                grid.min_height,
+                grid.max_height,
+            ),
         })
     }
 }
@@ -685,7 +730,12 @@ fn clamp_height(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
     out
 }
 
-fn justify_offsets(justify: Justify, free_space: FxPx, count: usize, base_gap: FxPx) -> (FxPx, FxPx) {
+fn justify_offsets(
+    justify: Justify,
+    free_space: FxPx,
+    count: usize,
+    base_gap: FxPx,
+) -> (FxPx, FxPx) {
     if count <= 1 {
         return match justify {
             Justify::Center => (free_space / 2, FxPx::ZERO),

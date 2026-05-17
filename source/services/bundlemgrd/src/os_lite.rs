@@ -103,13 +103,13 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
         Ok(server) => server,
         Err(err) => {
             emit_line(match err {
-                nexus_ipc::IpcError::Timeout => "bundlemgrd: route err timeout",
-                nexus_ipc::IpcError::NoSpace => "bundlemgrd: route err nospace",
-                nexus_ipc::IpcError::WouldBlock => "bundlemgrd: route err wouldblock",
-                nexus_ipc::IpcError::Disconnected => "bundlemgrd: route err disconnected",
-                nexus_ipc::IpcError::Unsupported => "bundlemgrd: route err unsupported",
-                nexus_ipc::IpcError::Kernel(_) => "bundlemgrd: route err kernel",
-                _ => "bundlemgrd: route err other",
+                nexus_ipc::IpcError::Timeout => "bundlemgrd: route probe miss",
+                nexus_ipc::IpcError::NoSpace => "bundlemgrd: route probe nospace",
+                nexus_ipc::IpcError::WouldBlock => "bundlemgrd: route probe wouldblock",
+                nexus_ipc::IpcError::Disconnected => "bundlemgrd: route probe disconnected",
+                nexus_ipc::IpcError::Unsupported => "bundlemgrd: route probe unsupported",
+                nexus_ipc::IpcError::Kernel(_) => "bundlemgrd: route probe kernel",
+                _ => "bundlemgrd: route probe other",
             });
             emit_line("bundlemgrd: route fallback");
             KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?

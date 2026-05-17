@@ -53,7 +53,9 @@ pub enum ServiceRecvAction {
 
 pub const fn classify_service_recv_error(class: ServiceRecvErrorClass) -> ServiceRecvAction {
     match class {
-        ServiceRecvErrorClass::Idle | ServiceRecvErrorClass::PeerClosed => ServiceRecvAction::ReturnOk,
+        ServiceRecvErrorClass::Idle | ServiceRecvErrorClass::PeerClosed => {
+            ServiceRecvAction::ReturnOk
+        }
         ServiceRecvErrorClass::Backpressure => ServiceRecvAction::ReturnOkWithBackpressureLog,
         ServiceRecvErrorClass::Fatal => ServiceRecvAction::Fatal,
     }

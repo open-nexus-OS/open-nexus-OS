@@ -6,8 +6,6 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use input_live_protocol::VisibleState;
     use nexus_layout::LayoutEngine;
     use nexus_layout_types::{
@@ -125,17 +123,13 @@ mod tests {
                 if stack.id == Some(id) {
                     return Some(style);
                 }
-                children
-                    .iter()
-                    .find_map(|child| find_visual_style(child, id))
+                children.iter().find_map(|child| find_visual_style(child, id))
             }
             LayoutNode::Grid(grid, style, children) => {
                 if grid.id == Some(id) {
                     return Some(style);
                 }
-                children
-                    .iter()
-                    .find_map(|child| find_visual_style(child, id))
+                children.iter().find_map(|child| find_visual_style(child, id))
             }
             LayoutNode::Text(text, style) => (text.id == Some(id)).then_some(style),
             LayoutNode::Spacer(_) => None,
@@ -234,12 +228,7 @@ mod tests {
     #[test]
     fn golden_visual_style() {
         let vs = VisualStyle {
-            background: Some(nexus_layout_types::Rgba8 {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            }),
+            background: Some(nexus_layout_types::Rgba8 { r: 255, g: 0, b: 0, a: 255 }),
             ..Default::default()
         };
         let node = LayoutNode::Text(
@@ -254,17 +243,11 @@ mod tests {
             },
             vs,
         );
-        let r = LayoutEngine::new()
-            .layout(&node, px(100), &MockMeasure { char_width: px(0) })
-            .unwrap();
+        let r =
+            LayoutEngine::new().layout(&node, px(100), &MockMeasure { char_width: px(0) }).unwrap();
         assert_eq!(
             r.boxes[0].visual.background,
-            Some(nexus_layout_types::Rgba8 {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255
-            })
+            Some(nexus_layout_types::Rgba8 { r: 255, g: 0, b: 0, a: 255 })
         );
     }
 
@@ -287,28 +270,13 @@ mod tests {
         assert!(json.contains("\"id\": \"proof_panel\""));
         assert!(json.contains("\"id\": \"card_hover\""));
         assert!(json.contains("\"id\": \"icon_target\""));
-        let panel = golden
-            .iter()
-            .find(|entry| entry.id == Some("proof_panel"))
-            .unwrap();
+        let panel = golden.iter().find(|entry| entry.id == Some("proof_panel")).unwrap();
         assert_eq!(panel.width, 610);
         assert_eq!(panel.height, 260);
-        let hover = golden
-            .iter()
-            .find(|entry| entry.id == Some("card_hover"))
-            .unwrap();
-        let click = golden
-            .iter()
-            .find(|entry| entry.id == Some("card_click"))
-            .unwrap();
-        let scroll = golden
-            .iter()
-            .find(|entry| entry.id == Some("card_scroll"))
-            .unwrap();
-        let key = golden
-            .iter()
-            .find(|entry| entry.id == Some("card_key"))
-            .unwrap();
+        let hover = golden.iter().find(|entry| entry.id == Some("card_hover")).unwrap();
+        let click = golden.iter().find(|entry| entry.id == Some("card_click")).unwrap();
+        let scroll = golden.iter().find(|entry| entry.id == Some("card_scroll")).unwrap();
+        let key = golden.iter().find(|entry| entry.id == Some("card_key")).unwrap();
         assert_eq!(hover.width, 126);
         assert_eq!(hover.height, 82);
         assert_eq!(click.x - hover.x, 142);
@@ -414,18 +382,15 @@ mod tests {
 
     #[test]
     fn wrapping_cache_reuses_prepared_paragraphs() {
-        let font_dir =
-            PathBuf::from("/home/jenning/open-nexus-OS/resources/fonts/inter/docs/font-files");
-        let measure = CachedTextMeasure::with_font_dir(&font_dir).expect("shape measure");
+        let measure = CachedTextMeasure::new();
         let style = text_style();
-        let handle = measure.prepare(
-            &TextContent::new("Hover, click, scroll up/down, keyboard press"),
-            &style,
-        );
+        let handle = measure
+            .prepare(&TextContent::new("Hover, click, scroll up/down, keyboard press"), &style);
         let narrow = measure.layout_lines(&handle, px(120), Some(3));
         let wide = measure.layout_lines(&handle, px(240), Some(3));
         assert!(measure.paragraph_cache_len() >= 1);
         assert!(measure.line_layout_cache_len() >= 2);
-        assert!(narrow.natural_width.0 >= wide.lines[0].width.0);
+        assert!(narrow.lines.len() >= wide.lines.len());
+        assert!(wide.lines.first().is_some_and(|line| line.width.0 >= narrow.lines[0].width.0));
     }
 }

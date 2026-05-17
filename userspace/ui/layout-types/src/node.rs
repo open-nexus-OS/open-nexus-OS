@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use crate::border::VisualStyle;
 use crate::direction::{Align, Direction, Justify, Overflow, Position, ZIndex};
 use crate::text::TextStyle;
 use crate::types::{EdgeInsets, FxPx};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Fraction(pub u32);
@@ -14,20 +14,32 @@ pub struct Fraction(pub u32);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stack {
     pub id: Option<&'static str>,
-    pub direction: Direction, pub gap: FxPx, pub padding: EdgeInsets,
-    pub align: Align, pub justify: Justify, pub overflow: Overflow,
-    pub flex_wrap: bool, pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
-    pub min_height: Option<FxPx>, pub max_height: Option<FxPx>,
+    pub direction: Direction,
+    pub gap: FxPx,
+    pub padding: EdgeInsets,
+    pub align: Align,
+    pub justify: Justify,
+    pub overflow: Overflow,
+    pub flex_wrap: bool,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
+    pub min_height: Option<FxPx>,
+    pub max_height: Option<FxPx>,
     pub item: FlexItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grid {
     pub id: Option<&'static str>,
-    pub columns: Vec<Fraction>, pub gap: FxPx, pub row_gap: Option<FxPx>,
-    pub padding: EdgeInsets, pub overflow: Overflow,
-    pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
-    pub min_height: Option<FxPx>, pub max_height: Option<FxPx>,
+    pub columns: Vec<Fraction>,
+    pub gap: FxPx,
+    pub row_gap: Option<FxPx>,
+    pub padding: EdgeInsets,
+    pub overflow: Overflow,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
+    pub min_height: Option<FxPx>,
+    pub max_height: Option<FxPx>,
     pub item: FlexItem,
 }
 
@@ -41,16 +53,25 @@ pub struct Spacer {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlexItem {
-    pub flex_grow: u32, pub flex_shrink: u32, pub align_self: Option<Align>,
-    pub margin: EdgeInsets, pub position: Position, pub z_index: ZIndex,
-    pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
+    pub flex_grow: u32,
+    pub flex_shrink: u32,
+    pub align_self: Option<Align>,
+    pub margin: EdgeInsets,
+    pub position: Position,
+    pub z_index: ZIndex,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextContent(pub String);
 impl TextContent {
-    pub fn new(s: impl Into<String>) -> Self { TextContent(s.into()) }
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn new(s: impl Into<String>) -> Self {
+        TextContent(s.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +81,8 @@ pub struct TextNode {
     pub style: TextStyle,
     pub item: FlexItem,
     pub max_lines: Option<u32>,
-    pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
 }
 
 /// The layout tree with VisualStyle on containers and text nodes.
@@ -140,12 +162,7 @@ impl Default for Grid {
 
 impl Default for Spacer {
     fn default() -> Self {
-        Self {
-            id: None,
-            flex_grow: 1,
-            min_size: None,
-            item: FlexItem::default(),
-        }
+        Self { id: None, flex_grow: 1, min_size: None, item: FlexItem::default() }
     }
 }
 

@@ -5,9 +5,9 @@
 //! Excluded: SHY (soft hyphen), CM (combining mark), SA (complex scripts).
 //! Fallback: grapheme cluster boundary or hard break at nearest opportunity.
 
+use nexus_layout_types::{FxPx, LineLayout, LineMetrics};
 use std::string::String;
 use std::vec::Vec;
-use nexus_layout_types::{FxPx, LineLayout, LineMetrics};
 
 /// A line break opportunity in the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,18 +32,13 @@ pub fn break_lines(
     let mut lines: Vec<LineMetrics> = Vec::new();
     let mut line_start: usize = 0;
     let mut last_break: usize = 0;
-    let mut cursor: usize = 0;
     let mut line_chars: usize = 0;
-    let max_chars_per_line = if char_advance.0 > 0 {
-        (width.0 / char_advance.0).max(1) as usize
-    } else {
-        text.len()
-    };
+    let max_chars_per_line =
+        if char_advance.0 > 0 { (width.0 / char_advance.0).max(1) as usize } else { text.len() };
     let max = max_lines.unwrap_or(u32::MAX) as usize;
     let chars: Vec<char> = text.chars().collect();
 
     for (i, &ch) in chars.iter().enumerate() {
-        cursor = i;
         line_chars += 1;
 
         // Check for break opportunity at this position
@@ -157,7 +152,9 @@ fn is_cjk(ch: char) -> bool {
 mod tests {
     use super::*;
 
-    fn px(v: i32) -> FxPx { FxPx::new(v) }
+    fn px(v: i32) -> FxPx {
+        FxPx::new(v)
+    }
 
     #[test]
     fn no_wrap_short_text() {

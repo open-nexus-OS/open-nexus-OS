@@ -27,14 +27,16 @@
 //!
 //! ADR: docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md
 
-mod context;
 pub mod cache;
+mod context;
 mod error;
 mod types;
 mod variation;
 mod wrap;
 
-pub use cache::{CachedTextMeasure, LineLayoutCache, ParagraphCache, ParagraphKey, PreparedParagraph};
+pub use cache::{
+    CachedTextMeasure, LineLayoutCache, ParagraphCache, ParagraphKey, PreparedParagraph,
+};
 pub use context::ShapeContext;
 pub use error::{ShapeError, ShapeResult};
 pub use types::{

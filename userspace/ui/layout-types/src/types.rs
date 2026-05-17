@@ -102,7 +102,9 @@ impl Div<i32> for FxPx {
 }
 
 impl Default for FxPx {
-    fn default() -> Self { FxPx::ZERO }
+    fn default() -> Self {
+        FxPx::ZERO
+    }
 }
 
 impl fmt::Display for FxPx {

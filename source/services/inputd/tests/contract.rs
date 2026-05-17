@@ -282,8 +282,16 @@ fn mouse_relative_raw_ingress_wire_pipeline_reaches_windowd_authority() {
         &RawIngressBatch::new(
             IngressRole::RelativePointer,
             vec![
-                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::X.event_code(), 2),
-                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::Y.event_code(), 1),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::X.event_code(),
+                    2,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::Y.event_code(),
+                    1,
+                ),
                 RawIngressEvent::new(RawIngressEventKind::Key, 0x110, 1),
             ],
         ),
@@ -432,8 +440,16 @@ fn tablet_absolute_raw_ingress_wire_pipeline_reaches_windowd_authority() {
             IngressRole::AbsolutePointer,
             Some(PointerSource::TabletAbsolute),
             vec![
-                RawIngressEvent::new(RawIngressEventKind::Absolute, AbsoluteAxis::X.event_code(), 20),
-                RawIngressEvent::new(RawIngressEventKind::Absolute, AbsoluteAxis::Y.event_code(), 10),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Absolute,
+                    AbsoluteAxis::X.event_code(),
+                    20,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Absolute,
+                    AbsoluteAxis::Y.event_code(),
+                    10,
+                ),
             ],
         ),
         91,
@@ -504,8 +520,16 @@ fn tablet_absolute_raw_ingress_pipeline_blocks_following_relative_mouse_batches(
         &RawIngressBatch::new(
             IngressRole::RelativePointer,
             vec![
-                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::X.event_code(), 40),
-                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::Y.event_code(), -20),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::X.event_code(),
+                    40,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::Y.event_code(),
+                    -20,
+                ),
             ],
         ),
         93,

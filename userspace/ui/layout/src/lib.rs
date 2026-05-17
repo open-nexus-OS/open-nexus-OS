@@ -8,9 +8,9 @@
 extern crate alloc;
 
 pub mod engine;
-pub mod error;
 #[cfg(test)]
 mod engine_tests;
+pub mod error;
 
 pub use engine::{LayoutBox, LayoutEngine, LayoutResult};
 pub use error::LayoutError;

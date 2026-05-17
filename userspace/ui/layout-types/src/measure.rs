@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::vec::Vec;
 use crate::node::TextContent;
 use crate::text::TextStyle;
 use crate::types::FxPx;
+use alloc::vec::Vec;
 use core::ops::Range;
 
 // ─── Prepared text handle ───

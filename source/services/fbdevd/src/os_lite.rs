@@ -22,7 +22,9 @@ use nexus_ipc::{Client as _, IpcError, KernelClient, KernelServer, Server as _, 
 
 use crate::backend::framebuffer::FramebufferOwner;
 use crate::backend::ramfb::{configure_ramfb, display_bootstrap_requested};
-use crate::error::{classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass};
+use crate::error::{
+    classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass,
+};
 use crate::markers::{FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER};
 use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};

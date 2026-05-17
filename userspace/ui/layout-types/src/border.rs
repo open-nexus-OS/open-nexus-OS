@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use alloc::vec::Vec;
 use crate::color::Rgba8;
 use crate::types::FxPx;
+use alloc::vec::Vec;
 
 /// A border edge: width in layout pixels and color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +51,12 @@ impl CornerRadius {
     }
 
     pub const fn top(v: FxPx) -> Self {
-        CornerRadius { top_left: v, top_right: v, bottom_right: FxPx::ZERO, bottom_left: FxPx::ZERO }
+        CornerRadius {
+            top_left: v,
+            top_right: v,
+            bottom_right: FxPx::ZERO,
+            bottom_left: FxPx::ZERO,
+        }
     }
 
     pub const fn none() -> Self {

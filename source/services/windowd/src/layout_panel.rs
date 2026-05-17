@@ -12,15 +12,17 @@ use nexus_layout_types::{
 use crate::assets;
 use crate::proof_panel_spec::{
     BODY_TEXT, CARD_GAP, CARD_HEIGHT, CARD_ICON_SIZE, CARD_PADDING, CARD_WIDTH, CLICK_LABEL,
-    ICON_TARGET_SIZE, KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH, SCROLL_LABEL,
-    SUBTITLE_TEXT, TITLE_TEXT, HOVER_LABEL,
+    HOVER_LABEL, ICON_TARGET_SIZE, KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH,
+    SCROLL_LABEL, SUBTITLE_TEXT, TITLE_TEXT,
 };
 
 pub struct ProofTextMeasure;
 
 impl MeasureText for ProofTextMeasure {
     fn prepare(&self, content: &TextContent, style: &TextStyle) -> PreparedTextHandle {
-        PreparedTextHandle(text_asset_id(content.as_str(), style).map(text_asset_index).unwrap_or(usize::MAX))
+        PreparedTextHandle(
+            text_asset_id(content.as_str(), style).map(text_asset_index).unwrap_or(usize::MAX),
+        )
     }
 
     fn measure_width(&self, handle: &PreparedTextHandle) -> FxPx {
@@ -36,8 +38,9 @@ impl MeasureText for ProofTextMeasure {
         max_lines: Option<u32>,
     ) -> LineLayout {
         let natural_width = self.measure_width(handle);
-        let line_height =
-            proof_text_asset_by_index(handle.0).map(|asset| FxPx::new(asset.height as i32)).unwrap_or(FxPx::new(20));
+        let line_height = proof_text_asset_by_index(handle.0)
+            .map(|asset| FxPx::new(asset.height as i32))
+            .unwrap_or(FxPx::new(20));
         let line = LineMetrics {
             text_range: 0..1,
             width: natural_width.min(width.max(FxPx::ONE)),
@@ -159,8 +162,20 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
         VisualStyle::default(),
         vec![
             card_node("card_hover", state.hover_visible, assets::PROOF_HOVER, HOVER_LABEL, false),
-            card_node("card_click", state.launcher_click_visible, assets::PROOF_CLICK, CLICK_LABEL, false),
-            card_node("card_scroll", state.wheel_up_visible || state.wheel_down_visible, assets::PROOF_SCROLL, SCROLL_LABEL, true),
+            card_node(
+                "card_click",
+                state.launcher_click_visible,
+                assets::PROOF_CLICK,
+                CLICK_LABEL,
+                false,
+            ),
+            card_node(
+                "card_scroll",
+                state.wheel_up_visible || state.wheel_down_visible,
+                assets::PROOF_SCROLL,
+                SCROLL_LABEL,
+                true,
+            ),
             card_node("card_key", state.keyboard_visible, assets::PROOF_KEYBOARD, KEY_LABEL, false),
         ],
     );
@@ -241,13 +256,7 @@ fn card_node(
     let background = if active { assets::PROOF_CARD_ACTIVE_BG } else { assets::PROOF_CARD_BG };
     let border = if active { accent } else { assets::PROOF_CARD_BORDER };
     let mut top_row_children = vec![
-        shape_node(
-            card_part_id(id, "icon"),
-            CARD_ICON_SIZE,
-            accent,
-            Some(border),
-            ShapeKind::Rect,
-        ),
+        shape_node(card_part_id(id, "icon"), CARD_ICON_SIZE, accent, Some(border), ShapeKind::Rect),
         LayoutNode::Spacer(nexus_layout_types::Spacer {
             id: Some(card_part_id(id, "icon_spacer")),
             flex_grow: 1,
@@ -284,13 +293,7 @@ fn card_node(
             },
             VisualStyle::default(),
             vec![
-                shape_node(
-                    card_part_id(id, "scroll_up"),
-                    12,
-                    accent,
-                    None,
-                    ShapeKind::TriangleUp,
-                ),
+                shape_node(card_part_id(id, "scroll_up"), 12, accent, None, ShapeKind::TriangleUp),
                 shape_node(
                     card_part_id(id, "scroll_down"),
                     12,
@@ -409,11 +412,7 @@ fn path_node(id: &'static str, size: i32, color: Rgba8, path: PathShape) -> Layo
             max_height: Some(FxPx::new(size)),
             item: FlexItem::default(),
         },
-        VisualStyle {
-            background: Some(color),
-            shape: ShapeKind::Path(path),
-            ..Default::default()
-        },
+        VisualStyle { background: Some(color), shape: ShapeKind::Path(path), ..Default::default() },
         vec![],
     )
 }

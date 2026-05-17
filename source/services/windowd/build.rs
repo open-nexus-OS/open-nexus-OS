@@ -9,6 +9,7 @@ use std::path::Path;
 use nexus_theme::{ColorValue, Qualifier, ThemeRuntime};
 
 mod proof_panel_spec {
+    #![allow(dead_code)]
     include!("src/proof_panel_spec.rs");
 }
 
@@ -50,24 +51,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &theme_runtime,
         TOKEN_PANEL_BORDER,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_TITLE_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_TITLE,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_PANEL_TITLE_RGBA", &theme_runtime, TOKEN_PANEL_TITLE)?;
     emit_theme_color(
         &mut generated,
         "PROOF_PANEL_SUBTITLE_RGBA",
         &theme_runtime,
         TOKEN_PANEL_SUBTITLE,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_MUTED_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_MUTED,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_PANEL_MUTED_RGBA", &theme_runtime, TOKEN_PANEL_MUTED)?;
     emit_theme_color(&mut generated, "PROOF_CARD_BG_RGBA", &theme_runtime, TOKEN_CARD_BG)?;
     emit_theme_color(
         &mut generated,
@@ -75,29 +66,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &theme_runtime,
         TOKEN_CARD_ACTIVE_BG,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_BORDER_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_BORDER,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_LABEL_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_LABEL,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_CARD_BORDER_RGBA", &theme_runtime, TOKEN_CARD_BORDER)?;
+    emit_theme_color(&mut generated, "PROOF_CARD_LABEL_RGBA", &theme_runtime, TOKEN_CARD_LABEL)?;
     emit_theme_color(&mut generated, "PROOF_ICON_BG_RGBA", &theme_runtime, TOKEN_ICON_BG)?;
     emit_theme_color(&mut generated, "PROOF_ICON_FG_RGBA", &theme_runtime, TOKEN_ICON_FG)?;
     emit_theme_color(&mut generated, "PROOF_HOVER_RGBA", &theme_runtime, TOKEN_HOVER)?;
     emit_theme_color(&mut generated, "PROOF_CLICK_RGBA", &theme_runtime, TOKEN_CLICK)?;
     emit_theme_color(&mut generated, "PROOF_SCROLL_RGBA", &theme_runtime, TOKEN_SCROLL)?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_KEYBOARD_RGBA",
-        &theme_runtime,
-        TOKEN_KEYBOARD,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_KEYBOARD_RGBA", &theme_runtime, TOKEN_KEYBOARD)?;
 
     for spec in ALL_TEXT_SPECS {
         let rendered = render_text_asset(

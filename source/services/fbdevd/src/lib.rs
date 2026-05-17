@@ -29,7 +29,9 @@ pub use backend::ramfb::{
     dma_transfer_complete, encode_ramfb_config, encode_ramfb_dma_request, require_fw_cfg_signature,
     validate_dma_capability, validate_ramfb_file, DmaCapabilityInfo, RamfbFileInfo,
 };
-pub use error::{classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass};
+pub use error::{
+    classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass,
+};
 pub use markers::{
     vsync_marker, FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER,
 };

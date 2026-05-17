@@ -6,7 +6,11 @@ use crate::types::FxPx;
 
 /// Horizontal text alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TextAlign { Left, Center, Right }
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
 
 /// Line height: relative (multiplier on font size) or absolute pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

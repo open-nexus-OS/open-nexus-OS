@@ -26,9 +26,9 @@ use virtio_input::{
 };
 
 use crate::{
-    classify_live_route_send_error, resolve_absolute_axis_max, normalize_ingress_batch, DeviceId,
-    HidrawdService, IngressGateEvidence, IngressRole, LiveRouteSendAction,
-    LiveRouteSendErrorClass, PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    classify_live_route_send_error, normalize_ingress_batch, resolve_absolute_axis_max, DeviceId,
+    HidrawdService, IngressGateEvidence, IngressRole, LiveRouteSendAction, LiveRouteSendErrorClass,
+    PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
 };
 
 const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];

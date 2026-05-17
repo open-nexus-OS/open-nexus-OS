@@ -8,7 +8,6 @@
 //! Layout type system for TASK-0058 / RFC-0057.
 //! `no_std` + `alloc`. Consumers use layout types without pulling in algorithms.
 
-#[macro_use]
 extern crate alloc;
 
 pub mod border;

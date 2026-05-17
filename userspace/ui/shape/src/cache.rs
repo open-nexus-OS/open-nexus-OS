@@ -5,19 +5,18 @@
 //! - ParagraphCache: keyed by text+style, width-independent.
 //! - LineLayoutCache: keyed by paragraph_key+width_bucket, width-dependent.
 
+use crate::wrap;
+use crate::{ShapeContext, ShapeResult};
+use nexus_layout_types::{
+    FxPx, LineLayout, MeasureText, PreparedTextHandle, TextContent, TextStyle, WhiteSpace,
+};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
-use nexus_layout_types::{
-    FontWeight, FxPx, LineLayout, MeasureText, PreparedTextHandle, TextContent, TextStyle,
-    WhiteSpace,
-};
 use std::vec::Vec;
-use crate::wrap;
-use crate::{ShapeContext, ShapeResult};
 
 /// Maximum number of cached paragraphs.
 const MAX_PARAGRAPH_ENTRIES: usize = 256;
@@ -64,12 +63,8 @@ impl ParagraphCache {
         if let Some(entry) = self.entries.get(&key) {
             return entry.clone();
         }
-        let para = PreparedParagraph {
-            text: text.to_string(),
-            char_advance,
-            line_height,
-            natural_width,
-        };
+        let para =
+            PreparedParagraph { text: text.to_string(), char_advance, line_height, natural_width };
         self.entries.insert(key, para.clone());
         // LRU-like: evict oldest if over budget
         if self.entries.len() > MAX_PARAGRAPH_ENTRIES {
@@ -81,7 +76,19 @@ impl ParagraphCache {
         para
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+impl Default for ParagraphCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Width-dependent line layout cache.
@@ -105,7 +112,8 @@ impl LineLayoutCache {
         if let Some(layout) = self.entries.get(&key) {
             return layout.clone();
         }
-        let layout = wrap::break_lines(&para.text, width, para.char_advance, para.line_height, max_lines);
+        let layout =
+            wrap::break_lines(&para.text, width, para.char_advance, para.line_height, max_lines);
         self.entries.insert(key, layout.clone());
         if self.entries.len() > MAX_LINE_ENTRIES {
             if let Some(first_key) = self.entries.keys().next().cloned() {
@@ -115,7 +123,19 @@ impl LineLayoutCache {
         layout
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+impl Default for LineLayoutCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct CachedTextMeasure {

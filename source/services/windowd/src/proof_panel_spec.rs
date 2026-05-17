@@ -93,12 +93,5 @@ pub const KEY_LABEL: ProofTextSpec = ProofTextSpec {
     color_token: TOKEN_CARD_LABEL,
 };
 
-pub const ALL_TEXT_SPECS: &[ProofTextSpec] = &[
-    TITLE_TEXT,
-    SUBTITLE_TEXT,
-    BODY_TEXT,
-    HOVER_LABEL,
-    CLICK_LABEL,
-    SCROLL_LABEL,
-    KEY_LABEL,
-];
+pub const ALL_TEXT_SPECS: &[ProofTextSpec] =
+    &[TITLE_TEXT, SUBTITLE_TEXT, BODY_TEXT, HOVER_LABEL, CLICK_LABEL, SCROLL_LABEL, KEY_LABEL];

@@ -30,9 +30,7 @@ pub enum LiveRouteSendAction {
     ResetRoute,
 }
 
-pub const fn classify_live_route_send_error(
-    class: LiveRouteSendErrorClass,
-) -> LiveRouteSendAction {
+pub const fn classify_live_route_send_error(class: LiveRouteSendErrorClass) -> LiveRouteSendAction {
     match class {
         LiveRouteSendErrorClass::Backpressure => LiveRouteSendAction::DropBatch,
         LiveRouteSendErrorClass::Disconnected | LiveRouteSendErrorClass::Fatal => {
@@ -171,4 +169,3 @@ impl HidrawdService {
         self.recent_batches.push(batch);
     }
 }
-

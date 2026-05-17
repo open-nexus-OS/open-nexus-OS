@@ -7,15 +7,9 @@ use core::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutError {
     /// The layout tree exceeds the maximum allowed node count.
-    TooManyNodes {
-        max: usize,
-        actual: usize,
-    },
+    TooManyNodes { max: usize, actual: usize },
     /// The layout tree exceeds the maximum nesting depth.
-    TooDeep {
-        max: usize,
-        actual: usize,
-    },
+    TooDeep { max: usize, actual: usize },
     /// Text measurement failed.
     MeasureFailed,
     /// Division by zero in layout math (e.g. flex fraction with zero total weight).

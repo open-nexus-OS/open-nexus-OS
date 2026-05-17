@@ -123,13 +123,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         Ok(server) => server,
         Err(err) => {
             emit_line(match err {
-                nexus_ipc::IpcError::Timeout => "samgrd: route err timeout",
-                nexus_ipc::IpcError::NoSpace => "samgrd: route err nospace",
-                nexus_ipc::IpcError::WouldBlock => "samgrd: route err wouldblock",
-                nexus_ipc::IpcError::Disconnected => "samgrd: route err disconnected",
-                nexus_ipc::IpcError::Unsupported => "samgrd: route err unsupported",
-                nexus_ipc::IpcError::Kernel(_) => "samgrd: route err kernel",
-                _ => "samgrd: route err other",
+                nexus_ipc::IpcError::Timeout => "samgrd: route probe miss",
+                nexus_ipc::IpcError::NoSpace => "samgrd: route probe nospace",
+                nexus_ipc::IpcError::WouldBlock => "samgrd: route probe wouldblock",
+                nexus_ipc::IpcError::Disconnected => "samgrd: route probe disconnected",
+                nexus_ipc::IpcError::Unsupported => "samgrd: route probe unsupported",
+                nexus_ipc::IpcError::Kernel(_) => "samgrd: route probe kernel",
+                _ => "samgrd: route probe other",
             });
             emit_line("samgrd: route fallback");
             KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?
