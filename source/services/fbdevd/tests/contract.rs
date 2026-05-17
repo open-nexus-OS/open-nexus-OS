@@ -25,10 +25,11 @@
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use fbdevd::{
-    dma_transfer_complete, encode_ramfb_config, encode_ramfb_dma_request, live_dirty_rows,
-    require_fw_cfg_signature, validate_dma_capability, validate_framebuffer_cap,
-    validate_ramfb_file, DirtyRows, DisplayReactor, DisplayScanout, FbdevService, FbdevdError,
-    TickBudget, FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER,
+    classify_service_recv_error, dma_transfer_complete, encode_ramfb_config,
+    encode_ramfb_dma_request, live_dirty_rows, require_fw_cfg_signature, validate_dma_capability,
+    validate_framebuffer_cap, validate_ramfb_file, DirtyRows, DisplayReactor, DisplayScanout,
+    FbdevService, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass, TickBudget,
+    FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER,
 };
 use input_live_protocol::VisibleState;
 use pointer_state::{PointerPosition, PointerSpace, PointerTransform};
@@ -353,4 +354,24 @@ fn ramfb_config_and_markers_match_service_owned_contract() {
     assert_eq!(FLUSH_OK_MARKER, "fbdevd: flush ok");
     assert_eq!(FbdevdError::DmaMapPage.label(), "fbdevd: fail dma-map-page");
     assert_eq!(FbdevdError::DmaTimeout.label(), "fbdevd: fail dma-timeout");
+}
+
+#[test]
+fn service_recv_backpressure_is_non_fatal() {
+    assert_eq!(
+        classify_service_recv_error(ServiceRecvErrorClass::Backpressure),
+        ServiceRecvAction::ReturnOkWithBackpressureLog
+    );
+    assert_eq!(
+        classify_service_recv_error(ServiceRecvErrorClass::Idle),
+        ServiceRecvAction::ReturnOk
+    );
+    assert_eq!(
+        classify_service_recv_error(ServiceRecvErrorClass::PeerClosed),
+        ServiceRecvAction::ReturnOk
+    );
+    assert_eq!(
+        classify_service_recv_error(ServiceRecvErrorClass::Fatal),
+        ServiceRecvAction::Fatal
+    );
 }

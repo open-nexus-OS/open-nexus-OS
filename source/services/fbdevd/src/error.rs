@@ -36,6 +36,29 @@ pub enum FbdevdError {
 
 pub type Result<T> = core::result::Result<T, FbdevdError>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceRecvErrorClass {
+    Idle,
+    PeerClosed,
+    Backpressure,
+    Fatal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceRecvAction {
+    ReturnOk,
+    ReturnOkWithBackpressureLog,
+    Fatal,
+}
+
+pub const fn classify_service_recv_error(class: ServiceRecvErrorClass) -> ServiceRecvAction {
+    match class {
+        ServiceRecvErrorClass::Idle | ServiceRecvErrorClass::PeerClosed => ServiceRecvAction::ReturnOk,
+        ServiceRecvErrorClass::Backpressure => ServiceRecvAction::ReturnOkWithBackpressureLog,
+        ServiceRecvErrorClass::Fatal => ServiceRecvAction::Fatal,
+    }
+}
+
 impl FbdevdError {
     pub const fn label(self) -> &'static str {
         match self {

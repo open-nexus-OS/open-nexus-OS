@@ -26,9 +26,9 @@ use virtio_input::{
 };
 
 use crate::{
-    normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidrawdService,
-    IngressGateEvidence, IngressRole, PointerSource, RawIngressBatch, RawIngressEvent,
-    RawIngressEventKind,
+    classify_live_route_send_error, resolve_absolute_axis_max, normalize_ingress_batch, DeviceId,
+    HidrawdService, IngressGateEvidence, IngressRole, LiveRouteSendAction,
+    LiveRouteSendErrorClass, PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
 };
 
 const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
@@ -45,6 +45,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut ready_emitted = false;
     let mut raw_gate_emitted = false;
     let mut normalized_gate_emitted = false;
+    let mut send_ok_emitted = false;
+    let mut send_fail_emitted = false;
     let mut chain = HidrawChainTelemetry::new();
     let mut reprobe_budget = 0usize;
 
@@ -124,8 +126,27 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 break;
             };
             while current_client.recv(Wait::NonBlocking).is_ok() {}
-            if current_client.send(&frame, Wait::NonBlocking).is_err() {
-                continue;
+            match current_client.send(&frame, Wait::NonBlocking) {
+                Ok(()) => {
+                    if !send_ok_emitted {
+                        debug_println("dbg: hidrawd inputd send ok")?;
+                        send_ok_emitted = true;
+                    }
+                }
+                Err(err) => {
+                    chain.send_failures = chain.send_failures.saturating_add(1);
+                    if !send_fail_emitted {
+                        debug_println(live_route_send_fail_label(err))?;
+                        send_fail_emitted = true;
+                    }
+                    if classify_live_route_send_error(map_live_route_send_error(err))
+                        == LiveRouteSendAction::ResetRoute
+                    {
+                        client = None;
+                        break;
+                    }
+                    continue;
+                }
             }
             chain.sent_batches = chain.sent_batches.saturating_add(1);
             sent_any = true;
@@ -136,6 +157,27 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             let _ = yield_();
         }
         chain.report_if_due();
+    }
+}
+
+fn map_live_route_send_error(err: nexus_ipc::IpcError) -> LiveRouteSendErrorClass {
+    match err {
+        nexus_ipc::IpcError::WouldBlock
+        | nexus_ipc::IpcError::Timeout
+        | nexus_ipc::IpcError::NoSpace => LiveRouteSendErrorClass::Backpressure,
+        nexus_ipc::IpcError::Disconnected
+        | nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint) => {
+            LiveRouteSendErrorClass::Disconnected
+        }
+        _ => LiveRouteSendErrorClass::Fatal,
+    }
+}
+
+fn live_route_send_fail_label(err: nexus_ipc::IpcError) -> &'static str {
+    match map_live_route_send_error(err) {
+        LiveRouteSendErrorClass::Backpressure => "dbg: hidrawd inputd send fail backpressure",
+        LiveRouteSendErrorClass::Disconnected => "dbg: hidrawd inputd send fail disconnected",
+        LiveRouteSendErrorClass::Fatal => "dbg: hidrawd inputd send fail fatal",
     }
 }
 

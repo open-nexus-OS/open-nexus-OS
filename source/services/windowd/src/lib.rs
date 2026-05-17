@@ -13,7 +13,6 @@
 
 extern crate alloc;
 
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod assets;
 mod buffer;
 mod cli;
@@ -23,10 +22,11 @@ mod frame;
 mod geometry;
 mod ids;
 mod legacy;
+mod layout_panel;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod proof_panel;
 mod os_lite;
+mod proof_panel_spec;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
 mod server;
@@ -48,6 +48,7 @@ pub use ids::{
     VmoHandleId,
 };
 pub use legacy::render_frame;
+pub use layout_panel::{build_proof_panel_tree, compute_proof_layout, ProofTextMeasure};
 pub use markers::{
     damage_rects_marker, focus_marker, marker_postflight_ready, present_marker,
     CLICK_LATENCY_OK_MARKER, COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER,

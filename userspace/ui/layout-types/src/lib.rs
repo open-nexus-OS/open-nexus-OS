@@ -19,7 +19,7 @@ pub mod node;
 pub mod text;
 pub mod types;
 
-pub use border::{Border, CornerRadius, EdgeBorder, VisualStyle};
+pub use border::{Border, CornerRadius, EdgeBorder, PathPoint, PathShape, ShapeKind, VisualStyle};
 pub use color::Rgba8;
 pub use direction::{Align, Direction, Justify, Overflow, Position, ZIndex};
 pub use measure::{LineLayout, LineMetrics, MeasureText, PreparedTextHandle};

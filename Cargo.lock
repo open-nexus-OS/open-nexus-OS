@@ -3581,10 +3581,13 @@ dependencies = [
 name = "ui_v3a_host"
 version = "0.1.0"
 dependencies = [
+ "input-live-protocol",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-shape",
  "serde",
  "serde_json",
+ "windowd",
 ]
 
 [[package]]
@@ -3899,6 +3902,7 @@ dependencies = [
  "nexus-layout-types",
  "nexus-service-entry",
  "nexus-svg",
+ "nexus-theme",
  "pointer-state",
  "systemui",
 ]

@@ -9,7 +9,10 @@
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 use hid::{AbsoluteAxis, HidEvent, RelativeAxis, TimestampNs};
-use hidrawd::{DeviceId, HidrawdService};
+use hidrawd::{
+    normalize_ingress_batch, DeviceId, HidrawdService, IngressRole, PointerSource, RawIngressBatch,
+    RawIngressEvent, RawIngressEventKind,
+};
 use input_live_protocol::{
     WireHidBatch, WireHidEvent, EVENT_KIND_ABS, EVENT_KIND_BTN, EVENT_KIND_KEY, EVENT_KIND_REL,
     HID_KIND_KEYBOARD, HID_KIND_MOUSE, POINTER_SOURCE_MOUSE_RELATIVE, POINTER_SOURCE_NONE,
@@ -98,6 +101,27 @@ fn visible_pointer_wire_batch(
         normalized_event_count: events.len() as u16,
         events,
     }
+}
+
+fn normalize_wire_batch(
+    service: &mut HidrawdService,
+    device_id: DeviceId,
+    raw_batch: &RawIngressBatch,
+    timestamp_ns: u64,
+    abs_max_x: i32,
+    abs_max_y: i32,
+) -> WireHidBatch {
+    normalize_ingress_batch(
+        service,
+        device_id,
+        raw_batch,
+        TimestampNs::new(timestamp_ns),
+        abs_max_x,
+        abs_max_y,
+    )
+    .expect("ingress normalization")
+    .into_wire_batch()
+    .expect("wire batch")
 }
 
 #[test]
@@ -245,6 +269,43 @@ fn mouse_relative_wire_batch_decodes_without_absolute_calibration() {
 }
 
 #[test]
+fn mouse_relative_raw_ingress_wire_pipeline_reaches_windowd_authority() {
+    let (server, caller, surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let mut hidrawd = HidrawdService::new();
+    let mouse_id = DeviceId::new(21);
+    hidrawd.register_mouse(mouse_id);
+
+    let wire_batch = normalize_wire_batch(
+        &mut hidrawd,
+        mouse_id,
+        &RawIngressBatch::new(
+            IngressRole::RelativePointer,
+            vec![
+                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::X.event_code(), 2),
+                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::Y.event_code(), 1),
+                RawIngressEvent::new(RawIngressEventKind::Key, 0x110, 1),
+            ],
+        ),
+        90,
+        0,
+        0,
+    );
+    let hid_batch =
+        inputd::decode_wire_batch(wire_batch, inputd.pointer_transform()).expect("wire decode");
+    let dispatches = inputd.apply_hid_batch(&hid_batch).expect("dispatches");
+
+    assert_eq!(dispatches.len(), 2);
+    assert!(matches!(dispatches[0], InputDispatch::PointerMove { x: 15, y: 13, .. }));
+    assert!(matches!(dispatches[1], InputDispatch::PointerDown { x: 15, y: 13, .. }));
+
+    let delivered = inputd.router_mut().take_input_events(caller, surface).expect("deliveries");
+    assert_eq!(delivered.len(), 2);
+    assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { x: 15, y: 13 }));
+    assert_eq!(delivered[1].kind, windowd::InputEventKind::PointerDown);
+}
+
+#[test]
 fn test_reject_tablet_absolute_wire_batch_without_calibration() {
     let transform = inputd::visible_pointer_transform().expect("pointer transform");
     let err = inputd::decode_wire_batch(
@@ -354,6 +415,110 @@ fn tablet_absolute_wire_batch_preserves_pointer_source_identity() {
     .expect("tablet wire batch");
 
     assert_eq!(hid_batch.pointer_source(), Some(hidrawd::PointerSource::TabletAbsolute));
+}
+
+#[test]
+fn tablet_absolute_raw_ingress_wire_pipeline_reaches_windowd_authority() {
+    let (server, caller, surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let mut hidrawd = HidrawdService::new();
+    let pointer_id = DeviceId::new(22);
+    hidrawd.register_mouse(pointer_id);
+
+    let wire_batch = normalize_wire_batch(
+        &mut hidrawd,
+        pointer_id,
+        &RawIngressBatch::with_pointer_source(
+            IngressRole::AbsolutePointer,
+            Some(PointerSource::TabletAbsolute),
+            vec![
+                RawIngressEvent::new(RawIngressEventKind::Absolute, AbsoluteAxis::X.event_code(), 20),
+                RawIngressEvent::new(RawIngressEventKind::Absolute, AbsoluteAxis::Y.event_code(), 10),
+            ],
+        ),
+        91,
+        63,
+        47,
+    );
+    let hid_batch =
+        inputd::decode_wire_batch(wire_batch, inputd.pointer_transform()).expect("wire decode");
+    let dispatches = inputd.apply_hid_batch(&hid_batch).expect("dispatches");
+
+    assert!(matches!(dispatches.as_slice(), [InputDispatch::PointerMove { x: 20, y: 10, .. }]));
+    assert_eq!(inputd.active_pointer_source(), Some(PointerSource::TabletAbsolute));
+
+    let delivered = inputd.router_mut().take_input_events(caller, surface).expect("deliveries");
+    assert_eq!(delivered.len(), 1);
+    assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { x: 20, y: 10 }));
+}
+
+#[test]
+fn tablet_absolute_raw_ingress_pipeline_blocks_following_relative_mouse_batches() {
+    let (server, _caller, _surface) = full_surface_fixture_server();
+    let mut inputd = InputdService::new(server, live_visible_config(8)).expect("inputd");
+    let transform = inputd::visible_pointer_transform().expect("visible transform");
+    let target_display = transform.route_to_display(inputd::PointerPosition::new(
+        inputd::VISIBLE_INPUT_CURSOR_END_X,
+        inputd::VISIBLE_INPUT_CURSOR_END_Y,
+    ));
+    let mut hidrawd = HidrawdService::new();
+    let pointer_id = DeviceId::new(23);
+    hidrawd.register_mouse(pointer_id);
+
+    let tablet_wire = normalize_wire_batch(
+        &mut hidrawd,
+        pointer_id,
+        &RawIngressBatch::with_pointer_source(
+            IngressRole::AbsolutePointer,
+            Some(PointerSource::TabletAbsolute),
+            vec![
+                RawIngressEvent::new(
+                    RawIngressEventKind::Absolute,
+                    AbsoluteAxis::X.event_code(),
+                    target_display.x,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Absolute,
+                    AbsoluteAxis::Y.event_code(),
+                    target_display.y,
+                ),
+            ],
+        ),
+        92,
+        1279,
+        799,
+    );
+    let tablet_batch =
+        inputd::decode_wire_batch(tablet_wire, inputd.pointer_transform()).expect("tablet decode");
+    let tablet_dispatches = inputd.apply_hid_batch(&tablet_batch).expect("tablet dispatches");
+    assert!(matches!(
+        tablet_dispatches.as_slice(),
+        [InputDispatch::PointerMove { x, y, .. }]
+            if (*x, *y)
+                == (inputd::VISIBLE_INPUT_CURSOR_END_X, inputd::VISIBLE_INPUT_CURSOR_END_Y)
+    ));
+
+    let relative_wire = normalize_wire_batch(
+        &mut hidrawd,
+        pointer_id,
+        &RawIngressBatch::new(
+            IngressRole::RelativePointer,
+            vec![
+                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::X.event_code(), 40),
+                RawIngressEvent::new(RawIngressEventKind::Relative, RelativeAxis::Y.event_code(), -20),
+            ],
+        ),
+        93,
+        0,
+        0,
+    );
+    let relative_batch = inputd::decode_wire_batch(relative_wire, inputd.pointer_transform())
+        .expect("relative decode");
+    let relative_dispatches = inputd.apply_hid_batch(&relative_batch).expect("relative dispatches");
+
+    assert!(relative_dispatches.is_empty());
+    assert_eq!(inputd.display_pointer_position(), target_display);
+    assert_eq!(inputd.active_pointer_source(), Some(PointerSource::TabletAbsolute));
 }
 
 #[test]

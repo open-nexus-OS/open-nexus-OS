@@ -27,7 +27,9 @@ pub use adapter::{
 pub use error::HidrawdError;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub use os_lite::service_main_loop;
-pub use service::HidrawdService;
+pub use service::{
+    classify_live_route_send_error, HidrawdService, LiveRouteSendAction, LiveRouteSendErrorClass,
+};
 pub use types::{DeviceId, HidBatch, HidDeviceKind};
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]

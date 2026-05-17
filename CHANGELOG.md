@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nexus-layout-types + nexus-layout (Flex+Grid engine)
 - nexus-shape wrap.rs (UAX#14) + cache.rs
 - tests/ui_v3a_host JSON goldens (4 tests)
-- windowd proof_panel.rs + layout markers
+- windowd: layout_panel.rs integrated into os_lite.rs (single source of truth, no duplicate structure)
 
 ### Changed - 2026-05-11
 
@@ -43,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nexus-layout-types + nexus-layout (Flex+Grid engine)
 - nexus-shape wrap.rs (UAX#14) + cache.rs
 - tests/ui_v3a_host JSON goldens (4 tests)
-- windowd proof_panel.rs + layout markers
 
 ### Changed - 2026-05-11
 

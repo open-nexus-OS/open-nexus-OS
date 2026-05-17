@@ -10,9 +10,10 @@
 
 use hid::{AbsoluteAxis, HidEvent, HidEventKind, RelativeAxis, TimestampNs};
 use hidrawd::{
-    normalize_ingress_batch, resolve_absolute_axis_max, DeviceId, HidDeviceKind, HidrawdError,
-    HidrawdService, IngressRole, PointerSource, RawIngressBatch, RawIngressEvent,
-    RawIngressEventKind, QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
+    classify_live_route_send_error, normalize_ingress_batch, resolve_absolute_axis_max, DeviceId,
+    HidDeviceKind, HidrawdError, HidrawdService, IngressRole, LiveRouteSendAction,
+    LiveRouteSendErrorClass, PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
 };
 
 #[test]
@@ -277,6 +278,22 @@ fn absolute_pointer_falls_back_to_qemu_axis_max_when_live_axis_info_is_missing()
         QEMU_ABSOLUTE_AXIS_FALLBACK_MAX
     );
     assert_eq!(resolve_absolute_axis_max(Some(PointerSource::MouseRelative), 0, &raw_events, 0), 0);
+}
+
+#[test]
+fn live_route_send_policy_resets_only_broken_inputd_routes() {
+    assert_eq!(
+        classify_live_route_send_error(LiveRouteSendErrorClass::Backpressure),
+        LiveRouteSendAction::DropBatch
+    );
+    assert_eq!(
+        classify_live_route_send_error(LiveRouteSendErrorClass::Disconnected),
+        LiveRouteSendAction::ResetRoute
+    );
+    assert_eq!(
+        classify_live_route_send_error(LiveRouteSendErrorClass::Fatal),
+        LiveRouteSendAction::ResetRoute
+    );
 }
 
 #[test]

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use alloc::vec::Vec;
+use crate::node::TextContent;
+use crate::text::TextStyle;
 use crate::types::FxPx;
 use core::ops::Range;
 
@@ -45,17 +47,17 @@ pub struct LineMetrics {
 pub trait MeasureText {
     /// Prepare text for measurement (shaping, bidi).
     /// Returns an opaque handle valid for the lifetime of the layout pass.
-    fn prepare(&self, text: &str) -> PreparedTextHandle;
+    fn prepare(&self, content: &TextContent, style: &TextStyle) -> PreparedTextHandle;
 
     /// Measure the natural advance width of prepared text (no wrapping).
-    fn measure_width(&self, handle: PreparedTextHandle) -> FxPx;
+    fn measure_width(&self, handle: &PreparedTextHandle) -> FxPx;
 
     /// Layout prepared text into lines for a given width.
     ///
     /// `max_lines`: if set, truncate after this many lines.
     fn layout_lines(
         &self,
-        handle: PreparedTextHandle,
+        handle: &PreparedTextHandle,
         width: FxPx,
         max_lines: Option<u32>,
     ) -> LineLayout;

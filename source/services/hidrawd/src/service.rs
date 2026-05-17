@@ -17,6 +17,30 @@ use hid::{BootKeyboardParser, BootMouseParser, HidEvent, TimestampNs};
 
 const MAX_LOGGED_BATCHES: usize = 32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveRouteSendErrorClass {
+    Backpressure,
+    Disconnected,
+    Fatal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveRouteSendAction {
+    DropBatch,
+    ResetRoute,
+}
+
+pub const fn classify_live_route_send_error(
+    class: LiveRouteSendErrorClass,
+) -> LiveRouteSendAction {
+    match class {
+        LiveRouteSendErrorClass::Backpressure => LiveRouteSendAction::DropBatch,
+        LiveRouteSendErrorClass::Disconnected | LiveRouteSendErrorClass::Fatal => {
+            LiveRouteSendAction::ResetRoute
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct HidrawdService {
     keyboard: Option<KeyboardSource>,
@@ -147,3 +171,4 @@ impl HidrawdService {
         self.recent_batches.push(batch);
     }
 }
+

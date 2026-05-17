@@ -1103,6 +1103,8 @@ if [[ "$missing" -ne 0 ]]; then
       "display: mode 1280x800 argb8888" \
       "windowd: backend=visible" \
       "windowd: present visible ok" \
+      "layout: engine on" \
+      "text: wrapping on" \
       "display: first scanout ok" \
       "systemui: first frame visible" \
       "SELFTEST: ui visible present ok" \
@@ -1376,6 +1378,8 @@ if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
     "display: mode 1280x800 argb8888" \
     "windowd: backend=visible" \
     "windowd: present visible ok" \
+    "layout: engine on" \
+    "text: wrapping on" \
     "display: first scanout ok" \
     "systemui: first frame visible"; do
     if ! grep -aFq "$m" "$UART_LOG"; then

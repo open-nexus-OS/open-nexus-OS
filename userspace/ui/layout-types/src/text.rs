@@ -58,3 +58,16 @@ pub struct TextStyle {
     pub color: Rgba8,
     pub white_space: WhiteSpace,
 }
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            font_size: FxPx::new(16),
+            font_weight: FontWeight::Regular,
+            line_height: LineHeight::Absolute(FxPx::new(20)),
+            text_align: TextAlign::Left,
+            color: Rgba8::WHITE,
+            white_space: WhiteSpace::Normal,
+        }
+    }
+}

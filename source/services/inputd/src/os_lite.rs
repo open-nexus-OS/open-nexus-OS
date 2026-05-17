@@ -17,6 +17,7 @@ use input_live_protocol::{
     frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
+use hidrawd::PointerSource;
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
@@ -125,6 +126,9 @@ struct LiveRouteRuntime {
     focus_debug_emitted: bool,
     keyboard_dispatch_debug_emitted: bool,
     keyboard_delivery_debug_emitted: bool,
+    hid_batch_recv_debug_emitted: bool,
+    absolute_source_debug_emitted: bool,
+    relative_blocked_debug_emitted: bool,
     windowd_push_ok_emitted: bool,
     windowd_route_fallback_emitted: bool,
     windowd_push_fail_emitted: bool,
@@ -228,6 +232,9 @@ impl LiveRouteRuntime {
             focus_debug_emitted: false,
             keyboard_dispatch_debug_emitted: false,
             keyboard_delivery_debug_emitted: false,
+            hid_batch_recv_debug_emitted: false,
+            absolute_source_debug_emitted: false,
+            relative_blocked_debug_emitted: false,
             windowd_push_ok_emitted: false,
             windowd_route_fallback_emitted: false,
             windowd_push_fail_emitted: false,
@@ -245,6 +252,10 @@ impl LiveRouteRuntime {
 
     fn handle_frame(&mut self, frame: &[u8]) -> [u8; 8] {
         if frame_has_op(frame, OP_PUSH_HID_BATCH) {
+            if !self.hid_batch_recv_debug_emitted {
+                let _ = debug_println("dbg: inputd hid batch recv");
+                self.hid_batch_recv_debug_emitted = true;
+            }
             let Some(batch) = decode_push_hid_batch(frame) else {
                 self.chain.frame_decode_malformed =
                     self.chain.frame_decode_malformed.saturating_add(1);
@@ -273,6 +284,8 @@ impl LiveRouteRuntime {
         if batch.normalized_event_count > 0 {
             self.visible_state.hid_normalized_seen = true;
         }
+        let batch_pointer_source = batch.pointer_source;
+        let batch_normalized_event_count = batch.normalized_event_count;
         let hid_batch = match decode_wire_batch(batch, self.input.pointer_transform()) {
             Ok(batch) => batch,
             Err(reject) => {
@@ -281,10 +294,12 @@ impl LiveRouteRuntime {
                 return reject.status();
             }
         };
+        let previous_source = self.input.active_pointer_source();
         if self.input.apply_hid_batch_in_place(&hid_batch).is_err() {
             self.chain.route_overflow_apply = self.chain.route_overflow_apply.saturating_add(1);
             return STATUS_OVERFLOW;
         }
+        let active_source = self.input.active_pointer_source();
         let (
             dispatch_count,
             pointer_move_seen,
@@ -336,6 +351,28 @@ impl LiveRouteRuntime {
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
         self.chain.delivered_events =
             self.chain.delivered_events.saturating_add(delivered_count as u64);
+        if !self.absolute_source_debug_emitted
+            && matches!(
+                active_source,
+                Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
+            )
+            && active_source != previous_source
+        {
+            let _ = debug_println("dbg: inputd active source absolute");
+            self.absolute_source_debug_emitted = true;
+        }
+        if !self.relative_blocked_debug_emitted
+            && batch_pointer_source == input_live_protocol::POINTER_SOURCE_MOUSE_RELATIVE
+            && batch_normalized_event_count > 0
+            && dispatch_count == 0
+            && matches!(
+                active_source,
+                Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
+            )
+        {
+            let _ = debug_println("dbg: inputd relative blocked by absolute source");
+            self.relative_blocked_debug_emitted = true;
+        }
         if pointer_dispatch_batch {
             self.chain.pointer_dispatch_batches =
                 self.chain.pointer_dispatch_batches.saturating_add(1);

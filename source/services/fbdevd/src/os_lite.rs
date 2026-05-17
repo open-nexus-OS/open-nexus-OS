@@ -22,7 +22,7 @@ use nexus_ipc::{Client as _, IpcError, KernelClient, KernelServer, Server as _, 
 
 use crate::backend::framebuffer::FramebufferOwner;
 use crate::backend::ramfb::{configure_ramfb, display_bootstrap_requested};
-use crate::error::FbdevdError;
+use crate::error::{classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass};
 use crate::markers::{FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER};
 use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};
@@ -152,22 +152,33 @@ fn service_requests(server: &KernelServer, state: VisibleState) -> Result<(), &'
                     }
                 }
             }
-            Err(IpcError::WouldBlock)
-            | Err(IpcError::Timeout)
-            | Err(IpcError::Disconnected)
-            | Err(IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => return Ok(()),
-            Err(err) => {
-                let (recv_slot, send_slot) = server.slots();
-                let _ = debug_println(&format!(
-                    "fbdevd: recv failed detail recv_slot={} send_slot={} kind={} detail={}",
-                    recv_slot,
-                    send_slot,
-                    ipc_error_kind(err),
-                    ipc_error_detail(err)
-                ));
-                return Err(log_and_fail("fbdevd: recv failed"));
-            }
+            Err(err) => match classify_service_recv_error(map_service_recv_error_class(err)) {
+                ServiceRecvAction::ReturnOk => return Ok(()),
+                ServiceRecvAction::ReturnOkWithBackpressureLog => return Ok(()),
+                ServiceRecvAction::Fatal => {
+                    let (recv_slot, send_slot) = server.slots();
+                    let _ = debug_println(&format!(
+                        "fbdevd: recv failed detail recv_slot={} send_slot={} kind={} detail={}",
+                        recv_slot,
+                        send_slot,
+                        ipc_error_kind(err),
+                        ipc_error_detail(err)
+                    ));
+                    return Err(log_and_fail("fbdevd: recv failed"));
+                }
+            },
         }
+    }
+}
+
+fn map_service_recv_error_class(err: IpcError) -> ServiceRecvErrorClass {
+    match err {
+        IpcError::WouldBlock | IpcError::Timeout => ServiceRecvErrorClass::Idle,
+        IpcError::Disconnected | IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint) => {
+            ServiceRecvErrorClass::PeerClosed
+        }
+        IpcError::NoSpace => ServiceRecvErrorClass::Backpressure,
+        _ => ServiceRecvErrorClass::Fatal,
     }
 }
 
@@ -223,10 +234,29 @@ fn log_and_fail(label: &'static str) -> &'static str {
     label
 }
 
-fn ipc_error_kind(_err: IpcError) -> &'static str {
-    "ipc"
+fn ipc_error_kind(err: IpcError) -> &'static str {
+    match err {
+        IpcError::WouldBlock => "would-block",
+        IpcError::Timeout => "timeout",
+        IpcError::Disconnected => "disconnected",
+        IpcError::NoSpace => "no-space",
+        IpcError::Unsupported => "unsupported",
+        IpcError::Kernel(_) => "kernel",
+        _ => "ipc",
+    }
 }
 
-fn ipc_error_detail(_err: IpcError) -> &'static str {
-    "error"
+fn ipc_error_detail(err: IpcError) -> &'static str {
+    match err {
+        IpcError::Kernel(inner) => match inner {
+            nexus_abi::IpcError::NoSuchEndpoint => "no-such-endpoint",
+            nexus_abi::IpcError::QueueFull => "queue-full",
+            nexus_abi::IpcError::QueueEmpty => "queue-empty",
+            nexus_abi::IpcError::PermissionDenied => "permission-denied",
+            nexus_abi::IpcError::TimedOut => "timed-out",
+            nexus_abi::IpcError::NoSpace => "no-space",
+            nexus_abi::IpcError::Unsupported => "unsupported",
+        },
+        _ => "none",
+    }
 }

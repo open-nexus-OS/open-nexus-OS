@@ -1,6 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
 use crate::color::Rgba8;
 use crate::types::FxPx;
 
@@ -58,6 +59,49 @@ impl CornerRadius {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathPoint {
+    pub x_milli: u16,
+    pub y_milli: u16,
+}
+
+impl PathPoint {
+    pub const fn new(x_milli: u16, y_milli: u16) -> Self {
+        Self { x_milli, y_milli }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PathShape {
+    pub points: Vec<PathPoint>,
+    pub closed: bool,
+}
+
+impl PathShape {
+    pub fn line(points: &[PathPoint]) -> Self {
+        Self { points: points.to_vec(), closed: false }
+    }
+
+    pub fn polygon(points: &[PathPoint]) -> Self {
+        Self { points: points.to_vec(), closed: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShapeKind {
+    Rect,
+    Circle,
+    TriangleUp,
+    TriangleDown,
+    Path(PathShape),
+}
+
+impl Default for ShapeKind {
+    fn default() -> Self {
+        Self::Rect
+    }
+}
+
 /// Visual style attached to container and text nodes.
 /// Separated from layout properties — paint-only changes don't invalidate measurement.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -66,4 +110,5 @@ pub struct VisualStyle {
     pub border: EdgeBorder,
     pub corner_radius: CornerRadius,
     pub opacity: Option<FxPx>,
+    pub shape: ShapeKind,
 }

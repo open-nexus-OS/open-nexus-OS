@@ -265,6 +265,16 @@ proves = "interactive start rendered the right keyboard target for manual debugg
 phase = "end"
 proves = "interactive start selected the richer breadcrumb ladder used by `just start`, not the deterministic proof ladder"
 
+[marker."layout: engine on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd rendered the visible proof panel from the layout-engine result instead of hardcoded proof geometry"
+
+[marker."text: wrapping on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd used the width-dependent text layout path for the visible proof panel text"
+
 [marker."windowd: cursor svg loaded"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }

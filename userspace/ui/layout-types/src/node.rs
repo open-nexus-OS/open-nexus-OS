@@ -5,6 +5,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use crate::border::VisualStyle;
 use crate::direction::{Align, Direction, Justify, Overflow, Position, ZIndex};
+use crate::text::TextStyle;
 use crate::types::{EdgeInsets, FxPx};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,22 +13,31 @@ pub struct Fraction(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stack {
+    pub id: Option<&'static str>,
     pub direction: Direction, pub gap: FxPx, pub padding: EdgeInsets,
     pub align: Align, pub justify: Justify, pub overflow: Overflow,
     pub flex_wrap: bool, pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
     pub min_height: Option<FxPx>, pub max_height: Option<FxPx>,
+    pub item: FlexItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grid {
+    pub id: Option<&'static str>,
     pub columns: Vec<Fraction>, pub gap: FxPx, pub row_gap: Option<FxPx>,
     pub padding: EdgeInsets, pub overflow: Overflow,
     pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
     pub min_height: Option<FxPx>, pub max_height: Option<FxPx>,
+    pub item: FlexItem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Spacer { pub flex_grow: u32, pub min_size: Option<FxPx> }
+pub struct Spacer {
+    pub id: Option<&'static str>,
+    pub flex_grow: u32,
+    pub min_size: Option<FxPx>,
+    pub item: FlexItem,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlexItem {
@@ -45,7 +55,11 @@ impl TextContent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextNode {
-    pub content: TextContent, pub max_lines: Option<u32>,
+    pub id: Option<&'static str>,
+    pub content: TextContent,
+    pub style: TextStyle,
+    pub item: FlexItem,
+    pub max_lines: Option<u32>,
     pub min_width: Option<FxPx>, pub max_width: Option<FxPx>,
 }
 
@@ -57,4 +71,132 @@ pub enum LayoutNode {
     Grid(Grid, VisualStyle, Vec<LayoutNode>),
     Spacer(Spacer),
     Text(TextNode, VisualStyle),
+}
+
+impl Default for FlexItem {
+    fn default() -> Self {
+        Self {
+            flex_grow: 0,
+            flex_shrink: 1,
+            align_self: None,
+            margin: EdgeInsets::zero(),
+            position: Position::Relative,
+            z_index: 0,
+            min_width: None,
+            max_width: None,
+        }
+    }
+}
+
+impl Stack {
+    pub fn item(&self) -> &FlexItem {
+        &self.item
+    }
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self {
+            id: None,
+            direction: Direction::Column,
+            gap: FxPx::ZERO,
+            padding: EdgeInsets::zero(),
+            align: Align::Start,
+            justify: Justify::Start,
+            overflow: Overflow::Visible,
+            flex_wrap: false,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            item: FlexItem::default(),
+        }
+    }
+}
+
+impl Grid {
+    pub fn item(&self) -> &FlexItem {
+        &self.item
+    }
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self {
+            id: None,
+            columns: Vec::new(),
+            gap: FxPx::ZERO,
+            row_gap: None,
+            padding: EdgeInsets::zero(),
+            overflow: Overflow::Visible,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            item: FlexItem::default(),
+        }
+    }
+}
+
+impl Default for Spacer {
+    fn default() -> Self {
+        Self {
+            id: None,
+            flex_grow: 1,
+            min_size: None,
+            item: FlexItem::default(),
+        }
+    }
+}
+
+impl Default for TextNode {
+    fn default() -> Self {
+        Self {
+            id: None,
+            content: TextContent::new(""),
+            style: TextStyle::default(),
+            item: FlexItem::default(),
+            max_lines: None,
+            min_width: None,
+            max_width: None,
+        }
+    }
+}
+
+impl LayoutNode {
+    pub fn id(&self) -> Option<&'static str> {
+        match self {
+            LayoutNode::Stack(stack, _, _) => stack.id,
+            LayoutNode::Grid(grid, _, _) => grid.id,
+            LayoutNode::Spacer(spacer) => spacer.id,
+            LayoutNode::Text(text, _) => text.id,
+        }
+    }
+
+    pub fn item(&self) -> &FlexItem {
+        match self {
+            LayoutNode::Stack(stack, _, _) => &stack.item,
+            LayoutNode::Grid(grid, _, _) => &grid.item,
+            LayoutNode::Spacer(spacer) => &spacer.item,
+            LayoutNode::Text(text, _) => &text.item,
+        }
+    }
+
+    pub fn min_width(&self) -> Option<FxPx> {
+        match self {
+            LayoutNode::Stack(stack, _, _) => stack.min_width.or(stack.item.min_width),
+            LayoutNode::Grid(grid, _, _) => grid.min_width.or(grid.item.min_width),
+            LayoutNode::Spacer(spacer) => spacer.min_size.or(spacer.item.min_width),
+            LayoutNode::Text(text, _) => text.min_width.or(text.item.min_width),
+        }
+    }
+
+    pub fn max_width(&self) -> Option<FxPx> {
+        match self {
+            LayoutNode::Stack(stack, _, _) => stack.max_width.or(stack.item.max_width),
+            LayoutNode::Grid(grid, _, _) => grid.max_width.or(grid.item.max_width),
+            LayoutNode::Spacer(spacer) => spacer.item.max_width,
+            LayoutNode::Text(text, _) => text.max_width.or(text.item.max_width),
+        }
+    }
 }

@@ -6,20 +6,35 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
+use nexus_theme::{ColorValue, Qualifier, ThemeRuntime};
+
+mod proof_panel_spec {
+    include!("src/proof_panel_spec.rs");
+}
+
+use proof_panel_spec::{
+    ALL_TEXT_SPECS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG, TOKEN_CARD_BORDER, TOKEN_CARD_LABEL,
+    TOKEN_CLICK, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG, TOKEN_KEYBOARD, TOKEN_PANEL_BG,
+    TOKEN_PANEL_BORDER, TOKEN_PANEL_MUTED, TOKEN_PANEL_SUBTITLE, TOKEN_PANEL_TITLE, TOKEN_SCROLL,
+};
+
 const INTER_FONT: &str = "../../../resources/fonts/inter/docs/font-files/InterVariable.ttf";
 const MOCU_DEFAULT: &str = "../../../resources/cursors/mocu/src/svg/default.svg";
-const TEXT_WIDTH: usize = 610;
-const TEXT_HEIGHT: usize = 260;
+const THEMES_DIR: &str = "../../../resources/themes";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={INTER_FONT}");
     println!("cargo:rerun-if-changed={MOCU_DEFAULT}");
+    println!("cargo:rerun-if-changed={THEMES_DIR}");
+    println!("cargo:rerun-if-changed=src/proof_panel_spec.rs");
 
-    let text = render_text_overlay(Path::new(INTER_FONT)).map_err(std::io::Error::other)?;
     let out_dir = env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
     let out_dir = Path::new(&out_dir);
-    let text_path = out_dir.join("proof_text_inter.bgra");
-    fs::write(&text_path, text)?;
+    let font_bytes = fs::read(INTER_FONT)?;
+    let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
+        .map_err(|err| std::io::Error::other(format!("parse Inter font: {err:?}")))?;
+    let mut theme_runtime = ThemeRuntime::load(Path::new(THEMES_DIR))?;
+    theme_runtime.set_qualifier(Qualifier::Dark);
 
     let mocu = fs::read_to_string(MOCU_DEFAULT)?;
     if !(mocu.contains("#fafbfc") && mocu.contains("#1a1b1c") && mocu.contains("id=\"hot\"")) {
@@ -28,13 +43,80 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let generated_path = out_dir.join("windowd_generated_assets.rs");
     let mut generated = File::create(generated_path)?;
-    writeln!(generated, "pub const PROOF_TEXT_WIDTH: u32 = {TEXT_WIDTH};")?;
-    writeln!(generated, "pub const PROOF_TEXT_HEIGHT: u32 = {TEXT_HEIGHT};")?;
-    writeln!(
-        generated,
-        "pub const PROOF_TEXT_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
-        text_path.display()
+    emit_theme_color(&mut generated, "PROOF_PANEL_BG_RGBA", &theme_runtime, TOKEN_PANEL_BG)?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_PANEL_BORDER_RGBA",
+        &theme_runtime,
+        TOKEN_PANEL_BORDER,
     )?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_PANEL_TITLE_RGBA",
+        &theme_runtime,
+        TOKEN_PANEL_TITLE,
+    )?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_PANEL_SUBTITLE_RGBA",
+        &theme_runtime,
+        TOKEN_PANEL_SUBTITLE,
+    )?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_PANEL_MUTED_RGBA",
+        &theme_runtime,
+        TOKEN_PANEL_MUTED,
+    )?;
+    emit_theme_color(&mut generated, "PROOF_CARD_BG_RGBA", &theme_runtime, TOKEN_CARD_BG)?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_CARD_ACTIVE_BG_RGBA",
+        &theme_runtime,
+        TOKEN_CARD_ACTIVE_BG,
+    )?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_CARD_BORDER_RGBA",
+        &theme_runtime,
+        TOKEN_CARD_BORDER,
+    )?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_CARD_LABEL_RGBA",
+        &theme_runtime,
+        TOKEN_CARD_LABEL,
+    )?;
+    emit_theme_color(&mut generated, "PROOF_ICON_BG_RGBA", &theme_runtime, TOKEN_ICON_BG)?;
+    emit_theme_color(&mut generated, "PROOF_ICON_FG_RGBA", &theme_runtime, TOKEN_ICON_FG)?;
+    emit_theme_color(&mut generated, "PROOF_HOVER_RGBA", &theme_runtime, TOKEN_HOVER)?;
+    emit_theme_color(&mut generated, "PROOF_CLICK_RGBA", &theme_runtime, TOKEN_CLICK)?;
+    emit_theme_color(&mut generated, "PROOF_SCROLL_RGBA", &theme_runtime, TOKEN_SCROLL)?;
+    emit_theme_color(
+        &mut generated,
+        "PROOF_KEYBOARD_RGBA",
+        &theme_runtime,
+        TOKEN_KEYBOARD,
+    )?;
+
+    for spec in ALL_TEXT_SPECS {
+        let rendered = render_text_asset(
+            &font,
+            spec.content,
+            spec.font_size as f32,
+            color_bgra(theme_runtime.resolve(spec.color_token)?),
+        );
+        let const_prefix = const_prefix(spec.id);
+        let text_path = out_dir.join(format!("{}.bgra", spec.id));
+        fs::write(&text_path, &rendered.data)?;
+        writeln!(generated, "pub const {const_prefix}_WIDTH: u32 = {};", rendered.width)?;
+        writeln!(generated, "pub const {const_prefix}_HEIGHT: u32 = {};", rendered.height)?;
+        writeln!(
+            generated,
+            "pub const {const_prefix}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+            text_path.display()
+        )?;
+    }
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
     writeln!(
@@ -45,71 +127,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn render_text_overlay(path: &Path) -> Result<Vec<u8>, String> {
-    let font_bytes = fs::read(path).map_err(|err| format!("read {}: {err}", path.display()))?;
-    let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
-        .map_err(|err| format!("parse Inter font: {err:?}"))?;
-    let mut out = vec![0u8; TEXT_WIDTH * TEXT_HEIGHT * 4];
-
-    draw_text(&font, &mut out, 24, 45, 30.0, "Open Nexus OS", [0xff, 0xff, 0xff, 0xff]);
-    draw_text(
-        &font,
-        &mut out,
-        25,
-        82,
-        18.0,
-        "DisplayServer v0 - Inter variable font",
-        [0xc8, 0xd8, 0xff, 0xff],
-    );
-    draw_text(
-        &font,
-        &mut out,
-        25,
-        112,
-        16.0,
-        "Hover, click, scroll up/down, keyboard press",
-        [0x9c, 0xac, 0xc8, 0xff],
-    );
-    draw_text(&font, &mut out, 38, 231, 16.0, "Hover", [0xf4, 0xf6, 0xff, 0xff]);
-    draw_text(&font, &mut out, 180, 231, 16.0, "Click", [0xf4, 0xf6, 0xff, 0xff]);
-    draw_text(&font, &mut out, 322, 231, 16.0, "Scroll", [0xf4, 0xf6, 0xff, 0xff]);
-    draw_text(&font, &mut out, 464, 231, 16.0, "Key", [0xf4, 0xf6, 0xff, 0xff]);
-    Ok(out)
+struct RenderedText {
+    width: usize,
+    height: usize,
+    data: Vec<u8>,
 }
 
-fn draw_text(
-    font: &fontdue::Font,
-    out: &mut [u8],
-    mut pen_x: i32,
-    baseline_y: i32,
-    px: f32,
-    text: &str,
-    bgra: [u8; 4],
-) {
+fn render_text_asset(font: &fontdue::Font, text: &str, px: f32, bgra: [u8; 4]) -> RenderedText {
+    let mut pen_x = 0i32;
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for ch in text.chars() {
+        let (metrics, _) = font.rasterize(ch, px);
+        let x0 = pen_x + metrics.xmin;
+        let y0 = -(metrics.height as i32) - metrics.ymin;
+        if metrics.width != 0 && metrics.height != 0 {
+            min_x = min_x.min(x0);
+            min_y = min_y.min(y0);
+            max_x = max_x.max(x0 + metrics.width as i32);
+            max_y = max_y.max(y0 + metrics.height as i32);
+        }
+        pen_x += metrics.advance_width.ceil() as i32;
+    }
+    if min_x == i32::MAX || min_y == i32::MAX {
+        return RenderedText { width: 1, height: 1, data: vec![0u8; 4] };
+    }
+    let width = (max_x - min_x).max(1) as usize;
+    let height = (max_y - min_y).max(1) as usize;
+    let mut out = vec![0u8; width * height * 4];
+    pen_x = 0;
     for ch in text.chars() {
         let (metrics, bitmap) = font.rasterize(ch, px);
-        let x0 = pen_x + metrics.xmin;
-        let y0 = baseline_y - metrics.height as i32 - metrics.ymin;
+        let x0 = pen_x + metrics.xmin - min_x;
+        let y0 = -(metrics.height as i32) - metrics.ymin - min_y;
         for y in 0..metrics.height {
             let dst_y = y0 + y as i32;
-            if dst_y < 0 || dst_y >= TEXT_HEIGHT as i32 {
+            if dst_y < 0 || dst_y >= height as i32 {
                 continue;
             }
             for x in 0..metrics.width {
                 let dst_x = x0 + x as i32;
-                if dst_x < 0 || dst_x >= TEXT_WIDTH as i32 {
+                if dst_x < 0 || dst_x >= width as i32 {
                     continue;
                 }
                 let alpha = bitmap[y * metrics.width + x];
                 if alpha == 0 {
                     continue;
                 }
-                let dst = (dst_y as usize * TEXT_WIDTH + dst_x as usize) * 4;
+                let dst = (dst_y as usize * width + dst_x as usize) * 4;
                 blend(&mut out[dst..dst + 4], [bgra[0], bgra[1], bgra[2], alpha]);
             }
         }
         pen_x += metrics.advance_width.ceil() as i32;
     }
+    RenderedText { width, height, data: out }
 }
 
 fn blend(dst: &mut [u8], src: [u8; 4]) {
@@ -120,6 +193,31 @@ fn blend(dst: &mut [u8], src: [u8; 4]) {
             ((u32::from(src[channel]) * alpha + u32::from(dst[channel]) * inv) / 255) as u8;
     }
     dst[3] = dst[3].max(src[3]);
+}
+
+fn emit_theme_color(
+    generated: &mut File,
+    const_name: &str,
+    runtime: &ThemeRuntime,
+    token: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let color = runtime.resolve(token)?;
+    writeln!(
+        generated,
+        "pub const {const_name}: [u8; 4] = [{}, {}, {}, {}];",
+        color.r, color.g, color.b, color.a
+    )?;
+    Ok(())
+}
+
+fn color_bgra(color: ColorValue) -> [u8; 4] {
+    [color.b, color.g, color.r, color.a]
+}
+
+fn const_prefix(id: &str) -> String {
+    id.chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_uppercase() } else { '_' })
+        .collect()
 }
 
 fn normalized_mocu_cursor_svg() -> &'static str {

@@ -81,6 +81,15 @@ fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
         "`just start` must keep the interactive guest alive in bringup profile"
     );
     assert!(
+        justfile.contains(concat!(
+            "QEMU_PROOF_POINTER_SOURCE=$",
+            "{",
+            "QEMU_PROOF_POINTER_SOURCE:-mouse",
+            "}"
+        )),
+        "`just start` must default to the relative mouse path while still allowing an explicit pointer-source override"
+    );
+    assert!(
         justfile.contains("scripts/run-qemu-rv64.sh {{args}}"),
         "`just start` must launch the same live QEMU runner as `make run` and forward QEMU args"
     );
@@ -143,17 +152,25 @@ fn interactive_qemu_exposes_keyboard_and_pointer_devices() {
 }
 
 #[test]
-fn interactive_runner_prefers_absolute_tablet_pointer_when_desktop_profile_exposes_both_sources() {
+fn just_start_defaults_to_mouse_relative_pointer_source_for_live_host_input() {
+    let justfile = read_repo_file("justfile");
     let runner = read_repo_file("scripts/run-qemu-rv64.sh");
 
     assert!(
-        runner.contains("prefer_interactive_absolute_pointer")
-            && runner.contains("QEMU_SESSION_MODE")
-            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH")
-            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE")
-            && runner.contains("stable")
-            && runner.contains("host-pointer stream"),
-        "interactive runner must prefer the absolute tablet pointer when desktop exposes both touch and mouse so `just start` gets a stable host pointer path"
+        justfile.contains(concat!(
+            "QEMU_PROOF_POINTER_SOURCE=$",
+            "{",
+            "QEMU_PROOF_POINTER_SOURCE:-mouse",
+            "}"
+        )),
+        "`just start` must default to mouse-relative input so GTK host movement produces hidrawd raw ingress"
+    );
+    assert!(
+        runner.contains("QEMU_PROOF_POINTER_SOURCE")
+            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH=0")
+            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE=1")
+            && runner.contains("-device virtio-mouse-device"),
+        "the runner must map the selected mouse pointer source to a single relative virtio mouse device"
     );
 }
 
