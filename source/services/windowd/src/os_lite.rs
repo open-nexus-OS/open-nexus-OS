@@ -24,9 +24,11 @@ use crate::markers::{
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
     WHEEL_VISIBLE_MARKER,
 };
-use crate::smoke::VisibleBootstrapMode;
-use crate::layout_panel;
 use nexus_layout::LayoutResult;
+use nexus_layout_types::Rgba8;
+
+use crate::layout_panel;
+use crate::smoke::VisibleBootstrapMode;
 
 const ROUTE_NAME: &str = "windowd";
 const PROOF_PANEL_X: u32 = 56;
@@ -258,16 +260,18 @@ impl DisplayServerRuntime {
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
-        self.proof_layout = layout_panel::compute_proof_layout(self.state).ok();
+        let new_targets = target_state_bits(self.state);
+        if new_targets != old_targets {
+            // Target state only changes paint, not geometry. Keep the live path
+            // allocation-free for OS services running on the bump allocator.
+            self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
+        }
         self.queue_cursor_damage(
             old_cursor_x,
             old_cursor_y,
             self.state.cursor_x,
             self.state.cursor_y,
         );
-        if target_state_bits(self.state) != old_targets {
-            self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
-        }
         STATUS_OK
     }
 
@@ -497,21 +501,31 @@ fn copy_scaled_systemui_row(
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = (x as usize)
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
+            frame
+                .pixels
+                .get(src..src + 4)
+                .ok_or(WindowdError::BufferLengthMismatch)?,
         );
     }
     Ok(())
 }
 
 fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
+    let bytes = width
+        .checked_mul(4)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes
+        .checked_add(63)
+        .ok_or(WindowdError::ArithmeticOverflow)
+        .map(|v| v / 64 * 64)
 }
 
 fn draw_proof_surface_row(
-    _state: VisibleState,
+    state: VisibleState,
     proof_layout: Option<&LayoutResult>,
     y: u32,
     row: &mut [u8],
@@ -520,14 +534,21 @@ fn draw_proof_surface_row(
         return Ok(());
     };
     for layout_box in &layout.boxes {
-        draw_layout_box_row(y, row, layout_box)?;
+        let Some(rect) = proof_box_rect(layout_box) else {
+            continue;
+        };
+        if !rect.contains_y(y) {
+            continue;
+        }
+        let paint_role = layout_box.id.and_then(proof_paint_role);
+        draw_layout_box_row(state, y, row, layout_box, rect, paint_role)?;
         if let Some(id) = layout_box.id {
             if let Some(asset) = crate::assets::proof_text_asset(id) {
                 blend_asset_row(
                     y,
                     row,
-                    PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0),
-                    PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0),
+                    rect.x,
+                    rect.y,
                     asset.width,
                     asset.height,
                     asset.bgra,
@@ -539,71 +560,276 @@ fn draw_proof_surface_row(
 }
 
 fn draw_layout_box_row(
+    state: VisibleState,
     y: u32,
     row: &mut [u8],
     layout_box: &nexus_layout::LayoutBox,
+    rect: ProofBoxRect,
+    paint_role: Option<ProofPaintRole>,
 ) -> Result<(), WindowdError> {
-    let rect_x = PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0);
-    let rect_y = PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0);
-    let width = layout_box.rect.width.as_u32().unwrap_or(0);
-    let height = layout_box.rect.height.as_u32().unwrap_or(0);
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
-            if let Some(background) = layout_box.visual.background {
-                fill_row_rect(y, row, rect_x, rect_y, width, height, rgba_to_bgra(background))?;
+            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+                fill_row_rect(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    rgba_to_bgra(background),
+                )?;
             }
-            if let Some(border) = layout_box.visual.border.top {
+            if let Some((border_width, border_color)) =
+                proof_box_border(layout_box, state, paint_role)
+            {
                 stroke_row_rect_width(
                     y,
                     row,
-                    rect_x,
-                    rect_y,
-                    width,
-                    height,
-                    border.width.as_u32().unwrap_or(1),
-                    rgba_to_bgra(border.color),
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    border_width,
+                    rgba_to_bgra(border_color),
                 )?;
             }
         }
         nexus_layout_types::ShapeKind::Circle => {
-            if let Some(background) = layout_box.visual.background {
-                fill_circle_row(y, row, rect_x, rect_y, width, height, rgba_to_bgra(background))?;
+            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+                fill_circle_row(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    rgba_to_bgra(background),
+                )?;
             }
-            if let Some(border) = layout_box.visual.border.top {
+            if let Some((border_width, border_color)) =
+                proof_box_border(layout_box, state, paint_role)
+            {
                 stroke_circle_row(
                     y,
                     row,
-                    rect_x,
-                    rect_y,
-                    width,
-                    height,
-                    border.width.as_u32().unwrap_or(1),
-                    rgba_to_bgra(border.color),
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    border_width,
+                    rgba_to_bgra(border_color),
                 )?;
             }
         }
         nexus_layout_types::ShapeKind::TriangleUp => {
-            if let Some(background) = layout_box.visual.background {
-                fill_triangle_row(y, row, rect_x, rect_y, width, height, true, rgba_to_bgra(background))?;
+            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+                fill_triangle_row(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    true,
+                    rgba_to_bgra(background),
+                )?;
             }
         }
         nexus_layout_types::ShapeKind::TriangleDown => {
-            if let Some(background) = layout_box.visual.background {
-                fill_triangle_row(y, row, rect_x, rect_y, width, height, false, rgba_to_bgra(background))?;
+            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+                fill_triangle_row(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    false,
+                    rgba_to_bgra(background),
+                )?;
             }
         }
         nexus_layout_types::ShapeKind::Path(path) => {
-            let color = layout_box
-                .visual
-                .border
-                .top
-                .map(|border| rgba_to_bgra(border.color))
-                .or_else(|| layout_box.visual.background.map(rgba_to_bgra))
+            let color = proof_box_border(layout_box, state, paint_role)
+                .map(|(_, color)| rgba_to_bgra(color))
+                .or_else(|| proof_box_background(layout_box, state, paint_role).map(rgba_to_bgra))
                 .unwrap_or([0xff, 0xff, 0xff, 0xff]);
-            draw_path_row(y, row, rect_x, rect_y, width, height, path, color)?;
+            draw_path_row(y, row, rect.x, rect.y, rect.width, rect.height, path, color)?;
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ProofBoxRect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl ProofBoxRect {
+    fn contains_y(self, y: u32) -> bool {
+        y >= self.y && y < self.y.saturating_add(self.height)
+    }
+}
+
+fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<ProofBoxRect> {
+    let width = layout_box.rect.width.as_u32().unwrap_or(0);
+    let height = layout_box.rect.height.as_u32().unwrap_or(0);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some(ProofBoxRect {
+        x: PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0),
+        y: PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0),
+        width,
+        height,
+    })
+}
+
+fn proof_box_background(
+    layout_box: &nexus_layout::LayoutBox,
+    state: VisibleState,
+    paint_role: Option<ProofPaintRole>,
+) -> Option<Rgba8> {
+    let Some(role) = paint_role else {
+        return layout_box.visual.background;
+    };
+    let card = role.card.paint(state);
+    match role.part {
+        ProofPaintPart::Root => Some(if card.active {
+            crate::assets::PROOF_CARD_ACTIVE_BG
+        } else {
+            crate::assets::PROOF_CARD_BG
+        }),
+        ProofPaintPart::Icon => Some(card.accent),
+        ProofPaintPart::Dot => Some(if card.active {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            crate::assets::PROOF_CARD_BG
+        }),
+        ProofPaintPart::Glyph => Some(if card.active {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            crate::assets::PROOF_CARD_BORDER
+        }),
+        ProofPaintPart::ScrollUp => Some(if state.wheel_up_visible {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            card.accent
+        }),
+        ProofPaintPart::ScrollDown => Some(if state.wheel_down_visible {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            crate::assets::PROOF_CARD_BORDER
+        }),
+    }
+}
+
+fn proof_box_border(
+    layout_box: &nexus_layout::LayoutBox,
+    state: VisibleState,
+    paint_role: Option<ProofPaintRole>,
+) -> Option<(u32, Rgba8)> {
+    let border = layout_box.visual.border.top?;
+    let width = border.width.as_u32().unwrap_or(1);
+    let color = match paint_role {
+        Some(ProofPaintRole {
+            card,
+            part: ProofPaintPart::Root | ProofPaintPart::Icon,
+        }) => {
+            let paint = card.paint(state);
+            if paint.active {
+                paint.accent
+            } else {
+                crate::assets::PROOF_CARD_BORDER
+            }
+        }
+        _ => border.color,
+    };
+    Some((width, color))
+}
+
+#[derive(Clone, Copy)]
+struct ProofCardPaint {
+    active: bool,
+    accent: Rgba8,
+}
+
+#[derive(Clone, Copy)]
+struct ProofPaintRole {
+    card: ProofCard,
+    part: ProofPaintPart,
+}
+
+#[derive(Clone, Copy)]
+enum ProofCard {
+    Hover,
+    Click,
+    Scroll,
+    Key,
+}
+
+impl ProofCard {
+    fn paint(self, state: VisibleState) -> ProofCardPaint {
+        match self {
+            Self::Hover => ProofCardPaint {
+                active: state.hover_visible,
+                accent: crate::assets::PROOF_HOVER,
+            },
+            Self::Click => ProofCardPaint {
+                active: state.launcher_click_visible,
+                accent: crate::assets::PROOF_CLICK,
+            },
+            Self::Scroll => ProofCardPaint {
+                active: state.wheel_up_visible || state.wheel_down_visible,
+                accent: crate::assets::PROOF_SCROLL,
+            },
+            Self::Key => ProofCardPaint {
+                active: state.keyboard_visible,
+                accent: crate::assets::PROOF_KEYBOARD,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ProofPaintPart {
+    Root,
+    Icon,
+    Dot,
+    Glyph,
+    ScrollUp,
+    ScrollDown,
+}
+
+fn proof_paint_role(id: &str) -> Option<ProofPaintRole> {
+    use ProofCard::{Click, Hover, Key, Scroll};
+    use ProofPaintPart::{Dot, Glyph, Icon, Root, ScrollDown, ScrollUp};
+
+    let (card, part) = match id {
+        "card_hover" => (Hover, Root),
+        "card_hover_icon" => (Hover, Icon),
+        "card_hover_dot" => (Hover, Dot),
+        "card_hover_glyph" => (Hover, Glyph),
+        "card_click" => (Click, Root),
+        "card_click_icon" => (Click, Icon),
+        "card_click_dot" => (Click, Dot),
+        "card_click_glyph" => (Click, Glyph),
+        "card_scroll" => (Scroll, Root),
+        "card_scroll_icon" => (Scroll, Icon),
+        "card_scroll_dot" => (Scroll, Dot),
+        "card_scroll_up" => (Scroll, ScrollUp),
+        "card_scroll_down" => (Scroll, ScrollDown),
+        "card_key" => (Key, Root),
+        "card_key_icon" => (Key, Icon),
+        "card_key_dot" => (Key, Dot),
+        "card_key_glyph" => (Key, Glyph),
+        _ => return None,
+    };
+    Some(ProofPaintRole { card, part })
 }
 
 fn blend_asset_row(
@@ -689,7 +915,8 @@ fn stroke_circle_row(
     stroke: u32,
     bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
-    if width == 0 || height == 0 || stroke == 0 || y < rect_y || y >= rect_y.saturating_add(height) {
+    if width == 0 || height == 0 || stroke == 0 || y < rect_y || y >= rect_y.saturating_add(height)
+    {
         return Ok(());
     }
     let local_y = y - rect_y;
@@ -703,8 +930,9 @@ fn stroke_circle_row(
     for px in 0..width {
         let cx = 2 * px as i64 + 1 - rx;
         let inside_outer = cx * cx * ry * ry + cy * cy * rx * rx <= outer;
-        let inside_inner =
-            inner_rx > 0 && inner_ry > 0 && cx * cx * inner_ry * inner_ry + cy * cy * inner_rx * inner_rx
+        let inside_inner = inner_rx > 0
+            && inner_ry > 0
+            && cx * cx * inner_ry * inner_ry + cy * cy * inner_rx * inner_rx
                 <= inner_rx * inner_rx * inner_ry * inner_ry;
         if inside_outer && !inside_inner {
             let dst_x = x.saturating_add(px);
@@ -753,11 +981,18 @@ fn draw_path_row(
     path: &nexus_layout_types::PathShape,
     bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
-    if width == 0 || height == 0 || path.points.len() < 2 || y < rect_y || y >= rect_y.saturating_add(height) {
+    if width == 0
+        || height == 0
+        || path.points.len() < 2
+        || y < rect_y
+        || y >= rect_y.saturating_add(height)
+    {
         return Ok(());
     }
     for segment in path.points.windows(2) {
-        draw_line_segment_row(y, row, x, rect_y, width, height, segment[0], segment[1], bgra)?;
+        draw_line_segment_row(
+            y, row, x, rect_y, width, height, segment[0], segment[1], bgra,
+        )?;
     }
     if path.closed {
         draw_line_segment_row(
@@ -767,7 +1002,10 @@ fn draw_path_row(
             rect_y,
             width,
             height,
-            *path.points.last().unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
+            *path
+                .points
+                .last()
+                .unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
             path.points[0],
             bgra,
         )?;
@@ -838,9 +1076,25 @@ fn stroke_row_rect_width(
     }
     let stroke = stroke.min(width).min(height);
     fill_row_rect(y, row, x, rect_y, width, stroke, bgra)?;
-    fill_row_rect(y, row, x, rect_y + height.saturating_sub(stroke), width, stroke, bgra)?;
+    fill_row_rect(
+        y,
+        row,
+        x,
+        rect_y + height.saturating_sub(stroke),
+        width,
+        stroke,
+        bgra,
+    )?;
     fill_row_rect(y, row, x, rect_y, stroke, height, bgra)?;
-    fill_row_rect(y, row, x + width.saturating_sub(stroke), rect_y, stroke, height, bgra)
+    fill_row_rect(
+        y,
+        row,
+        x + width.saturating_sub(stroke),
+        rect_y,
+        stroke,
+        height,
+        bgra,
+    )
 }
 
 fn rgba_to_bgra(color: nexus_layout_types::Rgba8) -> [u8; 4] {
@@ -858,7 +1112,9 @@ fn blend_overlay_row(row: &mut [u8], x: usize, source: &[u8]) -> Result<(), Wind
         if alpha == 0 {
             continue;
         }
-        let dst = dst_col.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = dst_col
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         if alpha == 255 {
             row[dst..dst + 4].copy_from_slice(pixel);
             continue;

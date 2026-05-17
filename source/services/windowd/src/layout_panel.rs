@@ -255,18 +255,16 @@ fn card_node(
             item: FlexItem::default(),
         }),
     ];
-    if active {
-        top_row_children.insert(
-            1,
-            shape_node(
-                card_part_id(id, "dot"),
-                12,
-                assets::PROOF_ICON_FG,
-                None,
-                ShapeKind::Circle,
-            ),
-        );
-    }
+    top_row_children.insert(
+        1,
+        shape_node(
+            card_part_id(id, "dot"),
+            12,
+            if active { assets::PROOF_ICON_FG } else { background },
+            None,
+            ShapeKind::Circle,
+        ),
+    );
     if show_scroll {
         top_row_children.push(LayoutNode::Stack(
             Stack {

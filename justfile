@@ -96,7 +96,7 @@ start *args:
     # self-contained interactive path: build first, then keep the same guest
     # alive with the richer breadcrumb ladder.
     make build
-    NEXUS_SKIP_BUILD=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=bringup QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-mouse} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/run-qemu-rv64.sh {{args}}
+    NEXUS_SKIP_BUILD=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=bringup QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-touch} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/run-qemu-rv64.sh {{args}}
     @echo "[hint] just start builds first and keeps QEMU alive with the full interactive breadcrumb ladder."
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that

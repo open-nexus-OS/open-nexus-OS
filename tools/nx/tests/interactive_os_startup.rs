@@ -65,7 +65,10 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
 fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
     let justfile = read_repo_file("justfile");
 
-    assert!(justfile.contains("start *args:"), "`just start` recipe must exist");
+    assert!(
+        justfile.contains("start *args:"),
+        "`just start` recipe must exist"
+    );
     assert!(
         justfile.contains("make build"),
         "`just start` must perform its own build before launching"
@@ -84,10 +87,10 @@ fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
         justfile.contains(concat!(
             "QEMU_PROOF_POINTER_SOURCE=$",
             "{",
-            "QEMU_PROOF_POINTER_SOURCE:-mouse",
+            "QEMU_PROOF_POINTER_SOURCE:-touch",
             "}"
         )),
-        "`just start` must default to the relative mouse path while still allowing an explicit pointer-source override"
+        "`just start` must default to the absolute tablet path while still allowing an explicit pointer-source override"
     );
     assert!(
         justfile.contains("scripts/run-qemu-rv64.sh {{args}}"),
@@ -107,7 +110,10 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
         "opt/org.open-nexus/selftest-mode",
         "opt/org.open-nexus/selftest-profile",
     ] {
-        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
     }
     assert!(
         runner.contains("RUN_TIMEOUT=0") || runner.contains("\"$RUN_TIMEOUT\" == \"0\""),
@@ -128,7 +134,10 @@ fn interactive_minimal_timeout_is_only_accepted_after_scene_ready() {
         "\"$QEMU_MARKER_LEVEL\" == \"minimal\"",
         "| tee >(monitor_uart) >(monitor_agent_uart) \\",
     ] {
-        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
     }
 }
 
@@ -152,7 +161,7 @@ fn interactive_qemu_exposes_keyboard_and_pointer_devices() {
 }
 
 #[test]
-fn just_start_defaults_to_mouse_relative_pointer_source_for_live_host_input() {
+fn just_start_defaults_to_absolute_tablet_pointer_source_for_live_host_input() {
     let justfile = read_repo_file("justfile");
     let runner = read_repo_file("scripts/run-qemu-rv64.sh");
 
@@ -160,17 +169,17 @@ fn just_start_defaults_to_mouse_relative_pointer_source_for_live_host_input() {
         justfile.contains(concat!(
             "QEMU_PROOF_POINTER_SOURCE=$",
             "{",
-            "QEMU_PROOF_POINTER_SOURCE:-mouse",
+            "QEMU_PROOF_POINTER_SOURCE:-touch",
             "}"
         )),
-        "`just start` must default to mouse-relative input so GTK host movement produces hidrawd raw ingress"
+        "`just start` must default to absolute tablet input so GTK host movement does not depend on relative pointer grab"
     );
     assert!(
         runner.contains("QEMU_PROOF_POINTER_SOURCE")
-            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH=0")
-            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE=1")
-            && runner.contains("-device virtio-mouse-device"),
-        "the runner must map the selected mouse pointer source to a single relative virtio mouse device"
+            && runner.contains("NEXUS_PROFILE_INPUT_TOUCH=1")
+            && runner.contains("NEXUS_PROFILE_INPUT_MOUSE=0")
+            && runner.contains("-device virtio-tablet-device"),
+        "the runner must map the selected touch pointer source to a single absolute virtio tablet device"
     );
 }
 
@@ -334,7 +343,11 @@ fn kernel_linker_keeps_private_selftest_stack() {
     let base = read_map_symbol(&map, "__selftest_stack_base");
     let top = read_map_symbol(&map, "__selftest_stack_top");
 
-    assert_eq!(base - guard_lo, 0x1000, "selftest stack low guard must be one page");
+    assert_eq!(
+        base - guard_lo,
+        0x1000,
+        "selftest stack low guard must be one page"
+    );
     assert_eq!(top - base, 0x8000, "private selftest stack must be 32 KiB");
 }
 
@@ -433,7 +446,10 @@ fn hidrawd_service_owns_periodic_chain_fps_telemetry() {
         "rebinds={}",
         "idle_yields={}",
     ] {
-        assert!(hidrawd.contains(needle), "`hidrawd` service telemetry must include `{needle}`");
+        assert!(
+            hidrawd.contains(needle),
+            "`hidrawd` service telemetry must include `{needle}`"
+        );
     }
 }
 
@@ -503,7 +519,10 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "kbd_deliv={}",
         "idle_yields={}",
     ] {
-        assert!(inputd.contains(needle), "`inputd` service telemetry must include `{needle}`");
+        assert!(
+            inputd.contains(needle),
+            "`inputd` service telemetry must include `{needle}`"
+        );
     }
 }
 
@@ -951,6 +970,27 @@ fn inputd_live_visible_feedback_exposes_transient_wheel_direction_indicators() {
 }
 
 #[test]
+fn windowd_keeps_cursor_motion_out_of_layout_recompute_hot_path() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+
+    assert!(
+        windowd.contains("let old_targets = target_state_bits(self.state);")
+            && windowd.contains("let new_targets = target_state_bits(self.state);")
+            && windowd.contains("if new_targets != old_targets")
+            && windowd.contains("Target state only changes paint, not geometry")
+            && windowd.contains("if !rect.contains_y(y)")
+            && windowd.contains("layout_box.id.and_then(proof_paint_role)")
+            && windowd.contains("proof_box_background(layout_box, state, paint_role)")
+            && !windowd.contains("compute_proof_layout(self.state)"),
+        "windowd must not rebuild the layout tree for live mouse target transitions on the OS bump allocator"
+    );
+    assert!(
+        !windowd.contains("starts_with(\"card_"),
+        "proof-panel live paint classification must use exact ids instead of repeated prefix scans"
+    );
+}
+
+#[test]
 fn interactive_end_phase_uses_polled_visible_state_as_observer_seam() {
     let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
 
@@ -1019,9 +1059,12 @@ fn visible_bootstrap_harness_requires_service_owned_display_markers() {
     let harness = read_repo_file("scripts/qemu-test.sh");
     let ui_markers = read_repo_file("source/apps/selftest-client/proof-manifest/markers/ui.toml");
 
-    for marker in
-        ["fbdevd: ready", "fbdevd: map ok", "fbdevd: ramfb configured", "fbdevd: flush ok"]
-    {
+    for marker in [
+        "fbdevd: ready",
+        "fbdevd: map ok",
+        "fbdevd: ramfb configured",
+        "fbdevd: flush ok",
+    ] {
         assert!(
             harness.contains(marker),
             "visible-bootstrap ladder must require service-owned display marker `{marker}`"
