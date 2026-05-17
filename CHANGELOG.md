@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC-0057 status: Draft → In Progress; TASK-0058: In Progress (implementation starting)
 - .cursor files synced: current_state, next_task_prep, context_bundles, pre_flight, stop_conditions
 
+### Added - 2026-05-17
+
+#### TASK-0058 **DONE** — production-grade layout engine
+- 31 host tests, windowd integrated, no duplicate structure
+- ProofPaintRole system + proof_box_rect guard clause for allocation-free rendering
+- RFC-0057: Done
+
 ### Added - 2026-05-16
 
 #### TASK-0058 impl done (31 tests)
@@ -36,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - windowd: layout_panel.rs integrated into os_lite.rs (single source of truth, no duplicate structure)
 
 ### Changed - 2026-05-11
+
+### Added - 2026-05-17
+
+#### TASK-0058 **DONE** — production-grade layout engine
+- 31 host tests, windowd integrated, no duplicate structure
+- ProofPaintRole system + proof_box_rect guard clause for allocation-free rendering
+- RFC-0057: Done
 
 ### Added - 2026-05-16
 

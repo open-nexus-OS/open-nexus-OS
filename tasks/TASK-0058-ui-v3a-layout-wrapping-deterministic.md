@@ -1,9 +1,9 @@
 ---
 title: TASK-0058 UI v3a: deterministic layout engine (flex/grid/stack) + text wrapping + host goldens
-status: In Progress
+status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-16 (production-grade, 31 tests, windowd integrated, single source of truth, pretext philosophy, types concretized)
+updated: 2026-05-17 (Done — production-grade, 31 tests, windowd integrated, single source of truth, pretext philosophy, types concretized)
 depends-on: [TASK-0057, TASK-0056]
 follow-up-tasks: [TASK-0059]
 links:

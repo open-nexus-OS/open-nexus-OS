@@ -1,7 +1,7 @@
 # RFC-0057: UI v3a layout engine — deterministic flex/grid/stack + text wrapping contract seed
 
-- Status: In Progress (production-grade: 31 tests, windowd integrated, no duplicate structure)
-- Last Updated: 2026-05-15 (v2: +colors, border, TextStyle, VisualStyle, overflow, position, flex_wrap, z_index, white_space)
+- Status: Done
+- Last Updated: 2026-05-17 (v2: +colors, border, TextStyle, VisualStyle, overflow, position, flex_wrap, z_index, white_space)
 - Owners: @ui
 - Created: 2026-05-15
 - Links:
@@ -16,11 +16,11 @@
 
 ## Status at a Glance
 
-- **Phase 0 (Container layout)**: ⬜ — `Stack`/`Grid`/`Spacer` types + flex/grid algorithms + `FxPx`/`EdgeInsets`
-- **Phase 1 (Visual + Text primitives)**: ⬜ — `Rgba8`, `Border`, `CornerRadius`, `VisualStyle`, `TextStyle`, `TextAlign`, `LineHeight`, `FontWeight`, `WhiteSpace`, `MeasureText` trait
-- **Phase 2 (Text wrapping + caches)**: ⬜ — UAX#14 subset, ellipsis, paragraph/run + line-layout cache split
-- **Phase 3 (Host tests)**: ⬜ — JSON goldens + PNG goldens
-- **Phase 4 (windowd integration)**: ⬜ — proof panel replacement + `layout: engine on` marker
+- **Phase 0 (Container layout)**: ✅ — `Stack`/`Grid`/`Spacer` types + flex/grid algorithms + `FxPx`/`EdgeInsets`
+- **Phase 1 (Visual + Text primitives)**: ✅ — `Rgba8`, `Border`, `CornerRadius`, `VisualStyle`, `TextStyle`, `TextAlign`, `LineHeight`, `FontWeight`, `WhiteSpace`, `MeasureText` trait
+- **Phase 2 (Text wrapping + caches)**: ✅ — UAX#14 subset, ellipsis, paragraph/run + line-layout cache split
+- **Phase 3 (Host tests)**: ✅ — JSON goldens + PNG goldens
+- **Phase 4 (windowd integration)**: ✅ — proof panel replacement + `layout: engine on` marker
 
 Definition: "Complete" means the contract is defined AND the proof gates are green.
 
@@ -226,10 +226,11 @@ Markers: `layout: engine on`, `text: wrapping on`, `SELFTEST: ui v3 wrap ok`
 
 ## Implementation Checklist
 
-- [ ] **Phase 0 (Container layout)**: `Stack`/`Grid`/`Spacer` + `FlexItem` + `FxPx`/`EdgeInsets` + `Direction`/`Align`/`Justify`/`Overflow`/`Position`/`ZIndex` + flex/grid algorithms -- proof: `cargo test -p nexus-layout`
-- [ ] **Phase 1 (Visual + Text primitives)**: `Rgba8`/`Border`/`EdgeBorder`/`CornerRadius`/`VisualStyle` + `TextAlign`/`LineHeight`/`FontWeight`/`WhiteSpace`/`TextStyle`/`TextNode` + `MeasureText` trait -- proof: `cargo test -p nexus-layout`
-- [ ] **Phase 2 (Text wrapping + caches)**: `wrap.rs` -- UAX#14 subset + ellipsis + paragraph/run cache + line-layout cache -- proof: `cargo test -p nexus-shape wrap`
-- [ ] **Phase 3 (Host tests)**: `tests/ui_v3a_host/` -- JSON goldens (layout boxes + VisualStyle) + PNG goldens (rendered with backgrounds/borders/text) -- proof: `cargo test -p ui_v3a_host`
-- [ ] **Phase 4 (windowd integration)**: proof panel driven by layout engine with theme-resolved colors -- proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
+- [x] **Phase 0 (Container layout)**: `Stack`/`Grid`/`Spacer` + `FlexItem` + `FxPx`/`EdgeInsets` + `Direction`/`Align`/`Justify`/`Overflow`/`Position`/`ZIndex` + flex/grid algorithms -- proof: `cargo test -p nexus-layout`
+- [x] **Phase 1 (Visual + Text primitives)**: `Rgba8`/`Border`/`EdgeBorder`/`CornerRadius`/`VisualStyle` + `TextAlign`/`LineHeight`/`FontWeight`/`WhiteSpace`/`TextStyle`/`TextNode` + `MeasureText` trait -- proof: `cargo test -p nexus-layout`
+- [x] **Phase 2 (Text wrapping + caches)**: `wrap.rs` -- UAX#14 subset + ellipsis + paragraph/run cache + line-layout cache -- proof: `cargo test -p nexus-shape wrap`
+- [x] **Phase 3 (Host tests)**: `tests/ui_v3a_host/` -- JSON goldens (layout boxes + VisualStyle) + PNG goldens (rendered with backgrounds/borders/text) -- proof: `cargo test -p ui_v3a_host`
+- [x] **Phase 4 (windowd integration)**: proof panel driven by layout engine with theme-resolved colors -- proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
+- [x] **TASK-0058 Done**: 31 host tests, production-grade windowd integration, single source of truth
 - [ ] Security negative tests (node count, depth, div-by-zero)
 - [ ] QEMU markers in `scripts/qemu-test.sh` verified

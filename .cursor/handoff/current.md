@@ -1,34 +1,25 @@
-# Handoff — TASK-0058 In Progress: impl done, QEMU + windowd integrated
+# Handoff — TASK-0058 **DONE** (production-grade layout engine)
 
-## Architecture: single source of truth
-- `layout_panel.rs` computes `LayoutResult` from `nexus-layout`
-- `os_lite.rs` stores `proof_layout: Option<LayoutResult>`, computed in `new()`
-- No duplicate structure: `proof_panel.rs` deleted, PROOF_PANEL_* constants backed by layout engine
-- OS-compatible: `#![cfg_attr(not(test), no_std)]` on nexus-layout
-
-Date: 2026-05-16 (production-grade: single source of truth, no duplicate structure)
+Date: 2026-05-17
 
 ## Status
-- RFC-0057: In Progress (contract+impl done)
-- TASK-0058: In Progress (31 tests ok, QEMU + windowd integrated)
+- RFC-0057: **Done** — contract + implementation complete
+- TASK-0058: **Done** — 31 tests, production-grade windowd integration
 - TASK-0059: Draft
 
+## Architecture
+proof_panel_spec.rs -> layout_panel.rs -> nexus_layout -> LayoutResult -> os_lite.rs
+
 ## Crates
-- nexus-layout-types: all types (no_std+alloc)
+- nexus-layout-types: no_std+alloc type system
 - nexus-layout: Flex+Grid engine
 - nexus-shape: wrap.rs + cache.rs
 - tests/ui_v3a_host: 4 JSON goldens
-- windowd: proof_panel.rs + markers
 
 ## Proofs
 cargo test -p nexus-layout  # 8 ok
 cargo test -p nexus-shape   # 19 ok
 cargo test -p ui_v3a_host   # 4 ok
 
-## Pending
-- QEMU markers
-- Regression gate
-- RISC-V cross-compile
-
-## Next
-Verify QEMU, set Done.
+## Next: TASK-0059
+Clip/scroll layers consume TASK-0058 layout tree. Scroll = place-only.

@@ -3,7 +3,7 @@ title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (
 status: Draft
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-15 (RFC-0057 dependency clarified — v3b consumes v3a layout tree)
+updated: 2026-05-17 (TASK-0058 Done — ready to start) — v3b consumes v3a layout tree)
 depends-on: [TASK-0058]
 follow-up-tasks: []
 links:

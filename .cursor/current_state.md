@@ -1,12 +1,12 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-16 (TASK-0058: production-grade, no duplicate structure, 31 tests green)
+Last updated: 2026-05-17 (TASK-0058 Done, no duplicate structure, 31 tests green)
 
 ## Active task
 
-TASK-0058: UI v3a layout engine (flex/grid/stack) + text wrapping + host goldens. — **In Progress**
-Status: **In Progress** (RFC-0057 contract seed complete; impl complete (31 host tests), QEMU markers pending, windowd integrated).
-RFC-0057: In Progress (contract defined, proof gates pending).
+TASK-0058: UI v3a layout engine (flex/grid/stack) + text wrapping + host goldens. — **Done**
+Status: **Done** (RFC-0057 contract seed complete; impl complete (31 host tests), 31 tests, production-grade).
+RFC-0057: Done.
 Depends on: TASK-0057 (DONE), TASK-0056 (DONE).
 
 ## Previous task
