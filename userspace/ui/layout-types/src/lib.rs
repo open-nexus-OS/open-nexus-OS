@@ -29,6 +29,8 @@ pub use border::{Border, CornerRadius, EdgeBorder, PathPoint, PathShape, ShapeKi
 pub use color::Rgba8;
 pub use direction::{Align, Direction, Justify, Overflow, Position, ZIndex};
 pub use measure::{LineLayout, LineMetrics, MeasureText, PreparedTextHandle};
-pub use node::{FlexItem, Fraction, Grid, LayoutNode, Spacer, Stack, TextContent, TextNode};
+pub use node::{
+    FlexItem, Fraction, Grid, LayoutNode, Spacer, Stack, TextContent, TextInputNode, TextNode,
+};
 pub use text::{FontWeight, LineHeight, TextAlign, TextStyle, WhiteSpace};
 pub use types::{EdgeInsets, FxPx, Rect};

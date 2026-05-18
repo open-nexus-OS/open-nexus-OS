@@ -85,6 +85,38 @@ pub struct TextNode {
     pub max_width: Option<FxPx>,
 }
 
+/// A text input node with editable content, caret position, and focus state.
+/// Behaves like `TextNode` for layout (fixed height based on font_size).
+/// Keyboard events are routed to the focused `TextInput` via `windowd` → `inputd`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextInputNode {
+    pub id: Option<&'static str>,
+    pub content: TextContent,
+    pub cursor_pos: usize,
+    pub placeholder: Option<TextContent>,
+    pub max_length: Option<u32>,
+    pub style: TextStyle,
+    pub item: FlexItem,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
+}
+
+impl Default for TextInputNode {
+    fn default() -> Self {
+        Self {
+            id: None,
+            content: TextContent::new(""),
+            cursor_pos: 0,
+            placeholder: None,
+            max_length: None,
+            style: TextStyle::default(),
+            item: FlexItem::default(),
+            min_width: None,
+            max_width: None,
+        }
+    }
+}
+
 /// The layout tree with VisualStyle on containers and text nodes.
 /// VisualStyle is separate from layout properties — paint-only invalidation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +125,7 @@ pub enum LayoutNode {
     Grid(Grid, VisualStyle, Vec<LayoutNode>),
     Spacer(Spacer),
     Text(TextNode, VisualStyle),
+    TextInput(TextInputNode, VisualStyle),
 }
 
 impl Default for FlexItem {
@@ -187,6 +220,7 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => grid.id,
             LayoutNode::Spacer(spacer) => spacer.id,
             LayoutNode::Text(text, _) => text.id,
+            LayoutNode::TextInput(input, _) => input.id,
         }
     }
 
@@ -196,6 +230,7 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => &grid.item,
             LayoutNode::Spacer(spacer) => &spacer.item,
             LayoutNode::Text(text, _) => &text.item,
+            LayoutNode::TextInput(input, _) => &input.item,
         }
     }
 
@@ -205,6 +240,9 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => grid.min_width.or(grid.item.min_width),
             LayoutNode::Spacer(spacer) => spacer.min_size.or(spacer.item.min_width),
             LayoutNode::Text(text, _) => text.min_width.or(text.item.min_width),
+            LayoutNode::TextInput(input, _) => {
+                input.min_width.or(input.item.min_width)
+            }
         }
     }
 
@@ -214,6 +252,9 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => grid.max_width.or(grid.item.max_width),
             LayoutNode::Spacer(spacer) => spacer.item.max_width,
             LayoutNode::Text(text, _) => text.max_width.or(text.item.max_width),
+            LayoutNode::TextInput(input, _) => {
+                input.max_width.or(input.item.max_width)
+            }
         }
     }
 }

@@ -1,211 +1,102 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-17 (TASK-0058 Done, no duplicate structure, 31 tests green)
+Last updated: 2026-05-18 (TASK-0059 phases 0-4 Done, 76 tests green, dep-gate PASS)
 
 ## Active task
 
 TASK-0059: UI v3b clip/scroll/effects + IME stub + filter-box. — **In Progress**
-Status: **In Progress** (RFC-0058 contract seed created; filter-box proof element defined).
-RFC-0058: In Progress (contract defined, proof gates pending).
+Status: Phases 0-4 complete. Phase 5 (OS marker wiring) pending.
+RFC-0058: Phases 0-4 checked, Phase 5 pending.
 Depends on: TASK-0058 (DONE).
 
-## Previous task
+## What TASK-0059 delivered
 
-TASK-0058: UI v3a layout engine (flex/grid/stack) + text wrapping + host goldens. — **Done**
-Status: **Done** (RFC-0057 contract seed complete; impl complete (31 host tests), 31 tests, production-grade).
-RFC-0057: Done.
-Depends on: TASK-0057 (DONE), TASK-0056 (DONE).
+### Phase 0: Clip + Scroll
+- `LayoutBox` extended with `clip_rect: Option<Rect>`, `scroll_offset: (FxPx, FxPx)`, `overflow: Overflow`
+- `Overflow::Hidden` containers propagate scissor rects to children
+- `compute_scroll_damage()`: bounded (≤2 rects), allocation-free, deterministic
+- `LayoutResult::reposition_scroll()`: place-only reposition (no remeasure), shifts children by scroll delta
 
-## Previous task
+### Phase 1: TextInput + Filter-Box
+- `TextInputNode` type: content, cursor_pos, placeholder, max_length; added to `LayoutNode` enum
+- `filter_words(prefix) -> Vec<&str>`: case-insensitive filter on 15-word static list
+- Filter-box layout tree: TextInput + `Overflow::Hidden` scrollable filtered word list
+- Proof panel restructured: 3 cards (hover/click/key) in vertical column; filter-box in right column
+- Panel dimensions: 640×290 (was 610×260)
 
-TASK-0057: UI v2b asset pipeline + manifest v2.0 + windowd IPC service. — **DONE** (2026-05-15)
-Status: **DONE** (Minimal DisplayServer v0 complete).
-RFC-0056: Done (TASK-0057 delivered).
+### Phase 2: Effects
+- New `nexus-effects` crate (`userspace/ui/effects/`): `blur`, `shadow`, `budget`, `cache`, `cursor_blink`
+- `blur_3x3` and `blur_1x3_horizontal`: integer-only box blur
+- `composite_drop_shadow`: offset, alpha mask, blur, composite onto target
+- `EffectBudget`: per-frame pixel cap with `try_reserve` and deterministic degrade
+- `EffectCache`: LRU cache with fixed capacity
+- `CursorBlink`: frame-count-based caret blink timer
 
-## Completed phases
+### Phase 3: IME Stub
+- New `imed` service (`source/services/imed/`): `ImedService`, `TextFocus`, `CaretSelection`
+- Focus routing: `set_focus(surface_id)`, `clear_focus()`
+- Caret movement clamped to text length; selection range helpers
+- 6 unit tests, `imed: ready` marker constant
 
-### Phase 0-2: Asset Crates + Integration
-- Phase 0: Resource directory + nexus-theme crate (26 tests)
-- Phase 1a: nexus-svg crate — no_std cross-compile fixed (15 tests)
-- Phase 1b: nexus-image crate (10 tests)
-- Phase 1c: nexus-shape crate — variable font support, recursive font loading (13 tests)
-- Phase 2a: nexus-cursor crate (4 tests)
-- Phase 2b: Renderer draw.rs integration
-- Phase 2c: QEMU markers wired (observer-only)
-- Git submodules: mocu-xcursor (CC0), lucide-icons (ISC), inter (SIL OFL)
+### Phase 4: Host Tests
+- New `tests/ui_v3b_host/` crate: 23 tests
+- Scroll damage: empty delta, down/up, horizontal
+- Clip: Overflow::Hidden sets clip_rect, Visible passes through
+- filter_words: exact match, case-insensitive, empty, no match, prefix
+- Filter-box: layout contains TextInput + filter_list, child count matches filter
+- Scroll reposition: shifts children, produces damage
+- Effects: budget reserve/exhaust/reset/fraction, blur identity, cursor blink toggle/reset
 
-### Phase 3: Cursor Live-Blending (fbdevd)
-- 3a: cursor_bitmap in DisplayPresentHandoff + VisibleSystemUiEvidence
-- 3b: FbdevService stores bitmap, blend_cursor_row() BGRA8888 alpha blending
-- 3c: write_live_visible_rows() blends cursor at (cursor_x, cursor_y) from VisibleState
-- Marker: `fbdevd: cursor overlay on`
-- 83/83 host tests pass (windowd 29, fbdevd 25, nexus-shape 13, nexus-svg 15, nexus-cursor 4, nexus-image 10, nexus-theme 26 removed = wait, let me recount)
+## Files changed/created
 
-### Phase 4a: manifest.capnp v2.0
-- Schema extended: bundleType (app|service|library|driver|framework), dependencies, providedServices, resources (6 ResourceKind values)
-- nxb-pack updated: TOML → capnp binary with v2.0 fields
-- Service manifests created for windowd (library), fbdevd, inputd, bundlemgrd
-- schema_version = 2
+### New files
+- `userspace/ui/effects/Cargo.toml`, `src/lib.rs`, `src/blur.rs`, `src/shadow.rs`, `src/budget.rs`, `src/cache.rs`, `src/cursor_blink.rs`
+- `source/services/imed/Cargo.toml`, `src/lib.rs`, `src/main.rs`
+- `tests/ui_v3b_host/Cargo.toml`, `src/lib.rs`
 
-### Phase 4b: Service Auto-Discovery
-- scripts/discover-services.sh: reads cargo metadata, filters [package.metadata.nexus-service]
-- Modes: --list, --build-args, --env-vars, --dep-gate-list
-- 24 Cargo.tomls updated with [package.metadata.nexus-service] (stack_pages, kind)
-- Makefile: 4 hardcoded service lists replaced with auto-discovery
-- OS_SKIP filter for services not yet cross-compilable (identityd, debugsvc, virtioblkd)
-- kind=library filter (windowd not built as standalone binary)
-- Host tests: 4/4 nx::init_lite_input_service_startup pass
-- make clean && make build && make test MODE=host: ALL GREEN
-
-## Architecture decisions (OHOS-aligned)
-
-```
-windowd = library (used by fbdevd, inputd) — NOT a standalone service
-fbdevd  = service (scanout owner, depends on windowd)
-inputd  = service (input routing, depends on windowd)
-
-Display chain: hidrawd → inputd → fbdevd → ramfb
-  windowd is a library call within fbdevd (bootstrap_display_handoff)
-  and within inputd (LiveRouteRuntime WindowServer)
-```
-
-### Phase 4c: Cursor Feature Propagation Fix (2026-05-14)
-
-**Root cause found**: `fbdevd/Cargo.toml` declared `windowd = { path = "../windowd" }` without
-`features = ["os-lite"]`. Cargo features are not transitive — `fbdevd` with `--features os-lite`
-did NOT enable `windowd/os-lite`. This meant:
-- `windowd/src/render_assets.rs` never compiled for the OS target
-- `run_visible_systemui_smoke()` always took the `#[cfg(not(...))]` branch → `cursor_bitmap = None`
-- `blend_cursor_row()` never called → `fbdevd: cursor overlay on` never emitted
-- SVG cursor never appeared on display
-
-**Fix**: Added `"windowd/os-lite"` to `fbdevd`'s `os-lite` feature list. Now `cursor_bitmap`
-flows: `render_cursor_surface()` → `DisplayPresentHandoff` → `FbdevService` → `blend_cursor_row()`.
-
-**Two competing WindowServer instances identified**:
-- `windowd` standalone service creates WindowServer #1 (renders SVG, emits `cursor svg loaded`,
-  but frame never consumed by fbdevd)
-- `fbdevd` → `bootstrap_display_handoff()` creates WindowServer #2 (via `run_visible_systemui_smoke`,
-  provides cursor_bitmap to fbdevd for live blending)
-- Phase 5 (windowd IPC service) is supposed to consolidate these.
-
-**JPEG wallpaper**: Not yet integrated into compositor. `nexus_image::decode_image()` exists but
-nobody calls it in the display chain. Requires adding `nexus-image` dep to windowd/systemui
-and composing wallpaper as background layer. Scoped as follow-up.
-
-**TASK-0057 markers not in test ladder**: `qemu-test.sh` visible-bootstrap ladder ends at
-`SELFTEST: ui visible wheel ok`. TASK-0057 markers (`cursor svg loaded`, `cursor overlay on`,
-`ui v2b assets ok`) are NOT checked. Marker manifest defines them but no test enforces them.
-
-## Pending: Phase 5 (windowd as IPC service)
-
-### 5a: windowd IPC service main loop
-- os_lite::service_main_loop() handles: OP_CREATE_SURFACE, OP_COMMIT_SCENE, OP_GET_COMPOSED_FRAME
-- Cursor position tracking from inputd IPC
-- Composes full scene including cursor at live position
-
-### 5b: inputd → windowd cursor position IPC
-- inputd sends CURSOR_POSITION(x, y) via cap-based IPC each frame
-- inputd removes own WindowServer (delegates to windowd)
-
-### 5c: fbdevd scanout-only
-- fbdevd queries windowd (not inputd) for composed frame
-- Removes own cursor blending (now done by windowd)
-- Becomes pure "dumb scanout owner"
-
-### Phase 5 tests needed
-- IPC contract tests: windowd create_surface, commit_scene, get_composed_frame
-- inputd → windowd cursor position IPC test
-- fbdevd → windowd composed frame query test
-- Service contract: blend_cursor_row → correct pixels at (x,y)
-
-### Phase 5 docs needed
-- docs/architecture/display-output-service-chain.md: update with windowd service
-- ADR update: windowd library → service migration
-- manifest.capnp comments: document v2.0 usage
-
-##
-
-### 5a: windowd IPC service main loop
-- os_lite::service_main_loop() handles: OP_CREATE_SURFACE, OP_COMMIT_SCENE, OP_GET_COMPOSED_FRAME
-- Cursor position tracking from inputd IPC
-- Composes full scene including cursor at live position
-
-### 5b: inputd → windowd cursor position IPC
-- inputd sends CURSOR_POSITION(x, y) via cap-based IPC each frame
-- inputd removes own WindowServer (delegates to windowd)
-
-### 5c: fbdevd scanout-only
-- fbdevd queries windowd (not inputd) for composed frame
-- Removes own cursor blending (now done by windowd)
-- Becomes pure "dumb scanout owner"
-
-### Phase 5 tests needed
-- IPC contract tests: windowd create_surface, commit_scene, get_composed_frame
-- inputd → windowd cursor position IPC test
-- fbdevd → windowd composed frame query test
-- Service contract: blend_cursor_row → correct pixels at (x,y)
-
-### Phase 5 docs needed
-- docs/architecture/display-output-service-chain.md: update with windowd service
-- ADR update: windowd library → service migration
-- manifest.capnp comments: document v2.0 usage
+### Modified files
+- `userspace/ui/layout/src/engine.rs`: LayoutBox fields, clip propagation, scroll offset, reposition_scroll, TextInput handling
+- `userspace/ui/layout/src/lib.rs`: ScrollDamage export
+- `userspace/ui/layout-types/src/node.rs`: TextInputNode type, LayoutNode::TextInput variant
+- `userspace/ui/layout-types/src/lib.rs`: TextInputNode export
+- `source/services/windowd/src/layout_panel.rs`: filter-box layout tree, build_filter_box(), updated panel dimensions
+- `source/services/windowd/src/proof_panel_spec.rs`: filter_words(), FILTER_WORDS, duplicate copyright fix
+- `source/services/windowd/src/markers.rs`: 12 new v3b markers
+- `source/services/windowd/src/lib.rs`: new exports (filter_words, FILTER_WORDS, markers)
+- `source/services/windowd/src/os_lite.rs`: compute_proof_layout signature update
+- `tests/ui_v3a_host/src/lib.rs`: signature updates, TextInput match arm, scroll-card test updated
+- `Cargo.toml`: workspace members (nexus-effects, ui_v3b_host)
+- `CHANGELOG.md`: TASK-0059 entry
+- `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`: checklist + status updates
 
 ## Proofs
 
 ```bash
-cargo test -p nexus-theme    # 26/26
-cargo test -p nexus-svg      # 15/15
-cargo test -p nexus-image    # 10/10
-cargo test -p nexus-shape    # 13/13
-cargo test -p nexus-cursor   # 4/4
-cargo test -p windowd        # 29/29
-cargo test -p fbdevd         # 25/25
-cargo test -p nxb-pack       # 1/1
-cargo test -p nx --test init_lite_input_service_startup  # 4/4
-make clean && make build MODE=host && make test MODE=host  # ALL GREEN
-just dep-gate                # PASS
+cargo test -p nexus-layout       # 8/8
+cargo test -p nexus-layout-types # (0 doc tests)
+cargo test -p nexus-effects      # (0 doc tests)
+cargo test -p windowd            # 29/29
+cargo test -p imed               # 6/6
+cargo test -p ui_v3a_host        # 10/10
+cargo test -p ui_v3b_host        # 23/23
+just dep-gate                    # PASS
 ```
 
-## Files changed (this cycle)
+## Pending
 
-### Phase 3 (cursor blending)
-- source/services/windowd/src/smoke.rs (cursor_bitmap in evidence)
-- source/services/windowd/src/display_backend.rs (cursor fields in handoff)
-- source/services/windowd/src/os_lite.rs (cursor commit + service loop)
-- source/services/fbdevd/src/service.rs (cursor bitmap storage)
-- source/services/fbdevd/src/backend/framebuffer.rs (blend_cursor_row)
-- source/services/fbdevd/src/os_lite.rs (live blending)
-- source/services/fbdevd/src/markers.rs (CURSOR_OVERLAY_ON_MARKER)
-- source/apps/selftest-client/proof-manifest/markers/ui.toml
+### Phase 5: OS marker wiring
+- Wire 12 new markers in `os_lite.rs` render path
+- Add markers to `selftest-client/proof-manifest/markers/ui.toml`
+- QEMU visible-bootstrap proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
+- Keyboard routing wire-up (inputd → windowd → filter-box TextInput)
 
-### Phase 3 (no_std fixes)
-- userspace/ui/svg/src/lib.rs (#[macro_use] extern crate alloc)
-- userspace/ui/svg/src/parse.rs (clean imports)
-- userspace/ui/svg/src/tessellate.rs (vec! macro import)
-- userspace/ui/svg/src/raster.rs (vec! macro import)
+## Architecture decisions
 
-### Phase 4a (manifest v2.0)
-- tools/nexus-idl/schemas/manifest.capnp (BundleType, Dependency, Resource, ResourceKind)
-- tools/nxb-pack/src/main.rs (v2.0 TOML → capnp compilation)
-- resources/manifests/ (new: windowd, fbdevd, inputd, bundlemgrd manifests)
-
-### Phase 4b (auto-discovery)
-- scripts/discover-services.sh (new)
-- 24 source/services/*/Cargo.toml ([package.metadata.nexus-service])
-- source/apps/selftest-client/Cargo.toml (metadata)
-- Makefile (auto-discovery replaces 4 hardcoded lists)
-- tools/nx/tests/init_lite_input_service_startup.rs (updated for auto-discovery)
-
-### Docs
-- docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md (Phase 3-5 scope)
-- tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md (extended)
-- .cursor/current_state.md (this file)
-- .cursor/handoff/current.md (updated)
-
-## Known risks
-- DON'T add prints/logs/markers in kernel
-- windowd used as LIBRARY by fbdevd/inputd — Phase 5 changes this
-- GTK-based visible-bootstrap tests require X11/Wayland display
-- identityd/debugsvc/virtioblkd excluded from OS build (OS_SKIP)
-- manifest.capnp v2.0 schema needs bundlemgrd parser update (deferred)
+| Decision | Rationale |
+|----------|-----------|
+| Clip rects ARE layout boxes | No separate clip tree; `Overflow::Hidden` on container → clip_rect = content rect |
+| Scroll = place-only | Layout boxes from v3a reused; no remeasure or text reshape on scroll |
+| filter_box_right column | Added to right of cards; hover/click/key cards in vertical column; scroll card replaced by actual scrollable list |
+| Effects as separate crate | Independent of layout engine; consumed by windowd renderer |
+| imed as new service | Separate from `ime` (TASK-0253); focus routing + caret helpers |
+| Bump-allocator safety | `reposition_scroll` mutates existing boxes, no allocation |

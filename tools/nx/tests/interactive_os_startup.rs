@@ -220,7 +220,7 @@ fn qemu_test_harness_stays_in_proof_mode_for_visible_bootstrap() {
 }
 
 #[test]
-fn qemu_test_harness_only_requires_hidrawd_live_payload_when_display_bootstrap_is_on() {
+fn qemu_test_harness_keeps_input_startup_end_marker_on_inputd_with_display_bootstrap() {
     let harness = read_repo_file("scripts/qemu-test.sh");
 
     assert!(
@@ -232,8 +232,8 @@ fn qemu_test_harness_only_requires_hidrawd_live_payload_when_display_bootstrap_i
     assert!(
         harness.contains("if [[ \"${NEXUS_DISPLAY_BOOTSTRAP:-0}\" == \"1\" ]]; then")
             && harness.contains("INPUT_STARTUP_MARKERS+=(\"hidrawd: os service payload ready\")")
-            && harness.contains("PHASE_END_MARKER[\"input-startup\"]=\"inputd: os service payload ready\""),
-        "headless profiles must not fail on hidrawd live payload markers when the runner did not expose virtio-input devices"
+            && harness.contains("[\"input-startup\"]=\"inputd: os service payload ready\""),
+        "visible-bootstrap must extend the startup ladder with hidrawd without ending the phase before inputd is live"
     );
     assert!(
         harness.contains("\"${INPUT_STARTUP_MARKERS[@]}\""),
@@ -679,7 +679,7 @@ fn visible_bootstrap_runner_injects_real_input_through_qmp() {
             && injector.contains("wait_for_uart_marker")
             && injector.contains("QEMU_UART_LOG_PATH")
             && injector.contains("QEMU_INPUT_INJECT_WAIT_MARKER")
-            && injector.contains("SELFTEST: ui visible present ok")
+            && injector.contains("windowd: present visible ok")
             && injector.contains("proof_prefers_single_pointer_source")
             && injector.contains("QEMU_ABS_MAX = 32767")
             && injector.contains("HOVER_TARGET_ROUTE_X = 8")

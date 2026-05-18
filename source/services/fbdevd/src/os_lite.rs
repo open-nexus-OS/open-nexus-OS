@@ -30,10 +30,10 @@ use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};
 use crate::service::FbdevService;
 
+const ROUTE_BIND_RETRIES: usize = 256;
+
 pub fn service_main_loop() -> Result<(), &'static str> {
-    let server = KernelServer::new_for(ROUTE_NAME)
-        .or_else(|_| KernelServer::new_with_slots(3, 4))
-        .map_err(|_| "fbdevd: init fail kernel-server")?;
+    let server = bind_server()?;
     if !display_bootstrap_requested() {
         let service = FbdevService::disabled();
         loop {
@@ -125,6 +125,16 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 }
 
+fn bind_server() -> Result<KernelServer, &'static str> {
+    for _ in 0..ROUTE_BIND_RETRIES {
+        if let Ok(server) = KernelServer::new_for(ROUTE_NAME) {
+            return Ok(server);
+        }
+        let _ = yield_();
+    }
+    KernelServer::new_with_slots(3, 4).map_err(|_| "fbdevd: init fail kernel-server")
+}
+
 fn service_requests(server: &KernelServer, state: VisibleState) -> Result<(), &'static str> {
     loop {
         match server.recv_request_with_meta(Wait::NonBlocking) {
@@ -191,7 +201,7 @@ fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Op
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
     client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
-    let recv_wait = Wait::NonBlocking;
+    let recv_wait = Wait::Timeout(Duration::from_millis(RPC_TIMEOUT_MS));
     let frame = reply.recv(recv_wait).ok()?;
     decode_visible_state(&frame)
 }

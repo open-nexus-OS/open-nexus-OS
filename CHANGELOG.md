@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-05-18
+
+#### TASK-0059: UI v3b clip/scroll/effects + IME stub + filter-box proof element
+
+- **Layout engine clip+scroll**: `clip_rect` and `scroll_offset` fields on `LayoutBox`; `Overflow::Hidden` containers propagate scissor rects to children; `compute_scroll_damage()` (bounded, allocation-free) and `LayoutResult::reposition_scroll()` (place-only, no remeasure)
+- **TextInputNode**: new `LayoutNode::TextInput` variant with content, cursor_pos, placeholder, and max_length; measures like TextNode
+- **Filter-box proof element**: `filter_words()` pure function on 15-word static list; filter-box layout tree (TextInput + `Overflow::Hidden` scrollable word list) integrated into windowd proof panel; 3 cards (hover/click/key) in vertical column, scroll card removed
+- **Effects crate (`nexus-effects`)**: box blur (3×3 and 1×3), drop shadow compositing, `EffectBudget` with deterministic degrade, LRU `EffectCache`, `CursorBlink` timer
+- **IME stub (`imed`)**: focus routing, `CaretSelection` helpers, caret movement, selection range, 6 unit tests
+- **Host tests (`tests/ui_v3b_host/`)**: 23 tests covering scroll damage (4), clip boundaries (2), `filter_words` (6), filter-box layout (3), scroll reposition, effect budget (3), blur (2), cursor blink (2), proof panel filter integration
+- **12 OS markers defined** in `windowd/markers.rs` (clipping, scroll, text input, filter, effects, selftest summary)
+
 ### Added - 2026-05-15
 
 #### RFC-0057: UI v3a layout engine contract seed (pretext philosophy)

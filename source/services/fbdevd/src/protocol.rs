@@ -70,6 +70,8 @@ pub fn merge_observer_visible_state(
         cursor_overlay_visible: previous.cursor_overlay_visible || upstream.cursor_overlay_visible,
         cursor_x: upstream.cursor_x,
         cursor_y: upstream.cursor_y,
+        text_input_len: upstream.text_input_len,
+        text_input_bytes: upstream.text_input_bytes,
     }
 }
 

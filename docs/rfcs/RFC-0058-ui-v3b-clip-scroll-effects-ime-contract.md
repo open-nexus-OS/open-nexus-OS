@@ -15,12 +15,12 @@
 
 ## Status at a Glance
 
-- **Phase 0 (Clip + scroll)**: ⬜ — scissor clipping, scroll damage math, scrollbar affordance
-- **Phase 1 (Text input + filter-box)**: ⬜ — TextInputNode, filter_words(), filter-box proof element
-- **Phase 2 (CPU effects)**: ⬜ — blur/shadow, budgets, cursor blink timer
-- **Phase 3 (IME/text-input stub)**: ⬜ — focus routing, caret/selection, imed stub
-- **Phase 4 (Host tests)**: ⬜ — JSON + PNG goldens
-- **Phase 5 (OS markers + postflight)**: ⬜ — QEMU markers, visual proof
+- **Phase 0 (Clip + scroll)**: ✅ — scissor clipping, scroll damage math, scrollbar affordance
+- **Phase 1 (Text input + filter-box)**: ✅ — TextInputNode, filter_words(), filter-box proof element
+- **Phase 2 (CPU effects)**: ✅ — blur/shadow, budgets, cursor blink timer
+- **Phase 3 (IME/text-input stub)**: ✅ — focus routing, caret/selection, imed stub
+- **Phase 4 (Host tests)**: ✅ — JSON + PNG goldens
+- **Phase 5 (OS markers + postflight)**: ⬜ — QEMU markers defined, wiring pending
 
 ## Scope boundaries
 
@@ -136,9 +136,9 @@ Markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: live scroll ok`
 
 ## Implementation Checklist
 
-- [ ] **Phase 0 (Clip + scroll)**: `Overflow::Hidden` → scissor, scroll damage math, scrollbar — proof: `cargo test -p ui_v3b_host`
-- [ ] **Phase 1 (Text input + filter-box)**: `TextInputNode`, `filter_words()`, filter-box layout, keyboard routing — proof: `cargo test -p ui_v3b_host`
-- [ ] **Phase 2 (CPU effects)**: blur/shadow + budgets, cursor blink — proof: `cargo test -p ui_v3b_host`
-- [ ] **Phase 3 (IME stub)**: focus routing, caret/selection helpers, imed stub — proof: `cargo test -p ui_v3b_host`
-- [ ] **Phase 4 (Host tests)**: JSON + PNG goldens — proof: `cargo test -p ui_v3b_host`
-- [ ] **Phase 5 (OS markers)**: QEMU markers + postflight — proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
+- [x] **Phase 0 (Clip + scroll)**: `Overflow::Hidden` → scissor, scroll damage math, scrollbar — proof: `cargo test -p ui_v3b_host`
+- [x] **Phase 1 (Text input + filter-box)**: `TextInputNode`, `filter_words()`, filter-box layout, keyboard routing — proof: `cargo test -p ui_v3b_host`
+- [x] **Phase 2 (CPU effects)**: blur/shadow + budgets, cursor blink — proof: `cargo test -p ui_v3b_host`
+- [x] **Phase 3 (IME stub)**: focus routing, caret/selection helpers, imed stub — proof: `cargo test -p ui_v3b_host`
+- [x] **Phase 4 (Host tests)**: JSON + PNG goldens — proof: `cargo test -p ui_v3b_host`
+- [ ] **Phase 5 (OS markers)**: QEMU markers wired + postflight — proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`

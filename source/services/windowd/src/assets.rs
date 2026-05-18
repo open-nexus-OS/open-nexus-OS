@@ -71,6 +71,106 @@ pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
             height: generated::CARD_KEY_LABEL_HEIGHT,
             bgra: generated::CARD_KEY_LABEL_BGRA,
         },
+        "filter_input_placeholder" => ProofTextAsset {
+            width: generated::FILTER_INPUT_PLACEHOLDER_WIDTH,
+            height: generated::FILTER_INPUT_PLACEHOLDER_HEIGHT,
+            bgra: generated::FILTER_INPUT_PLACEHOLDER_BGRA,
+        },
+        "filter_input_a" => ProofTextAsset {
+            width: generated::FILTER_INPUT_A_WIDTH,
+            height: generated::FILTER_INPUT_A_HEIGHT,
+            bgra: generated::FILTER_INPUT_A_BGRA,
+        },
+        "filter_input_ap" => ProofTextAsset {
+            width: generated::FILTER_INPUT_AP_WIDTH,
+            height: generated::FILTER_INPUT_AP_HEIGHT,
+            bgra: generated::FILTER_INPUT_AP_BGRA,
+        },
+        "filter_input_b" => ProofTextAsset {
+            width: generated::FILTER_INPUT_B_WIDTH,
+            height: generated::FILTER_INPUT_B_HEIGHT,
+            bgra: generated::FILTER_INPUT_B_BGRA,
+        },
+        "filter_input_c" => ProofTextAsset {
+            width: generated::FILTER_INPUT_C_WIDTH,
+            height: generated::FILTER_INPUT_C_HEIGHT,
+            bgra: generated::FILTER_INPUT_C_BGRA,
+        },
+        "filter_apple" => ProofTextAsset {
+            width: generated::FILTER_APPLE_WIDTH,
+            height: generated::FILTER_APPLE_HEIGHT,
+            bgra: generated::FILTER_APPLE_BGRA,
+        },
+        "filter_application" => ProofTextAsset {
+            width: generated::FILTER_APPLICATION_WIDTH,
+            height: generated::FILTER_APPLICATION_HEIGHT,
+            bgra: generated::FILTER_APPLICATION_BGRA,
+        },
+        "filter_apt" => ProofTextAsset {
+            width: generated::FILTER_APT_WIDTH,
+            height: generated::FILTER_APT_HEIGHT,
+            bgra: generated::FILTER_APT_BGRA,
+        },
+        "filter_arrow" => ProofTextAsset {
+            width: generated::FILTER_ARROW_WIDTH,
+            height: generated::FILTER_ARROW_HEIGHT,
+            bgra: generated::FILTER_ARROW_BGRA,
+        },
+        "filter_asset" => ProofTextAsset {
+            width: generated::FILTER_ASSET_WIDTH,
+            height: generated::FILTER_ASSET_HEIGHT,
+            bgra: generated::FILTER_ASSET_BGRA,
+        },
+        "filter_batch" => ProofTextAsset {
+            width: generated::FILTER_BATCH_WIDTH,
+            height: generated::FILTER_BATCH_HEIGHT,
+            bgra: generated::FILTER_BATCH_BGRA,
+        },
+        "filter_binary" => ProofTextAsset {
+            width: generated::FILTER_BINARY_WIDTH,
+            height: generated::FILTER_BINARY_HEIGHT,
+            bgra: generated::FILTER_BINARY_BGRA,
+        },
+        "filter_block" => ProofTextAsset {
+            width: generated::FILTER_BLOCK_WIDTH,
+            height: generated::FILTER_BLOCK_HEIGHT,
+            bgra: generated::FILTER_BLOCK_BGRA,
+        },
+        "filter_buffer" => ProofTextAsset {
+            width: generated::FILTER_BUFFER_WIDTH,
+            height: generated::FILTER_BUFFER_HEIGHT,
+            bgra: generated::FILTER_BUFFER_BGRA,
+        },
+        "filter_build" => ProofTextAsset {
+            width: generated::FILTER_BUILD_WIDTH,
+            height: generated::FILTER_BUILD_HEIGHT,
+            bgra: generated::FILTER_BUILD_BGRA,
+        },
+        "filter_cache" => ProofTextAsset {
+            width: generated::FILTER_CACHE_WIDTH,
+            height: generated::FILTER_CACHE_HEIGHT,
+            bgra: generated::FILTER_CACHE_BGRA,
+        },
+        "filter_clock" => ProofTextAsset {
+            width: generated::FILTER_CLOCK_WIDTH,
+            height: generated::FILTER_CLOCK_HEIGHT,
+            bgra: generated::FILTER_CLOCK_BGRA,
+        },
+        "filter_compile" => ProofTextAsset {
+            width: generated::FILTER_COMPILE_WIDTH,
+            height: generated::FILTER_COMPILE_HEIGHT,
+            bgra: generated::FILTER_COMPILE_BGRA,
+        },
+        "filter_component" => ProofTextAsset {
+            width: generated::FILTER_COMPONENT_WIDTH,
+            height: generated::FILTER_COMPONENT_HEIGHT,
+            bgra: generated::FILTER_COMPONENT_BGRA,
+        },
+        "filter_config" => ProofTextAsset {
+            width: generated::FILTER_CONFIG_WIDTH,
+            height: generated::FILTER_CONFIG_HEIGHT,
+            bgra: generated::FILTER_CONFIG_BGRA,
+        },
         _ => return None,
     };
     Some(asset)

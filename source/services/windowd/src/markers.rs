@@ -90,3 +90,16 @@ pub fn marker_postflight_ready(evidence: Option<PresentAck>) -> Result<PresentAc
 // --- TASK-0058 / RFC-0057: UI v3a layout engine markers ---
 pub const LAYOUT_ENGINE_ON_MARKER: &str = "layout: engine on";
 pub const TEXT_WRAPPING_ON_MARKER: &str = "text: wrapping on";
+
+// --- TASK-0059 / RFC-0058: UI v3b clip/scroll/effects/IME markers ---
+pub const CLIPPING_ON_MARKER: &str = "windowd: clipping on";
+pub const SCROLL_ON_MARKER: &str = "windowd: scroll on";
+pub const LIVE_SCROLL_OK_MARKER: &str = "windowd: live scroll ok";
+pub const TEXT_INPUT_ON_MARKER: &str = "windowd: text input on";
+pub const FILTER_LIST_OK_MARKER: &str = "windowd: filter list ok";
+pub const EFFECTS_ON_MARKER: &str = "windowd: effects on";
+pub const EFFECT_BLUR_OK_MARKER: &str = "windowd: effect blur ok";
+pub const SELFTEST_UI_V3_SCROLL_OK_MARKER: &str = "SELFTEST: ui v3 scroll ok";
+pub const SELFTEST_UI_V3_IME_OK_MARKER: &str = "SELFTEST: ui v3 ime ok";
+pub const SELFTEST_UI_V3_EFFECT_OK_MARKER: &str = "SELFTEST: ui v3 effect ok";
+pub const SELFTEST_UI_V3_FILTER_OK_MARKER: &str = "SELFTEST: ui v3 filter ok";

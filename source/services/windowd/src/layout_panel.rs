@@ -12,15 +12,17 @@ use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
     Align, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode,
     LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint, PathShape,
-    PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextNode, TextStyle,
-    VisualStyle, WhiteSpace,
+    PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode, TextNode,
+    TextStyle, VisualStyle, WhiteSpace,
 };
 
 use crate::assets;
 use crate::proof_panel_spec::{
-    BODY_TEXT, CARD_GAP, CARD_HEIGHT, CARD_ICON_SIZE, CARD_PADDING, CARD_WIDTH, CLICK_LABEL,
-    HOVER_LABEL, ICON_TARGET_SIZE, KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH,
-    SCROLL_LABEL, SUBTITLE_TEXT, TITLE_TEXT,
+    filter_words, ALL_TEXT_SPECS, BODY_TEXT, CARD_GAP, CARD_HEIGHT, CARD_ICON_SIZE, CARD_PADDING,
+    CARD_WIDTH,
+    CLICK_LABEL, FILTER_PANEL_HEIGHT, FILTER_PANEL_WIDTH, HOVER_LABEL, ICON_TARGET_SIZE,
+    KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH, SCROLL_LABEL, SUBTITLE_TEXT,
+    TITLE_TEXT,
 };
 
 pub struct ProofTextMeasure;
@@ -216,9 +218,42 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
     )
 }
 
-pub fn compute_proof_layout(state: VisibleState) -> Result<LayoutResult, &'static str> {
+/// Build both panels (proof + filter) side by side in a horizontal row.
+pub fn build_combined_tree(state: VisibleState, filter_text: &str) -> LayoutNode {
+    let proof_panel = build_proof_panel_tree(state);
+    let filter_panel = build_filter_panel_tree(filter_text);
+    LayoutNode::Stack(
+        Stack {
+            id: Some("combined_panels"),
+            direction: Direction::Row,
+            gap: FxPx::new(16),
+            padding: EdgeInsets::zero(),
+            align: Align::Start,
+            justify: Justify::Start,
+            overflow: Overflow::Visible,
+            flex_wrap: false,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            item: FlexItem::default(),
+        },
+        VisualStyle::default(),
+        vec![proof_panel, filter_panel],
+    )
+}
+
+pub fn compute_proof_layout(
+    state: VisibleState,
+    filter_text: &str,
+) -> Result<LayoutResult, &'static str> {
+    let total_width = PANEL_WIDTH + 16 + FILTER_PANEL_WIDTH;
     LayoutEngine::new()
-        .layout(&build_proof_panel_tree(state), FxPx::new(PANEL_WIDTH), &ProofTextMeasure)
+        .layout(
+            &build_combined_tree(state, filter_text),
+            FxPx::new(total_width),
+            &ProofTextMeasure,
+        )
         .map_err(|_| "layout failed")
 }
 
@@ -453,8 +488,8 @@ fn card_part_id(card_id: &'static str, suffix: &'static str) -> &'static str {
 }
 
 fn text_asset_id(content: &str, style: &TextStyle) -> Option<&'static str> {
-    [TITLE_TEXT, SUBTITLE_TEXT, BODY_TEXT, HOVER_LABEL, CLICK_LABEL, SCROLL_LABEL, KEY_LABEL]
-        .into_iter()
+    ALL_TEXT_SPECS
+        .iter()
         .find(|spec| spec.content == content && spec.font_size as i32 == style.font_size.0)
         .map(|spec| spec.id)
 }
@@ -468,6 +503,26 @@ fn text_asset_index(id: &str) -> usize {
         "card_click_label" => 4,
         "card_scroll_label" => 5,
         "card_key_label" => 6,
+        "filter_input_placeholder" => 7,
+        "filter_input_a" => 8,
+        "filter_input_ap" => 9,
+        "filter_input_b" => 10,
+        "filter_input_c" => 11,
+        "filter_apple" => 12,
+        "filter_application" => 13,
+        "filter_apt" => 14,
+        "filter_arrow" => 15,
+        "filter_asset" => 16,
+        "filter_batch" => 17,
+        "filter_binary" => 18,
+        "filter_block" => 19,
+        "filter_buffer" => 20,
+        "filter_build" => 21,
+        "filter_cache" => 22,
+        "filter_clock" => 23,
+        "filter_compile" => 24,
+        "filter_component" => 25,
+        "filter_config" => 26,
         _ => usize::MAX,
     }
 }
@@ -481,7 +536,174 @@ fn proof_text_asset_by_index(index: usize) -> Option<crate::assets::ProofTextAss
         4 => "card_click_label",
         5 => "card_scroll_label",
         6 => "card_key_label",
+        7 => "filter_input_placeholder",
+        8 => "filter_input_a",
+        9 => "filter_input_ap",
+        10 => "filter_input_b",
+        11 => "filter_input_c",
+        12 => "filter_apple",
+        13 => "filter_application",
+        14 => "filter_apt",
+        15 => "filter_arrow",
+        16 => "filter_asset",
+        17 => "filter_batch",
+        18 => "filter_binary",
+        19 => "filter_block",
+        20 => "filter_buffer",
+        21 => "filter_build",
+        22 => "filter_cache",
+        23 => "filter_clock",
+        24 => "filter_compile",
+        25 => "filter_component",
+        26 => "filter_config",
         _ => return None,
     };
     assets::proof_text_asset(id)
+}
+
+/// Map a filter word to its pre-rendered text asset ID.
+fn filter_word_asset_id(word: &str) -> &'static str {
+    match word {
+        "apple" => "filter_apple",
+        "application" => "filter_application",
+        "apt" => "filter_apt",
+        "arrow" => "filter_arrow",
+        "asset" => "filter_asset",
+        "batch" => "filter_batch",
+        "binary" => "filter_binary",
+        "block" => "filter_block",
+        "buffer" => "filter_buffer",
+        "build" => "filter_build",
+        "cache" => "filter_cache",
+        "clock" => "filter_clock",
+        "compile" => "filter_compile",
+        "component" => "filter_component",
+        "config" => "filter_config",
+        _ => "filter_word",
+    }
+}
+
+/// Build the filter panel layout tree: TextInput + scrollable filtered word list.
+pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
+    let filtered = filter_words(filter_text);
+
+    let text_input = LayoutNode::TextInput(
+        TextInputNode {
+            id: Some("filter_text_input"),
+            content: TextContent::new(filter_text),
+            cursor_pos: filter_text.len(),
+            placeholder: Some(TextContent::new("type to filter...")),
+            max_length: Some(20),
+            style: TextStyle {
+                font_size: FxPx::new(14),
+                font_weight: FontWeight::Regular,
+                line_height: LineHeight::Absolute(FxPx::new(18)),
+                text_align: TextAlign::Left,
+                color: assets::PROOF_PANEL_TITLE,
+                white_space: WhiteSpace::NoWrap,
+            },
+            item: FlexItem::default(),
+            min_width: None,
+            max_width: None,
+        },
+        VisualStyle {
+            background: Some(assets::PROOF_CARD_BG),
+            border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+            ..Default::default()
+        },
+    );
+
+    let filter_list_children: Vec<LayoutNode> = filtered
+        .iter()
+        .map(|word| {
+            LayoutNode::Text(
+                TextNode {
+                    id: Some(filter_word_asset_id(word)),
+                    content: TextContent::new(*word),
+                    style: TextStyle {
+                        font_size: FxPx::new(14),
+                        font_weight: FontWeight::Regular,
+                        line_height: LineHeight::Absolute(FxPx::new(18)),
+                        text_align: TextAlign::Left,
+                        color: assets::PROOF_PANEL_TITLE,
+                        white_space: WhiteSpace::NoWrap,
+                    },
+                    item: FlexItem::default(),
+                    max_lines: Some(1),
+                    min_width: None,
+                    max_width: None,
+                },
+                VisualStyle::default(),
+            )
+        })
+        .collect();
+
+    let filter_list = LayoutNode::Stack(
+        Stack {
+            id: Some("filter_list"),
+            direction: Direction::Column,
+            gap: FxPx::new(2),
+            padding: EdgeInsets::all(FxPx::new(4)),
+            align: Align::Start,
+            justify: Justify::Start,
+            overflow: Overflow::Hidden,
+            flex_wrap: false,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: Some(FxPx::new(100)), // visible viewport
+            item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+        },
+        VisualStyle {
+            background: Some(assets::PROOF_CARD_BG),
+            border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+            ..Default::default()
+        },
+        filter_list_children,
+    );
+
+    let filter_content = LayoutNode::Stack(
+        Stack {
+            id: Some("filter_content"),
+            direction: Direction::Column,
+            gap: FxPx::new(4),
+            padding: EdgeInsets::zero(),
+            align: Align::Start,
+            justify: Justify::Start,
+            overflow: Overflow::Visible,
+            flex_wrap: false,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+        },
+        VisualStyle::default(),
+        vec![text_input, filter_list],
+    );
+
+    let filter_panel_style = VisualStyle {
+        background: Some(assets::PROOF_PANEL_BG),
+        border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+        ..Default::default()
+    };
+    LayoutNode::Stack(
+        Stack {
+            id: Some("filter_panel"),
+            direction: Direction::Column,
+            gap: FxPx::new(PANEL_GAP),
+            padding: EdgeInsets::all(FxPx::new(PANEL_PADDING)),
+            align: Align::Start,
+            justify: Justify::Start,
+            overflow: Overflow::Visible,
+            flex_wrap: false,
+            min_width: Some(FxPx::new(FILTER_PANEL_WIDTH)),
+            max_width: Some(FxPx::new(FILTER_PANEL_WIDTH)),
+            min_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
+            max_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
+            item: FlexItem::default(),
+        },
+        filter_panel_style,
+        vec![filter_content],
+    )
 }

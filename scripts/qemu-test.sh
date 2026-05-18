@@ -288,7 +288,7 @@ declare -A PHASE_START_MARKER=(
 )
 declare -A PHASE_END_MARKER=(
   ["bring-up"]="execd: ready"
-  ["input-startup"]="hidrawd: os service payload ready"
+  ["input-startup"]="inputd: os service payload ready"
   ["mmio"]="SELFTEST: cap query vmo ok"
   ["routing"]="SELFTEST: ipc routing ok"
   ["ota"]="SELFTEST: ota rollback ok"
@@ -303,9 +303,9 @@ declare -a INPUT_STARTUP_MARKERS=(
   "inputd: os service payload ready"
 )
 if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
+  # Visible-bootstrap exposes virtio input devices, so `hidrawd` becomes part
+  # of the startup ladder, but the phase still closes on `inputd` readiness.
   INPUT_STARTUP_MARKERS+=("hidrawd: os service payload ready")
-else
-  PHASE_END_MARKER["input-startup"]="inputd: os service payload ready"
 fi
 
 find_marker_index() {

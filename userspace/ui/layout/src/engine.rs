@@ -12,7 +12,7 @@
 use crate::error::LayoutError;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Rect, VisualStyle,
+    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Overflow, Rect, TextContent, VisualStyle,
 };
 
 const DEFAULT_MAX_NODES: usize = 4096;
@@ -31,12 +31,155 @@ pub struct LayoutBox {
     pub rect: Rect,
     pub z_index: i16,
     pub visual: VisualStyle,
+    /// Optional scissor rect inherited from nearest Overflow::Hidden ancestor.
+    /// The renderer must clip paint output to this rect (in content coordinates).
+    pub clip_rect: Option<Rect>,
+    /// Scroll offset (dx, dy) for overflow containers. Children are shifted by this
+    /// amount relative to the container origin. Non-scrollable boxes have (0, 0).
+    pub scroll_offset: (FxPx, FxPx),
+    /// The container's overflow mode. Used by renderer to decide whether to apply
+    /// scissor clipping and scrollbar rendering.
+    pub overflow: Overflow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutResult {
     pub boxes: Vec<LayoutBox>,
     pub content_height: FxPx,
+}
+
+/// Scroll damage — at most two dirty rects per scroll delta.
+/// Allocation-free (stack-only), bounded size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollDamage {
+    /// Up to two damage rects. A `None` entry means no rect at that slot.
+    pub rects: [Option<Rect>; 2],
+}
+
+impl ScrollDamage {
+    pub const EMPTY: Self = Self { rects: [None, None] };
+
+    pub fn is_empty(&self) -> bool {
+        self.rects[0].is_none() && self.rects[1].is_none()
+    }
+}
+
+/// Compute the dirty area when a viewport scrolls from `old_offset` to `new_offset`.
+/// Returns at most two rects: the newly-exposed strip and the newly-hidden strip
+/// (which need invalidation and repaint respectively).
+///
+/// Integer-only, deterministic, order-agnostic.
+pub fn compute_scroll_damage(
+    old_offset: (FxPx, FxPx),
+    new_offset: (FxPx, FxPx),
+    viewport: Rect,
+) -> ScrollDamage {
+    let dx = new_offset.0 - old_offset.0;
+    let dy = new_offset.1 - old_offset.1;
+    if dx.0 == 0 && dy.0 == 0 {
+        return ScrollDamage::EMPTY;
+    }
+    let mut damage = ScrollDamage::EMPTY;
+    let abs_dx = FxPx::new(dx.0.abs());
+    let abs_dy = FxPx::new(dy.0.abs());
+
+    if dx.0 != 0 {
+        // Newly-exposed strip at the leading edge
+        let exposed = if dx.0 > 0 {
+            // Scrolling right: left side shifts out, right side becomes visible
+            Rect::new(
+                viewport.x + viewport.width.saturating_sub(abs_dx),
+                viewport.y,
+                abs_dx.min(viewport.width),
+                viewport.height,
+            )
+        } else {
+            // Scrolling left: right side shifts out, left side becomes visible
+            Rect::new(viewport.x, viewport.y, abs_dx.min(viewport.width), viewport.height)
+        };
+        if exposed.width > FxPx::ZERO && exposed.height > FxPx::ZERO {
+            damage.rects[0] = Some(exposed);
+        }
+    }
+
+    if dy.0 != 0 {
+        let exposed = if dy.0 > 0 {
+            Rect::new(
+                viewport.x,
+                viewport.y + viewport.height.saturating_sub(abs_dy),
+                viewport.width,
+                abs_dy.min(viewport.height),
+            )
+        } else {
+            Rect::new(viewport.x, viewport.y, viewport.width, abs_dy.min(viewport.height))
+        };
+        if exposed.width > FxPx::ZERO && exposed.height > FxPx::ZERO {
+            let slot = if damage.rects[0].is_some() { 1 } else { 0 };
+            damage.rects[slot] = Some(exposed);
+        }
+    }
+
+    damage
+}
+
+impl LayoutResult {
+    /// Reposition all boxes inside the scroll container identified by `container_node_id`
+    /// to reflect a new scroll offset. Returns the scroll damage rects.
+    ///
+    /// This is place-only: no remeasurement, no text reshaping.
+    /// Allocation-free (mutates existing boxes).
+    pub fn reposition_scroll(
+        &mut self,
+        container_node_id: usize,
+        new_offset: (FxPx, FxPx),
+    ) -> ScrollDamage {
+        let mut old_offset = (FxPx::ZERO, FxPx::ZERO);
+        let mut viewport = Rect::zero();
+        let mut container_found = false;
+
+        // Find the container
+        for b in &self.boxes {
+            if b.node_id == container_node_id {
+                old_offset = b.scroll_offset;
+                viewport = b.rect;
+                container_found = true;
+                break;
+            }
+        }
+        if !container_found {
+            return ScrollDamage::EMPTY;
+        }
+
+        let delta_x = new_offset.0 - old_offset.0;
+        let delta_y = new_offset.1 - old_offset.1;
+
+        if delta_x.0 == 0 && delta_y.0 == 0 {
+            return ScrollDamage::EMPTY;
+        }
+
+        let damage = compute_scroll_damage(old_offset, new_offset, viewport);
+
+        // Shift descendant boxes: only those with node_id > container_node_id
+        // AND the same old scroll_offset. In DFS order, descendants always have
+        // higher node_ids than their ancestor.
+        for b in &mut self.boxes {
+            if b.node_id > container_node_id && b.scroll_offset == old_offset {
+                b.scroll_offset = new_offset;
+                b.rect.x += delta_x;
+                b.rect.y += delta_y;
+            }
+        }
+
+        // Update the container's own scroll_offset
+        for b in &mut self.boxes {
+            if b.node_id == container_node_id {
+                b.scroll_offset = new_offset;
+                break;
+            }
+        }
+
+        damage
+    }
 }
 
 pub struct LayoutEngine {
@@ -67,6 +210,8 @@ impl LayoutEngine {
             FxPx::ZERO,
             available_width,
             0,
+            None,
+            (FxPx::ZERO, FxPx::ZERO),
             measure,
             &mut node_count,
             &mut boxes,
@@ -83,6 +228,8 @@ impl LayoutEngine {
         y: FxPx,
         available_width: FxPx,
         depth: usize,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
@@ -105,6 +252,8 @@ impl LayoutEngine {
                 y,
                 available_width,
                 depth,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -118,6 +267,8 @@ impl LayoutEngine {
                 y,
                 available_width,
                 depth,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -130,12 +281,20 @@ impl LayoutEngine {
                     rect: Rect::new(x, y, main, FxPx::ZERO),
                     z_index: spacer.item.z_index,
                     visual: VisualStyle::default(),
+                    clip_rect: parent_clip,
+                    scroll_offset,
+                    overflow: Overflow::Visible,
                 });
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
-            LayoutNode::Text(text, style) => {
-                self.place_text(node_id, text, style, x, y, available_width, measure, boxes)
-            }
+            LayoutNode::Text(text, style) => self.place_text(
+                node_id, text, style, x, y, available_width, parent_clip, scroll_offset, measure,
+                boxes,
+            ),
+            LayoutNode::TextInput(input, style) => self.place_text_input(
+                node_id, input, style, x, y, available_width, parent_clip, scroll_offset, measure,
+                boxes,
+            ),
         }
     }
 
@@ -147,6 +306,8 @@ impl LayoutEngine {
         x: FxPx,
         y: FxPx,
         available_width: FxPx,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
@@ -179,8 +340,55 @@ impl LayoutEngine {
             rect: Rect::new(x, y, width, height),
             z_index: text.item.z_index,
             visual: style.clone(),
+            clip_rect: parent_clip,
+            scroll_offset,
+            overflow: Overflow::Visible,
         });
         Ok(NodeSize { width, height })
+    }
+
+    fn place_text_input(
+        &self,
+        node_id: usize,
+        input: &nexus_layout_types::TextInputNode,
+        style: &VisualStyle,
+        x: FxPx,
+        y: FxPx,
+        available_width: FxPx,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
+        measure: &dyn MeasureText,
+        boxes: &mut Vec<LayoutBox>,
+    ) -> Result<NodeSize, LayoutError> {
+        // Treat TextInput like a Text node for layout: use its content for
+        // measurement, defaulting to placeholder if content is empty.
+        let display_content = if input.content.as_str().is_empty() {
+            input.placeholder.as_ref().map(|p| p.as_str()).unwrap_or("")
+        } else {
+            input.content.as_str()
+        };
+        let text_content = TextContent::new(display_content);
+        let text_node = nexus_layout_types::TextNode {
+            id: input.id,
+            content: text_content,
+            style: input.style.clone(),
+            item: input.item,
+            max_lines: Some(1),
+            min_width: input.min_width,
+            max_width: input.max_width,
+        };
+        self.place_text(
+            node_id,
+            &text_node,
+            style,
+            x,
+            y,
+            available_width,
+            parent_clip,
+            scroll_offset,
+            measure,
+            boxes,
+        )
     }
 
     fn place_stack(
@@ -193,6 +401,8 @@ impl LayoutEngine {
         y: FxPx,
         available_width: FxPx,
         depth: usize,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
@@ -205,16 +415,32 @@ impl LayoutEngine {
         )
         .min(available_width.max(measured.width));
         let container_index = boxes.len();
+        let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden);
+        let container_clip = if is_overflow_hidden {
+            let content_rect = Rect::new(
+                x + stack.padding.left,
+                y + stack.padding.top,
+                width.saturating_sub(stack.padding.horizontal()),
+                FxPx::ZERO, // height filled after children placed
+            );
+            Some(content_rect)
+        } else {
+            parent_clip
+        };
+        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         boxes.push(LayoutBox {
             node_id,
             id: stack.id,
             rect: Rect::new(x, y, width, FxPx::ZERO),
             z_index: stack.item.z_index,
             visual: style.clone(),
+            clip_rect: parent_clip,
+            scroll_offset: container_scroll,
+            overflow: stack.overflow,
         });
         let padding = stack.padding;
-        let content_x = x + padding.left;
-        let content_y = y + padding.top;
+        let content_x = x + padding.left - scroll_offset.0;
+        let content_y = y + padding.top - scroll_offset.1;
         let content_width = width.saturating_sub(padding.horizontal());
         let size = if stack.direction.is_horizontal() {
             self.place_stack_row(
@@ -224,6 +450,8 @@ impl LayoutEngine {
                 content_y,
                 content_width,
                 depth,
+                container_clip,
+                container_scroll,
                 measure,
                 node_count,
                 boxes,
@@ -236,6 +464,8 @@ impl LayoutEngine {
                 content_y,
                 content_width,
                 depth,
+                container_clip,
+                container_scroll,
                 measure,
                 node_count,
                 boxes,
@@ -244,6 +474,16 @@ impl LayoutEngine {
         let height =
             clamp_height(size.height + padding.vertical(), stack.min_height, stack.max_height);
         boxes[container_index].rect.height = height;
+        // Fix up the container clip rect height now that we know the actual height
+        if is_overflow_hidden {
+            let content_rect = Rect::new(
+                x + stack.padding.left,
+                y + stack.padding.top,
+                width.saturating_sub(stack.padding.horizontal()),
+                height.saturating_sub(padding.vertical()),
+            );
+            boxes[container_index].clip_rect = Some(content_rect);
+        }
         Ok(NodeSize { width, height })
     }
 
@@ -255,6 +495,8 @@ impl LayoutEngine {
         content_y: FxPx,
         content_width: FxPx,
         depth: usize,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
@@ -318,6 +560,8 @@ impl LayoutEngine {
                 child_y,
                 child_width,
                 depth + 1,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -334,6 +578,8 @@ impl LayoutEngine {
                 child_y,
                 child_width,
                 depth + 1,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -350,6 +596,8 @@ impl LayoutEngine {
         content_y: FxPx,
         content_width: FxPx,
         depth: usize,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
@@ -420,6 +668,8 @@ impl LayoutEngine {
                 child_y,
                 child_width,
                 depth + 1,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -438,6 +688,8 @@ impl LayoutEngine {
                 child_y,
                 child_width,
                 depth + 1,
+                parent_clip,
+                scroll_offset,
                 measure,
                 node_count,
                 boxes,
@@ -456,6 +708,8 @@ impl LayoutEngine {
         y: FxPx,
         available_width: FxPx,
         depth: usize,
+        parent_clip: Option<Rect>,
+        scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
@@ -466,12 +720,27 @@ impl LayoutEngine {
             grid.max_width.or(grid.item.max_width),
         );
         let container_index = boxes.len();
+        let is_overflow_hidden = matches!(grid.overflow, Overflow::Hidden);
+        let container_clip = if is_overflow_hidden {
+            Some(Rect::new(
+                x + grid.padding.left,
+                y + grid.padding.top,
+                width.saturating_sub(grid.padding.horizontal()),
+                FxPx::ZERO,
+            ))
+        } else {
+            parent_clip
+        };
+        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         boxes.push(LayoutBox {
             node_id,
             id: grid.id,
             rect: Rect::new(x, y, width, FxPx::ZERO),
             z_index: grid.item.z_index,
             visual: style.clone(),
+            clip_rect: parent_clip,
+            scroll_offset: container_scroll,
+            overflow: grid.overflow,
         });
         let padding = grid.padding;
         let content_width = width.saturating_sub(padding.horizontal());
@@ -497,7 +766,7 @@ impl LayoutEngine {
             rem -= 1;
         }
         let row_gap = grid.row_gap.unwrap_or(grid.gap);
-        let mut row_y = y + padding.top;
+        let mut row_y = y + padding.top - scroll_offset.1;
         let mut total_height = FxPx::ZERO;
         let mut child_idx = 0usize;
         while child_idx < children.len() {
@@ -514,7 +783,7 @@ impl LayoutEngine {
                 row_height = row_height.max(measured.height + item.margin.vertical());
                 child_idx += 1;
             }
-            let mut col_x = x + padding.left;
+            let mut col_x = x + padding.left - scroll_offset.0;
             for (col, col_width) in col_widths.iter().enumerate().take(n_cols) {
                 let index = row_start + col;
                 if index >= child_idx {
@@ -529,6 +798,8 @@ impl LayoutEngine {
                     row_y + item.margin.top,
                     child_width,
                     depth + 1,
+                    container_clip,
+                    container_scroll,
                     measure,
                     node_count,
                     boxes,
@@ -537,6 +808,16 @@ impl LayoutEngine {
             }
             total_height += row_height;
             row_y += row_height + row_gap;
+        }
+        // Fix up the container clip rect height for overflow:hidden grids
+        if is_overflow_hidden {
+            let content_rect = Rect::new(
+                x + grid.padding.left,
+                y + grid.padding.top,
+                width.saturating_sub(grid.padding.horizontal()),
+                total_height.saturating_sub(padding.vertical()),
+            );
+            boxes[container_index].clip_rect = Some(content_rect);
         }
         let height =
             clamp_height(total_height + padding.vertical(), grid.min_height, grid.max_height);
@@ -566,6 +847,23 @@ impl LayoutEngine {
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
             LayoutNode::Text(text, _) => self.measure_text(text, available_width, measure),
+            LayoutNode::TextInput(input, _) => {
+                let display = if input.content.as_str().is_empty() {
+                    input.placeholder.as_ref().map(|p| p.as_str()).unwrap_or("")
+                } else {
+                    input.content.as_str()
+                };
+                let text_node = nexus_layout_types::TextNode {
+                    id: input.id,
+                    content: TextContent::new(display),
+                    style: input.style.clone(),
+                    item: input.item,
+                    max_lines: Some(1),
+                    min_width: input.min_width,
+                    max_width: input.max_width,
+                };
+                self.measure_text(&text_node, available_width, measure)
+            }
         }
     }
 

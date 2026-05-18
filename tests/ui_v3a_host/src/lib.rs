@@ -139,6 +139,9 @@ mod tests {
                 children.iter().find_map(|child| find_visual_style(child, id))
             }
             LayoutNode::Text(text, style) => (text.id == Some(id)).then_some(style),
+            LayoutNode::TextInput(input, style) => {
+                (input.id == Some(id)).then_some(style)
+            }
             LayoutNode::Spacer(_) => None,
         }
     }
@@ -260,7 +263,8 @@ mod tests {
 
     #[test]
     fn proof_panel_layout_json_golden() {
-        let layout = compute_proof_layout(default_visible_state()).expect("proof layout");
+        let layout =
+            compute_proof_layout(default_visible_state(), "").expect("proof layout");
         let golden: Vec<GoldenBox> = layout
             .boxes
             .iter()
@@ -277,18 +281,20 @@ mod tests {
         assert!(json.contains("\"id\": \"proof_panel\""));
         assert!(json.contains("\"id\": \"card_hover\""));
         assert!(json.contains("\"id\": \"icon_target\""));
+        assert!(json.contains("\"id\": \"filter_panel\""));
+        assert!(json.contains("\"id\": \"filter_text_input\""));
+        assert!(json.contains("\"id\": \"filter_list\""));
         let panel = golden.iter().find(|entry| entry.id == Some("proof_panel")).unwrap();
         assert_eq!(panel.width, 610);
         assert_eq!(panel.height, 260);
         let hover = golden.iter().find(|entry| entry.id == Some("card_hover")).unwrap();
         let click = golden.iter().find(|entry| entry.id == Some("card_click")).unwrap();
-        let scroll = golden.iter().find(|entry| entry.id == Some("card_scroll")).unwrap();
         let key = golden.iter().find(|entry| entry.id == Some("card_key")).unwrap();
         assert_eq!(hover.width, 126);
         assert_eq!(hover.height, 82);
+        // Cards are in a Row
         assert_eq!(click.x - hover.x, 142);
-        assert_eq!(scroll.x - click.x, 142);
-        assert_eq!(key.x - scroll.x, 142);
+        assert_eq!(key.x - hover.x, 426); // 3 * (126 + 16) = 426
     }
 
     #[test]
@@ -297,8 +303,9 @@ mod tests {
         moved.cursor_x = 720;
         moved.cursor_y = 512;
 
-        let baseline = compute_proof_layout(default_visible_state()).expect("proof layout");
-        let moved = compute_proof_layout(moved).expect("proof layout after cursor move");
+        let baseline =
+            compute_proof_layout(default_visible_state(), "").expect("proof layout");
+        let moved = compute_proof_layout(moved, "").expect("proof layout after cursor move");
 
         assert_eq!(
             baseline.boxes, moved.boxes,
@@ -308,19 +315,23 @@ mod tests {
 
     #[test]
     fn proof_panel_geometry_is_independent_of_transient_target_state() {
-        let inactive = compute_proof_layout(VisibleState {
-            backend_visible: true,
-            systemui_first_frame_visible: true,
-            scene_ready: true,
-            full_window_visible: true,
-            click_target_visible: true,
-            keyboard_target_visible: true,
-            text_target_visible: true,
-            icon_target_visible: true,
-            ..VisibleState::default()
-        })
+        let inactive = compute_proof_layout(
+            VisibleState {
+                backend_visible: true,
+                systemui_first_frame_visible: true,
+                scene_ready: true,
+                full_window_visible: true,
+                click_target_visible: true,
+                keyboard_target_visible: true,
+                text_target_visible: true,
+                icon_target_visible: true,
+                ..VisibleState::default()
+            },
+            "",
+        )
         .expect("inactive proof layout");
-        let active = compute_proof_layout(default_visible_state()).expect("active proof layout");
+        let active =
+            compute_proof_layout(default_visible_state(), "").expect("active proof layout");
 
         let inactive_geometry: Vec<GoldenBox> = inactive
             .boxes

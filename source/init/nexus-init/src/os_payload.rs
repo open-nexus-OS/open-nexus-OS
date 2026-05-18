@@ -485,7 +485,8 @@ fn virtio_mmio_window(slot: usize) -> (usize, usize) {
 }
 
 fn probe_virtio_mmio_slots() -> Result<(usize, usize, Option<usize>, [Option<usize>; 3])> {
-    // Map the full virtio-mmio window to discover device slots, then mint per-device caps.
+    // Map the supported virtio-mmio window to discover device slots, then mint
+    // per-device caps. Scanning past the platform window faults in guest bring-up.
     const MAX_SLOTS: usize = 8;
     const MMIO_VA: usize = 0x2000_e000;
     const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"

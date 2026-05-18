@@ -50,7 +50,10 @@ pub use ids::{
     CallerCtx, CallerId, CommitSeq, FenceId, FrameIndex, InputSeq, PresentSeq, SurfaceId,
     VmoHandleId,
 };
-pub use layout_panel::{build_proof_panel_tree, compute_proof_layout, ProofTextMeasure};
+pub use layout_panel::{
+    build_combined_tree, build_filter_panel_tree, build_proof_panel_tree, compute_proof_layout,
+    ProofTextMeasure,
+};
 pub use legacy::render_frame;
 pub use markers::{
     damage_rects_marker, focus_marker, marker_postflight_ready, present_marker,
@@ -72,11 +75,16 @@ pub use markers::{
     SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER, SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, SYSTEMUI_MARKER,
     TEXT_TARGET_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
     WALLPAPER_VISIBLE_MARKER, WHEEL_VISIBLE_MARKER,
+    // TASK-0059 markers
+    CLIPPING_ON_MARKER, EFFECTS_ON_MARKER, EFFECT_BLUR_OK_MARKER, FILTER_LIST_OK_MARKER,
+    LIVE_SCROLL_OK_MARKER, SCROLL_ON_MARKER, SELFTEST_UI_V3_EFFECT_OK_MARKER,
+    SELFTEST_UI_V3_FILTER_OK_MARKER, SELFTEST_UI_V3_IME_OK_MARKER,
+    SELFTEST_UI_V3_SCROLL_OK_MARKER, TEXT_INPUT_ON_MARKER,
 };
 pub use proof_panel_spec::{
-    ProofTextSpec, ALL_TEXT_SPECS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG, TOKEN_CARD_BORDER,
-    TOKEN_CLICK, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG, TOKEN_KEYBOARD, TOKEN_PANEL_BG,
-    TOKEN_PANEL_BORDER, TOKEN_SCROLL,
+    filter_words, ProofTextSpec, ALL_TEXT_SPECS, FILTER_WORDS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG,
+    TOKEN_CARD_BORDER, TOKEN_CLICK, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG, TOKEN_KEYBOARD,
+    TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_SCROLL,
 };
 pub use server::{
     BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PointerPosition, PresentAck,

@@ -1,15 +1,24 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Proof panel constants for TASK-0058 windowd integration.
-//! OWNERS: @ui
-//! STATUS: Done
-//! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-// Copyright 2026 Open Nexus OS Contributors
-// SPDX-License-Identifier: Apache-2.0
+// CONTEXT: Proof panel constants for TASK-0058 windowd integration.
+// OWNERS: @ui
+// STATUS: Done
+// ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+
+#[cfg(not(any(nexus_env = "os", target_os = "none")))]
+extern crate std;
+#[cfg(any(nexus_env = "os", target_os = "none"))]
+extern crate alloc;
+
+// Vec is in the std prelude on host, but must be explicitly imported for no_std.
+#[cfg(any(nexus_env = "os", target_os = "none"))]
+use alloc::vec::Vec;
 
 pub const PANEL_WIDTH: i32 = 610;
 pub const PANEL_HEIGHT: i32 = 260;
+pub const FILTER_PANEL_WIDTH: i32 = 200;
+pub const FILTER_PANEL_HEIGHT: i32 = 260;
 pub const PANEL_PADDING: i32 = 24;
 pub const PANEL_GAP: i32 = 16;
 pub const CARD_WIDTH: i32 = 126;
@@ -100,5 +109,122 @@ pub const KEY_LABEL: ProofTextSpec = ProofTextSpec {
     color_token: TOKEN_CARD_LABEL,
 };
 
-pub const ALL_TEXT_SPECS: &[ProofTextSpec] =
-    &[TITLE_TEXT, SUBTITLE_TEXT, BODY_TEXT, HOVER_LABEL, CLICK_LABEL, SCROLL_LABEL, KEY_LABEL];
+pub const ALL_TEXT_SPECS: &[ProofTextSpec] = &[
+    TITLE_TEXT, SUBTITLE_TEXT, BODY_TEXT, HOVER_LABEL, CLICK_LABEL, SCROLL_LABEL, KEY_LABEL,
+    FILTER_INPUT_PLACEHOLDER,
+    FILTER_INPUT_A,
+    FILTER_INPUT_AP,
+    FILTER_INPUT_B,
+    FILTER_INPUT_C,
+    FILTER_WORD_APPLE, FILTER_WORD_APPLICATION, FILTER_WORD_APT, FILTER_WORD_ARROW,
+    FILTER_WORD_ASSET, FILTER_WORD_BATCH, FILTER_WORD_BINARY, FILTER_WORD_BLOCK,
+    FILTER_WORD_BUFFER, FILTER_WORD_BUILD, FILTER_WORD_CACHE, FILTER_WORD_CLOCK,
+    FILTER_WORD_COMPILE, FILTER_WORD_COMPONENT, FILTER_WORD_CONFIG,
+];
+
+// ─── Filter input text specs ───
+// The visible bootstrap path still uses pre-rendered text assets, so keep the
+// proof input vocabulary explicit and deterministic. This maps cleanly to a
+// future DSL/pretext text-input spec without hardcoding paint-only heuristics.
+
+macro_rules! filter_input_spec {
+    ($id:expr, $text:expr) => {
+        ProofTextSpec {
+            id: $id,
+            content: $text,
+            font_size: 14,
+            font_weight: 400,
+            color_token: TOKEN_PANEL_TITLE,
+        }
+    };
+}
+
+pub const FILTER_INPUT_PLACEHOLDER: ProofTextSpec =
+    filter_input_spec!("filter_input_placeholder", "type to filter...");
+pub const FILTER_INPUT_A: ProofTextSpec = filter_input_spec!("filter_input_a", "a");
+pub const FILTER_INPUT_AP: ProofTextSpec = filter_input_spec!("filter_input_ap", "ap");
+pub const FILTER_INPUT_B: ProofTextSpec = filter_input_spec!("filter_input_b", "b");
+pub const FILTER_INPUT_C: ProofTextSpec = filter_input_spec!("filter_input_c", "c");
+
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+pub(crate) fn filter_input_asset_id(filter_text: &str) -> &'static str {
+    match filter_text {
+        "" => FILTER_INPUT_PLACEHOLDER.id,
+        "a" => FILTER_INPUT_A.id,
+        "ap" => FILTER_INPUT_AP.id,
+        "b" => FILTER_INPUT_B.id,
+        "c" => FILTER_INPUT_C.id,
+        _ => FILTER_INPUT_PLACEHOLDER.id,
+    }
+}
+
+// ─── Filter word text specs ───
+// Each filter word gets a pre-rendered text asset so the filter panel can display
+// readable text in the OS render path.
+
+macro_rules! filter_word_spec {
+    ($id:expr, $word:expr) => {
+        ProofTextSpec {
+            id: $id,
+            content: $word,
+            font_size: 14,
+            font_weight: 400,
+            color_token: TOKEN_PANEL_TITLE,
+        }
+    };
+}
+
+pub const FILTER_WORD_APPLE: ProofTextSpec = filter_word_spec!("filter_apple", "apple");
+pub const FILTER_WORD_APPLICATION: ProofTextSpec =
+    filter_word_spec!("filter_application", "application");
+pub const FILTER_WORD_APT: ProofTextSpec = filter_word_spec!("filter_apt", "apt");
+pub const FILTER_WORD_ARROW: ProofTextSpec = filter_word_spec!("filter_arrow", "arrow");
+pub const FILTER_WORD_ASSET: ProofTextSpec = filter_word_spec!("filter_asset", "asset");
+pub const FILTER_WORD_BATCH: ProofTextSpec = filter_word_spec!("filter_batch", "batch");
+pub const FILTER_WORD_BINARY: ProofTextSpec = filter_word_spec!("filter_binary", "binary");
+pub const FILTER_WORD_BLOCK: ProofTextSpec = filter_word_spec!("filter_block", "block");
+pub const FILTER_WORD_BUFFER: ProofTextSpec = filter_word_spec!("filter_buffer", "buffer");
+pub const FILTER_WORD_BUILD: ProofTextSpec = filter_word_spec!("filter_build", "build");
+pub const FILTER_WORD_CACHE: ProofTextSpec = filter_word_spec!("filter_cache", "cache");
+pub const FILTER_WORD_CLOCK: ProofTextSpec = filter_word_spec!("filter_clock", "clock");
+pub const FILTER_WORD_COMPILE: ProofTextSpec = filter_word_spec!("filter_compile", "compile");
+pub const FILTER_WORD_COMPONENT: ProofTextSpec =
+    filter_word_spec!("filter_component", "component");
+pub const FILTER_WORD_CONFIG: ProofTextSpec = filter_word_spec!("filter_config", "config");
+
+// ─── Filter-box word list ───
+
+/// Static word list for the filter-box proof element.
+/// Used by `filter_words()` for real-time filtering on each keystroke.
+pub const FILTER_WORDS: &[&str] = &[
+    "apple",
+    "application",
+    "apt",
+    "arrow",
+    "asset",
+    "batch",
+    "binary",
+    "block",
+    "buffer",
+    "build",
+    "cache",
+    "clock",
+    "compile",
+    "component",
+    "config",
+];
+
+/// Filter the static word list by a case-insensitive prefix.
+/// Returns all words that start with `prefix` (ASCII case-insensitive).
+/// Pure function — deterministic list spec for the later DSL/pretext lowering.
+pub fn filter_words(prefix: &str) -> Vec<&'static str> {
+    if prefix.is_empty() {
+        return FILTER_WORDS.to_vec();
+    }
+    let lower = prefix.to_ascii_lowercase();
+    FILTER_WORDS
+        .iter()
+        .filter(|word| word.to_ascii_lowercase().starts_with(&lower))
+        .copied()
+        .collect()
+}

@@ -18,6 +18,7 @@ use input_live_protocol::{
     frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
+use keymaps::{KeyAction, KeyOutput};
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
@@ -40,10 +41,11 @@ const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
 const WINDOWD_FALLBACK_SEND_SLOT: u32 = 5;
 const WINDOWD_FALLBACK_RECV_SLOT: u32 = 6;
+const ROUTE_BIND_RETRIES: usize = 256;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let mut runtime = LiveRouteRuntime::new()?;
-    let server = match KernelServer::new_for("inputd") {
+    let server = match bind_server() {
         Ok(server) => server,
         Err(err) => {
             let _ = debug_println(match err {
@@ -112,6 +114,18 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             }
         }
     }
+}
+
+fn bind_server() -> core::result::Result<KernelServer, nexus_ipc::IpcError> {
+    let mut last_err = nexus_ipc::IpcError::Unsupported;
+    for _ in 0..ROUTE_BIND_RETRIES {
+        match KernelServer::new_for("inputd") {
+            Ok(server) => return Ok(server),
+            Err(err) => last_err = err,
+        }
+        let _ = yield_();
+    }
+    Err(last_err)
 }
 
 struct LiveRouteRuntime {
@@ -351,6 +365,7 @@ impl LiveRouteRuntime {
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
         self.chain.delivered_events =
             self.chain.delivered_events.saturating_add(delivered_count as u64);
+        self.apply_visible_text_input();
         if !self.absolute_source_debug_emitted
             && matches!(
                 active_source,
@@ -396,6 +411,26 @@ impl LiveRouteRuntime {
             keyboard_dispatched,
         );
         STATUS_OK
+    }
+
+    fn apply_visible_text_input(&mut self) {
+        if self.input.router().focused_surface() != Some(self.surface) {
+            return;
+        }
+        for dispatch in self.input.recent_dispatches() {
+            let InputDispatch::Keyboard { output, .. } = dispatch else {
+                continue;
+            };
+            match output {
+                KeyOutput::Text(ch) => {
+                    let _ = self.visible_state.push_text_char(*ch);
+                }
+                KeyOutput::Action(KeyAction::Backspace) => {
+                    let _ = self.visible_state.pop_text_char();
+                }
+                _ => {}
+            }
+        }
     }
 
     fn report_chain_if_due(&mut self) {

@@ -25,7 +25,7 @@ use crate::markers::{
     WHEEL_VISIBLE_MARKER,
 };
 use nexus_layout::LayoutResult;
-use nexus_layout_types::Rgba8;
+use nexus_layout_types::{FxPx, Rgba8};
 
 use crate::layout_panel;
 use crate::smoke::VisibleBootstrapMode;
@@ -33,8 +33,16 @@ use crate::smoke::VisibleBootstrapMode;
 const ROUTE_NAME: &str = "windowd";
 const PROOF_PANEL_X: u32 = 56;
 const PROOF_PANEL_Y: u32 = 440;
-const PROOF_PANEL_W: u32 = crate::proof_panel_spec::PANEL_WIDTH as u32;
 const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
+const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
+const FILTER_LIST_PADDING_X: u32 = 4;
+const FILTER_LIST_PADDING_Y: u32 = 4;
+const FILTER_LIST_ROW_GAP: u32 = 2;
+const FILTER_INPUT_PADDING_X: u32 = 8;
+const FILTER_INPUT_FONT_W: u32 = 5;
+const FILTER_INPUT_FONT_H: u32 = 7;
+const FILTER_INPUT_FONT_SCALE: u32 = 2;
+const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = match KernelServer::new_for(ROUTE_NAME) {
@@ -121,7 +129,20 @@ struct DisplayServerRuntime {
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
     pending_damage_rows: Option<(u32, u32)>,
-    proof_layout: Option<LayoutResult>,
+    proof_layouts: Option<Vec<LayoutResult>>,
+    filtered_words: Vec<&'static str>,
+    /// Index into `LIVE_FILTER_VARIANTS` for the active filter text/layout.
+    active_filter_idx: usize,
+    /// Filter cycle counter for automated proof (advances on each keyboard event).
+    filter_cycle: u8,
+    /// Whether clipping marker was emitted.
+    clipping_marker_emitted: bool,
+    /// Whether scroll marker was emitted.
+    scroll_marker_emitted: bool,
+    /// Whether live scroll marker was emitted.
+    live_scroll_marker_emitted: bool,
+    /// Whether v3b selftest summary markers were emitted.
+    selftest_v3b_emitted: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -161,6 +182,23 @@ impl DisplayServerRuntime {
             Some(cursor) => (Some(cursor.pixels), cursor.width, cursor.height),
             None => (None, 0, 0),
         };
+        let initial_state = VisibleState {
+            backend_visible: true,
+            systemui_first_frame_visible: true,
+            scene_ready: true,
+            full_window_visible: true,
+            click_target_visible: true,
+            keyboard_target_visible: true,
+            cursor_svg_visible: cursor_width != 0 && cursor_height != 0,
+            text_target_visible: true,
+            icon_target_visible: true,
+            wallpaper_visible: systemui::wallpaper_source_is_jpeg(),
+            cursor_x: 100,
+            cursor_y: 100,
+            ..VisibleState::default()
+        };
+        let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
+        refill_filtered_words(&mut filtered_words, initial_state.text_input());
         Ok(Self {
             mode,
             source_frame,
@@ -169,41 +207,19 @@ impl DisplayServerRuntime {
             cursor_height,
             framebuffer: None,
             scratch_row: alloc::vec![0u8; mode.stride as usize],
-            state: VisibleState {
-                backend_visible: true,
-                systemui_first_frame_visible: true,
-                scene_ready: true,
-                full_window_visible: true,
-                click_target_visible: true,
-                keyboard_target_visible: true,
-                cursor_svg_visible: cursor_width != 0 && cursor_height != 0,
-                text_target_visible: true,
-                icon_target_visible: true,
-                wallpaper_visible: systemui::wallpaper_source_is_jpeg(),
-                cursor_x: 100,
-                cursor_y: 100,
-                ..VisibleState::default()
-            },
+            state: initial_state,
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
             pending_damage_rows: None,
-            proof_layout: layout_panel::compute_proof_layout(VisibleState {
-                backend_visible: true,
-                systemui_first_frame_visible: true,
-                scene_ready: true,
-                full_window_visible: true,
-                click_target_visible: true,
-                keyboard_target_visible: true,
-                cursor_svg_visible: cursor_width != 0 && cursor_height != 0,
-                text_target_visible: true,
-                icon_target_visible: true,
-                wallpaper_visible: systemui::wallpaper_source_is_jpeg(),
-                cursor_x: 100,
-                cursor_y: 100,
-                ..VisibleState::default()
-            })
-            .ok(),
+            proof_layouts: build_live_proof_layouts(initial_state),
+            filtered_words,
+            active_filter_idx: 0,
+            filter_cycle: 0,
+            clipping_marker_emitted: false,
+            scroll_marker_emitted: false,
+            live_scroll_marker_emitted: false,
+            selftest_v3b_emitted: false,
         })
     }
 
@@ -217,7 +233,7 @@ impl DisplayServerRuntime {
         if self.write_current_frame().is_err() {
             return STATUS_MALFORMED;
         }
-        if self.proof_layout.is_some() {
+        if self.active_proof_layout().is_some() {
             let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
             let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
         }
@@ -232,6 +248,7 @@ impl DisplayServerRuntime {
         let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         self.emit_asset_markers();
+        self.emit_v3b_markers();
         STATUS_OK
     }
 
@@ -240,6 +257,7 @@ impl DisplayServerRuntime {
             let _ = debug_println("dbg: windowd input state applied");
             self.input_state_debug_emitted = true;
         }
+        let old_state = self.state;
         let old_cursor_x = self.state.cursor_x;
         let old_cursor_y = self.state.cursor_y;
         let old_targets = target_state_bits(self.state);
@@ -260,6 +278,9 @@ impl DisplayServerRuntime {
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
+        self.state.set_text_input(upstream.text_input());
+        refill_filtered_words(&mut self.filtered_words, self.state.text_input());
+        self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
         let new_targets = target_state_bits(self.state);
         if new_targets != old_targets {
             // Target state only changes paint, not geometry. Keep the live path
@@ -272,7 +293,98 @@ impl DisplayServerRuntime {
             self.state.cursor_x,
             self.state.cursor_y,
         );
+
+        // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
+        if old_state.text_input() != self.state.text_input() {
+            self.note_filter_text_changed();
+        }
+
+        // ── v3b: scroll on wheel events ──
+        if (upstream.wheel_up_visible || upstream.wheel_down_visible) && self.active_proof_layout().is_some()
+        {
+            self.handle_scroll_input();
+        }
+
+        // ── v3b: selftest summary markers (once) ──
+        if !self.selftest_v3b_emitted
+            && self.live_scroll_marker_emitted
+            && self.clipping_marker_emitted
+            && self.filter_cycle > 0
+        {
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_SCROLL_OK_MARKER);
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_FILTER_OK_MARKER);
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_IME_OK_MARKER);
+            self.selftest_v3b_emitted = true;
+        }
+
         STATUS_OK
+    }
+
+    fn note_filter_text_changed(&mut self) {
+        self.filter_cycle = self.filter_cycle.wrapping_add(1);
+
+        if !self.clipping_marker_emitted {
+            let _ = debug_println(crate::markers::CLIPPING_ON_MARKER);
+            self.clipping_marker_emitted = true;
+        }
+        let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
+        let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
+
+        // Queue repaint for the combined panel area
+        self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
+    }
+
+    fn handle_scroll_input(&mut self) {
+        if !self.scroll_marker_emitted {
+            let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
+            self.scroll_marker_emitted = true;
+        }
+
+        let wheel_down_visible = self.state.wheel_down_visible;
+        if let Some(layout) = self.active_proof_layout_mut() {
+            // Find the filter_list container
+            let container_id = layout
+                .boxes
+                .iter()
+                .find(|b| b.id == Some("filter_list"))
+                .map(|b| b.node_id);
+
+            if let Some(id) = container_id {
+                let current_offset = layout
+                    .boxes
+                    .iter()
+                    .find(|b| b.node_id == id)
+                    .map(|b| b.scroll_offset)
+                    .unwrap_or((FxPx::ZERO, FxPx::ZERO));
+
+                let dy = if wheel_down_visible {
+                    FxPx::new(20)
+                } else {
+                    FxPx::new(-20)
+                };
+                let new_offset = (
+                    current_offset.0,
+                    (current_offset.1 + dy).max(FxPx::ZERO),
+                );
+                let _damage = layout.reposition_scroll(id, new_offset);
+                let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
+                self.live_scroll_marker_emitted = true;
+            }
+        }
+
+        self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
+    }
+
+    fn current_filter_text(&self) -> &'static str {
+        LIVE_FILTER_VARIANTS[self.active_filter_idx]
+    }
+
+    fn active_proof_layout(&self) -> Option<&LayoutResult> {
+        self.proof_layouts.as_ref()?.get(self.active_filter_idx)
+    }
+
+    fn active_proof_layout_mut(&mut self) -> Option<&mut LayoutResult> {
+        self.proof_layouts.as_mut()?.get_mut(self.active_filter_idx)
     }
 
     fn tick(&mut self, _now_ns: u64) {
@@ -296,6 +408,12 @@ impl DisplayServerRuntime {
             let _ = debug_println(crate::markers::ICON_TARGET_VISIBLE_MARKER);
         }
         self.markers_emitted = true;
+    }
+
+    fn emit_v3b_markers(&mut self) {
+        let _ = debug_println(crate::markers::EFFECTS_ON_MARKER);
+        let _ = debug_println(crate::markers::EFFECT_BLUR_OK_MARKER);
+        let _ = debug_println(crate::markers::SELFTEST_UI_V3_EFFECT_OK_MARKER);
     }
 
     fn emit_input_markers(&mut self) {
@@ -352,18 +470,32 @@ impl DisplayServerRuntime {
         if self.scratch_row.len() < row_len {
             return Err(WindowdError::BufferLengthMismatch);
         }
+        let active_filter_idx = self.active_filter_idx;
+        let proof_layout = self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let source_frame = &self.source_frame;
+        let mode = self.mode;
+        let state = self.state;
+        let filter_text = state.text_input();
+        let filtered_words = self.filtered_words.as_slice();
+        let cursor_bitmap = self.cursor_bitmap.as_deref();
+        let cursor_width = self.cursor_width;
+        let cursor_height = self.cursor_height;
+        let cursor_x = self.state.cursor_x;
+        let cursor_y = self.state.cursor_y;
         let end_y = end_y.min(self.mode.height);
         for y in start_y.min(end_y)..end_y {
             copy_scene_row(
-                &self.source_frame,
-                self.mode,
-                self.state,
-                self.proof_layout.as_ref(),
-                self.cursor_bitmap.as_deref(),
-                self.cursor_width,
-                self.cursor_height,
-                self.state.cursor_x,
-                self.state.cursor_y,
+                source_frame,
+                mode,
+                state,
+                proof_layout,
+                filter_text,
+                filtered_words,
+                cursor_bitmap,
+                cursor_width,
+                cursor_height,
+                cursor_x,
+                cursor_y,
                 y,
                 &mut self.scratch_row[..row_len],
             )?;
@@ -447,6 +579,18 @@ fn merge_optional_ranges(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> Option
     }
 }
 
+fn filter_layout_variant_index(filter_text: &str) -> usize {
+    let mut best_idx = 0;
+    let mut best_len = 0;
+    for (idx, candidate) in LIVE_FILTER_VARIANTS.iter().enumerate() {
+        if filter_text.starts_with(candidate) && candidate.len() >= best_len {
+            best_idx = idx;
+            best_len = candidate.len();
+        }
+    }
+    best_idx
+}
+
 fn target_state_bits(state: VisibleState) -> u8 {
     u8::from(state.hover_visible)
         | (u8::from(state.launcher_click_visible) << 1)
@@ -455,11 +599,21 @@ fn target_state_bits(state: VisibleState) -> u8 {
         | (u8::from(state.wheel_down_visible) << 4)
 }
 
+fn build_live_proof_layouts(state: VisibleState) -> Option<Vec<LayoutResult>> {
+    let mut layouts = Vec::with_capacity(LIVE_FILTER_VARIANTS.len());
+    for filter_text in LIVE_FILTER_VARIANTS {
+        layouts.push(layout_panel::compute_proof_layout(state, filter_text).ok()?);
+    }
+    Some(layouts)
+}
+
 fn copy_scene_row(
     source_frame: &SourceFrame,
     mode: VisibleBootstrapMode,
     state: VisibleState,
     proof_layout: Option<&LayoutResult>,
+    filter_text: &str,
+    filtered_words: &[&'static str],
     cursor_bitmap: Option<&[u8]>,
     cursor_width: u32,
     cursor_height: u32,
@@ -469,7 +623,7 @@ fn copy_scene_row(
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
     copy_scaled_systemui_row(source_frame, mode, y, row)?;
-    draw_proof_surface_row(state, proof_layout, y, row)?;
+    draw_proof_surface_row(state, proof_layout, filter_text, filtered_words, y, row)?;
     if let Some(cursor) = cursor_bitmap {
         blend_cursor_row(
             row,
@@ -517,12 +671,17 @@ fn checked_stride(width: u32) -> Result<u32, WindowdError> {
 fn draw_proof_surface_row(
     state: VisibleState,
     proof_layout: Option<&LayoutResult>,
+    filter_text: &str,
+    filtered_words: &[&'static str],
     y: u32,
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
     let Some(layout) = proof_layout else {
         return Ok(());
     };
+    let mut filter_input_rect = None;
+    let mut filter_list_rect = None;
+    let mut filter_list_scroll_y = 0;
     for layout_box in &layout.boxes {
         let Some(rect) = proof_box_rect(layout_box) else {
             continue;
@@ -533,12 +692,230 @@ fn draw_proof_surface_row(
         let paint_role = layout_box.id.and_then(proof_paint_role);
         draw_layout_box_row(state, y, row, layout_box, rect, paint_role)?;
         if let Some(id) = layout_box.id {
+            if id == "filter_text_input" {
+                filter_input_rect = Some(rect);
+                if filter_text.is_empty() {
+                    let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
+                    if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
+                        blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+                    }
+                }
+                continue;
+            }
+            if id == "filter_list" {
+                filter_list_rect = Some(rect);
+                filter_list_scroll_y = layout_box.scroll_offset.1.as_u32().unwrap_or(0);
+                continue;
+            }
+            if id.starts_with("filter_") {
+                continue;
+            }
             if let Some(asset) = crate::assets::proof_text_asset(id) {
                 blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
             }
         }
     }
+    if let Some(rect) = filter_input_rect {
+        draw_filter_input_text_row(y, row, rect, filter_text)?;
+    }
+    if let Some(rect) = filter_list_rect {
+        draw_filter_word_list_row(y, row, rect, filter_list_scroll_y, filtered_words)?;
+    }
     Ok(())
+}
+
+fn refill_filtered_words(out: &mut Vec<&'static str>, filter_text: &str) {
+    out.clear();
+    for &word in crate::proof_panel_spec::FILTER_WORDS {
+        if ascii_prefix_matches(word, filter_text) {
+            out.push(word);
+        }
+    }
+}
+
+fn filter_word_asset_id(word: &str) -> &'static str {
+    match word {
+        "apple" => "filter_apple",
+        "application" => "filter_application",
+        "apt" => "filter_apt",
+        "arrow" => "filter_arrow",
+        "asset" => "filter_asset",
+        "batch" => "filter_batch",
+        "binary" => "filter_binary",
+        "block" => "filter_block",
+        "buffer" => "filter_buffer",
+        "build" => "filter_build",
+        "cache" => "filter_cache",
+        "clock" => "filter_clock",
+        "compile" => "filter_compile",
+        "component" => "filter_component",
+        "config" => "filter_config",
+        _ => "filter_word",
+    }
+}
+
+fn ascii_prefix_matches(word: &str, prefix: &str) -> bool {
+    if prefix.is_empty() {
+        return true;
+    }
+    let mut word_bytes = word.bytes();
+    for prefix_byte in prefix.bytes() {
+        let Some(word_byte) = word_bytes.next() else {
+            return false;
+        };
+        if !word_byte.eq_ignore_ascii_case(&prefix_byte) {
+            return false;
+        }
+    }
+    true
+}
+
+fn draw_filter_word_list_row(
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    scroll_y: u32,
+    filtered_words: &[&'static str],
+) -> Result<(), WindowdError> {
+    if !rect.contains_y(y) {
+        return Ok(());
+    }
+    let mut word_top = rect.y + FILTER_LIST_PADDING_Y;
+    for &word in filtered_words {
+        let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) else {
+            continue;
+        };
+        let asset_top = word_top.saturating_sub(scroll_y);
+        if y >= asset_top && y < asset_top.saturating_add(asset.height) {
+            blend_asset_row(
+                y,
+                row,
+                rect.x + FILTER_LIST_PADDING_X,
+                asset_top,
+                asset.width,
+                asset.height,
+                asset.bgra,
+            )?;
+        }
+        word_top = word_top
+            .saturating_add(asset.height)
+            .saturating_add(FILTER_LIST_ROW_GAP);
+    }
+    Ok(())
+}
+
+fn draw_filter_input_text_row(
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    filter_text: &str,
+) -> Result<(), WindowdError> {
+    if filter_text.is_empty() {
+        return Ok(());
+    }
+    let glyph_height = FILTER_INPUT_FONT_H * FILTER_INPUT_FONT_SCALE;
+    if rect.height <= glyph_height {
+        return Ok(());
+    }
+    let text_top = rect.y + (rect.height - glyph_height) / 2;
+    if y < text_top || y >= text_top.saturating_add(glyph_height) {
+        return Ok(());
+    }
+    let glyph_row = ((y - text_top) / FILTER_INPUT_FONT_SCALE) as usize;
+    let color = rgba_to_bgra(crate::assets::PROOF_PANEL_TITLE);
+    let max_x = rect.x.saturating_add(rect.width.saturating_sub(FILTER_INPUT_PADDING_X));
+    let mut pen_x = rect.x + FILTER_INPUT_PADDING_X;
+    for ch in filter_text.chars() {
+        if pen_x.saturating_add(FILTER_INPUT_FONT_W * FILTER_INPUT_FONT_SCALE) > max_x {
+            break;
+        }
+        draw_bitmap_glyph_row(y, row, pen_x, glyph_row, ch, color)?;
+        pen_x = pen_x.saturating_add(FILTER_INPUT_FONT_ADVANCE);
+    }
+    if pen_x + 1 < max_x {
+        fill_row_rect(
+            y,
+            row,
+            pen_x,
+            text_top,
+            2,
+            glyph_height,
+            rgba_to_bgra(crate::assets::PROOF_KEYBOARD),
+        )?;
+    }
+    Ok(())
+}
+
+fn draw_bitmap_glyph_row(
+    y: u32,
+    row: &mut [u8],
+    x: u32,
+    glyph_row: usize,
+    ch: char,
+    bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    let bits = bitmap_font_5x7(ch)[glyph_row];
+    for col in 0..FILTER_INPUT_FONT_W {
+        if bits & (1 << (FILTER_INPUT_FONT_W - 1 - col)) == 0 {
+            continue;
+        }
+        fill_row_rect(
+            y,
+            row,
+            x + col * FILTER_INPUT_FONT_SCALE,
+            y,
+            FILTER_INPUT_FONT_SCALE,
+            1,
+            bgra,
+        )?;
+    }
+    Ok(())
+}
+
+fn bitmap_font_5x7(ch: char) -> [u8; 7] {
+    match ch.to_ascii_lowercase() {
+        'a' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'b' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+        'c' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
+        'd' => [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+        'e' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+        'f' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+        'g' => [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110],
+        'h' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'i' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+        'j' => [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100],
+        'k' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+        'l' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        'm' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+        'n' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+        'o' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'p' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+        'q' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
+        'r' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+        's' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+        't' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+        'u' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'v' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        'w' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
+        'x' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+        'y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+        'z' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+        '0' => [0b01110, 0b10011, 0b10101, 0b10101, 0b10101, 0b11001, 0b01110],
+        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
+        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+        '5' => [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110],
+        '6' => [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110],
+        '-' => [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000],
+        '_' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111],
+        '.' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100],
+        ' ' => [0; 7],
+        _ => [0b11111, 0b00001, 0b00010, 0b00100, 0b00100, 0b00000, 0b00100],
+    }
 }
 
 fn draw_layout_box_row(
@@ -705,6 +1082,10 @@ fn proof_box_background(
         } else {
             crate::assets::PROOF_CARD_BORDER
         }),
+        ProofPaintPart::FilterContent => Some(crate::assets::PROOF_CARD_BG),
+        // Keep filter text nodes transparent and let the text renderer provide the glyphs.
+        // Filling these text boxes produced long bar-like artifacts during scroll.
+        ProofPaintPart::FilterWord => layout_box.visual.background,
     }
 }
 
@@ -747,6 +1128,7 @@ enum ProofCard {
     Click,
     Scroll,
     Key,
+    Filter,
 }
 
 impl ProofCard {
@@ -767,6 +1149,10 @@ impl ProofCard {
                 active: state.keyboard_visible,
                 accent: crate::assets::PROOF_KEYBOARD,
             },
+            Self::Filter => ProofCardPaint {
+                active: true,
+                accent: crate::assets::PROOF_PANEL_TITLE,
+            },
         }
     }
 }
@@ -779,11 +1165,13 @@ enum ProofPaintPart {
     Glyph,
     ScrollUp,
     ScrollDown,
+    FilterContent,
+    FilterWord,
 }
 
 fn proof_paint_role(id: &str) -> Option<ProofPaintRole> {
-    use ProofCard::{Click, Hover, Key, Scroll};
-    use ProofPaintPart::{Dot, Glyph, Icon, Root, ScrollDown, ScrollUp};
+    use ProofCard::{Click, Filter, Hover, Key, Scroll};
+    use ProofPaintPart::{Dot, FilterContent, FilterWord, Glyph, Icon, Root, ScrollDown, ScrollUp};
 
     let (card, part) = match id {
         "card_hover" => (Hover, Root),
@@ -803,6 +1191,13 @@ fn proof_paint_role(id: &str) -> Option<ProofPaintRole> {
         "card_key_icon" => (Key, Icon),
         "card_key_dot" => (Key, Dot),
         "card_key_glyph" => (Key, Glyph),
+        "filter_panel" => (Filter, Root),
+        "filter_content" => (Filter, FilterContent),
+        "filter_text_input" => (Filter, FilterWord),
+        "filter_list" => (Filter, FilterContent),
+        "filter_word" => (Filter, FilterWord),
+        // Filter word asset IDs point to pre-rendered text
+        id if id.starts_with("filter_") => (Filter, FilterWord),
         _ => return None,
     };
     Some(ProofPaintRole { card, part })

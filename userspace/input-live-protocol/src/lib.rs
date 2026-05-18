@@ -46,8 +46,9 @@ pub const EVENT_KIND_BTN: u8 = 4;
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
-const STATE_LEN: usize = 32;
+const STATE_LEN: usize = 57;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
+pub const MAX_TEXT_INPUT_BYTES: usize = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireHidEvent {
@@ -97,6 +98,60 @@ pub struct VisibleState {
     pub cursor_overlay_visible: bool,
     pub cursor_x: i32,
     pub cursor_y: i32,
+    pub text_input_len: u8,
+    pub text_input_bytes: [u8; MAX_TEXT_INPUT_BYTES],
+}
+
+impl VisibleState {
+    #[must_use]
+    pub fn text_input(&self) -> &str {
+        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
+        core::str::from_utf8(&self.text_input_bytes[..len]).unwrap_or("")
+    }
+
+    pub fn clear_text_input(&mut self) {
+        self.text_input_len = 0;
+        self.text_input_bytes = [0; MAX_TEXT_INPUT_BYTES];
+    }
+
+    pub fn set_text_input(&mut self, text: &str) {
+        self.clear_text_input();
+        for ch in text.chars() {
+            if !self.push_text_char(ch) {
+                break;
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn push_text_char(&mut self, ch: char) -> bool {
+        let mut buf = [0u8; 4];
+        let encoded = ch.encode_utf8(&mut buf).as_bytes();
+        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
+        let needed = len.saturating_add(encoded.len());
+        if needed > MAX_TEXT_INPUT_BYTES {
+            return false;
+        }
+        self.text_input_bytes[len..needed].copy_from_slice(encoded);
+        self.text_input_len = needed as u8;
+        true
+    }
+
+    #[must_use]
+    pub fn pop_text_char(&mut self) -> bool {
+        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
+        if len == 0 {
+            return false;
+        }
+        let Ok(text) = core::str::from_utf8(&self.text_input_bytes[..len]) else {
+            self.clear_text_input();
+            return true;
+        };
+        let new_len = text.char_indices().last().map(|(idx, _)| idx).unwrap_or(0);
+        self.text_input_bytes[new_len..len].fill(0);
+        self.text_input_len = new_len as u8;
+        true
+    }
 }
 
 pub fn encode_push_hid_batch(batch: &WireHidBatch) -> Vec<u8> {
@@ -271,6 +326,8 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[37] = u8::from(state.icon_target_visible);
     out[38] = u8::from(state.wallpaper_visible);
     out[39] = u8::from(state.cursor_overlay_visible);
+    out[40] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
+    out[41..41 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
     out
 }
 
@@ -326,6 +383,12 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         icon_target_visible: frame[37] != 0,
         wallpaper_visible: frame[38] != 0,
         cursor_overlay_visible: frame[39] != 0,
+        text_input_len: frame[40].min(MAX_TEXT_INPUT_BYTES as u8),
+        text_input_bytes: {
+            let mut bytes = [0u8; MAX_TEXT_INPUT_BYTES];
+            bytes.copy_from_slice(&frame[41..41 + MAX_TEXT_INPUT_BYTES]);
+            bytes
+        },
     })
 }
 
@@ -382,7 +445,7 @@ mod tests {
 
     #[test]
     fn visible_state_round_trips() {
-        let state = VisibleState {
+        let mut state = VisibleState {
             virtio_raw_seen: true,
             hid_normalized_seen: true,
             backend_visible: true,
@@ -409,9 +472,24 @@ mod tests {
             cursor_y: 200,
             wheel_up_visible: true,
             wheel_down_visible: false,
+            text_input_len: 0,
+            text_input_bytes: [0; MAX_TEXT_INPUT_BYTES],
         };
+        state.set_text_input("ap");
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
         assert_eq!(decode_update_visible_state(&encode_update_visible_state(state)), Some(state));
+    }
+
+    #[test]
+    fn visible_state_text_input_push_and_pop_is_utf8_safe() {
+        let mut state = VisibleState::default();
+        assert!(state.push_text_char('a'));
+        assert!(state.push_text_char('p'));
+        assert_eq!(state.text_input(), "ap");
+        assert!(state.pop_text_char());
+        assert_eq!(state.text_input(), "a");
+        assert!(state.pop_text_char());
+        assert_eq!(state.text_input(), "");
     }
 
     #[test]
