@@ -1,41 +1,38 @@
-# Next Task Prep — TASK-0058
+# Next Task Prep — TASK-0059
 
-After TASK-0057: TASK-0058 (UI v3a: layout wrapping + deterministic box model).
+After TASK-0058: TASK-0059 (UI v3b: clip/scroll/effects + IME stub + filter-box).
 
 ## Current status
 
-RFC-0057 contract seed: In Progress (complete, implementation pending).
-TASK-0058: In Progress. TASK-0059: Draft (depends on TASK-0058).
+RFC-0058 contract seed: In Progress (complete, implementation pending).
+TASK-0059: In Progress. Depends on TASK-0058 (DONE).
 
 ## Drift check
 
-- TASK-0058 depends-on TASK-0057 (text shaping, SVG pipeline) — DONE
-- TASK-0058 depends-on TASK-0056 (present/input baseline) — DONE
-- nexus-shape (rustybuzz + fontdue) available for text measurement
-- nexus-theme available for token resolution (consumer layer, not layout crate)
-- windowd proof panel exists at hardcoded coordinates — ready for layout replacement
+- TASK-0059 depends-on TASK-0058 (layout engine) — DONE
+- nexus-layout (Flex/Grid) available for clip rect derivation
+- nexus-layout-types available for TextInputNode type
+- windowd layout_panel.rs available for filter-box layout tree
+- ProofPaintRole system available for allocation-free rendering
 - No kernel changes expected
-- Contract: RFC-0057 defines all types, phases, proof gates
 
-## Layout engine type surface
+## Filter-box proof element
 
-- Containers: Stack (flex row/col + flex_wrap), Grid (fraction cols + row_gap/col_gap), Spacer
-- Flex children: FlexItem (grow, shrink, align_self, margin, position, z_index)
-- Visual: Rgba8, Border, EdgeBorder, CornerRadius, VisualStyle (paint-only)
-- Text: TextStyle (font_size, weight, line_height, text_align, color, white_space), TextAlign, LineHeight, FontWeight, WhiteSpace
-- Constraints: min/max_width, min/max_height, Overflow
-- Measurement: MeasureText trait (decoupled from nexus-shape)
+Integration test for all three v3b features:
+- Clip: Overflow::Hidden container for scrollable word list
+- Scroll: wheel/drag → viewport, place-only invalidation, scrollbar
+- IME: TextInput node receives keyboard events, cursor blink via effect timer
+- Filter: filter_words(prefix) pure function on 15-word static list
 
-## Implementation plan (per RFC-0057)
+## Implementation plan (per RFC-0058)
 
-- Phase 0: Container layout — Stack/Grid/Spacer + FxPx/EdgeInsets + flex/grid algorithms
-- Phase 1: Visual + Text primitives — Rgba8/Border/VisualStyle + TextStyle/MeasureText
-- Phase 2: Text wrapping + caches — UAX#14, ellipsis, paragraph/run + line-layout caches
-- Phase 3: Host tests — JSON + PNG goldens (tests/ui_v3a_host/)
-- Phase 4: windowd integration — proof panel replacement + markers
+- Phase 0: Clip + scroll — scissor clipping, scroll damage math, scrollbar
+- Phase 1: Text input + filter-box — TextInputNode, filter_words(), layout, routing
+- Phase 2: CPU effects — blur/shadow + budgets, cursor blink timer
+- Phase 3: IME stub — focus routing, caret/selection helpers
+- Phase 4: Host tests — tests/ui_v3b_host/
+- Phase 5: OS markers — 12 new markers + postflight
 
-## Immediate follow-ups
+## Immediate follow-up
 
-- TASK-0059 (clip/scroll/effects + IME/TextInput) — consumes v3a layout tree
-- TASK-0062 (reactive runtime + animation/transitions)
-- TASK-0063 (virtualized list + theme tokens)
+- TASK-0060B (glass materials — consumes effect primitives)

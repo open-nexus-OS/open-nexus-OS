@@ -1,31 +1,28 @@
-# Stop Conditions — TASK-0058
+# Stop Conditions — TASK-0059
 
 ## Hard stop (do not claim done without)
 
-- [ ] `userspace/ui/layout/` crate exists with all types from RFC-0057
-- [ ] `FxPx` fixed-point type, `Rect`, `EdgeInsets` implemented
-- [ ] `Stack` (flex row/col + flex_wrap), `Grid` (fraction cols + row_gap), `Spacer` working
-- [ ] `FlexItem` (grow, shrink, align_self, margin, position, z_index) working
-- [ ] `Rgba8`, `Border`, `EdgeBorder`, `CornerRadius`, `VisualStyle` types
-- [ ] `TextStyle`, `TextAlign`, `LineHeight`, `FontWeight`, `WhiteSpace` types
-- [ ] `MeasureText` trait defined and implemented in nexus-shape
-- [ ] Flex algorithm deterministic (grow/shrink, space-between, align-items)
-- [ ] Grid algorithm deterministic (fraction columns, gap)
-- [ ] Text wrapping: UAX#14 minimal subset working
-- [ ] Ellipsis and max-lines truncation working
-- [ ] Paragraph/run cache + line-layout cache split working
-- [ ] JSON goldens stable (layout boxes + VisualStyle)
-- [ ] PNG goldens stable (rendered with backgrounds, borders, text)
-- [ ] windowd proof panel driven by layout engine
-- [ ] Proof panel pixel-identical regression gate maintained
-- [ ] OS markers: `layout: engine on`, `text: wrapping on`
-- [ ] All host tests green (`nexus-layout`, `nexus-shape wrap`, `ui_v3a_host`)
+- [ ] Scissor clipping via `Overflow::Hidden` on layout containers
+- [ ] Scroll damage math: viewport delta → dirty rect set (order-agnostic)
+- [ ] Scrollbar affordance: visible thumb + track with hover/active states
+- [ ] Scroll = place-only: no text reshaping or layout remeasurement on scroll
+- [ ] `TextInputNode` type in `nexus-layout-types`
+- [ ] `filter_words(prefix)` pure function with 15-word static list
+- [ ] Filter-box proof element visible on proof surface
+- [ ] Keyboard → text input routing in windowd
+- [ ] Filtered word list updates in real-time on keystroke
+- [ ] Cursor blink via effect timer
+- [ ] CPU blur + drop shadow with deterministic budgets
+- [ ] Effect budget trip degrades deterministically (marker emitted)
+- [ ] IME/text-input stub: focus routing, caret/selection helpers
+- [ ] `imed` stub (or real `imed` if TASK-0147 present)
+- [ ] Host tests: `tests/ui_v3b_host/` — scroll, clip, effects, filter, IME
+- [ ] JSON goldens stable
+- [ ] 12 OS markers fire: clipping, scroll, live scroll, text input, filter list, effects, blur, imed, SELFTEST ui v3 scroll/ime/effect/filter ok
 
 ## Reject tests required
 
-- [ ] test_reject_too_many_nodes
-- [ ] test_reject_too_deep
-- [ ] test_reject_div_by_zero_flex
-- [ ] test_reject_oversized_text
-- [ ] test_place_only_no_remeasure (scroll = place-only invalidation)
-- [ ] test_visual_style_no_remeasure (VisualStyle change = paint-only)
+- [ ] test_reject_clip_outside_bounds
+- [ ] test_reject_scroll_overflow
+- [ ] test_scroll_place_only (no remeasure on scroll)
+- [ ] test_effect_budget_exceeded (degrade + marker)

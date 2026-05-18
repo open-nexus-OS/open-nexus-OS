@@ -4,6 +4,13 @@ Last updated: 2026-05-17 (TASK-0058 Done, no duplicate structure, 31 tests green
 
 ## Active task
 
+TASK-0059: UI v3b clip/scroll/effects + IME stub + filter-box. — **In Progress**
+Status: **In Progress** (RFC-0058 contract seed created; filter-box proof element defined).
+RFC-0058: In Progress (contract defined, proof gates pending).
+Depends on: TASK-0058 (DONE).
+
+## Previous task
+
 TASK-0058: UI v3a layout engine (flex/grid/stack) + text wrapping + host goldens. — **Done**
 Status: **Done** (RFC-0057 contract seed complete; impl complete (31 host tests), 31 tests, production-grade).
 RFC-0057: Done.

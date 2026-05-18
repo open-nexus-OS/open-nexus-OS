@@ -111,6 +111,8 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | 2026-05-11 |
 | ✅ TASK-0057 | UI v2b: Minimal DisplayServer v0 — Mocu cursor, JPEG wallpaper, Inter text, input targets | 2026-05-15 |
 | ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
+| ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
+| ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
 
 ---
 
@@ -212,6 +214,7 @@ muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface ersche
 | Task | Title |
 |------|-------|
 | TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline |
+| TASK-0058 | UI v3a: layout wrapping + deterministic box model |
 | TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput |
 | TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) |
 | TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) |

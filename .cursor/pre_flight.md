@@ -1,29 +1,24 @@
-# Pre-Flight — TASK-0058
+# Pre-Flight — TASK-0059
 
 ## Before starting implementation
 
-- [x] Read RFC-0057 (contract seed)
-- [x] Read docs/dev/ui/foundations/layout/layout-pipeline.md (pipeline contract)
-- [x] Read docs/dev/ui/foundations/layout/text.md (text preparation contract)
-- [x] Read docs/dev/ui/foundations/layout/wrapping.md (wrapping contract)
-- [x] Read docs/dev/dsl/syntax.md (DSL naming conventions)
-- [x] Read docs/dev/ui/foundations/visual/colors.md (semantic tokens)
-- [x] Read docs/dev/ui/foundations/visual/typography.md (font contract)
-- [x] Review windowd proof panel code (source/services/windowd/src/os_lite.rs)
-- [x] Verify TASK-0057 gates still green (just dep-gate, just diag-os)
-- [x] Confirm rustybuzz + fontdue only (no C libraries)
+- [x] Read RFC-0058 (contract seed)
+- [x] Read RFC-0057 (layout engine contract)
+- [x] Read docs/dev/ui/foundations/layout/layout-pipeline.md
+- [x] Read docs/dev/ui/foundations/layout/scroll.md
+- [x] Review windowd layout_panel.rs (filter-box integration point)
+- [x] Review windowd proof_panel_spec.rs (FILTER_WORDS constant)
+- [x] Verify TASK-0058 gates still green (just dep-gate, just diag-os)
 
 ## Quality gates (must pass before claiming phase done)
 
 - [ ] just fmt-check
 - [ ] just diag-os
 - [ ] just dep-gate
-- [ ] cargo test -p nexus-layout (Phase 0+1)
-- [ ] cargo test -p nexus-shape wrap (Phase 2)
-- [ ] cargo test -p ui_v3a_host (Phase 3)
-- [ ] RUN_UNTIL_MARKER=1 just test-os visible-bootstrap (Phase 4)
+- [ ] cargo test -p ui_v3b_host (Phase 4)
+- [ ] RUN_UNTIL_MARKER=1 just test-os visible-bootstrap (Phase 5)
 - [ ] No unwrap/expect on untrusted input
 - [ ] No kernel prints/logs/markers
-- [ ] No C dependencies in OS graph
-- [ ] Fixed-point math only (no f32/f64 in layout)
-- [ ] Proof panel pixel-identical regression gate maintained
+- [ ] Scroll damage math is allocation-free (stack-only scratch space)
+- [ ] Layout computation not called in input hot-path
+- [ ] filter_words("ap") returns 3 results deterministically
