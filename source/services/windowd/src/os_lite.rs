@@ -705,11 +705,10 @@ fn draw_proof_surface_row(
         if let Some(id) = layout_box.id {
             if id == "filter_text_input" {
                 filter_input_rect = Some(rect);
-                if filter_text.is_empty() {
-                    let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
-                    if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
-                        blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
-                    }
+                // Try pre-rendered asset first (sharper, build.rs font)
+                let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
+                if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
+                    blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
                 }
                 continue;
             }
