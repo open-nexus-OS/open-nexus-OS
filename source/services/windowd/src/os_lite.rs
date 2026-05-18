@@ -1098,12 +1098,25 @@ fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<ProofBoxRect> 
     if width == 0 || height == 0 {
         return None;
     }
-    Some(ProofBoxRect {
-        x: PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0),
-        y: PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0),
-        width,
-        height,
-    })
+    let x = PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0);
+    let y = PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0);
+    // Clip to clip_rect: if the box has a scissor rect, intersect with it
+    if let Some(clip) = layout_box.clip_rect {
+        let clip_x = PROOF_PANEL_X + clip.x.as_u32().unwrap_or(0);
+        let clip_y = PROOF_PANEL_Y + clip.y.as_u32().unwrap_or(0);
+        let clip_w = clip.width.as_u32().unwrap_or(0);
+        let clip_h = clip.height.as_u32().unwrap_or(0);
+        if clip_w == 0 || clip_h == 0 {
+            return None;
+        }
+        // Intersect: box must overlap clip rect
+        if x + width <= clip_x || clip_x + clip_w <= x
+            || y + height <= clip_y || clip_y + clip_h <= y
+        {
+            return None; // completely outside clip rect
+        }
+    }
+    Some(ProofBoxRect { x, y, width, height })
 }
 
 fn proof_box_background(

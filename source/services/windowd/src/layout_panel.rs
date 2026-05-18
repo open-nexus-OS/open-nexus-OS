@@ -651,7 +651,7 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             min_width: None,
             max_width: None,
             min_height: None,
-            max_height: Some(FxPx::new(100)), // visible viewport
+            max_height: Some(FxPx::new(190)), // panel content (212) - text-input (~18) - gap (4)
             item: FlexItem { flex_grow: 1, ..FlexItem::default() },
         },
         VisualStyle {
