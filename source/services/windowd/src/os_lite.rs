@@ -38,6 +38,8 @@ const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
 const FILTER_LIST_PADDING_X: u32 = 4;
 const FILTER_LIST_PADDING_Y: u32 = 4;
 const FILTER_LIST_ROW_GAP: u32 = 2;
+const FILTER_SCROLLBAR_WIDTH: u32 = 4;
+const FILTER_SCROLLBAR_MIN_THUMB: u32 = 12;
 const FILTER_INPUT_PADDING_X: u32 = 8;
 const FILTER_INPUT_FONT_W: u32 = 5;
 const FILTER_INPUT_FONT_H: u32 = 7;
@@ -341,6 +343,9 @@ impl DisplayServerRuntime {
         }
 
         let wheel_down_visible = self.state.wheel_down_visible;
+        // Compute content height before mutable borrow of proof_layouts
+        let content_h = filter_list_content_height(&self.filtered_words);
+
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
             let container_id = layout
@@ -350,6 +355,12 @@ impl DisplayServerRuntime {
                 .map(|b| b.node_id);
 
             if let Some(id) = container_id {
+                let viewport_h = layout
+                    .boxes
+                    .iter()
+                    .find(|b| b.node_id == id)
+                    .map(|b| b.rect.height)
+                    .unwrap_or(FxPx::ZERO);
                 let current_offset = layout
                     .boxes
                     .iter()
@@ -362,10 +373,10 @@ impl DisplayServerRuntime {
                 } else {
                     FxPx::new(-20)
                 };
-                let new_offset = (
-                    current_offset.0,
-                    (current_offset.1 + dy).max(FxPx::ZERO),
-                );
+                let max_scroll =
+                    FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
+                let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
+                let new_offset = (current_offset.0, new_offset_y);
                 let _damage = layout.reposition_scroll(id, new_offset);
                 let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
                 self.live_scroll_marker_emitted = true;
@@ -770,6 +781,17 @@ fn ascii_prefix_matches(word: &str, prefix: &str) -> bool {
     true
 }
 
+/// Total content height of the filter word list (words + gaps + padding).
+fn filter_list_content_height(filtered_words: &[&'static str]) -> u32 {
+    let mut h = FILTER_LIST_PADDING_Y;
+    for &word in filtered_words {
+        if let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) {
+            h = h.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
+        }
+    }
+    h.saturating_sub(FILTER_LIST_ROW_GAP) // remove trailing gap
+}
+
 fn draw_filter_word_list_row(
     y: u32,
     row: &mut [u8],
@@ -801,7 +823,44 @@ fn draw_filter_word_list_row(
             .saturating_add(asset.height)
             .saturating_add(FILTER_LIST_ROW_GAP);
     }
+
+    // ── Scrollbar ──
+    let content_h = filter_list_content_height(filtered_words);
+    if content_h > rect.height {
+        draw_filter_scrollbar_row(y, row, rect, scroll_y, content_h)?;
+    }
+
     Ok(())
+}
+
+fn draw_filter_scrollbar_row(
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    scroll_y: u32,
+    content_h: u32,
+) -> Result<(), WindowdError> {
+    // Track: subtle background on the right edge of the filter_list
+    let track_x = rect.x + rect.width.saturating_sub(FILTER_SCROLLBAR_WIDTH);
+    let track_bgra = rgba_to_bgra(crate::assets::PROOF_CARD_BG);
+    if y >= rect.y && y < rect.y.saturating_add(rect.height) {
+        fill_row_rect(y, row, track_x, rect.y, FILTER_SCROLLBAR_WIDTH, rect.height, track_bgra)?;
+    }
+
+    // Thumb: proportional position and size, high-contrast color
+    let max_scroll = content_h.saturating_sub(rect.height);
+    if max_scroll == 0 {
+        return Ok(());
+    }
+    let thumb_height = (rect.height as u64 * rect.height as u64 / content_h as u64) as u32;
+    let thumb_height = thumb_height.max(FILTER_SCROLLBAR_MIN_THUMB).min(rect.height);
+    let thumb_range = rect.height.saturating_sub(thumb_height);
+    let scroll_progress = (scroll_y as u64).min(max_scroll as u64);
+    let thumb_y = rect.y
+        + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
+
+    let thumb_bgra = rgba_to_bgra(crate::assets::PROOF_SCROLL);
+    fill_row_rect(y, row, track_x, thumb_y, FILTER_SCROLLBAR_WIDTH, thumb_height, thumb_bgra)
 }
 
 fn draw_filter_input_text_row(
