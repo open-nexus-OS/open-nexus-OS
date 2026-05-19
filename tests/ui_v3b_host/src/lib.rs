@@ -22,7 +22,11 @@ mod tests {
         LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PreparedTextHandle,
         Rect, TextAlign, TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
     };
-    use windowd::{build_filter_panel_tree, compute_proof_layout, filter_words};
+    use windowd::{
+        build_filter_panel_tree, compute_proof_layout, filter_scrollbar_strip_x,
+        filter_scrollbar_thumb_bounds, filter_scrollbar_track_x, filter_words,
+        FILTER_LIST_PADDING, FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_WIDTH,
+    };
 
     struct MockMeasure {
         char_width: FxPx,
@@ -78,6 +82,10 @@ mod tests {
             },
             VisualStyle::default(),
         )
+    }
+
+    fn box_by_id<'a>(layout: &'a nexus_layout::LayoutResult, id: &str) -> &'a nexus_layout::LayoutBox {
+        layout.boxes.iter().find(|b| b.id == Some(id)).unwrap()
     }
 
     fn default_visible_state() -> VisibleState {
@@ -310,6 +318,65 @@ mod tests {
             let word = layout.boxes.iter().find(|b| b.id == Some(id)).unwrap();
             assert!(word.rect.width > FxPx::ZERO, "{id} should have measured width");
         }
+    }
+
+    #[test]
+    fn filter_list_viewport_stays_inside_filter_panel() {
+        let layout = compute_proof_layout(default_visible_state(), "ap").unwrap();
+        let panel = box_by_id(&layout, "filter_panel");
+        let list = box_by_id(&layout, "filter_list");
+        assert!(list.rect.x >= panel.rect.x);
+        assert!(list.rect.y >= panel.rect.y);
+        assert!(list.rect.x + list.rect.width <= panel.rect.x + panel.rect.width);
+        assert!(list.rect.y + list.rect.height <= panel.rect.y + panel.rect.height);
+    }
+
+    #[test]
+    fn filter_list_content_reserves_scrollbar_gutter() {
+        let layout = compute_proof_layout(default_visible_state(), "ap").unwrap();
+        let list = box_by_id(&layout, "filter_list");
+        let word = box_by_id(&layout, "filter_application");
+        let reserved_right = px((FILTER_LIST_PADDING + FILTER_SCROLLBAR_GUTTER) as i32);
+        assert!(word.rect.x + word.rect.width <= list.rect.x + list.rect.width - reserved_right);
+    }
+
+    #[test]
+    fn filter_list_starts_after_input_row_when_content_overflows() {
+        let layout = compute_proof_layout(default_visible_state(), "").unwrap();
+        let input = box_by_id(&layout, "filter_text_input");
+        let list = box_by_id(&layout, "filter_list");
+        assert!(input.rect.height > px(10));
+        assert!(list.rect.y >= input.rect.y + input.rect.height + px(4));
+    }
+
+    #[test]
+    fn scrollbar_track_contract_is_pinned_to_list_right_edge() {
+        let layout = compute_proof_layout(default_visible_state(), "ap").unwrap();
+        let list = box_by_id(&layout, "filter_list");
+        let strip_x = filter_scrollbar_strip_x(
+            list.rect.x.as_u32().unwrap(),
+            list.rect.width.as_u32().unwrap(),
+        );
+        let track_x = filter_scrollbar_track_x(
+            list.rect.x.as_u32().unwrap(),
+            list.rect.width.as_u32().unwrap(),
+        );
+        let right_edge = list.rect.x.as_u32().unwrap() + list.rect.width.as_u32().unwrap();
+        assert_eq!(track_x + FILTER_SCROLLBAR_WIDTH, right_edge);
+        assert_eq!(strip_x, right_edge - (FILTER_LIST_PADDING + FILTER_SCROLLBAR_GUTTER));
+        assert!(track_x >= strip_x);
+    }
+
+    #[test]
+    fn scrollbar_thumb_reaches_bottom_at_max_scroll() {
+        let viewport_y = 40;
+        let viewport_height = 100;
+        let content_height = 280;
+        let max_scroll = content_height - viewport_height;
+        let (thumb_y, thumb_height) =
+            filter_scrollbar_thumb_bounds(viewport_y, viewport_height, content_height, max_scroll)
+                .unwrap();
+        assert_eq!(thumb_y + thumb_height, viewport_y + viewport_height);
     }
 
     #[test]

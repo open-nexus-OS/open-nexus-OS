@@ -146,6 +146,25 @@ mod tests {
         }
     }
 
+    fn box_by_id<'a>(layout: &'a nexus_layout::LayoutResult, id: &str) -> &'a nexus_layout::LayoutBox {
+        layout.boxes.iter().find(|b| b.id == Some(id)).unwrap()
+    }
+
+    fn txt_id(id: &'static str, s: &str) -> LayoutNode {
+        LayoutNode::Text(
+            TextNode {
+                id: Some(id),
+                content: TextContent::new(s),
+                style: text_style(),
+                item: FlexItem::default(),
+                max_lines: None,
+                min_width: None,
+                max_width: None,
+            },
+            VisualStyle::default(),
+        )
+    }
+
     #[test]
     fn golden_flex_row() {
         let s = LayoutNode::Stack(
@@ -203,6 +222,154 @@ mod tests {
         assert_eq!(g.len(), 3); // container + 2 text
         assert_eq!(g[1].y, 8); // padding-top
         assert_eq!(g[2].y, 32); // 8 + 20 + 4
+    }
+
+    #[test]
+    fn nested_child_respects_parent_content_box() {
+        let root = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("outer"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::all(px(10)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Hidden,
+                flex_wrap: false,
+                min_width: Some(px(200)),
+                max_width: Some(px(200)),
+                min_height: Some(px(120)),
+                max_height: Some(px(120)),
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![LayoutNode::Stack(
+                nexus_layout_types::Stack {
+                    id: Some("inner"),
+                    direction: Direction::Row,
+                    gap: px(4),
+                    padding: EdgeInsets::all(px(6)),
+                    align: Align::Stretch,
+                    justify: Justify::Start,
+                    overflow: nexus_layout_types::Overflow::Hidden,
+                    flex_wrap: false,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
+                },
+                VisualStyle::default(),
+                vec![txt("A"), txt("BBBB")],
+            )],
+        );
+        let layout = LayoutEngine::new()
+            .layout(&root, px(400), &MockMeasure { char_width: px(10) })
+            .unwrap();
+        let outer = box_by_id(&layout, "outer");
+        let inner = box_by_id(&layout, "inner");
+        assert_eq!(inner.rect.x, outer.rect.x + px(10));
+        assert_eq!(inner.rect.width, outer.rect.width - px(20));
+        assert!(inner.rect.x + inner.rect.width <= outer.rect.x + outer.rect.width - px(10));
+    }
+
+    #[test]
+    fn column_flex_grow_uses_parent_height() {
+        let grow = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("grow"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::zero(),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            },
+            VisualStyle::default(),
+            vec![],
+        );
+        let root = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("outer"),
+                direction: Direction::Column,
+                gap: px(4),
+                padding: EdgeInsets::all(px(10)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: Some(px(200)),
+                max_width: Some(px(200)),
+                min_height: Some(px(120)),
+                max_height: Some(px(120)),
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![txt_id("top", "top"), grow, txt_id("bottom", "bottom")],
+        );
+        let layout = LayoutEngine::new()
+            .layout(&root, px(400), &MockMeasure { char_width: px(10) })
+            .unwrap();
+        let grow = box_by_id(&layout, "grow");
+        let bottom = box_by_id(&layout, "bottom");
+        assert_eq!(grow.rect.height, px(52));
+        assert_eq!(bottom.rect.y, px(90));
+    }
+
+    #[test]
+    fn row_stretch_sets_child_height_and_clip_rect() {
+        let stretched = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("stretch_child"),
+                direction: Direction::Column,
+                gap: px(0),
+                padding: EdgeInsets::all(px(2)),
+                align: Align::Start,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Hidden,
+                flex_wrap: false,
+                min_width: Some(px(40)),
+                max_width: Some(px(40)),
+                min_height: None,
+                max_height: None,
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![txt("x")],
+        );
+        let root = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("row"),
+                direction: Direction::Row,
+                gap: px(4),
+                padding: EdgeInsets::all(px(10)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: Some(px(200)),
+                max_width: Some(px(200)),
+                min_height: Some(px(80)),
+                max_height: Some(px(80)),
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![stretched],
+        );
+        let layout = LayoutEngine::new()
+            .layout(&root, px(400), &MockMeasure { char_width: px(10) })
+            .unwrap();
+        let child = box_by_id(&layout, "stretch_child");
+        let clip = child.clip_rect.unwrap();
+        assert_eq!(child.rect.height, px(60));
+        assert_eq!(clip.y, child.rect.y + px(2));
+        assert_eq!(clip.height, px(56));
     }
 
     #[test]

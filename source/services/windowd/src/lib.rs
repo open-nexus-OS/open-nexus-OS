@@ -52,7 +52,9 @@ pub use ids::{
 };
 pub use layout_panel::{
     build_combined_tree, build_filter_panel_tree, build_proof_panel_tree, compute_proof_layout,
-    ProofTextMeasure,
+    filter_scrollbar_strip_x, filter_scrollbar_thumb_bounds, filter_scrollbar_track_x,
+    ProofTextMeasure, FILTER_LIST_PADDING, FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_MIN_THUMB,
+    FILTER_SCROLLBAR_WIDTH,
 };
 pub use legacy::render_frame;
 pub use markers::{

@@ -24,6 +24,18 @@ struct NodeSize {
     height: FxPx,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LayoutConstraints {
+    max_width: FxPx,
+    max_height: Option<FxPx>,
+}
+
+impl LayoutConstraints {
+    const fn new(max_width: FxPx, max_height: Option<FxPx>) -> Self {
+        Self { max_width, max_height }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutBox {
     pub node_id: usize,
@@ -204,11 +216,12 @@ impl LayoutEngine {
     ) -> Result<LayoutResult, LayoutError> {
         let mut node_count = 0;
         let mut boxes = Vec::new();
+        let constraints = LayoutConstraints::new(available_width, None);
         self.place_node(
             root,
             FxPx::ZERO,
             FxPx::ZERO,
-            available_width,
+            constraints,
             0,
             None,
             (FxPx::ZERO, FxPx::ZERO),
@@ -226,7 +239,7 @@ impl LayoutEngine {
         node: &LayoutNode,
         x: FxPx,
         y: FxPx,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
@@ -250,7 +263,7 @@ impl LayoutEngine {
                 children,
                 x,
                 y,
-                available_width,
+                constraints,
                 depth,
                 parent_clip,
                 scroll_offset,
@@ -265,7 +278,7 @@ impl LayoutEngine {
                 children,
                 x,
                 y,
-                available_width,
+                constraints,
                 depth,
                 parent_clip,
                 scroll_offset,
@@ -288,11 +301,11 @@ impl LayoutEngine {
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
             LayoutNode::Text(text, style) => self.place_text(
-                node_id, text, style, x, y, available_width, parent_clip, scroll_offset, measure,
+                node_id, text, style, x, y, constraints, parent_clip, scroll_offset, measure,
                 boxes,
             ),
             LayoutNode::TextInput(input, style) => self.place_text_input(
-                node_id, input, style, x, y, available_width, parent_clip, scroll_offset, measure,
+                node_id, input, style, x, y, constraints, parent_clip, scroll_offset, measure,
                 boxes,
             ),
         }
@@ -305,14 +318,14 @@ impl LayoutEngine {
         style: &VisualStyle,
         x: FxPx,
         y: FxPx,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
         let width_limit = clamp_width(
-            available_width,
+            constraints.max_width,
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         );
@@ -331,9 +344,11 @@ impl LayoutEngine {
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         )
-        .min(width_limit.max(line_width));
-        let height =
-            lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1));
+        .min(width_limit);
+        let height = clamp_to_max_height(
+            lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1)),
+            constraints.max_height,
+        );
         boxes.push(LayoutBox {
             node_id,
             id: text.id,
@@ -354,7 +369,7 @@ impl LayoutEngine {
         style: &VisualStyle,
         x: FxPx,
         y: FxPx,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
@@ -383,7 +398,7 @@ impl LayoutEngine {
             style,
             x,
             y,
-            available_width,
+            constraints,
             parent_clip,
             scroll_offset,
             measure,
@@ -399,7 +414,7 @@ impl LayoutEngine {
         children: &[LayoutNode],
         x: FxPx,
         y: FxPx,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
@@ -407,31 +422,29 @@ impl LayoutEngine {
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
-        let measured = self.measure_stack(stack, children, available_width, depth, measure)?;
-        let width = clamp_width(
-            measured.width,
-            stack.min_width.or(stack.item.min_width),
-            stack.max_width.or(stack.item.max_width),
-        )
-        .min(available_width.max(measured.width));
+        let measured = self.measure_stack(stack, children, constraints, depth, measure)?;
+        let width = measured.width;
+        let height = measured.height;
         let container_index = boxes.len();
         let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden);
+        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
+        let content_width = width.saturating_sub(stack.padding.horizontal());
+        let content_height = height.saturating_sub(stack.padding.vertical());
         let container_clip = if is_overflow_hidden {
-            let content_rect = Rect::new(
+            let own = Rect::new(
                 x + stack.padding.left,
                 y + stack.padding.top,
-                width.saturating_sub(stack.padding.horizontal()),
-                FxPx::ZERO, // height filled after children placed
+                content_width,
+                content_height,
             );
-            Some(content_rect)
+            intersect_clip(Some(own), parent_clip)
         } else {
             parent_clip
         };
-        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         boxes.push(LayoutBox {
             node_id,
             id: stack.id,
-            rect: Rect::new(x, y, width, FxPx::ZERO),
+            rect: Rect::new(x, y, width, height),
             z_index: stack.item.z_index,
             visual: style.clone(),
             clip_rect: parent_clip,
@@ -439,16 +452,16 @@ impl LayoutEngine {
             overflow: stack.overflow,
         });
         let padding = stack.padding;
-        let content_x = x + padding.left - scroll_offset.0;
-        let content_y = y + padding.top - scroll_offset.1;
-        let content_width = width.saturating_sub(padding.horizontal());
-        let size = if stack.direction.is_horizontal() {
+        let content_x = x + padding.left - container_scroll.0;
+        let content_y = y + padding.top - container_scroll.1;
+        let child_constraints = LayoutConstraints::new(content_width, Some(content_height));
+        if stack.direction.is_horizontal() {
             self.place_stack_row(
                 stack,
                 children,
                 content_x,
                 content_y,
-                content_width,
+                child_constraints,
                 depth,
                 container_clip,
                 container_scroll,
@@ -462,7 +475,7 @@ impl LayoutEngine {
                 children,
                 content_x,
                 content_y,
-                content_width,
+                child_constraints,
                 depth,
                 container_clip,
                 container_scroll,
@@ -471,18 +484,15 @@ impl LayoutEngine {
                 boxes,
             )?
         };
-        let height =
-            clamp_height(size.height + padding.vertical(), stack.min_height, stack.max_height);
-        boxes[container_index].rect.height = height;
         // Fix up the container clip rect height now that we know the actual height
         if is_overflow_hidden {
-            let content_rect = Rect::new(
+            let own = Rect::new(
                 x + stack.padding.left,
                 y + stack.padding.top,
-                width.saturating_sub(stack.padding.horizontal()),
-                height.saturating_sub(padding.vertical()),
+                content_width,
+                content_height,
             );
-            boxes[container_index].clip_rect = Some(content_rect);
+            boxes[container_index].clip_rect = intersect_clip(Some(own), parent_clip);
         }
         Ok(NodeSize { width, height })
     }
@@ -493,7 +503,7 @@ impl LayoutEngine {
         children: &[LayoutNode],
         content_x: FxPx,
         content_y: FxPx,
-        content_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
@@ -505,9 +515,15 @@ impl LayoutEngine {
         let mut absolute: Vec<(&LayoutNode, FlexItem, NodeSize)> = Vec::new();
         let mut fixed_main = FxPx::ZERO;
         let mut total_grow = 0u32;
+        let content_width = constraints.max_width;
         for (index, child) in children.iter().enumerate() {
             let item = *child.item();
-            let measured = self.measure_node(child, content_width, depth + 1, measure)?;
+            let measured = self.measure_node(
+                child,
+                child_constraints(constraints, item, content_width, constraints.max_height),
+                depth + 1,
+                measure,
+            )?;
             if item.position == nexus_layout_types::Position::Absolute {
                 absolute.push((child, item, measured));
                 continue;
@@ -519,21 +535,43 @@ impl LayoutEngine {
         }
         let gap_count = in_flow.len().saturating_sub(1) as i32;
         let fixed_with_gap = fixed_main + stack.gap * gap_count;
-        let free_space = content_width.saturating_sub(fixed_with_gap);
+        let free_or_deficit = content_width.0 - fixed_with_gap.0;
         let mut allocations: Vec<FxPx> = Vec::with_capacity(in_flow.len());
-        for (_, _, item, _, base_main) in &in_flow {
-            let extra = if total_grow > 0 && item.flex_grow > 0 {
-                FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
-            } else {
-                FxPx::ZERO
-            };
-            allocations.push(*base_main + extra);
+        if free_or_deficit >= 0 {
+            let free_space = FxPx::new(free_or_deficit);
+            for (_, _, item, _, base_main) in &in_flow {
+                let extra = if total_grow > 0 && item.flex_grow > 0 {
+                    FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
+                } else {
+                    FxPx::ZERO
+                };
+                allocations.push(*base_main + extra);
+            }
+        } else {
+            let deficit = (-free_or_deficit) as u32;
+            let mut total_shrink = 0u32;
+            for (_, _, item, _, _) in &in_flow {
+                total_shrink += item.flex_shrink;
+            }
+            for (_, _, item, _, base_main) in &in_flow {
+                let shrink = if total_shrink > 0 && item.flex_shrink > 0 {
+                    (deficit as u64 * item.flex_shrink as u64 / total_shrink as u64) as i32
+                } else {
+                    0
+                };
+                allocations.push(FxPx::new((base_main.0 as i32 - shrink).max(0)));
+            }
         }
         let mut row_height = FxPx::ZERO;
         let mut used_main = FxPx::ZERO;
         for ((_, child, item, _, _), allocation) in in_flow.iter().zip(allocations.iter()) {
             let child_width = allocation.saturating_sub(item.margin.horizontal());
-            let measured = self.measure_node(child, child_width, depth + 1, measure)?;
+            let measured = self.measure_node(
+                child,
+                child_constraints(constraints, *item, child_width, constraints.max_height),
+                depth + 1,
+                measure,
+            )?;
             row_height = row_height.max(measured.height + item.margin.vertical());
             used_main += *allocation;
         }
@@ -547,18 +585,30 @@ impl LayoutEngine {
             stack.gap,
         );
         cursor += content_x;
+        let available_cross = constraints.max_height.unwrap_or(row_height);
         for ((_, child, item, _, _), allocation) in in_flow.iter().zip(allocations.iter()) {
             let child_width = allocation.saturating_sub(item.margin.horizontal());
-            let measured = self.measure_node(child, child_width, depth + 1, measure)?;
+            let measured = self.measure_node(
+                child,
+                child_constraints(
+                    constraints,
+                    *item,
+                    child_width,
+                    Some(available_cross),
+                ),
+                depth + 1,
+                measure,
+            )?;
             let align = item.align_self.unwrap_or(stack.align);
             let child_x = cursor + item.margin.left;
-            let cross_space = row_height.saturating_sub(measured.height + item.margin.vertical());
+            let cross_space = available_cross.saturating_sub(measured.height + item.margin.vertical());
             let child_y = content_y + item.margin.top + align_offset(align, cross_space);
+            let child_node_id = *node_count + 1;
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_width,
+                child_constraints(constraints, *item, child_width, Some(available_cross)),
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -566,6 +616,21 @@ impl LayoutEngine {
                 node_count,
                 boxes,
             )?;
+            let final_height = if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
+                available_cross.saturating_sub(item.margin.vertical())
+            } else {
+                measured.height
+            };
+            update_box_geometry(
+                boxes,
+                child_node_id,
+                child,
+                child_x,
+                child_y,
+                child_width,
+                final_height,
+                parent_clip,
+            );
             cursor += *allocation + extra_gap;
         }
         for (child, item, _) in absolute {
@@ -576,7 +641,7 @@ impl LayoutEngine {
                 child,
                 child_x,
                 child_y,
-                child_width,
+                child_constraints(constraints, item, child_width, constraints.max_height),
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -585,7 +650,7 @@ impl LayoutEngine {
                 boxes,
             )?;
         }
-        Ok(NodeSize { width: content_width, height: row_height })
+        Ok(NodeSize { width: content_width, height: available_cross.max(row_height) })
     }
 
     fn place_stack_column(
@@ -594,7 +659,7 @@ impl LayoutEngine {
         children: &[LayoutNode],
         content_x: FxPx,
         content_y: FxPx,
-        content_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
@@ -607,10 +672,16 @@ impl LayoutEngine {
         let mut fixed_main = FxPx::ZERO;
         let mut max_cross = FxPx::ZERO;
         let mut total_grow = 0u32;
+        let content_width = constraints.max_width;
         for child in children {
             let item = *child.item();
             let child_width = content_width.saturating_sub(item.margin.horizontal());
-            let measured = self.measure_node(child, child_width, depth + 1, measure)?;
+            let measured = self.measure_node(
+                child,
+                child_constraints(constraints, item, child_width, None),
+                depth + 1,
+                measure,
+            )?;
             if item.position == nexus_layout_types::Position::Absolute {
                 absolute.push((child, item));
                 continue;
@@ -623,30 +694,48 @@ impl LayoutEngine {
         }
         let gap_count = in_flow.len().saturating_sub(1) as i32;
         let fixed_with_gap = fixed_main + stack.gap * gap_count;
-        let free_space = FxPx::ZERO.max(
-            self.measure_stack(stack, children, content_width, depth + 1, measure)?
-                .height
-                .saturating_sub(stack.padding.vertical())
-                .saturating_sub(fixed_with_gap),
-        );
+        let available_content = constraints.max_height.unwrap_or(fixed_with_gap.max(FxPx::ZERO));
+        let free_or_deficit = available_content.0 - fixed_with_gap.0;
         let mut allocations: Vec<FxPx> = Vec::with_capacity(in_flow.len());
         let mut used_main = FxPx::ZERO;
-        for (_, item, _, base_main) in &in_flow {
-            let extra = if total_grow > 0 && item.flex_grow > 0 {
-                FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
-            } else {
-                FxPx::ZERO
-            };
-            let allocation = *base_main + extra;
-            allocations.push(allocation);
-            used_main += allocation;
+        if free_or_deficit >= 0 {
+            // Extra space: distribute via flex_grow
+            let free_space = FxPx::new(free_or_deficit);
+            for (_, item, _, base_main) in &in_flow {
+                let extra = if total_grow > 0 && item.flex_grow > 0 {
+                    FxPx::new((free_space.0 * item.flex_grow as i32) / total_grow as i32)
+                } else {
+                    FxPx::ZERO
+                };
+                let allocation = *base_main + extra;
+                allocations.push(allocation);
+                used_main += allocation;
+            }
+        } else {
+            // Deficit: distribute via flex_shrink (proportional shrink)
+            let deficit = (-free_or_deficit) as u32;
+            let mut total_shrink = 0u32;
+            for (_, item, _, _) in &in_flow {
+                total_shrink += item.flex_shrink;
+            }
+            for (_, item, _, base_main) in &in_flow {
+                let shrink = if total_shrink > 0 && item.flex_shrink > 0 {
+                    (deficit as u64 * item.flex_shrink as u64 / total_shrink as u64) as i32
+                } else {
+                    0
+                };
+                let allocation = FxPx::new((base_main.0 as i32 - shrink).max(0));
+                allocations.push(allocation);
+                used_main += allocation;
+            }
         }
         if !in_flow.is_empty() {
             used_main += stack.gap * gap_count;
         }
+        let justify_free = available_content.saturating_sub(used_main);
         let (mut cursor, extra_gap) = justify_offsets(
             stack.justify,
-            FxPx::ZERO.max(free_space.saturating_sub(used_main.saturating_sub(fixed_main))),
+            FxPx::ZERO.max(justify_free),
             in_flow.len(),
             stack.gap,
         );
@@ -657,16 +746,18 @@ impl LayoutEngine {
             let child_width = if matches!(align, Align::Stretch) {
                 content_width.saturating_sub(item.margin.horizontal())
             } else {
-                measured.width
+                measured.width.min(content_width.saturating_sub(item.margin.horizontal()))
             };
             let cross_space = content_width.saturating_sub(child_width + item.margin.horizontal());
             let child_x = content_x + item.margin.left + align_offset(align, cross_space);
             let child_y = cursor + item.margin.top;
+            let child_node_id = *node_count + 1; // predict the child's node_id
+            let allocated_height = allocation.saturating_sub(item.margin.vertical());
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_width,
+                child_constraints(constraints, *item, child_width, Some(allocated_height)),
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -674,6 +765,16 @@ impl LayoutEngine {
                 node_count,
                 boxes,
             )?;
+            update_box_geometry(
+                boxes,
+                child_node_id,
+                child,
+                child_x,
+                child_y,
+                child_width,
+                allocated_height,
+                parent_clip,
+            );
             cursor += *allocation + extra_gap;
             column_height = cursor - content_y - extra_gap;
             max_cross = max_cross.max(child_width + item.margin.horizontal());
@@ -686,7 +787,7 @@ impl LayoutEngine {
                 child,
                 child_x,
                 child_y,
-                child_width,
+                child_constraints(constraints, item, child_width, constraints.max_height),
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -695,7 +796,10 @@ impl LayoutEngine {
                 boxes,
             )?;
         }
-        Ok(NodeSize { width: max_cross, height: column_height.max(FxPx::ZERO) })
+        Ok(NodeSize {
+            width: max_cross,
+            height: constraints.max_height.unwrap_or(column_height.max(FxPx::ZERO)),
+        })
     }
 
     fn place_grid(
@@ -706,7 +810,7 @@ impl LayoutEngine {
         children: &[LayoutNode],
         x: FxPx,
         y: FxPx,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
         scroll_offset: (FxPx, FxPx),
@@ -714,28 +818,29 @@ impl LayoutEngine {
         node_count: &mut usize,
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
-        let width = clamp_width(
-            available_width,
-            grid.min_width.or(grid.item.min_width),
-            grid.max_width.or(grid.item.max_width),
-        );
+        let measured = self.measure_grid(grid, children, constraints, depth, measure)?;
+        let width = measured.width;
+        let height = measured.height;
         let container_index = boxes.len();
         let is_overflow_hidden = matches!(grid.overflow, Overflow::Hidden);
+        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
+        let content_width = width.saturating_sub(grid.padding.horizontal());
+        let content_height = height.saturating_sub(grid.padding.vertical());
         let container_clip = if is_overflow_hidden {
-            Some(Rect::new(
+            let own = Rect::new(
                 x + grid.padding.left,
                 y + grid.padding.top,
-                width.saturating_sub(grid.padding.horizontal()),
-                FxPx::ZERO,
-            ))
+                content_width,
+                content_height,
+            );
+            intersect_clip(Some(own), parent_clip)
         } else {
             parent_clip
         };
-        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         boxes.push(LayoutBox {
             node_id,
             id: grid.id,
-            rect: Rect::new(x, y, width, FxPx::ZERO),
+            rect: Rect::new(x, y, width, height),
             z_index: grid.item.z_index,
             visual: style.clone(),
             clip_rect: parent_clip,
@@ -743,7 +848,6 @@ impl LayoutEngine {
             overflow: grid.overflow,
         });
         let padding = grid.padding;
-        let content_width = width.saturating_sub(padding.horizontal());
         let n_cols = grid.columns.len().max(1);
         let total_fr: u32 = grid.columns.iter().map(|f| f.0).sum();
         if total_fr == 0 {
@@ -766,7 +870,7 @@ impl LayoutEngine {
             rem -= 1;
         }
         let row_gap = grid.row_gap.unwrap_or(grid.gap);
-        let mut row_y = y + padding.top - scroll_offset.1;
+        let mut row_y = y + padding.top - container_scroll.1;
         let mut total_height = FxPx::ZERO;
         let mut child_idx = 0usize;
         while child_idx < children.len() {
@@ -779,7 +883,17 @@ impl LayoutEngine {
                 let child = &children[child_idx];
                 let item = child.item();
                 let child_width = col_width.saturating_sub(item.margin.horizontal());
-                let measured = self.measure_node(child, child_width, depth + 1, measure)?;
+                let measured = self.measure_node(
+                    child,
+                    child_constraints(
+                        LayoutConstraints::new(content_width, Some(content_height)),
+                        *item,
+                        child_width,
+                        None,
+                    ),
+                    depth + 1,
+                    measure,
+                )?;
                 row_height = row_height.max(measured.height + item.margin.vertical());
                 child_idx += 1;
             }
@@ -796,7 +910,12 @@ impl LayoutEngine {
                     child,
                     col_x + item.margin.left,
                     row_y + item.margin.top,
-                    child_width,
+                    child_constraints(
+                        LayoutConstraints::new(content_width, Some(content_height)),
+                        *item,
+                        child_width,
+                        None,
+                    ),
                     depth + 1,
                     container_clip,
                     container_scroll,
@@ -811,24 +930,21 @@ impl LayoutEngine {
         }
         // Fix up the container clip rect height for overflow:hidden grids
         if is_overflow_hidden {
-            let content_rect = Rect::new(
+            let own = Rect::new(
                 x + grid.padding.left,
                 y + grid.padding.top,
-                width.saturating_sub(grid.padding.horizontal()),
-                total_height.saturating_sub(padding.vertical()),
+                content_width,
+                content_height,
             );
-            boxes[container_index].clip_rect = Some(content_rect);
+            boxes[container_index].clip_rect = intersect_clip(Some(own), parent_clip);
         }
-        let height =
-            clamp_height(total_height + padding.vertical(), grid.min_height, grid.max_height);
-        boxes[container_index].rect.height = height;
         Ok(NodeSize { width, height })
     }
 
     fn measure_node(
         &self,
         node: &LayoutNode,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         measure: &dyn MeasureText,
     ) -> Result<NodeSize, LayoutError> {
@@ -837,16 +953,16 @@ impl LayoutEngine {
         }
         match node {
             LayoutNode::Stack(stack, _, children) => {
-                self.measure_stack(stack, children, available_width, depth, measure)
+                self.measure_stack(stack, children, constraints, depth, measure)
             }
             LayoutNode::Grid(grid, _, children) => {
-                self.measure_grid(grid, children, available_width, depth, measure)
+                self.measure_grid(grid, children, constraints, depth, measure)
             }
             LayoutNode::Spacer(spacer) => {
                 let main = spacer.min_size.unwrap_or(FxPx::ZERO);
-                Ok(NodeSize { width: main, height: FxPx::ZERO })
+                Ok(NodeSize { width: main, height: clamp_to_max_height(FxPx::ZERO, constraints.max_height) })
             }
-            LayoutNode::Text(text, _) => self.measure_text(text, available_width, measure),
+            LayoutNode::Text(text, _) => self.measure_text(text, constraints, measure),
             LayoutNode::TextInput(input, _) => {
                 let display = if input.content.as_str().is_empty() {
                     input.placeholder.as_ref().map(|p| p.as_str()).unwrap_or("")
@@ -862,7 +978,7 @@ impl LayoutEngine {
                     min_width: input.min_width,
                     max_width: input.max_width,
                 };
-                self.measure_text(&text_node, available_width, measure)
+                self.measure_text(&text_node, constraints, measure)
             }
         }
     }
@@ -870,11 +986,11 @@ impl LayoutEngine {
     fn measure_text(
         &self,
         text: &nexus_layout_types::TextNode,
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         measure: &dyn MeasureText,
     ) -> Result<NodeSize, LayoutError> {
         let width_limit = clamp_width(
-            available_width,
+            constraints.max_width,
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         );
@@ -887,9 +1003,11 @@ impl LayoutEngine {
             text.min_width.or(text.item.min_width),
             text.max_width.or(text.item.max_width),
         )
-        .min(width_limit.max(target_width));
-        let height =
-            lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1));
+        .min(width_limit);
+        let height = clamp_to_max_height(
+            lines.lines.iter().fold(FxPx::ZERO, |acc, line| acc + line.height).max(FxPx::new(1)),
+            constraints.max_height,
+        );
         Ok(NodeSize { width, height })
     }
 
@@ -897,12 +1015,12 @@ impl LayoutEngine {
         &self,
         stack: &nexus_layout_types::Stack,
         children: &[LayoutNode],
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         measure: &dyn MeasureText,
     ) -> Result<NodeSize, LayoutError> {
         let width_limit = clamp_width(
-            available_width,
+            constraints.max_width,
             stack.min_width.or(stack.item.min_width),
             stack.max_width.or(stack.item.max_width),
         );
@@ -916,7 +1034,12 @@ impl LayoutEngine {
             }
             let item = child.item();
             let child_width = content_width.saturating_sub(item.margin.horizontal());
-            let measured = self.measure_node(child, child_width, depth + 1, measure)?;
+            let measured = self.measure_node(
+                child,
+                child_constraints(constraints, *item, child_width, None),
+                depth + 1,
+                measure,
+            )?;
             visible_children += 1;
             if stack.direction.is_horizontal() {
                 main += measured.width + item.margin.horizontal();
@@ -945,8 +1068,11 @@ impl LayoutEngine {
                 stack.min_width.or(stack.item.min_width),
                 stack.max_width.or(stack.item.max_width),
             )
-            .min(width_limit.max(preferred_width)),
-            height: clamp_height(preferred_height, stack.min_height, stack.max_height),
+            .min(width_limit),
+            height: clamp_to_max_height(
+                clamp_height(preferred_height, stack.min_height, stack.max_height),
+                constraints.max_height,
+            ),
         })
     }
 
@@ -954,12 +1080,12 @@ impl LayoutEngine {
         &self,
         grid: &nexus_layout_types::Grid,
         children: &[LayoutNode],
-        available_width: FxPx,
+        constraints: LayoutConstraints,
         depth: usize,
         measure: &dyn MeasureText,
     ) -> Result<NodeSize, LayoutError> {
         let width = clamp_width(
-            available_width,
+            constraints.max_width,
             grid.min_width.or(grid.item.min_width),
             grid.max_width.or(grid.item.max_width),
         );
@@ -988,7 +1114,12 @@ impl LayoutEngine {
                 let child = &children[child_idx];
                 let item = child.item();
                 let width = col_width.saturating_sub(item.margin.horizontal());
-                let measured = self.measure_node(child, width, depth + 1, measure)?;
+                let measured = self.measure_node(
+                    child,
+                    child_constraints(constraints, *item, width, None),
+                    depth + 1,
+                    measure,
+                )?;
                 row_height = row_height.max(measured.height + item.margin.vertical());
                 child_idx += 1;
             }
@@ -999,10 +1130,13 @@ impl LayoutEngine {
         }
         Ok(NodeSize {
             width,
-            height: clamp_height(
-                total_height + grid.padding.vertical(),
-                grid.min_height,
-                grid.max_height,
+            height: clamp_to_max_height(
+                clamp_height(
+                    total_height + grid.padding.vertical(),
+                    grid.min_height,
+                    grid.max_height,
+                ),
+                constraints.max_height,
             ),
         })
     }
@@ -1034,6 +1168,63 @@ fn clamp_height(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
         out = out.max(min);
     }
     out
+}
+
+fn clamp_to_max_height(value: FxPx, max_height: Option<FxPx>) -> FxPx {
+    match max_height {
+        Some(max_height) => value.min(max_height),
+        None => value,
+    }
+}
+
+fn child_constraints(
+    parent: LayoutConstraints,
+    item: FlexItem,
+    max_width: FxPx,
+    max_height: Option<FxPx>,
+) -> LayoutConstraints {
+    let height = max_height.or(parent.max_height);
+    LayoutConstraints::new(
+        max_width.max(FxPx::ZERO),
+        height.map(|value| value.saturating_sub(item.margin.vertical())),
+    )
+}
+
+fn update_box_geometry(
+    boxes: &mut [LayoutBox],
+    node_id: usize,
+    node: &LayoutNode,
+    x: FxPx,
+    y: FxPx,
+    width: FxPx,
+    height: FxPx,
+    parent_clip: Option<Rect>,
+) {
+    let Some(layout_box) = boxes.iter_mut().find(|layout_box| layout_box.node_id == node_id) else {
+        return;
+    };
+    layout_box.rect = Rect::new(x, y, width, height);
+    match node {
+        LayoutNode::Stack(stack, _, _) if matches!(stack.overflow, Overflow::Hidden) => {
+            let own = Rect::new(
+                x + stack.padding.left,
+                y + stack.padding.top,
+                width.saturating_sub(stack.padding.horizontal()),
+                height.saturating_sub(stack.padding.vertical()),
+            );
+            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
+        }
+        LayoutNode::Grid(grid, _, _) if matches!(grid.overflow, Overflow::Hidden) => {
+            let own = Rect::new(
+                x + grid.padding.left,
+                y + grid.padding.top,
+                width.saturating_sub(grid.padding.horizontal()),
+                height.saturating_sub(grid.padding.vertical()),
+            );
+            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
+        }
+        _ => {}
+    }
 }
 
 fn justify_offsets(
@@ -1070,5 +1261,25 @@ fn align_offset(align: Align, free_space: FxPx) -> FxPx {
         Align::Start | Align::Stretch => FxPx::ZERO,
         Align::Center => free_space / 2,
         Align::End => free_space,
+    }
+}
+
+/// Intersect two optional clip rects. Returns the intersection, or None if disjoint.
+fn intersect_clip(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            let x = a.x.max(b.x);
+            let y = a.y.max(b.y);
+            let x2 = (a.x + a.width).min(b.x + b.width);
+            let y2 = (a.y + a.height).min(b.y + b.height);
+            if x2 > x && y2 > y {
+                Some(Rect::new(x, y, x2 - x, y2 - y))
+            } else {
+                None
+            }
+        }
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     }
 }

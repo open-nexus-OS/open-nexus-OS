@@ -35,11 +35,9 @@ const PROOF_PANEL_X: u32 = 56;
 const PROOF_PANEL_Y: u32 = 440;
 const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
 const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
-const FILTER_LIST_PADDING_X: u32 = 4;
-const FILTER_LIST_PADDING_Y: u32 = 4;
+const FILTER_LIST_PADDING_X: u32 = layout_panel::FILTER_LIST_PADDING;
+const FILTER_LIST_PADDING_Y: u32 = layout_panel::FILTER_LIST_PADDING;
 const FILTER_LIST_ROW_GAP: u32 = 2;
-const FILTER_SCROLLBAR_WIDTH: u32 = 4;
-const FILTER_SCROLLBAR_MIN_THUMB: u32 = 12;
 const FILTER_INPUT_PADDING_X: u32 = 8;
 const FILTER_INPUT_FONT_W: u32 = 5;
 const FILTER_INPUT_FONT_H: u32 = 7;
@@ -112,7 +110,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Err(_) => {}
             }
         }
-        let _ = runtime.flush_pending_damage();
+        if let Err(err) = runtime.flush_pending_damage() {
+            let _ = debug_println(flush_error_label(err));
+        }
         runtime.tick(nsec().unwrap_or(0));
         let _ = yield_();
     }
@@ -359,7 +359,11 @@ impl DisplayServerRuntime {
                     .boxes
                     .iter()
                     .find(|b| b.node_id == id)
-                    .map(|b| b.rect.height)
+                    .map(|b| {
+                        FxPx::new(
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
+                        )
+                    })
                     .unwrap_or(FxPx::ZERO);
                 let current_offset = layout
                     .boxes
@@ -590,6 +594,14 @@ fn merge_optional_ranges(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> Option
     }
 }
 
+fn flush_error_label(err: WindowdError) -> &'static str {
+    match err {
+        WindowdError::BufferLengthMismatch => "windowd: flush rows fail buffer-len",
+        WindowdError::ArithmeticOverflow => "windowd: flush rows fail arith",
+        _ => "windowd: flush rows fail",
+    }
+}
+
 fn filter_layout_variant_index(filter_text: &str) -> usize {
     let mut best_idx = 0;
     let mut best_len = 0;
@@ -782,13 +794,23 @@ fn ascii_prefix_matches(word: &str, prefix: &str) -> bool {
 
 /// Total content height of the filter word list (words + gaps + padding).
 fn filter_list_content_height(filtered_words: &[&'static str]) -> u32 {
-    let mut h = FILTER_LIST_PADDING_Y;
+    let mut h: u32 = 0;
     for &word in filtered_words {
         if let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) {
             h = h.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
         }
     }
     h.saturating_sub(FILTER_LIST_ROW_GAP) // remove trailing gap
+}
+
+fn filter_list_viewport_height(list_height: u32) -> u32 {
+    list_height.saturating_sub(FILTER_LIST_PADDING_Y.saturating_mul(2))
+}
+
+fn filter_list_viewport_width(list_width: u32) -> u32 {
+    list_width
+        .saturating_sub(FILTER_LIST_PADDING_X.saturating_mul(2))
+        .saturating_sub(layout_panel::FILTER_SCROLLBAR_GUTTER)
 }
 
 fn draw_filter_word_list_row(
@@ -801,21 +823,27 @@ fn draw_filter_word_list_row(
     if !rect.contains_y(y) {
         return Ok(());
     }
-    let mut word_top = rect.y + FILTER_LIST_PADDING_Y;
+    let viewport_x = rect.x + FILTER_LIST_PADDING_X;
+    let viewport_y = rect.y + FILTER_LIST_PADDING_Y;
+    let viewport_height = filter_list_viewport_height(rect.height);
+    let viewport_width = filter_list_viewport_width(rect.width);
+    let mut word_top = viewport_y;
     for &word in filtered_words {
         let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) else {
             continue;
         };
         let asset_top = word_top.saturating_sub(scroll_y);
         if y >= asset_top && y < asset_top.saturating_add(asset.height) {
-            blend_asset_row(
+            blend_asset_row_clipped(
                 y,
                 row,
-                rect.x + FILTER_LIST_PADDING_X,
+                viewport_x,
                 asset_top,
                 asset.width,
                 asset.height,
                 asset.bgra,
+                viewport_x,
+                viewport_width,
             )?;
         }
         word_top = word_top
@@ -825,7 +853,7 @@ fn draw_filter_word_list_row(
 
     // ── Scrollbar ──
     let content_h = filter_list_content_height(filtered_words);
-    if content_h > rect.height {
+    if content_h > viewport_height {
         draw_filter_scrollbar_row(y, row, rect, scroll_y, content_h)?;
     }
 
@@ -839,27 +867,40 @@ fn draw_filter_scrollbar_row(
     scroll_y: u32,
     content_h: u32,
 ) -> Result<(), WindowdError> {
-    // Track: subtle background on the right edge of the filter_list
-    let track_x = rect.x + rect.width.saturating_sub(FILTER_SCROLLBAR_WIDTH);
-    let track_bgra = rgba_to_bgra(crate::assets::PROOF_CARD_BG);
-    if y >= rect.y && y < rect.y.saturating_add(rect.height) {
-        fill_row_rect(y, row, track_x, rect.y, FILTER_SCROLLBAR_WIDTH, rect.height, track_bgra)?;
+    let viewport_y = rect.y + FILTER_LIST_PADDING_Y;
+    let viewport_height = filter_list_viewport_height(rect.height);
+    let strip_x = layout_panel::filter_scrollbar_strip_x(rect.x, rect.width);
+    let track_x = layout_panel::filter_scrollbar_track_x(rect.x, rect.width);
+    let gutter_width = rect.x.saturating_add(rect.width).saturating_sub(strip_x);
+    let track_bgra = rgba_to_bgra(crate::assets::PROOF_PANEL_BG);
+    if y >= viewport_y && y < viewport_y.saturating_add(viewport_height) {
+        fill_row_rect(
+            y,
+            row,
+            strip_x,
+            viewport_y,
+            gutter_width,
+            viewport_height,
+            track_bgra,
+        )?;
     }
 
-    // Thumb: proportional position and size, high-contrast color
-    let max_scroll = content_h.saturating_sub(rect.height);
-    if max_scroll == 0 {
+    let Some((thumb_y, thumb_height)) =
+        layout_panel::filter_scrollbar_thumb_bounds(viewport_y, viewport_height, content_h, scroll_y)
+    else {
         return Ok(());
-    }
-    let thumb_height = (rect.height as u64 * rect.height as u64 / content_h as u64) as u32;
-    let thumb_height = thumb_height.max(FILTER_SCROLLBAR_MIN_THUMB).min(rect.height);
-    let thumb_range = rect.height.saturating_sub(thumb_height);
-    let scroll_progress = (scroll_y as u64).min(max_scroll as u64);
-    let thumb_y = rect.y
-        + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
+    };
 
     let thumb_bgra = rgba_to_bgra(crate::assets::PROOF_SCROLL);
-    fill_row_rect(y, row, track_x, thumb_y, FILTER_SCROLLBAR_WIDTH, thumb_height, thumb_bgra)
+    fill_row_rect(
+        y,
+        row,
+        track_x,
+        thumb_y,
+        layout_panel::FILTER_SCROLLBAR_WIDTH,
+        thumb_height,
+        thumb_bgra,
+    )
 }
 
 fn draw_filter_input_text_row(
@@ -1292,6 +1333,38 @@ fn blend_asset_row(
         .get(src_row..src_row + width as usize * 4)
         .ok_or(WindowdError::BufferLengthMismatch)?;
     blend_overlay_row(row, x as usize, source)
+}
+
+fn blend_asset_row_clipped(
+    y: u32,
+    row: &mut [u8],
+    x: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+    source: &[u8],
+    clip_x: u32,
+    clip_width: u32,
+) -> Result<(), WindowdError> {
+    if y < top || y >= top.saturating_add(height) || clip_width == 0 {
+        return Ok(());
+    }
+    let visible_x = x.max(clip_x);
+    let visible_end = x
+        .saturating_add(width)
+        .min(clip_x.saturating_add(clip_width))
+        .min((row.len() / 4) as u32);
+    if visible_end <= visible_x {
+        return Ok(());
+    }
+    let source_y = y - top;
+    let src_row = source_y as usize * width as usize * 4;
+    let src_offset = visible_x.saturating_sub(x) as usize * 4;
+    let src_len = visible_end.saturating_sub(visible_x) as usize * 4;
+    let source = source
+        .get(src_row + src_offset..src_row + src_offset + src_len)
+        .ok_or(WindowdError::BufferLengthMismatch)?;
+    blend_overlay_row(row, visible_x as usize, source)
 }
 
 fn fill_row_rect(

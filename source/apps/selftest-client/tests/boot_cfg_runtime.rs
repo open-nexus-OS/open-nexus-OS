@@ -114,6 +114,7 @@ fn proof_visible_input_ready_requires_full_live_chain() {
         cursor_overlay_visible: true,
         cursor_x: 8,
         cursor_y: 40,
+        ..VisibleState::default()
     };
     assert!(display_observer::proof_visible_input_ready(state));
     assert!(display_observer::proof_v2b_assets_ready(state));
@@ -161,6 +162,7 @@ fn proof_visible_input_witness_latches_transient_hold_and_wheel_bits() {
         cursor_overlay_visible: true,
         cursor_x: 8,
         cursor_y: 40,
+        ..VisibleState::default()
     };
     let click_state = VisibleState { launcher_click_visible: true, ..base };
     let keyboard_state = VisibleState { keyboard_visible: true, ..base };

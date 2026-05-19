@@ -223,4 +223,58 @@ mod tests {
             LayoutEngine::new().layout(&node, px(100), &MockMeasure { char_width: px(0) }).unwrap();
         assert_eq!(r.boxes[0].visual.background, Some(nexus_layout_types::Rgba8::WHITE));
     }
+
+    #[test]
+    fn column_shrink_respects_zero_shrink_children() {
+        let fixed = LayoutNode::Text(
+            TextNode {
+                id: Some("fixed"),
+                content: TextContent::new("fixed"),
+                style: text_style(),
+                item: FlexItem { flex_shrink: 0, ..FlexItem::default() },
+                max_lines: None,
+                min_width: None,
+                max_width: None,
+            },
+            VisualStyle::default(),
+        );
+        let flex = LayoutNode::Text(
+            TextNode {
+                id: Some("flex"),
+                content: TextContent::new("flex"),
+                style: text_style(),
+                item: FlexItem { flex_shrink: 1, ..FlexItem::default() },
+                max_lines: None,
+                min_width: None,
+                max_width: None,
+            },
+            VisualStyle::default(),
+        );
+        let root = LayoutNode::Stack(
+            nexus_layout_types::Stack {
+                id: Some("root"),
+                direction: Direction::Column,
+                gap: px(4),
+                padding: EdgeInsets::all(px(8)),
+                align: Align::Stretch,
+                justify: Justify::Start,
+                overflow: nexus_layout_types::Overflow::Visible,
+                flex_wrap: false,
+                min_width: Some(px(120)),
+                max_width: Some(px(120)),
+                min_height: Some(px(40)),
+                max_height: Some(px(40)),
+                item: FlexItem::default(),
+            },
+            VisualStyle::default(),
+            vec![fixed, flex],
+        );
+        let r =
+            LayoutEngine::new().layout(&root, px(120), &MockMeasure { char_width: px(10) }).unwrap();
+        let fixed = r.boxes.iter().find(|b| b.id == Some("fixed")).unwrap();
+        let flex = r.boxes.iter().find(|b| b.id == Some("flex")).unwrap();
+        assert_eq!(fixed.rect.height, px(20));
+        assert!(flex.rect.height < px(20));
+        assert_eq!(flex.rect.y, fixed.rect.y + fixed.rect.height + px(4));
+    }
 }

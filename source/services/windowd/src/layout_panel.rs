@@ -25,6 +25,39 @@ use crate::proof_panel_spec::{
     TITLE_TEXT,
 };
 
+pub const FILTER_LIST_PADDING: u32 = 4;
+pub const FILTER_SCROLLBAR_GUTTER: u32 = 8;
+pub const FILTER_SCROLLBAR_WIDTH: u32 = 4;
+pub const FILTER_SCROLLBAR_MIN_THUMB: u32 = 12;
+
+pub fn filter_scrollbar_strip_x(rect_x: u32, rect_width: u32) -> u32 {
+    rect_x + rect_width.saturating_sub(FILTER_LIST_PADDING + FILTER_SCROLLBAR_GUTTER)
+}
+
+pub fn filter_scrollbar_track_x(rect_x: u32, rect_width: u32) -> u32 {
+    rect_x + rect_width.saturating_sub(FILTER_SCROLLBAR_WIDTH)
+}
+
+pub fn filter_scrollbar_thumb_bounds(
+    viewport_y: u32,
+    viewport_height: u32,
+    content_height: u32,
+    scroll_y: u32,
+) -> Option<(u32, u32)> {
+    let max_scroll = content_height.saturating_sub(viewport_height);
+    if max_scroll == 0 || viewport_height == 0 {
+        return None;
+    }
+    let thumb_height = (viewport_height as u64 * viewport_height as u64 / content_height as u64)
+        as u32;
+    let thumb_height = thumb_height.max(FILTER_SCROLLBAR_MIN_THUMB).min(viewport_height);
+    let thumb_range = viewport_height.saturating_sub(thumb_height);
+    let scroll_progress = (scroll_y as u64).min(max_scroll as u64);
+    let thumb_y =
+        viewport_y + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
+    Some((thumb_y, thumb_height))
+}
+
 pub struct ProofTextMeasure;
 
 impl MeasureText for ProofTextMeasure {
@@ -202,7 +235,7 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
             max_width: Some(FxPx::new(PANEL_WIDTH)),
             min_height: Some(FxPx::new(PANEL_HEIGHT)),
             max_height: Some(FxPx::new(PANEL_HEIGHT)),
-            item: FlexItem::default(),
+            item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
         },
         panel_style,
         vec![
@@ -226,16 +259,16 @@ pub fn build_combined_tree(state: VisibleState, filter_text: &str) -> LayoutNode
         Stack {
             id: Some("combined_panels"),
             direction: Direction::Row,
-            gap: FxPx::new(16),
+            gap: FxPx::new(PANEL_GAP),
             padding: EdgeInsets::zero(),
-            align: Align::Start,
+            align: Align::Stretch,
             justify: Justify::Start,
             overflow: Overflow::Visible,
             flex_wrap: false,
             min_width: None,
             max_width: None,
-            min_height: None,
-            max_height: None,
+            min_height: Some(FxPx::new(PANEL_HEIGHT.max(FILTER_PANEL_HEIGHT))),
+            max_height: Some(FxPx::new(PANEL_HEIGHT.max(FILTER_PANEL_HEIGHT))),
             item: FlexItem::default(),
         },
         VisualStyle::default(),
@@ -247,7 +280,7 @@ pub fn compute_proof_layout(
     state: VisibleState,
     filter_text: &str,
 ) -> Result<LayoutResult, &'static str> {
-    let total_width = PANEL_WIDTH + 16 + FILTER_PANEL_WIDTH;
+    let total_width = PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH;
     LayoutEngine::new()
         .layout(
             &build_combined_tree(state, filter_text),
@@ -602,7 +635,11 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
                 color: assets::PROOF_PANEL_TITLE,
                 white_space: WhiteSpace::NoWrap,
             },
-            item: FlexItem::default(),
+            item: FlexItem {
+                flex_shrink: 0,
+                align_self: Some(Align::Stretch),
+                ..FlexItem::default()
+            },
             min_width: None,
             max_width: None,
         },
@@ -643,7 +680,12 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             id: Some("filter_list"),
             direction: Direction::Column,
             gap: FxPx::new(2),
-            padding: EdgeInsets::all(FxPx::new(4)),
+            padding: EdgeInsets {
+                top: FxPx::new(FILTER_LIST_PADDING as i32),
+                right: FxPx::new((FILTER_LIST_PADDING + FILTER_SCROLLBAR_GUTTER) as i32),
+                bottom: FxPx::new(FILTER_LIST_PADDING as i32),
+                left: FxPx::new(FILTER_LIST_PADDING as i32),
+            },
             align: Align::Start,
             justify: Justify::Start,
             overflow: Overflow::Hidden,
@@ -651,8 +693,12 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             min_width: None,
             max_width: None,
             min_height: None,
-            max_height: Some(FxPx::new(190)), // panel content (212) - text-input (~18) - gap (4)
-            item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            max_height: None, // constrained by parent overflow + clip intersection
+            item: FlexItem {
+                flex_grow: 1,
+                align_self: Some(Align::Stretch),
+                ..FlexItem::default()
+            },
         },
         VisualStyle {
             background: Some(assets::PROOF_CARD_BG),
@@ -668,9 +714,9 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             direction: Direction::Column,
             gap: FxPx::new(4),
             padding: EdgeInsets::zero(),
-            align: Align::Start,
+            align: Align::Stretch,
             justify: Justify::Start,
-            overflow: Overflow::Visible,
+            overflow: Overflow::Hidden,
             flex_wrap: false,
             min_width: None,
             max_width: None,
@@ -693,15 +739,15 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             direction: Direction::Column,
             gap: FxPx::new(PANEL_GAP),
             padding: EdgeInsets::all(FxPx::new(PANEL_PADDING)),
-            align: Align::Start,
+            align: Align::Stretch,
             justify: Justify::Start,
-            overflow: Overflow::Visible,
+            overflow: Overflow::Hidden,
             flex_wrap: false,
             min_width: Some(FxPx::new(FILTER_PANEL_WIDTH)),
             max_width: Some(FxPx::new(FILTER_PANEL_WIDTH)),
             min_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
             max_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
-            item: FlexItem::default(),
+            item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
         },
         filter_panel_style,
         vec![filter_content],
