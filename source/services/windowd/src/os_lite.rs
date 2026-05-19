@@ -38,12 +38,20 @@ use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
+use crate::live_runtime::{
+    scroll_damage_rows, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
+    TargetDamage,
+};
 use crate::markers::{
     COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
     DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, FOCUS_VISIBLE_MARKER, HOVER_VISIBLE_MARKER,
-    INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER, KEYBOARD_VISIBLE_MARKER, LAUNCHER_CLICK_OK_MARKER,
+    FULL_WINDOW_VISIBLE_MARKER, INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER, KEYBOARD_VISIBLE_MARKER,
+    LAUNCHER_CLICK_OK_MARKER,
     LAUNCHER_CLICK_VISIBLE_OK_MARKER, LAYOUT_ENGINE_ON_MARKER, PRESENT_QUEUED_MARKER,
     PRESENT_SCHEDULER_ON_MARKER, PRESENT_VISIBLE_MARKER, READY_MARKER,
+    SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
+    SELFTEST_UI_VISIBLE_INPUT_OK_MARKER, SELFTEST_UI_VISIBLE_PRESENT_MARKER,
+    SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER,
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
     WHEEL_VISIBLE_MARKER,
 };
@@ -66,6 +74,14 @@ const FILTER_INPUT_FONT_W: u32 = 5;
 const FILTER_INPUT_FONT_H: u32 = 7;
 const FILTER_INPUT_FONT_SCALE: u32 = 2;
 const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
+const ROW_WRITE_CHUNK: usize = 8;
+const IPC_BATCH_LIMIT: usize = 8;
+const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
+const BACKDROP_CACHE_ENTRIES: usize = 4;
+const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
+const PATH_CACHE_ENTRIES: usize = 8;
+const PATH_CACHE_MAX_SIDE: usize = 24;
+const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = match KernelServer::new_for(ROUTE_NAME) {
@@ -79,7 +95,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         DisplayServerRuntime::new().map_err(|_| "windowd: init fail display-server")?;
     let _ = debug_println(READY_MARKER);
     loop {
-        for _ in 0..32 {
+        let mut visible_updates_since_flush = 0usize;
+        for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_with_header_meta(Wait::NonBlocking) {
                 Ok((hdr, _sid, frame)) => {
                     let moved_cap = (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0;
@@ -108,11 +125,23 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             Some(state) => runtime.apply_input_state(state),
                             None => STATUS_MALFORMED,
                         };
+                        if runtime.has_pending_damage() {
+                            visible_updates_since_flush =
+                                visible_updates_since_flush.saturating_add(1);
+                        }
                         if moved_cap {
                             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
                             let _ =
                                 KernelServer::send_on_cap_wait(hdr.src, &response, Wait::Blocking);
                             let _ = cap_close(hdr.src);
+                        }
+                        if runtime.has_pending_damage()
+                            && visible_updates_since_flush >= VISIBLE_UPDATE_FLUSH_LIMIT
+                        {
+                            if let Err(err) = runtime.flush_pending_damage() {
+                                let _ = debug_println(flush_error_label(err));
+                            }
+                            visible_updates_since_flush = 0;
                         }
                     } else {
                         let op = frame.get(3).copied().unwrap_or(0);
@@ -144,22 +173,29 @@ pub fn service_main_loop() -> Result<(), &'static str> {
 struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
     source_frame: SourceFrame,
+    source_x_lut: Vec<u32>,
+    source_y_lut: Vec<u32>,
     cursor_bitmap: Option<alloc::vec::Vec<u8>>,
     cursor_width: u32,
     cursor_height: u32,
     framebuffer: Option<Handle>,
-    scratch_row: Vec<u8>,
+    band_scratch: Vec<u8>,
     /// Shadow compositing row buffer (zero-copy — allocated once at startup).
     shadow_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
     blur_row_buf: Vec<u8>,
     state: VisibleState,
+    observer_state: VisibleState,
     markers_emitted: bool,
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
     pending_damage_rows: Option<(u32, u32)>,
+    pending_damage_rect: Option<DamageRect>,
     proof_layouts: Option<Vec<LayoutResult>>,
+    proof_layout_index: Option<LayoutHotPathIndex>,
     filtered_words: Vec<&'static str>,
+    backdrop_cache: [BackdropCacheEntry; BACKDROP_CACHE_ENTRIES],
+    path_cache: [PathCacheEntry; PATH_CACHE_ENTRIES],
     /// Index into `LIVE_FILTER_VARIANTS` for the active filter text/layout.
     active_filter_idx: usize,
     /// Filter cycle counter for automated proof (advances on each keyboard event).
@@ -185,15 +221,67 @@ struct SourceFrame {
 #[derive(Default)]
 struct InputMarkerState {
     scheduler: bool,
+    v2_present: bool,
     input: bool,
+    full_window: bool,
     focus_route: bool,
     launcher_click_route: bool,
+    v2_input: bool,
     cursor: bool,
     hover: bool,
     focus: bool,
     launcher_click: bool,
     keyboard: bool,
     wheel: bool,
+    visible_input_summary: bool,
+    visible_wheel_summary: bool,
+    v2b_assets_summary: bool,
+}
+
+#[derive(Clone, Copy)]
+struct BackdropCacheEntry {
+    y: u32,
+    start_x: u32,
+    width: u32,
+    quality: GlassQuality,
+    valid: bool,
+    pixels: [u8; BACKDROP_CACHE_MAX_WIDTH * 4],
+}
+
+impl BackdropCacheEntry {
+    const fn new() -> Self {
+        Self {
+            y: 0,
+            start_x: 0,
+            width: 0,
+            quality: GlassQuality::High,
+            valid: false,
+            pixels: [0; BACKDROP_CACHE_MAX_WIDTH * 4],
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PathCacheEntry {
+    id_hash: u64,
+    width: u32,
+    height: u32,
+    color: [u8; 4],
+    valid: bool,
+    pixels: [u8; PATH_CACHE_MAX_PIXELS],
+}
+
+impl PathCacheEntry {
+    const fn new() -> Self {
+        Self {
+            id_hash: 0,
+            width: 0,
+            height: 0,
+            color: [0; 4],
+            valid: false,
+            pixels: [0; PATH_CACHE_MAX_PIXELS],
+        }
+    }
 }
 
 impl DisplayServerRuntime {
@@ -206,6 +294,8 @@ impl DisplayServerRuntime {
             stride: checked_stride(source_width)?,
             pixels: systemui::wallpaper_bgra(),
         };
+        let source_x_lut = build_scale_lut(mode.width, source_width)?;
+        let source_y_lut = build_scale_lut(mode.height, source_height)?;
         let cursor = crate::render_assets::render_cursor_surface(CallerCtx::system());
         let (cursor_bitmap, cursor_width, cursor_height) = match cursor {
             Some(cursor) => (Some(cursor.pixels), cursor.width, cursor.height),
@@ -228,23 +318,35 @@ impl DisplayServerRuntime {
         };
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
+        let proof_layouts = build_live_proof_layouts(initial_state);
+        let proof_layout_index = proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.first())
+            .map(|layout| LayoutHotPathIndex::build(layout, PROOF_PANEL_X, PROOF_PANEL_Y, mode.width, mode.height));
         Ok(Self {
             mode,
             source_frame,
+            source_x_lut,
+            source_y_lut,
             cursor_bitmap,
             cursor_width,
             cursor_height,
             framebuffer: None,
-            scratch_row: alloc::vec![0u8; mode.stride as usize],
+            band_scratch: alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK],
             shadow_scratch: alloc::vec![0u8; mode.stride as usize],
             blur_row_buf: alloc::vec![0u8; mode.stride as usize],
             state: initial_state,
+            observer_state: initial_state,
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
             pending_damage_rows: None,
-            proof_layouts: build_live_proof_layouts(initial_state),
+            pending_damage_rect: None,
+            proof_layouts,
+            proof_layout_index,
             filtered_words,
+            backdrop_cache: [BackdropCacheEntry::new(); BACKDROP_CACHE_ENTRIES],
+            path_cache: [PathCacheEntry::new(); PATH_CACHE_ENTRIES],
             active_filter_idx: 0,
             filter_cycle: 0,
             clipping_marker_emitted: false,
@@ -255,12 +357,44 @@ impl DisplayServerRuntime {
     }
 
     const fn visible_state(&self) -> VisibleState {
-        self.state
+        self.observer_state
+    }
+
+    fn refresh_observer_state(&mut self) {
+        self.observer_state.backend_visible |= self.state.backend_visible;
+        self.observer_state.display_scanout_ready |= self.state.display_scanout_ready;
+        self.observer_state.systemui_first_frame_visible |= self.state.systemui_first_frame_visible;
+        self.observer_state.virtio_raw_seen |= self.state.virtio_raw_seen;
+        self.observer_state.hid_normalized_seen |= self.state.hid_normalized_seen;
+        self.observer_state.scene_ready |= self.state.scene_ready;
+        self.observer_state.full_window_visible |= self.state.full_window_visible;
+        self.observer_state.click_target_visible |= self.state.click_target_visible;
+        self.observer_state.keyboard_target_visible |= self.state.keyboard_target_visible;
+        self.observer_state.input_visible_on |= self.state.input_visible_on;
+        self.observer_state.cursor_move_visible |= self.state.cursor_move_visible;
+        self.observer_state.hover_visible |= self.state.hover_visible;
+        self.observer_state.focus_visible |= self.state.focus_visible;
+        self.observer_state.launcher_click_visible |= self.state.launcher_click_visible;
+        self.observer_state.keyboard_visible |= self.state.keyboard_visible;
+        self.observer_state.wheel_up_visible |= self.state.wheel_up_visible;
+        self.observer_state.wheel_down_visible |= self.state.wheel_down_visible;
+        self.observer_state.pointer_route_live |= self.state.pointer_route_live;
+        self.observer_state.keyboard_route_live |= self.state.keyboard_route_live;
+        self.observer_state.cursor_svg_visible |= self.state.cursor_svg_visible;
+        self.observer_state.text_target_visible |= self.state.text_target_visible;
+        self.observer_state.icon_target_visible |= self.state.icon_target_visible;
+        self.observer_state.wallpaper_visible |= self.state.wallpaper_visible;
+        self.observer_state.cursor_overlay_visible |= self.state.cursor_overlay_visible;
+        self.observer_state.cursor_x = self.state.cursor_x;
+        self.observer_state.cursor_y = self.state.cursor_y;
+        self.observer_state.text_input_len = self.state.text_input_len;
+        self.observer_state.text_input_bytes = self.state.text_input_bytes;
     }
 
     fn register_framebuffer(&mut self, handle: Handle) -> u8 {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
+        self.refresh_observer_state();
         if self.write_current_frame().is_err() {
             return STATUS_MALFORMED;
         }
@@ -275,9 +409,12 @@ impl DisplayServerRuntime {
         let _ = debug_println(PRESENT_QUEUED_MARKER);
         let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
         self.input_markers_emitted.scheduler = true;
+        let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
+        self.input_markers_emitted.v2_present = true;
         let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
         let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
+        let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         self.emit_asset_markers();
         self.emit_v3b_markers();
         STATUS_OK
@@ -291,7 +428,7 @@ impl DisplayServerRuntime {
         let old_state = self.state;
         let old_cursor_x = self.state.cursor_x;
         let old_cursor_y = self.state.cursor_y;
-        let old_targets = target_state_bits(self.state);
+        let old_filter_idx = self.active_filter_idx;
         self.state.virtio_raw_seen |= upstream.virtio_raw_seen;
         self.state.hid_normalized_seen |= upstream.hid_normalized_seen;
         self.state.pointer_route_live |= upstream.pointer_route_live;
@@ -312,12 +449,14 @@ impl DisplayServerRuntime {
         self.state.set_text_input(upstream.text_input());
         refill_filtered_words(&mut self.filtered_words, self.state.text_input());
         self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
-        let new_targets = target_state_bits(self.state);
-        if new_targets != old_targets {
-            // Target state only changes paint, not geometry. Keep the live path
-            // allocation-free for OS services running on the bump allocator.
-            self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
+        if self.active_filter_idx != old_filter_idx {
+            self.refresh_active_proof_hot_path();
         }
+        self.refresh_observer_state();
+        if self.state == old_state && self.active_filter_idx == old_filter_idx {
+            return STATUS_OK;
+        }
+        self.queue_target_damage(old_state, self.state);
         self.queue_cursor_damage(
             old_cursor_x,
             old_cursor_y,
@@ -361,8 +500,16 @@ impl DisplayServerRuntime {
         let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
         let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
 
-        // Queue repaint for the combined panel area
-        self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
+        let filter_rows = self.active_proof_layout_index().and_then(|index| {
+            let panel_rows = index.target_rows(TargetDamage::FilterPanel);
+            let list_rows = index.target_rows(TargetDamage::FilterList);
+            let input_rows = index.target_rows(TargetDamage::FilterInput);
+            crate::live_runtime::merge_row_range(
+                crate::live_runtime::merge_row_range(panel_rows, list_rows),
+                input_rows,
+            )
+        });
+        self.queue_hot_path_rows(filter_rows);
     }
 
     fn handle_scroll_input(&mut self) {
@@ -375,6 +522,7 @@ impl DisplayServerRuntime {
         // Compute content height before mutable borrow of proof_layouts
         let content_h = filter_list_content_height(&self.filtered_words);
 
+        let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
             let container_id = layout
@@ -410,13 +558,17 @@ impl DisplayServerRuntime {
                     FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
-                let _damage = layout.reposition_scroll(id, new_offset);
+                scroll_damage = Some(layout.reposition_scroll(id, new_offset));
+            }
+        }
+        if let Some(damage) = scroll_damage {
+            self.refresh_active_proof_hot_path();
+            self.queue_hot_path_rows(scroll_damage_rows(damage, PROOF_PANEL_Y, self.mode.height));
+            if !damage.is_empty() {
                 let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
                 self.live_scroll_marker_emitted = true;
             }
         }
-
-        self.queue_rows(PROOF_PANEL_Y, PROOF_PANEL_Y + PROOF_PANEL_H);
     }
 
     fn current_filter_text(&self) -> &'static str {
@@ -429,6 +581,72 @@ impl DisplayServerRuntime {
 
     fn active_proof_layout_mut(&mut self) -> Option<&mut LayoutResult> {
         self.proof_layouts.as_mut()?.get_mut(self.active_filter_idx)
+    }
+
+    fn active_proof_layout_index(&self) -> Option<&LayoutHotPathIndex> {
+        self.proof_layout_index.as_ref()
+    }
+
+    fn refresh_active_proof_hot_path(&mut self) {
+        let Some(new_index) = self
+            .active_proof_layout()
+            .map(|layout| {
+                LayoutHotPathIndex::build(
+                    layout,
+                    PROOF_PANEL_X,
+                    PROOF_PANEL_Y,
+                    self.mode.width,
+                    self.mode.height,
+                )
+            })
+        else {
+            return;
+        };
+        self.proof_layout_index = Some(new_index);
+    }
+
+    fn queue_hot_path_rows(&mut self, rows: Option<(u32, u32)>) {
+        let Some((start, end)) = rows else {
+            return;
+        };
+        self.queue_rows(start, end);
+    }
+
+    fn queue_hot_path_rect(&mut self, rect: Option<DamageRect>) {
+        let Some(rect) = rect else {
+            return;
+        };
+        if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        self.pending_damage_rect = Some(match self.pending_damage_rect {
+            Some(queued) => queued.merge(rect),
+            None => rect,
+        });
+    }
+
+    fn queue_target_damage(&mut self, old_state: VisibleState, new_state: VisibleState) {
+        let Some(index) = self.active_proof_layout_index() else {
+            return;
+        };
+        let hover_rows = index.target_rows(TargetDamage::Hover);
+        let click_rows = index.target_rows(TargetDamage::Click);
+        let key_rows = index.target_rows(TargetDamage::Key);
+        let scroll_rows = index.target_rows(TargetDamage::Scroll);
+        if old_state.hover_visible != new_state.hover_visible {
+            self.queue_hot_path_rows(hover_rows);
+        }
+        if old_state.launcher_click_visible != new_state.launcher_click_visible {
+            self.queue_hot_path_rows(click_rows);
+        }
+        if old_state.keyboard_visible != new_state.keyboard_visible {
+            self.queue_hot_path_rows(key_rows);
+        }
+        if old_state.wheel_up_visible != new_state.wheel_up_visible
+            || old_state.wheel_down_visible != new_state.wheel_down_visible
+        {
+            self.queue_hot_path_rows(scroll_rows);
+        }
     }
 
     fn tick(&mut self, _now_ns: u64) {
@@ -466,6 +684,10 @@ impl DisplayServerRuntime {
             let _ = debug_println(INPUT_VISIBLE_ON_MARKER);
             self.input_markers_emitted.input = true;
         }
+        if self.state.full_window_visible && !self.input_markers_emitted.full_window {
+            let _ = debug_println(FULL_WINDOW_VISIBLE_MARKER);
+            self.input_markers_emitted.full_window = true;
+        }
         if self.state.cursor_move_visible && !self.input_markers_emitted.cursor {
             let _ = debug_println(CURSOR_MOVE_VISIBLE_MARKER);
             self.input_markers_emitted.cursor = true;
@@ -490,6 +712,13 @@ impl DisplayServerRuntime {
             let _ = debug_println(LAUNCHER_CLICK_VISIBLE_OK_MARKER);
             self.input_markers_emitted.launcher_click = true;
         }
+        if self.state.input_visible_on
+            && self.input_markers_emitted.launcher_click_route
+            && !self.input_markers_emitted.v2_input
+        {
+            let _ = debug_println(SELFTEST_UI_V2_INPUT_OK_MARKER);
+            self.input_markers_emitted.v2_input = true;
+        }
         if self.state.keyboard_visible && !self.input_markers_emitted.keyboard {
             let _ = debug_println(KEYBOARD_VISIBLE_MARKER);
             self.input_markers_emitted.keyboard = true;
@@ -500,23 +729,57 @@ impl DisplayServerRuntime {
             let _ = debug_println(WHEEL_VISIBLE_MARKER);
             self.input_markers_emitted.wheel = true;
         }
+        if self.input_markers_emitted.input
+            && self.input_markers_emitted.full_window
+            && self.input_markers_emitted.cursor
+            && self.input_markers_emitted.hover
+            && self.input_markers_emitted.focus
+            && self.input_markers_emitted.launcher_click
+            && self.input_markers_emitted.keyboard
+            && !self.input_markers_emitted.visible_input_summary
+        {
+            let _ = debug_println(SELFTEST_UI_VISIBLE_INPUT_OK_MARKER);
+            self.input_markers_emitted.visible_input_summary = true;
+        }
+        if self.input_markers_emitted.visible_input_summary
+            && (self.state.wheel_up_visible || self.state.wheel_down_visible)
+            && !self.input_markers_emitted.visible_wheel_summary
+        {
+            let _ = debug_println(SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER);
+            self.input_markers_emitted.visible_wheel_summary = true;
+        }
+        if self.input_markers_emitted.visible_wheel_summary
+            && self.markers_emitted
+            && !self.input_markers_emitted.v2b_assets_summary
+        {
+            let _ = debug_println(crate::markers::SELFTEST_UI_V2B_ASSETS_OK_MARKER);
+            self.input_markers_emitted.v2b_assets_summary = true;
+        }
     }
 
     fn write_current_frame(&mut self) -> Result<(), WindowdError> {
-        self.write_rows(0, self.mode.height)
+        self.write_rows(0, self.mode.height, GlassQuality::High)
     }
 
-    fn write_rows(&mut self, start_y: u32, end_y: u32) -> Result<(), WindowdError> {
+    fn write_rows(
+        &mut self,
+        start_y: u32,
+        end_y: u32,
+        glass_quality: GlassQuality,
+    ) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
         let row_len = self.mode.stride as usize;
-        if self.scratch_row.len() < row_len {
+        if self.band_scratch.len() < row_len * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
         let proof_layout = self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
+        let source_x_lut = self.source_x_lut.as_slice();
+        let source_y_lut = self.source_y_lut.as_slice();
         let mode = self.mode;
         let state = self.state;
         let filter_text = state.text_input();
@@ -527,14 +790,106 @@ impl DisplayServerRuntime {
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
         let end_y = end_y.min(self.mode.height);
-        for y in start_y.min(end_y)..end_y {
+        let blur_row_buf = &mut self.blur_row_buf[..row_len];
+        let shadow_scratch = &mut self.shadow_scratch[..row_len];
+        let backdrop_cache = &mut self.backdrop_cache;
+        let path_cache = &mut self.path_cache;
+        let band_scratch = &mut self.band_scratch;
+        let mut band_start = start_y.min(end_y);
+        while band_start < end_y {
+            let band_end = (band_start as usize + ROW_WRITE_CHUNK)
+                .min(end_y as usize)
+                as u32;
+            let band_rows = (band_end - band_start) as usize;
+            let band_bytes = band_rows * row_len;
+            for (row_idx, y) in (band_start..band_end).enumerate() {
+                let dest_start = row_idx * row_len;
+                let dest_end = dest_start + row_len;
+                let band_row = &mut band_scratch[dest_start..dest_end];
+                copy_scene_row(
+                    blur_row_buf,
+                    shadow_scratch,
+                    backdrop_cache,
+                    path_cache,
+                    source_frame,
+                    source_x_lut,
+                    source_y_lut,
+                    mode,
+                    state,
+                    proof_layout,
+                    proof_layout_index,
+                    filter_text,
+                    filtered_words,
+                    cursor_bitmap,
+                    cursor_width,
+                    cursor_height,
+                    cursor_x,
+                    cursor_y,
+                    y,
+                    glass_quality,
+                    band_row,
+                )?;
+            }
+            let offset = band_start as usize * row_len;
+            vmo_write(handle, offset, &band_scratch[..band_bytes])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.refresh_observer_state();
+        Ok(())
+    }
+
+    fn write_damage_rect(&mut self, rect: DamageRect) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let row_len = self.mode.stride as usize;
+        if self.band_scratch.len() < row_len {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let start_y = rect.y.min(self.mode.height);
+        let end_y = rect.end_y().min(self.mode.height);
+        let start_x = rect.x.min(self.mode.width);
+        let end_x = rect.end_x().min(self.mode.width);
+        if start_y >= end_y || start_x >= end_x {
+            return Ok(());
+        }
+        let active_filter_idx = self.active_filter_idx;
+        let proof_layout = self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout_index = self.proof_layout_index.as_ref();
+        let source_frame = &self.source_frame;
+        let source_x_lut = self.source_x_lut.as_slice();
+        let source_y_lut = self.source_y_lut.as_slice();
+        let mode = self.mode;
+        let state = self.state;
+        let filter_text = state.text_input();
+        let filtered_words = self.filtered_words.as_slice();
+        let cursor_bitmap = self.cursor_bitmap.as_deref();
+        let cursor_width = self.cursor_width;
+        let cursor_height = self.cursor_height;
+        let cursor_x = self.state.cursor_x;
+        let cursor_y = self.state.cursor_y;
+        let blur_row_buf = &mut self.blur_row_buf[..row_len];
+        let shadow_scratch = &mut self.shadow_scratch[..row_len];
+        let backdrop_cache = &mut self.backdrop_cache;
+        let path_cache = &mut self.path_cache;
+        let row = &mut self.band_scratch[..row_len];
+        let byte_start = start_x as usize * 4;
+        let byte_end = end_x as usize * 4;
+        for y in start_y..end_y {
             copy_scene_row(
-                &mut self.blur_row_buf[..row_len],
-                &mut self.shadow_scratch[..row_len],
+                blur_row_buf,
+                shadow_scratch,
+                backdrop_cache,
+                path_cache,
                 source_frame,
+                source_x_lut,
+                source_y_lut,
                 mode,
                 state,
                 proof_layout,
+                proof_layout_index,
                 filter_text,
                 filtered_words,
                 cursor_bitmap,
@@ -543,13 +898,15 @@ impl DisplayServerRuntime {
                 cursor_x,
                 cursor_y,
                 y,
-                &mut self.scratch_row[..row_len],
+                GlassQuality::Opaque,
+                row,
             )?;
-            let offset = y as usize * row_len;
-            vmo_write(handle, offset, &self.scratch_row[..row_len])
+            let offset = y as usize * row_len + byte_start;
+            vmo_write(handle, offset, &row[byte_start..byte_end])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.refresh_observer_state();
         Ok(())
     }
 
@@ -594,12 +951,24 @@ impl DisplayServerRuntime {
     }
 
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
-        let Some((start, end)) = self.pending_damage_rows.take() else {
+        if let Some((start, end)) = self.pending_damage_rows.take() {
+            self.write_rows(start, end, select_glass_quality(end.saturating_sub(start)))?;
+            if let Some(rect) = self.pending_damage_rect.take() {
+                self.write_damage_rect(rect)?;
+            }
+            self.emit_input_markers();
+            return Ok(());
+        }
+        let Some(rect) = self.pending_damage_rect.take() else {
             return Ok(());
         };
-        self.write_rows(start, end)?;
+        self.write_damage_rect(rect)?;
         self.emit_input_markers();
         Ok(())
+    }
+
+    const fn has_pending_damage(&self) -> bool {
+        self.pending_damage_rows.is_some() || self.pending_damage_rect.is_some()
     }
 }
 
@@ -664,10 +1033,15 @@ fn build_live_proof_layouts(state: VisibleState) -> Option<Vec<LayoutResult>> {
 fn copy_scene_row(
     blur_row_buf: &mut [u8],
     shadow_scratch: &mut [u8],
+    backdrop_cache: &mut [BackdropCacheEntry],
+    path_cache: &mut [PathCacheEntry],
     source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
     mode: VisibleBootstrapMode,
     state: VisibleState,
     proof_layout: Option<&LayoutResult>,
+    proof_layout_index: Option<&LayoutHotPathIndex>,
     filter_text: &str,
     filtered_words: &[&'static str],
     cursor_bitmap: Option<&[u8]>,
@@ -676,11 +1050,24 @@ fn copy_scene_row(
     cursor_x: i32,
     cursor_y: i32,
     y: u32,
+    glass_quality: GlassQuality,
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
-    copy_scaled_systemui_row(source_frame, mode, y, row)?;
-    compute_shadow_row(state, proof_layout, y, row, shadow_scratch, blur_row_buf)?;
-    draw_proof_surface_row(state, proof_layout, filter_text, filtered_words, y, row)?;
+    copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
+    compute_shadow_row(state, proof_layout, proof_layout_index, y, row, shadow_scratch, blur_row_buf)?;
+    draw_proof_surface_row(
+        state,
+        proof_layout,
+        proof_layout_index,
+        filter_text,
+        filtered_words,
+        y,
+        row,
+        backdrop_cache,
+        path_cache,
+        glass_quality,
+        blur_row_buf,
+    )?;
     if let Some(cursor) = cursor_bitmap {
         blend_cursor_row(
             row,
@@ -709,6 +1096,7 @@ fn copy_scene_row(
 fn compute_shadow_row(
     _state: VisibleState,
     proof_layout: Option<&LayoutResult>,
+    proof_layout_index: Option<&LayoutHotPathIndex>,
     y: u32,
     target: &mut [u8],
     shadow_scratch: &mut [u8],
@@ -725,16 +1113,22 @@ fn compute_shadow_row(
     // Zero the shadow scratch for this row (only the pixels we'll touch)
     shadow_scratch[..target.len()].fill(0);
 
-    for layout_box in &layout.boxes {
+    let row_mask = proof_layout_index.and_then(|index| {
+        if index.overflow_boxes() {
+            return None;
+        }
+        let mask = index.row_mask(y);
+        (mask != 0).then_some(mask)
+    });
+    let mut draw_shadow = |layout_box: &nexus_layout::LayoutBox| {
         let shadow = match &layout_box.visual.shadow {
-            Some(s) => s,
-            None => continue,
+            Some(shadow) => shadow,
+            None => return,
         };
         let Some(rect) = proof_box_rect(layout_box) else {
-            continue;
+            return;
         };
 
-        // Shadow region = element rect expanded by spread, displaced by offset
         let sx = (rect.x as i32)
             .saturating_add(shadow.offset_x.0)
             .saturating_sub(shadow.spread.0);
@@ -745,33 +1139,26 @@ fn compute_shadow_row(
         let sh = (rect.height as i32).saturating_add(2 * shadow.spread.0);
 
         if sw <= 0 || sh <= 0 {
-            continue;
+            return;
         }
 
-        // Row intersection test
         let y_i32 = y as i32;
         if y_i32 < sy || y_i32 >= sy.saturating_add(sh) {
-            continue;
+            return;
         }
 
-        // Fill alpha mask segment for this shadow on this row
         let start_x = sx.max(0).min(row_pixels as i32) as usize;
-        let end_x = sx
-            .saturating_add(sw)
-            .max(0)
-            .min(row_pixels as i32) as usize;
+        let end_x = sx.saturating_add(sw).max(0).min(row_pixels as i32) as usize;
 
         for px in start_x..end_x {
             shadow_scratch[px * 4 + 3] = 255;
         }
 
-        // Horizontal blur (zero-allocation: uses pre-allocated blur_row_buf)
         let blur_r = shadow.blur_radius.0.max(0) as u32;
         if blur_r > 0 && end_x > start_x {
             blur_row_horizontal(shadow_scratch, target.len(), blur_r, blur_row_buf);
         }
 
-        // Composite shadow onto target using over operator
         let sr = shadow.color.r as u32;
         let sg = shadow.color.g as u32;
         let sb = shadow.color.b as u32;
@@ -790,6 +1177,21 @@ fn compute_shadow_row(
             target[idx] = ((sr * tinted_a + target[idx] as u32 * inv) / 255) as u8;
             target[idx + 1] = ((sg * tinted_a + target[idx + 1] as u32 * inv) / 255) as u8;
             target[idx + 2] = ((sb * tinted_a + target[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    };
+
+    match row_mask {
+        Some(mut mask) => {
+            while mask != 0 {
+                let box_idx = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                draw_shadow(&layout.boxes[box_idx]);
+            }
+        }
+        None => {
+            for layout_box in &layout.boxes {
+                draw_shadow(layout_box);
+            }
         }
     }
 
@@ -854,6 +1256,8 @@ fn blur_row_horizontal(pixels: &mut [u8], row_bytes: usize, radius: u32, row_buf
 
 fn copy_scaled_systemui_row(
     frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
     mode: VisibleBootstrapMode,
     y: u32,
     row: &mut [u8],
@@ -862,9 +1266,10 @@ fn copy_scaled_systemui_row(
     if row.len() < row_len || frame.width == 0 || frame.height == 0 {
         return Err(WindowdError::BufferLengthMismatch);
     }
-    let src_y = ((u64::from(y) * u64::from(frame.height)) / u64::from(mode.height)) as usize;
+    let src_y = *source_y_lut.get(y as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
     for x in 0..mode.width {
-        let src_x = ((u64::from(x) * u64::from(frame.width)) / u64::from(mode.width)) as usize;
+        let src_x =
+            *source_x_lut.get(x as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
         let src = src_y
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
@@ -877,6 +1282,112 @@ fn copy_scaled_systemui_row(
     Ok(())
 }
 
+fn build_scale_lut(dest_len: u32, source_len: u32) -> Result<Vec<u32>, WindowdError> {
+    if dest_len == 0 || source_len == 0 {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+    let mut lut = Vec::with_capacity(dest_len as usize);
+    for dest in 0..dest_len {
+        let src = ((u64::from(dest) * u64::from(source_len)) / u64::from(dest_len)) as u32;
+        lut.push(src.min(source_len.saturating_sub(1)));
+    }
+    Ok(lut)
+}
+
+fn backdrop_cache_slot(
+    y: u32,
+    start_x: u32,
+    width: u32,
+    quality: GlassQuality,
+    cache_len: usize,
+) -> usize {
+    if cache_len == 0 {
+        return 0;
+    }
+    let quality_key = match quality {
+        GlassQuality::High => 0usize,
+        GlassQuality::Low => 1,
+        GlassQuality::Opaque => 2,
+    };
+    (y as usize)
+        .wrapping_mul(131)
+        .wrapping_add(start_x as usize * 17)
+        .wrapping_add(width as usize * 3)
+        .wrapping_add(quality_key)
+        % cache_len
+}
+
+fn path_cache_slot(id_hash: u64, width: u32, height: u32, color: [u8; 4], cache_len: usize) -> usize {
+    if cache_len == 0 {
+        return 0;
+    }
+    (id_hash as usize)
+        .wrapping_mul(131)
+        .wrapping_add(width as usize * 17)
+        .wrapping_add(height as usize * 7)
+        .wrapping_add(u32::from_le_bytes(color) as usize)
+        % cache_len
+}
+
+fn path_id_hash(id: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in id.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn blend_cached_path_row(
+    y: u32,
+    row: &mut [u8],
+    id: Option<&str>,
+    rect: ProofBoxRect,
+    path: &nexus_layout_types::PathShape,
+    color: [u8; 4],
+    path_cache: &mut [PathCacheEntry],
+) -> Result<bool, WindowdError> {
+    let Some(id) = id else {
+        return Ok(false);
+    };
+    if rect.width as usize > PATH_CACHE_MAX_SIDE || rect.height as usize > PATH_CACHE_MAX_SIDE {
+        return Ok(false);
+    }
+    let id_hash = path_id_hash(id);
+    let slot = path_cache_slot(id_hash, rect.width, rect.height, color, path_cache.len());
+    let entry = &mut path_cache[slot];
+    let pixel_len = rect.width as usize * rect.height as usize * 4;
+    if !entry.valid
+        || entry.id_hash != id_hash
+        || entry.width != rect.width
+        || entry.height != rect.height
+        || entry.color != color
+    {
+        entry.pixels[..pixel_len].fill(0);
+        for cached_y in 0..rect.height {
+            let row_start = cached_y as usize * rect.width as usize * 4;
+            let row_end = row_start + rect.width as usize * 4;
+            draw_path_row(
+                cached_y,
+                &mut entry.pixels[row_start..row_end],
+                0,
+                0,
+                rect.width,
+                rect.height,
+                path,
+                color,
+            )?;
+        }
+        entry.id_hash = id_hash;
+        entry.width = rect.width;
+        entry.height = rect.height;
+        entry.color = color;
+        entry.valid = true;
+    }
+    blend_asset_row(y, row, rect.x, rect.y, rect.width, rect.height, &entry.pixels[..pixel_len])?;
+    Ok(true)
+}
+
 fn checked_stride(width: u32) -> Result<u32, WindowdError> {
     let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
     bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
@@ -885,10 +1396,15 @@ fn checked_stride(width: u32) -> Result<u32, WindowdError> {
 fn draw_proof_surface_row(
     state: VisibleState,
     proof_layout: Option<&LayoutResult>,
+    proof_layout_index: Option<&LayoutHotPathIndex>,
     filter_text: &str,
     filtered_words: &[&'static str],
     y: u32,
     row: &mut [u8],
+    backdrop_cache: &mut [BackdropCacheEntry],
+    path_cache: &mut [PathCacheEntry],
+    glass_quality: GlassQuality,
+    backdrop_scratch: &mut [u8],
 ) -> Result<(), WindowdError> {
     let Some(layout) = proof_layout else {
         return Ok(());
@@ -896,35 +1412,61 @@ fn draw_proof_surface_row(
     let mut filter_input_rect = None;
     let mut filter_list_rect = None;
     let mut filter_list_scroll_y = 0;
-    for layout_box in &layout.boxes {
+    let row_mask = proof_layout_index.and_then(|index| (!index.overflow_boxes()).then(|| index.row_mask(y)));
+    let mut draw_row_box = |layout_box: &nexus_layout::LayoutBox| -> Result<(), WindowdError> {
         let Some(rect) = proof_box_rect(layout_box) else {
-            continue;
+            return Ok(());
         };
         if !rect.contains_y(y) {
-            continue;
+            return Ok(());
         }
         let paint_role = layout_box.id.and_then(proof_paint_role);
-        draw_layout_box_row(state, y, row, layout_box, rect, paint_role)?;
+        draw_layout_box_row(
+            state,
+            y,
+            row,
+            layout_box,
+            rect,
+            paint_role,
+            backdrop_cache,
+            path_cache,
+            glass_quality,
+            backdrop_scratch,
+        )?;
         if let Some(id) = layout_box.id {
             if id == "filter_text_input" {
                 filter_input_rect = Some(rect);
-                // Try pre-rendered asset first (sharper, build.rs font)
                 let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
                 if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
                     blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
                 }
-                continue;
+                return Ok(());
             }
             if id == "filter_list" {
                 filter_list_rect = Some(rect);
                 filter_list_scroll_y = layout_box.scroll_offset.1.as_u32().unwrap_or(0);
-                continue;
+                return Ok(());
             }
             if id.starts_with("filter_") {
-                continue;
+                return Ok(());
             }
             if let Some(asset) = crate::assets::proof_text_asset(id) {
                 blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+            }
+        }
+        Ok(())
+    };
+    match row_mask {
+        Some(mut mask) => {
+            while mask != 0 {
+                let box_idx = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                draw_row_box(&layout.boxes[box_idx])?;
+            }
+        }
+        None => {
+            for layout_box in &layout.boxes {
+                draw_row_box(layout_box)?;
             }
         }
     }
@@ -1208,6 +1750,99 @@ fn bitmap_font_5x7(ch: char) -> [u8; 7] {
     }
 }
 
+/// Blur a horizontal segment of a row (backdrop blur for glass effect).
+/// Uses a lightweight 1D box blur with the given radius.
+/// Zero-allocation: reuses the shared scanline scratch buffer.
+fn blur_backdrop_segment(
+    row: &mut [u8],
+    start_x: u32,
+    end_x: u32,
+    radius: u32,
+    scratch: &mut [u8],
+) -> Result<(), WindowdError> {
+    if end_x <= start_x || radius == 0 {
+        return Ok(());
+    }
+    let r = radius as usize;
+    let start = start_x as usize * 4;
+    let end = end_x as usize * 4;
+    let segment_len = end.saturating_sub(start);
+    if end > row.len() || segment_len > scratch.len() {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+    scratch[..segment_len].copy_from_slice(&row[start..end]);
+    let pixels = segment_len / 4;
+    for i in 0..pixels {
+        let mut sum = [0u32; 4];
+        let mut count = 0u32;
+        for j in i.saturating_sub(r)..(i + r + 1).min(pixels) {
+            let bi = j * 4;
+            for c in 0..4 {
+                sum[c] += scratch[bi + c] as u32;
+            }
+            count += 1;
+        }
+        if count > 0 {
+            let di = start + i * 4;
+            for c in 0..4 {
+                row[di + c] = (sum[c] / count).min(255) as u8;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_backdrop_cache_row(
+    row: &mut [u8],
+    y: u32,
+    start_x: u32,
+    end_x: u32,
+    quality: GlassQuality,
+    cache_entries: &mut [BackdropCacheEntry],
+    scratch: &mut [u8],
+) -> Result<(), WindowdError> {
+    if end_x <= start_x {
+        return Ok(());
+    }
+    let width = end_x.saturating_sub(start_x);
+    let segment_len = width as usize * 4;
+    if segment_len > BACKDROP_CACHE_MAX_WIDTH * 4 {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+    let row_start = start_x as usize * 4;
+    let row_end = end_x as usize * 4;
+    if row_end > row.len() {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+    if let Some(entry) = cache_entries.iter().find(|entry| {
+        entry.valid
+            && entry.y == y
+            && entry.start_x == start_x
+            && entry.width == width
+            && entry.quality == quality
+    }) {
+        row[row_start..row_end].copy_from_slice(&entry.pixels[..segment_len]);
+        return Ok(());
+    }
+    let slot = backdrop_cache_slot(y, start_x, width, quality, cache_entries.len());
+    let entry = &mut cache_entries[slot];
+    entry.pixels[..segment_len].copy_from_slice(&row[row_start..row_end]);
+    blur_backdrop_segment(
+        &mut entry.pixels[..segment_len],
+        0,
+        width,
+        quality.blur_radius(),
+        scratch,
+    )?;
+    entry.y = y;
+    entry.start_x = start_x;
+    entry.width = width;
+    entry.quality = quality;
+    entry.valid = true;
+    row[row_start..row_end].copy_from_slice(&entry.pixels[..segment_len]);
+    Ok(())
+}
+
 /// SDF-based filled circle row renderer (anti-aliased edges).
 fn fill_sdf_circle_row(
     y: u32, row: &mut [u8],
@@ -1327,14 +1962,54 @@ fn draw_layout_box_row(
     layout_box: &nexus_layout::LayoutBox,
     rect: ProofBoxRect,
     paint_role: Option<ProofPaintRole>,
+    backdrop_cache: &mut [BackdropCacheEntry],
+    path_cache: &mut [PathCacheEntry],
+    glass_quality: GlassQuality,
+    backdrop_scratch: &mut [u8],
 ) -> Result<(), WindowdError> {
+    let opacity_alpha: u32 = match layout_box.visual.opacity {
+        Some(f) => f.as_u8() as u32,
+        None => 255,
+    };
+    let want_backdrop = opacity_alpha < 255 && layout_box.visual.background.is_some();
+    if want_backdrop {
+        let row_pixels = (row.len() / 4) as u32;
+        let start = rect.x.max(0);
+        let end = (rect.x + rect.width).min(row_pixels);
+        if glass_quality == GlassQuality::Opaque {
+            // Deterministic degrade: skip blur entirely under wide dirty spans and let the
+            // translucent fill below become the only panel treatment for this frame.
+        } else if rect.width as usize <= BACKDROP_CACHE_MAX_WIDTH {
+            apply_backdrop_cache_row(
+                row,
+                y,
+                start,
+                end,
+                glass_quality,
+                backdrop_cache,
+                backdrop_scratch,
+            )?;
+        } else {
+            blur_backdrop_segment(row, start, end, glass_quality.blur_radius(), backdrop_scratch)?;
+        }
+    }
+
+    let get_effective_bgra = |layout_box: &nexus_layout::LayoutBox| -> Option<[u8; 4]> {
+        let bg = proof_box_background(layout_box, state, paint_role)?;
+        let mut bgra = rgba_to_bgra(bg);
+        if opacity_alpha < 255 {
+            bgra[3] = ((bgra[3] as u32 * opacity_alpha) / 255) as u8;
+        }
+        Some(bgra)
+    };
+
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
             let cr = layout_box.visual.corner_radius.top_left.as_u32().unwrap_or(0);
             if cr > 0 {
                 // SDF rounded rect path (anti-aliased corners)
-                if let Some(background) = proof_box_background(layout_box, state, paint_role) {
-                    fill_sdf_rounded_rect_row(y, row, rect, cr, rgba_to_bgra(background))?;
+                if let Some(bgra) = get_effective_bgra(layout_box) {
+                    fill_sdf_rounded_rect_row(y, row, rect, cr, bgra)?;
                 }
                 if let Some((border_width, border_color)) =
                     proof_box_border(layout_box, state, paint_role)
@@ -1345,7 +2020,7 @@ fn draw_layout_box_row(
                 }
             } else {
                 // Fast path: hard-edged rect
-            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+            if let Some(bgra) = get_effective_bgra(layout_box) {
                 fill_row_rect(
                     y,
                     row,
@@ -1353,7 +2028,7 @@ fn draw_layout_box_row(
                     rect.y,
                     rect.width,
                     rect.height,
-                    rgba_to_bgra(background),
+                    bgra,
                 )?;
             }
             if let Some((border_width, border_color)) =
@@ -1374,7 +2049,7 @@ fn draw_layout_box_row(
         }
         nexus_layout_types::ShapeKind::Circle => {
             // SDF circle path (anti-aliased edges)
-            if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+            if let Some(bgra) = get_effective_bgra(layout_box) {
                 fill_sdf_circle_row(
                     y,
                     row,
@@ -1382,7 +2057,7 @@ fn draw_layout_box_row(
                     rect.y,
                     rect.width,
                     rect.height,
-                    rgba_to_bgra(background),
+                    bgra,
                 )?;
             }
             if let Some((border_width, border_color)) =
@@ -1433,7 +2108,9 @@ fn draw_layout_box_row(
                 .map(|(_, color)| rgba_to_bgra(color))
                 .or_else(|| proof_box_background(layout_box, state, paint_role).map(rgba_to_bgra))
                 .unwrap_or([0xff, 0xff, 0xff, 0xff]);
-            draw_path_row(y, row, rect.x, rect.y, rect.width, rect.height, path, color)?;
+            if !blend_cached_path_row(y, row, layout_box.id, rect, path, color, path_cache)? {
+                draw_path_row(y, row, rect.x, rect.y, rect.width, rect.height, path, color)?;
+            }
         }
     }
     Ok(())
@@ -1704,7 +2381,21 @@ fn fill_row_rect(
     let end = x.saturating_add(width).min(row_pixels as u32) as usize;
     for px in start..end {
         let idx = px.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-        row[idx..idx + 4].copy_from_slice(&bgra);
+        let alpha = u32::from(bgra[3]);
+        if alpha == 255 {
+            row[idx..idx + 4].copy_from_slice(&[bgra[0], bgra[1], bgra[2], 0xff]);
+            continue;
+        }
+        if alpha == 0 {
+            continue;
+        }
+        let inv = 255u32.saturating_sub(alpha);
+        row[idx] = ((u32::from(bgra[0]) * alpha + u32::from(row[idx]) * inv) / 255) as u8;
+        row[idx + 1] =
+            ((u32::from(bgra[1]) * alpha + u32::from(row[idx + 1]) * inv) / 255) as u8;
+        row[idx + 2] =
+            ((u32::from(bgra[2]) * alpha + u32::from(row[idx + 2]) * inv) / 255) as u8;
+        row[idx + 3] = 0xff;
     }
     Ok(())
 }
@@ -1978,5 +2669,58 @@ fn blend_cursor_row(
                 / 255) as u8;
         }
         row[dst_idx + 3] = 255;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, path_cache_slot,
+        path_id_hash, BackdropCacheEntry,
+    };
+    use crate::live_runtime::GlassQuality;
+
+    #[test]
+    fn scale_lut_is_monotonic_and_clamped() {
+        let lut = build_scale_lut(8, 3).expect("lut");
+        assert_eq!(lut, vec![0, 0, 0, 1, 1, 1, 2, 2]);
+        assert!(lut.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(*lut.last().unwrap_or(&u32::MAX), 2);
+    }
+
+    #[test]
+    fn backdrop_cache_slot_is_stable_for_same_segment() {
+        let a = backdrop_cache_slot(440, 56, 610, GlassQuality::High, 16);
+        let b = backdrop_cache_slot(440, 56, 610, GlassQuality::High, 16);
+        let c = backdrop_cache_slot(441, 56, 610, GlassQuality::High, 16);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn path_cache_slot_is_stable_for_same_key() {
+        let id_hash = path_id_hash("card_hover_glyph");
+        let a = path_cache_slot(id_hash, 16, 16, [1, 2, 3, 255], 8);
+        let b = path_cache_slot(id_hash, 16, 16, [1, 2, 3, 255], 8);
+        let c = path_cache_slot(id_hash, 24, 16, [1, 2, 3, 255], 8);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn backdrop_cache_preserves_same_segment_key() {
+        let mut row = vec![
+            0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255,
+        ];
+        let mut cache = [BackdropCacheEntry::new(); 4];
+        let mut scratch = vec![0u8; row.len()];
+        apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
+            .expect("first cache fill");
+        let cached = row.clone();
+
+        row.fill(255);
+        apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
+            .expect("cache hit");
+        assert_eq!(row, cached);
     }
 }

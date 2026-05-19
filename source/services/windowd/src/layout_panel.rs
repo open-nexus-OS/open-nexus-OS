@@ -10,7 +10,8 @@ use alloc::vec::Vec;
 use input_live_protocol::VisibleState;
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
-    Align, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode,
+    Align, BoxShadow, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx, Justify,
+    LayoutNode, Fraction,
     LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint, PathShape,
     PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode, TextNode,
     TextStyle, VisualStyle, WhiteSpace,
@@ -29,6 +30,16 @@ pub const FILTER_LIST_PADDING: u32 = 4;
 pub const FILTER_SCROLLBAR_GUTTER: u32 = 8;
 pub const FILTER_SCROLLBAR_WIDTH: u32 = 4;
 pub const FILTER_SCROLLBAR_MIN_THUMB: u32 = 12;
+
+fn panel_shadow() -> BoxShadow {
+    BoxShadow {
+        offset_x: FxPx::ZERO,
+        offset_y: FxPx::new(12),
+        blur_radius: FxPx::new(24),
+        spread: FxPx::new(4),
+        color: Rgba8 { r: 0, g: 0, b: 0, a: 128 },
+    }
+}
 
 pub fn filter_scrollbar_strip_x(rect_x: u32, rect_width: u32) -> u32 {
     rect_x + rect_width.saturating_sub(FILTER_LIST_PADDING + FILTER_SCROLLBAR_GUTTER)
@@ -98,7 +109,9 @@ impl MeasureText for ProofTextMeasure {
 pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
     let panel_style = VisualStyle {
         background: Some(assets::PROOF_PANEL_BG),
+        opacity: Some(Fraction::new(132)),
         border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+        shadow: Some(panel_shadow()),
         ..Default::default()
     };
     let text_column = LayoutNode::Stack(
@@ -330,6 +343,10 @@ fn card_node(
 ) -> LayoutNode {
     let background = if active { assets::PROOF_CARD_ACTIVE_BG } else { assets::PROOF_CARD_BG };
     let border = if active { accent } else { assets::PROOF_CARD_BORDER };
+    let scroll_marker_size = if show_scroll { 8 } else { 12 };
+    let scroll_marker_gap = if show_scroll { 0 } else { 6 };
+    let card_padding = if show_scroll { 10 } else { CARD_PADDING };
+    let card_gap = if show_scroll { 4 } else { 8 };
     let mut top_row_children = vec![
         shape_node(card_part_id(id, "icon"), CARD_ICON_SIZE, accent, Some(border), ShapeKind::Rect),
         LayoutNode::Spacer(nexus_layout_types::Spacer {
@@ -354,7 +371,7 @@ fn card_node(
             Stack {
                 id: Some(card_part_id(id, "scroll_markers")),
                 direction: Direction::Column,
-                gap: FxPx::new(6),
+                gap: FxPx::new(scroll_marker_gap),
                 padding: EdgeInsets::zero(),
                 align: Align::End,
                 justify: Justify::Start,
@@ -368,10 +385,16 @@ fn card_node(
             },
             VisualStyle::default(),
             vec![
-                shape_node(card_part_id(id, "scroll_up"), 12, accent, None, ShapeKind::TriangleUp),
+                shape_node(
+                    card_part_id(id, "scroll_up"),
+                    scroll_marker_size,
+                    accent,
+                    None,
+                    ShapeKind::TriangleUp,
+                ),
                 shape_node(
                     card_part_id(id, "scroll_down"),
-                    12,
+                    scroll_marker_size,
                     if active { assets::PROOF_ICON_FG } else { assets::PROOF_CARD_BORDER },
                     None,
                     ShapeKind::TriangleDown,
@@ -395,8 +418,8 @@ fn card_node(
         Stack {
             id: Some(id),
             direction: Direction::Column,
-            gap: FxPx::new(8),
-            padding: EdgeInsets::all(FxPx::new(CARD_PADDING)),
+            gap: FxPx::new(card_gap),
+            padding: EdgeInsets::all(FxPx::new(card_padding)),
             align: Align::Start,
             justify: Justify::SpaceBetween,
             overflow: Overflow::Visible,
@@ -730,7 +753,9 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
 
     let filter_panel_style = VisualStyle {
         background: Some(assets::PROOF_PANEL_BG),
+        opacity: Some(Fraction::new(132)),
         border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+        shadow: Some(panel_shadow()),
         ..Default::default()
     };
     LayoutNode::Stack(
@@ -752,4 +777,33 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
         filter_panel_style,
         vec![filter_content],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proof_panel_uses_translucent_blurred_shadowed_backdrop() {
+        let node = build_proof_panel_tree(VisibleState::default());
+        let LayoutNode::Stack(stack, style, _) = node else {
+            panic!("proof panel must be a stack");
+        };
+        assert_eq!(stack.id, Some("proof_panel"));
+        assert_eq!(style.background, Some(assets::PROOF_PANEL_BG));
+        assert_eq!(style.opacity.map(Fraction::as_u8), Some(132));
+        assert_eq!(style.shadow, Some(panel_shadow()));
+    }
+
+    #[test]
+    fn filter_panel_uses_same_main_backdrop_treatment() {
+        let node = build_filter_panel_tree("");
+        let LayoutNode::Stack(stack, style, _) = node else {
+            panic!("filter panel must be a stack");
+        };
+        assert_eq!(stack.id, Some("filter_panel"));
+        assert_eq!(style.background, Some(assets::PROOF_PANEL_BG));
+        assert_eq!(style.opacity.map(Fraction::as_u8), Some(132));
+        assert_eq!(style.shadow, Some(panel_shadow()));
+    }
 }

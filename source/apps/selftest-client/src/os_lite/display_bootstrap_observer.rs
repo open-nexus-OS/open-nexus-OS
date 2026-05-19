@@ -73,7 +73,7 @@ pub(crate) fn run() -> Option<BootstrapEvidence> {
 }
 
 pub(crate) fn run_result() -> Result<BootstrapEvidence, BootstrapFailure> {
-    let runtime_mode = boot_cfg::runtime_mode().unwrap_or(RuntimeMode::Proof);
+    let runtime_mode = boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof);
     let display = observe_display_evidence()?;
     match runtime_mode {
         RuntimeMode::Proof => {

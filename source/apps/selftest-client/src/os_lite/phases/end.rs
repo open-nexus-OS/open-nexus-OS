@@ -1,21 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Phase 12 of 12 — end (`SELFTEST: end` marker emission + cooperative
-//!   idle loop; never returns).
+//! CONTEXT: Phase 12 of 12 — end (`SELFTEST: end` marker emission + proof-mode
+//!   termination or cooperative idle loop; never returns).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU marker ladders (`just test-os`, `just test-os visible-bootstrap`) — terminator and UI/v2a markers.
 //!
 //! Extracted in Cut P2-13 of TASK-0023B. Marker order and marker strings are
-//! byte-identical to the pre-cut body. Returns `!` because the cooperative
-//! idle loop never exits; this phase is always the last call in
+//! byte-identical to the pre-cut body. Returns `!` because proof mode may exit
+//! the current task and interactive mode falls back to the cooperative idle loop;
+//! this phase is always the last call in
 //! `os_lite::run()`.
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_abi::{nsec, yield_};
+use nexus_abi::{exit, nsec, yield_};
 
 use input_live_protocol::VisibleState;
 
@@ -35,9 +36,13 @@ const V2A_INPUT_OFF_MARKER: &str = "windowd: v2a input off";
 const V2A_CLICK_OFF_MARKER: &str = "windowd: v2a click off";
 
 pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
+    let auto_exit_after_proof = display_bootstrap::enabled()
+        && crate::os_lite::boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof)
+            == RuntimeMode::Proof;
     let mut proof_completed = true;
     let mut proof_witness = ProofVisibleInputWitness::new();
     let mut interactive_mode = None;
+    let mut visible_present_marker_emitted = false;
     let mut interactive_input_visible_emitted = false;
     let mut interactive_cursor_visible_emitted = false;
     let mut interactive_hover_visible_emitted = false;
@@ -61,6 +66,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
             emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+            visible_present_marker_emitted = true;
         }
         if let Some(evidence) = display_bootstrap::run() {
             emit_line(windowd::DISPLAY_BOOTSTRAP_MARKER);
@@ -75,9 +81,12 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             if evidence.display.systemui_first_frame {
                 emit_line(windowd::SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
             }
+            if !visible_present_marker_emitted {
+                emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+                visible_present_marker_emitted = true;
+            }
             match evidence.runtime_mode {
                 RuntimeMode::Proof => {
-                    emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
                     if let Some(proof) = evidence.proof {
                         proof_witness.observe(proof.visible_state);
                         proof_completed = emit_proof_mode_markers(proof_witness.observed_state());
@@ -129,7 +138,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     }
 
     if proof_completed {
-        emit_line(crate::markers::M_SELFTEST_END);
+        emit_selftest_end(auto_exit_after_proof);
     }
 
     // Stay alive (cooperative).
@@ -151,13 +160,21 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             )
         {
             if let Some(state) = display_bootstrap::interactive_live_tick() {
+                if !visible_present_marker_emitted
+                    && state.backend_visible
+                    && state.display_scanout_ready
+                    && state.systemui_first_frame_visible
+                {
+                    emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+                    visible_present_marker_emitted = true;
+                }
                 if !proof_completed {
                     proof_witness.observe(state);
                 }
                 if !proof_completed && proof_witness.ready() {
                     proof_completed = emit_proof_mode_markers(proof_witness.observed_state());
                     if proof_completed {
-                        emit_line(crate::markers::M_SELFTEST_END);
+                        emit_selftest_end(auto_exit_after_proof);
                     }
                 }
                 if interactive_mode == Some(RuntimeMode::InteractiveFull) {
@@ -201,6 +218,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             }
         }
         let _ = yield_();
+    }
+}
+
+fn emit_selftest_end(auto_exit_after_proof: bool) {
+    emit_line(crate::markers::M_SELFTEST_END);
+    if auto_exit_after_proof {
+        exit(0);
     }
 }
 

@@ -700,6 +700,63 @@ fn mouse_wheel_batches_emit_pointer_wheel_dispatch_without_pointer_motion() {
 }
 
 #[test]
+fn live_fastpath_pointer_burst_coalesces_but_click_and_keyboard_edges_still_route() {
+    let (mut server, caller, surface) = full_surface_fixture_server();
+    server.enable_fastpath();
+    let mut inputd = InputdService::new(server, live_visible_config(16)).expect("inputd");
+
+    for step in 0..3u64 {
+        let batch = hidrawd::HidBatch::new_pointer(
+            DeviceId::new(4),
+            hidrawd::PointerSource::MouseRelative,
+            vec![HidEvent::rel(TimestampNs::new(30 + step), RelativeAxis::X.event_code(), 1)],
+        );
+        let dispatches = inputd.apply_hid_batch(&batch).expect("move dispatches");
+        assert!(matches!(
+            dispatches.as_slice(),
+            [InputDispatch::PointerMove { delivery, .. }] if delivery.seq.raw() == 0
+        ));
+    }
+
+    assert_eq!(inputd.router().pointer_coalesce_burst(), 3);
+    let delivered_moves = inputd.router_mut().take_input_events(caller, surface).expect("move deliveries");
+    assert!(delivered_moves.is_empty(), "coalesced pointer burst should not enqueue per-move deliveries");
+
+    let press = hidrawd::HidBatch::new(
+        DeviceId::new(4),
+        hidrawd::HidDeviceKind::Mouse,
+        vec![HidEvent::btn(TimestampNs::new(40), 0x110, 1)],
+    );
+    let press_dispatches = inputd.apply_hid_batch(&press).expect("press dispatches");
+    assert!(matches!(
+        press_dispatches.as_slice(),
+        [InputDispatch::PointerDown { delivery, .. }] if delivery.surface == surface
+    ));
+    assert_eq!(inputd.router().pointer_coalesce_burst(), 0, "click edge should reset pointer burst");
+
+    let delivered_press =
+        inputd.router_mut().take_input_events(caller, surface).expect("press deliveries");
+    assert_eq!(delivered_press.len(), 1);
+    assert_eq!(delivered_press[0].kind, windowd::InputEventKind::PointerDown);
+
+    let key = hidrawd::HidBatch::new(
+        DeviceId::new(5),
+        hidrawd::HidDeviceKind::Keyboard,
+        vec![HidEvent::key(TimestampNs::new(41), 0x04, 1)],
+    );
+    let key_dispatches = inputd.apply_hid_batch(&key).expect("key dispatches");
+    assert!(matches!(
+        key_dispatches.as_slice(),
+        [InputDispatch::Keyboard { delivery, key_code: 0x04, repeated: false, .. }]
+            if delivery.surface == surface
+    ));
+
+    let delivered_key = inputd.router_mut().take_input_events(caller, surface).expect("key deliveries");
+    assert_eq!(delivered_key.len(), 1);
+    assert!(matches!(delivered_key[0].kind, windowd::InputEventKind::Keyboard { key_code: 0x04 }));
+}
+
+#[test]
 fn keyboard_hold_count_tracks_non_modifier_keys_until_last_release() {
     let (server, _caller, _surface) = fixture_server();
     let mut inputd = InputdService::new(server, config(8)).expect("inputd");

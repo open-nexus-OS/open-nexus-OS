@@ -36,7 +36,9 @@ use pointer_state::{PointerPosition, PointerSpace, PointerTransform};
 use std::vec::Vec;
 use windowd::{
     bootstrap_display_handoff, live_visible_state_handoff, DisplayFrameSource, Frame,
-    VisibleBootstrapMode, VisibleDisplayCapability,
+    VisibleBootstrapMode, VisibleDisplayCapability, CURSOR_MOVE_VISIBLE_MARKER,
+    FOCUS_VISIBLE_MARKER, INPUT_VISIBLE_ON_MARKER, SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
+    WHEEL_VISIBLE_MARKER,
 };
 
 fn must_ok<T, E: core::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
@@ -237,6 +239,84 @@ fn observer_state_latches_displayserver_asset_evidence() {
     assert!(observer.icon_target_visible);
     assert!(observer.wallpaper_visible);
     assert!(observer.cursor_overlay_visible);
+}
+
+#[test]
+fn visible_service_chain_hops_preserve_input_and_asset_evidence() {
+    let bootstrap = must_ok(bootstrap_display_handoff(), "bootstrap handoff");
+    let mut service = must_ok(FbdevService::enabled(&bootstrap), "enabled service");
+
+    service.merge_input_state(VisibleState {
+        scene_ready: true,
+        full_window_visible: true,
+        click_target_visible: true,
+        keyboard_target_visible: true,
+        input_visible_on: true,
+        cursor_move_visible: true,
+        hover_visible: true,
+        focus_visible: true,
+        launcher_click_visible: true,
+        keyboard_visible: true,
+        wheel_down_visible: true,
+        pointer_route_live: true,
+        keyboard_route_live: true,
+        cursor_svg_visible: true,
+        text_target_visible: true,
+        icon_target_visible: true,
+        wallpaper_visible: true,
+        cursor_overlay_visible: true,
+        cursor_x: 8,
+        cursor_y: 40,
+        ..VisibleState::default()
+    });
+
+    let observer = service.visible_state();
+    assert!(observer.pointer_route_live);
+    assert!(observer.keyboard_route_live);
+    assert!(observer.input_visible_on);
+    assert!(observer.cursor_move_visible);
+    assert!(observer.focus_visible);
+    assert!(observer.keyboard_visible);
+    assert!(observer.wheel_down_visible);
+    assert!(observer.cursor_svg_visible);
+    assert!(observer.text_target_visible);
+    assert!(observer.icon_target_visible);
+    assert!(observer.wallpaper_visible);
+    assert!(observer.cursor_overlay_visible);
+
+    let handoff = must_ok(live_visible_state_handoff(service.render_state()), "live handoff");
+    assert_eq!(service.present(&handoff), Ok(2));
+    assert!(service.telemetry_if_due(1).is_none());
+    let (windowd_line, fbdevd_line) =
+        must_some(service.telemetry_if_due(1_000_000_001), "chain fps lines");
+    assert!(windowd_line.starts_with("fps: windowd compose_hz="));
+    assert!(fbdevd_line.starts_with("fps: fbdevd flush_hz="));
+}
+
+#[test]
+fn visible_chain_hop_markers_remain_stable() {
+    let hop_markers = [
+        READY_MARKER,
+        MAP_OK_MARKER,
+        FLUSH_OK_MARKER,
+        "inputd: live pointer route on",
+        "inputd: live keyboard route on",
+        INPUT_VISIBLE_ON_MARKER,
+        CURSOR_MOVE_VISIBLE_MARKER,
+        FOCUS_VISIBLE_MARKER,
+        WHEEL_VISIBLE_MARKER,
+        SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
+    ];
+    assert_eq!(hop_markers[0], "fbdevd: ready");
+    assert_eq!(hop_markers[1], "fbdevd: map ok");
+    assert_eq!(hop_markers[2], "fbdevd: flush ok");
+    assert_eq!(hop_markers[3], "inputd: live pointer route on");
+    assert_eq!(hop_markers[4], "inputd: live keyboard route on");
+    assert_eq!(hop_markers[5], "windowd: input visible on");
+    assert_eq!(hop_markers[6], "windowd: cursor move visible");
+    assert_eq!(hop_markers[7], "windowd: focus visible");
+    assert_eq!(hop_markers[8], "windowd: wheel visible");
+    assert_eq!(hop_markers[9], "SELFTEST: ui visible input ok");
 }
 
 #[test]

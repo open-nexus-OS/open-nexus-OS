@@ -63,6 +63,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut framebuffer_registered = false;
     let mut flush_ok_emitted = false;
     let mut cursor_overlay_emitted = false;
+    let mut assets_summary_emitted = false;
 
     loop {
         service_requests(&server, service.visible_state())?;
@@ -74,6 +75,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             if framebuffer_registered && !flush_ok_emitted {
                 debug_println(FLUSH_OK_MARKER).map_err(|_| "fbdevd flush log failed")?;
                 flush_ok_emitted = true;
+                if !cursor_overlay_emitted {
+                    let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
+                    cursor_overlay_emitted = true;
+                }
             }
         }
         let now_ns = nsec().unwrap_or(0);
@@ -92,9 +97,27 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 let previous_state = service.render_state();
                 service.merge_input_state(input_state);
                 let next_state = service.render_state();
-                if next_state.cursor_overlay_visible && !cursor_overlay_emitted {
+                let observer_state = service.visible_state();
+                if !cursor_overlay_emitted
+                    && (observer_state.cursor_overlay_visible
+                        || (flush_ok_emitted
+                            && observer_state.cursor_svg_visible
+                            && observer_state.systemui_first_frame_visible))
+                {
                     let _ = debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER);
                     cursor_overlay_emitted = true;
+                }
+                if cursor_overlay_emitted
+                    && !assets_summary_emitted
+                    && observer_state.cursor_svg_visible
+                    && observer_state.text_target_visible
+                    && observer_state.icon_target_visible
+                    && observer_state.wallpaper_visible
+                    && observer_state.input_visible_on
+                    && (observer_state.wheel_up_visible || observer_state.wheel_down_visible)
+                {
+                    let _ = debug_println(windowd::SELFTEST_UI_V2B_ASSETS_OK_MARKER);
+                    assets_summary_emitted = true;
                 }
                 // Track dirty row count for telemetry
                 match live_dirty_rows(previous_state, next_state, mode) {
@@ -195,13 +218,16 @@ fn map_service_recv_error_class(err: IpcError) -> ServiceRecvErrorClass {
 }
 
 fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Option<VisibleState> {
-    const RPC_TIMEOUT_MS: u64 = 2;
-    let send_wait = Wait::Timeout(Duration::from_millis(RPC_TIMEOUT_MS));
+    const RPC_SEND_TIMEOUT_MS: u64 = 2;
+    const RPC_RECV_TIMEOUT_MS: u64 = 6;
+    let send_wait = Wait::Timeout(Duration::from_millis(RPC_SEND_TIMEOUT_MS));
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
     client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
-    let recv_wait = Wait::Timeout(Duration::from_millis(RPC_TIMEOUT_MS));
+    // `windowd` serves observer queries on the same loop as input-driven composition, so give
+    // replies a slightly larger but still bounded budget to avoid under-load telemetry dropouts.
+    let recv_wait = Wait::Timeout(Duration::from_millis(RPC_RECV_TIMEOUT_MS));
     let frame = reply.recv(recv_wait).ok()?;
     decode_visible_state(&frame)
 }

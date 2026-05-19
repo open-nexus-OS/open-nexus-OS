@@ -32,7 +32,7 @@ static FW_CFG_MAP_STATE: AtomicU8 = AtomicU8::new(MAP_STATE_UNMAPPED);
 
 #[must_use]
 pub(crate) fn display_bootstrap_enabled() -> bool {
-    runtime_mode().is_some()
+    runtime_mode_with_retry().is_some()
 }
 
 #[must_use]
@@ -152,9 +152,6 @@ fn retry_runtime_config<T>(mut read: impl FnMut() -> Option<T>) -> Option<T> {
     for _ in 0..RUNTIME_CFG_RETRY_YIELDS {
         if let Some(value) = read() {
             return Some(value);
-        }
-        if FW_CFG_MAP_STATE.load(Ordering::Acquire) == MAP_STATE_MAPPED {
-            return None;
         }
         let _ = yield_();
     }

@@ -23,6 +23,7 @@ use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
+    live_push::should_push_visible_state,
     decode_wire_batch, visible_display_space, visible_display_start_position,
     visible_hover_target_contains, InputDispatch, InputdConfig, InputdService, WireBatchReject,
     LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
@@ -149,6 +150,8 @@ struct LiveRouteRuntime {
     wheel_indicator_direction: WheelIndicatorDirection,
     wheel_indicator_deadline_ns: u64,
     windowd_client: Option<KernelClient>,
+    last_windowd_push_state: Option<VisibleState>,
+    last_windowd_push_ns: u64,
     chain: InputdChainTelemetry,
 }
 
@@ -255,6 +258,8 @@ impl LiveRouteRuntime {
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
             windowd_client: KernelClient::new_for("windowd").ok(),
+            last_windowd_push_state: None,
+            last_windowd_push_ns: 0,
             chain: InputdChainTelemetry::new(),
         })
     }
@@ -409,6 +414,7 @@ impl LiveRouteRuntime {
             pointer_down_dispatched,
             pointer_wheel_delta,
             keyboard_dispatched,
+            active_source,
         );
         STATUS_OK
     }
@@ -443,12 +449,15 @@ impl LiveRouteRuntime {
         pointer_down_dispatched: bool,
         pointer_wheel_delta: i32,
         keyboard_dispatched: bool,
+        active_source: Option<PointerSource>,
     ) {
         let now_ns = nsec().unwrap_or(0);
         let display_pointer = self.input.display_pointer_position();
         let route_pointer = self.input.route_pointer_position();
         let pointer_held = self.input.primary_pointer_held();
         let keyboard_held = self.input.held_non_modifier_key_count() > 0;
+        let previous_hover_visible = self.visible_state.hover_visible;
+        let previous_focus_visible = self.visible_state.focus_visible;
         self.visible_state.cursor_x = display_pointer.x;
         self.visible_state.cursor_y = display_pointer.y;
         if pointer_down_dispatched && !self.pointer_down_dispatch_debug_emitted {
@@ -509,7 +518,16 @@ impl LiveRouteRuntime {
             self.keyboard_marker_emitted = true;
         }
         self.sync_wheel_indicator(now_ns);
-        self.push_visible_state_to_windowd();
+        let absolute_pointer_source =
+            matches!(active_source, Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute));
+        let hover_changed = previous_hover_visible != self.visible_state.hover_visible;
+        let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
+        let immediate_push = pointer_down_dispatched
+            || pointer_wheel_delta != 0
+            || keyboard_dispatched
+            || focus_changed
+            || (pointer_move_seen && (hover_changed || absolute_pointer_source));
+        self.push_visible_state_to_windowd(now_ns, immediate_push);
     }
 
     fn note_wheel_indicator(&mut self, delta_y: i32, now_ns: u64) {
@@ -535,17 +553,33 @@ impl LiveRouteRuntime {
     }
 
     fn expire_transient_input_state(&mut self) {
+        let now_ns = nsec().unwrap_or(0);
         let old_up = self.visible_state.wheel_up_visible;
         let old_down = self.visible_state.wheel_down_visible;
-        self.sync_wheel_indicator(nsec().unwrap_or(0));
-        if old_up != self.visible_state.wheel_up_visible
-            || old_down != self.visible_state.wheel_down_visible
-        {
-            self.push_visible_state_to_windowd();
+        self.sync_wheel_indicator(now_ns);
+        let immediate_push =
+            old_up != self.visible_state.wheel_up_visible || old_down != self.visible_state.wheel_down_visible;
+        if should_push_visible_state(
+            self.last_windowd_push_state,
+            self.visible_state,
+            self.last_windowd_push_ns,
+            now_ns,
+            immediate_push,
+        ) {
+            self.push_visible_state_to_windowd(now_ns, immediate_push);
         }
     }
 
-    fn push_visible_state_to_windowd(&mut self) {
+    fn push_visible_state_to_windowd(&mut self, now_ns: u64, immediate: bool) {
+        if !should_push_visible_state(
+            self.last_windowd_push_state,
+            self.visible_state,
+            self.last_windowd_push_ns,
+            now_ns,
+            immediate,
+        ) {
+            return;
+        }
         if self.windowd_client.is_none() {
             self.windowd_client = KernelClient::new_for("windowd").ok().or_else(|| {
                 if !self.windowd_route_fallback_emitted {
@@ -562,6 +596,8 @@ impl LiveRouteRuntime {
         let frame = encode_update_visible_state(self.visible_state);
         match client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(2))) {
             Ok(()) => {
+                self.last_windowd_push_state = Some(self.visible_state);
+                self.last_windowd_push_ns = now_ns;
                 if !self.windowd_push_ok_emitted {
                     let _ = debug_println("inputd: windowd visible-state pushed");
                     self.windowd_push_ok_emitted = true;

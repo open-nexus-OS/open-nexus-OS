@@ -354,6 +354,10 @@ fn runtime_profile_waits_for_late_fw_cfg_capability() {
         "a transient missing fw_cfg cap must not be cached as permanent"
     );
     assert!(
+        !boot_cfg.contains("if FW_CFG_MAP_STATE.load(Ordering::Acquire) == MAP_STATE_MAPPED"),
+        "runtime boot config must keep retrying bounded fw_cfg reads even after the MMIO window is mapped"
+    );
+    assert!(
         profile.contains("boot_cfg::runtime_profile_with_retry()")
             && profile.contains("boot_cfg::runtime_mode_with_retry()"),
         "profile selection must use the bounded fw_cfg retry path"
@@ -896,6 +900,86 @@ fn display_bootstrap_markers_emit_before_visible_input_wait() {
             && end_phase.find("observe_display_evidence()")
                 < end_phase.find("display_bootstrap::run()"),
         "end phase must emit display/present markers before entering the live-input observer proof"
+    );
+}
+
+#[test]
+fn display_bootstrap_live_poll_backfills_visible_present_marker_after_early_probe_miss() {
+    let end_phase = read_repo_file("source/apps/selftest-client/src/os_lite/phases/end.rs");
+
+    assert!(
+        end_phase.contains("if !visible_present_marker_emitted")
+            && end_phase.contains("state.backend_visible")
+            && end_phase.contains("state.display_scanout_ready")
+            && end_phase.contains("state.systemui_first_frame_visible")
+            && end_phase.contains("emit_line(windowd::SELFTEST_UI_VISIBLE_PRESENT_MARKER);"),
+        "end phase must backfill the visible-present selftest marker from later observer polls when the initial bootstrap probe races the display path"
+    );
+}
+
+#[test]
+fn windowd_visible_bootstrap_emits_present_summary_marker_with_first_frame_proof() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+
+    assert!(
+        windowd.contains("debug_println(DISPLAY_FIRST_SCANOUT_MARKER)")
+            && windowd.contains("debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER)")
+            && windowd.contains("debug_println(PRESENT_VISIBLE_MARKER)")
+            && windowd.contains("debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER)"),
+        "windowd must emit the visible-present summary marker at the same real display proof point as scanout, first-frame, and present-visible evidence"
+    );
+}
+
+#[test]
+fn windowd_input_proof_path_emits_v2_and_visible_summary_markers_from_real_state() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+
+    assert!(
+        windowd.contains("debug_println(FULL_WINDOW_VISIBLE_MARKER)")
+            && windowd.contains("debug_println(SELFTEST_UI_V2_INPUT_OK_MARKER)")
+            && windowd.contains("debug_println(SELFTEST_UI_VISIBLE_INPUT_OK_MARKER)")
+            && windowd.contains("debug_println(SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER)")
+            && windowd.contains("debug_println(crate::markers::SELFTEST_UI_V2B_ASSETS_OK_MARKER)"),
+        "windowd must emit the input summary markers only from the real routed/visible state gates instead of relying on a later observer summary"
+    );
+}
+
+#[test]
+fn windowd_refreshes_observer_state_after_cursor_overlay_composition() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+
+    assert!(
+        windowd.contains("self.state.cursor_overlay_visible = self.state.cursor_svg_visible;")
+            && windowd.contains("self.refresh_observer_state();"),
+        "windowd must refresh observer-visible state after cursor overlay composition so fbdevd can attest the overlay hop honestly"
+    );
+}
+
+#[test]
+fn fbdevd_closes_asset_chain_from_latched_observer_state() {
+    let fbdevd = read_repo_file("source/services/fbdevd/src/os_lite.rs");
+
+    assert!(
+        fbdevd.contains("observer_state = service.visible_state();")
+            && fbdevd.contains("debug_println(crate::markers::CURSOR_OVERLAY_ON_MARKER)")
+            && fbdevd.contains("debug_println(windowd::SELFTEST_UI_V2B_ASSETS_OK_MARKER)"),
+        "fbdevd must close the asset proof chain from its own latched observer state so cursor overlay and v2b asset summaries reflect scanout-owned evidence"
+    );
+}
+
+#[test]
+fn windowd_target_color_changes_use_single_row_band_fast_path() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+    let live_runtime = read_repo_file("source/services/windowd/src/live_runtime.rs");
+
+    assert!(
+        windowd.contains("self.queue_hot_path_rows(hover_rows)")
+            && windowd.contains("self.queue_hot_path_rows(click_rows)")
+            && windowd.contains("self.queue_hot_path_rows(key_rows)")
+            && !windowd.contains("self.queue_hot_path_rect(hover_rect)")
+            && live_runtime.contains("target_rect(&self, target: TargetDamage)")
+            && live_runtime.contains("damage_rect_write_bytes"),
+        "target hover/click/key color changes must stay on one coalesced row-band write instead of the slower per-row rect writer"
     );
 }
 
