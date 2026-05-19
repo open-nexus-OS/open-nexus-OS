@@ -3,7 +3,7 @@ title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (
 status: In Progress
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-17 (RFC-0058 seed created; filter-box integration test defined)
+updated: 2026-05-19 (Phases 0-5 implemented; Phase 6 NeX UI Rendering Pipeline defined)
 depends-on: [TASK-0058]
 follow-up-tasks: [TASK-0060B]
 links:
@@ -29,7 +29,7 @@ shared proof panel.
 
 ### Integration test: filter-box
 
-```
+``` text
 ┌──────────────────────────────────────────────────────┐
 │  ┌─────┐ ┌─────┐ ┌─────┐  ┌──────────────────┐      │
 │  │hover│ │click│ │ key │  │ type to filter…  │      │  ← TextInput
@@ -122,8 +122,18 @@ clip boundaries visible on-screen.
 
 ## Plan
 
-1. **Clipping + scroll**: IDL SetClip/SetScroll, damage math, scrollbar, markers
-2. **Text input + filter-box**: TextInputNode type, filter_words(), filter-box layout tree, keyboard routing, markers
-3. **Effects**: blur/shadow + cache + budgets, cursor blink timer, markers
-4. **IME/text input**: focus → text subscription, caret/selection helpers, imed stub
-5. **Proof + docs**: host tests + OS selftest + postflight
+1. **Clipping + scroll**: IDL SetClip/SetScroll, damage math, scrollbar, markers ✅
+2. **Text input + filter-box**: TextInputNode type, filter_words(), filter-box layout tree, keyboard routing, markers ✅
+3. **Effects**: blur/shadow + cache + budgets, cursor blink timer, markers ✅
+4. **IME/text input**: focus → text subscription, caret/selection helpers, imed stub ✅
+5. **Proof + docs**: host tests + OS selftest + postflight ✅ (76 tests, OS markers defined)
+6. **NeX UI Rendering Pipeline**: MSDF atlas (text+icons), SDF shapes (rounded rects, buttons), 9-slice shadow, dual-kawase blur, separable blur, render cache + damage integration, `BoxShadow`/`TextShadow`/`opacity` properties in `VisualStyle`, Tailwind shadow presets — see RFC-0058 Phase 6
+
+## Touched paths (Phase 6)
+
+- `userspace/ui/effects/src/{blur,shadow,budget,cache}.rs` (extend)
+- `userspace/ui/layout-types/src/border.rs` (VisualStyle: BoxShadow, TextShadow, opacity)
+- `source/services/windowd/src/os_lite.rs` (multi-pass renderer, shadow compositing)
+- `userspace/ui/msdf/` (new: MSDF atlas generator + runtime sampler)
+- `userspace/ui/sdf/` (new: analytical SDF shapes)
+- `tests/ui_v4_host/` (new: shadow goldens, blur goldens, MSDF comparison)

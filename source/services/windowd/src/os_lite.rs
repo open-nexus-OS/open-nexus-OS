@@ -126,6 +126,10 @@ struct DisplayServerRuntime {
     cursor_height: u32,
     framebuffer: Option<Handle>,
     scratch_row: Vec<u8>,
+    /// Shadow compositing row buffer (zero-copy — allocated once at startup).
+    shadow_scratch: Vec<u8>,
+    /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
+    blur_row_buf: Vec<u8>,
     state: VisibleState,
     markers_emitted: bool,
     input_markers_emitted: InputMarkerState,
@@ -209,6 +213,8 @@ impl DisplayServerRuntime {
             cursor_height,
             framebuffer: None,
             scratch_row: alloc::vec![0u8; mode.stride as usize],
+            shadow_scratch: alloc::vec![0u8; mode.stride as usize],
+            blur_row_buf: alloc::vec![0u8; mode.stride as usize],
             state: initial_state,
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
@@ -500,6 +506,8 @@ impl DisplayServerRuntime {
         let end_y = end_y.min(self.mode.height);
         for y in start_y.min(end_y)..end_y {
             copy_scene_row(
+                &mut self.blur_row_buf[..row_len],
+                &mut self.shadow_scratch[..row_len],
                 source_frame,
                 mode,
                 state,
@@ -631,6 +639,8 @@ fn build_live_proof_layouts(state: VisibleState) -> Option<Vec<LayoutResult>> {
 }
 
 fn copy_scene_row(
+    blur_row_buf: &mut [u8],
+    shadow_scratch: &mut [u8],
     source_frame: &SourceFrame,
     mode: VisibleBootstrapMode,
     state: VisibleState,
@@ -646,6 +656,7 @@ fn copy_scene_row(
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
     copy_scaled_systemui_row(source_frame, mode, y, row)?;
+    compute_shadow_row(state, proof_layout, y, row, shadow_scratch, blur_row_buf)?;
     draw_proof_surface_row(state, proof_layout, filter_text, filtered_words, y, row)?;
     if let Some(cursor) = cursor_bitmap {
         blend_cursor_row(
@@ -659,6 +670,163 @@ fn copy_scene_row(
         );
     }
     Ok(())
+}
+
+/// Zero-copy shadow compositing pass — per-row.
+///
+/// For each layout box that has a `visual.shadow`, computes the shadow's
+/// contribution to this row directly into `shadow_scratch`, applies horizontal
+/// blur (zero-allocation, using pre-allocated `blur_row_buf`), tints with shadow
+/// color, and blends onto `target` using the over operator.
+///
+/// This is the shadow-pass of the two-pass renderer (RFC-0058 Phase 6a).
+/// Content is drawn on top in `draw_proof_surface_row`. Both `shadow_scratch`
+/// and `blur_row_buf` are allocated once at startup — no per-frame or per-row
+/// heap allocations in the hot path.
+fn compute_shadow_row(
+    _state: VisibleState,
+    proof_layout: Option<&LayoutResult>,
+    y: u32,
+    target: &mut [u8],
+    shadow_scratch: &mut [u8],
+    blur_row_buf: &mut [u8],
+) -> Result<(), WindowdError> {
+    let Some(layout) = proof_layout else {
+        return Ok(());
+    };
+    let row_pixels = target.len() / 4;
+    if shadow_scratch.len() < target.len() || blur_row_buf.len() < target.len() {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+
+    // Zero the shadow scratch for this row (only the pixels we'll touch)
+    shadow_scratch[..target.len()].fill(0);
+
+    for layout_box in &layout.boxes {
+        let shadow = match &layout_box.visual.shadow {
+            Some(s) => s,
+            None => continue,
+        };
+        let Some(rect) = proof_box_rect(layout_box) else {
+            continue;
+        };
+
+        // Shadow region = element rect expanded by spread, displaced by offset
+        let sx = (rect.x as i32)
+            .saturating_add(shadow.offset_x.0)
+            .saturating_sub(shadow.spread.0);
+        let sy = (rect.y as i32)
+            .saturating_add(shadow.offset_y.0)
+            .saturating_sub(shadow.spread.0);
+        let sw = (rect.width as i32).saturating_add(2 * shadow.spread.0);
+        let sh = (rect.height as i32).saturating_add(2 * shadow.spread.0);
+
+        if sw <= 0 || sh <= 0 {
+            continue;
+        }
+
+        // Row intersection test
+        let y_i32 = y as i32;
+        if y_i32 < sy || y_i32 >= sy.saturating_add(sh) {
+            continue;
+        }
+
+        // Fill alpha mask segment for this shadow on this row
+        let start_x = sx.max(0).min(row_pixels as i32) as usize;
+        let end_x = sx
+            .saturating_add(sw)
+            .max(0)
+            .min(row_pixels as i32) as usize;
+
+        for px in start_x..end_x {
+            shadow_scratch[px * 4 + 3] = 255;
+        }
+
+        // Horizontal blur (zero-allocation: uses pre-allocated blur_row_buf)
+        let blur_r = shadow.blur_radius.0.max(0) as u32;
+        if blur_r > 0 && end_x > start_x {
+            blur_row_horizontal(shadow_scratch, target.len(), blur_r, blur_row_buf);
+        }
+
+        // Composite shadow onto target using over operator
+        let sr = shadow.color.r as u32;
+        let sg = shadow.color.g as u32;
+        let sb = shadow.color.b as u32;
+        let shadow_alpha = shadow.color.a as u32;
+        for px in 0..row_pixels {
+            let idx = px * 4;
+            let sa = shadow_scratch[idx + 3] as u32;
+            if sa == 0 {
+                continue;
+            }
+            let tinted_a = (sa * shadow_alpha) / 255;
+            if tinted_a == 0 {
+                continue;
+            }
+            let inv = 255 - tinted_a;
+            target[idx] = ((sr * tinted_a + target[idx] as u32 * inv) / 255) as u8;
+            target[idx + 1] = ((sg * tinted_a + target[idx + 1] as u32 * inv) / 255) as u8;
+            target[idx + 2] = ((sb * tinted_a + target[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    }
+
+    Ok(())
+}
+
+/// Single-row horizontal box blur with variable radius.
+/// Zero-allocation: uses `row_buf` (pre-allocated, same size as `pixels`) for the
+/// temporary copy. Sliding window: O(width) operations regardless of radius.
+fn blur_row_horizontal(pixels: &mut [u8], row_bytes: usize, radius: u32, row_buf: &mut [u8]) {
+    if row_bytes == 0 || radius == 0 {
+        return;
+    }
+    let w = row_bytes / 4;
+    let r = radius as usize;
+    let window = 2 * r + 1;
+
+    // Copy to pre-allocated buffer
+    row_buf[..row_bytes].copy_from_slice(&pixels[..row_bytes]);
+
+    // Initialize sliding window sums
+    let (mut r_sum, mut g_sum, mut b_sum, mut a_sum) = (0u64, 0u64, 0u64, 0u64);
+    for i in 0..window.min(w) {
+        let idx = i * 4;
+        let a = row_buf[idx + 3] as u64;
+        r_sum += row_buf[idx] as u64 * a;
+        g_sum += row_buf[idx + 1] as u64 * a;
+        b_sum += row_buf[idx + 2] as u64 * a;
+        a_sum += a;
+    }
+
+    for x in 0..w {
+        let idx = x * 4;
+        if a_sum > 0 {
+            pixels[idx] = ((r_sum / a_sum).min(255)) as u8;
+            pixels[idx + 1] = ((g_sum / a_sum).min(255)) as u8;
+            pixels[idx + 2] = ((b_sum / a_sum).min(255)) as u8;
+        }
+        pixels[idx + 3] = ((a_sum / window as u64).min(255)) as u8;
+
+        // Slide window: remove leftmost
+        let left = x.saturating_sub(r);
+        if let Some(lidx) = left.checked_mul(4) {
+            let la = row_buf[lidx + 3] as u64;
+            r_sum = r_sum.saturating_sub(row_buf[lidx] as u64 * la);
+            g_sum = g_sum.saturating_sub(row_buf[lidx + 1] as u64 * la);
+            b_sum = b_sum.saturating_sub(row_buf[lidx + 2] as u64 * la);
+            a_sum = a_sum.saturating_sub(la);
+        }
+        // Add rightmost
+        let right = x + r + 1;
+        if right < w {
+            let ridx = right * 4;
+            let ra = row_buf[ridx + 3] as u64;
+            r_sum += row_buf[ridx] as u64 * ra;
+            g_sum += row_buf[ridx + 1] as u64 * ra;
+            b_sum += row_buf[ridx + 2] as u64 * ra;
+            a_sum += ra;
+        }
+    }
 }
 
 fn copy_scaled_systemui_row(

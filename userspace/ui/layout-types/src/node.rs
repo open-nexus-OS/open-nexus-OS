@@ -11,6 +11,30 @@ use alloc::vec::Vec;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Fraction(pub u32);
 
+impl Fraction {
+    /// Fully opaque (255).
+    pub const OPAQUE: Self = Fraction(255);
+    /// Fully transparent (0).
+    pub const TRANSPARENT: Self = Fraction(0);
+
+    /// Create a new fraction, clamped to 0..255.
+    pub const fn new(value: u32) -> Self {
+        Fraction(if value > 255 { 255 } else { value })
+    }
+
+    /// Fraction value as u8 (0-255).
+    pub const fn as_u8(self) -> u8 {
+        (if self.0 > 255 { 255 } else { self.0 }) as u8
+    }
+
+    /// Blend factor as (numerator, denominator) for alpha compositing.
+    /// Returns (fraction, 256) where 0 = transparent, 256 = opaque.
+    /// Used with: `blended = (src * f + dst * (256 - f)) / 256`
+    pub const fn blend_factor(self) -> (u32, u32) {
+        (if self.0 > 255 { 255 } else { self.0 }, 256)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stack {
     pub id: Option<&'static str>,

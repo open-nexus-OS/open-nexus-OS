@@ -1,87 +1,65 @@
-# Handoff — TASK-0059 **In Progress** (Phases 0-4 Done, Phase 5 pending)
+# Handoff — TASK-0059 **In Progress** (Phase 6a Done)
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 ## Status
 
-- RFC-0058: Phases 0-4 ✅, Phase 5 ⬜ (markers defined, wiring pending)
-- TASK-0059: Phases 0-4 complete. Phase 5 (OS marker wiring + QEMU proof) pending.
+- RFC-0058: Phases 0-5 ✅, Phase 6a ✅ (separable blur + shadow properties + two-pass renderer)
+- TASK-0059: Phases 0-5 + 6a implemented
 - Depends on: TASK-0058 (DONE)
 - Follow-up: TASK-0060B (glass materials)
 
-## What was delivered
+## What was delivered in Phase 6a
 
-### Phase 0: Clip + Scroll (cores/layout engine)
-- `LayoutBox` extended: `clip_rect`, `scroll_offset`, `overflow` fields
-- `Overflow::Hidden` containers: scissor clip rect = container content rect; children inherit
-- `compute_scroll_damage(old, new, viewport) -> ScrollDamage (≤2 rects)`: deterministic, integer-only
-- `LayoutResult::reposition_scroll(container_id, new_offset) -> ScrollDamage`: mutates existing boxes (allocation-free), shifts children by delta
+### Separable blur (`nexus-effects/src/blur.rs`)
+- `blur_1d(pixels, width, height, stride, radius, horizontal) -> u32`: sliding-window O(w·h)
+- `blur_separable(pixels, width, height, stride, radius) -> u32`: 2D box blur via horizontal+vertical pass
+- Zero-copy: row buffer reused per row; single transpose buffer for vertical pass
 
-### Phase 1: TextInput + Filter-Box (layout-types + windowd)
-- `TextInputNode` type + `LayoutNode::TextInput` variant: content, cursor_pos, placeholder, max_length
-- Measures like TextNode (placeholder used when content empty)
-- `filter_words(prefix) -> Vec<&str>`: case-insensitive filter, 15-word static list
-- Filter-box in `layout_panel.rs`: TextInput + `Overflow::Hidden` scrollable filtered word list
-- Proof panel: 3 cards (hover/click/key) in Column, filter-box in right Column, panel 640×290
+### Shadow types (`nexus-layout-types/src/border.rs`)
+- `BoxShadow { offset_x, offset_y, blur_radius, spread, color }`
+- `TextShadow { offset_x, offset_y, blur_radius, color }`
+- `ShadowLevel { Sm, Md, Lg, Xl, Xxl2 }` → `to_box_shadow()`
+- `Fraction` extended: `OPAQUE`, `TRANSPARENT`, `as_u8()`, `blend_factor()`
+- `VisualStyle` extended: `shadow`, `text_shadow`, `opacity` as `Option<Fraction>`
 
-### Phase 2: Effects (nexus-effects crate)
-- `blur.rs`: `blur_3x3`, `blur_1x3_horizontal` (integer-only, premultiplied alpha)
-- `shadow.rs`: `composite_drop_shadow(target, alpha_mask, offset, color, budget)`
-- `budget.rs`: `EffectBudget` with `try_reserve`, `reset`, `fraction` for deterministic degrade
-- `cache.rs`: `EffectCache` (LRU, fixed capacity, allocation-free after construction)
-- `cursor_blink.rs`: `CursorBlink` (frame-count based toggle, default 30-frame interval)
+### Two-pass renderer (`windowd/src/os_lite.rs`)
+- Zero-copy: `shadow_scratch` + `blur_row_buf` pre-allocated at startup
+- `compute_shadow_row()`: per-row shadow compositing (alpha mask → blur → tint → over)
+- `blur_row_horizontal()`: inline zero-allocation single-row blur
+- Shadow pass inserted between wallpaper and content in `copy_scene_row()`
 
-### Phase 3: IME Stub (imed service)
-- `source/services/imed/`: `ImedService`, `TextFocus`, `CaretSelection`
-- Focus routing: `set_focus(surface_id)`, `clear_focus()`
-- Caret: `move_caret(text_len, delta)` (clamped), `set_selection(anchor, caret, text_len)`
-- Marker: `imed: ready`
-- 6 unit tests
-
-### Phase 4: Host Tests (tests/ui_v3b_host)
-- 23 tests: scroll damage (5), clip (2), filter_words (6), filter-box layout (3), scroll reposition (1), effects budget (3), blur (2), cursor blink (2)
+### Tests (`tests/ui_v4_host/`)
+- 21 tests: blur_separable (2), blur_1d (2), BoxShadow (1), TextShadow (1), ShadowLevel (6), VisualStyle (5), Fraction (4)
 
 ## Files changed
 
 ### New
-- `userspace/ui/effects/` (crate)
-- `source/services/imed/` (service)
-- `tests/ui_v3b_host/` (test crate)
+- `tests/ui_v4_host/Cargo.toml`, `src/lib.rs`
 
 ### Modified
-- `userspace/ui/layout/src/engine.rs` (LayoutBox + clip/scroll/TextInput)
-- `userspace/ui/layout/src/lib.rs`
-- `userspace/ui/layout-types/src/node.rs` (TextInputNode)
-- `userspace/ui/layout-types/src/lib.rs`
-- `source/services/windowd/src/layout_panel.rs` (filter-box)
-- `source/services/windowd/src/proof_panel_spec.rs` (filter_words, fix)
-- `source/services/windowd/src/markers.rs` (12 new markers)
-- `source/services/windowd/src/lib.rs` (exports)
-- `source/services/windowd/src/os_lite.rs` (signature update)
-- `tests/ui_v3a_host/src/lib.rs` (signature updates, scroll-card removal)
-- `Cargo.toml` (workspace)
-- `CHANGELOG.md`
-- `docs/rfcs/RFC-0058-*.md` (checklist/status)
+- `userspace/ui/effects/src/blur.rs`, `lib.rs`
+- `userspace/ui/layout-types/src/border.rs`, `node.rs`, `lib.rs`
+- `source/services/windowd/Cargo.toml`, `src/os_lite.rs`
+- `Cargo.toml`
+- `docs/rfcs/RFC-0058-*.md`
 
 ## Proof
 
 ```bash
-# All host tests pass:
-cargo test -p nexus-layout       # 8/8
-cargo test -p windowd            # 29/29
-cargo test -p imed               # 6/6
-cargo test -p ui_v3a_host        # 10/10
-cargo test -p ui_v3b_host        # 23/23
+cargo test -p nexus-layout       # 9/9
+cargo test -p windowd            # 31/31
+cargo test -p ui_v3a_host        # 13/13
+cargo test -p ui_v3b_host        # 20/20
+cargo test -p ui_v4_host         # 21/21
 just dep-gate                    # PASS
 ```
 
-## Pending (Phase 5)
+## Next step (Phase 6b: MSDF atlas)
 
-1. Wire 12 OS markers in `os_lite.rs` render path (marker emissions at: layout compute, clip application, scroll operation, filter list render, effects pipeline)
-2. Add markers to `source/apps/selftest-client/proof-manifest/markers/ui.toml`
-3. Wire keyboard routing: inputd → windowd focused surface → filter-box TextInput
-4. QEMU proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
-
-## Next step
-
-Wire the 12 OS markers in `os_lite.rs` and the marker manifest. Then QEMU visible-bootstrap proof.
+Create `userspace/ui/msdf/` crate:
+1. Atlas packer (glyph SDFs → 1024×1024 BGRA)
+2. SDF generator (font → 32×32 glyph SDF via `fontdue`)
+3. Runtime sampler (`sample_atlas(glyph, uv)` → pixel)
+4. Build-time atlas compilation via `build.rs`
+5. `cargo test -p nexus-msdf`

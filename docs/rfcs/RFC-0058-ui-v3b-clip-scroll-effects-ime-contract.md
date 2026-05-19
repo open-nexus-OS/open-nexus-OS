@@ -142,3 +142,87 @@ Markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: live scroll ok`
 - [x] **Phase 3 (IME stub)**: focus routing, caret/selection helpers, imed stub — proof: `cargo test -p ui_v3b_host`
 - [x] **Phase 4 (Host tests)**: JSON + PNG goldens — proof: `cargo test -p ui_v3b_host`
 - [ ] **Phase 5 (OS markers)**: QEMU markers wired + postflight — proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
+
+- [x] **Phase 6a (Separable blur + shadow properties + two-pass renderer)**: `blur_separable`, `blur_1d`, `BoxShadow`, `TextShadow`, `ShadowLevel`, `VisualStyle` extensions, zero-copy shadow-pass in `os_lite.rs` — proof: `cargo test -p ui_v4_host` (21 tests)
+- [ ] **Phase 6b (MSDF atlas)**: MSDF atlas generator + runtime sampler — proof: `cargo test -p nexus-msdf`
+- [ ] **Phase 6c (SDF shapes)**: Analytical SDF for rounded rects, circles, buttons — proof: `cargo test -p nexus-sdf`
+
+---
+
+## Phase 6: NeX UI Rendering Pipeline
+
+### Architecture Overview
+
+``` textS
+┌─────────────────────────────────────────────────┐
+│                  RENDER CACHE                    │
+│  node_id + params → cached layer (BGRA)         │
+│  dirty flag pro entry                           │
+├─────────────────────────────────────────────────┤
+│  DAMAGE TRACKING                                │
+│  dirty rects → invalidate cache entries         │
+│  scroll → reposition, kein re-render            │
+├──────────────┬──────────────┬───────────────────┤
+│  MSDF ATLAS  │  SDF SHAPES  │  9-SLICE SHADOW   │
+│  text+icons  │  rects,btn   │  box-shadow       │
+│  scale-agno  │  analytical  │  corners+edges    │
+├──────────────┴──────────────┴───────────────────┤
+│  DUAL KAWASE BLUR                               │
+│  downscale → iter blur → upscale                │
+│  O(n·log r) statt O(n·r²)                      │
+├─────────────────────────────────────────────────┤
+│  SCANLINE COMPOSITOR                            │
+│  layers stack → single-pass blend               │
+└─────────────────────────────────────────────────┘
+```
+
+### Sub-Phase 6a: Separable Blur + Shadow Properties
+
+Separable Blur: O(w·h·2r) statt O(w·h·r²). Horizontal-Pass + Vertikal-Pass = 30 statt 225 Ops/Pixel bei 15px.
+
+```rust
+struct VisualStyle {
+    background: Option<Rgba8>,
+    border: EdgeBorder,
+    shadow: Option<BoxShadow>,       // ← neu
+    text_shadow: Option<TextShadow>, // ← neu
+    opacity: Option<Fraction>,       // ← neu
+}
+
+struct BoxShadow { offset_x: FxPx, offset_y: FxPx, blur_radius: FxPx, spread: FxPx, color: Rgba8 }
+struct TextShadow { offset_x: FxPx, offset_y: FxPx, blur_radius: FxPx, color: Rgba8 }
+```
+
+Tailwind-Presets: `ShadowLevel { Sm, Md, Lg, Xl, Xxl2 }` → `to_box_shadow()`.
+
+Renderer: Two-pass — Shadow-Layer (alpha mask + offset + spread + blur) → Content-Layer (background/border/text composited on top).
+
+### Sub-Phase 6b: MSDF-Atlas (Text + Icons)
+
+Build-Time: Font → SDF per glyph (32×32) → atlas packer → 1024×1024 BGRA. Runtime: `sample_atlas(glyph, uv)` → `smoothstep(0.5-a, 0.5+a, sd)` → pixel. One atlas for all sizes, shared across text, icons, emoji.
+
+### Sub-Phase 6c: SDF-Shapes (Rounded Rects, Buttons, Panels)
+
+Analytical: `sd_rounded_rect(p, rect, r)`, `sd_circle(p, c, r)`, `sd_triangle(p, a, b, c)`. Border: `smoothstep(border-a, border+a, sd)`. Background: `smoothstep(-a, +a, -sd)`. All parameters (corner radius, border width), no bitmaps needed.
+
+### Sub-Phase 6d: 9-Slice-Shadow
+
+``` text
+┌──────┬──────────┬──────┐
+│Corner│  Edge    │Corner│  ← 4 corners: 2D blur
+├──────┼──────────┼──────┤
+│Edge  │   Fill   │Edge  │  ← 4 edges: 1D stretch
+├──────┼──────────┼──────┤
+│Corner│  Edge    │Corner│  ← center: solid fill
+└──────┴──────────┴──────┘
+```
+
+~90% fewer blur ops than full-surface blur. On resize: corners from cache, edges stretched. Cached per `(node_id, blur_radius, spread, color)`.
+
+### Sub-Phase 6e: Dual-Kawase-Blur
+
+Downscale 4× → 3× 3×3 blur with increasing kernel stride → upscale. ~27 samples/pixel instead of 225. Scales with log(radius).
+
+### Sub-Phase 6f: Render-Cache + Damage-Integration
+
+ShadowCache (256 entries, LRU) + TextCache (512 entries, LRU). Damage: dirty rect → `cache.invalidate(node_id)`. Scroll: reposition, no invalidate. Theme change: `cache.clear()`.

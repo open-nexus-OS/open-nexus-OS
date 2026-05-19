@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Host tests (`tests/ui_v3b_host/`)**: 23 tests covering scroll damage (4), clip boundaries (2), `filter_words` (6), filter-box layout (3), scroll reposition, effect budget (3), blur (2), cursor blink (2), proof panel filter integration
 - **12 OS markers defined** in `windowd/markers.rs` (clipping, scroll, text input, filter, effects, selftest summary)
 
+### Added - 2026-05-19
+
+#### TASK-0059 Phase 6a: Separable blur + shadow properties + two-pass renderer
+
+- **Separable blur (`nexus-effects`)**: `blur_1d()` sliding-window box blur (O(w·h) per pass), `blur_separable()` 2D box blur via horizontal+vertical passes, zero-copy with reused row/transpose buffers
+- **Shadow types (`nexus-layout-types`)**: `BoxShadow` (offset, blur_radius, spread, color), `TextShadow` (offset, blur_radius, color), `ShadowLevel` enum (Sm/Md/Lg/Xl/Xxl2) with `to_box_shadow()` Tailwind presets
+- **VisualStyle extensions**: `shadow: Option<BoxShadow>`, `text_shadow: Option<TextShadow>`, `opacity` changed to `Option<Fraction>` with `blend_factor()` for alpha compositing
+- **Fraction helpers**: `OPAQUE`/`TRANSPARENT` constants, `as_u8()`, `blend_factor()` returning (numerator, 256) for `over` operator
+- **Two-pass renderer (`windowd/os_lite.rs`)**: zero-copy `compute_shadow_row()` per-row shadow compositing (alpha mask → horizontal blur → tint → over-composite); `shadow_scratch` + `blur_row_buf` pre-allocated at startup; `blur_row_horizontal()` inline zero-allocation single-row blur
+- **Host tests (`tests/ui_v4_host/`)**: 21 tests covering `blur_separable` (2), `blur_1d` (2), `BoxShadow`/`TextShadow` defaults (2), `ShadowLevel` presets (6), `VisualStyle` extensions (5), `Fraction` (4)
+- **103 total host tests passing** across layout (9), windowd (31), ui_v3a (13), ui_v3b (20), ui_v4 (21), headless (9)
+
 ### Added - 2026-05-15
 
 #### RFC-0057: UI v3a layout engine contract seed (pretext philosophy)

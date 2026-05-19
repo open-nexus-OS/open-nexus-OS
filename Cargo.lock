@@ -3620,6 +3620,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui_v4_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-effects",
+ "nexus-layout",
+ "nexus-layout-types",
+]
+
+[[package]]
 name = "ui_windowd_host"
 version = "0.1.0"
 dependencies = [
@@ -3926,6 +3935,7 @@ dependencies = [
  "fontdue",
  "input-live-protocol",
  "nexus-abi",
+ "nexus-effects",
  "nexus-ipc",
  "nexus-layout",
  "nexus-layout-types",
