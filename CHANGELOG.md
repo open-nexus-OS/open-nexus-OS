@@ -31,6 +31,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Host tests (`tests/ui_v4_host/`)**: 21 tests covering `blur_separable` (2), `blur_1d` (2), `BoxShadow`/`TextShadow` defaults (2), `ShadowLevel` presets (6), `VisualStyle` extensions (5), `Fraction` (4)
 - **103 total host tests passing** across layout (9), windowd (31), ui_v3a (13), ui_v3b (20), ui_v4 (21), headless (9)
 
+#### TASK-0059 Phase 6b: MSDF atlas for text and icon rendering
+
+- **MSDF crate (`nexus-msdf`)**: build-time atlas generator rendering 95 printable ASCII glyphs (32-126) as 32×32 signed distance fields via `fontdue` + Inter font; packs into 1024×96 BGRA atlas embedded via `include_bytes!(env!())` for `no_std` compatibility
+- **SDF computation**: two-pass 8SSEDT distance transform producing approximated Euclidean signed distance fields (0 = outside, 128 = edge, 255 = inside)
+- **Runtime sampler**: `sample_atlas(ch, u, v) -> u8` bilinear-interpolated SDF lookup; `sdf_to_alpha(sd, aa_width) -> u8` smoothstep anti-aliasing; `glyph_metrics(ch) -> Option<&GlyphMetrics>` for advance/bearing/atlas position
+- **Zero runtime allocations**: all data in static embedded arrays; `fontdue` only at build time; `no_std` + `alloc` compatible
+- **22 host tests**: atlas dimensions/constants (6), glyph metrics lookup (5), SDF sampling correctness (7), sdf_to_alpha math (4)
+- **43 total ui_v4_host tests** (21 phase6a + 22 phase6b), dep-gate PASS
+
+#### TASK-0059 Phase 6c: Analytical SDF shapes for anti-aliased rendering
+
+- **SDF crate (`nexus-sdf`)**: `sd_circle`, `sd_rect`, `sd_rounded_rect`, `sd_triangle` analytical signed distance primitives; `smoothstep` cubic Hermite interpolation; `fill_alpha`/`border_alpha` rendering combinators; `rounded_rect_fill_alpha`/`rounded_rect_border_alpha` convenience functions; `no_std` + `libm`, zero allocations, deterministic
+- **Renderer integration (`windowd/os_lite.rs`)**: `fill_sdf_circle_row`/`stroke_sdf_circle_row` replace hard-edged `fill_circle_row`/`stroke_circle_row` for anti-aliased circles; `fill_sdf_rounded_rect_row`/`stroke_sdf_rounded_rect_row` used for `ShapeKind::Rect` with `corner_radius > 0`; hard-edged rects keep fast `fill_row_rect` span-fill path
+- **23 SDF host tests**: circle (4), rect (3), rounded rect (4), triangle (3), smoothstep (3), fill/border alpha (4), rounded rect convenience (2)
+- **66 total ui_v4_host tests** (21 phase6a + 22 phase6b + 23 phase6c), 148 total host tests, dep-gate PASS
+
+#### TASK-0059 Phase 6d: 9-slice shadow compositing
+
+- **9-slice shadow (`nexus-effects`)**: `NineSliceShadow` decomposition (corner_size, blur_radius, spread, color); `composite_nine_slice_shadow()` renders 4 corners with 2D separable blur, 4 edges by stretching blurred corner columns/rows, center fill with solid shadow alpha — ~90% fewer blur ops than full-surface; `EffectCache` integration with compound key `(elem_w, elem_h, params)`
+- **Bug fix**: `blur_1d` vertical pass used wrong stride (`w*4` instead of `h*4`) for transposed buffer; fixed
+- **8 host tests**: basic output, zero-size noop, budget exhaustion, corner blur verification, center fill solidity, cache hit/miss, different params → different cache keys, area ratio vs full-surface blur
+- **74 total ui_v4_host tests** (21+22+23+8), 156 total host tests, dep-gate PASS
+
+#### TASK-0059 Phase 6e: Dual-kawase blur
+
+- **Dual-kawase blur (`nexus-effects`)**: `dual_kawase_blur()` — downscale pyramid (2× box-filter per level), iterative `stride_blur_3x3` with configurable sample step (1, 2, 4, …), bilinear upscale reconstruction; O(log(radius)) samples/pixel vs O(radius²) for box blur; `stride_blur_3x3` underflow fix for `isize` offset arithmetic
+- **7 host tests**: identity (r=0, iter=0), solid color preservation, edge blur spread, small image noop, iteration comparison, large radius 48×48
+- **81 total ui_v4_host tests** (21+22+23+8+7), 163 total host tests, dep-gate PASS
+
+#### TASK-0059 Phase 6f: Render cache + damage integration
+
+- **Specialized caches (`nexus-effects`)**: `ShadowCache` (256-entry LRU, keyed by node_id_hash + params, per-node invalidation), `TextCache` (512-entry LRU, keyed by glyph_id + scale_bucket, per-scale invalidation); existing `EffectCache` retained for 9-slice backward compat; `RenderCache` aggregator with `begin_frame()`, `invalidate_dirty()` (shadows cleared on dirty, text survives), `note_scroll()` (no invalidation), `clear()` (full clear on theme change)
+- **15 host tests**: ShadowCache (insert/get, miss, update, LRU eviction, node invalidation, clear), TextCache (insert/get, miss, LRU eviction, scale invalidation), RenderCache (clear, dirty invalidate, scroll preserve, no-dirty no-op, begin_frame)
+- **96 total ui_v4_host tests** (21+22+23+8+7+15), 170+ total host tests, dep-gate PASS
+- **RFC-0058 Phase 6 complete** — NeX UI Rendering Pipeline fully implemented
+
 ### Added - 2026-05-15
 
 #### RFC-0057: UI v3a layout engine contract seed (pretext philosophy)

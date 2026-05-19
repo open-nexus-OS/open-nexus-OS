@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Visual style types (borders, shadows, shapes) for TASK-0058/TASK-0059 / RFC-0057/RFC-0058.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 5 tests (tests/ui_v4_host/src/lib.rs — VisualStyle extensions)
+//! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 use crate::color::Rgba8;
 use crate::node::Fraction;
 use crate::types::FxPx;

@@ -144,8 +144,12 @@ Markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: live scroll ok`
 - [ ] **Phase 5 (OS markers)**: QEMU markers wired + postflight — proof: `RUN_UNTIL_MARKER=1 just test-os visible-bootstrap`
 
 - [x] **Phase 6a (Separable blur + shadow properties + two-pass renderer)**: `blur_separable`, `blur_1d`, `BoxShadow`, `TextShadow`, `ShadowLevel`, `VisualStyle` extensions, zero-copy shadow-pass in `os_lite.rs` — proof: `cargo test -p ui_v4_host` (21 tests)
-- [ ] **Phase 6b (MSDF atlas)**: MSDF atlas generator + runtime sampler — proof: `cargo test -p nexus-msdf`
-- [ ] **Phase 6c (SDF shapes)**: Analytical SDF for rounded rects, circles, buttons — proof: `cargo test -p nexus-sdf`
+
+- [x] **Phase 6b (MSDF atlas)**: 32×32 SDF per glyph, 1024×96 BGRA atlas (95 ASCII glyphs), bilinear sampler, smoothstep — proof: `cargo test -p ui_v4_host` (22 tests)
+- [x] **Phase 6c (SDF shapes)**: `sd_circle`, `sd_rounded_rect`, `sd_triangle`, `smoothstep`, `fill_alpha`/`border_alpha`; wired into `os_lite.rs` for anti-aliased circles and rounded rects — proof: `cargo test -p ui_v4_host` (23 tests)
+- [x] **Phase 6d (9-slice shadow)**: `NineSliceShadow`, `composite_nine_slice_shadow()`, corner blur + edge stretch + center fill, `EffectCache` integration — proof: `cargo test -p ui_v4_host` (8 tests)
+- [x] **Phase 6e (Dual-kawase blur)**: `dual_kawase_blur()` with downscale 2×, stride-based 3×3 blur iterations, bilinear upscale; `stride_blur_3x3` with configurable sample step — proof: `cargo test -p ui_v4_host` (7 tests)
+- [x] **Phase 6f (Render cache + damage integration)**: `ShadowCache` (256 LRU), `TextCache` (512 LRU), `RenderCache` aggregator with `invalidate_dirty`/`note_scroll`/`clear` — proof: `cargo test -p ui_v4_host` (15 tests)
 
 ---
 

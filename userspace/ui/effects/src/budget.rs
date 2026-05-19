@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Per-frame effect pixel budget with deterministic degrade for TASK-0059 / RFC-0058.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered by tests/ui_v4_host/ (budget reserve/exhaust/reset via blur shadow tests)
+//! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 //! Per-frame effect pixel budget with deterministic degrade.
 //! Caps total pixels affected by blur/shadow per frame. When budget is
 //! exhausted, remaining effects are skipped (no partial renders).

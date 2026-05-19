@@ -23,6 +23,8 @@ members = [
     "userspace/ui/layout-types",
     "userspace/ui/layout",
     "userspace/ui/effects",
+    "userspace/ui/msdf",
+    "userspace/ui/sdf",
     "tests/ui_v3a_host",
     "tests/ui_v3b_host",
     "tests/ui_v4_host",

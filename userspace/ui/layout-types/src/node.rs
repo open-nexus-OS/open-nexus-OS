@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Layout node types (Stack, Grid, Text, TextInput) for TASK-0058/TASK-0059 / RFC-0057/RFC-0058.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered by tests/ui_v4_host/ (Fraction methods) + tests/ui_v3b_host/
+//! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 use crate::border::VisualStyle;
 use crate::direction::{Align, Direction, Justify, Overflow, Position, ZIndex};
 use crate::text::TextStyle;

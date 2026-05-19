@@ -1,13 +1,24 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Phase 6a host tests: separable blur, shadow types, VisualStyle extensions.
-//! RFC-0058 Phase 6a proof surface.
+//! CONTEXT: Phase 6 host test suite (separable blur, shadow types, MSDF atlas, SDF shapes, 9-slice, kawase, render cache).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 98 tests (21+22+23+8+7+15+2 chain)
+//! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
+
+mod msdf_tests;
+mod sdf_tests;
+mod nine_slice_tests;
+mod kawase_tests;
+mod cache_tests;
+mod chain_tests;
 
 #[cfg(test)]
 mod tests {
     use nexus_effects::{blur_1d, blur_separable};
-    use nexus_layout_types::{BoxShadow, Fraction, Rgba8, ShadowLevel, TextShadow, VisualStyle};
+    use nexus_layout_types::{BoxShadow, Fraction, ShadowLevel, TextShadow, VisualStyle};
 
     // ─── blur_separable ───
 

@@ -10,7 +10,7 @@ links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - **RFC seed (SSOT contract)**: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
-  - **ADR-0029**: docs/adr/0029-layout-engine-deterministic-pretext.md
+  - **ADR-0030**: docs/adr/0030-layout-engine-deterministic-pretext.md
   - UI v3a layout: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
   - Layout pipeline: docs/dev/ui/foundations/layout/layout-pipeline.md
   - Architecture: docs/architecture/display-output-service-chain.md

@@ -10,6 +10,7 @@
 //! STATUS: Done
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: tests/ui_v3a_host/ + nexus-layout engine_tests
+//! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 //!
 //! no_std + alloc / RFC-0057.
 //!

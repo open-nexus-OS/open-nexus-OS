@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Cursor blink timer for TextInput caret rendering (TASK-0059 / RFC-0058).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 2 tests (tests/ui_v3b_host/ — cursor blink toggle/reset)
+//! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 //! Cursor blink timer for TextInput caret rendering.
 //! Blinks at 500ms intervals (configurable), deterministic (frame-count based).
 

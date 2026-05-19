@@ -1,7 +1,7 @@
 Copyright 2026 Open Nexus OS Contributors
 SPDX-License-Identifier: Apache-2.0
 
-# ADR-0029: Layout Engine
+# ADR-0030: Layout Engine — Deterministic Pretext Philosophy
 
 **Status**: Accepted
 **Date**: 2026-05-17

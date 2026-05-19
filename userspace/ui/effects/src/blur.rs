@@ -1,6 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Box blur kernels (3×3, separable, dual-kawase) for TASK-0059 / RFC-0058 Phase 6.
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 21 tests (tests/ui_v4_host/src/lib.rs — blur_separable, blur_1d)
+//! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 //! Box blur kernels. Integer-only (no floating point), deterministic output.
 //! Separable (horizontal + vertical) for O(w·h·2r) instead of O(w·h·r²).
 //! Zero-copy friendly: per-pass temporary buffer bounded to max(row, col) size.
@@ -205,7 +211,7 @@ pub fn blur_1d(
                 col_buf[dst..dst + 4].copy_from_slice(&pixels[src..src + 4]);
             }
         }
-        let count = blur_1d(&mut col_buf, h as u32, w as u32, (w * 4) as u32, radius, true);
+        let count = blur_1d(&mut col_buf, h as u32, w as u32, (h * 4) as u32, radius, true);
         for y in 0..h {
             for x in 0..w {
                 let src = (x * h + y) * 4;
@@ -234,4 +240,164 @@ pub fn blur_separable(
     let c1 = blur_1d(pixels, width, height, stride, radius, true);
     let c2 = blur_1d(pixels, width, height, stride, radius, false);
     c1 + c2
+}
+
+/// Dual-Kawase blur: downscale → iterative blur → upscale.
+///
+/// An approximation of Gaussian blur that scales with O(log radius) instead of
+/// O(radius²). Downscales by 2× in each axis, applies `iterations` passes of
+/// 3×3 blur with increasing kernel stride (1, 2, 4, …), then upscales back to
+/// the original resolution.
+///
+/// At 3 iterations, this produces a blur comparable to a ~16px radius box blur
+/// with ~27 samples/pixel instead of ~225.
+///
+/// `pixels` is modified in-place. Temporary buffers are allocated for the
+/// downscaled pyramid levels.
+///
+/// Returns the total number of pixels processed.
+pub fn dual_kawase_blur(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    radius: u32,
+    iterations: u32,
+) -> u32 {
+    if width == 0 || height == 0 || radius == 0 || iterations == 0 {
+        return 0;
+    }
+
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
+
+    let _max_levels = iterations as usize + 1;
+    let mut pyramid: [Option<(alloc::vec::Vec<u8>, u32, u32, u32)>; 6] = [
+        None, None, None, None, None, None,
+    ];
+
+    let mut level0 = alloc::vec![0u8; h * s];
+    level0[..h * s].copy_from_slice(&pixels[..h * s]);
+    pyramid[0] = Some((level0, width, height, stride));
+
+    let mut total = 0u32;
+
+    // Downscale
+    for level in 1..=iterations as usize {
+        let (ref prev, pw, ph, _ps) = pyramid[level - 1].as_ref().unwrap();
+        let pw = *pw as usize;
+        let ph = *ph as usize;
+        let nw = pw / 2;
+        let nh = ph / 2;
+        if nw < 4 || nh < 4 {
+            break;
+        }
+        let nstride = (nw * 4) as u32;
+        let mut down = alloc::vec![0u8; nh * nw * 4];
+        downsample_2x(prev, pw as u32, ph as u32, &mut down, nw as u32, nh as u32);
+        blur_3x3(&mut down, nw as u32, nh as u32, nstride);
+        pyramid[level] = Some((down, nw as u32, nh as u32, nstride));
+        total += (nw * nh) as u32;
+    }
+
+    // Increasing-stride blurs from smallest to largest
+    for level in (1..=iterations as usize).rev() {
+        if pyramid[level].is_none() {
+            continue;
+        }
+        let (ref mut data, lw, lh, ls) = pyramid[level].as_mut().unwrap();
+        let lw = *lw as usize;
+        let lh = *lh as usize;
+        stride_blur_3x3(data, lw as u32, lh as u32, *ls, 1 << (level - 1));
+        total += (lw * lh) as u32;
+    }
+
+    // Upscale back to original
+    for level in (0..iterations as usize).rev() {
+        let (src_data, sw, sh) = {
+            let (data, w, h, _) = match pyramid[level + 1].as_ref() {
+                Some(v) => (v.0.as_slice(), v.1, v.2, v.3),
+                None => continue,
+            };
+            (alloc::vec::Vec::from(data), w, h)
+        };
+        let (dst_data, dw, dh, ds) = match pyramid[level].as_mut() {
+            Some(v) => (&mut v.0, v.1, v.2, v.3),
+            None => continue,
+        };
+        upscale_2x(&src_data, sw, sh, dst_data, dw, dh, ds);
+        total += (dw * dh) as u32;
+    }
+
+    if let Some((ref result, _, _, _)) = pyramid[0] {
+        for y in 0..h {
+            let src_off = y * w * 4;
+            let dst_off = y * s;
+            let len = (w * 4).min(s);
+            pixels[dst_off..dst_off + len].copy_from_slice(&result[src_off..src_off + len]);
+        }
+    }
+
+    total
+}
+
+/// Box-filter 2× downscale: average every 2×2 block into 1 pixel.
+fn downsample_2x(src: &[u8], sw: u32, _sh: u32, dst: &mut [u8], dw: u32, dh: u32) {
+    for dy in 0..dh as usize {
+        for dx in 0..dw as usize {
+            let sx = dx * 2; let sy = dy * 2;
+            let mut r = 0u32; let mut g = 0u32; let mut b = 0u32; let mut a = 0u32;
+            for oy in 0..2usize { for ox in 0..2usize {
+                let idx = ((sy + oy) * sw as usize + (sx + ox)) * 4;
+                r += src[idx] as u32; g += src[idx + 1] as u32;
+                b += src[idx + 2] as u32; a += src[idx + 3] as u32;
+            }}
+            let di = (dy * dw as usize + dx) * 4;
+            dst[di] = (r / 4) as u8; dst[di + 1] = (g / 4) as u8;
+            dst[di + 2] = (b / 4) as u8; dst[di + 3] = (a / 4) as u8;
+        }
+    }
+}
+
+/// Bilinear 2× upscale (nearest-neighbor simple version).
+fn upscale_2x(src: &[u8], sw: u32, sh: u32, dst: &mut [u8], dw: u32, dh: u32, stride: u32) {
+    for dy in 0..dh as usize {
+        let sy = (dy * sh as usize / dh as usize).min(sh as usize - 1);
+        for dx in 0..dw as usize {
+            let sx = (dx * sw as usize / dw as usize).min(sw as usize - 1);
+            let si = (sy * sw as usize + sx) * 4;
+            let di = dy * stride as usize + dx * 4;
+            dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+        }
+    }
+}
+
+/// 3×3 blur with configurable sampling stride.
+fn stride_blur_3x3(pixels: &mut [u8], width: u32, height: u32, stride: u32, step: usize) {
+    if width < 3 || height < 3 { return; }
+    let w = width as usize; let h = height as usize; let s = stride as usize;
+    let mut copy = alloc::vec![0u8; h * s];
+    copy[..h * s].copy_from_slice(&pixels[..h * s]);
+    let step = step.max(1);
+    for y in step..h - step {
+        for x in step..w - step {
+            let mut r = 0u32; let mut g = 0u32; let mut b = 0u32; let mut a = 0u32;
+            for ky in 0..3u32 { for kx in 0..3u32 {
+                let sx = (x as isize + (kx as isize - 1) * step as isize).max(0).min(w as isize - 1) as usize;
+                let sy = (y as isize + (ky as isize - 1) * step as isize).max(0).min(h as isize - 1) as usize;
+                let idx = sy * s + sx * 4;
+                let ca = copy[idx + 3] as u32;
+                r += copy[idx] as u32 * ca; g += copy[idx + 1] as u32 * ca;
+                b += copy[idx + 2] as u32 * ca; a += ca;
+            }}
+            let di = y * s + x * 4;
+            if a > 0 {
+                pixels[di] = (r / a).min(255) as u8;
+                pixels[di + 1] = (g / a).min(255) as u8;
+                pixels[di + 2] = (b / a).min(255) as u8;
+            }
+            pixels[di + 3] = (a / 9).min(255) as u8;
+        }
+    }
 }

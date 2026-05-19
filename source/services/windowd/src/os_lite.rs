@@ -1,6 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: OS-lite display server main loop for `windowd` — scanline compositor with
+//! zero-copy two-pass renderer (shadow-pass → content-pass → cursor), SDF anti-aliased
+//! shapes, and per-row damage tracking. Part of TASK-0055/0056/0058/0059.
+//!
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 31 tests (windowd unit tests) + 9 tests (headless) + 20 tests (ui_v3b_host)
+//!
+//! ARCHITECTURE:
+//!   - Two-pass renderer: `compute_shadow_row` (shadow), `draw_proof_surface_row` (content)
+//!   - Zero-copy: `shadow_scratch` + `blur_row_buf` pre-allocated once
+//!   - SDF integration: `fill_sdf_circle_row`, `fill_sdf_rounded_rect_row`
+//!   - Damage tracking: `pending_damage_rows` → partial framebuffer writes
+//!   - IPC: `KernelServer` receive loop for `OP_GET_VISIBLE_STATE`, `OP_SEND_COMPOSED_FRAME_VMO`, `OP_UPDATE_VISIBLE_STATE`
+//!
+//! DEPENDENCIES:
+//!   - nexus-layout, nexus-layout-types: layout computation
+//!   - nexus-effects, nexus-sdf: rendering primitives
+//!   - nexus-abi, nexus-ipc: kernel IPC
+//!   - input-live-protocol: VisibleState wire format
+//!
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 extern crate alloc;
 
 use alloc::vec::Vec;
@@ -1185,6 +1208,118 @@ fn bitmap_font_5x7(ch: char) -> [u8; 7] {
     }
 }
 
+/// SDF-based filled circle row renderer (anti-aliased edges).
+fn fill_sdf_circle_row(
+    y: u32, row: &mut [u8],
+    x: u32, rect_y: u32, width: u32, height: u32,
+    bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    let row_pixels = (row.len() / 4) as u32;
+    let cx = x as f32 + width as f32 * 0.5;
+    let cy = rect_y as f32 + height as f32 * 0.5;
+    let radius = width.min(height) as f32 * 0.5;
+    let start = x.max(0);
+    let end = (x + width).min(row_pixels);
+    for px in start..end {
+        let sd = nexus_sdf::sd_circle((px as f32 + 0.5, y as f32 + 0.5), (cx, cy), radius);
+        let alpha = nexus_sdf::fill_alpha(sd, 1.0);
+        if alpha > 0.0 {
+            let idx = px as usize * 4;
+            let a = (alpha * bgra[3] as f32) as u32;
+            if a == 0 { continue; }
+            let inv = 255 - a;
+            row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
+            row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
+            row[idx + 2] = ((bgra[2] as u32 * a + row[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    }
+    Ok(())
+}
+
+/// SDF-based stroked circle row renderer (anti-aliased border).
+fn stroke_sdf_circle_row(
+    y: u32, row: &mut [u8],
+    x: u32, rect_y: u32, width: u32, height: u32,
+    stroke: u32, bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    if stroke == 0 { return Ok(()); }
+    let row_pixels = (row.len() / 4) as u32;
+    let cx = x as f32 + width as f32 * 0.5;
+    let cy = rect_y as f32 + height as f32 * 0.5;
+    let radius = width.min(height) as f32 * 0.5;
+    let start = x.max(0);
+    let end = (x + width).min(row_pixels);
+    for px in start..end {
+        let sd = nexus_sdf::sd_circle((px as f32 + 0.5, y as f32 + 0.5), (cx, cy), radius);
+        let alpha = nexus_sdf::border_alpha(sd, stroke as f32, 1.0);
+        if alpha > 0.0 {
+            let idx = px as usize * 4;
+            let a = (alpha * bgra[3] as f32) as u32;
+            if a == 0 { continue; }
+            let inv = 255 - a;
+            row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
+            row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
+            row[idx + 2] = ((bgra[2] as u32 * a + row[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    }
+    Ok(())
+}
+
+/// SDF-based filled rounded rectangle row renderer.
+fn fill_sdf_rounded_rect_row(
+    y: u32, row: &mut [u8],
+    rect: ProofBoxRect, cr: u32, bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    let row_pixels = (row.len() / 4) as u32;
+    let cr_f = cr as f32;
+    let min = (rect.x as f32, rect.y as f32);
+    let max = ((rect.x + rect.width) as f32, (rect.y + rect.height) as f32);
+    let start = rect.x.max(0);
+    let end = (rect.x + rect.width).min(row_pixels);
+    for px in start..end {
+        let sd = nexus_sdf::sd_rounded_rect((px as f32 + 0.5, y as f32 + 0.5), min, max, cr_f);
+        let alpha = nexus_sdf::fill_alpha(sd, 1.0);
+        if alpha > 0.0 {
+            let idx = px as usize * 4;
+            let a = (alpha * bgra[3] as f32) as u32;
+            if a == 0 { continue; }
+            let inv = 255 - a;
+            row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
+            row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
+            row[idx + 2] = ((bgra[2] as u32 * a + row[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    }
+    Ok(())
+}
+
+/// SDF-based stroked rounded rectangle row renderer.
+fn stroke_sdf_rounded_rect_row(
+    y: u32, row: &mut [u8],
+    rect: ProofBoxRect, cr: u32, stroke: u32, bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    if stroke == 0 { return Ok(()); }
+    let row_pixels = (row.len() / 4) as u32;
+    let cr_f = cr as f32;
+    let min = (rect.x as f32, rect.y as f32);
+    let max = ((rect.x + rect.width) as f32, (rect.y + rect.height) as f32);
+    let start = rect.x.max(0);
+    let end = (rect.x + rect.width).min(row_pixels);
+    for px in start..end {
+        let sd = nexus_sdf::sd_rounded_rect((px as f32 + 0.5, y as f32 + 0.5), min, max, cr_f);
+        let alpha = nexus_sdf::border_alpha(sd, stroke as f32, 1.0);
+        if alpha > 0.0 {
+            let idx = px as usize * 4;
+            let a = (alpha * bgra[3] as f32) as u32;
+            if a == 0 { continue; }
+            let inv = 255 - a;
+            row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
+            row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
+            row[idx + 2] = ((bgra[2] as u32 * a + row[idx + 2] as u32 * inv) / 255) as u8;
+        }
+    }
+    Ok(())
+}
+
 fn draw_layout_box_row(
     state: VisibleState,
     y: u32,
@@ -1195,6 +1330,21 @@ fn draw_layout_box_row(
 ) -> Result<(), WindowdError> {
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
+            let cr = layout_box.visual.corner_radius.top_left.as_u32().unwrap_or(0);
+            if cr > 0 {
+                // SDF rounded rect path (anti-aliased corners)
+                if let Some(background) = proof_box_background(layout_box, state, paint_role) {
+                    fill_sdf_rounded_rect_row(y, row, rect, cr, rgba_to_bgra(background))?;
+                }
+                if let Some((border_width, border_color)) =
+                    proof_box_border(layout_box, state, paint_role)
+                {
+                    stroke_sdf_rounded_rect_row(
+                        y, row, rect, cr, border_width, rgba_to_bgra(border_color),
+                    )?;
+                }
+            } else {
+                // Fast path: hard-edged rect
             if let Some(background) = proof_box_background(layout_box, state, paint_role) {
                 fill_row_rect(
                     y,
@@ -1220,10 +1370,12 @@ fn draw_layout_box_row(
                     rgba_to_bgra(border_color),
                 )?;
             }
+            }
         }
         nexus_layout_types::ShapeKind::Circle => {
+            // SDF circle path (anti-aliased edges)
             if let Some(background) = proof_box_background(layout_box, state, paint_role) {
-                fill_circle_row(
+                fill_sdf_circle_row(
                     y,
                     row,
                     rect.x,
@@ -1236,7 +1388,7 @@ fn draw_layout_box_row(
             if let Some((border_width, border_color)) =
                 proof_box_border(layout_box, state, paint_role)
             {
-                stroke_circle_row(
+                stroke_sdf_circle_row(
                     y,
                     row,
                     rect.x,

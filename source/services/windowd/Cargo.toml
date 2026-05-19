@@ -26,6 +26,7 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-svg = { path = "../../../userspace/ui/svg", default-features = false, optional = true }
 nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
+nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-effects = { path = "../../../userspace/ui/effects" }
 
 [build-dependencies]

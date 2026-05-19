@@ -8,5 +8,9 @@ license.workspace = true
 nexus-layout = { path = "../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../userspace/ui/layout-types" }
 nexus-effects = { path = "../../userspace/ui/effects" }
+nexus-msdf = { path = "../../userspace/ui/msdf" }
+nexus-sdf = { path = "../../userspace/ui/sdf" }
+input-live-protocol = { path = "../../userspace/input-live-protocol" }
+windowd = { path = "../../source/services/windowd" }
 
 [dev-dependencies]
