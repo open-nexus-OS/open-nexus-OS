@@ -39,7 +39,7 @@ use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
-    scroll_damage_rows, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
+    scroll_damage_rows, DamageRect, GlassQuality, LayoutHotPathIndex,
     TargetDamage,
 };
 use crate::markers::{
@@ -185,12 +185,18 @@ struct DisplayServerRuntime {
     shadow_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
     blur_row_buf: Vec<u8>,
+    /// Saved background pixels under the cursor (32×32 BGRA, zero-copy — allocated once).
+    cursor_bg_saved: Vec<u8>,
+    /// Y position where cursor_bg_saved was captured (None = not saved yet).
+    saved_cursor_rect: Option<(i32, i32, i32, i32)>, // (x, y, width, height)
     state: VisibleState,
     observer_state: VisibleState,
     markers_emitted: bool,
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
     pending_damage_rows: [Option<(u32, u32)>; MAX_DAMAGE_RANGES],
+    /// True when pending damage only affects paint (no layout/shadow change needed).
+    paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
     proof_layouts: Option<Vec<LayoutResult>>,
     proof_layout_index: Option<LayoutHotPathIndex>,
@@ -336,6 +342,7 @@ impl DisplayServerRuntime {
             band_scratch: alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK],
             shadow_scratch: alloc::vec![0u8; mode.stride as usize],
             blur_row_buf: alloc::vec![0u8; mode.stride as usize],
+            cursor_bg_saved: alloc::vec![0u8; 32 * 32 * 4],
             state: initial_state,
             observer_state: initial_state,
             markers_emitted: false,
@@ -343,6 +350,8 @@ impl DisplayServerRuntime {
             input_state_debug_emitted: false,
             pending_damage_rows: [None; MAX_DAMAGE_RANGES],
             pending_damage_rect: None,
+            paint_only_damage: false,
+            saved_cursor_rect: None,
             proof_layouts,
             proof_layout_index,
             filtered_words,
@@ -396,13 +405,10 @@ impl DisplayServerRuntime {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
         self.refresh_observer_state();
-        let frame_result = self.write_current_frame();
-        if frame_result.is_err() {
-            let _ = debug_println("windowd: write_current_frame FAILED");
+        if self.write_current_frame().is_err() {
             return STATUS_MALFORMED;
         }
         if self.active_proof_layout().is_some() {
-            let _ = debug_println("windowd: write_current_frame OK, proof_layout present");
             let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
             let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
         }
@@ -461,11 +467,20 @@ impl DisplayServerRuntime {
             return STATUS_OK;
         }
         self.queue_target_damage(old_state, self.state);
+        // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
+        let cursor_changed = old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
+        let text_changed = old_state.text_input() != self.state.text_input();
+        let filter_changed = old_filter_idx != self.active_filter_idx;
+        let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
+            || old_state.launcher_click_visible != self.state.launcher_click_visible
+            || old_state.keyboard_visible != self.state.keyboard_visible;
+        self.paint_only_damage = paint_flags_changed
+            && !cursor_changed
+            && !text_changed
+            && !filter_changed;
         self.queue_cursor_damage(
-            old_cursor_x,
-            old_cursor_y,
-            self.state.cursor_x,
-            self.state.cursor_y,
+            old_cursor_x, old_cursor_y,
+            self.state.cursor_x, self.state.cursor_y,
         );
 
         // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
@@ -762,7 +777,7 @@ impl DisplayServerRuntime {
     }
 
     fn write_current_frame(&mut self) -> Result<(), WindowdError> {
-        self.write_rows(0, self.mode.height, select_glass_quality(self.mode.height))
+        self.write_rows(0, self.mode.height, GlassQuality::High, false)
     }
 
     fn write_rows(
@@ -770,6 +785,7 @@ impl DisplayServerRuntime {
         start_y: u32,
         end_y: u32,
         glass_quality: GlassQuality,
+        paint_only: bool,
     ) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
@@ -805,7 +821,7 @@ impl DisplayServerRuntime {
                 .min(end_y as usize)
                 as u32;
             let band_rows = (band_end - band_start) as usize;
-            let _ = debug_println("windowd: write_rows band");  // only first band prints
+            // band rendering
             let band_bytes = band_rows * row_len;
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let dest_start = row_idx * row_len;
@@ -832,6 +848,7 @@ impl DisplayServerRuntime {
                     cursor_y,
                     y,
                     glass_quality,
+                    paint_only,
                     band_row,
                 )?;
             }
@@ -904,6 +921,7 @@ impl DisplayServerRuntime {
                 cursor_y,
                 y,
                 GlassQuality::Opaque,
+                true, // damage rects never need shadow recalculation
                 row,
             )?;
             let offset = y as usize * row_len + byte_start;
@@ -933,13 +951,14 @@ impl DisplayServerRuntime {
             self.mode.height,
         );
         if let Some((start, end)) = old_rows {
-            self.queue_rows(start, end);
+            let _ = self.write_rows(start, end, GlassQuality::High, true);
         }
         if let Some((start, end)) = new_rows {
-            self.queue_rows(start, end);
+            let _ = self.write_rows(start, end, GlassQuality::High, true);
         }
         let _ = old_cursor_x;
         let _ = new_cursor_x;
+
     }
 
     fn queue_rows(&mut self, start: u32, end: u32) {
@@ -972,12 +991,13 @@ impl DisplayServerRuntime {
     }
 
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
+        let paint_only = true; // all damage rects: shadow already in framebuffer from initial frame
         let mut wrote_rows = false;
         let mut ranges = self.pending_damage_rows;
         self.pending_damage_rows = [None; MAX_DAMAGE_RANGES];
         for range in &mut ranges {
             if let Some((start, end)) = range.take() {
-                self.write_rows(start, end, select_glass_quality(end.saturating_sub(start)))?;
+                self.write_rows(start, end, GlassQuality::High, paint_only)?;
                 wrote_rows = true;
             }
         }
@@ -986,12 +1006,14 @@ impl DisplayServerRuntime {
                 self.write_damage_rect(rect)?;
             }
             self.emit_input_markers();
+            self.paint_only_damage = false;
             return Ok(());
         }
         let Some(rect) = self.pending_damage_rect.take() else {
             return Ok(());
         };
         self.write_damage_rect(rect)?;
+        self.paint_only_damage = false;
         self.emit_input_markers();
         Ok(())
     }
@@ -1087,13 +1109,13 @@ fn copy_scene_row(
     cursor_y: i32,
     y: u32,
     glass_quality: GlassQuality,
+    paint_only: bool,
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
-    if y == 400 {
-        let _ = debug_println("windowd: copy_scene_row mid-frame");
-    }
     copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
-    compute_shadow_row(state, proof_layout, proof_layout_index, y, row, shadow_scratch, blur_row_buf)?;
+    if !paint_only {
+        compute_shadow_row(state, proof_layout, proof_layout_index, y, row, shadow_scratch, blur_row_buf)?;
+    }
     draw_proof_surface_row(
         state,
         proof_layout,
