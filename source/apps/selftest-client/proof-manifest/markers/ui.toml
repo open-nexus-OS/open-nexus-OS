@@ -299,6 +299,61 @@ proves = "windowd composed the deterministic SVG-sourced icon proof target into 
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "selftest observed the UI v2b asset pipeline (cursor + icons + fonts) loaded and visible"
+
+[marker."windowd: clipping on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd enabled clipped proof-panel composition before text/filter interactions"
+
+[marker."windowd: scroll on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd enabled the live scroll interaction path for the visible panel lane"
+
+[marker."windowd: live scroll ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd observed a real bounded scroll mutation and emitted a deterministic success breadcrumb"
+
+[marker."windowd: text input on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd applied visible text-input updates in the proof panel"
+
+[marker."windowd: filter list ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd updated the proof filter list deterministically after text-input changes"
+
+[marker."windowd: effects on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd enabled effects rendering in the visible proof lane"
+
+[marker."windowd: effect blur ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd rendered the blur effect path without degrading the visible proof lane"
+
+[marker."SELFTEST: ui v3 scroll ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed real scroll-path evidence in the v3 lane"
+
+[marker."SELFTEST: ui v3 ime ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed deterministic IME/text-input path evidence in the v3 lane"
+
+[marker."SELFTEST: ui v3 effect ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed effects-path evidence in the v3 lane"
+
+[marker."SELFTEST: ui v3 filter ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed deterministic v3 filter-update evidence in the visible lane"
 [marker."fbdevd: cursor overlay on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }

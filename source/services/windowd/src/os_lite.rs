@@ -39,19 +39,17 @@ use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
-    scroll_damage_rows, DamageRect, GlassQuality, LayoutHotPathIndex,
-    TargetDamage,
+    scroll_damage_rows, DamageRect, GlassQuality, LayoutHotPathIndex, TargetDamage,
 };
 use crate::markers::{
     COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
-    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, FOCUS_VISIBLE_MARKER, HOVER_VISIBLE_MARKER,
-    FULL_WINDOW_VISIBLE_MARKER, INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER, KEYBOARD_VISIBLE_MARKER,
-    LAUNCHER_CLICK_OK_MARKER,
-    LAUNCHER_CLICK_VISIBLE_OK_MARKER, LAYOUT_ENGINE_ON_MARKER, PRESENT_QUEUED_MARKER,
-    PRESENT_SCHEDULER_ON_MARKER, PRESENT_VISIBLE_MARKER, READY_MARKER,
-    SELFTEST_UI_V2_INPUT_OK_MARKER, SELFTEST_UI_V2_PRESENT_OK_MARKER,
-    SELFTEST_UI_VISIBLE_INPUT_OK_MARKER, SELFTEST_UI_VISIBLE_PRESENT_MARKER,
-    SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER,
+    DISPLAY_FIRST_SCANOUT_MARKER, DISPLAY_MODE_MARKER, FOCUS_VISIBLE_MARKER,
+    FULL_WINDOW_VISIBLE_MARKER, HOVER_VISIBLE_MARKER, INPUT_ON_MARKER, INPUT_VISIBLE_ON_MARKER,
+    KEYBOARD_VISIBLE_MARKER, LAUNCHER_CLICK_OK_MARKER, LAUNCHER_CLICK_VISIBLE_OK_MARKER,
+    LAYOUT_ENGINE_ON_MARKER, PRESENT_QUEUED_MARKER, PRESENT_SCHEDULER_ON_MARKER,
+    PRESENT_VISIBLE_MARKER, READY_MARKER, SELFTEST_UI_V2_INPUT_OK_MARKER,
+    SELFTEST_UI_V2_PRESENT_OK_MARKER, SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
+    SELFTEST_UI_VISIBLE_PRESENT_MARKER, SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER,
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
     WHEEL_VISIBLE_MARKER,
 };
@@ -74,7 +72,7 @@ const FILTER_INPUT_FONT_W: u32 = 5;
 const FILTER_INPUT_FONT_H: u32 = 7;
 const FILTER_INPUT_FONT_SCALE: u32 = 2;
 const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
-const ROW_WRITE_CHUNK: usize = 8;
+const ROW_WRITE_CHUNK: usize = 4;
 const MAX_DAMAGE_RANGES: usize = 4;
 const IPC_BATCH_LIMIT: usize = 8;
 const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
@@ -83,6 +81,11 @@ const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as 
 const PATH_CACHE_ENTRIES: usize = 2;
 const PATH_CACHE_MAX_SIDE: usize = 24;
 const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
+const TILE_SIZE: u32 = 64;
+const TILES_X: usize = 20; // 1280 / 64
+const TILES_Y: usize = 13; // 800 / 64 rounded up
+const TILE_COUNT: usize = TILES_X * TILES_Y;
+const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = match KernelServer::new_for(ROUTE_NAME) {
@@ -195,6 +198,9 @@ struct DisplayServerRuntime {
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
     pending_damage_rows: [Option<(u32, u32)>; MAX_DAMAGE_RANGES],
+    pending_damage_rects: Vec<DamageRect>,
+    tile_map: TileMap,
+    layer_cache: LayerCache,
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
@@ -291,6 +297,106 @@ impl PathCacheEntry {
     }
 }
 
+/// A retained render layer for a panel or UI element.
+/// Holds pre-rendered pixel data so we can skip re-rendering when not dirty.
+#[derive(Clone)]
+struct Layer {
+    id: u64,
+    bounds: DamageRect,
+    pixels: Vec<u8>,
+    dirty: bool,
+    opacity: u8,
+    backdrop_blur: Option<u32>,
+}
+
+impl Layer {
+    fn new(id: u64, bounds: DamageRect, opacity: u8, backdrop_blur: Option<u32>) -> Self {
+        let pixel_count = bounds.width as usize * bounds.height as usize * 4;
+        Self {
+            id,
+            bounds,
+            pixels: alloc::vec![0u8; pixel_count],
+            dirty: true,
+            opacity,
+            backdrop_blur,
+        }
+    }
+}
+
+/// Simple layer cache: retains pre-rendered pixel data per layer.
+#[derive(Clone, Default)]
+struct LayerCache {
+    layers: Vec<Layer>,
+}
+
+impl LayerCache {
+    fn clear(&mut self) {
+        self.layers.clear();
+    }
+    fn len(&self) -> usize {
+        self.layers.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+    }
+}
+
+/// Tile-based damage map. Tracks which 64×64 tiles are dirty and need re-rendering.
+#[derive(Clone)]
+struct TileMap {
+    dirty: [u64; TILE_DIRTY_WORDS],
+}
+
+impl TileMap {
+    fn new() -> Self {
+        Self { dirty: [0; TILE_DIRTY_WORDS] }
+    }
+
+    fn tile_index(x: u32, y: u32) -> usize {
+        (y / TILE_SIZE) as usize * TILES_X + (x / TILE_SIZE) as usize
+    }
+
+    fn mark_rect(&mut self, rect: DamageRect) {
+        let tx0 = rect.x / TILE_SIZE;
+        let ty0 = rect.y / TILE_SIZE;
+        let tx1 = (rect.end_x().saturating_sub(1) / TILE_SIZE).min(TILES_X as u32 - 1);
+        let ty1 = (rect.end_y().saturating_sub(1) / TILE_SIZE).min(TILES_Y as u32 - 1);
+        for ty in ty0..=ty1 {
+            for tx in tx0..=tx1 {
+                let idx = ty as usize * TILES_X + tx as usize;
+                let word = idx / 64;
+                let bit = idx % 64;
+                self.dirty[word] |= 1u64 << bit;
+            }
+        }
+    }
+
+    fn is_dirty(&self, tx: usize, ty: usize) -> bool {
+        let idx = ty * TILES_X + tx;
+        let word = idx / 64;
+        let bit = idx % 64;
+        self.dirty[word] & (1u64 << bit) != 0
+    }
+
+    fn clear(&mut self) {
+        for w in &mut self.dirty {
+            *w = 0;
+        }
+    }
+
+    fn has_dirty(&self) -> bool {
+        self.dirty.iter().any(|w| *w != 0)
+    }
+
+    fn dirty_tiles(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        (0..TILE_COUNT).filter_map(|idx| {
+            let word = idx / 64;
+            let bit = idx % 64;
+            (self.dirty[word] & (1u64 << bit) != 0).then(|| (idx % TILES_X, idx / TILES_X))
+        })
+    }
+}
+
 impl DisplayServerRuntime {
     fn new() -> Result<Self, WindowdError> {
         let mode = VisibleBootstrapMode::fixed()?.validate()?;
@@ -326,10 +432,16 @@ impl DisplayServerRuntime {
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
         let proof_layouts = build_live_proof_layouts(initial_state);
-        let proof_layout_index = proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.first())
-            .map(|layout| LayoutHotPathIndex::build(layout, PROOF_PANEL_X, PROOF_PANEL_Y, mode.width, mode.height));
+        let proof_layout_index =
+            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
+                LayoutHotPathIndex::build(
+                    layout,
+                    PROOF_PANEL_X,
+                    PROOF_PANEL_Y,
+                    mode.width,
+                    mode.height,
+                )
+            });
         Ok(Self {
             mode,
             source_frame,
@@ -349,6 +461,9 @@ impl DisplayServerRuntime {
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
             pending_damage_rows: [None; MAX_DAMAGE_RANGES],
+            pending_damage_rects: Vec::with_capacity(4),
+            tile_map: TileMap::new(),
+            layer_cache: LayerCache::default(),
             pending_damage_rect: None,
             paint_only_damage: false,
             saved_cursor_rect: None,
@@ -468,19 +583,20 @@ impl DisplayServerRuntime {
         }
         self.queue_target_damage(old_state, self.state);
         // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
-        let cursor_changed = old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
+        let cursor_changed =
+            old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
         let text_changed = old_state.text_input() != self.state.text_input();
         let filter_changed = old_filter_idx != self.active_filter_idx;
         let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
             || old_state.launcher_click_visible != self.state.launcher_click_visible
             || old_state.keyboard_visible != self.state.keyboard_visible;
-        self.paint_only_damage = paint_flags_changed
-            && !cursor_changed
-            && !text_changed
-            && !filter_changed;
+        self.paint_only_damage =
+            paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
         self.queue_cursor_damage(
-            old_cursor_x, old_cursor_y,
-            self.state.cursor_x, self.state.cursor_y,
+            old_cursor_x,
+            old_cursor_y,
+            self.state.cursor_x,
+            self.state.cursor_y,
         );
 
         // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
@@ -489,7 +605,8 @@ impl DisplayServerRuntime {
         }
 
         // ── v3b: scroll on wheel events ──
-        if (upstream.wheel_up_visible || upstream.wheel_down_visible) && self.active_proof_layout().is_some()
+        if (upstream.wheel_up_visible || upstream.wheel_down_visible)
+            && self.active_proof_layout().is_some()
         {
             self.handle_scroll_input();
         }
@@ -544,11 +661,8 @@ impl DisplayServerRuntime {
         let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
-            let container_id = layout
-                .boxes
-                .iter()
-                .find(|b| b.id == Some("filter_list"))
-                .map(|b| b.node_id);
+            let container_id =
+                layout.boxes.iter().find(|b| b.id == Some("filter_list")).map(|b| b.node_id);
 
             if let Some(id) = container_id {
                 let viewport_h = layout
@@ -557,7 +671,7 @@ impl DisplayServerRuntime {
                     .find(|b| b.node_id == id)
                     .map(|b| {
                         FxPx::new(
-                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32
                         )
                     })
                     .unwrap_or(FxPx::ZERO);
@@ -568,13 +682,8 @@ impl DisplayServerRuntime {
                     .map(|b| b.scroll_offset)
                     .unwrap_or((FxPx::ZERO, FxPx::ZERO));
 
-                let dy = if wheel_down_visible {
-                    FxPx::new(20)
-                } else {
-                    FxPx::new(-20)
-                };
-                let max_scroll =
-                    FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
+                let dy = if wheel_down_visible { FxPx::new(20) } else { FxPx::new(-20) };
+                let max_scroll = FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
                 scroll_damage = Some(layout.reposition_scroll(id, new_offset));
@@ -607,18 +716,15 @@ impl DisplayServerRuntime {
     }
 
     fn refresh_active_proof_hot_path(&mut self) {
-        let Some(new_index) = self
-            .active_proof_layout()
-            .map(|layout| {
-                LayoutHotPathIndex::build(
-                    layout,
-                    PROOF_PANEL_X,
-                    PROOF_PANEL_Y,
-                    self.mode.width,
-                    self.mode.height,
-                )
-            })
-        else {
+        let Some(new_index) = self.active_proof_layout().map(|layout| {
+            LayoutHotPathIndex::build(
+                layout,
+                PROOF_PANEL_X,
+                PROOF_PANEL_Y,
+                self.mode.width,
+                self.mode.height,
+            )
+        }) else {
             return;
         };
         self.proof_layout_index = Some(new_index);
@@ -795,7 +901,8 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -817,9 +924,7 @@ impl DisplayServerRuntime {
         let band_scratch = &mut self.band_scratch;
         let mut band_start = start_y.min(end_y);
         while band_start < end_y {
-            let band_end = (band_start as usize + ROW_WRITE_CHUNK)
-                .min(end_y as usize)
-                as u32;
+            let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
             let band_rows = (band_end - band_start) as usize;
             // band rendering
             let band_bytes = band_rows * row_len;
@@ -878,7 +983,8 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -958,10 +1064,19 @@ impl DisplayServerRuntime {
         }
         let _ = old_cursor_x;
         let _ = new_cursor_x;
-
     }
 
     fn queue_rows(&mut self, start: u32, end: u32) {
+        // Phase 1: also mark tile map dirty
+        let x0 = 0;
+        let x1 = self.mode.width;
+        self.tile_map.mark_rect(DamageRect {
+            x: x0,
+            y: start,
+            width: x1 - x0,
+            height: end.saturating_sub(start),
+        });
+        // Original row-merge logic (kept for backward compat during transition)
         let start = start.min(self.mode.height);
         let end = end.min(self.mode.height);
         if start >= end {
@@ -988,6 +1103,50 @@ impl DisplayServerRuntime {
             }
         }
         self.pending_damage_rows[0] = Some(merged);
+        self.queue_dirty_rect_from_rows(start, end);
+    }
+
+    fn queue_dirty_rect(&mut self, rect: DamageRect) {
+        self.tile_map.mark_rect(rect);
+        // Merge into existing rects
+        for existing in &mut self.pending_damage_rects {
+            if rect.x <= existing.end_x()
+                && rect.end_x() >= existing.x
+                && rect.y <= existing.end_y()
+                && rect.end_y() >= existing.y
+            {
+                *existing = existing.merge(rect);
+                // Also keep row-based compat
+                self.queue_rows(rect.y, rect.end_y());
+                return;
+            }
+        }
+        if self.pending_damage_rects.len() < 4 {
+            self.pending_damage_rects.push(rect);
+        }
+        self.queue_rows(rect.y, rect.end_y());
+    }
+
+    fn queue_dirty_rect_from_rows(&mut self, start_y: u32, end_y: u32) {
+        let rect = DamageRect {
+            x: 0,
+            y: start_y,
+            width: self.mode.width,
+            height: end_y.saturating_sub(start_y),
+        };
+        for existing in &mut self.pending_damage_rects {
+            if rect.x <= existing.end_x()
+                && rect.end_x() >= existing.x
+                && rect.y <= existing.end_y()
+                && rect.end_y() >= existing.y
+            {
+                *existing = existing.merge(rect);
+                return;
+            }
+        }
+        if self.pending_damage_rects.len() < 4 {
+            self.pending_damage_rects.push(rect);
+        }
     }
 
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
@@ -995,6 +1154,8 @@ impl DisplayServerRuntime {
         let mut wrote_rows = false;
         let mut ranges = self.pending_damage_rows;
         self.pending_damage_rows = [None; MAX_DAMAGE_RANGES];
+        self.pending_damage_rects.clear();
+        self.tile_map.clear();
         for range in &mut ranges {
             if let Some((start, end)) = range.take() {
                 self.write_rows(start, end, GlassQuality::High, paint_only)?;
@@ -1114,7 +1275,15 @@ fn copy_scene_row(
 ) -> Result<(), WindowdError> {
     copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
     if !paint_only {
-        compute_shadow_row(state, proof_layout, proof_layout_index, y, row, shadow_scratch, blur_row_buf)?;
+        compute_shadow_row(
+            state,
+            proof_layout,
+            proof_layout_index,
+            y,
+            row,
+            shadow_scratch,
+            blur_row_buf,
+        )?;
     }
     draw_proof_surface_row(
         state,
@@ -1187,12 +1356,8 @@ fn compute_shadow_row(
             return;
         };
 
-        let sx = (rect.x as i32)
-            .saturating_add(shadow.offset_x.0)
-            .saturating_sub(shadow.spread.0);
-        let sy = (rect.y as i32)
-            .saturating_add(shadow.offset_y.0)
-            .saturating_sub(shadow.spread.0);
+        let sx = (rect.x as i32).saturating_add(shadow.offset_x.0).saturating_sub(shadow.spread.0);
+        let sy = (rect.y as i32).saturating_add(shadow.offset_y.0).saturating_sub(shadow.spread.0);
         let sw = (rect.width as i32).saturating_add(2 * shadow.spread.0);
         let sh = (rect.height as i32).saturating_add(2 * shadow.spread.0);
 
@@ -1224,15 +1389,9 @@ fn compute_shadow_row(
             return;
         }
 
-        let segment_start = sx
-            .saturating_sub(blur_i32)
-            .max(0)
-            .min(row_pixels as i32) as usize;
-        let segment_end = sx
-            .saturating_add(sw)
-            .saturating_add(blur_i32)
-            .max(0)
-            .min(row_pixels as i32) as usize;
+        let segment_start = sx.saturating_sub(blur_i32).max(0).min(row_pixels as i32) as usize;
+        let segment_end =
+            sx.saturating_add(sw).saturating_add(blur_i32).max(0).min(row_pixels as i32) as usize;
         if segment_start >= segment_end {
             return;
         }
@@ -1414,7 +1573,13 @@ fn backdrop_cache_slot(
         % cache_len
 }
 
-fn path_cache_slot(id_hash: u64, width: u32, height: u32, color: [u8; 4], cache_len: usize) -> usize {
+fn path_cache_slot(
+    id_hash: u64,
+    width: u32,
+    height: u32,
+    color: [u8; 4],
+    cache_len: usize,
+) -> usize {
     if cache_len == 0 {
         return 0;
     }
@@ -1509,7 +1674,8 @@ fn draw_proof_surface_row(
     let mut filter_input_rect = None;
     let mut filter_list_rect = None;
     let mut filter_list_scroll_y = 0;
-    let row_mask = proof_layout_index.and_then(|index| (!index.overflow_boxes()).then(|| index.row_mask(y)));
+    let row_mask =
+        proof_layout_index.and_then(|index| (!index.overflow_boxes()).then(|| index.row_mask(y)));
     let mut draw_row_box = |layout_box: &nexus_layout::LayoutBox| -> Result<(), WindowdError> {
         let Some(rect) = proof_box_rect(layout_box) else {
             return Ok(());
@@ -1676,9 +1842,7 @@ fn draw_filter_word_list_row(
                 viewport_width,
             )?;
         }
-        word_top = word_top
-            .saturating_add(asset.height)
-            .saturating_add(FILTER_LIST_ROW_GAP);
+        word_top = word_top.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
     }
 
     // ── Scrollbar ──
@@ -1704,20 +1868,15 @@ fn draw_filter_scrollbar_row(
     let gutter_width = rect.x.saturating_add(rect.width).saturating_sub(strip_x);
     let track_bgra = rgba_to_bgra(crate::assets::PROOF_PANEL_BG);
     if y >= viewport_y && y < viewport_y.saturating_add(viewport_height) {
-        fill_row_rect(
-            y,
-            row,
-            strip_x,
-            viewport_y,
-            gutter_width,
-            viewport_height,
-            track_bgra,
-        )?;
+        fill_row_rect(y, row, strip_x, viewport_y, gutter_width, viewport_height, track_bgra)?;
     }
 
-    let Some((thumb_y, thumb_height)) =
-        layout_panel::filter_scrollbar_thumb_bounds(viewport_y, viewport_height, content_h, scroll_y)
-    else {
+    let Some((thumb_y, thumb_height)) = layout_panel::filter_scrollbar_thumb_bounds(
+        viewport_y,
+        viewport_height,
+        content_h,
+        scroll_y,
+    ) else {
         return Ok(());
     };
 
@@ -1851,7 +2010,7 @@ fn bitmap_font_5x7(ch: char) -> [u8; 7] {
 /// Uses a lightweight 1D box blur with the given radius.
 /// Zero-allocation: reuses the shared scanline scratch buffer.
 fn blur_backdrop_segment(
-    row: &mut [u8],
+    dst: &mut [u8],
     start_x: u32,
     end_x: u32,
     radius: u32,
@@ -1864,10 +2023,10 @@ fn blur_backdrop_segment(
     let start = start_x as usize * 4;
     let end = end_x as usize * 4;
     let segment_len = end.saturating_sub(start);
-    if end > row.len() || segment_len > scratch.len() {
+    if end > dst.len() || segment_len > scratch.len() {
         return Err(WindowdError::BufferLengthMismatch);
     }
-    scratch[..segment_len].copy_from_slice(&row[start..end]);
+    scratch[..segment_len].copy_from_slice(&dst[start..end]);
     let pixels = segment_len / 4;
     for i in 0..pixels {
         let mut sum = [0u32; 4];
@@ -1882,7 +2041,7 @@ fn blur_backdrop_segment(
         if count > 0 {
             let di = start + i * 4;
             for c in 0..4 {
-                row[di + c] = (sum[c] / count).min(255) as u8;
+                dst[di + c] = (sum[c] / count).min(255) as u8;
             }
         }
     }
@@ -1942,8 +2101,12 @@ fn apply_backdrop_cache_row(
 
 /// SDF-based filled circle row renderer (anti-aliased edges).
 fn fill_sdf_circle_row(
-    y: u32, row: &mut [u8],
-    x: u32, rect_y: u32, width: u32, height: u32,
+    y: u32,
+    row: &mut [u8],
+    x: u32,
+    rect_y: u32,
+    width: u32,
+    height: u32,
     bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
     let row_pixels = (row.len() / 4) as u32;
@@ -1958,7 +2121,9 @@ fn fill_sdf_circle_row(
         if alpha > 0.0 {
             let idx = px as usize * 4;
             let a = (alpha * bgra[3] as f32) as u32;
-            if a == 0 { continue; }
+            if a == 0 {
+                continue;
+            }
             let inv = 255 - a;
             row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
             row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
@@ -1970,11 +2135,18 @@ fn fill_sdf_circle_row(
 
 /// SDF-based stroked circle row renderer (anti-aliased border).
 fn stroke_sdf_circle_row(
-    y: u32, row: &mut [u8],
-    x: u32, rect_y: u32, width: u32, height: u32,
-    stroke: u32, bgra: [u8; 4],
+    y: u32,
+    row: &mut [u8],
+    x: u32,
+    rect_y: u32,
+    width: u32,
+    height: u32,
+    stroke: u32,
+    bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
-    if stroke == 0 { return Ok(()); }
+    if stroke == 0 {
+        return Ok(());
+    }
     let row_pixels = (row.len() / 4) as u32;
     let cx = x as f32 + width as f32 * 0.5;
     let cy = rect_y as f32 + height as f32 * 0.5;
@@ -1987,7 +2159,9 @@ fn stroke_sdf_circle_row(
         if alpha > 0.0 {
             let idx = px as usize * 4;
             let a = (alpha * bgra[3] as f32) as u32;
-            if a == 0 { continue; }
+            if a == 0 {
+                continue;
+            }
             let inv = 255 - a;
             row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
             row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
@@ -1999,8 +2173,11 @@ fn stroke_sdf_circle_row(
 
 /// SDF-based filled rounded rectangle row renderer.
 fn fill_sdf_rounded_rect_row(
-    y: u32, row: &mut [u8],
-    rect: ProofBoxRect, cr: u32, bgra: [u8; 4],
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    cr: u32,
+    bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
     let row_pixels = (row.len() / 4) as u32;
     let cr_f = cr as f32;
@@ -2014,7 +2191,9 @@ fn fill_sdf_rounded_rect_row(
         if alpha > 0.0 {
             let idx = px as usize * 4;
             let a = (alpha * bgra[3] as f32) as u32;
-            if a == 0 { continue; }
+            if a == 0 {
+                continue;
+            }
             let inv = 255 - a;
             row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
             row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
@@ -2026,10 +2205,16 @@ fn fill_sdf_rounded_rect_row(
 
 /// SDF-based stroked rounded rectangle row renderer.
 fn stroke_sdf_rounded_rect_row(
-    y: u32, row: &mut [u8],
-    rect: ProofBoxRect, cr: u32, stroke: u32, bgra: [u8; 4],
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    cr: u32,
+    stroke: u32,
+    bgra: [u8; 4],
 ) -> Result<(), WindowdError> {
-    if stroke == 0 { return Ok(()); }
+    if stroke == 0 {
+        return Ok(());
+    }
     let row_pixels = (row.len() / 4) as u32;
     let cr_f = cr as f32;
     let min = (rect.x as f32, rect.y as f32);
@@ -2042,7 +2227,9 @@ fn stroke_sdf_rounded_rect_row(
         if alpha > 0.0 {
             let idx = px as usize * 4;
             let a = (alpha * bgra[3] as f32) as u32;
-            if a == 0 { continue; }
+            if a == 0 {
+                continue;
+            }
             let inv = 255 - a;
             row[idx] = ((bgra[0] as u32 * a + row[idx] as u32 * inv) / 255) as u8;
             row[idx + 1] = ((bgra[1] as u32 * a + row[idx + 1] as u32 * inv) / 255) as u8;
@@ -2112,50 +2299,39 @@ fn draw_layout_box_row(
                     proof_box_border(layout_box, state, paint_role)
                 {
                     stroke_sdf_rounded_rect_row(
-                        y, row, rect, cr, border_width, rgba_to_bgra(border_color),
+                        y,
+                        row,
+                        rect,
+                        cr,
+                        border_width,
+                        rgba_to_bgra(border_color),
                     )?;
                 }
             } else {
                 // Fast path: hard-edged rect
-            if let Some(bgra) = get_effective_bgra(layout_box) {
-                fill_row_rect(
-                    y,
-                    row,
-                    rect.x,
-                    rect.y,
-                    rect.width,
-                    rect.height,
-                    bgra,
-                )?;
-            }
-            if let Some((border_width, border_color)) =
-                proof_box_border(layout_box, state, paint_role)
-            {
-                stroke_row_rect_width(
-                    y,
-                    row,
-                    rect.x,
-                    rect.y,
-                    rect.width,
-                    rect.height,
-                    border_width,
-                    rgba_to_bgra(border_color),
-                )?;
-            }
+                if let Some(bgra) = get_effective_bgra(layout_box) {
+                    fill_row_rect(y, row, rect.x, rect.y, rect.width, rect.height, bgra)?;
+                }
+                if let Some((border_width, border_color)) =
+                    proof_box_border(layout_box, state, paint_role)
+                {
+                    stroke_row_rect_width(
+                        y,
+                        row,
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        border_width,
+                        rgba_to_bgra(border_color),
+                    )?;
+                }
             }
         }
         nexus_layout_types::ShapeKind::Circle => {
             // SDF circle path (anti-aliased edges)
             if let Some(bgra) = get_effective_bgra(layout_box) {
-                fill_sdf_circle_row(
-                    y,
-                    row,
-                    rect.x,
-                    rect.y,
-                    rect.width,
-                    rect.height,
-                    bgra,
-                )?;
+                fill_sdf_circle_row(y, row, rect.x, rect.y, rect.width, rect.height, bgra)?;
             }
             if let Some((border_width, border_color)) =
                 proof_box_border(layout_box, state, paint_role)
@@ -2245,8 +2421,10 @@ fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<ProofBoxRect> 
             return None;
         }
         // Intersect: box must overlap clip rect
-        if x + width <= clip_x || clip_x + clip_w <= x
-            || y + height <= clip_y || clip_y + clip_h <= y
+        if x + width <= clip_x
+            || clip_x + clip_w <= x
+            || y + height <= clip_y
+            || clip_y + clip_h <= y
         {
             return None; // completely outside clip rect
         }
@@ -2355,10 +2533,9 @@ impl ProofCard {
                 active: state.keyboard_visible,
                 accent: crate::assets::PROOF_KEYBOARD,
             },
-            Self::Filter => ProofCardPaint {
-                active: true,
-                accent: crate::assets::PROOF_PANEL_TITLE,
-            },
+            Self::Filter => {
+                ProofCardPaint { active: true, accent: crate::assets::PROOF_PANEL_TITLE }
+            }
         }
     }
 }
@@ -2444,10 +2621,8 @@ fn blend_asset_row_clipped(
         return Ok(());
     }
     let visible_x = x.max(clip_x);
-    let visible_end = x
-        .saturating_add(width)
-        .min(clip_x.saturating_add(clip_width))
-        .min((row.len() / 4) as u32);
+    let visible_end =
+        x.saturating_add(width).min(clip_x.saturating_add(clip_width)).min((row.len() / 4) as u32);
     if visible_end <= visible_x {
         return Ok(());
     }
@@ -2488,10 +2663,8 @@ fn fill_row_rect(
         }
         let inv = 255u32.saturating_sub(alpha);
         row[idx] = ((u32::from(bgra[0]) * alpha + u32::from(row[idx]) * inv) / 255) as u8;
-        row[idx + 1] =
-            ((u32::from(bgra[1]) * alpha + u32::from(row[idx + 1]) * inv) / 255) as u8;
-        row[idx + 2] =
-            ((u32::from(bgra[2]) * alpha + u32::from(row[idx + 2]) * inv) / 255) as u8;
+        row[idx + 1] = ((u32::from(bgra[1]) * alpha + u32::from(row[idx + 1]) * inv) / 255) as u8;
+        row[idx + 2] = ((u32::from(bgra[2]) * alpha + u32::from(row[idx + 2]) * inv) / 255) as u8;
         row[idx + 3] = 0xff;
     }
     Ok(())
@@ -2806,9 +2979,7 @@ mod tests {
 
     #[test]
     fn backdrop_cache_preserves_same_segment_key() {
-        let mut row = vec![
-            0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255,
-        ];
+        let mut row = vec![0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255];
         let mut cache = [BackdropCacheEntry::new(); 4];
         let mut scratch = vec![0u8; row.len()];
         apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
@@ -2820,5 +2991,4 @@ mod tests {
             .expect("cache hit");
         assert_eq!(row, cached);
     }
-
 }

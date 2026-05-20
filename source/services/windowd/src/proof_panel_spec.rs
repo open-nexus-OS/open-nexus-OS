@@ -6,13 +6,11 @@
 // STATUS: Done
 // ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 
-#[cfg(not(any(nexus_env = "os", target_os = "none")))]
-extern crate std;
-#[cfg(any(nexus_env = "os", target_os = "none"))]
+#[cfg(target_os = "none")]
 extern crate alloc;
 
 // Vec is in the std prelude on host, but must be explicitly imported for no_std.
-#[cfg(any(nexus_env = "os", target_os = "none"))]
+#[cfg(target_os = "none")]
 use alloc::vec::Vec;
 
 pub const PANEL_WIDTH: i32 = 610;
@@ -110,16 +108,33 @@ pub const KEY_LABEL: ProofTextSpec = ProofTextSpec {
 };
 
 pub const ALL_TEXT_SPECS: &[ProofTextSpec] = &[
-    TITLE_TEXT, SUBTITLE_TEXT, BODY_TEXT, HOVER_LABEL, CLICK_LABEL, SCROLL_LABEL, KEY_LABEL,
+    TITLE_TEXT,
+    SUBTITLE_TEXT,
+    BODY_TEXT,
+    HOVER_LABEL,
+    CLICK_LABEL,
+    SCROLL_LABEL,
+    KEY_LABEL,
     FILTER_INPUT_PLACEHOLDER,
     FILTER_INPUT_A,
     FILTER_INPUT_AP,
     FILTER_INPUT_B,
     FILTER_INPUT_C,
-    FILTER_WORD_APPLE, FILTER_WORD_APPLICATION, FILTER_WORD_APT, FILTER_WORD_ARROW,
-    FILTER_WORD_ASSET, FILTER_WORD_BATCH, FILTER_WORD_BINARY, FILTER_WORD_BLOCK,
-    FILTER_WORD_BUFFER, FILTER_WORD_BUILD, FILTER_WORD_CACHE, FILTER_WORD_CLOCK,
-    FILTER_WORD_COMPILE, FILTER_WORD_COMPONENT, FILTER_WORD_CONFIG,
+    FILTER_WORD_APPLE,
+    FILTER_WORD_APPLICATION,
+    FILTER_WORD_APT,
+    FILTER_WORD_ARROW,
+    FILTER_WORD_ASSET,
+    FILTER_WORD_BATCH,
+    FILTER_WORD_BINARY,
+    FILTER_WORD_BLOCK,
+    FILTER_WORD_BUFFER,
+    FILTER_WORD_BUILD,
+    FILTER_WORD_CACHE,
+    FILTER_WORD_CLOCK,
+    FILTER_WORD_COMPILE,
+    FILTER_WORD_COMPONENT,
+    FILTER_WORD_CONFIG,
 ];
 
 // ─── Filter input text specs ───
@@ -146,7 +161,7 @@ pub const FILTER_INPUT_AP: ProofTextSpec = filter_input_spec!("filter_input_ap",
 pub const FILTER_INPUT_B: ProofTextSpec = filter_input_spec!("filter_input_b", "b");
 pub const FILTER_INPUT_C: ProofTextSpec = filter_input_spec!("filter_input_c", "c");
 
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) fn filter_input_asset_id(filter_text: &str) -> &'static str {
     match filter_text {
         "" => FILTER_INPUT_PLACEHOLDER.id,
@@ -188,8 +203,7 @@ pub const FILTER_WORD_BUILD: ProofTextSpec = filter_word_spec!("filter_build", "
 pub const FILTER_WORD_CACHE: ProofTextSpec = filter_word_spec!("filter_cache", "cache");
 pub const FILTER_WORD_CLOCK: ProofTextSpec = filter_word_spec!("filter_clock", "clock");
 pub const FILTER_WORD_COMPILE: ProofTextSpec = filter_word_spec!("filter_compile", "compile");
-pub const FILTER_WORD_COMPONENT: ProofTextSpec =
-    filter_word_spec!("filter_component", "component");
+pub const FILTER_WORD_COMPONENT: ProofTextSpec = filter_word_spec!("filter_component", "component");
 pub const FILTER_WORD_CONFIG: ProofTextSpec = filter_word_spec!("filter_config", "config");
 
 // ─── Filter-box word list ───

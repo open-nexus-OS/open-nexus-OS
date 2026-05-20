@@ -139,14 +139,15 @@ mod tests {
                 children.iter().find_map(|child| find_visual_style(child, id))
             }
             LayoutNode::Text(text, style) => (text.id == Some(id)).then_some(style),
-            LayoutNode::TextInput(input, style) => {
-                (input.id == Some(id)).then_some(style)
-            }
+            LayoutNode::TextInput(input, style) => (input.id == Some(id)).then_some(style),
             LayoutNode::Spacer(_) => None,
         }
     }
 
-    fn box_by_id<'a>(layout: &'a nexus_layout::LayoutResult, id: &str) -> &'a nexus_layout::LayoutBox {
+    fn box_by_id<'a>(
+        layout: &'a nexus_layout::LayoutResult,
+        id: &str,
+    ) -> &'a nexus_layout::LayoutBox {
         layout.boxes.iter().find(|b| b.id == Some(id)).unwrap()
     }
 
@@ -430,8 +431,7 @@ mod tests {
 
     #[test]
     fn proof_panel_layout_json_golden() {
-        let layout =
-            compute_proof_layout(default_visible_state(), "").expect("proof layout");
+        let layout = compute_proof_layout(default_visible_state(), "").expect("proof layout");
         let golden: Vec<GoldenBox> = layout
             .boxes
             .iter()
@@ -470,8 +470,7 @@ mod tests {
         moved.cursor_x = 720;
         moved.cursor_y = 512;
 
-        let baseline =
-            compute_proof_layout(default_visible_state(), "").expect("proof layout");
+        let baseline = compute_proof_layout(default_visible_state(), "").expect("proof layout");
         let moved = compute_proof_layout(moved, "").expect("proof layout after cursor move");
 
         assert_eq!(

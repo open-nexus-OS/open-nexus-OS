@@ -56,8 +56,7 @@ mod tests {
         assert!(decoded.keyboard_visible, "keyboard flag survives roundtrip");
 
         // --- Owner state: windowd receives and applies via smoke path ---
-        let evidence = windowd::run_visible_input_smoke()
-            .expect("visible input smoke");
+        let evidence = windowd::run_visible_input_smoke().expect("visible input smoke");
 
         // --- Downstream output: verify evidence from composed chain ---
         assert!(evidence.input_visible_on, "windowd reports input visible on");
@@ -82,8 +81,7 @@ mod tests {
     #[test]
     fn test_windowd_to_fbdevd_hop_present_ack_contract() {
         // --- Owner state: windowd composes bootstrap frame ---
-        let evidence = windowd::bootstrap_display_handoff()
-            .expect("bootstrap display handoff");
+        let evidence = windowd::bootstrap_display_handoff().expect("bootstrap display handoff");
 
         // --- Downstream evidence for fbdevd ---
         assert!(evidence.mode.width > 0, "mode width valid");
@@ -93,8 +91,7 @@ mod tests {
         assert!(evidence.systemui_first_frame_visible, "systemui first frame visible");
 
         // fbdevd gates on: materialized frame dimensions
-        let frame = evidence.materialize_frame()
-            .expect("materialize composed frame");
+        let frame = evidence.materialize_frame().expect("materialize composed frame");
         assert_eq!(frame.width, evidence.mode.width, "composed frame matches mode width");
         assert_eq!(frame.height, evidence.mode.height, "composed frame matches mode height");
         assert_eq!(frame.stride, evidence.mode.width * 4, "stride = width * 4 (BGRA8888)");
@@ -103,7 +100,10 @@ mod tests {
         // fbdevd gates on: first present seq via marker postflight
         let err = windowd::marker_postflight_ready(None)
             .expect_err("no present → MarkerBeforePresentState");
-        assert_eq!(err, windowd::WindowdError::MarkerBeforePresentState,
-            "marker postflight rejects missing present state");
+        assert_eq!(
+            err,
+            windowd::WindowdError::MarkerBeforePresentState,
+            "marker postflight rejects missing present state"
+        );
     }
 }

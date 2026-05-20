@@ -39,7 +39,9 @@ pub struct ShadowCache {
 }
 
 impl ShadowCache {
-    pub fn new() -> Self { Self::with_capacity(SHADOW_CACHE_CAPACITY) }
+    pub fn new() -> Self {
+        Self::with_capacity(SHADOW_CACHE_CAPACITY)
+    }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
@@ -60,13 +62,21 @@ impl ShadowCache {
         self.generation += 1;
         for entry in &mut self.entries {
             if entry.key == key {
-                entry.data = data; entry.width = width; entry.height = height;
+                entry.data = data;
+                entry.width = width;
+                entry.height = height;
                 entry.age = self.generation;
                 return;
             }
         }
         if self.entries.len() >= self.capacity {
-            let lru = self.entries.iter().enumerate().min_by_key(|(_, e)| e.age).map(|(i, _)| i).unwrap_or(0);
+            let lru = self
+                .entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, e)| e.age)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
         self.entries.push(CachedShadow { key, data, width, height, age: self.generation });
@@ -77,13 +87,21 @@ impl ShadowCache {
         self.entries.retain(|e| (e.key >> 32) as u32 != node_id_hash);
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
-    pub fn clear(&mut self) { self.entries.clear(); }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 impl Default for ShadowCache {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── TextCache ───────────────────────────────────────────────────────────
@@ -107,7 +125,9 @@ pub struct TextCache {
 }
 
 impl TextCache {
-    pub fn new() -> Self { Self::with_capacity(TEXT_CACHE_CAPACITY) }
+    pub fn new() -> Self {
+        Self::with_capacity(TEXT_CACHE_CAPACITY)
+    }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
@@ -128,13 +148,21 @@ impl TextCache {
         self.generation += 1;
         for entry in &mut self.entries {
             if entry.key == key {
-                entry.bitmap = bitmap; entry.width = width; entry.height = height;
+                entry.bitmap = bitmap;
+                entry.width = width;
+                entry.height = height;
                 entry.age = self.generation;
                 return;
             }
         }
         if self.entries.len() >= self.capacity {
-            let lru = self.entries.iter().enumerate().min_by_key(|(_, e)| e.age).map(|(i, _)| i).unwrap_or(0);
+            let lru = self
+                .entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, e)| e.age)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
         self.entries.push(CachedGlyph { key, bitmap, width, height, age: self.generation });
@@ -145,13 +173,21 @@ impl TextCache {
         self.entries.retain(|e| (e.key >> 48) as u16 != scale_bucket);
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
-    pub fn clear(&mut self) { self.entries.clear(); }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 impl Default for TextCache {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── EffectCache (9-slice backward compat) ───────────────────────────────
@@ -175,7 +211,9 @@ pub struct EffectCache {
 }
 
 impl EffectCache {
-    pub fn new() -> Self { Self::with_capacity(DEFAULT_EFFECT_CACHE_CAPACITY) }
+    pub fn new() -> Self {
+        Self::with_capacity(DEFAULT_EFFECT_CACHE_CAPACITY)
+    }
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
@@ -196,25 +234,41 @@ impl EffectCache {
         self.generation += 1;
         for entry in &mut self.entries {
             if entry.key == key {
-                entry.data = data; entry.width = width; entry.height = height;
+                entry.data = data;
+                entry.width = width;
+                entry.height = height;
                 entry.age = self.generation;
                 return;
             }
         }
         if self.entries.len() >= self.capacity {
-            let lru = self.entries.iter().enumerate().min_by_key(|(_, e)| e.age).map(|(i, _)| i).unwrap_or(0);
+            let lru = self
+                .entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, e)| e.age)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
         self.entries.push(CachedEffect { key, data, width, height, age: self.generation });
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
-    pub fn clear(&mut self) { self.entries.clear(); }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
 }
 
 impl Default for EffectCache {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── RenderCache aggregator ──────────────────────────────────────────────

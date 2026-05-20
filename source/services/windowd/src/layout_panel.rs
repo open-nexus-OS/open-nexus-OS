@@ -10,20 +10,18 @@ use alloc::vec::Vec;
 use input_live_protocol::VisibleState;
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
-    Align, BoxShadow, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx, Justify,
-    LayoutNode, Fraction,
-    LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint, PathShape,
-    PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode, TextNode,
-    TextStyle, VisualStyle, WhiteSpace,
+    Align, BoxShadow, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, Fraction, FxPx,
+    Justify, LayoutNode, LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint,
+    PathShape, PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode,
+    TextNode, TextStyle, VisualStyle, WhiteSpace,
 };
 
 use crate::assets;
 use crate::proof_panel_spec::{
     filter_words, ALL_TEXT_SPECS, BODY_TEXT, CARD_GAP, CARD_HEIGHT, CARD_ICON_SIZE, CARD_PADDING,
-    CARD_WIDTH,
-    CLICK_LABEL, FILTER_PANEL_HEIGHT, FILTER_PANEL_WIDTH, HOVER_LABEL, ICON_TARGET_SIZE,
-    KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH, SCROLL_LABEL, SUBTITLE_TEXT,
-    TITLE_TEXT,
+    CARD_WIDTH, CLICK_LABEL, FILTER_PANEL_HEIGHT, FILTER_PANEL_WIDTH, HOVER_LABEL,
+    ICON_TARGET_SIZE, KEY_LABEL, PANEL_GAP, PANEL_HEIGHT, PANEL_PADDING, PANEL_WIDTH, SCROLL_LABEL,
+    SUBTITLE_TEXT, TITLE_TEXT,
 };
 
 pub const FILTER_LIST_PADDING: u32 = 4;
@@ -59,13 +57,12 @@ pub fn filter_scrollbar_thumb_bounds(
     if max_scroll == 0 || viewport_height == 0 {
         return None;
     }
-    let thumb_height = (viewport_height as u64 * viewport_height as u64 / content_height as u64)
-        as u32;
+    let thumb_height =
+        (viewport_height as u64 * viewport_height as u64 / content_height as u64) as u32;
     let thumb_height = thumb_height.max(FILTER_SCROLLBAR_MIN_THUMB).min(viewport_height);
     let thumb_range = viewport_height.saturating_sub(thumb_height);
     let scroll_progress = (scroll_y as u64).min(max_scroll as u64);
-    let thumb_y =
-        viewport_y + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
+    let thumb_y = viewport_y + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
     Some((thumb_y, thumb_height))
 }
 
@@ -295,11 +292,7 @@ pub fn compute_proof_layout(
 ) -> Result<LayoutResult, &'static str> {
     let total_width = PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH;
     LayoutEngine::new()
-        .layout(
-            &build_combined_tree(state, filter_text),
-            FxPx::new(total_width),
-            &ProofTextMeasure,
-        )
+        .layout(&build_combined_tree(state, filter_text), FxPx::new(total_width), &ProofTextMeasure)
         .map_err(|_| "layout failed")
 }
 

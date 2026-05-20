@@ -8,12 +8,15 @@
 //! TEST_COVERAGE: 98 tests (21+22+23+8+7+15+2 chain)
 //! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 
-mod msdf_tests;
-mod sdf_tests;
-mod nine_slice_tests;
-mod kawase_tests;
+mod backdrop_tests;
 mod cache_tests;
 mod chain_tests;
+mod kawase_tests;
+mod layer_tests;
+mod msdf_tests;
+mod nine_slice_tests;
+mod sdf_tests;
+mod tile_tests;
 
 #[cfg(test)]
 mod tests {
@@ -60,7 +63,7 @@ mod tests {
         assert_eq!(pixels[center], 255, "center red channel unchanged");
         assert_eq!(pixels[center + 3], 255, "center alpha unchanged");
         // Edge pixel also solid red with same neighbors → unchanged
-        let edge = (0 * stride + 0 * 4) as usize;
+        let edge = 0usize;
         assert_eq!(pixels[edge + 3], 255, "solid fill blur is identity");
     }
 
@@ -171,10 +174,7 @@ mod tests {
     #[test]
     fn test_visual_style_with_box_shadow() {
         let shadow = BoxShadow::default();
-        let style = VisualStyle {
-            shadow: Some(shadow),
-            ..Default::default()
-        };
+        let style = VisualStyle { shadow: Some(shadow), ..Default::default() };
         assert!(style.shadow.is_some());
         assert_eq!(style.shadow.unwrap().blur_radius.0, 8);
     }
@@ -182,10 +182,7 @@ mod tests {
     #[test]
     fn test_visual_style_with_text_shadow() {
         let shadow = TextShadow::default();
-        let style = VisualStyle {
-            text_shadow: Some(shadow),
-            ..Default::default()
-        };
+        let style = VisualStyle { text_shadow: Some(shadow), ..Default::default() };
         assert!(style.text_shadow.is_some());
         assert_eq!(style.text_shadow.unwrap().blur_radius.0, 4);
     }
@@ -198,10 +195,7 @@ mod tests {
 
     #[test]
     fn test_visual_style_opacity_some() {
-        let style = VisualStyle {
-            opacity: Some(Fraction::new(128)),
-            ..Default::default()
-        };
+        let style = VisualStyle { opacity: Some(Fraction::new(128)), ..Default::default() };
         assert_eq!(style.opacity.unwrap().as_u8(), 128);
     }
 

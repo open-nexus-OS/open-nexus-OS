@@ -14,6 +14,7 @@
 //!   - Small image noop (2×2 unchanged)
 //!   - Iteration comparison (more iterations → similar energy)
 //!   - Large radius (48×48, center brighter than near-edge)
+//!
 //! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 
 #[cfg(test)]
@@ -26,7 +27,10 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 let i = (y * stride + x * 4) as usize;
-                v[i] = b; v[i + 1] = g; v[i + 2] = r; v[i + 3] = a;
+                v[i] = b;
+                v[i + 1] = g;
+                v[i + 2] = r;
+                v[i + 3] = a;
             }
         }
         (v, stride)
@@ -74,14 +78,21 @@ mod tests {
         let h: u32 = 16;
         let stride = w * 4;
         let mut pixels = vec![0u8; (stride * h) as usize];
-        let cx = 8usize; let cy = 8usize;
+        let cx = 8usize;
+        let cy = 8usize;
         let ci = cy * stride as usize + cx * 4;
-        pixels[ci] = 255; pixels[ci + 1] = 255; pixels[ci + 2] = 255; pixels[ci + 3] = 255;
+        pixels[ci] = 255;
+        pixels[ci + 1] = 255;
+        pixels[ci + 2] = 255;
+        pixels[ci + 3] = 255;
 
         dual_kawase_blur(&mut pixels, w, h, stride, 4, 2);
 
         assert!(alpha_at(&pixels, stride, cx as u32, cy as u32) > 0, "center still has alpha");
-        assert!(alpha_at(&pixels, stride, cx as u32, (cy - 1) as u32) > 0, "neighbor picked up alpha");
+        assert!(
+            alpha_at(&pixels, stride, cx as u32, (cy - 1) as u32) > 0,
+            "neighbor picked up alpha"
+        );
     }
 
     #[test]
@@ -103,8 +114,14 @@ mod tests {
         for y in 6..10u32 {
             for x in 6..10u32 {
                 let i = (y * stride + x * 4) as usize;
-                p1[i] = 255; p1[i + 1] = 255; p1[i + 2] = 255; p1[i + 3] = 255;
-                p2[i] = 255; p2[i + 1] = 255; p2[i + 2] = 255; p2[i + 3] = 255;
+                p1[i] = 255;
+                p1[i + 1] = 255;
+                p1[i + 2] = 255;
+                p1[i + 3] = 255;
+                p2[i] = 255;
+                p2[i + 1] = 255;
+                p2[i + 2] = 255;
+                p2[i + 3] = 255;
             }
         }
 
@@ -123,12 +140,15 @@ mod tests {
         let h: u32 = 48;
         let stride = w * 4;
         let mut pixels = vec![0u8; (stride * h) as usize];
-        let cx = 18u32; let cy = 18u32;
+        let cx = 18u32;
+        let cy = 18u32;
         for y in cy..cy + 12 {
             for x in cx..cx + 12 {
                 let i = (y * stride + x * 4) as usize;
-                pixels[i] = 255; pixels[i + 1] = 255;
-                pixels[i + 2] = 255; pixels[i + 3] = 255;
+                pixels[i] = 255;
+                pixels[i + 1] = 255;
+                pixels[i + 2] = 255;
+                pixels[i + 3] = 255;
             }
         }
         let count = dual_kawase_blur(&mut pixels, w, h, stride, 16, 3);
@@ -136,6 +156,9 @@ mod tests {
         let center_alpha = alpha_at(&pixels, stride, 24, 24);
         let near_alpha = alpha_at(&pixels, stride, 8, 24);
         assert!(center_alpha > 0, "center still has alpha");
-        assert!(center_alpha >= near_alpha, "center at least as bright as near-edge (center={center_alpha}, near={near_alpha})");
+        assert!(
+            center_alpha >= near_alpha,
+            "center at least as bright as near-edge (center={center_alpha}, near={near_alpha})"
+        );
     }
 }

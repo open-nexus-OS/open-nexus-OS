@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
         .map_err(|err| std::io::Error::other(format!("parse Inter font: {err:?}")))?;
 
-    let atlas_rows = (GLYPH_COUNT + ATLAS_COLS - 1) / ATLAS_COLS;
+    let atlas_rows = GLYPH_COUNT.div_ceil(ATLAS_COLS);
     let atlas_width = ATLAS_COLS * GLYPH_SIZE;
     let atlas_height = atlas_rows * GLYPH_SIZE;
 
@@ -89,10 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writeln!(f, "pub const MSDF_GLYPH_SIZE: u32 = {GLYPH_SIZE};")?;
     writeln!(f)?;
     writeln!(f, "/// Atlas pixel data (BGRA, {atlas_width}×{atlas_height}).")?;
-    writeln!(
-        f,
-        "pub static MSDF_ATLAS: &[u8] = include_bytes!(env!(\"MSDF_ATLAS_PATH\"));"
-    )?;
+    writeln!(f, "pub static MSDF_ATLAS: &[u8] = include_bytes!(env!(\"MSDF_ATLAS_PATH\"));")?;
     writeln!(f)?;
     writeln!(f, "/// Per-glyph metrics, indexed by `(char_code - MSDF_FIRST_CHAR)`.")?;
     writeln!(f, "pub static MSDF_METRICS: &[GlyphMetrics] = &[")?;
@@ -114,8 +111,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 struct GlyphMetrics {
-    atlas_col: u32,
-    atlas_row: u32,
     advance: f32,
     bearing_x: f32,
     bearing_y: f32,
@@ -144,7 +139,9 @@ fn render_glyph_sdf(
         let glyph_height = metrics.height as u32;
 
         let offset_x = (size.saturating_sub(glyph_width) / 2) as i32;
-        let offset_y = ((size as i32) + metrics.bounds.ymin as i32).max(0).min(size.saturating_sub(glyph_height) as i32);
+        let offset_y = ((size as i32) + metrics.bounds.ymin as i32)
+            .max(0)
+            .min(size.saturating_sub(glyph_height) as i32);
 
         for gy in 0..glyph_height {
             for gx in 0..glyph_width {
@@ -165,11 +162,9 @@ fn render_glyph_sdf(
     // Scale bearing to SDF size
     let scale_ratio = size as f32 / scale;
     let metrics_entry = GlyphMetrics {
-        atlas_col: 0, // filled later
-        atlas_row: 0, // filled later
         advance: metrics.advance_width * scale_ratio,
-        bearing_x: metrics.bounds.xmin as f32 * scale_ratio,
-        bearing_y: -(metrics.bounds.ymin as f32) * scale_ratio,
+        bearing_x: metrics.bounds.xmin * scale_ratio,
+        bearing_y: -metrics.bounds.ymin * scale_ratio,
         width: metrics.width as u32,
         height: metrics.height as u32,
     };
@@ -217,10 +212,13 @@ fn compute_sdf(glyph: &[u8], size: u32) -> Vec<u8> {
                     for dx in -1i32..=1i32 {
                         let nx = x as i32 + dx;
                         let ny = y as i32 + dy;
-                        if nx >= 0 && nx < n as i32 && ny >= 0 && ny < n as i32 {
-                            if glyph[(ny as usize) * n + nx as usize] >= 128 {
-                                is_edge = true;
-                            }
+                        if nx >= 0
+                            && nx < n as i32
+                            && ny >= 0
+                            && ny < n as i32
+                            && glyph[(ny as usize) * n + nx as usize] >= 128
+                        {
+                            is_edge = true;
                         }
                     }
                 }
@@ -243,9 +241,9 @@ fn compute_sdf(glyph: &[u8], size: u32) -> Vec<u8> {
         let d_inner = inner[i];
         // Signed distance: negative inside, positive outside
         let signed: f32 = if glyph[i] >= 128 {
-            d_inner as f32  // inside → positive → maps to > 128 (white)
+            d_inner as f32 // inside → positive → maps to > 128 (white)
         } else {
-            -(d_outer as f32)  // outside → negative → maps to < 128 (black)
+            -(d_outer as f32) // outside → negative → maps to < 128 (black)
         };
         // Map [-max_dist, +max_dist] to [0, 255] with 128 at edge
         let clamped = signed.clamp(-max_dist as f32, max_dist as f32);

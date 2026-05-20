@@ -6,11 +6,7 @@
 //! READINESS: print "imed: ready"; register/heartbeat with samgr (stub).
 //! TESTS: unit tests in lib.rs.
 
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![forbid(unsafe_code)]
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

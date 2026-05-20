@@ -15,13 +15,14 @@
 //!   - smoothstep (below edge0, above edge1, midpoint)
 //!   - fill_alpha / border_alpha (deep inside/outside, on-border tolerance)
 //!   - rounded_rect convenience (fill alpha center, border alpha edge)
+//!
 //! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 
 #[cfg(test)]
 mod tests {
     use nexus_sdf::{
-        border_alpha, fill_alpha, rounded_rect_border_alpha, rounded_rect_fill_alpha,
-        sd_circle, sd_rect, sd_rounded_rect, sd_triangle, smoothstep,
+        border_alpha, fill_alpha, rounded_rect_border_alpha, rounded_rect_fill_alpha, sd_circle,
+        sd_rect, sd_rounded_rect, sd_triangle, smoothstep,
     };
 
     // ─── sd_circle ───

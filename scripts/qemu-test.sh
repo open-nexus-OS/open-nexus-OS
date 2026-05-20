@@ -52,6 +52,9 @@ if [[ ${#new_args[@]} -gt 0 ]]; then
 else
   set --
 fi
+if [[ -n "$PROFILE" ]]; then
+  PROFILE=${PROFILE,,}
+fi
 
 # Resolve the CLI binary lazily (build on first invocation if missing).
 pm_cli() {
@@ -583,7 +586,6 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "windowd: icon target visible"
     "fbdevd: cursor overlay on"
     "SELFTEST: ui v2b assets ok"
-    "SELFTEST: end"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit

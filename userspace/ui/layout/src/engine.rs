@@ -12,7 +12,8 @@
 use crate::error::LayoutError;
 use alloc::vec::Vec;
 use nexus_layout_types::{
-    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Overflow, Rect, TextContent, VisualStyle,
+    Align, FlexItem, FxPx, Justify, LayoutNode, MeasureText, Overflow, Rect, TextContent,
+    VisualStyle,
 };
 
 const DEFAULT_MAX_NODES: usize = 4096;
@@ -301,11 +302,27 @@ impl LayoutEngine {
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
             }
             LayoutNode::Text(text, style) => self.place_text(
-                node_id, text, style, x, y, constraints, parent_clip, scroll_offset, measure,
+                node_id,
+                text,
+                style,
+                x,
+                y,
+                constraints,
+                parent_clip,
+                scroll_offset,
+                measure,
                 boxes,
             ),
             LayoutNode::TextInput(input, style) => self.place_text_input(
-                node_id, input, style, x, y, constraints, parent_clip, scroll_offset, measure,
+                node_id,
+                input,
+                style,
+                x,
+                y,
+                constraints,
+                parent_clip,
+                scroll_offset,
+                measure,
                 boxes,
             ),
         }
@@ -427,7 +444,8 @@ impl LayoutEngine {
         let height = measured.height;
         let container_index = boxes.len();
         let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden);
-        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
+        let container_scroll =
+            if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(stack.padding.horizontal());
         let content_height = height.saturating_sub(stack.padding.vertical());
         let container_clip = if is_overflow_hidden {
@@ -559,7 +577,7 @@ impl LayoutEngine {
                 } else {
                     0
                 };
-                allocations.push(FxPx::new((base_main.0 as i32 - shrink).max(0)));
+                allocations.push(FxPx::new((base_main.0 - shrink).max(0)));
             }
         }
         let mut row_height = FxPx::ZERO;
@@ -590,18 +608,14 @@ impl LayoutEngine {
             let child_width = allocation.saturating_sub(item.margin.horizontal());
             let measured = self.measure_node(
                 child,
-                child_constraints(
-                    constraints,
-                    *item,
-                    child_width,
-                    Some(available_cross),
-                ),
+                child_constraints(constraints, *item, child_width, Some(available_cross)),
                 depth + 1,
                 measure,
             )?;
             let align = item.align_self.unwrap_or(stack.align);
             let child_x = cursor + item.margin.left;
-            let cross_space = available_cross.saturating_sub(measured.height + item.margin.vertical());
+            let cross_space =
+                available_cross.saturating_sub(measured.height + item.margin.vertical());
             let child_y = content_y + item.margin.top + align_offset(align, cross_space);
             let child_node_id = *node_count + 1;
             self.place_node(
@@ -616,11 +630,12 @@ impl LayoutEngine {
                 node_count,
                 boxes,
             )?;
-            let final_height = if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
-                available_cross.saturating_sub(item.margin.vertical())
-            } else {
-                measured.height
-            };
+            let final_height =
+                if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
+                    available_cross.saturating_sub(item.margin.vertical())
+                } else {
+                    measured.height
+                };
             update_box_geometry(
                 boxes,
                 child_node_id,
@@ -724,7 +739,7 @@ impl LayoutEngine {
                 } else {
                     0
                 };
-                let allocation = FxPx::new((base_main.0 as i32 - shrink).max(0));
+                let allocation = FxPx::new((base_main.0 - shrink).max(0));
                 allocations.push(allocation);
                 used_main += allocation;
             }
@@ -733,12 +748,8 @@ impl LayoutEngine {
             used_main += stack.gap * gap_count;
         }
         let justify_free = available_content.saturating_sub(used_main);
-        let (mut cursor, extra_gap) = justify_offsets(
-            stack.justify,
-            FxPx::ZERO.max(justify_free),
-            in_flow.len(),
-            stack.gap,
-        );
+        let (mut cursor, extra_gap) =
+            justify_offsets(stack.justify, FxPx::ZERO.max(justify_free), in_flow.len(), stack.gap);
         cursor += content_y;
         let mut column_height = FxPx::ZERO;
         for ((child, item, measured, _), allocation) in in_flow.iter().zip(allocations.iter()) {
@@ -823,7 +834,8 @@ impl LayoutEngine {
         let height = measured.height;
         let container_index = boxes.len();
         let is_overflow_hidden = matches!(grid.overflow, Overflow::Hidden);
-        let container_scroll = if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
+        let container_scroll =
+            if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(grid.padding.horizontal());
         let content_height = height.saturating_sub(grid.padding.vertical());
         let container_clip = if is_overflow_hidden {
@@ -960,7 +972,10 @@ impl LayoutEngine {
             }
             LayoutNode::Spacer(spacer) => {
                 let main = spacer.min_size.unwrap_or(FxPx::ZERO);
-                Ok(NodeSize { width: main, height: clamp_to_max_height(FxPx::ZERO, constraints.max_height) })
+                Ok(NodeSize {
+                    width: main,
+                    height: clamp_to_max_height(FxPx::ZERO, constraints.max_height),
+                })
             }
             LayoutNode::Text(text, _) => self.measure_text(text, constraints, measure),
             LayoutNode::TextInput(input, _) => {

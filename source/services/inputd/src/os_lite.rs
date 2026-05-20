@@ -23,13 +23,12 @@ use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
-    live_push::should_push_visible_state,
-    decode_wire_batch, visible_display_space, visible_display_start_position,
-    visible_hover_target_contains, InputDispatch, InputdConfig, InputdService, WireBatchReject,
-    LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
-    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
-    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
-    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
+    decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
+    visible_display_start_position, visible_hover_target_contains, InputDispatch, InputdConfig,
+    InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT,
+    LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X,
+    VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH,
+    VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
 };
 
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
@@ -518,8 +517,10 @@ impl LiveRouteRuntime {
             self.keyboard_marker_emitted = true;
         }
         self.sync_wheel_indicator(now_ns);
-        let absolute_pointer_source =
-            matches!(active_source, Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute));
+        let absolute_pointer_source = matches!(
+            active_source,
+            Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
+        );
         let hover_changed = previous_hover_visible != self.visible_state.hover_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
         let immediate_push = pointer_down_dispatched
@@ -557,8 +558,8 @@ impl LiveRouteRuntime {
         let old_up = self.visible_state.wheel_up_visible;
         let old_down = self.visible_state.wheel_down_visible;
         self.sync_wheel_indicator(now_ns);
-        let immediate_push =
-            old_up != self.visible_state.wheel_up_visible || old_down != self.visible_state.wheel_down_visible;
+        let immediate_push = old_up != self.visible_state.wheel_up_visible
+            || old_down != self.visible_state.wheel_down_visible;
         if should_push_visible_state(
             self.last_windowd_push_state,
             self.visible_state,

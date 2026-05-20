@@ -269,8 +269,9 @@ mod tests {
             VisualStyle::default(),
             vec![fixed, flex],
         );
-        let r =
-            LayoutEngine::new().layout(&root, px(120), &MockMeasure { char_width: px(10) }).unwrap();
+        let r = LayoutEngine::new()
+            .layout(&root, px(120), &MockMeasure { char_width: px(10) })
+            .unwrap();
         let fixed = r.boxes.iter().find(|b| b.id == Some("fixed")).unwrap();
         let flex = r.boxes.iter().find(|b| b.id == Some("flex")).unwrap();
         assert_eq!(fixed.rect.height, px(20));

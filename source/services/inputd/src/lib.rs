@@ -13,6 +13,7 @@
 
 mod config;
 mod error;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod live_push;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod os_lite;

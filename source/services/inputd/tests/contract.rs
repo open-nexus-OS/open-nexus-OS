@@ -719,8 +719,12 @@ fn live_fastpath_pointer_burst_coalesces_but_click_and_keyboard_edges_still_rout
     }
 
     assert_eq!(inputd.router().pointer_coalesce_burst(), 3);
-    let delivered_moves = inputd.router_mut().take_input_events(caller, surface).expect("move deliveries");
-    assert!(delivered_moves.is_empty(), "coalesced pointer burst should not enqueue per-move deliveries");
+    let delivered_moves =
+        inputd.router_mut().take_input_events(caller, surface).expect("move deliveries");
+    assert!(
+        delivered_moves.is_empty(),
+        "coalesced pointer burst should not enqueue per-move deliveries"
+    );
 
     let press = hidrawd::HidBatch::new(
         DeviceId::new(4),
@@ -732,7 +736,11 @@ fn live_fastpath_pointer_burst_coalesces_but_click_and_keyboard_edges_still_rout
         press_dispatches.as_slice(),
         [InputDispatch::PointerDown { delivery, .. }] if delivery.surface == surface
     ));
-    assert_eq!(inputd.router().pointer_coalesce_burst(), 0, "click edge should reset pointer burst");
+    assert_eq!(
+        inputd.router().pointer_coalesce_burst(),
+        0,
+        "click edge should reset pointer burst"
+    );
 
     let delivered_press =
         inputd.router_mut().take_input_events(caller, surface).expect("press deliveries");
@@ -751,7 +759,8 @@ fn live_fastpath_pointer_burst_coalesces_but_click_and_keyboard_edges_still_rout
             if delivery.surface == surface
     ));
 
-    let delivered_key = inputd.router_mut().take_input_events(caller, surface).expect("key deliveries");
+    let delivered_key =
+        inputd.router_mut().take_input_events(caller, surface).expect("key deliveries");
     assert_eq!(delivered_key.len(), 1);
     assert!(matches!(delivered_key[0].kind, windowd::InputEventKind::Keyboard { key_code: 0x04 }));
 }

@@ -12,6 +12,7 @@
 //!   - TextCache (insert/get, miss, LRU eviction, scale invalidation)
 //!   - RenderCache (clear all sub-caches, dirty invalidation clears shadows only, scroll preserves,
 //!     no-dirty no-op, begin_frame advances generation)
+//!
 //! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 
 #[cfg(test)]

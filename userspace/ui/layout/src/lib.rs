@@ -20,7 +20,5 @@ pub mod engine;
 mod engine_tests;
 pub mod error;
 
-pub use engine::{
-    compute_scroll_damage, LayoutBox, LayoutEngine, LayoutResult, ScrollDamage,
-};
+pub use engine::{compute_scroll_damage, LayoutBox, LayoutEngine, LayoutResult, ScrollDamage};
 pub use error::LayoutError;

@@ -60,12 +60,7 @@ impl DamageRect {
         let y = self.y.min(other.y);
         let end_x = self.end_x().max(other.end_x());
         let end_y = self.end_y().max(other.end_y());
-        Self {
-            x,
-            y,
-            width: end_x.saturating_sub(x),
-            height: end_y.saturating_sub(y),
-        }
+        Self { x, y, width: end_x.saturating_sub(x), height: end_y.saturating_sub(y) }
     }
 }
 
@@ -121,9 +116,8 @@ impl LayoutHotPathIndex {
         mode_height: u32,
     ) -> Self {
         let band_start_y = base_y.min(mode_height);
-        let band_end_y = base_y
-            .saturating_add(crate::proof_panel_spec::PANEL_HEIGHT as u32)
-            .min(mode_height);
+        let band_end_y =
+            base_y.saturating_add(crate::proof_panel_spec::PANEL_HEIGHT as u32).min(mode_height);
         let mut row_masks = [0u64; PANEL_BAND_ROWS];
         let mut row_has_shadow = [false; PANEL_BAND_ROWS];
         let mut overflow_boxes = false;
@@ -140,7 +134,8 @@ impl LayoutHotPathIndex {
         let mut key_rect = None;
 
         for (box_idx, layout_box) in layout.boxes.iter().enumerate() {
-            let Some((start_y, end_y)) = layout_box_row_range(layout_box, base_y, mode_height) else {
+            let Some((start_y, end_y)) = layout_box_row_range(layout_box, base_y, mode_height)
+            else {
                 continue;
             };
             let rect = layout_box_damage_rect(layout_box, base_x, base_y, mode_width, mode_height);
@@ -241,7 +236,9 @@ impl LayoutHotPathIndex {
             TargetDamage::Click => self.click_rect,
             TargetDamage::Scroll => self.scroll_rect,
             TargetDamage::Key => self.key_rect,
-            TargetDamage::FilterPanel | TargetDamage::FilterList | TargetDamage::FilterInput => None,
+            TargetDamage::FilterPanel | TargetDamage::FilterList | TargetDamage::FilterInput => {
+                None
+            }
         }
     }
 }
@@ -296,9 +293,7 @@ pub(crate) fn scroll_damage_rows(
     let mut rows = None;
     for rect in damage.rects.into_iter().flatten() {
         let start_y = base_y.saturating_add(rect.y.as_u32().unwrap_or(0)).min(mode_height);
-        let end_y = start_y
-            .saturating_add(rect.height.as_u32().unwrap_or(0))
-            .min(mode_height);
+        let end_y = start_y.saturating_add(rect.height.as_u32().unwrap_or(0)).min(mode_height);
         rows = merge_row_range(rows, if start_y < end_y { Some((start_y, end_y)) } else { None });
     }
     rows
@@ -356,12 +351,7 @@ fn layout_box_damage_rect(
     y = y.min(mode_height);
     end_x = end_x.min(mode_width);
     end_y = end_y.min(mode_height);
-    (x < end_x && y < end_y).then_some(DamageRect {
-        x,
-        y,
-        width: end_x - x,
-        height: end_y - y,
-    })
+    (x < end_x && y < end_y).then_some(DamageRect { x, y, width: end_x - x, height: end_y - y })
 }
 
 #[cfg(test)]
@@ -412,10 +402,7 @@ mod tests {
     fn damage_rect_merge_bounds_small_target_updates() {
         let left = DamageRect { x: 10, y: 20, width: 30, height: 40 };
         let right = DamageRect { x: 32, y: 10, width: 20, height: 12 };
-        assert_eq!(
-            left.merge(right),
-            DamageRect { x: 10, y: 10, width: 42, height: 50 }
-        );
+        assert_eq!(left.merge(right), DamageRect { x: 10, y: 10, width: 42, height: 50 });
     }
 
     #[test]

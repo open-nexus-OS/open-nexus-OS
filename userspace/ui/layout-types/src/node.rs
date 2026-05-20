@@ -270,9 +270,7 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => grid.min_width.or(grid.item.min_width),
             LayoutNode::Spacer(spacer) => spacer.min_size.or(spacer.item.min_width),
             LayoutNode::Text(text, _) => text.min_width.or(text.item.min_width),
-            LayoutNode::TextInput(input, _) => {
-                input.min_width.or(input.item.min_width)
-            }
+            LayoutNode::TextInput(input, _) => input.min_width.or(input.item.min_width),
         }
     }
 
@@ -282,9 +280,7 @@ impl LayoutNode {
             LayoutNode::Grid(grid, _, _) => grid.max_width.or(grid.item.max_width),
             LayoutNode::Spacer(spacer) => spacer.item.max_width,
             LayoutNode::Text(text, _) => text.max_width.or(text.item.max_width),
-            LayoutNode::TextInput(input, _) => {
-                input.max_width.or(input.item.max_width)
-            }
+            LayoutNode::TextInput(input, _) => input.max_width.or(input.item.max_width),
         }
     }
 }

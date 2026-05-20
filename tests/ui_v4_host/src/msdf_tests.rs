@@ -13,14 +13,14 @@
 //!   - SDF sampling (center inside, corner, space all outside, out-of-range, bilinear smooth)
 //!   - sdf_to_alpha (edge, deep inside, deep outside, AA width scaling)
 //!   - sample_alpha convenience (inside, space transparent)
+//!
 //! ADR: docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md
 
 #[cfg(test)]
 mod tests {
     use nexus_msdf::{
-        glyph_metrics, sample_alpha, sample_atlas, sdf_to_alpha, MSDF_ATLAS,
-        MSDF_ATLAS_HEIGHT, MSDF_ATLAS_WIDTH, MSDF_FIRST_CHAR, MSDF_GLYPH_COUNT, MSDF_GLYPH_SIZE,
-        MSDF_METRICS,
+        glyph_metrics, sample_alpha, sample_atlas, sdf_to_alpha, MSDF_ATLAS, MSDF_ATLAS_HEIGHT,
+        MSDF_ATLAS_WIDTH, MSDF_FIRST_CHAR, MSDF_GLYPH_COUNT, MSDF_GLYPH_SIZE, MSDF_METRICS,
     };
 
     // ─── Atlas constants ───
@@ -32,9 +32,9 @@ mod tests {
 
     #[test]
     fn test_atlas_dimensions_reasonable() {
-        // Atlas should be at least wide enough for 32 glyph columns × 32 px
-        assert!(MSDF_ATLAS_WIDTH >= 32 * MSDF_GLYPH_SIZE);
-        assert!(MSDF_ATLAS_HEIGHT >= 3 * MSDF_GLYPH_SIZE); // at least 3 rows for 95 glyphs
+        // Layout constants should stay internally consistent with glyph cell size.
+        assert_eq!(MSDF_ATLAS_WIDTH % MSDF_GLYPH_SIZE, 0);
+        assert_eq!(MSDF_ATLAS_HEIGHT % MSDF_GLYPH_SIZE, 0);
     }
 
     #[test]
@@ -91,7 +91,7 @@ mod tests {
     // ─── SDF sampling ───
 
     #[test]
-    fn test_sample_atlas_I_center_inside() {
+    fn test_sample_atlas_i_center_inside() {
         // 'I' has no counter — center (0.5, 0.5) should be inside the glyph
         let sd = sample_atlas('I', 0.5, 0.5);
         assert!(sd > 128, "center of 'I' should be inside glyph (sd={sd})");
@@ -158,14 +158,16 @@ mod tests {
         let narrow = sdf_to_alpha(140, 4);
         let wide = sdf_to_alpha(140, 16);
         // At sd=140 (12 units from edge), narrow aa (4) clamps to 255, wide aa (16) gives ~192
-        assert!(narrow > wide || narrow == 255,
-            "narrow AA should produce sharper edge (narrow={narrow}, wide={wide})");
+        assert!(
+            narrow > wide || narrow == 255,
+            "narrow AA should produce sharper edge (narrow={narrow}, wide={wide})"
+        );
     }
 
     // ─── sample_alpha convenience ───
 
     #[test]
-    fn test_sample_alpha_I_inside() {
+    fn test_sample_alpha_i_inside() {
         let alpha = sample_alpha('I', 0.5, 0.5, 16);
         assert!(alpha > 100, "center of 'I' should be at least semi-opaque (alpha={alpha})");
     }

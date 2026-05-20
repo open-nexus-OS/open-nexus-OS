@@ -14,6 +14,8 @@
 
 use alloc::vec::Vec;
 
+type PyramidLevel = (Vec<u8>, u32, u32, u32);
+
 /// Applies a 3×3 box blur to an RGBA8888 region.
 ///
 /// The input region has dimensions `(width, height)` with `stride` bytes per row.
@@ -72,12 +74,7 @@ pub fn blur_3x3(pixels: &mut [u8], width: u32, height: u32, stride: u32) -> u32 
 
 /// Horizontal 1×3 blur (faster, for shadow passes).
 /// Returns blurred pixel count.
-pub fn blur_1x3_horizontal(
-    pixels: &mut [u8],
-    width: u32,
-    height: u32,
-    stride: u32,
-) -> u32 {
+pub fn blur_1x3_horizontal(pixels: &mut [u8], width: u32, height: u32, stride: u32) -> u32 {
     if width < 3 || height == 0 {
         return 0;
     }
@@ -230,13 +227,7 @@ pub fn blur_1d(
 /// operations — roughly 4 reads + 4 writes per pixel regardless of radius.
 ///
 /// Returns the total number of pixels blurred in both passes.
-pub fn blur_separable(
-    pixels: &mut [u8],
-    width: u32,
-    height: u32,
-    stride: u32,
-    radius: u32,
-) -> u32 {
+pub fn blur_separable(pixels: &mut [u8], width: u32, height: u32, stride: u32, radius: u32) -> u32 {
     let c1 = blur_1d(pixels, width, height, stride, radius, true);
     let c2 = blur_1d(pixels, width, height, stride, radius, false);
     c1 + c2
@@ -273,9 +264,7 @@ pub fn dual_kawase_blur(
     let s = stride as usize;
 
     let _max_levels = iterations as usize + 1;
-    let mut pyramid: [Option<(alloc::vec::Vec<u8>, u32, u32, u32)>; 6] = [
-        None, None, None, None, None, None,
-    ];
+    let mut pyramid: [Option<PyramidLevel>; 6] = [None, None, None, None, None, None];
 
     let mut level0 = alloc::vec![0u8; h * s];
     level0[..h * s].copy_from_slice(&pixels[..h * s]);
@@ -327,7 +316,7 @@ pub fn dual_kawase_blur(
             None => continue,
         };
         upscale_2x(&src_data, sw, sh, dst_data, dw, dh, ds);
-        total += (dw * dh) as u32;
+        total += dw * dh;
     }
 
     if let Some((ref result, _, _, _)) = pyramid[0] {
@@ -346,16 +335,26 @@ pub fn dual_kawase_blur(
 fn downsample_2x(src: &[u8], sw: u32, _sh: u32, dst: &mut [u8], dw: u32, dh: u32) {
     for dy in 0..dh as usize {
         for dx in 0..dw as usize {
-            let sx = dx * 2; let sy = dy * 2;
-            let mut r = 0u32; let mut g = 0u32; let mut b = 0u32; let mut a = 0u32;
-            for oy in 0..2usize { for ox in 0..2usize {
-                let idx = ((sy + oy) * sw as usize + (sx + ox)) * 4;
-                r += src[idx] as u32; g += src[idx + 1] as u32;
-                b += src[idx + 2] as u32; a += src[idx + 3] as u32;
-            }}
+            let sx = dx * 2;
+            let sy = dy * 2;
+            let mut r = 0u32;
+            let mut g = 0u32;
+            let mut b = 0u32;
+            let mut a = 0u32;
+            for oy in 0..2usize {
+                for ox in 0..2usize {
+                    let idx = ((sy + oy) * sw as usize + (sx + ox)) * 4;
+                    r += src[idx] as u32;
+                    g += src[idx + 1] as u32;
+                    b += src[idx + 2] as u32;
+                    a += src[idx + 3] as u32;
+                }
+            }
             let di = (dy * dw as usize + dx) * 4;
-            dst[di] = (r / 4) as u8; dst[di + 1] = (g / 4) as u8;
-            dst[di + 2] = (b / 4) as u8; dst[di + 3] = (a / 4) as u8;
+            dst[di] = (r / 4) as u8;
+            dst[di + 1] = (g / 4) as u8;
+            dst[di + 2] = (b / 4) as u8;
+            dst[di + 3] = (a / 4) as u8;
         }
     }
 }
@@ -375,22 +374,37 @@ fn upscale_2x(src: &[u8], sw: u32, sh: u32, dst: &mut [u8], dw: u32, dh: u32, st
 
 /// 3×3 blur with configurable sampling stride.
 fn stride_blur_3x3(pixels: &mut [u8], width: u32, height: u32, stride: u32, step: usize) {
-    if width < 3 || height < 3 { return; }
-    let w = width as usize; let h = height as usize; let s = stride as usize;
+    if width < 3 || height < 3 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
     let mut copy = alloc::vec![0u8; h * s];
     copy[..h * s].copy_from_slice(&pixels[..h * s]);
     let step = step.max(1);
     for y in step..h - step {
         for x in step..w - step {
-            let mut r = 0u32; let mut g = 0u32; let mut b = 0u32; let mut a = 0u32;
-            for ky in 0..3u32 { for kx in 0..3u32 {
-                let sx = (x as isize + (kx as isize - 1) * step as isize).max(0).min(w as isize - 1) as usize;
-                let sy = (y as isize + (ky as isize - 1) * step as isize).max(0).min(h as isize - 1) as usize;
-                let idx = sy * s + sx * 4;
-                let ca = copy[idx + 3] as u32;
-                r += copy[idx] as u32 * ca; g += copy[idx + 1] as u32 * ca;
-                b += copy[idx + 2] as u32 * ca; a += ca;
-            }}
+            let mut r = 0u32;
+            let mut g = 0u32;
+            let mut b = 0u32;
+            let mut a = 0u32;
+            for ky in 0..3u32 {
+                for kx in 0..3u32 {
+                    let sx = (x as isize + (kx as isize - 1) * step as isize)
+                        .max(0)
+                        .min(w as isize - 1) as usize;
+                    let sy = (y as isize + (ky as isize - 1) * step as isize)
+                        .max(0)
+                        .min(h as isize - 1) as usize;
+                    let idx = sy * s + sx * 4;
+                    let ca = copy[idx + 3] as u32;
+                    r += copy[idx] as u32 * ca;
+                    g += copy[idx + 1] as u32 * ca;
+                    b += copy[idx + 2] as u32 * ca;
+                    a += ca;
+                }
+            }
             let di = y * s + x * 4;
             if a > 0 {
                 pixels[di] = (r / a).min(255) as u8;

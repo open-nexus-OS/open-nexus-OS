@@ -19,6 +19,27 @@ use crate::budget::EffectBudget;
 use crate::cache::EffectCache;
 use nexus_layout_types::Rgba8;
 
+#[derive(Debug, Clone, Copy)]
+pub struct DropShadowParams {
+    pub width: u32,
+    pub height: u32,
+    pub stride: u32,
+    pub offset_x: i32,
+    pub offset_y: i32,
+    pub shadow_color: Rgba8,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NineSliceCompositeParams {
+    pub target_w: u32,
+    pub target_h: u32,
+    pub stride: u32,
+    pub elem_w: u32,
+    pub elem_h: u32,
+    pub offset_x: i32,
+    pub offset_y: i32,
+}
+
 /// Composite a drop shadow from a source alpha mask onto a target RGBA buffer.
 ///
 /// - `target`: RGBA8888 pixel buffer (`width` × `height`, `stride` bytes/row)
@@ -30,15 +51,16 @@ use nexus_layout_types::Rgba8;
 /// Returns the number of shadow pixels composited, or 0 if budget exhausted.
 pub fn composite_drop_shadow(
     target: &mut [u8],
-    width: u32,
-    height: u32,
-    stride: u32,
     alpha_mask: &[u8],
-    offset_x: i32,
-    offset_y: i32,
-    shadow_color: Rgba8,
+    params: DropShadowParams,
     budget: &mut EffectBudget,
 ) -> u32 {
+    let width = params.width;
+    let height = params.height;
+    let stride = params.stride;
+    let offset_x = params.offset_x;
+    let offset_y = params.offset_y;
+    let shadow_color = params.shadow_color;
     let w = width as i32;
     let h = height as i32;
     let s = stride as usize;
@@ -47,7 +69,7 @@ pub fn composite_drop_shadow(
         return 0;
     }
 
-    let shadow_area = (width * height) as u32;
+    let shadow_area = width * height;
     if !budget.try_reserve(shadow_area) {
         return 0;
     }
@@ -156,17 +178,18 @@ fn nine_slice_cache_key(elem_w: u32, elem_h: u32, shadow: &NineSliceShadow) -> u
 /// On cache hit, the entire shadow layer is reused (no re-render).
 pub fn composite_nine_slice_shadow(
     target: &mut [u8],
-    target_w: u32,
-    target_h: u32,
-    stride: u32,
-    elem_w: u32,
-    elem_h: u32,
     shadow: &NineSliceShadow,
-    offset_x: i32,
-    offset_y: i32,
+    params: NineSliceCompositeParams,
     budget: &mut EffectBudget,
     mut cache: Option<&mut EffectCache>,
 ) -> u32 {
+    let target_w = params.target_w;
+    let target_h = params.target_h;
+    let stride = params.stride;
+    let elem_w = params.elem_w;
+    let elem_h = params.elem_h;
+    let offset_x = params.offset_x;
+    let offset_y = params.offset_y;
     let dims = nine_slice_dims(elem_w, elem_h, shadow);
     if dims.total_w == 0 || dims.total_h == 0 {
         return 0;
@@ -211,13 +234,19 @@ pub fn composite_nine_slice_shadow(
 
     for ly in 0..layer_height {
         let ty = ly as i32 + offset_y;
-        if ty < 0 || ty >= th { continue; }
+        if ty < 0 || ty >= th {
+            continue;
+        }
         for lx in 0..layer_width {
             let tx = lx as i32 + offset_x;
-            if tx < 0 || tx >= tw { continue; }
+            if tx < 0 || tx >= tw {
+                continue;
+            }
             let li = (ly as usize) * ls + (lx as usize) * 4;
             let sa = shadow_layer[li + 3] as u32;
-            if sa == 0 { continue; }
+            if sa == 0 {
+                continue;
+            }
             let ti = (ty as usize) * s + (tx as usize) * 4;
             let inv = 255 - sa;
             target[ti] = ((sr * sa + target[ti] as u32 * inv) / 255) as u8;
@@ -266,14 +295,18 @@ fn render_nine_slice_edges(layer: &mut [u8], dims: &ShadowDims, _shadow: &NineSl
     let inner_w = dims.inner_w as usize;
     let inner_h = dims.inner_h as usize;
 
-    if inner_w == 0 && inner_h == 0 { return; }
+    if inner_w == 0 && inner_h == 0 {
+        return;
+    }
 
     // Top edge: stretch from corner's bottom row across inner width (horizontal)
     if inner_w > 0 && cs > 0 {
         let src_y = (inner_y - 1).min(total_h - 1).max(0);
         for x in inner_x..inner_x + inner_w {
             let src_a = layer[src_y * ls + x * 4 + 3];
-            if src_a == 0 { continue; }
+            if src_a == 0 {
+                continue;
+            }
             for y in 0..inner_y {
                 layer[y * ls + x * 4 + 3] = src_a;
             }
@@ -285,7 +318,9 @@ fn render_nine_slice_edges(layer: &mut [u8], dims: &ShadowDims, _shadow: &NineSl
         let src_y = (inner_y + inner_h).min(total_h - 1);
         for x in inner_x..inner_x + inner_w {
             let src_a = layer[src_y * ls + x * 4 + 3];
-            if src_a == 0 { continue; }
+            if src_a == 0 {
+                continue;
+            }
             for y in inner_y + inner_h..total_h {
                 layer[y * ls + x * 4 + 3] = src_a;
             }
@@ -297,7 +332,9 @@ fn render_nine_slice_edges(layer: &mut [u8], dims: &ShadowDims, _shadow: &NineSl
         let src_x = (inner_x - 1).min(total_w - 1).max(0);
         for y in inner_y..inner_y + inner_h {
             let src_a = layer[y * ls + src_x * 4 + 3];
-            if src_a == 0 { continue; }
+            if src_a == 0 {
+                continue;
+            }
             for x in 0..inner_x {
                 layer[y * ls + x * 4 + 3] = src_a;
             }
@@ -309,7 +346,9 @@ fn render_nine_slice_edges(layer: &mut [u8], dims: &ShadowDims, _shadow: &NineSl
         let src_x = (inner_x + inner_w).min(total_w - 1);
         for y in inner_y..inner_y + inner_h {
             let src_a = layer[y * ls + src_x * 4 + 3];
-            if src_a == 0 { continue; }
+            if src_a == 0 {
+                continue;
+            }
             for x in inner_x + inner_w..total_w {
                 layer[y * ls + x * 4 + 3] = src_a;
             }
@@ -318,9 +357,13 @@ fn render_nine_slice_edges(layer: &mut [u8], dims: &ShadowDims, _shadow: &NineSl
 }
 
 fn render_nine_slice_fill(layer: &mut [u8], dims: &ShadowDims, shadow: &NineSliceShadow) {
-    if dims.inner_w == 0 || dims.inner_h == 0 { return; }
+    if dims.inner_w == 0 || dims.inner_h == 0 {
+        return;
+    }
     let alpha = shadow.color.a;
-    if alpha == 0 { return; }
+    if alpha == 0 {
+        return;
+    }
     let ls = (dims.total_w * 4) as usize;
     for y in dims.inner_y as usize..(dims.inner_y + dims.inner_h) as usize {
         for x in dims.inner_x as usize..(dims.inner_x + dims.inner_w) as usize {

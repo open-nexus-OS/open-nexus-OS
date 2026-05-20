@@ -39,7 +39,11 @@ impl CaretSelection {
     }
 
     pub fn selection_range(&self) -> core::ops::Range<usize> {
-        if self.anchor <= self.caret_pos { self.anchor..self.caret_pos } else { self.caret_pos..self.anchor }
+        if self.anchor <= self.caret_pos {
+            self.anchor..self.caret_pos
+        } else {
+            self.caret_pos..self.anchor
+        }
     }
 }
 

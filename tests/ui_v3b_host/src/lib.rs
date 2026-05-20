@@ -14,18 +14,16 @@ mod tests {
     use nexus_effects::blur::blur_3x3;
     use nexus_effects::budget::EffectBudget;
     use nexus_effects::cursor_blink::CursorBlink;
-    use nexus_layout::{
-        compute_scroll_damage, LayoutEngine,
-    };
+    use nexus_layout::{compute_scroll_damage, LayoutEngine};
     use nexus_layout_types::{
-        Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode,
-        LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PreparedTextHandle,
-        Rect, TextAlign, TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
+        Align, Direction, EdgeInsets, FlexItem, FontWeight, FxPx, Justify, LayoutNode, LineHeight,
+        LineLayout, LineMetrics, MeasureText, Overflow, PreparedTextHandle, Rect, TextAlign,
+        TextContent, TextNode, TextStyle, VisualStyle, WhiteSpace,
     };
     use windowd::{
         build_filter_panel_tree, compute_proof_layout, filter_scrollbar_strip_x,
-        filter_scrollbar_thumb_bounds, filter_scrollbar_track_x, filter_words,
-        FILTER_LIST_PADDING, FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_WIDTH,
+        filter_scrollbar_thumb_bounds, filter_scrollbar_track_x, filter_words, FILTER_LIST_PADDING,
+        FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_WIDTH,
     };
 
     struct MockMeasure {
@@ -84,7 +82,10 @@ mod tests {
         )
     }
 
-    fn box_by_id<'a>(layout: &'a nexus_layout::LayoutResult, id: &str) -> &'a nexus_layout::LayoutBox {
+    fn box_by_id<'a>(
+        layout: &'a nexus_layout::LayoutResult,
+        id: &str,
+    ) -> &'a nexus_layout::LayoutBox {
         layout.boxes.iter().find(|b| b.id == Some(id)).unwrap()
     }
 
@@ -271,9 +272,8 @@ mod tests {
     #[test]
     fn filter_box_layout_contains_text_input_and_filter_list() {
         let tree = build_filter_panel_tree("ap");
-        let layout = LayoutEngine::new()
-            .layout(&tree, px(200), &MockMeasure { char_width: px(8) })
-            .unwrap();
+        let layout =
+            LayoutEngine::new().layout(&tree, px(200), &MockMeasure { char_width: px(8) }).unwrap();
 
         let text_input = layout.boxes.iter().find(|b| b.id == Some("filter_text_input"));
         assert!(text_input.is_some(), "filter_text_input should exist in layout");
@@ -286,22 +286,20 @@ mod tests {
     #[test]
     fn filter_list_child_count_matches_filter_result() {
         let tree = build_filter_panel_tree("ap");
-        let layout = LayoutEngine::new()
-            .layout(&tree, px(200), &MockMeasure { char_width: px(8) })
-            .unwrap();
+        let layout =
+            LayoutEngine::new().layout(&tree, px(200), &MockMeasure { char_width: px(8) }).unwrap();
 
         let filtered = filter_words("ap");
         // Count text nodes inside filter_list (children of filter_list)
         // The filtered words become Text nodes
-        let text_child_count = layout
-            .boxes
-            .iter()
-            .filter(|b| b.node_id > 0)
-            .count();
+        let text_child_count = layout.boxes.iter().filter(|b| b.node_id > 0).count();
         // At minimum, we have the filter list, text input, and filtered items
-        assert!(text_child_count >= filtered.len(),
+        assert!(
+            text_child_count >= filtered.len(),
             "expected at least {} text children, got {}",
-            filtered.len(), text_child_count);
+            filtered.len(),
+            text_child_count
+        );
     }
 
     #[test]
@@ -492,7 +490,12 @@ mod tests {
             } else {
                 original[i] - pixels[i]
             };
-            assert!(diff <= 2, "pixel changed too much at index {i}: {} -> {}", original[i], pixels[i]);
+            assert!(
+                diff <= 2,
+                "pixel changed too much at index {i}: {} -> {}",
+                original[i],
+                pixels[i]
+            );
         }
     }
 
@@ -543,9 +546,8 @@ mod tests {
     fn combined_panels_layout_contains_both_panels() {
         use windowd::build_combined_tree;
         let tree = build_combined_tree(default_visible_state(), "a");
-        let layout = LayoutEngine::new()
-            .layout(&tree, px(850), &MockMeasure { char_width: px(8) })
-            .unwrap();
+        let layout =
+            LayoutEngine::new().layout(&tree, px(850), &MockMeasure { char_width: px(8) }).unwrap();
         assert!(layout.boxes.iter().any(|b| b.id == Some("proof_panel")));
         assert!(layout.boxes.iter().any(|b| b.id == Some("filter_panel")));
     }
