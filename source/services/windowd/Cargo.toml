@@ -14,7 +14,7 @@ os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry", "dep:nex
 
 [package.metadata.nexus-service]
 kind = "service"
-stack_pages = 4
+stack_pages = 8
 
 [dependencies]
 systemui = { path = "../systemui" }

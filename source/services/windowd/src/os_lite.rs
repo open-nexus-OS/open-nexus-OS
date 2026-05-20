@@ -75,11 +75,12 @@ const FILTER_INPUT_FONT_H: u32 = 7;
 const FILTER_INPUT_FONT_SCALE: u32 = 2;
 const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
 const ROW_WRITE_CHUNK: usize = 8;
+const MAX_DAMAGE_RANGES: usize = 4;
 const IPC_BATCH_LIMIT: usize = 8;
 const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
-const BACKDROP_CACHE_ENTRIES: usize = 4;
+const BACKDROP_CACHE_ENTRIES: usize = 2;
 const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
-const PATH_CACHE_ENTRIES: usize = 8;
+const PATH_CACHE_ENTRIES: usize = 2;
 const PATH_CACHE_MAX_SIDE: usize = 24;
 const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
 
@@ -189,7 +190,7 @@ struct DisplayServerRuntime {
     markers_emitted: bool,
     input_markers_emitted: InputMarkerState,
     input_state_debug_emitted: bool,
-    pending_damage_rows: Option<(u32, u32)>,
+    pending_damage_rows: [Option<(u32, u32)>; MAX_DAMAGE_RANGES],
     pending_damage_rect: Option<DamageRect>,
     proof_layouts: Option<Vec<LayoutResult>>,
     proof_layout_index: Option<LayoutHotPathIndex>,
@@ -238,48 +239,48 @@ struct InputMarkerState {
     v2b_assets_summary: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct BackdropCacheEntry {
     y: u32,
     start_x: u32,
     width: u32,
     quality: GlassQuality,
     valid: bool,
-    pixels: [u8; BACKDROP_CACHE_MAX_WIDTH * 4],
+    pixels: Vec<u8>,
 }
 
 impl BackdropCacheEntry {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             y: 0,
             start_x: 0,
             width: 0,
             quality: GlassQuality::High,
             valid: false,
-            pixels: [0; BACKDROP_CACHE_MAX_WIDTH * 4],
+            pixels: alloc::vec![0u8; BACKDROP_CACHE_MAX_WIDTH * 4],
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct PathCacheEntry {
     id_hash: u64,
     width: u32,
     height: u32,
     color: [u8; 4],
     valid: bool,
-    pixels: [u8; PATH_CACHE_MAX_PIXELS],
+    pixels: Vec<u8>,
 }
 
 impl PathCacheEntry {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             id_hash: 0,
             width: 0,
             height: 0,
             color: [0; 4],
             valid: false,
-            pixels: [0; PATH_CACHE_MAX_PIXELS],
+            pixels: alloc::vec![0u8; PATH_CACHE_MAX_PIXELS],
         }
     }
 }
@@ -340,13 +341,13 @@ impl DisplayServerRuntime {
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
-            pending_damage_rows: None,
+            pending_damage_rows: [None; MAX_DAMAGE_RANGES],
             pending_damage_rect: None,
             proof_layouts,
             proof_layout_index,
             filtered_words,
-            backdrop_cache: [BackdropCacheEntry::new(); BACKDROP_CACHE_ENTRIES],
-            path_cache: [PathCacheEntry::new(); PATH_CACHE_ENTRIES],
+            backdrop_cache: core::array::from_fn(|_| BackdropCacheEntry::new()),
+            path_cache: core::array::from_fn(|_| PathCacheEntry::new()),
             active_filter_idx: 0,
             filter_cycle: 0,
             clipping_marker_emitted: false,
@@ -395,10 +396,13 @@ impl DisplayServerRuntime {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
         self.refresh_observer_state();
-        if self.write_current_frame().is_err() {
+        let frame_result = self.write_current_frame();
+        if frame_result.is_err() {
+            let _ = debug_println("windowd: write_current_frame FAILED");
             return STATUS_MALFORMED;
         }
         if self.active_proof_layout().is_some() {
+            let _ = debug_println("windowd: write_current_frame OK, proof_layout present");
             let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
             let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
         }
@@ -742,7 +746,7 @@ impl DisplayServerRuntime {
             self.input_markers_emitted.visible_input_summary = true;
         }
         if self.input_markers_emitted.visible_input_summary
-            && (self.state.wheel_up_visible || self.state.wheel_down_visible)
+            && self.input_markers_emitted.wheel
             && !self.input_markers_emitted.visible_wheel_summary
         {
             let _ = debug_println(SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER);
@@ -758,7 +762,7 @@ impl DisplayServerRuntime {
     }
 
     fn write_current_frame(&mut self) -> Result<(), WindowdError> {
-        self.write_rows(0, self.mode.height, GlassQuality::High)
+        self.write_rows(0, self.mode.height, select_glass_quality(self.mode.height))
     }
 
     fn write_rows(
@@ -801,6 +805,7 @@ impl DisplayServerRuntime {
                 .min(end_y as usize)
                 as u32;
             let band_rows = (band_end - band_start) as usize;
+            let _ = debug_println("windowd: write_rows band");  // only first band prints
             let band_bytes = band_rows * row_len;
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let dest_start = row_idx * row_len;
@@ -927,13 +932,12 @@ impl DisplayServerRuntime {
             self.cursor_height,
             self.mode.height,
         );
-        let Some((start, end)) = merge_optional_ranges(old_rows, new_rows) else {
-            return;
-        };
-        self.pending_damage_rows = Some(match self.pending_damage_rows {
-            Some((queued_start, queued_end)) => (queued_start.min(start), queued_end.max(end)),
-            None => (start, end),
-        });
+        if let Some((start, end)) = old_rows {
+            self.queue_rows(start, end);
+        }
+        if let Some((start, end)) = new_rows {
+            self.queue_rows(start, end);
+        }
         let _ = old_cursor_x;
         let _ = new_cursor_x;
     }
@@ -944,15 +948,40 @@ impl DisplayServerRuntime {
         if start >= end {
             return;
         }
-        self.pending_damage_rows = Some(match self.pending_damage_rows {
-            Some((queued_start, queued_end)) => (queued_start.min(start), queued_end.max(end)),
-            None => (start, end),
-        });
+        for queued in &mut self.pending_damage_rows {
+            if let Some((queued_start, queued_end)) = queued {
+                if start <= *queued_end && end >= *queued_start {
+                    *queued = Some(((*queued_start).min(start), (*queued_end).max(end)));
+                    return;
+                }
+            }
+        }
+        for queued in &mut self.pending_damage_rows {
+            if queued.is_none() {
+                *queued = Some((start, end));
+                return;
+            }
+        }
+        let mut merged = (start, end);
+        for queued in &mut self.pending_damage_rows {
+            if let Some((queued_start, queued_end)) = queued.take() {
+                merged = (merged.0.min(queued_start), merged.1.max(queued_end));
+            }
+        }
+        self.pending_damage_rows[0] = Some(merged);
     }
 
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
-        if let Some((start, end)) = self.pending_damage_rows.take() {
-            self.write_rows(start, end, select_glass_quality(end.saturating_sub(start)))?;
+        let mut wrote_rows = false;
+        let mut ranges = self.pending_damage_rows;
+        self.pending_damage_rows = [None; MAX_DAMAGE_RANGES];
+        for range in &mut ranges {
+            if let Some((start, end)) = range.take() {
+                self.write_rows(start, end, select_glass_quality(end.saturating_sub(start)))?;
+                wrote_rows = true;
+            }
+        }
+        if wrote_rows {
             if let Some(rect) = self.pending_damage_rect.take() {
                 self.write_damage_rect(rect)?;
             }
@@ -968,7 +997,14 @@ impl DisplayServerRuntime {
     }
 
     const fn has_pending_damage(&self) -> bool {
-        self.pending_damage_rows.is_some() || self.pending_damage_rect.is_some()
+        let mut idx = 0;
+        while idx < MAX_DAMAGE_RANGES {
+            if self.pending_damage_rows[idx].is_some() {
+                return true;
+            }
+            idx += 1;
+        }
+        self.pending_damage_rect.is_some()
     }
 }
 
@@ -1053,6 +1089,9 @@ fn copy_scene_row(
     glass_quality: GlassQuality,
     row: &mut [u8],
 ) -> Result<(), WindowdError> {
+    if y == 400 {
+        let _ = debug_println("windowd: copy_scene_row mid-frame");
+    }
     copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
     compute_shadow_row(state, proof_layout, proof_layout_index, y, row, shadow_scratch, blur_row_buf)?;
     draw_proof_surface_row(
@@ -1110,9 +1149,6 @@ fn compute_shadow_row(
         return Err(WindowdError::BufferLengthMismatch);
     }
 
-    // Zero the shadow scratch for this row (only the pixels we'll touch)
-    shadow_scratch[..target.len()].fill(0);
-
     let row_mask = proof_layout_index.and_then(|index| {
         if index.overflow_boxes() {
             return None;
@@ -1142,28 +1178,67 @@ fn compute_shadow_row(
             return;
         }
 
+        let blur_r = shadow.blur_radius.0.max(0) as u32;
+        let blur_i32 = blur_r as i32;
         let y_i32 = y as i32;
-        if y_i32 < sy || y_i32 >= sy.saturating_add(sh) {
+        let dy = if y_i32 < sy {
+            sy.saturating_sub(y_i32)
+        } else if y_i32 >= sy.saturating_add(sh) {
+            y_i32.saturating_sub(sy.saturating_add(sh).saturating_sub(1))
+        } else {
+            0
+        };
+        if dy > blur_i32 {
             return;
         }
 
-        let start_x = sx.max(0).min(row_pixels as i32) as usize;
-        let end_x = sx.saturating_add(sw).max(0).min(row_pixels as i32) as usize;
-
-        for px in start_x..end_x {
-            shadow_scratch[px * 4 + 3] = 255;
+        let vertical_alpha = if blur_r == 0 {
+            255u32
+        } else {
+            let remaining = blur_i32.saturating_add(1).saturating_sub(dy) as u32;
+            (remaining * 255) / (blur_r + 1)
+        };
+        if vertical_alpha == 0 {
+            return;
         }
 
-        let blur_r = shadow.blur_radius.0.max(0) as u32;
-        if blur_r > 0 && end_x > start_x {
-            blur_row_horizontal(shadow_scratch, target.len(), blur_r, blur_row_buf);
+        let segment_start = sx
+            .saturating_sub(blur_i32)
+            .max(0)
+            .min(row_pixels as i32) as usize;
+        let segment_end = sx
+            .saturating_add(sw)
+            .saturating_add(blur_i32)
+            .max(0)
+            .min(row_pixels as i32) as usize;
+        if segment_start >= segment_end {
+            return;
+        }
+        let segment_start_byte = segment_start * 4;
+        let segment_end_byte = segment_end * 4;
+        shadow_scratch[segment_start_byte..segment_end_byte].fill(0);
+
+        let core_start = sx.max(0).min(row_pixels as i32) as usize;
+        let core_end = sx.saturating_add(sw).max(0).min(row_pixels as i32) as usize;
+        for px in core_start..core_end {
+            shadow_scratch[px * 4 + 3] = vertical_alpha as u8;
+        }
+
+        let segment_len = segment_end_byte.saturating_sub(segment_start_byte);
+        if blur_r > 0 && segment_len != 0 {
+            blur_row_horizontal(
+                &mut shadow_scratch[segment_start_byte..segment_end_byte],
+                segment_len,
+                blur_r,
+                blur_row_buf,
+            );
         }
 
         let sr = shadow.color.r as u32;
         let sg = shadow.color.g as u32;
         let sb = shadow.color.b as u32;
         let shadow_alpha = shadow.color.a as u32;
-        for px in 0..row_pixels {
+        for px in segment_start..segment_end {
             let idx = px * 4;
             let sa = shadow_scratch[idx + 3] as u32;
             if sa == 0 {
@@ -2723,4 +2798,5 @@ mod tests {
             .expect("cache hit");
         assert_eq!(row, cached);
     }
+
 }

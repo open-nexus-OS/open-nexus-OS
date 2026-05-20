@@ -945,6 +945,33 @@ fn windowd_input_proof_path_emits_v2_and_visible_summary_markers_from_real_state
 }
 
 #[test]
+fn windowd_latches_wheel_hop_before_visible_input_summary() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+
+    assert!(
+        windowd.contains("&& self.input_markers_emitted.wheel")
+            && !windowd.contains("&& (self.state.wheel_up_visible || self.state.wheel_down_visible)\n            && !self.input_markers_emitted.visible_wheel_summary"),
+        "visible wheel summary must use the latched wheel hop because the wheel pulse can arrive before the click/focus/keyboard summary is complete"
+    );
+}
+
+#[test]
+fn windowd_first_frame_uses_budgeted_glass_quality() {
+    let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
+    let cargo_toml = read_repo_file("source/services/windowd/Cargo.toml");
+
+    assert!(
+        windowd.contains("fn write_current_frame(&mut self) -> Result<(), WindowdError> {\n        self.write_rows(0, self.mode.height, select_glass_quality(self.mode.height))\n    }")
+            && windowd.contains("const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;"),
+        "first-frame writes must use the same budgeted glass-quality policy as dirty flushes instead of forcing high-quality blur across the whole screen"
+    );
+    assert!(
+        cargo_toml.contains("stack_pages = 8"),
+        "windowd needs enough OS stack for the live render state"
+    );
+}
+
+#[test]
 fn windowd_refreshes_observer_state_after_cursor_overlay_composition() {
     let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
 

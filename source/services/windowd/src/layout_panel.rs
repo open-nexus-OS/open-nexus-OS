@@ -107,13 +107,6 @@ impl MeasureText for ProofTextMeasure {
 
 /// Build the proof panel layout tree — single source of truth for visible proof geometry.
 pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
-    let panel_style = VisualStyle {
-        background: Some(assets::PROOF_PANEL_BG),
-        opacity: Some(Fraction::new(132)),
-        border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
-        shadow: Some(panel_shadow()),
-        ..Default::default()
-    };
     let text_column = LayoutNode::Stack(
         Stack {
             id: Some("proof_text_column"),
@@ -250,7 +243,7 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
             max_height: Some(FxPx::new(PANEL_HEIGHT)),
             item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
         },
-        panel_style,
+        VisualStyle::default(),
         vec![
             top_row,
             LayoutNode::Spacer(nexus_layout_types::Spacer {
@@ -268,6 +261,13 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
 pub fn build_combined_tree(state: VisibleState, filter_text: &str) -> LayoutNode {
     let proof_panel = build_proof_panel_tree(state);
     let filter_panel = build_filter_panel_tree(filter_text);
+    let combined_style = VisualStyle {
+        background: Some(assets::PROOF_PANEL_BG),
+        opacity: Some(Fraction::new(132)),
+        border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
+        shadow: Some(panel_shadow()),
+        ..Default::default()
+    };
     LayoutNode::Stack(
         Stack {
             id: Some("combined_panels"),
@@ -278,13 +278,13 @@ pub fn build_combined_tree(state: VisibleState, filter_text: &str) -> LayoutNode
             justify: Justify::Start,
             overflow: Overflow::Visible,
             flex_wrap: false,
-            min_width: None,
-            max_width: None,
+            min_width: Some(FxPx::new(PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH)),
+            max_width: Some(FxPx::new(PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH)),
             min_height: Some(FxPx::new(PANEL_HEIGHT.max(FILTER_PANEL_HEIGHT))),
             max_height: Some(FxPx::new(PANEL_HEIGHT.max(FILTER_PANEL_HEIGHT))),
             item: FlexItem::default(),
         },
-        VisualStyle::default(),
+        combined_style,
         vec![proof_panel, filter_panel],
     )
 }
@@ -751,13 +751,6 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
         vec![text_input, filter_list],
     );
 
-    let filter_panel_style = VisualStyle {
-        background: Some(assets::PROOF_PANEL_BG),
-        opacity: Some(Fraction::new(132)),
-        border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
-        shadow: Some(panel_shadow()),
-        ..Default::default()
-    };
     LayoutNode::Stack(
         Stack {
             id: Some("filter_panel"),
@@ -774,7 +767,7 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             max_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
             item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
         },
-        filter_panel_style,
+        VisualStyle::default(),
         vec![filter_content],
     )
 }
@@ -784,26 +777,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn proof_panel_uses_translucent_blurred_shadowed_backdrop() {
-        let node = build_proof_panel_tree(VisibleState::default());
+    fn combined_parent_uses_translucent_blurred_shadowed_backdrop() {
+        let node = build_combined_tree(VisibleState::default(), "");
         let LayoutNode::Stack(stack, style, _) = node else {
-            panic!("proof panel must be a stack");
+            panic!("combined panel must be a stack");
         };
-        assert_eq!(stack.id, Some("proof_panel"));
+        assert_eq!(stack.id, Some("combined_panels"));
         assert_eq!(style.background, Some(assets::PROOF_PANEL_BG));
         assert_eq!(style.opacity.map(Fraction::as_u8), Some(132));
         assert_eq!(style.shadow, Some(panel_shadow()));
     }
 
     #[test]
-    fn filter_panel_uses_same_main_backdrop_treatment() {
-        let node = build_filter_panel_tree("");
-        let LayoutNode::Stack(stack, style, _) = node else {
-            panic!("filter panel must be a stack");
+    fn child_panels_do_not_apply_extra_opacity_or_shadow() {
+        let node = build_combined_tree(VisibleState::default(), "");
+        let LayoutNode::Stack(_, _, children) = node else {
+            panic!("combined panel must be a stack");
         };
-        assert_eq!(stack.id, Some("filter_panel"));
-        assert_eq!(style.background, Some(assets::PROOF_PANEL_BG));
-        assert_eq!(style.opacity.map(Fraction::as_u8), Some(132));
-        assert_eq!(style.shadow, Some(panel_shadow()));
+        for child in children {
+            let LayoutNode::Stack(_, style, _) = child else {
+                panic!("child panel must be a stack");
+            };
+            assert_eq!(style.opacity, None);
+            assert_eq!(style.shadow, None);
+        }
     }
 }
