@@ -313,3 +313,77 @@ impl RenderCache {
         self.effects.clear();
     }
 }
+
+// ─── ShadowArena: Zero-Alloc Pre-Allocated Buffer Pool ─────────────────
+
+/// Maximum total bytes in the shadow arena.
+/// Sized for one full-box shadow at 2× downscale (typical proof panel element).
+const SHADOW_ARENA_SIZE: usize = 64 * 1024; // 64 KiB
+
+/// A pre-allocated, fixed-size buffer for offscreen shadow rendering.
+///
+/// Bump-allocates slices within the buffer; resets each frame.
+/// Zero heap allocations in the hot path — the buffer is allocated once
+/// at init (via `Vec<u8>` on OS, or `Box<[u8]>` on host).
+///
+/// Production-grade: matches Fuchsia/OHOS pre-allocated effect buffer pool pattern.
+#[derive(Debug, Clone)]
+pub struct ShadowArena {
+    buf: alloc::vec::Vec<u8>,
+    used: usize,
+}
+
+impl ShadowArena {
+    /// Allocate the arena once. On OS, this is the ONLY heap allocation
+    /// for the entire shadow system (done at service init, not in the render loop).
+    pub fn new() -> Self {
+        Self {
+            buf: alloc::vec![0u8; SHADOW_ARENA_SIZE],
+            used: 0,
+        }
+    }
+
+    /// Reserve `len` bytes in the arena. Returns `(offset, &mut [u8])` on success,
+    /// or `None` if the arena is full.
+    ///
+    /// Zero heap allocations. The returned slice lives until the next `reset()`.
+    pub fn alloc(&mut self, len: usize) -> Option<(usize, &mut [u8])> {
+        let start = self.used;
+        let end = start.checked_add(len)?;
+        if end > self.buf.len() {
+            return None;
+        }
+        self.used = end;
+        Some((start, &mut self.buf[start..end]))
+    }
+
+    /// Return a reference to previously allocated data.
+    pub fn get(&self, offset: usize, len: usize) -> Option<&[u8]> {
+        let end = offset.checked_add(len)?;
+        if end > self.used {
+            return None;
+        }
+        Some(&self.buf[offset..end])
+    }
+
+    /// Reset the arena for the next frame. All previous allocations are invalidated.
+    pub fn reset(&mut self) {
+        self.used = 0;
+    }
+
+    /// Total capacity of the arena.
+    pub fn capacity(&self) -> usize {
+        self.buf.len()
+    }
+
+    /// Bytes currently used.
+    pub fn used_bytes(&self) -> usize {
+        self.used
+    }
+}
+
+impl Default for ShadowArena {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -21,7 +21,7 @@ pub mod shadow;
 
 pub use blur::{blur_1d, blur_1x3_horizontal, blur_3x3, blur_separable, dual_kawase_blur};
 pub use budget::EffectBudget;
-pub use cache::{EffectCache, RenderCache, ShadowCache, TextCache};
+pub use cache::{EffectCache, RenderCache, ShadowArena, ShadowCache, TextCache};
 pub use shadow::{
     composite_drop_shadow, composite_nine_slice_shadow, DropShadowParams, NineSliceCompositeParams,
     NineSliceShadow,

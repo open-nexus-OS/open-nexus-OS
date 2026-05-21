@@ -3,7 +3,7 @@ title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (
 status: In Progress
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-20 (Phases 0-6a implemented; compositor Phases 1-6a: TileMap, LayerCache, library blur, cursor save/restore, paint-only fast-path; Phase 6b/c ShadowCache pending)
+updated: 2026-05-21 (Phases 0-7a implemented; ShadowCache heap-exhaustion crash fixed — to_vec() removed from OS hot path; ShadowArena added for production zero-alloc path; Phase 7b per-box caching pending)
 depends-on: [TASK-0058]
 follow-up-tasks: [TASK-0060B]
 links:

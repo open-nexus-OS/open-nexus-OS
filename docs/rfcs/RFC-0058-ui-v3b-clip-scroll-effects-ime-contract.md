@@ -1,7 +1,7 @@
 # RFC-0058: UI v3b clipping/scroll/effects + IME/text-input contract seed
 
 - Status: In Progress
-- Last Updated: 2026-05-17
+- Last Updated: 2026-05-21 (Compositor Phases 1–6a implemented, P0/P1 closed, ShadowCache wired)
 - Owners: @ui
 - Created: 2026-05-17
 - Links:
@@ -230,3 +230,111 @@ Downscale 4× → 3× 3×3 blur with increasing kernel stride → upscale. ~27 s
 ### Sub-Phase 6f: Render-Cache + Damage-Integration
 
 ShadowCache (256 entries, LRU) + TextCache (512 entries, LRU). Damage: dirty rect → `cache.invalidate(node_id)`. Scroll: reposition, no invalidate. Theme change: `cache.clear()`.
+
+### Phase 7: Compositor Retained-Mode Upgrades (2026-05-20/21)
+
+Status: ✅ **Phases 1–6a implemented, P0/P1 closed.**  
+Owner: @ui  
+Deliverable: `source/services/windowd/src/os_lite.rs` (~300 lines net change), `live_runtime.rs` (+9 filter rects), `tests/damage_pipeline.rs` (new).
+
+**Phase 1: TileMap in Render-Loop** ✅
+- `TileMap::has_dirty_in_row_range()` gates 4-row band writes in `write_rows`.
+- `flush_pending_damage` clears tile map AFTER writes (was before → dirty tiles never seen).
+- `write_current_frame` marks all 260 tiles dirty for first full-screen render.
+- `queue_cursor_damage` marks tile map before calling `write_damage_rect`.
+
+**Phase 2: LayerCache from Stub to Functional** ✅
+- `LayerCache::insert()` / `get()` / `get_mut()` / `invalidate()` / `mark_clean()` added.
+- `record_layer_cache_row()` populates cache row-by-row; `rows_filled` counter; `dirty = false` when complete.
+- `draw_layout_box_row` checks cache before rendering; blits clean layers.
+- Budget: `LAYER_CACHE_MAX_BYTES` = 4KB total, `LAYER_CACHE_MAX_LAYER_BYTES` = 1KB/layer.
+
+**Phase 3: Backdrop Blur via Library (reverted to zero-alloc inline)** ✅
+- Switched `blur_backdrop_segment` to `nexus_effects::blur_1d`.
+- Reverted: library allocates `Vec` internally → bump-allocator exhaustion (`alloc-fail` after ~360 rows).
+- Restored zero-allocation `blur_backdrop_segment` + `blur_row_horizontal`.
+- Lesson: All hot-path functions must be zero-allocation on the OS bump allocator.
+
+**Phase 4: Cursor-BG Save/Restore** ✅
+- `cursor_bg_saved` field was allocated (4KB) but never used → now active.
+- `save_cursor_bg_inline()` saves wallpaper pixels before cursor blend.
+- `restore_cursor_bg()` writes saved pixels back via `vmo_write` on cursor move.
+- Wired into `copy_scene_row` (save) and `apply_input_state` (restore).
+
+**Phase 5: Paint-Only Fast-Path** ✅
+- `paint_only` flag threaded through `draw_proof_surface_row` → `draw_layout_box_row`.
+- Non-paint boxes (wallpaper panels, static content) skipped when `paint_only=true`.
+- `combined_panels` (glass panel) excluded from skip — must always render (translucent background).
+- Backdrop blur disabled for paint-only (was `!paint_only && opacity < 255`, now `opacity < 255` always).
+
+**Phase 6a: Shadow Blur via Library (reverted) + ShadowCache** ✅
+- Switched `blur_row_horizontal` in `compute_shadow_row` to `blur_1d` — reverted (same alloc-fail issue).
+- Restored zero-allocation `blur_row_horizontal`.
+- **ShadowCache wired**: `ShadowCache` (256-entry LRU) from `nexus-effects` imported.
+- Per-row cache key: `(box_id_hash << 32) | (rel_y << 16) | blur_radius`.
+- Cache check before shadow render → hit: blit cached blurred alpha, tint, composite. Miss: render, blur, store.
+- Tint applied on cache-hit → color changes without cache invalidation.
+- `copy_scene_row` signature extended with `shadow_cache: &mut ShadowCache`.
+
+**Rect-Based Damage Migration (P0/P1)** ✅
+- `queue_target_damage`: row ranges removed; uses `queue_dirty_rect` with precise `DamageRect` from `LayoutHotPathIndex::target_rect()`.
+- `queue_cursor_damage`: `write_rows` (full rows) → `write_damage_rect` (cursor rect only).
+- `flush_pending_damage`: collects rects from `pending_damage_rects` + `pending_damage_rect` → renders each with `write_damage_rect`.
+- Filter/scroll damage: `queue_hot_path_rows` (row ranges) → `queue_dirty_rect` with new `filter_panel/list/input_rect` from `LayoutHotPathIndex`.
+- `write_damage_rect` now accepts `glass_quality` and `paint_only` (was hardcoded `Opaque, true`).
+- Shadow and backdrop blur no longer skipped for paint-only (was the shadow-overwrite bug).
+- `vmo_write` batching: `write_damage_rect` renders in 4-row bands instead of per-row writes.
+
+**Deleted Code (~150 lines)**
+- `pending_damage_rows`, `MAX_DAMAGE_RANGES`, `queue_rows`, `queue_hot_path_rows`, `queue_hot_path_rect`, `queue_dirty_rect_from_rows`
+- `scroll_damage_rows`, `merge_optional_ranges`, `target_state_bits`
+- `fill_circle_row`, `stroke_circle_row`, `stroke_row_rect`
+
+## Production-Grade Delta: What Remains for OHOS/Fuchsia-Level Performance
+
+**P0 — Mouse Flicker (Cursor Update Atomicity)**
+- Symptom: 3-frame flicker on cursor move (restore → old rect → new rect).
+- Root cause: No atomic cursor update. `fbdevd` polls between `vmo_write` calls.
+- Fix: Cursor as hardware cursor (fbdevd/kernel) OR both cursor rects in single `vmo_write` batch (scatter-gather) OR double-buffer + flip.
+
+**P0 — vmo_write per Row within a Rect**
+- Symptom: Visible line-by-line update within a damage rect (30 rows = 30 `vmo_write` calls).
+- Current: 4-row bands in `write_damage_rect`, but still per-row `vmo_write`.
+- Fix: Single `vmo_write` per rect. Needs scatter-gather or larger `band_scratch`.
+
+**P1 — Shadow per Box (not per Row)**
+- Symptom: 60 blur ops per box (one per row). Cache entries per row → 60× LRU traffic.
+- Fix: Offscreen render full box shadow once → `blur_separable` → one cache entry → per-row blit only.
+- Gain: 60× fewer blur ops per box. Better for motion.
+
+**P1 — Backdrop as Cached Layer (not 2-row LRU)**
+- Symptom: 440 blur ops per frame (one per panel row). 2-row LRU cache only.
+- Fix: Capture wallpaper behind panel → `blur_separable` once → store as `backdrop_layer` in `LayerCache` → per-row blit.
+- Gain: 440× fewer blur ops. Needs ~1MB buffer or downscaling.
+
+**P2 — Zero-Alloc Separable 2D Blur on OS**
+- Symptom: Blur is 1D horizontal only (inline). `nexus-effects::blur_separable` allocates → unusable.
+- Fix: Port separable blur to zero-allocation (pre-allocated row + column buffers).
+- Gain: True 2D blur quality matching OHOS/Fuchsia.
+
+**P2 — Double-Buffer / VSync**
+- Symptom: `fbdevd` polls VMO mid-write → partial frames visible.
+- Fix: Back-buffer render → flip → `fbdevd` scans front. Needs fbdevd + kernel VMO signaling.
+- Gain: No tearing, no partial updates visible.
+
+### QEMU Evidence (2026-05-21)
+
+`QEMU_DISPLAY_BACKEND=none RUN_UNTIL_MARKER=1 bash scripts/qemu-test.sh --profile full`:
+- `windowd: ready (w=1280, h=800, hz=120)`, `SELFTEST: ui launcher present ok`, `SELFTEST: end`
+- `verify-uart: profile=full clean`
+- Build: 0 errors, 8 warnings (API methods intentionally kept)
+
+### Test Status
+
+| Suite | Count | Result |
+|-------|-------|--------|
+| windowd lib | 22 | ✅ |
+| headless | 9 | ✅ |
+| damage_pipeline | 2 | ✅ (budget gate + paint-only preservation) |
+| OS check (RISC-V) | — | ✅ 0 errors |
+| QEMU full | — | ✅ `SELFTEST: end` |

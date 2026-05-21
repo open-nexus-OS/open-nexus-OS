@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-05-21
+
+#### TASK-0059: ShadowCache heap exhaustion on bump allocator
+
+- **Crash fix**: Removed `to_vec()` heap allocation from `compute_shadow_row` hot path.
+  Per-row shadow caching with `Vec<u8>` exhausted the 512KB bump allocator (~3500 bytes/row
+  × 316 shadow rows = ~1.1MB). Only visible with real display (QEMU `DISPLAY_BACKEND=none`
+  skipped the rendering path entirely).
+- **Removed**: `ShadowCache` field, import, and all cache get/insert logic from
+  `windowd/src/os_lite.rs`. Shadow compositing now executes inline with zero heap allocations
+  using pre-allocated `shadow_scratch` + `blur_row_buf`.
+- **Added**: `ShadowArena` (64KB pre-allocated buffer pool) in `nexus-effects` for
+  production-grade per-box shadow caching (follow-up optimization).
+- **Tests**: 8 new tests — `ShadowArena` alloc/reset/overflow/get, alloc-fail prevention
+  budget checks, deterministic reset behavior.
+
 ### Added - 2026-05-18
 
 #### TASK-0059: UI v3b clip/scroll/effects + IME stub + filter-box proof element

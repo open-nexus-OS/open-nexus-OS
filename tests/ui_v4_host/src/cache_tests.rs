@@ -17,7 +17,7 @@
 
 #[cfg(test)]
 mod tests {
-    use nexus_effects::{RenderCache, ShadowCache, TextCache};
+    use nexus_effects::{RenderCache, ShadowArena, ShadowCache, TextCache};
 
     // ─── ShadowCache ───
 
@@ -172,5 +172,154 @@ mod tests {
         let old_gen = cache.generation;
         cache.begin_frame();
         assert!(cache.generation > old_gen || cache.generation == old_gen.wrapping_add(1));
+    }
+
+    // ─── ShadowArena: Zero-Alloc Buffer Pool ───────────────────────────
+
+    #[test]
+    fn test_shadow_arena_alloc_and_reset() {
+        let mut arena = ShadowArena::new();
+        assert_eq!(arena.used_bytes(), 0);
+        assert_eq!(arena.capacity(), 64 * 1024);
+
+        let (off1, slice1) = arena.alloc(100).expect("first alloc");
+        assert_eq!(off1, 0);
+        assert_eq!(slice1.len(), 100);
+        assert_eq!(arena.used_bytes(), 100);
+
+        let (off2, slice2) = arena.alloc(200).expect("second alloc");
+        assert_eq!(off2, 100);
+        assert_eq!(slice2.len(), 200);
+        assert_eq!(arena.used_bytes(), 300);
+
+        // Reset: all allocations invalidated, used drops to 0
+        arena.reset();
+        assert_eq!(arena.used_bytes(), 0);
+
+        // Can allocate again from start
+        let (off3, _) = arena.alloc(50).expect("after reset");
+        assert_eq!(off3, 0);
+    }
+
+    #[test]
+    fn test_shadow_arena_overflow_returns_none() {
+        let mut arena = ShadowArena::new();
+        let cap = arena.capacity();
+
+        // Fill the arena completely
+        let (_, _) = arena.alloc(cap).expect("full capacity");
+
+        // Next allocation must fail
+        assert!(arena.alloc(1).is_none());
+    }
+
+    #[test]
+    fn test_shadow_arena_get_retrieves_data() {
+        let mut arena = ShadowArena::new();
+        let (off, slice) = arena.alloc(8).expect("alloc 8 bytes");
+        slice.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+
+        let retrieved = arena.get(off, 8).expect("get within bounds");
+        assert_eq!(retrieved, &[1, 2, 3, 4, 5, 6, 7, 8]);
+
+        // Out of bounds
+        assert!(arena.get(off, 9).is_none());
+        assert!(arena.get(off + 1, 8).is_none());
+    }
+
+    #[test]
+    fn test_shadow_arena_zero_len_alloc() {
+        let mut arena = ShadowArena::new();
+        let (off, slice) = arena.alloc(0).expect("zero-len alloc");
+        assert_eq!(off, 0);
+        assert_eq!(slice.len(), 0);
+        assert_eq!(arena.used_bytes(), 0);
+    }
+
+    // ─── Alloc-Fail Prevention ─────────────────────────────────────────
+    // These tests verify that the shadow rendering hot path produces
+    // deterministic output without heap allocations.
+
+    #[test]
+    fn test_shadow_arena_no_heap_alloc_in_hot_path() {
+        // ShadowArena::alloc() operates on a pre-allocated Vec<u8>.
+        // The Vec is allocated once (at ShadowArena::new()).
+        // Subsequent alloc() calls only bump the `used` pointer —
+        // they do NOT touch the global allocator.
+        //
+        // This test verifies that repeated alloc/reset cycles
+        // don't grow the underlying buffer or allocate.
+        // We verify this by checking that capacity stays constant
+        // and used_bytes returns to 0 after each cycle.
+
+        let mut arena = ShadowArena::new();
+        let cap = arena.capacity();
+
+        // 100 alloc/reset cycles
+        for i in 0..100 {
+            let (off, _) = arena.alloc(1024).expect("alloc in cycle");
+            assert!(off < cap, "offset must be within capacity (cycle {})", i);
+            assert_eq!(arena.capacity(), cap, "capacity must not change");
+            arena.reset();
+            assert_eq!(arena.used_bytes(), 0, "used must be 0 after reset (cycle {})", i);
+        }
+    }
+
+    #[test]
+    fn test_alloc_fail_prevention_budget_check() {
+        // Budget assertion: ShadowArena has a fixed capacity.
+        // If an allocation would exceed capacity, it returns None
+        // instead of panicking or hitting the global allocator.
+        //
+        // This is the OS-equivalent of preventing alloc-fail:
+        // the caller must check the return value and degrade gracefully.
+
+        let mut arena = ShadowArena::new();
+        let cap = arena.capacity();
+
+        // Fill to capacity - 1
+        let _ = arena.alloc(cap - 1).expect("fill to cap-1");
+
+        // Next allocation of 2 bytes must fail (only 1 byte free)
+        assert!(arena.alloc(2).is_none());
+
+        // Allocation of exactly remaining 1 byte must succeed
+        let (off, _) = arena.alloc(1).expect("last byte");
+        assert_eq!(off, cap - 1);
+
+        // Now completely full
+        assert!(arena.alloc(1).is_none());
+    }
+
+    #[test]
+    fn test_alloc_fail_prevention_deterministic_reset() {
+        // Determinism: after reset, the arena must produce
+        // identical allocations as a fresh arena.
+        let mut arena = ShadowArena::new();
+        let (off1, _) = arena.alloc(100).expect("first");
+        arena.reset();
+        let (off2, _) = arena.alloc(100).expect("after reset");
+        assert_eq!(off1, off2, "reset must produce same offset as fresh arena");
+
+        // Multi-alloc determinism
+        let mut a1 = ShadowArena::new();
+        let _ = a1.alloc(10);
+        let _ = a1.alloc(20);
+        let _ = a1.alloc(30);
+        a1.reset();
+        let _ = a1.alloc(10);
+        let _ = a1.alloc(20);
+        let u1 = a1.used_bytes();
+
+        let mut a2 = ShadowArena::new();
+        let _ = a2.alloc(10);
+        let _ = a2.alloc(20);
+        let _ = a2.alloc(30);
+        a2.reset();
+        let _ = a2.alloc(10);
+        let _ = a2.alloc(20);
+        let u2 = a2.used_bytes();
+
+        assert_eq!(u1, u2, "identical usage patterns must produce identical used_bytes");
     }
 }

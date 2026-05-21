@@ -87,6 +87,9 @@ pub(crate) struct LayoutHotPathIndex {
     click_rect: Option<DamageRect>,
     scroll_rect: Option<DamageRect>,
     key_rect: Option<DamageRect>,
+    filter_panel_rect: Option<DamageRect>,
+    filter_list_rect: Option<DamageRect>,
+    filter_input_rect: Option<DamageRect>,
 }
 
 impl Default for LayoutHotPathIndex {
@@ -108,6 +111,9 @@ impl Default for LayoutHotPathIndex {
             click_rect: None,
             scroll_rect: None,
             key_rect: None,
+            filter_panel_rect: None,
+            filter_list_rect: None,
+            filter_input_rect: None,
         }
     }
 }
@@ -138,6 +144,9 @@ impl LayoutHotPathIndex {
         let mut click_rect = None;
         let mut scroll_rect = None;
         let mut key_rect = None;
+        let mut filter_panel_rect = None;
+        let mut filter_list_rect = None;
+        let mut filter_input_rect = None;
 
         for (box_idx, layout_box) in layout.boxes.iter().enumerate() {
             let Some((start_y, end_y)) = layout_box_row_range(layout_box, base_y, mode_height)
@@ -174,13 +183,16 @@ impl LayoutHotPathIndex {
                     key_rect = merge_damage_rect(key_rect, rect);
                 }
                 Some("filter_panel") => {
-                    filter_panel_rows = merge_row_range(filter_panel_rows, Some((start_y, end_y)))
+                    filter_panel_rows = merge_row_range(filter_panel_rows, Some((start_y, end_y)));
+                    filter_panel_rect = merge_damage_rect(filter_panel_rect, rect);
                 }
                 Some("filter_list") => {
-                    filter_list_rows = merge_row_range(filter_list_rows, Some((start_y, end_y)))
+                    filter_list_rows = merge_row_range(filter_list_rows, Some((start_y, end_y)));
+                    filter_list_rect = merge_damage_rect(filter_list_rect, rect);
                 }
                 Some("filter_text_input") => {
-                    filter_input_rows = merge_row_range(filter_input_rows, Some((start_y, end_y)))
+                    filter_input_rows = merge_row_range(filter_input_rows, Some((start_y, end_y)));
+                    filter_input_rect = merge_damage_rect(filter_input_rect, rect);
                 }
                 _ => {}
             }
@@ -203,6 +215,9 @@ impl LayoutHotPathIndex {
             click_rect,
             scroll_rect,
             key_rect,
+            filter_panel_rect,
+            filter_list_rect,
+            filter_input_rect,
         }
     }
 
@@ -242,9 +257,9 @@ impl LayoutHotPathIndex {
             TargetDamage::Click => self.click_rect,
             TargetDamage::Scroll => self.scroll_rect,
             TargetDamage::Key => self.key_rect,
-            TargetDamage::FilterPanel | TargetDamage::FilterList | TargetDamage::FilterInput => {
-                None
-            }
+            TargetDamage::FilterPanel => self.filter_panel_rect,
+            TargetDamage::FilterList => self.filter_list_rect,
+            TargetDamage::FilterInput => self.filter_input_rect,
         }
     }
 }

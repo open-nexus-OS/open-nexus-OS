@@ -1,91 +1,113 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Active focus
 
-**TASK-0059 Phasen 1–6a implementiert; Cache/Blur-Aussagen nachgeschaerft.**  
-QEMU visible-bootstrap: Build, Boot, Display all OK in prior proof; current delta rechecked with host contracts + OS check.
+**TASK-0059 / RFC-0058: ShadowCache heap exhaustion behoben.**
+Phase 7 (Compositor Retained-Mode Upgrades) implementiert, aber ShadowCache per-row `to_vec()`
+erschöpft den Bump-Allocator bei echtem Display-Betrieb → `alloc-fail` → windowd exit.
+QEMU mit `DISPLAY_BACKEND=none` hat den Rendering-Pfad nie getestet (Testing-Gap).
+
+**Nächster Schritt:** P1 (Shadow per Box) + P2 (Zero-Alloc 2D Blur) als kombinierter Fix:
+ShadowArena (pre-allocated) + Per-Box-Caching + blur_separable_zero_alloc.
 
 ---
 
-## Implementiert (working tree, uncommitted)
+## Implementiert (uncommitted)
 
 ### Phase 1: TileMap in Render-Loop
-- `has_dirty_in_row_range`, band-skip in `write_rows`, clear-AFTER-write, all-tiles-marked in `write_current_frame`
+- `has_dirty_in_row_range`, band-skip, clear-AFTER-write, all-tiles-marked
 
-### Phase 2: LayerCache API + sichere Population
-- `insert()`/`get()`/`get_mut()`/`invalidate()`/`mark_clean()`, cache-check + blit in `draw_layout_box_row`
-- `record_layer_cache_row` befuellt stabile, nicht-paint-abhaengige Boxen zeilenweise und markiert sie erst nach vollstaendiger Box clean
-- Zustandsabhaengige Hover/Click/Scroll/Key/Filter-Boxen sowie Backdrop-Blur-Boxen werden nicht gecached, um stale UI-Zustaende zu vermeiden
+### Phase 2: LayerCache API
+- `insert()`/`get()`/`get_mut()`/`invalidate()`, `record_layer_cache_row()` with `rows_filled`
+- Cache-check + blit in `draw_layout_box_row`, budget (4KB total, 1KB/layer)
 
-### Phase 3: Echter Blur (Backdrop)
-- `nexus_effects::blur_1d` importiert, `blur_backdrop_segment` ersetzt
-- Erstframe nutzt `select_glass_quality(PROOF_PANEL_H)` statt `select_glass_quality(self.mode.height)`, damit der sichtbare Panel-Blur nicht zu `Opaque` degradiert
+### Phase 3: Backdrop Blur
+- Switched to library `blur_1d` → reverted (alloc-fail on bump allocator)
+- Restored zero-allocation `blur_backdrop_segment` + `blur_row_horizontal`
 
 ### Phase 4: Cursor-BG Save/Restore
-- `save_cursor_bg_inline` (vor Cursor-Blend), `restore_cursor_bg` (bei Bewegung), verdrahtet
+- `save_cursor_bg_inline` (before blend), `restore_cursor_bg` (on move)
+- `cursor_bg_saved` field was dead — now active
 
 ### Phase 5: Paint-Only Fast-Path
-- `paint_only` durch `draw_proof_surface_row` -> `draw_layout_box_row` gereicht
-- Nicht-Paint-Boxen uebersprungen, Backdrop-Blur bei `paint_only` deaktiviert
+- Non-paint boxes skipped, `combined_panels` excluded, backdrop always active
 
-### Phase 6a: Shadow-Blur via Library
-- `blur_row_horizontal` geloescht, durch `nexus_effects::blur_1d` ersetzt
-- `blur_row_buf` Parameter in `compute_shadow_row` -> `_blur_row_buf`
+### Phase 6a: ShadowCache + Zero-Alloc Blur
+- `ShadowCache` (256-entry LRU) imported and wired
+- Per-row cache key: `(box_id_hash << 32) | (rel_y << 16) | blur_r`
+- **BEKANNTES PROBLEM:** `to_vec()` in `compute_shadow_row` + `Vec<u8>` in `CachedShadow`
+  allokieren pro unique Shadow-Row auf dem Bump-Allocator → ~400KB pro Vollbild
+  → `alloc-fail` nach ~500 Rows bei 512KB Heap. Nur sichtbar mit echtem Display.
+
+### Rect-Based Damage (P0/P1)
+- Row ranges removed, `queue_dirty_rect` with precise `DamageRect`
+- `write_damage_rect` accepts `glass_quality` + `paint_only`
+- Filter rects added to `LayoutHotPathIndex`
+- Shadow/backdrop always rendered (no overwrite)
+- vmo_write batching in 4-row bands
+- ~150 lines deleted (`pending_damage_rows`, `queue_rows`, etc.)
 
 ### RISC-V Toolchain
 - `rustup` + `nightly-2025-01-15` + `riscv64imac-unknown-none-elf` + `rust-src`
-- `install-deps.sh`, `Containerfile`, `build.yml`, `ci.yml` aktualisiert
+- `install-deps.sh`, `Containerfile`, `build.yml`, `ci.yml` updated
 
 ---
 
-## QEMU Evidence (2026-05-20)
+## Production-Grade Delta: What Remains
 
-Mit `QEMU_DISPLAY_BACKEND=none`:
+| Prio | Gap | Impact | Fix |
+|------|-----|--------|-----|
+| **P0** | **ShadowCache heap exhaustion** | **Crash (alloc-fail → windowd exit)** | ShadowArena (pre-alloc) + Per-Box-Caching |
+| P0 | Mouse flicker (3-frame cursor) | Not smooth | Atomic cursor update or double-buffer |
+| P0 | vmo_write per row | Line-by-line visible | Single vmo_write per rect |
+| P1 | Backdrop cached layer | 440x more blur ops | Capture + blur once + cache |
+| P2 | Double-buffer / VSync | Partial frames | Back-buffer flip, kernel signaling |
+| — | Testing-Gap: kein Display | Rendering-Pfad ungetestet | QEMU mit Display-Backend im CI |
 
-```
-display: bootstrap on          OK
-display: mode 1280x800         OK
-display: first scanout ok      OK
-windowd: present visible ok    OK
-SELFTEST: ui visible wheel ok  OK
-SELFTEST: ui v2b assets ok     OK
-```
-
----
-
-## Test status
-
-| Check | Result |
-|-------|--------|
-| `cargo test -p windowd` | OK 31 passed |
-| `cargo check -p windowd` | OK |
-| `cargo check --target riscv64imac-unknown-none-elf --features os-lite` | OK |
-| `just dep-gate` | OK |
-| QEMU visible-bootstrap | OK Display-Marker |
+**P1 (Shadow per Box) und P2 (Zero-Alloc 2D Blur) wurden zu P0 eskaliert** — sie sind
+nicht nur Performance/Quality, sondern verursachen einen Korrektheits-Bug auf dem
+Bump-Allocator. Der Fix ist: ShadowArena + Per-Box-Caching + blur_separable_zero_alloc.
 
 ---
 
-## Not done
+## QEMU Evidence (2026-05-21)
 
-- [ ] Phase 6b/c: ShadowCache wiring (needs offscreen shadow rendering)
-- [ ] True OS backdrop 2D blur via `blur_separable` / vertical pass; current OS path is budgeted row blur via `blur_1d`
-- [ ] `neuron-boot.map` verify
-- [ ] Commit
+`QEMU_DISPLAY_BACKEND=none bash scripts/qemu-test.sh --profile full`:
+- `SELFTEST: end`, `verify-uart: profile=full clean`
+- Build: 0 errors, 8 warnings
 
----
+**Achtung:** `DISPLAY_BACKEND=none` testet den Rendering-Pfad NICHT.
+`write_current_frame()` und `compute_shadow_row()` werden nie aufgerufen.
+Der ShadowCache-Leak ist nur mit echtem Display reproduzierbar.
 
-## Files changed
+## Test Status
+
+| Suite | Count | Result |
+|-------|-------|--------|
+| windowd lib | 22 | OK |
+| headless | 9 | OK |
+| damage_pipeline | 2 | OK |
+| OS check (RISC-V) | — | OK 0 errors |
+| QEMU full (DISPLAY_BACKEND=none) | — | OK `SELFTEST: end` |
+| QEMU mit Display | — | **CRASH** (alloc-fail in windowd) |
+
+## Files Changed
 
 ```
 source/services/windowd/src/os_lite.rs
+source/services/windowd/src/live_runtime.rs
+source/services/windowd/tests/damage_pipeline.rs (new)
 tools/nx/tests/interactive_os_startup.rs
 scripts/install-deps.sh
 podman/Containerfile
 .github/workflows/build.yml
 .github/workflows/ci.yml
 CHANGELOG.md
+docs/rfcs/RFC-0058-*.md
+docs/architecture/display-output-service-chain.md
+tasks/TASK-0059-*.md
 .cursor/current_state.md
 .cursor/handoff/current.md
 ```
