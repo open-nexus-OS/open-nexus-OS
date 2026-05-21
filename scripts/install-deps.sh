@@ -194,10 +194,15 @@ log "package install completed."
 # bootstrap. Run `rustup-init` non-interactively only if no toolchain exists.
 if command -v rustup >/dev/null 2>&1; then
   if ! rustup show active-toolchain >/dev/null 2>&1; then
-    log "no active rust toolchain; installing nightly-2025-01-15 (project-pinned)"
+    log "no active rust toolchain; installing stable + nightly-2025-01-15 (project-pinned)"
+    rustup toolchain install stable --profile minimal
     rustup toolchain install nightly-2025-01-15 --profile minimal
-    rustup default nightly-2025-01-15
+    rustup default stable
   fi
+
+  log "installing RISC-V cross-compilation target + rust-src"
+  rustup target add riscv64imac-unknown-none-elf --toolchain nightly-2025-01-15
+  rustup component add rust-src --toolchain nightly-2025-01-15
 fi
 
 log "done. Next: 'make initial-setup' (continues with QEMU patch + git hooks) or 'make build'."

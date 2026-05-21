@@ -88,7 +88,7 @@ pm_cli() {
     fi
   done
   echo "[info] building nexus-proof-manifest CLI..." >&2
-  (cd "$ROOT" && cargo build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
+  (cd "$ROOT" && cargo +stable build -p nexus-proof-manifest --bin nexus-proof-manifest --quiet) 1>&2
   for cand in \
     "$ROOT/target/debug/nexus-proof-manifest" \
     /tmp/cursor-sandbox-cache/*/cargo-target/debug/nexus-proof-manifest; do

@@ -137,10 +137,16 @@ fn handle_keymap_set(args: InputKeymapSetArgs) -> ExecResult {
 fn handle_type(args: InputTypeArgs) -> ExecResult {
     let scalar_count = args.text.chars().count();
     if scalar_count == 0 {
-        return Err(NxError::new(ExitClass::ValidationReject, "input.type.empty"));
+        return Err(NxError::new(
+            ExitClass::ValidationReject,
+            "input.type.empty",
+        ));
     }
     if scalar_count > 64 {
-        return Err(NxError::new(ExitClass::ValidationReject, "input.type.too_long"));
+        return Err(NxError::new(
+            ExitClass::ValidationReject,
+            "input.type.too_long",
+        ));
     }
     Ok((
         ExitClass::Success,

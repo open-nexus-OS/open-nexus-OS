@@ -35,7 +35,12 @@ fn panel_shadow() -> BoxShadow {
         offset_y: FxPx::new(12),
         blur_radius: FxPx::new(24),
         spread: FxPx::new(4),
-        color: Rgba8 { r: 0, g: 0, b: 0, a: 128 },
+        color: Rgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 128,
+        },
     }
 }
 
@@ -59,7 +64,9 @@ pub fn filter_scrollbar_thumb_bounds(
     }
     let thumb_height =
         (viewport_height as u64 * viewport_height as u64 / content_height as u64) as u32;
-    let thumb_height = thumb_height.max(FILTER_SCROLLBAR_MIN_THUMB).min(viewport_height);
+    let thumb_height = thumb_height
+        .max(FILTER_SCROLLBAR_MIN_THUMB)
+        .min(viewport_height);
     let thumb_range = viewport_height.saturating_sub(thumb_height);
     let scroll_progress = (scroll_y as u64).min(max_scroll as u64);
     let thumb_y = viewport_y + (scroll_progress * thumb_range as u64 / max_scroll as u64) as u32;
@@ -71,7 +78,9 @@ pub struct ProofTextMeasure;
 impl MeasureText for ProofTextMeasure {
     fn prepare(&self, content: &TextContent, style: &TextStyle) -> PreparedTextHandle {
         PreparedTextHandle(
-            text_asset_id(content.as_str(), style).map(text_asset_index).unwrap_or(usize::MAX),
+            text_asset_id(content.as_str(), style)
+                .map(text_asset_index)
+                .unwrap_or(usize::MAX),
         )
     }
 
@@ -97,8 +106,15 @@ impl MeasureText for ProofTextMeasure {
             baseline: line_height,
             height: line_height,
         };
-        let lines = if matches!(max_lines, Some(0)) { Vec::new() } else { vec![line] };
-        LineLayout { lines, natural_width }
+        let lines = if matches!(max_lines, Some(0)) {
+            Vec::new()
+        } else {
+            vec![line]
+        };
+        LineLayout {
+            lines,
+            natural_width,
+        }
     }
 }
 
@@ -118,7 +134,10 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
             max_width: None,
             min_height: None,
             max_height: None,
-            item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            item: FlexItem {
+                flex_grow: 1,
+                ..FlexItem::default()
+            },
         },
         VisualStyle::default(),
         vec![
@@ -206,7 +225,13 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
         },
         VisualStyle::default(),
         vec![
-            card_node("card_hover", state.hover_visible, assets::PROOF_HOVER, HOVER_LABEL, false),
+            card_node(
+                "card_hover",
+                state.hover_visible,
+                assets::PROOF_HOVER,
+                HOVER_LABEL,
+                false,
+            ),
             card_node(
                 "card_click",
                 state.launcher_click_visible,
@@ -221,7 +246,13 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
                 SCROLL_LABEL,
                 true,
             ),
-            card_node("card_key", state.keyboard_visible, assets::PROOF_KEYBOARD, KEY_LABEL, false),
+            card_node(
+                "card_key",
+                state.keyboard_visible,
+                assets::PROOF_KEYBOARD,
+                KEY_LABEL,
+                false,
+            ),
         ],
     );
     LayoutNode::Stack(
@@ -238,7 +269,10 @@ pub fn build_proof_panel_tree(state: VisibleState) -> LayoutNode {
             max_width: Some(FxPx::new(PANEL_WIDTH)),
             min_height: Some(FxPx::new(PANEL_HEIGHT)),
             max_height: Some(FxPx::new(PANEL_HEIGHT)),
-            item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
+            item: FlexItem {
+                align_self: Some(Align::Stretch),
+                ..FlexItem::default()
+            },
         },
         VisualStyle::default(),
         vec![
@@ -292,7 +326,11 @@ pub fn compute_proof_layout(
 ) -> Result<LayoutResult, &'static str> {
     let total_width = PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH;
     LayoutEngine::new()
-        .layout(&build_combined_tree(state, filter_text), FxPx::new(total_width), &ProofTextMeasure)
+        .layout(
+            &build_combined_tree(state, filter_text),
+            FxPx::new(total_width),
+            &ProofTextMeasure,
+        )
         .map_err(|_| "layout failed")
 }
 
@@ -334,14 +372,28 @@ fn card_node(
     label: crate::proof_panel_spec::ProofTextSpec,
     show_scroll: bool,
 ) -> LayoutNode {
-    let background = if active { assets::PROOF_CARD_ACTIVE_BG } else { assets::PROOF_CARD_BG };
-    let border = if active { accent } else { assets::PROOF_CARD_BORDER };
+    let background = if active {
+        assets::PROOF_CARD_ACTIVE_BG
+    } else {
+        assets::PROOF_CARD_BG
+    };
+    let border = if active {
+        accent
+    } else {
+        assets::PROOF_CARD_BORDER
+    };
     let scroll_marker_size = if show_scroll { 8 } else { 12 };
     let scroll_marker_gap = if show_scroll { 0 } else { 6 };
     let card_padding = if show_scroll { 10 } else { CARD_PADDING };
     let card_gap = if show_scroll { 4 } else { 8 };
     let mut top_row_children = vec![
-        shape_node(card_part_id(id, "icon"), CARD_ICON_SIZE, accent, Some(border), ShapeKind::Rect),
+        shape_node(
+            card_part_id(id, "icon"),
+            CARD_ICON_SIZE,
+            accent,
+            Some(border),
+            ShapeKind::Rect,
+        ),
         LayoutNode::Spacer(nexus_layout_types::Spacer {
             id: Some(card_part_id(id, "icon_spacer")),
             flex_grow: 1,
@@ -354,7 +406,11 @@ fn card_node(
         shape_node(
             card_part_id(id, "dot"),
             12,
-            if active { assets::PROOF_ICON_FG } else { background },
+            if active {
+                assets::PROOF_ICON_FG
+            } else {
+                background
+            },
             None,
             ShapeKind::Circle,
         ),
@@ -388,7 +444,11 @@ fn card_node(
                 shape_node(
                     card_part_id(id, "scroll_down"),
                     scroll_marker_size,
-                    if active { assets::PROOF_ICON_FG } else { assets::PROOF_CARD_BORDER },
+                    if active {
+                        assets::PROOF_ICON_FG
+                    } else {
+                        assets::PROOF_CARD_BORDER
+                    },
                     None,
                     ShapeKind::TriangleDown,
                 ),
@@ -399,7 +459,11 @@ fn card_node(
         top_row_children.push(path_node(
             card_part_id(id, "glyph"),
             16,
-            if active { assets::PROOF_ICON_FG } else { border },
+            if active {
+                assets::PROOF_ICON_FG
+            } else {
+                border
+            },
             PathShape::line(&[
                 PathPoint::new(160, 820),
                 PathPoint::new(420, 540),
@@ -478,7 +542,9 @@ fn shape_node(
         },
         VisualStyle {
             background: Some(background),
-            border: border.map(|color| EdgeBorder::all(FxPx::new(1), color)).unwrap_or_default(),
+            border: border
+                .map(|color| EdgeBorder::all(FxPx::new(1), color))
+                .unwrap_or_default(),
             shape,
             ..Default::default()
         },
@@ -503,7 +569,11 @@ fn path_node(id: &'static str, size: i32, color: Rgba8, path: PathShape) -> Layo
             max_height: Some(FxPx::new(size)),
             item: FlexItem::default(),
         },
-        VisualStyle { background: Some(color), shape: ShapeKind::Path(path), ..Default::default() },
+        VisualStyle {
+            background: Some(color),
+            shape: ShapeKind::Path(path),
+            ..Default::default()
+        },
         vec![],
     )
 }
@@ -738,7 +808,10 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             max_width: None,
             min_height: None,
             max_height: None,
-            item: FlexItem { flex_grow: 1, ..FlexItem::default() },
+            item: FlexItem {
+                flex_grow: 1,
+                ..FlexItem::default()
+            },
         },
         VisualStyle::default(),
         vec![text_input, filter_list],
@@ -758,7 +831,10 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
             max_width: Some(FxPx::new(FILTER_PANEL_WIDTH)),
             min_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
             max_height: Some(FxPx::new(FILTER_PANEL_HEIGHT)),
-            item: FlexItem { align_self: Some(Align::Stretch), ..FlexItem::default() },
+            item: FlexItem {
+                align_self: Some(Align::Stretch),
+                ..FlexItem::default()
+            },
         },
         VisualStyle::default(),
         vec![filter_content],

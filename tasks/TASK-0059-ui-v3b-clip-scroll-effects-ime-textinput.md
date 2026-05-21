@@ -3,7 +3,7 @@ title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (
 status: In Progress
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-19 (Phases 0-5 implemented; Phase 6 NeX UI Rendering Pipeline defined)
+updated: 2026-05-20 (Phases 0-6a implemented; compositor Phases 1-6a: TileMap, LayerCache, library blur, cursor save/restore, paint-only fast-path; Phase 6b/c ShadowCache pending)
 depends-on: [TASK-0058]
 follow-up-tasks: [TASK-0060B]
 links:
@@ -128,6 +128,14 @@ clip boundaries visible on-screen.
 4. **IME/text input**: focus → text subscription, caret/selection helpers, imed stub ✅
 5. **Proof + docs**: host tests + OS selftest + postflight ✅ (76 tests, OS markers defined)
 6. **NeX UI Rendering Pipeline**: MSDF atlas (text+icons), SDF shapes (rounded rects, buttons), 9-slice shadow, dual-kawase blur, separable blur, render cache + damage integration, `BoxShadow`/`TextShadow`/`opacity` properties in `VisualStyle`, Tailwind shadow presets — see RFC-0058 Phase 6
+7. **Compositor retained-mode upgrades** (2026-05-20):
+   - Phase 1: TileMap wired into render loop (dirty-tile gating, clear-after-write)
+   - Phase 2: LayerCache promoted from stub to functional (insert/get/invalidate)
+   - Phase 3: Backdrop blur switched from inline to nexus_effects::blur_1d
+   - Phase 4: Cursor-BG save/restore activated (dead fields → working)
+   - Phase 5: Paint-only fast-path (skips non-paint boxes + backdrop blur)
+   - Phase 6a: Shadow blur switched from inline blur_row_horizontal to nexus_effects::blur_1d (dead code removed)
+   - Phase 6b/c: ShadowCache wiring (pending — needs offscreen shadow rendering)
 
 ## Touched paths (Phase 6)
 

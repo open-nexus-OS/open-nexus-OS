@@ -60,7 +60,12 @@ impl DamageRect {
         let y = self.y.min(other.y);
         let end_x = self.end_x().max(other.end_x());
         let end_y = self.end_y().max(other.end_y());
-        Self { x, y, width: end_x.saturating_sub(x), height: end_y.saturating_sub(y) }
+        Self {
+            x,
+            y,
+            width: end_x.saturating_sub(x),
+            height: end_y.saturating_sub(y),
+        }
     }
 }
 
@@ -116,8 +121,9 @@ impl LayoutHotPathIndex {
         mode_height: u32,
     ) -> Self {
         let band_start_y = base_y.min(mode_height);
-        let band_end_y =
-            base_y.saturating_add(crate::proof_panel_spec::PANEL_HEIGHT as u32).min(mode_height);
+        let band_end_y = base_y
+            .saturating_add(crate::proof_panel_spec::PANEL_HEIGHT as u32)
+            .min(mode_height);
         let mut row_masks = [0u64; PANEL_BAND_ROWS];
         let mut row_has_shadow = [false; PANEL_BAND_ROWS];
         let mut overflow_boxes = false;
@@ -258,9 +264,10 @@ pub(crate) fn merge_row_range(
     incoming: Option<(u32, u32)>,
 ) -> Option<(u32, u32)> {
     match (current, incoming) {
-        (Some((current_start, current_end)), Some((incoming_start, incoming_end))) => {
-            Some((current_start.min(incoming_start), current_end.max(incoming_end)))
-        }
+        (Some((current_start, current_end)), Some((incoming_start, incoming_end))) => Some((
+            current_start.min(incoming_start),
+            current_end.max(incoming_end),
+        )),
         (Some(range), None) | (None, Some(range)) => Some(range),
         (None, None) => None,
     }
@@ -292,9 +299,20 @@ pub(crate) fn scroll_damage_rows(
 ) -> Option<(u32, u32)> {
     let mut rows = None;
     for rect in damage.rects.into_iter().flatten() {
-        let start_y = base_y.saturating_add(rect.y.as_u32().unwrap_or(0)).min(mode_height);
-        let end_y = start_y.saturating_add(rect.height.as_u32().unwrap_or(0)).min(mode_height);
-        rows = merge_row_range(rows, if start_y < end_y { Some((start_y, end_y)) } else { None });
+        let start_y = base_y
+            .saturating_add(rect.y.as_u32().unwrap_or(0))
+            .min(mode_height);
+        let end_y = start_y
+            .saturating_add(rect.height.as_u32().unwrap_or(0))
+            .min(mode_height);
+        rows = merge_row_range(
+            rows,
+            if start_y < end_y {
+                Some((start_y, end_y))
+            } else {
+                None
+            },
+        );
     }
     rows
 }
@@ -351,7 +369,12 @@ fn layout_box_damage_rect(
     y = y.min(mode_height);
     end_x = end_x.min(mode_width);
     end_y = end_y.min(mode_height);
-    (x < end_x && y < end_y).then_some(DamageRect { x, y, width: end_x - x, height: end_y - y })
+    (x < end_x && y < end_y).then_some(DamageRect {
+        x,
+        y,
+        width: end_x - x,
+        height: end_y - y,
+    })
 }
 
 #[cfg(test)]
@@ -365,8 +388,18 @@ mod tests {
     fn scroll_damage_rows_merge_both_rects() {
         let damage = ScrollDamage {
             rects: [
-                Some(Rect::new(FxPx::new(0), FxPx::new(10), FxPx::new(40), FxPx::new(18))),
-                Some(Rect::new(FxPx::new(0), FxPx::new(58), FxPx::new(40), FxPx::new(12))),
+                Some(Rect::new(
+                    FxPx::new(0),
+                    FxPx::new(10),
+                    FxPx::new(40),
+                    FxPx::new(18),
+                )),
+                Some(Rect::new(
+                    FxPx::new(0),
+                    FxPx::new(58),
+                    FxPx::new(40),
+                    FxPx::new(12),
+                )),
             ],
         };
         assert_eq!(scroll_damage_rows(damage, 440, 800), Some((450, 510)));
@@ -386,7 +419,9 @@ mod tests {
         let index = LayoutHotPathIndex::build(&layout, 56, 440, 1280, 800);
         let hover_rows = index.target_rows(TargetDamage::Hover).expect("hover rows");
         let hover_rect = index.target_rect(TargetDamage::Hover).expect("hover rect");
-        let filter_rows = index.target_rows(TargetDamage::FilterList).expect("filter rows");
+        let filter_rows = index
+            .target_rows(TargetDamage::FilterList)
+            .expect("filter rows");
         assert!(hover_rows.0 >= 440);
         assert!(hover_rows.1 > hover_rows.0);
         assert_eq!(hover_rows, (hover_rect.y, hover_rect.end_y()));
@@ -400,9 +435,27 @@ mod tests {
 
     #[test]
     fn damage_rect_merge_bounds_small_target_updates() {
-        let left = DamageRect { x: 10, y: 20, width: 30, height: 40 };
-        let right = DamageRect { x: 32, y: 10, width: 20, height: 12 };
-        assert_eq!(left.merge(right), DamageRect { x: 10, y: 10, width: 42, height: 50 });
+        let left = DamageRect {
+            x: 10,
+            y: 20,
+            width: 30,
+            height: 40,
+        };
+        let right = DamageRect {
+            x: 32,
+            y: 10,
+            width: 20,
+            height: 12,
+        };
+        assert_eq!(
+            left.merge(right),
+            DamageRect {
+                x: 10,
+                y: 10,
+                width: 42,
+                height: 50
+            }
+        );
     }
 
     #[test]

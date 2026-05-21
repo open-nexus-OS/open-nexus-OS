@@ -200,7 +200,7 @@ Sie muessen in eine gemeinsame sichtbare Proof-Surface auf dem echten QEMU-/Desk
 
 - Text-/Wrapping-Target mit echtem sichtbarem Text,
 - SVG-/Icon-Target und sichtbarer Cursor-Asset-Pfad; sobald die SVG-Pipeline live ist, soll der Cursor auf den in
-  `docs/dev/ui/foundations/visual/cursor-themes.md` beschriebenen BreezeX-Pfad umgestellt werden,
+  `docs/dev/ui/foundations/visual/cursor-themes.md` beschriebenen Mocu-Cursor-Pfad umgestellt werden,
 - kleines Scroll-/Clip-/Gesture-Fenster,
 - Animations-/Transition-Zone,
 - Virtual-List-/Datenfenster,

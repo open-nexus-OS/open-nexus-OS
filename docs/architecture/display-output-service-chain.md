@@ -20,12 +20,22 @@ contains the required evidence.
 - `windowd` is the Minimal DisplayServer v0. It owns root scene state,
   hit-test/focus, and the full NeX UI rendering pipeline (RFC-0058 Phase 6):
 
-  - **Two-pass scanline compositor**: shadow-pass (`compute_shadow_row`) →
-    content-pass (`draw_proof_surface_row`) → cursor — zero-copy, per-row.
+  - **Two-pass retained-mode compositor**: shadow-pass (`compute_shadow_row` via
+    `nexus_effects::blur_1d`) → content-pass (`draw_proof_surface_row` with
+    backdrop blur via `nexus_effects::blur_1d`) → cursor — zero-copy, per-row.
+  - **Tile-based damage tracking**: `TileMap` (64×64 tiles, 260 tiles, bit-array)
+    gates band writes in `write_rows` via `has_dirty_in_row_range`; dirty rects
+    unioned in `pending_damage_rects`.
+  - **Retained layer cache**: `LayerCache` (insert/get/invalidate) stores pre-rendered
+    box pixels; `draw_layout_box_row` blits clean layers, skips re-render.
+  - **Cursor save/restore**: `save_cursor_bg_inline` captures wallpaper before cursor
+    blend; `restore_cursor_bg` writes saved pixels back on cursor move.
+  - **Paint-only fast-path**: `paint_only` flag skips non-paint boxes and backdrop
+    blur on hover/click/keyboard color changes.
   - **MSDF atlas** (`nexus-msdf`): 95 ASCII glyphs as 32×32 SDF, scale-agnostic.
   - **SDF shapes** (`nexus-sdf`): anti-aliased circles, rounded rects via analytical SDF.
-  - **Effects** (`nexus-effects`): separable blur, 9-slice shadow, dual-kawase blur,
-    render cache (ShadowCache/TextCache LRU).
+  - **Effects** (`nexus-effects`): `blur_1d` used for backdrop + shadow blur in
+    compositor; separable blur, 9-slice shadow, dual-kawase blur available.
 
   Writes composed rows into the framebuffer VMO registered by `fbdevd`.
 - `fbdevd` owns framebuffer capability use, `ramfb` setup, final scanout

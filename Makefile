@@ -108,12 +108,12 @@ ifeq ($(MODE),container)
 		                    --target riscv64imac-unknown-none-elf -p neuron-boot --release'
 else
 	@echo "==> Building workspace on host"
-	@RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd
+	@RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo +stable build --workspace --exclude neuron --exclude neuron-boot --exclude samgrd --exclude bundlemgrd --exclude identityd --exclude dsoftbusd --exclude dist-data --exclude clipboardd --exclude notifd --exclude resmgrd --exclude searchd --exclude settingsd --exclude time-syncd --exclude netstackd
 	@echo "==> Pre-compiling host test binaries (consumed by 'make test')"
-	@if cargo nextest --version >/dev/null 2>&1; then \
-	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo nextest list --workspace --exclude neuron --exclude neuron-boot >/dev/null; \
+	@if cargo +stable nextest --version >/dev/null 2>&1; then \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo +stable nextest list --workspace --exclude neuron --exclude neuron-boot >/dev/null; \
 	else \
-	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot --no-run; \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo +stable test --workspace --exclude neuron --exclude neuron-boot --no-run; \
 	fi
 	@echo "==> Cross-compiling OS services (riscv64, --release) — full DEFAULT_SERVICE_LIST set so init-lite can embed all of them"
 	@# Must match scripts/run-qemu-rv64.sh DEFAULT_SERVICE_LIST so `make test` /
@@ -175,11 +175,11 @@ ifeq ($(MODE),container)
 		  fi'
 else
 	@echo "==> Running host-first tests"
-	@if cargo nextest --version >/dev/null 2>&1; then \
-	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo nextest run --workspace --exclude neuron --exclude neuron-boot; \
+	@if cargo +stable nextest --version >/dev/null 2>&1; then \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo +stable nextest run --workspace --exclude neuron --exclude neuron-boot; \
 	else \
 	  echo "[warn] cargo-nextest not found; falling back to cargo test"; \
-	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo test --workspace --exclude neuron --exclude neuron-boot; \
+	  RUSTFLAGS='$(HOST_RUSTFLAGS)' cargo +stable test --workspace --exclude neuron --exclude neuron-boot; \
 	fi
 endif
 	@echo "==> Running deterministic SMP ladder (smp profile, SMP=$(SMP))"

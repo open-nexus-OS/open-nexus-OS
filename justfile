@@ -94,10 +94,11 @@ qemu *args:
 
 start *args:
     # self-contained interactive path: build first, then keep the same guest
-    # alive with the richer breadcrumb ladder.
-    make build
+    # alive with the richer breadcrumb ladder. Default to the host build path so
+    # interactive starts do not rebuild the dev container or compile cargo-udeps.
+    make MODE=${NEXUS_START_BUILD_MODE:-host} build
     NEXUS_SKIP_BUILD=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=bringup QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-touch} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/run-qemu-rv64.sh {{args}}
-    @echo "[hint] just start builds first and keeps QEMU alive with the full interactive breadcrumb ladder."
+    @echo "[hint] just start builds first via MODE=${NEXUS_START_BUILD_MODE:-host}; set NEXUS_START_BUILD_MODE=container for container parity."
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
@@ -211,24 +212,24 @@ test-dsoftbus-mux:
     # #region agent log
     python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:start","message":"start target","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
     # #endregion
-    cargo test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
-    cargo test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
-    cargo test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
+    cargo +stable test -p dsoftbus --test mux_contract_rejects_and_bounds -- --nocapture
+    cargo +stable test -p dsoftbus --test mux_frame_state_keepalive_contract -- --nocapture
+    cargo +stable test -p dsoftbus --test mux_open_accept_data_rst_integration -- --nocapture
     # #region agent log
     python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-mux:end","message":"target completed","data":{"target":"test-dsoftbus-mux"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
     # #endregion
 
 # TASK-0021 targeted host QUIC proof suites (real transport + selection/reject contract).
 test-dsoftbus-quic:
-    cargo test -p dsoftbus --test quic_host_transport_contract -- --nocapture
-    cargo test -p dsoftbus --test quic_selection_contract -- --nocapture
+    cargo +stable test -p dsoftbus --test quic_host_transport_contract -- --nocapture
+    cargo +stable test -p dsoftbus --test quic_selection_contract -- --nocapture
 
 # Full userspace dsoftbus host regression (includes mux + reject suites).
 test-dsoftbus-host:
     # #region agent log
     python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:start","message":"start target","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
     # #endregion
-    cargo test -p dsoftbus -- --nocapture
+    cargo +stable test -p dsoftbus -- --nocapture
     # #region agent log
     python -c 'import json,time,os; p=os.environ.get("DEBUG_LOG"); sid=os.environ.get("DEBUG_SESSION_ID",""); rec={"runId":"pre-fix","hypothesisId":"H2","location":"justfile:test-dsoftbus-host:end","message":"target completed","data":{"target":"test-dsoftbus-host"},"timestamp":int(time.time()*1000)}; rec.update({"sessionId":sid} if sid else {}); open(p,"a",encoding="utf-8").write(json.dumps(rec)+"\n") if p else None'
     # #endregion
@@ -264,11 +265,11 @@ lint:
 
 test-host:
     @echo "==> Running host test suite (exclude kernel)"
-    @env RUSTFLAGS='{{host_rustflags}}' cargo test --workspace --exclude neuron --exclude neuron-boot
+    @env RUSTFLAGS='{{host_rustflags}}' cargo +stable test --workspace --exclude neuron --exclude neuron-boot
 
 test-e2e:
     @echo "==> Running host E2E tests"
-    @env RUSTFLAGS='{{host_rustflags}}' cargo test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
+    @env RUSTFLAGS='{{host_rustflags}}' cargo +stable test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
 
 # Back-compat alias
 test:
@@ -287,7 +288,7 @@ miri-fs:
     @env MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"' RUSTUP_TOOLCHAIN={{toolchain}} cargo miri test -p samgr -p bundlemgr
 
 arch-check:
-    cargo run -p arch-check
+    cargo +stable run -p arch-check
 
 # -----------------------------------------------------------------------------
 # Aggregates
@@ -347,7 +348,7 @@ diag-kernel:
 
 deny-check:
     @echo "==> cargo-deny check (licenses + advisories)"
-    @cargo deny check --config config/deny.toml
+    @cargo +stable deny check --config config/deny.toml
 
 # -----------------------------------------------------------------------------
 # Architecture Gate (TASK-0023B P3-03 / RFC-0038 refinement (7) / ADR-0027)

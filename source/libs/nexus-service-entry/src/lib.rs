@@ -79,9 +79,11 @@ pub mod os {
 
     // Bring-up sizing: keep service heaps bounded to avoid exhausting the kernel's early linear map.
     // Most services stay at 384KiB; heavy proof clients may opt into 512KiB explicitly.
-    #[cfg(feature = "heap-512k")]
+    #[cfg(feature = "heap-768k")]
+    const HEAP_SIZE: usize = 768 * 1024;
+    #[cfg(all(feature = "heap-512k", not(feature = "heap-768k")))]
     const HEAP_SIZE: usize = 512 * 1024;
-    #[cfg(not(feature = "heap-512k"))]
+    #[cfg(not(any(feature = "heap-512k", feature = "heap-768k")))]
     const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 

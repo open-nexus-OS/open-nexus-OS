@@ -115,6 +115,7 @@ jobs:
           rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal
           rustup target add riscv64imac-unknown-none-elf --toolchain "${STABLE_TOOLCHAIN}"
           rustup target add riscv64imac-unknown-none-elf --toolchain "${NIGHTLY_TOOLCHAIN}"
+          rustup component add rust-src --toolchain "${NIGHTLY_TOOLCHAIN}"
           rustup default "${STABLE_TOOLCHAIN}"
       - name: Cargo cache
         uses: actions/cache@v4
@@ -171,6 +172,7 @@ jobs:
           rustup toolchain install "${NIGHTLY_TOOLCHAIN}" --profile minimal
           rustup target add riscv64imac-unknown-none-elf --toolchain "${STABLE_TOOLCHAIN}"
           rustup target add riscv64imac-unknown-none-elf --toolchain "${NIGHTLY_TOOLCHAIN}"
+          rustup component add rust-src --toolchain "${NIGHTLY_TOOLCHAIN}"
           rustup default "${STABLE_TOOLCHAIN}"
       - name: Cargo cache
         uses: actions/cache@v4

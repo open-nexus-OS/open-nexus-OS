@@ -65,10 +65,17 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
 fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
     let justfile = read_repo_file("justfile");
 
-    assert!(justfile.contains("start *args:"), "`just start` recipe must exist");
     assert!(
-        justfile.contains("make build"),
+        justfile.contains("start *args:"),
+        "`just start` recipe must exist"
+    );
+    assert!(
+        justfile.contains("make MODE=${NEXUS_START_BUILD_MODE:-host} build"),
         "`just start` must perform its own build before launching"
+    );
+    assert!(
+        justfile.contains("NEXUS_START_BUILD_MODE:-host"),
+        "`just start` must default to the host build path so live starts do not rebuild container tools"
     );
     assert!(
         justfile.contains("QEMU_MARKER_LEVEL=full")
@@ -96,6 +103,20 @@ fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
 }
 
 #[test]
+fn interactive_container_image_does_not_compile_cargo_udeps_on_start_path() {
+    let containerfile = read_repo_file("podman/Containerfile");
+
+    assert!(
+        !containerfile.contains("cargo-udeps"),
+        "interactive container builds must not compile cargo-udeps; it is not needed for `just start`"
+    );
+    assert!(
+        containerfile.contains("cargo-nextest") && containerfile.contains("cargo-fuzz"),
+        "developer test tools that are used locally should remain in the image"
+    );
+}
+
+#[test]
 fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
     let runner = read_repo_file("scripts/run-qemu-rv64.sh");
 
@@ -107,7 +128,10 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
         "opt/org.open-nexus/selftest-mode",
         "opt/org.open-nexus/selftest-profile",
     ] {
-        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
     }
     assert!(
         runner.contains("RUN_TIMEOUT=0") || runner.contains("\"$RUN_TIMEOUT\" == \"0\""),
@@ -128,7 +152,10 @@ fn interactive_minimal_timeout_is_only_accepted_after_scene_ready() {
         "\"$QEMU_MARKER_LEVEL\" == \"minimal\"",
         "| tee >(monitor_uart) >(monitor_agent_uart) \\",
     ] {
-        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
+        assert!(
+            runner.contains(needle),
+            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
+        );
     }
 }
 
@@ -145,9 +172,11 @@ fn interactive_qemu_exposes_keyboard_and_pointer_devices() {
     );
     assert!(
         runner.contains("grab-on-hover=on")
-            && runner.contains("show-tabs=off")
-            && runner.contains("resolve_qemu_display_backend"),
-        "interactive GTK starts must prefer pointer-capture-friendly display defaults for the live host path"
+            && runner.contains("show-menubar=off")
+            && runner.contains("resolve_qemu_display_backend")
+            && !runner.contains("backend=\"gtk,zoom-to-fit=on")
+            && !runner.contains("backend=\"${backend},zoom-to-fit=on"),
+        "interactive GTK starts must keep pointer-capture/menu defaults without forcing zoom-to-fit into a square host window"
     );
 }
 
@@ -334,7 +363,11 @@ fn kernel_linker_keeps_private_selftest_stack() {
     let base = read_map_symbol(&map, "__selftest_stack_base");
     let top = read_map_symbol(&map, "__selftest_stack_top");
 
-    assert_eq!(base - guard_lo, 0x1000, "selftest stack low guard must be one page");
+    assert_eq!(
+        base - guard_lo,
+        0x1000,
+        "selftest stack low guard must be one page"
+    );
     assert_eq!(top - base, 0x8000, "private selftest stack must be 32 KiB");
 }
 
@@ -437,7 +470,10 @@ fn hidrawd_service_owns_periodic_chain_fps_telemetry() {
         "rebinds={}",
         "idle_yields={}",
     ] {
-        assert!(hidrawd.contains(needle), "`hidrawd` service telemetry must include `{needle}`");
+        assert!(
+            hidrawd.contains(needle),
+            "`hidrawd` service telemetry must include `{needle}`"
+        );
     }
 }
 
@@ -507,7 +543,10 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "kbd_deliv={}",
         "idle_yields={}",
     ] {
-        assert!(inputd.contains(needle), "`inputd` service telemetry must include `{needle}`");
+        assert!(
+            inputd.contains(needle),
+            "`inputd` service telemetry must include `{needle}`"
+        );
     }
 }
 
@@ -788,7 +827,8 @@ fn fbdevd_polls_windowd_with_owned_cap_move_reply_inbox() {
         fbdevd.contains("KernelClient::new_for(\"windowd\")")
             && fbdevd.contains("KernelClient::new_for(\"@reply\")")
             && fbdevd.contains("client.send_with_cap_move_wait(&request, reply_send_clone, send_wait)")
-            && fbdevd.contains("const RPC_TIMEOUT_MS: u64 = 2;")
+            && fbdevd.contains("const RPC_SEND_TIMEOUT_MS: u64 = 2;")
+            && fbdevd.contains("const RPC_RECV_TIMEOUT_MS: u64 = 6;")
             && fbdevd.contains("DisplayReactor::new(windowd::VISIBLE_BOOTSTRAP_HZ)")
             && fbdevd.contains("TickBudget::new(4)"),
         "fbdevd must poll windowd through a short bounded CAP_MOVE reply inside a budgeted display reactor"
@@ -961,13 +1001,18 @@ fn windowd_first_frame_uses_budgeted_glass_quality() {
     let cargo_toml = read_repo_file("source/services/windowd/Cargo.toml");
 
     assert!(
-        windowd.contains("fn write_current_frame(&mut self) -> Result<(), WindowdError> {\n        self.write_rows(0, self.mode.height, select_glass_quality(self.mode.height))\n    }")
+        windowd.contains("fn write_current_frame(&mut self) -> Result<(), WindowdError> {")
+            && windowd.contains("select_glass_quality(PROOF_PANEL_H)")
             && windowd.contains("const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;"),
-        "first-frame writes must use the same budgeted glass-quality policy as dirty flushes instead of forcing high-quality blur across the whole screen"
+        "first-frame writes must budget glass quality from the effect span instead of degrading the whole-screen write to opaque"
     );
     assert!(
         cargo_toml.contains("stack_pages = 8"),
         "windowd needs enough OS stack for the live render state"
+    );
+    assert!(
+        cargo_toml.contains("\"nexus-service-entry/heap-512k\""),
+        "windowd needs the heavy-proof heap tier for visible-bootstrap blur/cache/input state"
     );
 }
 
@@ -1066,14 +1111,18 @@ fn windowd_keeps_cursor_motion_out_of_layout_recompute_hot_path() {
     let windowd = read_repo_file("source/services/windowd/src/os_lite.rs");
 
     assert!(
-        windowd.contains("let old_targets = target_state_bits(self.state);")
-            && windowd.contains("let new_targets = target_state_bits(self.state);")
-            && windowd.contains("if new_targets != old_targets")
-            && windowd.contains("Target state only changes paint, not geometry")
+        windowd.contains("let old_state = self.state;")
+            && windowd.contains("let cursor_changed =")
+            && windowd.contains("let text_changed = old_state.text_input() != self.state.text_input();")
+            && windowd.contains("let filter_changed = old_filter_idx != self.active_filter_idx;")
+            && windowd.contains("self.paint_only_damage =")
             && windowd.contains("if !rect.contains_y(y)")
             && windowd.contains("layout_box.id.and_then(proof_paint_role)")
             && windowd.contains("proof_box_background(layout_box, state, paint_role)")
-            && !windowd.contains("compute_proof_layout(self.state)"),
+            && windowd.contains("build_live_proof_layouts(initial_state)")
+            && windowd.contains("record_layer_cache_row(")
+            && windowd.contains("layer_cache.insert(Layer::new")
+            && !windowd.contains("compute_proof_layout(self.state"),
         "windowd must not rebuild the layout tree for live mouse target transitions on the OS bump allocator"
     );
     assert!(
@@ -1151,9 +1200,12 @@ fn visible_bootstrap_harness_requires_service_owned_display_markers() {
     let harness = read_repo_file("scripts/qemu-test.sh");
     let ui_markers = read_repo_file("source/apps/selftest-client/proof-manifest/markers/ui.toml");
 
-    for marker in
-        ["fbdevd: ready", "fbdevd: map ok", "fbdevd: ramfb configured", "fbdevd: flush ok"]
-    {
+    for marker in [
+        "fbdevd: ready",
+        "fbdevd: map ok",
+        "fbdevd: ramfb configured",
+        "fbdevd: flush ok",
+    ] {
         assert!(
             harness.contains(marker),
             "visible-bootstrap ladder must require service-owned display marker `{marker}`"

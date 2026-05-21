@@ -1,25 +1,33 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: OS-lite display server main loop for `windowd` — scanline compositor with
-//! zero-copy two-pass renderer (shadow-pass → content-pass → cursor), SDF anti-aliased
-//! shapes, and per-row damage tracking. Part of TASK-0055/0056/0058/0059.
+//! CONTEXT: OS-lite display server main loop for `windowd` — retained-mode compositor with
+//! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
+//! SDF anti-aliased shapes, backdrop blur via nexus-effects, cursor save/restore,
+//! and paint-only fast-path. Part of TASK-0055/0056/0058/0059.
 //!
 //! OWNERS: @ui
-//! STATUS: Functional
+//! STATUS: Functional (Phases 1–6a: TileMap, LayerCache, library blur, cursor bg, paint-only)
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 31 tests (windowd unit tests) + 9 tests (headless) + 20 tests (ui_v3b_host)
+//! TEST_COVERAGE: 31 tests (windowd unit) + 9 tests (headless) + 3 tests (tile_map unit)
 //!
 //! ARCHITECTURE:
-//!   - Two-pass renderer: `compute_shadow_row` (shadow), `draw_proof_surface_row` (content)
+//!   - Two-pass renderer: `compute_shadow_row` (shadow, zero-allocation),
+//!     `draw_proof_surface_row` (content + backdrop blur, zero-allocation)
+//!   - Tile-based damage: `TileMap` (64x64 tiles, 260 tiles) with `has_dirty_in_row_range`
+//!     gating band writes in `write_rows`
+//!   - Retained layer cache: `LayerCache` (insert/get/invalidate) with per-box blit
+//!   - Cursor save/restore: `save_cursor_bg_inline` before cursor blend,
+//!     `restore_cursor_bg` on cursor move via vmo_write
+//!   - Paint-only fast-path: `paint_only` flag skips non-paint boxes and backdrop blur
 //!   - Zero-copy: `shadow_scratch` + `blur_row_buf` pre-allocated once
 //!   - SDF integration: `fill_sdf_circle_row`, `fill_sdf_rounded_rect_row`
-//!   - Damage tracking: `pending_damage_rows` → partial framebuffer writes
 //!   - IPC: `KernelServer` receive loop for `OP_GET_VISIBLE_STATE`, `OP_SEND_COMPOSED_FRAME_VMO`, `OP_UPDATE_VISIBLE_STATE`
 //!
 //! DEPENDENCIES:
 //!   - nexus-layout, nexus-layout-types: layout computation
-//!   - nexus-effects, nexus-sdf: rendering primitives
+//!   - nexus-effects: shadow types, cache infrastructure (blur is zero-allocation inline)
+//!   - nexus-sdf: rendering primitives
 //!   - nexus-abi, nexus-ipc: kernel IPC
 //!   - input-live-protocol: VisibleState wire format
 //!
@@ -39,7 +47,8 @@ use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
-    scroll_damage_rows, DamageRect, GlassQuality, LayoutHotPathIndex, TargetDamage,
+    scroll_damage_rows, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
+    TargetDamage,
 };
 use crate::markers::{
     COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
@@ -79,8 +88,10 @@ const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
 const BACKDROP_CACHE_ENTRIES: usize = 2;
 const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
 const PATH_CACHE_ENTRIES: usize = 2;
-const PATH_CACHE_MAX_SIDE: usize = 24;
+const PATH_CACHE_MAX_SIDE: usize = 16;
 const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
+const LAYER_CACHE_MAX_BYTES: usize = 4 * 1024;
+const LAYER_CACHE_MAX_LAYER_BYTES: usize = PATH_CACHE_MAX_PIXELS;
 const TILE_SIZE: u32 = 64;
 const TILES_X: usize = 20; // 1280 / 64
 const TILES_Y: usize = 13; // 800 / 64 rounded up
@@ -305,6 +316,7 @@ struct Layer {
     bounds: DamageRect,
     pixels: Vec<u8>,
     dirty: bool,
+    rows_filled: u32,
     opacity: u8,
     backdrop_blur: Option<u32>,
 }
@@ -317,6 +329,7 @@ impl Layer {
             bounds,
             pixels: alloc::vec![0u8; pixel_count],
             dirty: true,
+            rows_filled: 0,
             opacity,
             backdrop_blur,
         }
@@ -339,6 +352,39 @@ impl LayerCache {
     fn is_empty(&self) -> bool {
         self.layers.is_empty()
     }
+
+    fn insert(&mut self, layer: Layer) {
+        if let Some(existing) = self.layers.iter_mut().find(|l| l.id == layer.id) {
+            *existing = layer;
+            return;
+        }
+        self.layers.push(layer);
+    }
+
+    fn used_bytes(&self) -> usize {
+        self.layers.iter().map(|layer| layer.pixels.len()).sum()
+    }
+
+    fn get(&self, id: u64) -> Option<&Layer> {
+        self.layers.iter().find(|l| l.id == id)
+    }
+
+    fn get_mut(&mut self, id: u64) -> Option<&mut Layer> {
+        self.layers.iter_mut().find(|l| l.id == id)
+    }
+
+    fn invalidate(&mut self, id: u64) {
+        if let Some(layer) = self.layers.iter_mut().find(|l| l.id == id) {
+            layer.dirty = true;
+            layer.rows_filled = 0;
+        }
+    }
+
+    fn mark_clean(&mut self, id: u64) {
+        if let Some(layer) = self.layers.iter_mut().find(|l| l.id == id) {
+            layer.dirty = false;
+        }
+    }
 }
 
 /// Tile-based damage map. Tracks which 64×64 tiles are dirty and need re-rendering.
@@ -349,7 +395,9 @@ struct TileMap {
 
 impl TileMap {
     fn new() -> Self {
-        Self { dirty: [0; TILE_DIRTY_WORDS] }
+        Self {
+            dirty: [0; TILE_DIRTY_WORDS],
+        }
     }
 
     fn tile_index(x: u32, y: u32) -> usize {
@@ -395,6 +443,22 @@ impl TileMap {
             (self.dirty[word] & (1u64 << bit) != 0).then(|| (idx % TILES_X, idx / TILES_X))
         })
     }
+
+    fn has_dirty_in_row_range(&self, start_y: u32, end_y: u32) -> bool {
+        let ty0 = (start_y / TILE_SIZE) as usize;
+        let ty1 = ((end_y.saturating_sub(1)) / TILE_SIZE).min(TILES_Y as u32 - 1) as usize;
+        for ty in ty0..=ty1 {
+            for tx in 0..TILES_X {
+                let idx = ty * TILES_X + tx;
+                let word = idx / 64;
+                let bit = idx % 64;
+                if self.dirty[word] & (1u64 << bit) != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 impl DisplayServerRuntime {
@@ -432,8 +496,10 @@ impl DisplayServerRuntime {
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
         let proof_layouts = build_live_proof_layouts(initial_state);
-        let proof_layout_index =
-            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
+        let proof_layout_index = proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.first())
+            .map(|layout| {
                 LayoutHotPathIndex::build(
                     layout,
                     PROOF_PANEL_X,
@@ -554,6 +620,8 @@ impl DisplayServerRuntime {
         let old_cursor_x = self.state.cursor_x;
         let old_cursor_y = self.state.cursor_y;
         let old_filter_idx = self.active_filter_idx;
+        // Restore wallpaper under old cursor position before moving.
+        self.restore_cursor_bg();
         self.state.virtio_raw_seen |= upstream.virtio_raw_seen;
         self.state.hid_normalized_seen |= upstream.hid_normalized_seen;
         self.state.pointer_route_live |= upstream.pointer_route_live;
@@ -661,8 +729,11 @@ impl DisplayServerRuntime {
         let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
-            let container_id =
-                layout.boxes.iter().find(|b| b.id == Some("filter_list")).map(|b| b.node_id);
+            let container_id = layout
+                .boxes
+                .iter()
+                .find(|b| b.id == Some("filter_list"))
+                .map(|b| b.node_id);
 
             if let Some(id) = container_id {
                 let viewport_h = layout
@@ -671,7 +742,7 @@ impl DisplayServerRuntime {
                     .find(|b| b.node_id == id)
                     .map(|b| {
                         FxPx::new(
-                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
                         )
                     })
                     .unwrap_or(FxPx::ZERO);
@@ -682,7 +753,11 @@ impl DisplayServerRuntime {
                     .map(|b| b.scroll_offset)
                     .unwrap_or((FxPx::ZERO, FxPx::ZERO));
 
-                let dy = if wheel_down_visible { FxPx::new(20) } else { FxPx::new(-20) };
+                let dy = if wheel_down_visible {
+                    FxPx::new(20)
+                } else {
+                    FxPx::new(-20)
+                };
                 let max_scroll = FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
@@ -737,40 +812,35 @@ impl DisplayServerRuntime {
         self.queue_rows(start, end);
     }
 
-    fn queue_hot_path_rect(&mut self, rect: Option<DamageRect>) {
-        let Some(rect) = rect else {
-            return;
-        };
-        if rect.width == 0 || rect.height == 0 {
-            return;
-        }
-        self.pending_damage_rect = Some(match self.pending_damage_rect {
-            Some(queued) => queued.merge(rect),
-            None => rect,
-        });
-    }
-
     fn queue_target_damage(&mut self, old_state: VisibleState, new_state: VisibleState) {
         let Some(index) = self.active_proof_layout_index() else {
             return;
         };
-        let hover_rows = index.target_rows(TargetDamage::Hover);
-        let click_rows = index.target_rows(TargetDamage::Click);
-        let key_rows = index.target_rows(TargetDamage::Key);
-        let scroll_rows = index.target_rows(TargetDamage::Scroll);
+        let hover_rect = index.target_rect(TargetDamage::Hover);
+        let click_rect = index.target_rect(TargetDamage::Click);
+        let key_rect = index.target_rect(TargetDamage::Key);
+        let scroll_rect = index.target_rect(TargetDamage::Scroll);
         if old_state.hover_visible != new_state.hover_visible {
-            self.queue_hot_path_rows(hover_rows);
+            if let Some(rect) = hover_rect {
+                self.queue_dirty_rect(rect);
+            }
         }
         if old_state.launcher_click_visible != new_state.launcher_click_visible {
-            self.queue_hot_path_rows(click_rows);
+            if let Some(rect) = click_rect {
+                self.queue_dirty_rect(rect);
+            }
         }
         if old_state.keyboard_visible != new_state.keyboard_visible {
-            self.queue_hot_path_rows(key_rows);
+            if let Some(rect) = key_rect {
+                self.queue_dirty_rect(rect);
+            }
         }
         if old_state.wheel_up_visible != new_state.wheel_up_visible
             || old_state.wheel_down_visible != new_state.wheel_down_visible
         {
-            self.queue_hot_path_rows(scroll_rows);
+            if let Some(rect) = scroll_rect {
+                self.queue_dirty_rect(rect);
+            }
         }
     }
 
@@ -883,7 +953,19 @@ impl DisplayServerRuntime {
     }
 
     fn write_current_frame(&mut self) -> Result<(), WindowdError> {
-        self.write_rows(0, self.mode.height, GlassQuality::High, false)
+        // Mark every tile dirty so the first full-screen write renders all rows.
+        self.tile_map.mark_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: self.mode.width,
+            height: self.mode.height,
+        });
+        self.write_rows(
+            0,
+            self.mode.height,
+            select_glass_quality(PROOF_PANEL_H),
+            false,
+        )
     }
 
     fn write_rows(
@@ -901,8 +983,10 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout = self
+            .proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -926,6 +1010,11 @@ impl DisplayServerRuntime {
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
             let band_rows = (band_end - band_start) as usize;
+            // Skip bands that contain only clean tiles.
+            if !self.tile_map.has_dirty_in_row_range(band_start, band_end) {
+                band_start = band_end;
+                continue;
+            }
             // band rendering
             let band_bytes = band_rows * row_len;
             for (row_idx, y) in (band_start..band_end).enumerate() {
@@ -955,6 +1044,9 @@ impl DisplayServerRuntime {
                     glass_quality,
                     paint_only,
                     band_row,
+                    &mut self.layer_cache,
+                    &mut self.cursor_bg_saved,
+                    &mut self.saved_cursor_rect,
                 )?;
             }
             let offset = band_start as usize * row_len;
@@ -967,7 +1059,12 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    fn write_damage_rect(&mut self, rect: DamageRect) -> Result<(), WindowdError> {
+    fn write_damage_rect(
+        &mut self,
+        rect: DamageRect,
+        glass_quality: GlassQuality,
+        paint_only: bool,
+    ) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
@@ -983,8 +1080,10 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout = self
+            .proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -1026,9 +1125,12 @@ impl DisplayServerRuntime {
                 cursor_x,
                 cursor_y,
                 y,
-                GlassQuality::Opaque,
-                true, // damage rects never need shadow recalculation
+                glass_quality,
+                paint_only,
                 row,
+                &mut self.layer_cache,
+                &mut self.cursor_bg_saved,
+                &mut self.saved_cursor_rect,
             )?;
             let offset = y as usize * row_len + byte_start;
             vmo_write(handle, offset, &row[byte_start..byte_end])
@@ -1057,10 +1159,25 @@ impl DisplayServerRuntime {
             self.mode.height,
         );
         if let Some((start, end)) = old_rows {
-            let _ = self.write_rows(start, end, GlassQuality::High, true);
+            let rect = DamageRect {
+                x: old_cursor_x.max(0) as u32,
+                y: start,
+                width: self.cursor_width,
+                height: end.saturating_sub(start),
+            };
+            // Old position: render without cursor (cursor already restored by restore_cursor_bg).
+            let saved = self.cursor_bitmap.take();
+            let _ = self.write_damage_rect(rect, GlassQuality::High, true);
+            self.cursor_bitmap = saved;
         }
         if let Some((start, end)) = new_rows {
-            let _ = self.write_rows(start, end, GlassQuality::High, true);
+            let rect = DamageRect {
+                x: new_cursor_x.max(0) as u32,
+                y: start,
+                width: self.cursor_width,
+                height: end.saturating_sub(start),
+            };
+            let _ = self.write_damage_rect(rect, GlassQuality::High, true);
         }
         let _ = old_cursor_x;
         let _ = new_cursor_x;
@@ -1103,37 +1220,10 @@ impl DisplayServerRuntime {
             }
         }
         self.pending_damage_rows[0] = Some(merged);
-        self.queue_dirty_rect_from_rows(start, end);
     }
 
     fn queue_dirty_rect(&mut self, rect: DamageRect) {
         self.tile_map.mark_rect(rect);
-        // Merge into existing rects
-        for existing in &mut self.pending_damage_rects {
-            if rect.x <= existing.end_x()
-                && rect.end_x() >= existing.x
-                && rect.y <= existing.end_y()
-                && rect.end_y() >= existing.y
-            {
-                *existing = existing.merge(rect);
-                // Also keep row-based compat
-                self.queue_rows(rect.y, rect.end_y());
-                return;
-            }
-        }
-        if self.pending_damage_rects.len() < 4 {
-            self.pending_damage_rects.push(rect);
-        }
-        self.queue_rows(rect.y, rect.end_y());
-    }
-
-    fn queue_dirty_rect_from_rows(&mut self, start_y: u32, end_y: u32) {
-        let rect = DamageRect {
-            x: 0,
-            y: start_y,
-            width: self.mode.width,
-            height: end_y.saturating_sub(start_y),
-        };
         for existing in &mut self.pending_damage_rects {
             if rect.x <= existing.end_x()
                 && rect.end_x() >= existing.x
@@ -1150,32 +1240,39 @@ impl DisplayServerRuntime {
     }
 
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
-        let paint_only = true; // all damage rects: shadow already in framebuffer from initial frame
-        let mut wrote_rows = false;
-        let mut ranges = self.pending_damage_rows;
-        self.pending_damage_rows = [None; MAX_DAMAGE_RANGES];
-        self.pending_damage_rects.clear();
-        self.tile_map.clear();
-        for range in &mut ranges {
+        let paint_only = self.paint_only_damage;
+        let mut wrote_any = false;
+
+        // Collect all damage: precise rects + row ranges → unified rect list.
+        let mut all_rects: alloc::vec::Vec<DamageRect> =
+            self.pending_damage_rects.drain(..).collect();
+        if let Some(rect) = self.pending_damage_rect.take() {
+            all_rects.push(rect);
+        }
+        // Convert row ranges to full-width rects.
+        for range in self.pending_damage_rows.iter_mut() {
             if let Some((start, end)) = range.take() {
-                self.write_rows(start, end, GlassQuality::High, paint_only)?;
-                wrote_rows = true;
+                all_rects.push(DamageRect {
+                    x: 0,
+                    y: start,
+                    width: self.mode.width,
+                    height: end.saturating_sub(start),
+                });
             }
         }
-        if wrote_rows {
-            if let Some(rect) = self.pending_damage_rect.take() {
-                self.write_damage_rect(rect)?;
-            }
+        self.pending_damage_rows = [None; MAX_DAMAGE_RANGES];
+
+        // Render each rect precisely — only the rect area, not full rows.
+        for rect in all_rects {
+            self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
+            wrote_any = true;
+        }
+
+        self.tile_map.clear();
+        if wrote_any {
             self.emit_input_markers();
             self.paint_only_damage = false;
-            return Ok(());
         }
-        let Some(rect) = self.pending_damage_rect.take() else {
-            return Ok(());
-        };
-        self.write_damage_rect(rect)?;
-        self.paint_only_damage = false;
-        self.emit_input_markers();
         Ok(())
     }
 
@@ -1189,6 +1286,35 @@ impl DisplayServerRuntime {
         }
         self.pending_damage_rect.is_some()
     }
+
+    fn restore_cursor_bg(&mut self) {
+        let Some(handle) = self.framebuffer else {
+            return;
+        };
+        let Some((old_x, old_y, old_w, old_h)) = self.saved_cursor_rect else {
+            return;
+        };
+        let row_len = self.mode.stride as usize;
+        for local_y in 0..old_h as u32 {
+            let fb_y = (old_y.saturating_add(local_y as i32)).max(0) as u32;
+            if fb_y >= self.mode.height {
+                break;
+            }
+            let src_offset = local_y as usize * old_w as usize * 4;
+            let dst_offset = fb_y as usize * row_len + old_x.max(0) as usize * 4;
+            let copy_len =
+                (old_w as usize * 4).min(row_len.saturating_sub(old_x.max(0) as usize * 4));
+            let src_end = src_offset.saturating_add(copy_len);
+            if src_end <= self.cursor_bg_saved.len() {
+                let _ = vmo_write(
+                    handle,
+                    dst_offset,
+                    &self.cursor_bg_saved[src_offset..src_end],
+                );
+            }
+        }
+        self.saved_cursor_rect = None;
+    }
 }
 
 fn cursor_row_range(cursor_y: i32, cursor_height: u32, mode_height: u32) -> Option<(u32, u32)> {
@@ -1201,16 +1327,6 @@ fn cursor_row_range(cursor_y: i32, cursor_height: u32, mode_height: u32) -> Opti
         return None;
     }
     Some((start, end as u32))
-}
-
-fn merge_optional_ranges(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> Option<(u32, u32)> {
-    match (a, b) {
-        (Some((a_start, a_end)), Some((b_start, b_end))) => {
-            Some((a_start.min(b_start), a_end.max(b_end)))
-        }
-        (Some(range), None) | (None, Some(range)) => Some(range),
-        (None, None) => None,
-    }
 }
 
 fn flush_error_label(err: WindowdError) -> &'static str {
@@ -1231,14 +1347,6 @@ fn filter_layout_variant_index(filter_text: &str) -> usize {
         }
     }
     best_idx
-}
-
-fn target_state_bits(state: VisibleState) -> u8 {
-    u8::from(state.hover_visible)
-        | (u8::from(state.launcher_click_visible) << 1)
-        | (u8::from(state.keyboard_visible) << 2)
-        | (u8::from(state.wheel_up_visible) << 3)
-        | (u8::from(state.wheel_down_visible) << 4)
 }
 
 fn build_live_proof_layouts(state: VisibleState) -> Option<Vec<LayoutResult>> {
@@ -1272,6 +1380,9 @@ fn copy_scene_row(
     glass_quality: GlassQuality,
     paint_only: bool,
     row: &mut [u8],
+    layer_cache: &mut LayerCache,
+    cursor_bg_saved: &mut [u8],
+    saved_cursor_rect: &mut Option<(i32, i32, i32, i32)>,
 ) -> Result<(), WindowdError> {
     copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
     if !paint_only {
@@ -1297,19 +1408,60 @@ fn copy_scene_row(
         path_cache,
         glass_quality,
         blur_row_buf,
+        layer_cache,
+        paint_only,
     )?;
     if let Some(cursor) = cursor_bitmap {
-        blend_cursor_row(
+        // Save wallpaper pixels under the cursor before blending it on top.
+        let cx = cursor_x - crate::assets::CURSOR_HOTSPOT_X;
+        let cy = cursor_y - crate::assets::CURSOR_HOTSPOT_Y;
+        save_cursor_bg_inline(
             row,
-            y,
-            cursor,
+            cursor_bg_saved,
+            saved_cursor_rect,
+            cx,
+            cy,
             cursor_width,
             cursor_height,
-            cursor_x - crate::assets::CURSOR_HOTSPOT_X,
-            cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+            y,
+            mode.width,
+            mode.height,
         );
+        blend_cursor_row(row, y, cursor, cursor_width, cursor_height, cx, cy);
     }
     Ok(())
+}
+
+/// Save wallpaper pixels under the cursor before blending it on top.
+/// Called from copy_scene_row right before blend_cursor_row.
+fn save_cursor_bg_inline(
+    row: &[u8],
+    cursor_bg_saved: &mut [u8],
+    saved_cursor_rect: &mut Option<(i32, i32, i32, i32)>,
+    cursor_x: i32,
+    cursor_y: i32,
+    cursor_w: u32,
+    cursor_h: u32,
+    y: u32,
+    mode_width: u32,
+    mode_height: u32,
+) {
+    let cy = cursor_y.max(0) as u32;
+    let ch = cursor_h.min(mode_height.saturating_sub(cy));
+    if y < cy || y >= cy.saturating_add(ch) {
+        return;
+    }
+    let local_y = y.saturating_sub(cy);
+    let src_start = cursor_x.max(0) as usize * 4;
+    let src_end =
+        ((cursor_x.saturating_add(cursor_w as i32)).min(mode_width as i32)).max(0) as usize * 4;
+    let dst_start = local_y as usize * cursor_w as usize * 4;
+    let len = src_end.saturating_sub(src_start);
+    let dst_end = dst_start.saturating_add(len);
+    if dst_end <= cursor_bg_saved.len() && src_end <= row.len() {
+        cursor_bg_saved[dst_start..dst_end].copy_from_slice(&row[src_start..src_end]);
+    }
+    *saved_cursor_rect = Some((cursor_x, cursor_y, cursor_w as i32, cursor_h as i32));
 }
 
 /// Zero-copy shadow compositing pass — per-row.
@@ -1356,8 +1508,12 @@ fn compute_shadow_row(
             return;
         };
 
-        let sx = (rect.x as i32).saturating_add(shadow.offset_x.0).saturating_sub(shadow.spread.0);
-        let sy = (rect.y as i32).saturating_add(shadow.offset_y.0).saturating_sub(shadow.spread.0);
+        let sx = (rect.x as i32)
+            .saturating_add(shadow.offset_x.0)
+            .saturating_sub(shadow.spread.0);
+        let sy = (rect.y as i32)
+            .saturating_add(shadow.offset_y.0)
+            .saturating_sub(shadow.spread.0);
         let sw = (rect.width as i32).saturating_add(2 * shadow.spread.0);
         let sh = (rect.height as i32).saturating_add(2 * shadow.spread.0);
 
@@ -1390,8 +1546,11 @@ fn compute_shadow_row(
         }
 
         let segment_start = sx.saturating_sub(blur_i32).max(0).min(row_pixels as i32) as usize;
-        let segment_end =
-            sx.saturating_add(sw).saturating_add(blur_i32).max(0).min(row_pixels as i32) as usize;
+        let segment_end = sx
+            .saturating_add(sw)
+            .saturating_add(blur_i32)
+            .max(0)
+            .min(row_pixels as i32) as usize;
         if segment_start >= segment_end {
             return;
         }
@@ -1454,62 +1613,6 @@ fn compute_shadow_row(
     Ok(())
 }
 
-/// Single-row horizontal box blur with variable radius.
-/// Zero-allocation: uses `row_buf` (pre-allocated, same size as `pixels`) for the
-/// temporary copy. Sliding window: O(width) operations regardless of radius.
-fn blur_row_horizontal(pixels: &mut [u8], row_bytes: usize, radius: u32, row_buf: &mut [u8]) {
-    if row_bytes == 0 || radius == 0 {
-        return;
-    }
-    let w = row_bytes / 4;
-    let r = radius as usize;
-    let window = 2 * r + 1;
-
-    // Copy to pre-allocated buffer
-    row_buf[..row_bytes].copy_from_slice(&pixels[..row_bytes]);
-
-    // Initialize sliding window sums
-    let (mut r_sum, mut g_sum, mut b_sum, mut a_sum) = (0u64, 0u64, 0u64, 0u64);
-    for i in 0..window.min(w) {
-        let idx = i * 4;
-        let a = row_buf[idx + 3] as u64;
-        r_sum += row_buf[idx] as u64 * a;
-        g_sum += row_buf[idx + 1] as u64 * a;
-        b_sum += row_buf[idx + 2] as u64 * a;
-        a_sum += a;
-    }
-
-    for x in 0..w {
-        let idx = x * 4;
-        if a_sum > 0 {
-            pixels[idx] = ((r_sum / a_sum).min(255)) as u8;
-            pixels[idx + 1] = ((g_sum / a_sum).min(255)) as u8;
-            pixels[idx + 2] = ((b_sum / a_sum).min(255)) as u8;
-        }
-        pixels[idx + 3] = ((a_sum / window as u64).min(255)) as u8;
-
-        // Slide window: remove leftmost
-        let left = x.saturating_sub(r);
-        if let Some(lidx) = left.checked_mul(4) {
-            let la = row_buf[lidx + 3] as u64;
-            r_sum = r_sum.saturating_sub(row_buf[lidx] as u64 * la);
-            g_sum = g_sum.saturating_sub(row_buf[lidx + 1] as u64 * la);
-            b_sum = b_sum.saturating_sub(row_buf[lidx + 2] as u64 * la);
-            a_sum = a_sum.saturating_sub(la);
-        }
-        // Add rightmost
-        let right = x + r + 1;
-        if right < w {
-            let ridx = right * 4;
-            let ra = row_buf[ridx + 3] as u64;
-            r_sum += row_buf[ridx] as u64 * ra;
-            g_sum += row_buf[ridx + 1] as u64 * ra;
-            b_sum += row_buf[ridx + 2] as u64 * ra;
-            a_sum += ra;
-        }
-    }
-}
-
 fn copy_scaled_systemui_row(
     frame: &SourceFrame,
     source_x_lut: &[u32],
@@ -1522,17 +1625,25 @@ fn copy_scaled_systemui_row(
     if row.len() < row_len || frame.width == 0 || frame.height == 0 {
         return Err(WindowdError::BufferLengthMismatch);
     }
-    let src_y = *source_y_lut.get(y as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let src_y = *source_y_lut
+        .get(y as usize)
+        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
     for x in 0..mode.width {
-        let src_x =
-            *source_x_lut.get(x as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
+        let src_x = *source_x_lut
+            .get(x as usize)
+            .ok_or(WindowdError::BufferLengthMismatch)? as usize;
         let src = src_y
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = (x as usize)
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
+            frame
+                .pixels
+                .get(src..src + 4)
+                .ok_or(WindowdError::BufferLengthMismatch)?,
         );
     }
     Ok(())
@@ -1646,13 +1757,78 @@ fn blend_cached_path_row(
         entry.color = color;
         entry.valid = true;
     }
-    blend_asset_row(y, row, rect.x, rect.y, rect.width, rect.height, &entry.pixels[..pixel_len])?;
+    blend_asset_row(
+        y,
+        row,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        &entry.pixels[..pixel_len],
+    )?;
     Ok(true)
 }
 
 fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
+    let bytes = width
+        .checked_mul(4)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes
+        .checked_add(63)
+        .ok_or(WindowdError::ArithmeticOverflow)
+        .map(|v| v / 64 * 64)
+}
+
+/// Single-row horizontal box blur with variable radius.
+/// Zero-allocation: uses `row_buf` (pre-allocated) for the temporary copy.
+/// Sliding window: O(width) operations regardless of radius.
+fn blur_row_horizontal(pixels: &mut [u8], row_bytes: usize, radius: u32, row_buf: &mut [u8]) {
+    if row_bytes == 0 || radius == 0 {
+        return;
+    }
+    let w = row_bytes / 4;
+    let r = radius as usize;
+    let window = 2 * r + 1;
+
+    row_buf[..row_bytes].copy_from_slice(&pixels[..row_bytes]);
+
+    let (mut r_sum, mut g_sum, mut b_sum, mut a_sum) = (0u64, 0u64, 0u64, 0u64);
+    for i in 0..window.min(w) {
+        let idx = i * 4;
+        let a = row_buf[idx + 3] as u64;
+        r_sum += row_buf[idx] as u64 * a;
+        g_sum += row_buf[idx + 1] as u64 * a;
+        b_sum += row_buf[idx + 2] as u64 * a;
+        a_sum += a;
+    }
+
+    for x in 0..w {
+        let idx = x * 4;
+        if a_sum > 0 {
+            pixels[idx] = ((r_sum / a_sum).min(255)) as u8;
+            pixels[idx + 1] = ((g_sum / a_sum).min(255)) as u8;
+            pixels[idx + 2] = ((b_sum / a_sum).min(255)) as u8;
+        }
+        pixels[idx + 3] = ((a_sum / window as u64).min(255)) as u8;
+
+        let left = x.saturating_sub(r);
+        if let Some(lidx) = left.checked_mul(4) {
+            let la = row_buf[lidx + 3] as u64;
+            r_sum = r_sum.saturating_sub(row_buf[lidx] as u64 * la);
+            g_sum = g_sum.saturating_sub(row_buf[lidx + 1] as u64 * la);
+            b_sum = b_sum.saturating_sub(row_buf[lidx + 2] as u64 * la);
+            a_sum = a_sum.saturating_sub(la);
+        }
+        let right = x + r + 1;
+        if right < w {
+            let ridx = right * 4;
+            let ra = row_buf[ridx + 3] as u64;
+            r_sum += row_buf[ridx] as u64 * ra;
+            g_sum += row_buf[ridx + 1] as u64 * ra;
+            b_sum += row_buf[ridx + 2] as u64 * ra;
+            a_sum += ra;
+        }
+    }
 }
 
 fn draw_proof_surface_row(
@@ -1667,6 +1843,8 @@ fn draw_proof_surface_row(
     path_cache: &mut [PathCacheEntry],
     glass_quality: GlassQuality,
     backdrop_scratch: &mut [u8],
+    layer_cache: &mut LayerCache,
+    paint_only: bool,
 ) -> Result<(), WindowdError> {
     let Some(layout) = proof_layout else {
         return Ok(());
@@ -1695,13 +1873,23 @@ fn draw_proof_surface_row(
             path_cache,
             glass_quality,
             backdrop_scratch,
+            layer_cache,
+            paint_only,
         )?;
         if let Some(id) = layout_box.id {
             if id == "filter_text_input" {
                 filter_input_rect = Some(rect);
                 let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
                 if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
-                    blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+                    blend_asset_row(
+                        y,
+                        row,
+                        rect.x,
+                        rect.y,
+                        asset.width,
+                        asset.height,
+                        asset.bgra,
+                    )?;
                 }
                 return Ok(());
             }
@@ -1714,7 +1902,15 @@ fn draw_proof_surface_row(
                 return Ok(());
             }
             if let Some(asset) = crate::assets::proof_text_asset(id) {
-                blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+                blend_asset_row(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    asset.width,
+                    asset.height,
+                    asset.bgra,
+                )?;
             }
         }
         Ok(())
@@ -1793,7 +1989,9 @@ fn filter_list_content_height(filtered_words: &[&'static str]) -> u32 {
     let mut h: u32 = 0;
     for &word in filtered_words {
         if let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) {
-            h = h.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
+            h = h
+                .saturating_add(asset.height)
+                .saturating_add(FILTER_LIST_ROW_GAP);
         }
     }
     h.saturating_sub(FILTER_LIST_ROW_GAP) // remove trailing gap
@@ -1842,7 +2040,9 @@ fn draw_filter_word_list_row(
                 viewport_width,
             )?;
         }
-        word_top = word_top.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
+        word_top = word_top
+            .saturating_add(asset.height)
+            .saturating_add(FILTER_LIST_ROW_GAP);
     }
 
     // ── Scrollbar ──
@@ -1868,7 +2068,15 @@ fn draw_filter_scrollbar_row(
     let gutter_width = rect.x.saturating_add(rect.width).saturating_sub(strip_x);
     let track_bgra = rgba_to_bgra(crate::assets::PROOF_PANEL_BG);
     if y >= viewport_y && y < viewport_y.saturating_add(viewport_height) {
-        fill_row_rect(y, row, strip_x, viewport_y, gutter_width, viewport_height, track_bgra)?;
+        fill_row_rect(
+            y,
+            row,
+            strip_x,
+            viewport_y,
+            gutter_width,
+            viewport_height,
+            track_bgra,
+        )?;
     }
 
     let Some((thumb_y, thumb_height)) = layout_panel::filter_scrollbar_thumb_bounds(
@@ -1911,7 +2119,9 @@ fn draw_filter_input_text_row(
     }
     let glyph_row = ((y - text_top) / FILTER_INPUT_FONT_SCALE) as usize;
     let color = rgba_to_bgra(crate::assets::PROOF_PANEL_TITLE);
-    let max_x = rect.x.saturating_add(rect.width.saturating_sub(FILTER_INPUT_PADDING_X));
+    let max_x = rect
+        .x
+        .saturating_add(rect.width.saturating_sub(FILTER_INPUT_PADDING_X));
     let mut pen_x = rect.x + FILTER_INPUT_PADDING_X;
     for ch in filter_text.chars() {
         if pen_x.saturating_add(FILTER_INPUT_FONT_W * FILTER_INPUT_FONT_SCALE) > max_x {
@@ -1962,47 +2172,127 @@ fn draw_bitmap_glyph_row(
 
 fn bitmap_font_5x7(ch: char) -> [u8; 7] {
     match ch.to_ascii_lowercase() {
-        'a' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-        'b' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
-        'c' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
-        'd' => [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
-        'e' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
-        'f' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
-        'g' => [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110],
-        'h' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-        'i' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
-        'j' => [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100],
-        'k' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
-        'l' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
-        'm' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
-        'n' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
-        'o' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-        'p' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
-        'q' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
-        'r' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
-        's' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
-        't' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
-        'u' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-        'v' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
-        'w' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
-        'x' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
-        'y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
-        'z' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
-        '0' => [0b01110, 0b10011, 0b10101, 0b10101, 0b10101, 0b11001, 0b01110],
-        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
-        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
-        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
-        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
-        '5' => [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110],
-        '6' => [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
-        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
-        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
-        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110],
-        '-' => [0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000],
-        '_' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111],
-        '.' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100],
+        'a' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'b' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'c' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'd' => [
+            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+        'e' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'f' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'g' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'h' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'i' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
+        ],
+        'j' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100,
+        ],
+        'k' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'l' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'm' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'n' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'o' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'p' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'r' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        's' => [
+            0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        't' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'u' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'v' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'w' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010,
+        ],
+        'x' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        '0' => [
+            0b01110, 0b10011, 0b10101, 0b10101, 0b10101, 0b11001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
+        ],
+        '3' => [
+            0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110,
+        ],
+        '6' => [
+            0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
+        ],
+        '-' => [
+            0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000,
+        ],
+        '_' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111,
+        ],
+        '.' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100,
+        ],
         ' ' => [0; 7],
-        _ => [0b11111, 0b00001, 0b00010, 0b00100, 0b00100, 0b00000, 0b00100],
+        _ => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b00100, 0b00000, 0b00100,
+        ],
     }
 }
 
@@ -2250,12 +2540,56 @@ fn draw_layout_box_row(
     path_cache: &mut [PathCacheEntry],
     glass_quality: GlassQuality,
     backdrop_scratch: &mut [u8],
+    layer_cache: &mut LayerCache,
+    paint_only: bool,
 ) -> Result<(), WindowdError> {
+    // Phase 2: check retained layer cache — skip rendering if layer is clean.
+    let cache_key = layout_box.id.map(layer_cache_key);
+    if let Some(cached) = cache_key.and_then(|key| layer_cache.get(key)) {
+        if !cached.dirty {
+            // Layer is clean: blit this row from the cached pixels
+            let row_pixels = (row.len() / 4) as u32;
+            let cache_stride = cached.bounds.width as usize * 4;
+            let local_y = y.saturating_sub(cached.bounds.y);
+            let src_start = local_y as usize * cache_stride;
+            let start_x = cached.bounds.x.min(row_pixels);
+            let end_x = cached.bounds.end_x().min(row_pixels);
+            let local_start_x = start_x.saturating_sub(cached.bounds.x);
+            let local_end_x = end_x
+                .saturating_sub(cached.bounds.x)
+                .min(cached.bounds.width);
+            let dst_start = start_x as usize * 4;
+            let dst_end = end_x as usize * 4;
+            let src_byte_start = src_start + local_start_x as usize * 4;
+            let src_byte_end = src_start + local_end_x as usize * 4;
+            if dst_end > dst_start && src_byte_end <= cached.pixels.len() {
+                row[dst_start..dst_end]
+                    .copy_from_slice(&cached.pixels[src_byte_start..src_byte_end]);
+            }
+            return Ok(());
+        }
+    }
+
+    // Phase 5: paint-only fast-path — skip non-paint boxes and backdrop blur.
+    // Never skip translucent panels (they composite over wallpaper) or the glass background.
+    let is_glass_panel = layout_box.id == Some("combined_panels");
+    if paint_only && paint_role.is_none() && !is_glass_panel {
+        // This box is unchanged; skip re-rendering.
+        return Ok(());
+    }
+
     let opacity_alpha: u32 = match layout_box.visual.opacity {
         Some(f) => f.as_u8() as u32,
         None => 255,
     };
-    let want_backdrop = opacity_alpha < 255 && layout_box.visual.background.is_some();
+    let want_backdrop =
+        !paint_only && opacity_alpha < 255 && layout_box.visual.background.is_some();
+    let cache_static_layer = cache_key.is_some()
+        && paint_role.is_none()
+        && !want_backdrop
+        && static_layer_has_cacheable_paint(layout_box)
+        && layout_box.visual.shadow.is_none()
+        && layout_box.id.is_some_and(static_layer_cacheable_id);
     if want_backdrop {
         let row_pixels = (row.len() / 4) as u32;
         let start = rect.x.max(0);
@@ -2274,7 +2608,13 @@ fn draw_layout_box_row(
                 backdrop_scratch,
             )?;
         } else {
-            blur_backdrop_segment(row, start, end, glass_quality.blur_radius(), backdrop_scratch)?;
+            blur_backdrop_segment(
+                row,
+                start,
+                end,
+                glass_quality.blur_radius(),
+                backdrop_scratch,
+            )?;
         }
     }
 
@@ -2289,7 +2629,12 @@ fn draw_layout_box_row(
 
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
-            let cr = layout_box.visual.corner_radius.top_left.as_u32().unwrap_or(0);
+            let cr = layout_box
+                .visual
+                .corner_radius
+                .top_left
+                .as_u32()
+                .unwrap_or(0);
             if cr > 0 {
                 // SDF rounded rect path (anti-aliased corners)
                 if let Some(bgra) = get_effective_bgra(layout_box) {
@@ -2386,6 +2731,117 @@ fn draw_layout_box_row(
             }
         }
     }
+    if cache_static_layer {
+        if let Some(cache_key) = cache_key {
+            record_layer_cache_row(
+                layer_cache,
+                cache_key,
+                rect,
+                y,
+                row,
+                opacity_alpha as u8,
+                None,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn layer_cache_key(id: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in id.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+fn static_layer_cacheable_id(id: &str) -> bool {
+    !matches!(
+        id,
+        "combined_panels"
+            | "filter_text_input"
+            | "filter_list"
+            | "card_hover"
+            | "card_click"
+            | "card_scroll"
+            | "card_key"
+    ) && !id.starts_with("filter_")
+}
+
+fn static_layer_has_cacheable_paint(layout_box: &nexus_layout::LayoutBox) -> bool {
+    layout_box.visual.background.is_some()
+        || layout_box.visual.border.top.is_some()
+        || matches!(
+            layout_box.visual.shape,
+            nexus_layout_types::ShapeKind::Path(_)
+        )
+}
+
+fn record_layer_cache_row(
+    layer_cache: &mut LayerCache,
+    id: u64,
+    rect: ProofBoxRect,
+    y: u32,
+    row: &[u8],
+    opacity: u8,
+    backdrop_blur: Option<u32>,
+) -> Result<(), WindowdError> {
+    if !rect.contains_y(y) {
+        return Ok(());
+    }
+    let bounds = DamageRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
+    let needs_insert = layer_cache
+        .get(id)
+        .map(|layer| {
+            layer.bounds != bounds
+                || layer.pixels.len() != rect.width as usize * rect.height as usize * 4
+        })
+        .unwrap_or(true);
+    if needs_insert {
+        let pixel_count = rect.width as usize * rect.height as usize * 4;
+        if pixel_count > LAYER_CACHE_MAX_LAYER_BYTES
+            || layer_cache.used_bytes().saturating_add(pixel_count) > LAYER_CACHE_MAX_BYTES
+        {
+            return Ok(());
+        }
+        layer_cache.insert(Layer::new(id, bounds, opacity, backdrop_blur));
+    }
+    let row_pixels = (row.len() / 4) as u32;
+    let start_x = bounds.x.min(row_pixels);
+    let end_x = bounds.end_x().min(row_pixels);
+    if start_x >= end_x {
+        return Ok(());
+    }
+    let Some(layer) = layer_cache.get_mut(id) else {
+        return Ok(());
+    };
+    layer.opacity = opacity;
+    layer.backdrop_blur = backdrop_blur;
+    let local_y = y.saturating_sub(bounds.y);
+    if local_y >= bounds.height {
+        return Ok(());
+    }
+    let local_start_x = start_x.saturating_sub(bounds.x);
+    let local_end_x = end_x.saturating_sub(bounds.x).min(bounds.width);
+    let dst_start =
+        (local_y as usize * bounds.width as usize + local_start_x as usize).saturating_mul(4);
+    let dst_end =
+        (local_y as usize * bounds.width as usize + local_end_x as usize).saturating_mul(4);
+    let src_start = start_x as usize * 4;
+    let src_end = end_x as usize * 4;
+    if dst_end <= layer.pixels.len() && src_end <= row.len() {
+        layer.pixels[dst_start..dst_end].copy_from_slice(&row[src_start..src_end]);
+        layer.rows_filled = layer.rows_filled.saturating_add(1).min(bounds.height);
+        if layer.rows_filled >= bounds.height {
+            layer.dirty = false;
+        }
+    }
     Ok(())
 }
 
@@ -2429,7 +2885,12 @@ fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<ProofBoxRect> 
             return None; // completely outside clip rect
         }
     }
-    Some(ProofBoxRect { x, y, width, height })
+    Some(ProofBoxRect {
+        x,
+        y,
+        width,
+        height,
+    })
 }
 
 fn proof_box_background(
@@ -2458,9 +2919,11 @@ fn proof_box_background(
         } else {
             crate::assets::PROOF_CARD_BORDER
         }),
-        ProofPaintPart::ScrollUp => {
-            Some(if state.wheel_up_visible { crate::assets::PROOF_ICON_FG } else { card.accent })
-        }
+        ProofPaintPart::ScrollUp => Some(if state.wheel_up_visible {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            card.accent
+        }),
         ProofPaintPart::ScrollDown => Some(if state.wheel_down_visible {
             crate::assets::PROOF_ICON_FG
         } else {
@@ -2481,7 +2944,10 @@ fn proof_box_border(
     let border = layout_box.visual.border.top?;
     let width = border.width.as_u32().unwrap_or(1);
     let color = match paint_role {
-        Some(ProofPaintRole { card, part: ProofPaintPart::Root | ProofPaintPart::Icon }) => {
+        Some(ProofPaintRole {
+            card,
+            part: ProofPaintPart::Root | ProofPaintPart::Icon,
+        }) => {
             let paint = card.paint(state);
             if paint.active {
                 paint.accent
@@ -2518,9 +2984,10 @@ enum ProofCard {
 impl ProofCard {
     fn paint(self, state: VisibleState) -> ProofCardPaint {
         match self {
-            Self::Hover => {
-                ProofCardPaint { active: state.hover_visible, accent: crate::assets::PROOF_HOVER }
-            }
+            Self::Hover => ProofCardPaint {
+                active: state.hover_visible,
+                accent: crate::assets::PROOF_HOVER,
+            },
             Self::Click => ProofCardPaint {
                 active: state.launcher_click_visible,
                 accent: crate::assets::PROOF_CLICK,
@@ -2533,9 +3000,10 @@ impl ProofCard {
                 active: state.keyboard_visible,
                 accent: crate::assets::PROOF_KEYBOARD,
             },
-            Self::Filter => {
-                ProofCardPaint { active: true, accent: crate::assets::PROOF_PANEL_TITLE }
-            }
+            Self::Filter => ProofCardPaint {
+                active: true,
+                accent: crate::assets::PROOF_PANEL_TITLE,
+            },
         }
     }
 }
@@ -2621,8 +3089,10 @@ fn blend_asset_row_clipped(
         return Ok(());
     }
     let visible_x = x.max(clip_x);
-    let visible_end =
-        x.saturating_add(width).min(clip_x.saturating_add(clip_width)).min((row.len() / 4) as u32);
+    let visible_end = x
+        .saturating_add(width)
+        .min(clip_x.saturating_add(clip_width))
+        .min((row.len() / 4) as u32);
     if visible_end <= visible_x {
         return Ok(());
     }
@@ -2670,78 +3140,6 @@ fn fill_row_rect(
     Ok(())
 }
 
-fn fill_circle_row(
-    y: u32,
-    row: &mut [u8],
-    x: u32,
-    rect_y: u32,
-    width: u32,
-    height: u32,
-    bgra: [u8; 4],
-) -> Result<(), WindowdError> {
-    if width == 0 || height == 0 || y < rect_y || y >= rect_y.saturating_add(height) {
-        return Ok(());
-    }
-    let local_y = y - rect_y;
-    let ry = height as i64;
-    let rx = width as i64;
-    let cy = 2 * local_y as i64 + 1 - ry;
-    let row_pixels = row.len() / 4;
-    for px in 0..width {
-        let cx = 2 * px as i64 + 1 - rx;
-        if cx * cx * ry * ry + cy * cy * rx * rx <= rx * rx * ry * ry {
-            let dst_x = x.saturating_add(px);
-            if dst_x >= row_pixels as u32 {
-                break;
-            }
-            let idx = dst_x as usize * 4;
-            row[idx..idx + 4].copy_from_slice(&bgra);
-        }
-    }
-    Ok(())
-}
-
-fn stroke_circle_row(
-    y: u32,
-    row: &mut [u8],
-    x: u32,
-    rect_y: u32,
-    width: u32,
-    height: u32,
-    stroke: u32,
-    bgra: [u8; 4],
-) -> Result<(), WindowdError> {
-    if width == 0 || height == 0 || stroke == 0 || y < rect_y || y >= rect_y.saturating_add(height)
-    {
-        return Ok(());
-    }
-    let local_y = y - rect_y;
-    let ry = height as i64;
-    let rx = width as i64;
-    let cy = 2 * local_y as i64 + 1 - ry;
-    let outer = rx * rx * ry * ry;
-    let inner_rx = (width.saturating_sub(2 * stroke)) as i64;
-    let inner_ry = (height.saturating_sub(2 * stroke)) as i64;
-    let row_pixels = row.len() / 4;
-    for px in 0..width {
-        let cx = 2 * px as i64 + 1 - rx;
-        let inside_outer = cx * cx * ry * ry + cy * cy * rx * rx <= outer;
-        let inside_inner = inner_rx > 0
-            && inner_ry > 0
-            && cx * cx * inner_ry * inner_ry + cy * cy * inner_rx * inner_rx
-                <= inner_rx * inner_rx * inner_ry * inner_ry;
-        if inside_outer && !inside_inner {
-            let dst_x = x.saturating_add(px);
-            if dst_x >= row_pixels as u32 {
-                break;
-            }
-            let idx = dst_x as usize * 4;
-            row[idx..idx + 4].copy_from_slice(&bgra);
-        }
-    }
-    Ok(())
-}
-
 fn fill_triangle_row(
     y: u32,
     row: &mut [u8],
@@ -2756,7 +3154,11 @@ fn fill_triangle_row(
         return Ok(());
     }
     let local_y = y - rect_y;
-    let progress = if up { height.saturating_sub(local_y + 1) } else { local_y };
+    let progress = if up {
+        height.saturating_sub(local_y + 1)
+    } else {
+        local_y
+    };
     let span = ((progress + 1) * width).max(height) / height.max(1);
     let span = span.max(1).min(width);
     let start = x + (width.saturating_sub(span)) / 2;
@@ -2782,7 +3184,9 @@ fn draw_path_row(
         return Ok(());
     }
     for segment in path.points.windows(2) {
-        draw_line_segment_row(y, row, x, rect_y, width, height, segment[0], segment[1], bgra)?;
+        draw_line_segment_row(
+            y, row, x, rect_y, width, height, segment[0], segment[1], bgra,
+        )?;
     }
     if path.closed {
         draw_line_segment_row(
@@ -2792,7 +3196,10 @@ fn draw_path_row(
             rect_y,
             width,
             height,
-            *path.points.last().unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
+            *path
+                .points
+                .last()
+                .unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
             path.points[0],
             bgra,
         )?;
@@ -2833,21 +3240,6 @@ fn draw_line_segment_row(
     fill_row_rect(y, row, px.saturating_sub(1), y, 3, 1, bgra)
 }
 
-fn stroke_row_rect(
-    y: u32,
-    row: &mut [u8],
-    x: u32,
-    rect_y: u32,
-    width: u32,
-    height: u32,
-    bgra: [u8; 4],
-) -> Result<(), WindowdError> {
-    if width == 0 || height == 0 {
-        return Ok(());
-    }
-    stroke_row_rect_width(y, row, x, rect_y, width, height, 2, bgra)
-}
-
 fn stroke_row_rect_width(
     y: u32,
     row: &mut [u8],
@@ -2863,9 +3255,25 @@ fn stroke_row_rect_width(
     }
     let stroke = stroke.min(width).min(height);
     fill_row_rect(y, row, x, rect_y, width, stroke, bgra)?;
-    fill_row_rect(y, row, x, rect_y + height.saturating_sub(stroke), width, stroke, bgra)?;
+    fill_row_rect(
+        y,
+        row,
+        x,
+        rect_y + height.saturating_sub(stroke),
+        width,
+        stroke,
+        bgra,
+    )?;
     fill_row_rect(y, row, x, rect_y, stroke, height, bgra)?;
-    fill_row_rect(y, row, x + width.saturating_sub(stroke), rect_y, stroke, height, bgra)
+    fill_row_rect(
+        y,
+        row,
+        x + width.saturating_sub(stroke),
+        rect_y,
+        stroke,
+        height,
+        bgra,
+    )
 }
 
 fn rgba_to_bgra(color: nexus_layout_types::Rgba8) -> [u8; 4] {
@@ -2883,7 +3291,9 @@ fn blend_overlay_row(row: &mut [u8], x: usize, source: &[u8]) -> Result<(), Wind
         if alpha == 0 {
             continue;
         }
-        let dst = dst_col.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = dst_col
+            .checked_mul(4)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         if alpha == 255 {
             row[dst..dst + 4].copy_from_slice(pixel);
             continue;
@@ -2945,10 +3355,11 @@ fn blend_cursor_row(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, path_cache_slot,
-        path_id_hash, BackdropCacheEntry,
+        apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, layer_cache_key,
+        path_cache_slot, path_id_hash, record_layer_cache_row, BackdropCacheEntry, LayerCache,
+        ProofBoxRect, TileMap, TILES_X, TILES_Y, TILE_SIZE,
     };
-    use crate::live_runtime::GlassQuality;
+    use crate::live_runtime::{DamageRect, GlassQuality};
 
     #[test]
     fn scale_lut_is_monotonic_and_clamped() {
@@ -2979,16 +3390,107 @@ mod tests {
 
     #[test]
     fn backdrop_cache_preserves_same_segment_key() {
-        let mut row = vec![0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255];
+        let mut row = vec![
+            0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255,
+        ];
         let mut cache = [BackdropCacheEntry::new(); 4];
         let mut scratch = vec![0u8; row.len()];
-        apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
-            .expect("first cache fill");
+        apply_backdrop_cache_row(
+            &mut row,
+            440,
+            0,
+            4,
+            GlassQuality::High,
+            &mut cache,
+            &mut scratch,
+        )
+        .expect("first cache fill");
         let cached = row.clone();
 
         row.fill(255);
-        apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
-            .expect("cache hit");
+        apply_backdrop_cache_row(
+            &mut row,
+            440,
+            0,
+            4,
+            GlassQuality::High,
+            &mut cache,
+            &mut scratch,
+        )
+        .expect("cache hit");
         assert_eq!(row, cached);
+    }
+
+    #[test]
+    fn tile_map_has_dirty_in_row_range_detects_marked_rows() {
+        let mut tm = TileMap::new();
+        // Mark a rect covering rows 128..192 (tiles ty=2..=2)
+        tm.mark_rect(DamageRect {
+            x: 0,
+            y: 128,
+            width: 1280,
+            height: 64,
+        });
+        assert!(tm.has_dirty_in_row_range(128, 192));
+        // Row range outside the marked area should be clean
+        assert!(!tm.has_dirty_in_row_range(0, 64));
+        assert!(!tm.has_dirty_in_row_range(256, 320));
+    }
+
+    #[test]
+    fn tile_map_has_dirty_in_row_range_partial_overlap() {
+        let mut tm = TileMap::new();
+        // Mark tile rows 2..=3 (y=128..256)
+        tm.mark_rect(DamageRect {
+            x: 0,
+            y: 140,
+            width: 1280,
+            height: 100,
+        });
+        // Row range that only partially overlaps should still be dirty
+        assert!(tm.has_dirty_in_row_range(120, 180));
+        assert!(tm.has_dirty_in_row_range(200, 300));
+    }
+
+    #[test]
+    fn tile_map_clear_resets_all_dirty() {
+        let mut tm = TileMap::new();
+        tm.mark_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 800,
+        });
+        assert!(tm.has_dirty());
+        tm.clear();
+        assert!(!tm.has_dirty());
+        assert!(!tm.has_dirty_in_row_range(0, 800));
+    }
+
+    #[test]
+    fn layer_cache_populates_rows_and_serves_clean_layer() {
+        let mut cache = LayerCache::default();
+        let key = layer_cache_key("proof_panel");
+        let rect = ProofBoxRect {
+            x: 4,
+            y: 10,
+            width: 2,
+            height: 2,
+        };
+        let mut row0 = vec![0u8; 8 * 4];
+        let mut row1 = vec![0u8; 8 * 4];
+        row0[16..24].copy_from_slice(&[1, 2, 3, 255, 4, 5, 6, 255]);
+        row1[16..24].copy_from_slice(&[7, 8, 9, 255, 10, 11, 12, 255]);
+
+        record_layer_cache_row(&mut cache, key, rect, 10, &row0, 255, None).expect("row 0 cache");
+        assert!(cache.get(key).expect("layer").dirty);
+
+        record_layer_cache_row(&mut cache, key, rect, 11, &row1, 255, None).expect("row 1 cache");
+        let layer = cache.get(key).expect("layer");
+        assert!(!layer.dirty);
+        assert_eq!(
+            layer.pixels,
+            [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255]
+        );
     }
 }

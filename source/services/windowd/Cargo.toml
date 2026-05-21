@@ -10,7 +10,13 @@ path = "src/lib.rs"
 
 [features]
 default = []
-os-lite = ["dep:nexus-abi", "dep:nexus-ipc", "dep:nexus-service-entry", "dep:nexus-svg"]
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "dep:nexus-svg",
+    "nexus-service-entry/heap-512k",
+]
 
 [package.metadata.nexus-service]
 kind = "service"

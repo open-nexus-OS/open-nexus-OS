@@ -156,8 +156,17 @@ join_by() {
 
 resolve_qemu_display_backend() {
   local backend=${QEMU_DISPLAY_BACKEND}
-  if [[ "$QEMU_SESSION_MODE" == "interactive" && "$backend" == "gtk" ]]; then
-    backend="gtk,grab-on-hover=on,show-tabs=off"
+  if [[ "$backend" == "gtk" ]]; then
+    backend="gtk,show-menubar=off"
+  elif [[ "$backend" == gtk,* ]]; then
+    if [[ ",$backend," != *",show-menubar="* ]]; then
+      backend="${backend},show-menubar=off"
+    fi
+  fi
+  if [[ "$QEMU_SESSION_MODE" == "interactive" && "$backend" == gtk,* ]]; then
+    if [[ ",$backend," != *",grab-on-hover="* ]]; then
+      backend="${backend},grab-on-hover=on"
+    fi
   fi
   printf '%s' "$backend"
 }

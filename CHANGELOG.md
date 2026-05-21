@@ -67,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **96 total ui_v4_host tests** (21+22+23+8+7+15), 170+ total host tests, dep-gate PASS
 - **RFC-0058 Phase 6 complete** — NeX UI Rendering Pipeline fully implemented
 
+### Fixed - 2026-05-20
+
+- **Budgeted first-frame glass quality**: `write_current_frame` now calls `select_glass_quality(self.mode.height)` instead of forced `GlassQuality::High`. On 800-row screens this degrades to `Opaque` (no blur), preventing the high-quality backdrop blur from blocking boot scanout. Previously caused black-screen QEMU boot.
+- **Test string contract fix**: `windowd_first_frame_uses_budgeted_glass_quality` assertion updated from 3-arg to 4-arg `write_rows` call to include the `paint_only: false` parameter.
+
 ### Added - 2026-05-15
 
 #### RFC-0057: UI v3a layout engine contract seed (pretext philosophy)

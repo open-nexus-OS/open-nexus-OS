@@ -8,6 +8,7 @@ license = "Apache-2.0"
 default = []
 alloc-log = ["nexus-log"]
 heap-512k = []
+heap-768k = []
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }

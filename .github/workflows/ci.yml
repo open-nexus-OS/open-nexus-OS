@@ -142,7 +142,7 @@ jobs:
         with:
           toolchain: nightly-2025-01-15
           targets: riscv64imac-unknown-none-elf
-          components: llvm-tools-preview
+          components: llvm-tools-preview, rust-src
       - name: QEMU kernel selftests
         # TASK-0023B P4-06 SSOT: the profile selects which marker subset
         # `verify-uart` accepts. `full` is the canonical default that the
