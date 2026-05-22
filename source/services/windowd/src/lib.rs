@@ -29,7 +29,7 @@ mod legacy;
 mod live_runtime;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod os_lite;
+mod compositor;
 mod proof_panel_spec;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
@@ -158,7 +158,7 @@ pub use visible_state::{
 };
 
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-pub use os_lite::service_main_loop;
+pub use compositor::service_main_loop;
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]
 pub use cli::run;
