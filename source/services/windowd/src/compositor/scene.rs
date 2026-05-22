@@ -15,6 +15,7 @@ use input_live_protocol::VisibleState;
 use nexus_effects::ShadowArena;
 use nexus_layout::LayoutResult;
 use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry};
+use super::cursor::blend_cursor_row;
 use super::shadow::compute_shadow_row;
 use super::source::copy_scaled_systemui_row_clipped;
 use super::surface::draw_proof_surface_row;
@@ -37,11 +38,11 @@ pub(crate) fn copy_scene_row(
     proof_layout_index: Option<&LayoutHotPathIndex>,
     filter_text: &str,
     filtered_words: &[&'static str],
-    _cursor_bitmap: Option<&[u8]>,
-    _cursor_width: u32,
-    _cursor_height: u32,
-    _cursor_x: i32,
-    _cursor_y: i32,
+    cursor_bitmap: Option<&[u8]>,
+    cursor_width: u32,
+    cursor_height: u32,
+    cursor_x: i32,
+    cursor_y: i32,
     y: u32,
     render_clip: RenderClip,
     glass_quality: GlassQuality,
@@ -97,6 +98,17 @@ pub(crate) fn copy_scene_row(
         layer_cache,
         paint_only,
     )?;
+    if let Some(cursor_bitmap) = cursor_bitmap {
+        blend_cursor_row(
+            row,
+            y,
+            cursor_bitmap,
+            cursor_width,
+            cursor_height,
+            cursor_x - crate::assets::CURSOR_HOTSPOT_X,
+            cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+        );
+    }
     Ok(())
 }
 
@@ -165,6 +177,6 @@ pub(crate) fn copy_cursor_background_row(
         GlassQuality::High,
         blur_row_buf,
         layer_cache,
-        true,
+        false,
     )
 }

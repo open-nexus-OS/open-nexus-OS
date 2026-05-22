@@ -215,7 +215,7 @@ muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface ersche
 |------|-------|
 | TASK-0057 | UI v2b: text shaping (HarfBuzz) + font fallback/cache + SVG pipeline |
 | TASK-0058 | UI v3a: layout wrapping + deterministic box model |
-| TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput |
+| ✅ TASK-0059 | UI v3b: clip/scroll/effects + IME/TextInput (Done; ShadowArena + per-box caching + `compositor/` module refactor) |
 | TASK-0146 | IME/Text v2 Part 1a: imed core + US/DE keymaps + deterministic host tests (pulled forward after 0059) |
 | TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) |
 | TASK-0061 | UI v4b: gestures + a11y semantics |

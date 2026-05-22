@@ -1,7 +1,7 @@
 # RFC-0058: UI v3b clipping/scroll/effects + IME/text-input contract seed
 
-- Status: In Progress
-- Last Updated: 2026-05-21 (Compositor Phases 1–6a implemented, P0/P1 closed, ShadowCache wired)
+- Status: Done
+- Last Updated: 2026-05-22 (compositor module refactored: `os_lite.rs` → `compositor/`) (Compositor Phases 1–6a implemented, P0/P1 closed, ShadowCache wired)
 - Owners: @ui
 - Created: 2026-05-17
 - Links:

@@ -1,9 +1,9 @@
 ---
 title: TASK-0059 UI v3b: clipping/scroll layers + precise damage + CPU effects (blur/shadow) + IME/text-input stub
-status: In Progress
+status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-05-21 (Phases 0-7a implemented; ShadowCache heap-exhaustion crash fixed — to_vec() removed from OS hot path; ShadowArena added for production zero-alloc path; Phase 7b per-box caching pending)
+updated: 2026-05-22 (Phases 0–7 complete. ShadowArena + per-box caching + zero-alloc blur in production. `os_lite.rs` (4860 lines) → `compositor/` (18 focused files). All tests green, no functional change.)
 depends-on: [TASK-0058]
 follow-up-tasks: [TASK-0060B]
 links:

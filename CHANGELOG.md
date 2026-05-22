@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-05-22
+
+#### TASK-0059: Compositor module refactoring
+
+- **Refactored**: `source/services/windowd/src/os_lite.rs` (4860 line monolith) split into
+  `source/services/windowd/src/compositor/` — 18 focused files with clear ownership boundaries.
+  No functional change. All 9 host tests pass. `lib.rs` public API unchanged.
+- **Module structure**: `runtime.rs`, `surface.rs`, `backdrop.rs`, `filter.rs`, `shadow.rs`,
+  `scene.rs`, `types.rs`, `cache.rs`, `primitives.rs`, `sdf.rs`, `tile_map.rs`, `damage.rs`,
+  `blur.rs`, `source.rs`, `path_cache.rs`, `cursor.rs`, `font.rs`, `tests.rs`.
+- **Renamed**: `os_lite` → `compositor` throughout (`lib.rs`, module declarations, imports).
+
 ### Fixed - 2026-05-21
 
 #### TASK-0059: ShadowCache heap exhaustion on bump allocator

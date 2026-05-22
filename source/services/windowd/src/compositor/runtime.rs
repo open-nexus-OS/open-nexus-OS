@@ -344,20 +344,7 @@ impl DisplayServerRuntime {
         let pointer_only_change =
             cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
         if pointer_only_change && self.saved_cursor_rect.is_some() {
-            let old_cursor_rect = self.saved_cursor_rect;
-            let new_cursor_rect = cursor_damage_rect(
-                self.state.cursor_x,
-                self.state.cursor_y,
-                self.cursor_width,
-                self.cursor_height,
-                self.mode.width,
-                self.mode.height,
-            );
-            let cursor_crosses_effect_region = old_cursor_rect
-                .is_some_and(|rect| self.cursor_rect_intersects_effect_region(rect))
-                || new_cursor_rect
-                    .is_some_and(|rect| self.cursor_rect_intersects_effect_region(rect));
-            if !cursor_crosses_effect_region && self.update_cursor_fast_path().is_ok() {
+            if self.update_cursor_fast_path().is_ok() {
                 self.emit_input_markers();
                 return STATUS_OK;
             }
