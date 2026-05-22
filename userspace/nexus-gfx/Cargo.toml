@@ -1,0 +1,12 @@
+[package]
+name = "nexus-gfx"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "NexusGfx SDK v1: Metal-like graphics API"
+
+[lib]
+name = "nexus_gfx"
+path = "src/lib.rs"
+
+[dependencies]

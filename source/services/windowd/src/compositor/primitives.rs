@@ -1,13 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Low-level rendering primitives for windowd compositor: blend, fill, stroke, paths.
+//! Low-level rendering primitives. RISC-V optimized: div255 via multiply+shift.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Covered via compositor integration tests
 
 use crate::error::WindowdError;
+
+#[inline]
+fn div255(x: u32) -> u8 { ((x * 257 + 32768) >> 16) as u8 }
 
 pub(crate) fn blend_asset_row(y: u32, row: &mut [u8], x: u32, top: u32, w: u32, h: u32, src: &[u8]) -> Result<(), WindowdError> {
     if y < top || y >= top.saturating_add(h) { return Ok(()); }
@@ -33,9 +35,9 @@ pub(crate) fn fill_row_rect(y: u32, row: &mut [u8], x: u32, ry: u32, w: u32, h: 
         if a == 255 { row[idx..idx + 4].copy_from_slice(&[bgra[0], bgra[1], bgra[2], 0xff]); continue; }
         if a == 0 { continue; }
         let inv = 255u32.saturating_sub(a);
-        row[idx] = ((u32::from(bgra[0]) * a + u32::from(row[idx]) * inv) / 255) as u8;
-        row[idx + 1] = ((u32::from(bgra[1]) * a + u32::from(row[idx + 1]) * inv) / 255) as u8;
-        row[idx + 2] = ((u32::from(bgra[2]) * a + u32::from(row[idx + 2]) * inv) / 255) as u8;
+        row[idx] = div255(u32::from(bgra[0]) * a + u32::from(row[idx]) * inv);
+        row[idx + 1] = div255(u32::from(bgra[1]) * a + u32::from(row[idx + 1]) * inv);
+        row[idx + 2] = div255(u32::from(bgra[2]) * a + u32::from(row[idx + 2]) * inv);
         row[idx + 3] = 0xff;
     }
     Ok(())
@@ -87,7 +89,7 @@ pub(crate) fn blend_overlay_row(row: &mut [u8], x: usize, src: &[u8]) -> Result<
         let dst = dc.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         if a == 255 { row[dst..dst + 4].copy_from_slice(px); continue; }
         let a = u32::from(a); let inv = 255u32.saturating_sub(a);
-        for ch in 0..3 { row[dst + ch] = ((u32::from(px[ch]) * a + u32::from(row[dst + ch]) * inv) / 255) as u8; }
+        for ch in 0..3 { row[dst + ch] = div255(u32::from(px[ch]) * a + u32::from(row[dst + ch]) * inv); }
         row[dst + 3] = 255;
     }
     Ok(())

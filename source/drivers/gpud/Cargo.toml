@@ -1,0 +1,13 @@
+[package]
+name = "gpud"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "gpud"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-gfx = { path = "../../../userspace/nexus-gfx" }
+gfx-backend = { path = "../../../userspace/gfx-backend" }

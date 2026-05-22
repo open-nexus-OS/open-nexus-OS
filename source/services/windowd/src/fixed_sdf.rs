@@ -61,6 +61,14 @@ pub(crate) fn rounded_rect_sd(
     (dist as i32).saturating_sub(radius)
 }
 
+/// Fixed-point circle SDF: distance from (px, py) to center (cx, cy) minus radius.
+pub(crate) fn circle_sd(px: i32, py: i32, cx: i32, cy: i32, radius: i32) -> i32 {
+    let dx = px.saturating_sub(cx);
+    let dy = py.saturating_sub(cy);
+    let dist_sq = (dx as i64).saturating_mul(dx as i64) + (dy as i64).saturating_mul(dy as i64);
+    (isqrt_u64(dist_sq as u64) as i32).saturating_sub(radius)
+}
+
 fn smoothstep_unit(x: i32) -> i32 {
     let x = x.clamp(0, FIXED_ONE);
     let x2 = x.saturating_mul(x);

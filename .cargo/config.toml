@@ -13,5 +13,6 @@ rustflags = [
     "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",
     "--cfg", "nexus_env=\"os\"",
     "-C", "relocation-model=static",
+    "-C", "target-feature=+zbb",
     "-Z", "share-generics=y",
 ]

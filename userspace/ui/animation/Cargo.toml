@@ -1,0 +1,12 @@
+[package]
+name = "animation"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Animation engine: timeline, spring physics, keyframe interpolation"
+
+[lib]
+name = "animation"
+path = "src/lib.rs"
+
+[dependencies]

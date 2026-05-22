@@ -103,6 +103,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
+name = "animation"
+version = "0.1.0"
+
+[[package]]
 name = "anstream"
 version = "0.6.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1065,6 +1069,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gfx-backend"
+version = "0.1.0"
+dependencies = [
+ "nexus-gfx",
+]
+
+[[package]]
 name = "ghash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1099,6 +1110,14 @@ dependencies = [
  "log",
  "plain",
  "scroll",
+]
+
+[[package]]
+name = "gpud"
+version = "0.1.0"
+dependencies = [
+ "gfx-backend",
+ "nexus-gfx",
 ]
 
 [[package]]
@@ -1800,6 +1819,10 @@ dependencies = [
  "tar",
  "toml",
 ]
+
+[[package]]
+name = "nexus-gfx"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-hal"
@@ -3949,6 +3972,7 @@ dependencies = [
 name = "windowd"
 version = "0.1.0"
 dependencies = [
+ "animation",
  "fontdue",
  "input-live-protocol",
  "nexus-abi",

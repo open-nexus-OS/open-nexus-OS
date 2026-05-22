@@ -11,6 +11,7 @@
 
 use alloc::vec::Vec;
 use core::fmt::Write as _;
+use animation::AnimationDriver;
 use nexus_abi::{debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
 use nexus_layout::LayoutResult;
@@ -107,6 +108,8 @@ pub(crate) struct DisplayServerRuntime {
     live_scroll_marker_emitted: bool,
     /// Whether v3b selftest summary markers were emitted.
     selftest_v3b_emitted: bool,
+    /// Animation driver: spring physics, keyframes, reduced motion (RFC-0059).
+    animation_driver: AnimationDriver,
 }
 
 #[derive(Default)]
@@ -218,6 +221,7 @@ impl DisplayServerRuntime {
             scroll_marker_emitted: false,
             live_scroll_marker_emitted: false,
             selftest_v3b_emitted: false,
+            animation_driver: AnimationDriver::new(),
         })
     }
 
@@ -546,6 +550,10 @@ impl DisplayServerRuntime {
 
     pub(crate) fn tick(&mut self, now_ns: u64) {
         // The scanout VMO persists; avoid rewriting a full 1280x800 frame on idle ticks.
+        // Drive animations — produces SceneUpdates for changed properties.
+        let _anim_updates = self.animation_driver.tick(now_ns);
+        // TODO: apply SceneUpdates to layer properties and queue dirty rects.
+
         if let Some(report) = self.telemetry.report_values_if_due(now_ns) {
             emit_windowd_telemetry(report);
         }
