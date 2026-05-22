@@ -11,6 +11,7 @@
 extern crate alloc;
 
 use alloc::format;
+use core::fmt::Write as _;
 use core::time::Duration;
 use input_live_protocol::{
     decode_status, decode_visible_state, encode_get_visible_state, encode_send_composed_frame_vmo,
@@ -28,9 +29,41 @@ use crate::error::{
 use crate::markers::{FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER};
 use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};
+use crate::scanout::DisplayScanoutReport;
 use crate::service::FbdevService;
+use windowd::WindowdDisplayTelemetryReport;
 
 const ROUTE_BIND_RETRIES: usize = 256;
+
+struct FixedDebugLine {
+    buf: [u8; 256],
+    len: usize,
+}
+
+impl FixedDebugLine {
+    const fn new() -> Self {
+        Self {
+            buf: [0; 256],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        core::str::from_utf8(&self.buf[..self.len]).ok()
+    }
+}
+
+impl core::fmt::Write for FixedDebugLine {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = self.len.saturating_add(s.len());
+        if end > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buf[self.len..end].copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = bind_server()?;
@@ -125,26 +158,73 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     DirtyRows::Range { start_y, end_y } => {
                         let byte_len = (end_y - start_y) as usize * mode.stride as usize;
                         if byte_len != 0 {
-                            service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
+                            service
+                                .present_live_bytes(byte_len)
+                                .map_err(|err| fail(err))?;
                         }
                     }
                     DirtyRows::Full => {
-                        let byte_len =
-                            mode.byte_len().map_err(|_| fail(FbdevdError::InvalidMode))?;
-                        service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
+                        let byte_len = mode
+                            .byte_len()
+                            .map_err(|_| fail(FbdevdError::InvalidMode))?;
+                        service
+                            .present_live_bytes(byte_len)
+                            .map_err(|err| fail(err))?;
                     }
                 }
             }
-            if let Some((windowd_line, fbdevd_line)) = service.telemetry_if_due(now_ns) {
-                if !windowd_line.is_empty() {
-                    let _ = debug_println(&windowd_line);
+            if let Some((windowd_report, fbdevd_report)) = service.telemetry_values_if_due(now_ns) {
+                if let Some(report) = windowd_report {
+                    emit_windowd_telemetry(report);
                 }
-                if !fbdevd_line.is_empty() {
-                    let _ = debug_println(&fbdevd_line);
+                if let Some(report) = fbdevd_report {
+                    emit_fbdevd_telemetry(report);
                 }
             }
         }
         let _ = yield_();
+    }
+}
+
+fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {
+    let mut line = FixedDebugLine::new();
+    if write!(
+        &mut line,
+        "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={}",
+        report.compose_hz,
+        report.present_hz,
+        report.coalesced_events,
+        report.dropped_events,
+        report.damage_pixels,
+        report.avg_render_us,
+        report.max_render_us
+    )
+    .is_err()
+    {
+        return;
+    }
+    if let Some(line) = line.as_str() {
+        let _ = debug_println(line);
+    }
+}
+
+fn emit_fbdevd_telemetry(report: DisplayScanoutReport) {
+    let mut line = FixedDebugLine::new();
+    if write!(
+        &mut line,
+        "fps: fbdevd flush_hz={} vsync_hz={} bytes={} flush_fail={} stale_scanout={}",
+        report.flush_hz,
+        report.vsync_hz,
+        report.bytes_flushed,
+        report.flush_failures,
+        report.stale_scanout
+    )
+    .is_err()
+    {
+        return;
+    }
+    if let Some(line) = line.as_str() {
+        let _ = debug_println(line);
     }
 }
 
@@ -224,7 +304,9 @@ fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Op
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
+    client
+        .send_with_cap_move_wait(&request, reply_send_clone, send_wait)
+        .ok()?;
     // `windowd` serves observer queries on the same loop as input-driven composition, so give
     // replies a slightly larger but still bounded budget to avoid under-load telemetry dropouts.
     let recv_wait = Wait::Timeout(Duration::from_millis(RPC_RECV_TIMEOUT_MS));

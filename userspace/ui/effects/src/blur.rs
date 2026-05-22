@@ -208,7 +208,14 @@ pub fn blur_1d(
                 col_buf[dst..dst + 4].copy_from_slice(&pixels[src..src + 4]);
             }
         }
-        let count = blur_1d(&mut col_buf, h as u32, w as u32, (h * 4) as u32, radius, true);
+        let count = blur_1d(
+            &mut col_buf,
+            h as u32,
+            w as u32,
+            (h * 4) as u32,
+            radius,
+            true,
+        );
         for y in 0..h {
             for x in 0..w {
                 let src = (x * h + y) * 4;
@@ -218,6 +225,162 @@ pub fn blur_1d(
         }
         count
     }
+}
+
+/// Zero-allocation variant of `blur_1d`.
+///
+/// Identical algorithm but takes pre-allocated scratch buffers instead of
+/// allocating internally. Safe for OS bump-allocator (no heap allocations
+/// in the hot path).
+///
+/// - `row_scratch`: at least `max(width, height) * 4` bytes (reused per row/column)
+/// - `col_scratch`: at least `width * height * 4` bytes (only used for vertical pass)
+///
+/// Returns the number of pixels blurred.
+pub fn blur_1d_zero_alloc(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    radius: u32,
+    horizontal: bool,
+    row_scratch: &mut [u8],
+    col_scratch: &mut [u8],
+) -> u32 {
+    if width == 0 || height == 0 || radius == 0 {
+        return 0;
+    }
+
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
+    let row_bytes = w.saturating_mul(4);
+    let col_bytes = w.saturating_mul(h).saturating_mul(4);
+    if pixels.len()
+        < h.saturating_sub(1)
+            .saturating_mul(s)
+            .saturating_add(row_bytes)
+        || row_scratch.len() < w.max(h).saturating_mul(4)
+        || (!horizontal && col_scratch.len() < col_bytes)
+    {
+        return 0;
+    }
+
+    blur_1d_zero_alloc_checked(
+        pixels,
+        width,
+        height,
+        stride,
+        radius,
+        horizontal,
+        row_scratch,
+        col_scratch,
+    )
+}
+
+fn blur_1d_zero_alloc_checked(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    radius: u32,
+    horizontal: bool,
+    row_scratch: &mut [u8],
+    col_scratch: &mut [u8],
+) -> u32 {
+    let w = width as usize;
+    let h = height as usize;
+    let s = stride as usize;
+    let r = radius as usize;
+    let window = 2 * r + 1;
+
+    if horizontal {
+        blur_1d_horizontal_zero_alloc(pixels, w, h, s, window, r, row_scratch)
+    } else {
+        // Vertical pass: transpose → blur → transpose back.
+        for y in 0..h {
+            for x in 0..w {
+                let src = y * s + x * 4;
+                let dst = (x * h + y) * 4;
+                col_scratch[dst..dst + 4].copy_from_slice(&pixels[src..src + 4]);
+            }
+        }
+        let transposed_stride = h * 4;
+        let count = blur_1d_horizontal_zero_alloc(
+            col_scratch,
+            h,
+            w,
+            transposed_stride,
+            window,
+            r,
+            row_scratch,
+        );
+        for y in 0..h {
+            for x in 0..w {
+                let src = (x * h + y) * 4;
+                let dst = y * s + x * 4;
+                pixels[dst..dst + 4].copy_from_slice(&col_scratch[src..src + 4]);
+            }
+        }
+        count
+    }
+}
+
+fn blur_1d_horizontal_zero_alloc(
+    pixels: &mut [u8],
+    w: usize,
+    h: usize,
+    stride: usize,
+    window: usize,
+    radius: usize,
+    row_scratch: &mut [u8],
+) -> u32 {
+    let mut count = 0u32;
+    for y in 0..h {
+        let row_start = y * stride;
+        row_scratch[..w * 4].copy_from_slice(&pixels[row_start..row_start + w * 4]);
+
+        let (mut r_sum, mut g_sum, mut b_sum, mut a_sum) = (0u64, 0u64, 0u64, 0u64);
+        for i in 0..window.min(w) {
+            let idx = i * 4;
+            let a = row_scratch[idx + 3] as u64;
+            r_sum += row_scratch[idx] as u64 * a;
+            g_sum += row_scratch[idx + 1] as u64 * a;
+            b_sum += row_scratch[idx + 2] as u64 * a;
+            a_sum += a;
+        }
+
+        for x in 0..w {
+            let dst = row_start + x * 4;
+            let n = a_sum;
+            if n > 0 {
+                pixels[dst] = ((r_sum / n).min(255)) as u8;
+                pixels[dst + 1] = ((g_sum / n).min(255)) as u8;
+                pixels[dst + 2] = ((b_sum / n).min(255)) as u8;
+            }
+            pixels[dst + 3] = ((a_sum / window as u64).min(255)) as u8;
+            count += 1;
+
+            let left = x.saturating_sub(radius);
+            if let Some(lidx) = left.checked_mul(4) {
+                let la = row_scratch[lidx + 3] as u64;
+                r_sum = r_sum.saturating_sub(row_scratch[lidx] as u64 * la);
+                g_sum = g_sum.saturating_sub(row_scratch[lidx + 1] as u64 * la);
+                b_sum = b_sum.saturating_sub(row_scratch[lidx + 2] as u64 * la);
+                a_sum = a_sum.saturating_sub(la);
+            }
+            let right = x + radius + 1;
+            if right < w {
+                let ridx = right * 4;
+                let ra = row_scratch[ridx + 3] as u64;
+                r_sum += row_scratch[ridx] as u64 * ra;
+                g_sum += row_scratch[ridx + 1] as u64 * ra;
+                b_sum += row_scratch[ridx + 2] as u64 * ra;
+                a_sum += ra;
+            }
+        }
+    }
+    count
 }
 
 /// Compute a 2D separable box blur in two passes (horizontal + vertical).
@@ -230,6 +393,47 @@ pub fn blur_1d(
 pub fn blur_separable(pixels: &mut [u8], width: u32, height: u32, stride: u32, radius: u32) -> u32 {
     let c1 = blur_1d(pixels, width, height, stride, radius, true);
     let c2 = blur_1d(pixels, width, height, stride, radius, false);
+    c1 + c2
+}
+
+/// Zero-allocation variant of `blur_separable`.
+///
+/// Identical algorithm but takes pre-allocated scratch buffers.
+/// Safe for OS bump-allocator.
+///
+/// - `row_scratch`: at least `max(width, height) * 4` bytes
+/// - `col_scratch`: at least `width * height * 4` bytes
+///
+/// Returns the total number of pixels blurred in both passes.
+pub fn blur_separable_zero_alloc(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    radius: u32,
+    row_scratch: &mut [u8],
+    col_scratch: &mut [u8],
+) -> u32 {
+    let c1 = blur_1d_zero_alloc(
+        pixels,
+        width,
+        height,
+        stride,
+        radius,
+        true,
+        row_scratch,
+        col_scratch,
+    );
+    let c2 = blur_1d_zero_alloc(
+        pixels,
+        width,
+        height,
+        stride,
+        radius,
+        false,
+        row_scratch,
+        col_scratch,
+    );
     c1 + c2
 }
 

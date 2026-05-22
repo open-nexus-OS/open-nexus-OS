@@ -83,9 +83,10 @@ fn query_route(target: &str, wait: Wait) -> Result<(u32, u32)> {
     let per_attempt_ns: u64 = match wait {
         Wait::NonBlocking => 0,
         Wait::Blocking => duration_to_ns(Duration::from_millis(100)),
-        Wait::Timeout(d) => {
-            core::cmp::min(duration_to_ns(d), duration_to_ns(Duration::from_millis(100)))
-        }
+        Wait::Timeout(d) => core::cmp::min(
+            duration_to_ns(d),
+            duration_to_ns(Duration::from_millis(100)),
+        ),
     };
     let deadline_ns = start_ns.saturating_add(per_attempt_ns);
 
@@ -201,7 +202,9 @@ fn wait_to_sys(wait: Wait) -> core::result::Result<(u32, u64), IpcError> {
 }
 
 fn duration_to_ns(d: Duration) -> u64 {
-    d.as_secs().saturating_mul(1_000_000_000).saturating_add(d.subsec_nanos() as u64)
+    d.as_secs()
+        .saturating_mul(1_000_000_000)
+        .saturating_add(d.subsec_nanos() as u64)
 }
 
 fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
@@ -233,13 +236,19 @@ pub struct KernelClient {
 impl KernelClient {
     /// Creates a new client bound to the bootstrap endpoint (slot 0).
     pub fn new() -> Result<Self> {
-        Ok(Self { send_slot: 0, recv_slot: 0 })
+        Ok(Self {
+            send_slot: 0,
+            recv_slot: 0,
+        })
     }
 
     /// Creates a client for a specific target.
     pub fn new_for(target: &str) -> Result<Self> {
         match query_route(target, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
-            Ok((send_slot, recv_slot)) => Ok(Self { send_slot, recv_slot }),
+            Ok((send_slot, recv_slot)) => Ok(Self {
+                send_slot,
+                recv_slot,
+            }),
             Err(err) => {
                 if target == "packagefsd" {
                     match err {
@@ -280,7 +289,10 @@ impl KernelClient {
 
     /// Creates a client using explicit capability slot numbers for send/recv.
     pub fn new_with_slots(send_slot: u32, recv_slot: u32) -> Result<Self> {
-        Ok(Self { send_slot, recv_slot })
+        Ok(Self {
+            send_slot,
+            recv_slot,
+        })
     }
 
     /// Returns the raw capability slots backing this client (send_slot, recv_slot).
@@ -386,12 +398,18 @@ impl KernelServer {
     ///
     /// NOTE: Defaults to bootstrap endpoint (slot 0), which is only useful for selftests.
     pub fn new() -> Result<Self> {
-        Ok(Self { recv_slot: 0, send_slot: 0 })
+        Ok(Self {
+            recv_slot: 0,
+            send_slot: 0,
+        })
     }
 
     /// Creates a server using explicit capability slot numbers for recv/send.
     pub fn new_with_slots(recv_slot: u32, send_slot: u32) -> Result<Self> {
-        Ok(Self { recv_slot, send_slot })
+        Ok(Self {
+            recv_slot,
+            send_slot,
+        })
     }
 
     /// Creates a server bound to a named service target.
@@ -490,9 +508,15 @@ impl KernelServer {
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
-        let n =
-            nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, out, &mut sid, sys_flags, deadline_ns)
-                .map_err(|e| map_recv_err(e, wait))? as usize;
+        let n = nexus_abi::ipc_recv_v2(
+            self.recv_slot,
+            &mut hdr,
+            out,
+            &mut sid,
+            sys_flags,
+            deadline_ns,
+        )
+        .map_err(|e| map_recv_err(e, wait))? as usize;
         let n = core::cmp::min(n, out.len());
         let reply = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
             Some(ReplyCap { slot: hdr.src })

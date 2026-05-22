@@ -23,7 +23,12 @@
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
-    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    all(
+        feature = "os-lite",
+        nexus_env = "os",
+        target_arch = "riscv64",
+        target_os = "none"
+    ),
     no_std
 )]
 
@@ -144,9 +149,9 @@ pub mod policyd_wire;
 /// Request/reply correlation helpers (nonce + bounded reply buffer).
 pub mod reqrep;
 
-#[cfg(nexus_env = "host")]
+#[cfg(all(nexus_env = "host", feature = "std"))]
 mod host;
-#[cfg(nexus_env = "host")]
+#[cfg(all(nexus_env = "host", feature = "std"))]
 pub use host::{loopback_channel, LoopbackClient, LoopbackServer};
 
 #[cfg(all(nexus_env = "os", not(feature = "os-lite")))]

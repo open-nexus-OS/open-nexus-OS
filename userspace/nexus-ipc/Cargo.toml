@@ -7,11 +7,10 @@ authors = ["Open Nexus OS Contributors"]
 
 [features]
 default = ["std"]
-std = ["dep:parking_lot"]
+std = []
 os-lite = []
 kernel-ipc = []
 
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }
-parking_lot = { version = "0.12", optional = true }
 nexus-sync = { path = "../../source/libs/nexus-sync" }

@@ -42,7 +42,12 @@ pub struct Response {
 pub fn decode_response(frame: &[u8]) -> Result<Response, WireError> {
     let (ver, op, nonce, status) =
         nexus_abi::policyd::decode_rsp_v2_or_v3(frame).ok_or(WireError::Malformed)?;
-    Ok(Response { ver, op, nonce, status })
+    Ok(Response {
+        ver,
+        op,
+        nonce,
+        status,
+    })
 }
 
 /// Returns true if `status` is `STATUS_ALLOW`.

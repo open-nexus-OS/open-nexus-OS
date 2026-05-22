@@ -10,10 +10,10 @@ use alloc::vec::Vec;
 use input_live_protocol::VisibleState;
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
-    Align, BoxShadow, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, Fraction, FxPx,
-    Justify, LayoutNode, LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint,
-    PathShape, PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode,
-    TextNode, TextStyle, VisualStyle, WhiteSpace,
+    Align, BoxShadow, Direction, EdgeBorder, EdgeInsets, FlexItem, FontWeight, FxPx, Justify,
+    LayoutNode, LineHeight, LineLayout, LineMetrics, MeasureText, Overflow, PathPoint, PathShape,
+    PreparedTextHandle, Rgba8, ShapeKind, Stack, TextAlign, TextContent, TextInputNode, TextNode,
+    TextStyle, VisualStyle, WhiteSpace,
 };
 
 use crate::assets;
@@ -32,9 +32,9 @@ pub const FILTER_SCROLLBAR_MIN_THUMB: u32 = 12;
 fn panel_shadow() -> BoxShadow {
     BoxShadow {
         offset_x: FxPx::ZERO,
-        offset_y: FxPx::new(12),
-        blur_radius: FxPx::new(24),
-        spread: FxPx::new(4),
+        offset_y: FxPx::new(4),
+        blur_radius: FxPx::new(30),
+        spread: FxPx::ZERO,
         color: Rgba8 {
             r: 0,
             g: 0,
@@ -294,7 +294,7 @@ pub fn build_combined_tree(state: VisibleState, filter_text: &str) -> LayoutNode
     let filter_panel = build_filter_panel_tree(filter_text);
     let combined_style = VisualStyle {
         background: Some(assets::PROOF_PANEL_BG),
-        opacity: Some(Fraction::new(132)),
+        opacity: None,
         border: EdgeBorder::all(FxPx::new(1), assets::PROOF_PANEL_BORDER),
         shadow: Some(panel_shadow()),
         ..Default::default()
@@ -798,7 +798,7 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
         Stack {
             id: Some("filter_content"),
             direction: Direction::Column,
-            gap: FxPx::new(4),
+            gap: FxPx::new(8),
             padding: EdgeInsets::zero(),
             align: Align::Stretch,
             justify: Justify::Start,
@@ -821,8 +821,8 @@ pub fn build_filter_panel_tree(filter_text: &str) -> LayoutNode {
         Stack {
             id: Some("filter_panel"),
             direction: Direction::Column,
-            gap: FxPx::new(PANEL_GAP),
-            padding: EdgeInsets::all(FxPx::new(PANEL_PADDING)),
+            gap: FxPx::ZERO,
+            padding: EdgeInsets::all(FxPx::new(10)),
             align: Align::Stretch,
             justify: Justify::Start,
             overflow: Overflow::Hidden,
@@ -853,7 +853,7 @@ mod tests {
         };
         assert_eq!(stack.id, Some("combined_panels"));
         assert_eq!(style.background, Some(assets::PROOF_PANEL_BG));
-        assert_eq!(style.opacity.map(Fraction::as_u8), Some(132));
+        assert_eq!(style.opacity, None);
         assert_eq!(style.shadow, Some(panel_shadow()));
     }
 

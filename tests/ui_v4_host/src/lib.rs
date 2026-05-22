@@ -174,7 +174,10 @@ mod tests {
     #[test]
     fn test_visual_style_with_box_shadow() {
         let shadow = BoxShadow::default();
-        let style = VisualStyle { shadow: Some(shadow), ..Default::default() };
+        let style = VisualStyle {
+            shadow: Some(shadow),
+            ..Default::default()
+        };
         assert!(style.shadow.is_some());
         assert_eq!(style.shadow.unwrap().blur_radius.0, 8);
     }
@@ -182,7 +185,10 @@ mod tests {
     #[test]
     fn test_visual_style_with_text_shadow() {
         let shadow = TextShadow::default();
-        let style = VisualStyle { text_shadow: Some(shadow), ..Default::default() };
+        let style = VisualStyle {
+            text_shadow: Some(shadow),
+            ..Default::default()
+        };
         assert!(style.text_shadow.is_some());
         assert_eq!(style.text_shadow.unwrap().blur_radius.0, 4);
     }
@@ -195,7 +201,10 @@ mod tests {
 
     #[test]
     fn test_visual_style_opacity_some() {
-        let style = VisualStyle { opacity: Some(Fraction::new(128)), ..Default::default() };
+        let style = VisualStyle {
+            opacity: Some(Fraction::new(128)),
+            ..Default::default()
+        };
         assert_eq!(style.opacity.unwrap().as_u8(), 128);
     }
 

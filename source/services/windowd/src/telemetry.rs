@@ -18,14 +18,33 @@ pub struct WindowdDisplayTelemetry {
     coalesced_events: u64,
     dropped_events: u64,
     damage_pixels: u64,
+    render_ns: u64,
+    max_render_ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowdDisplayTelemetryReport {
+    pub compose_hz: u64,
+    pub present_hz: u64,
+    pub coalesced_events: u64,
+    pub dropped_events: u64,
+    pub damage_pixels: u64,
+    pub avg_render_us: u64,
+    pub max_render_us: u64,
 }
 
 impl WindowdDisplayTelemetry {
     pub const REPORT_INTERVAL_NS: u64 = 1_000_000_000;
 
     pub fn record_compose(&mut self, damage_pixels: u64) {
+        self.record_compose_timed(damage_pixels, 0);
+    }
+
+    pub fn record_compose_timed(&mut self, damage_pixels: u64, render_ns: u64) {
         self.compose_events = self.compose_events.saturating_add(1);
         self.damage_pixels = self.damage_pixels.saturating_add(damage_pixels);
+        self.render_ns = self.render_ns.saturating_add(render_ns);
+        self.max_render_ns = self.max_render_ns.max(render_ns);
     }
 
     pub fn record_present(&mut self) {
@@ -40,7 +59,7 @@ impl WindowdDisplayTelemetry {
         self.dropped_events = self.dropped_events.saturating_add(1);
     }
 
-    pub fn report_if_due(&mut self, now_ns: u64) -> Option<String> {
+    pub fn report_values_if_due(&mut self, now_ns: u64) -> Option<WindowdDisplayTelemetryReport> {
         if now_ns == 0 {
             return None;
         }
@@ -62,16 +81,43 @@ impl WindowdDisplayTelemetry {
             .saturating_mul(1_000_000_000)
             .checked_div(elapsed)
             .unwrap_or(0);
-        let line = format!(
-            "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={}",
-            compose_hz, present_hz, self.coalesced_events, self.dropped_events, self.damage_pixels
-        );
+        let avg_render_us = self
+            .render_ns
+            .checked_div(self.compose_events.max(1))
+            .unwrap_or(0)
+            / 1_000;
+        let max_render_us = self.max_render_ns / 1_000;
+        let report = WindowdDisplayTelemetryReport {
+            compose_hz,
+            present_hz,
+            coalesced_events: self.coalesced_events,
+            dropped_events: self.dropped_events,
+            damage_pixels: self.damage_pixels,
+            avg_render_us,
+            max_render_us,
+        };
         self.last_report_ns = now_ns;
         self.compose_events = 0;
         self.present_events = 0;
         self.coalesced_events = 0;
         self.dropped_events = 0;
         self.damage_pixels = 0;
-        Some(line)
+        self.render_ns = 0;
+        self.max_render_ns = 0;
+        Some(report)
+    }
+
+    pub fn report_if_due(&mut self, now_ns: u64) -> Option<String> {
+        let report = self.report_values_if_due(now_ns)?;
+        Some(format!(
+            "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={}",
+            report.compose_hz,
+            report.present_hz,
+            report.coalesced_events,
+            report.dropped_events,
+            report.damage_pixels,
+            report.avg_render_us,
+            report.max_render_us
+        ))
     }
 }

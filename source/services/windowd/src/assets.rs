@@ -9,6 +9,9 @@ use nexus_layout_types::Rgba8;
 
 /// Embedded Mocu cursor SVG, normalized from `resources/cursors/mocu/src/svg/default.svg`.
 pub const CURSOR_LEFT_PTR_SVG: &str = generated::MOCU_CURSOR_LEFT_PTR_SVG;
+pub const CURSOR_LEFT_PTR_BGRA: &[u8] = generated::MOCU_CURSOR_BGRA;
+pub const CURSOR_LEFT_PTR_WIDTH: u32 = generated::MOCU_CURSOR_WIDTH;
+pub const CURSOR_LEFT_PTR_HEIGHT: u32 = generated::MOCU_CURSOR_HEIGHT;
 pub const CURSOR_HOTSPOT_X: i32 = generated::MOCU_CURSOR_HOTSPOT_X;
 pub const CURSOR_HOTSPOT_Y: i32 = generated::MOCU_CURSOR_HOTSPOT_Y;
 
@@ -178,4 +181,15 @@ pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
 
 const fn rgba8(value: [u8; 4]) -> Rgba8 {
     Rgba8::new(value[0], value[1], value[2], value[3])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cursor_asset_is_generated_bgra() {
+        assert_eq!(
+            super::CURSOR_LEFT_PTR_BGRA.len(),
+            (super::CURSOR_LEFT_PTR_WIDTH * super::CURSOR_LEFT_PTR_HEIGHT * 4) as usize
+        );
+    }
 }

@@ -152,7 +152,14 @@ fn nine_slice_dims(elem_w: u32, elem_h: u32, shadow: &NineSliceShadow) -> Shadow
     let inner_y = cs.min(total_h);
     let inner_w = total_w.saturating_sub(2 * cs);
     let inner_h = total_h.saturating_sub(2 * cs);
-    ShadowDims { total_w, total_h, inner_x, inner_y, inner_w, inner_h }
+    ShadowDims {
+        total_w,
+        total_h,
+        inner_x,
+        inner_y,
+        inner_w,
+        inner_h,
+    }
 }
 
 fn nine_slice_cache_key(elem_w: u32, elem_h: u32, shadow: &NineSliceShadow) -> u64 {
@@ -183,13 +190,8 @@ pub fn composite_nine_slice_shadow(
     budget: &mut EffectBudget,
     mut cache: Option<&mut EffectCache>,
 ) -> u32 {
-    let target_w = params.target_w;
-    let target_h = params.target_h;
-    let stride = params.stride;
     let elem_w = params.elem_w;
     let elem_h = params.elem_h;
-    let offset_x = params.offset_x;
-    let offset_y = params.offset_y;
     let dims = nine_slice_dims(elem_w, elem_h, shadow);
     if dims.total_w == 0 || dims.total_h == 0 {
         return 0;
@@ -198,14 +200,8 @@ pub fn composite_nine_slice_shadow(
     let cache_key = nine_slice_cache_key(elem_w, elem_h, shadow);
     let cached = cache.as_mut().and_then(|c| c.get(cache_key));
 
-    let layer_width: u32;
-    let layer_height: u32;
-    let shadow_layer: alloc::vec::Vec<u8>;
-
     if let Some(data) = cached {
-        layer_width = dims.total_w;
-        layer_height = dims.total_h;
-        shadow_layer = data.to_vec();
+        return composite_shadow_layer(target, data, dims.total_w, dims.total_h, shadow, params);
     } else {
         let pixels = dims.total_w * dims.total_h;
         if !budget.try_reserve(pixels) {
@@ -215,14 +211,28 @@ pub fn composite_nine_slice_shadow(
         render_nine_slice_corners(&mut layer, &dims, shadow);
         render_nine_slice_edges(&mut layer, &dims, shadow);
         render_nine_slice_fill(&mut layer, &dims, shadow);
+        let composited =
+            composite_shadow_layer(target, &layer, dims.total_w, dims.total_h, shadow, params);
         if let Some(c) = cache {
-            c.insert(cache_key, layer.clone(), dims.total_w, dims.total_h);
+            c.insert(cache_key, layer, dims.total_w, dims.total_h);
         }
-        layer_width = dims.total_w;
-        layer_height = dims.total_h;
-        shadow_layer = layer;
+        return composited;
     }
+}
 
+fn composite_shadow_layer(
+    target: &mut [u8],
+    shadow_layer: &[u8],
+    layer_width: u32,
+    layer_height: u32,
+    shadow: &NineSliceShadow,
+    params: NineSliceCompositeParams,
+) -> u32 {
+    let target_w = params.target_w;
+    let target_h = params.target_h;
+    let stride = params.stride;
+    let offset_x = params.offset_x;
+    let offset_y = params.offset_y;
     let sr = shadow.color.r as u32;
     let sg = shadow.color.g as u32;
     let sb = shadow.color.b as u32;

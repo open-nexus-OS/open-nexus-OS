@@ -51,7 +51,10 @@ mod tests {
     fn test_sd_circle_off_center() {
         // Point at (3,4) from center (0,0): distance = 5
         let sd = sd_circle((3.0, 4.0), (0.0, 0.0), 10.0);
-        assert!((sd + 5.0).abs() < 0.01, "distance to center=5, radius=10 → sd=-5");
+        assert!(
+            (sd + 5.0).abs() < 0.01,
+            "distance to center=5, radius=10 → sd=-5"
+        );
     }
 
     // ─── sd_rect ───
@@ -96,7 +99,10 @@ mod tests {
     #[test]
     fn test_sd_rounded_rect_center_inside() {
         let sd = sd_rounded_rect((5.0, 5.0), (0.0, 0.0), (10.0, 10.0), 2.0);
-        assert!(sd < 0.0, "center should be inside even with rounded corners");
+        assert!(
+            sd < 0.0,
+            "center should be inside even with rounded corners"
+        );
     }
 
     #[test]
@@ -113,7 +119,10 @@ mod tests {
         // Point at (1,1) with r=3: distance to inner corner (3,3) = sqrt(8) ≈ 2.828
         // sd = 2.828 - 3 = -0.172 → slightly inside the rounded corner
         let sd = sd_rounded_rect((1.0, 1.0), (0.0, 0.0), (10.0, 10.0), 3.0);
-        assert!(sd < 0.01, "near corner should be inside or near edge (sd={sd})");
+        assert!(
+            sd < 0.01,
+            "near corner should be inside or near edge (sd={sd})"
+        );
     }
 
     // ─── sd_triangle ───
@@ -196,7 +205,10 @@ mod tests {
     #[test]
     fn test_rounded_rect_fill_alpha_center() {
         let alpha = rounded_rect_fill_alpha((5.0, 5.0), (0.0, 0.0), (10.0, 10.0), 2.0, 1.0);
-        assert!(alpha > 0.9, "center of rounded rect should be filled (alpha={alpha})");
+        assert!(
+            alpha > 0.9,
+            "center of rounded rect should be filled (alpha={alpha})"
+        );
     }
 
     #[test]

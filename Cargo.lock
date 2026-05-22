@@ -1864,7 +1864,6 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-sync",
- "parking_lot",
 ]
 
 [[package]]

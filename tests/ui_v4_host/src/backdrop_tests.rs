@@ -31,8 +31,9 @@ mod tests {
     /// Verify that repeated blur on output doesn't diverge indefinitely.
     #[test]
     fn test_blur_no_darkening_on_repeat() {
-        let input: Vec<u8> =
-            (0..256).map(|i| if (64..192).contains(&i) { 200u8 } else { 50u8 }).collect();
+        let input: Vec<u8> = (0..256)
+            .map(|i| if (64..192).contains(&i) { 200u8 } else { 50u8 })
+            .collect();
         let mut out = input.clone();
         let mut scratch = vec![0u8; 256];
         let mut prev_sum: u64 = out.iter().map(|v| *v as u64).sum();
@@ -62,8 +63,14 @@ mod tests {
             result[c] = ((fg[c] as u32 * alpha + bg[c] as u32 * inv) / 255) as u8;
         }
         // 50% blend: result should be between bg and fg
-        assert!(result[0] > fg[0] && result[0] < bg[0], "blended between fg and bg");
-        assert!(result[1] > fg[1] && result[1] < bg[1], "blended between fg and bg");
+        assert!(
+            result[0] > fg[0] && result[0] < bg[0],
+            "blended between fg and bg"
+        );
+        assert!(
+            result[1] > fg[1] && result[1] < bg[1],
+            "blended between fg and bg"
+        );
     }
 
     /// Simple 1D box blur for testing.

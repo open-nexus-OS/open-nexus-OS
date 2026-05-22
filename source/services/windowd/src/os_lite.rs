@@ -3,7 +3,7 @@
 
 //! CONTEXT: OS-lite display server main loop for `windowd` — retained-mode compositor with
 //! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
-//! SDF anti-aliased shapes, backdrop blur via nexus-effects, cursor save/restore,
+//! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,
 //! and paint-only fast-path. Part of TASK-0055/0056/0058/0059.
 //!
 //! OWNERS: @ui
@@ -17,8 +17,8 @@
 //!   - Tile-based damage: `TileMap` (64x64 tiles, 260 tiles) with `has_dirty_in_row_range`
 //!     gating band writes in `write_rows`
 //!   - Retained layer cache: `LayerCache` (insert/get/invalidate) with per-box blit
-//!   - Cursor save/restore: `save_cursor_bg_inline` before cursor blend,
-//!     `restore_cursor_bg` on cursor move via vmo_write
+//!   - Cursor damage coalescing: old/new cursor bounds merge into the normal
+//!     band flush path to avoid restore/new-frame flicker
 //!   - Paint-only fast-path: `paint_only` flag skips non-paint boxes and backdrop blur
 //!   - Zero-copy: `shadow_scratch` + `blur_row_buf` pre-allocated once
 //!   - SDF integration: `fill_sdf_circle_row`, `fill_sdf_rounded_rect_row`
@@ -35,19 +35,22 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::fmt::Write as _;
 
 use input_live_protocol::{
     decode_update_visible_state, encode_status, encode_visible_state_frame, frame_has_op,
     VisibleState, OP_GET_VISIBLE_STATE, OP_SEND_COMPOSED_FRAME_VMO, OP_UPDATE_VISIBLE_STATE,
     STATUS_MALFORMED, STATUS_OK, STATUS_UNSUPPORTED,
 };
-use nexus_abi::{cap_close, debug_println, nsec, vmo_write, yield_, Handle};
+use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
+use crate::fixed_sdf;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
-    select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex, TargetDamage,
+    premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
+    TargetDamage,
 };
 use crate::markers::{
     COMPOSE_READY_MARKER, CURSOR_MOVE_VISIBLE_MARKER, DISPLAY_BOOTSTRAP_MARKER,
@@ -61,11 +64,13 @@ use crate::markers::{
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
     WHEEL_VISIBLE_MARKER,
 };
+use nexus_effects::{blur_separable_zero_alloc, ShadowArena};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, Rgba8};
 
 use crate::layout_panel;
 use crate::smoke::VisibleBootstrapMode;
+use crate::telemetry::WindowdDisplayTelemetryReport;
 
 const ROUTE_NAME: &str = "windowd";
 const PROOF_PANEL_X: u32 = 56;
@@ -83,8 +88,23 @@ const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_
 const ROW_WRITE_CHUNK: usize = 4;
 const IPC_BATCH_LIMIT: usize = 8;
 const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
-const BACKDROP_CACHE_ENTRIES: usize = 2;
+const BACKDROP_CACHE_ENTRIES: usize = 4;
 const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
+const COMBINED_PANEL_WIDTH: usize = (crate::proof_panel_spec::PANEL_WIDTH
+    + crate::proof_panel_spec::PANEL_GAP
+    + crate::proof_panel_spec::FILTER_PANEL_WIDTH) as usize;
+const COMBINED_PANEL_HEIGHT: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
+const GLASS_LAYER_SCALE: u32 = 4;
+const GLASS_LAYER_MAX_WIDTH: usize = COMBINED_PANEL_WIDTH.div_ceil(GLASS_LAYER_SCALE as usize);
+const GLASS_LAYER_MAX_HEIGHT: usize = COMBINED_PANEL_HEIGHT.div_ceil(GLASS_LAYER_SCALE as usize);
+const GLASS_LAYER_MAX_BYTES: usize = GLASS_LAYER_MAX_WIDTH * GLASS_LAYER_MAX_HEIGHT * 4;
+const DARK_GLASS_RADIUS: u32 = 12;
+const DARK_GLASS_BLUR_RADIUS: u32 = 20;
+const DARK_GLASS_TINT: Rgba8 = Rgba8::new(28, 28, 30, 178);
+const DARK_GLASS_BORDER: Rgba8 = Rgba8::new(255, 255, 255, 26);
+const SOFT_PANEL_SHADOW_OFFSET_Y: i32 = 4;
+const SOFT_PANEL_SHADOW_BLUR_RADIUS: u32 = 30;
+const SOFT_PANEL_SHADOW_ALPHA: u32 = 128;
 const PATH_CACHE_ENTRIES: usize = 2;
 const PATH_CACHE_MAX_SIDE: usize = 16;
 const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;
@@ -95,6 +115,42 @@ const TILES_X: usize = 20; // 1280 / 64
 const TILES_Y: usize = 13; // 800 / 64 rounded up
 const TILE_COUNT: usize = TILES_X * TILES_Y;
 const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
+const WINDOWD_SHADOW_ARENA_SIZE: usize = 16 * 1024;
+const COL_SCRATCH_SIZE: usize = WINDOWD_SHADOW_ARENA_SIZE;
+const SHADOW_BOX_CACHE_ENTRIES: usize = 8;
+const SHADOW_CACHE_MAX_DOWNSCALE: u8 = 16;
+const CURSOR_BG_MAX_BYTES: usize = 32 * 32 * 4;
+const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
+
+struct FixedDebugLine {
+    buf: [u8; 256],
+    len: usize,
+}
+
+impl FixedDebugLine {
+    const fn new() -> Self {
+        Self {
+            buf: [0; 256],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        core::str::from_utf8(&self.buf[..self.len]).ok()
+    }
+}
+
+impl core::fmt::Write for FixedDebugLine {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = self.len.saturating_add(s.len());
+        if end > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buf[self.len..end].copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = match KernelServer::new_for(ROUTE_NAME) {
@@ -107,30 +163,30 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut runtime =
         DisplayServerRuntime::new().map_err(|_| "windowd: init fail display-server")?;
     let _ = debug_println(READY_MARKER);
+    let mut recv_frame = [0u8; 512];
     loop {
         let mut visible_updates_since_flush = 0usize;
         for _ in 0..IPC_BATCH_LIMIT {
-            match server.recv_with_header_meta(Wait::NonBlocking) {
-                Ok((hdr, _sid, frame)) => {
-                    let moved_cap = (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0;
+            match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
+                Ok((frame_len, _sid, mut moved_cap)) => {
+                    let frame = &recv_frame[..frame_len];
                     if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
                         let response = encode_visible_state_frame(runtime.visible_state());
-                        if moved_cap {
-                            let _ =
-                                KernelServer::send_on_cap_wait(hdr.src, &response, Wait::Blocking);
-                            let _ = cap_close(hdr.src);
+                        if let Some(reply) = moved_cap.take() {
+                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
                         } else {
                             let _ = server.send(&response, Wait::Blocking);
                         }
                     } else if frame_has_op(&frame, OP_SEND_COMPOSED_FRAME_VMO) {
-                        let status = if moved_cap {
-                            runtime.register_framebuffer(hdr.src)
+                        let status = if let Some(cap) = moved_cap.take() {
+                            let status = runtime.register_framebuffer(cap.slot());
+                            if status != STATUS_OK {
+                                cap.close();
+                            }
+                            status
                         } else {
                             STATUS_MALFORMED
                         };
-                        if status != STATUS_OK && moved_cap {
-                            let _ = cap_close(hdr.src);
-                        }
                         let response = encode_status(OP_SEND_COMPOSED_FRAME_VMO, status);
                         let _ = server.send(&response, Wait::Blocking);
                     } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
@@ -142,11 +198,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             visible_updates_since_flush =
                                 visible_updates_since_flush.saturating_add(1);
                         }
-                        if moved_cap {
+                        if let Some(reply) = moved_cap.take() {
                             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
-                            let _ =
-                                KernelServer::send_on_cap_wait(hdr.src, &response, Wait::Blocking);
-                            let _ = cap_close(hdr.src);
+                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
                         }
                         if runtime.has_pending_damage()
                             && visible_updates_since_flush >= VISIBLE_UPDATE_FLUSH_LIMIT
@@ -159,10 +213,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     } else {
                         let op = frame.get(3).copied().unwrap_or(0);
                         let response = encode_status(op, STATUS_UNSUPPORTED);
-                        if moved_cap {
-                            let _ =
-                                KernelServer::send_on_cap_wait(hdr.src, &response, Wait::Blocking);
-                            let _ = cap_close(hdr.src);
+                        if let Some(reply) = moved_cap.take() {
+                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
                         } else {
                             let _ = server.send(&response, Wait::Blocking);
                         }
@@ -183,6 +235,79 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 }
 
+fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {
+    let mut line = FixedDebugLine::new();
+    if write!(
+        &mut line,
+        "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={}",
+        report.compose_hz,
+        report.present_hz,
+        report.coalesced_events,
+        report.dropped_events,
+        report.damage_pixels,
+        report.avg_render_us,
+        report.max_render_us
+    )
+    .is_err()
+    {
+        return;
+    }
+    if let Some(line) = line.as_str() {
+        let _ = debug_println(line);
+    }
+}
+
+/// Per-box shadow cache entry: stores arena offset for pre-rendered full-box shadow.
+/// Zero heap allocation — fixed-size array, linear-probe lookup.
+#[derive(Clone, Copy)]
+struct ShadowBoxCacheEntry {
+    key: u64,
+    arena_offset: usize,
+    width: u32,
+    height: u32,
+    cache_width: u32,
+    cache_height: u32,
+    scale: u8,
+    valid: bool,
+}
+
+impl ShadowBoxCacheEntry {
+    const fn empty() -> Self {
+        Self {
+            key: 0,
+            arena_offset: 0,
+            width: 0,
+            height: 0,
+            cache_width: 0,
+            cache_height: 0,
+            scale: 1,
+            valid: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RenderClip {
+    start_x: u32,
+    end_x: u32,
+}
+
+impl RenderClip {
+    const fn full(width: u32) -> Self {
+        Self {
+            start_x: 0,
+            end_x: width,
+        }
+    }
+
+    fn new(start_x: u32, end_x: u32, width: u32) -> Self {
+        Self {
+            start_x: start_x.min(width),
+            end_x: end_x.min(width),
+        }
+    }
+}
+
 struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
     source_frame: SourceFrame,
@@ -197,10 +322,9 @@ struct DisplayServerRuntime {
     shadow_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
     blur_row_buf: Vec<u8>,
-    /// Saved background pixels under the cursor (32×32 BGRA, zero-copy — allocated once).
+    /// Saved background pixels under the cursor for the dedicated cursor fast path.
     cursor_bg_saved: Vec<u8>,
-    /// Y position where cursor_bg_saved was captured (None = not saved yet).
-    saved_cursor_rect: Option<(i32, i32, i32, i32)>, // (x, y, width, height)
+    saved_cursor_rect: Option<DamageRect>,
     state: VisibleState,
     observer_state: VisibleState,
     markers_emitted: bool,
@@ -209,13 +333,25 @@ struct DisplayServerRuntime {
     pending_damage_rects: Vec<DamageRect>,
     tile_map: TileMap,
     layer_cache: LayerCache,
+    /// Fixed storage for per-box shadow rendering. `ShadowArena` borrows this
+    /// slice per flush and never owns or grows a Vec internally.
+    shadow_arena_buf: Vec<u8>,
+    /// Persisted bump offset so cached shadow slices survive partial flushes.
+    shadow_arena_used: usize,
+    /// Pre-allocated column buffer for 2D blur vertical pass.
+    col_scratch: Vec<u8>,
+    /// Per-box shadow cache (fixed-size, zero heap alloc).
+    shadow_box_cache: [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
     proof_layouts: Option<Vec<LayoutResult>>,
     proof_layout_index: Option<LayoutHotPathIndex>,
     filtered_words: Vec<&'static str>,
+    telemetry: crate::telemetry::WindowdDisplayTelemetry,
     backdrop_cache: [BackdropCacheEntry; BACKDROP_CACHE_ENTRIES],
+    glass_layer: GlassLayerCache,
+    glass_scratch: Vec<u8>,
     path_cache: [PathCacheEntry; PATH_CACHE_ENTRIES],
     /// Index into `LIVE_FILTER_VARIANTS` for the active filter text/layout.
     active_filter_idx: usize,
@@ -278,6 +414,34 @@ impl BackdropCacheEntry {
             quality: GlassQuality::High,
             valid: false,
             pixels: alloc::vec![0u8; BACKDROP_CACHE_MAX_WIDTH * 4],
+        }
+    }
+}
+
+#[derive(Clone)]
+struct GlassLayerCache {
+    key: u64,
+    rect: DamageRect,
+    width: u32,
+    height: u32,
+    valid: bool,
+    pixels: Vec<u8>,
+}
+
+impl GlassLayerCache {
+    fn new() -> Self {
+        Self {
+            key: 0,
+            rect: DamageRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
+            width: 0,
+            height: 0,
+            valid: false,
+            pixels: alloc::vec![0u8; GLASS_LAYER_MAX_BYTES],
         }
     }
 }
@@ -517,7 +681,8 @@ impl DisplayServerRuntime {
             band_scratch: alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK],
             shadow_scratch: alloc::vec![0u8; mode.stride as usize],
             blur_row_buf: alloc::vec![0u8; mode.stride as usize],
-            cursor_bg_saved: alloc::vec![0u8; 32 * 32 * 4],
+            cursor_bg_saved: alloc::vec![0u8; CURSOR_BG_MAX_BYTES],
+            saved_cursor_rect: None,
             state: initial_state,
             observer_state: initial_state,
             markers_emitted: false,
@@ -526,13 +691,19 @@ impl DisplayServerRuntime {
             pending_damage_rects: Vec::with_capacity(4),
             tile_map: TileMap::new(),
             layer_cache: LayerCache::default(),
+            shadow_arena_buf: alloc::vec![0u8; WINDOWD_SHADOW_ARENA_SIZE],
+            shadow_arena_used: 0,
+            col_scratch: alloc::vec![0u8; COL_SCRATCH_SIZE],
+            shadow_box_cache: [ShadowBoxCacheEntry::empty(); SHADOW_BOX_CACHE_ENTRIES],
             pending_damage_rect: None,
             paint_only_damage: false,
-            saved_cursor_rect: None,
             proof_layouts,
             proof_layout_index,
             filtered_words,
+            telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
             backdrop_cache: core::array::from_fn(|_| BackdropCacheEntry::new()),
+            glass_layer: GlassLayerCache::new(),
+            glass_scratch: alloc::vec![0u8; GLASS_LAYER_MAX_BYTES],
             path_cache: core::array::from_fn(|_| PathCacheEntry::new()),
             active_filter_idx: 0,
             filter_cycle: 0,
@@ -578,6 +749,17 @@ impl DisplayServerRuntime {
         self.observer_state.text_input_bytes = self.state.text_input_bytes;
     }
 
+    fn reset_effect_caches(&mut self) {
+        self.shadow_arena_used = 0;
+        for entry in &mut self.shadow_box_cache {
+            entry.valid = false;
+        }
+        for entry in &mut self.backdrop_cache {
+            entry.valid = false;
+        }
+        self.glass_layer.valid = false;
+    }
+
     fn register_framebuffer(&mut self, handle: Handle) -> u8 {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
@@ -616,8 +798,6 @@ impl DisplayServerRuntime {
         let old_cursor_x = self.state.cursor_x;
         let old_cursor_y = self.state.cursor_y;
         let old_filter_idx = self.active_filter_idx;
-        // Restore wallpaper under old cursor position before moving.
-        self.restore_cursor_bg();
         self.state.virtio_raw_seen |= upstream.virtio_raw_seen;
         self.state.hid_normalized_seen |= upstream.hid_normalized_seen;
         self.state.pointer_route_live |= upstream.pointer_route_live;
@@ -628,9 +808,9 @@ impl DisplayServerRuntime {
         self.state.cursor_move_visible |=
             upstream.cursor_move_visible || upstream.pointer_route_live;
         self.state.hover_visible = upstream.hover_visible;
-        self.state.focus_visible = upstream.focus_visible;
+        self.state.focus_visible |= upstream.focus_visible;
         self.state.launcher_click_visible = upstream.launcher_click_visible;
-        self.state.keyboard_visible = upstream.keyboard_visible;
+        self.state.keyboard_visible |= upstream.keyboard_visible || upstream.keyboard_route_live;
         self.state.wheel_up_visible = upstream.wheel_up_visible;
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
@@ -654,6 +834,27 @@ impl DisplayServerRuntime {
         let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
             || old_state.launcher_click_visible != self.state.launcher_click_visible
             || old_state.keyboard_visible != self.state.keyboard_visible;
+        let pointer_only_change =
+            cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
+        if pointer_only_change && self.saved_cursor_rect.is_some() {
+            let old_cursor_rect = self.saved_cursor_rect;
+            let new_cursor_rect = cursor_damage_rect(
+                self.state.cursor_x,
+                self.state.cursor_y,
+                self.cursor_width,
+                self.cursor_height,
+                self.mode.width,
+                self.mode.height,
+            );
+            let cursor_crosses_effect_region = old_cursor_rect
+                .is_some_and(|rect| self.cursor_rect_intersects_effect_region(rect))
+                || new_cursor_rect
+                    .is_some_and(|rect| self.cursor_rect_intersects_effect_region(rect));
+            if !cursor_crosses_effect_region && self.update_cursor_fast_path().is_ok() {
+                self.emit_input_markers();
+                return STATUS_OK;
+            }
+        }
         self.paint_only_damage =
             paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
         self.queue_cursor_damage(
@@ -771,7 +972,12 @@ impl DisplayServerRuntime {
                 let w = rect.width.as_u32().unwrap_or(0);
                 let h = rect.height.as_u32().unwrap_or(0);
                 if w > 0 && h > 0 {
-                    self.queue_dirty_rect(DamageRect { x, y, width: w, height: h });
+                    self.queue_dirty_rect(DamageRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    });
                 }
             }
             if !damage.is_empty() {
@@ -844,8 +1050,11 @@ impl DisplayServerRuntime {
         }
     }
 
-    fn tick(&mut self, _now_ns: u64) {
+    fn tick(&mut self, now_ns: u64) {
         // The scanout VMO persists; avoid rewriting a full 1280x800 frame on idle ticks.
+        if let Some(report) = self.telemetry.report_values_if_due(now_ns) {
+            emit_windowd_telemetry(report);
+        }
     }
 
     fn emit_asset_markers(&mut self) {
@@ -953,6 +1162,7 @@ impl DisplayServerRuntime {
     }
 
     fn write_current_frame(&mut self) -> Result<(), WindowdError> {
+        self.reset_effect_caches();
         // Mark every tile dirty so the first full-screen write renders all rows.
         self.tile_map.mark_rect(DamageRect {
             x: 0,
@@ -965,7 +1175,8 @@ impl DisplayServerRuntime {
             self.mode.height,
             select_glass_quality(PROOF_PANEL_H),
             false,
-        )
+        )?;
+        self.write_cursor_overlay()
     }
 
     fn write_rows(
@@ -975,6 +1186,7 @@ impl DisplayServerRuntime {
         glass_quality: GlassQuality,
         paint_only: bool,
     ) -> Result<(), WindowdError> {
+        let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
@@ -1001,11 +1213,16 @@ impl DisplayServerRuntime {
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
         let end_y = end_y.min(self.mode.height);
+        let render_clip = RenderClip::full(self.mode.width);
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
         let backdrop_cache = &mut self.backdrop_cache;
+        let glass_layer = &mut self.glass_layer;
+        let glass_scratch = &mut self.glass_scratch;
         let path_cache = &mut self.path_cache;
         let band_scratch = &mut self.band_scratch;
+        let mut shadow_arena =
+            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
         let mut band_start = start_y.min(end_y);
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
@@ -1025,6 +1242,8 @@ impl DisplayServerRuntime {
                     blur_row_buf,
                     shadow_scratch,
                     backdrop_cache,
+                    glass_layer,
+                    glass_scratch,
                     path_cache,
                     source_frame,
                     source_x_lut,
@@ -1041,12 +1260,14 @@ impl DisplayServerRuntime {
                     cursor_x,
                     cursor_y,
                     y,
+                    render_clip,
                     glass_quality,
                     paint_only,
                     band_row,
                     &mut self.layer_cache,
-                    &mut self.cursor_bg_saved,
-                    &mut self.saved_cursor_rect,
+                    &mut shadow_arena,
+                    &mut self.col_scratch,
+                    &mut self.shadow_box_cache,
                 )?;
             }
             let offset = band_start as usize * row_len;
@@ -1054,7 +1275,15 @@ impl DisplayServerRuntime {
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
+        self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.telemetry.record_compose_timed(
+            u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
+            nsec()
+                .unwrap_or(render_start_ns)
+                .saturating_sub(render_start_ns),
+        );
+        self.telemetry.record_present();
         self.refresh_observer_state();
         Ok(())
     }
@@ -1065,11 +1294,12 @@ impl DisplayServerRuntime {
         glass_quality: GlassQuality,
         paint_only: bool,
     ) -> Result<(), WindowdError> {
+        let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
         let row_len = self.mode.stride as usize;
-        if self.band_scratch.len() < row_len {
+        if self.band_scratch.len() < row_len * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let start_y = rect.y.min(self.mode.height);
@@ -1100,9 +1330,14 @@ impl DisplayServerRuntime {
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
         let backdrop_cache = &mut self.backdrop_cache;
+        let glass_layer = &mut self.glass_layer;
+        let glass_scratch = &mut self.glass_scratch;
         let path_cache = &mut self.path_cache;
+        let mut shadow_arena =
+            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
         let byte_start = start_x as usize * 4;
         let byte_end = end_x as usize * 4;
+        let render_clip = RenderClip::new(start_x, end_x, self.mode.width);
         let mut band_start = start_y;
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
@@ -1114,6 +1349,8 @@ impl DisplayServerRuntime {
                     blur_row_buf,
                     shadow_scratch,
                     backdrop_cache,
+                    glass_layer,
+                    glass_scratch,
                     path_cache,
                     source_frame,
                     source_x_lut,
@@ -1130,18 +1367,29 @@ impl DisplayServerRuntime {
                     cursor_x,
                     cursor_y,
                     y,
+                    render_clip,
                     glass_quality,
                     paint_only,
                     band_row,
                     &mut self.layer_cache,
-                    &mut self.cursor_bg_saved,
-                    &mut self.saved_cursor_rect,
+                    &mut shadow_arena,
+                    &mut self.col_scratch,
+                    &mut self.shadow_box_cache,
                 )?;
             }
-            // Write each row's sub-rect to framebuffer
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let offset = y as usize * row_len + byte_start;
                 let src_offset = row_idx * row_len + byte_start;
+                if byte_start == 0 && byte_end == row_len {
+                    let band_bytes = (band_end - band_start) as usize * row_len;
+                    vmo_write(
+                        handle,
+                        band_start as usize * row_len,
+                        &self.band_scratch[..band_bytes],
+                    )
+                    .map_err(|_| WindowdError::BufferLengthMismatch)?;
+                    break;
+                }
                 vmo_write(
                     handle,
                     offset,
@@ -1151,7 +1399,16 @@ impl DisplayServerRuntime {
             }
             band_start = band_end;
         }
+        self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.telemetry.record_compose_timed(
+            u64::from(end_x.saturating_sub(start_x))
+                .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
+            nsec()
+                .unwrap_or(render_start_ns)
+                .saturating_sub(render_start_ns),
+        );
+        self.telemetry.record_present();
         self.refresh_observer_state();
         Ok(())
     }
@@ -1163,39 +1420,27 @@ impl DisplayServerRuntime {
         new_cursor_x: i32,
         new_cursor_y: i32,
     ) {
-        let old_rows = cursor_row_range(
-            old_cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+        let old_rect = cursor_damage_rect(
+            old_cursor_x,
+            old_cursor_y,
+            self.cursor_width,
             self.cursor_height,
+            self.mode.width,
             self.mode.height,
         );
-        let new_rows = cursor_row_range(
-            new_cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
+        let new_rect = cursor_damage_rect(
+            new_cursor_x,
+            new_cursor_y,
+            self.cursor_width,
             self.cursor_height,
+            self.mode.width,
             self.mode.height,
         );
-        if let Some((start, end)) = old_rows {
-            let rect = DamageRect {
-                x: old_cursor_x.max(0) as u32,
-                y: start,
-                width: self.cursor_width,
-                height: end.saturating_sub(start),
-            };
-            // Old position: render without cursor (cursor already restored by restore_cursor_bg).
-            let saved = self.cursor_bitmap.take();
-            let _ = self.write_damage_rect(rect, GlassQuality::High, true);
-            self.cursor_bitmap = saved;
+        match (old_rect, new_rect) {
+            (Some(old_rect), Some(new_rect)) => self.queue_dirty_rect(old_rect.merge(new_rect)),
+            (Some(rect), None) | (None, Some(rect)) => self.queue_dirty_rect(rect),
+            (None, None) => {}
         }
-        if let Some((start, end)) = new_rows {
-            let rect = DamageRect {
-                x: new_cursor_x.max(0) as u32,
-                y: start,
-                width: self.cursor_width,
-                height: end.saturating_sub(start),
-            };
-            let _ = self.write_damage_rect(rect, GlassQuality::High, true);
-        }
-        let _ = old_cursor_x;
-        let _ = new_cursor_x;
     }
 
     fn queue_dirty_rect(&mut self, rect: DamageRect) {
@@ -1218,72 +1463,271 @@ impl DisplayServerRuntime {
     fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
         let mut wrote_any = false;
+        let mut rects = [DamageRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        }; 5];
+        let mut rect_count = 0usize;
 
-        // Collect all damage rects.
-        let mut all_rects: alloc::vec::Vec<DamageRect> =
-            self.pending_damage_rects.drain(..).collect();
         if let Some(rect) = self.pending_damage_rect.take() {
-            all_rects.push(rect);
+            rects[rect_count] = rect;
+            rect_count += 1;
         }
-
-        // Render each rect precisely — only the rect area, not full rows.
-        for rect in all_rects {
+        while let Some(rect) = self.pending_damage_rects.pop() {
+            if rect_count < rects.len() {
+                rects[rect_count] = rect;
+                rect_count += 1;
+            }
+        }
+        rect_count = premerge_damage_rects(&mut rects, rect_count);
+        for rect in rects.iter().copied().take(rect_count) {
             self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
             wrote_any = true;
         }
 
         self.tile_map.clear();
         if wrote_any {
+            let _ = self.write_cursor_overlay();
             self.emit_input_markers();
             self.paint_only_damage = false;
         }
         Ok(())
     }
 
+    fn update_cursor_fast_path(&mut self) -> Result<(), WindowdError> {
+        self.restore_cursor_bg()?;
+        self.write_cursor_overlay()?;
+        self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.refresh_observer_state();
+        Ok(())
+    }
+
+    fn cursor_rect_intersects_effect_region(&self, rect: DamageRect) -> bool {
+        let Some(layout) = self.active_proof_layout() else {
+            return false;
+        };
+        layout.boxes.iter().any(|layout_box| {
+            if layout_box.id != Some("combined_panels") {
+                return false;
+            }
+            let Some(panel_rect) = proof_box_rect(layout_box) else {
+                return false;
+            };
+            damage_rects_intersect(rect, inflate_effect_rect(panel_rect, self.mode))
+        })
+    }
+
+    fn restore_cursor_bg(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let Some(rect) = self.saved_cursor_rect.take() else {
+            return Ok(());
+        };
+        let row_len = self.mode.stride as usize;
+        let byte_len = rect.width as usize * 4;
+        for (row_idx, y) in (rect.y..rect.end_y().min(self.mode.height)).enumerate() {
+            let src_offset = row_idx.saturating_mul(byte_len);
+            let src_end = src_offset.saturating_add(byte_len);
+            if src_end > self.cursor_bg_saved.len() {
+                continue;
+            }
+            let dst_offset = y as usize * row_len + rect.x as usize * 4;
+            vmo_write(
+                handle,
+                dst_offset,
+                &self.cursor_bg_saved[src_offset..src_end],
+            )
+            .map_err(|_| WindowdError::BufferLengthMismatch)?;
+        }
+        self.telemetry.record_present();
+        Ok(())
+    }
+
+    fn write_cursor_overlay(&mut self) -> Result<(), WindowdError> {
+        let render_start_ns = nsec().unwrap_or(0);
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let Some(cursor_bitmap) = self.cursor_bitmap.as_deref() else {
+            self.saved_cursor_rect = None;
+            return Ok(());
+        };
+        let Some(rect) = cursor_damage_rect(
+            self.state.cursor_x,
+            self.state.cursor_y,
+            self.cursor_width,
+            self.cursor_height,
+            self.mode.width,
+            self.mode.height,
+        ) else {
+            self.saved_cursor_rect = None;
+            return Ok(());
+        };
+        let cursor_over_effect = self.cursor_rect_intersects_effect_region(rect);
+        if cursor_over_effect {
+            // Keep the logical previous cursor rect for the next damage merge.
+            // No background bytes are saved for effect regions, so this rect must
+            // not be restored through the cursor fast path; `apply_input_state`
+            // skips that path whenever old or new cursor bounds cross glass.
+            self.saved_cursor_rect = Some(rect);
+            return Ok(());
+        }
+
+        let row_len = self.mode.stride as usize;
+        if self.band_scratch.len() < row_len {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let active_filter_idx = self.active_filter_idx;
+        let proof_layout = self
+            .proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout_index = self.proof_layout_index.as_ref();
+        let source_frame = &self.source_frame;
+        let source_x_lut = self.source_x_lut.as_slice();
+        let source_y_lut = self.source_y_lut.as_slice();
+        let mode = self.mode;
+        let state = self.state;
+        let filter_text = state.text_input();
+        let filtered_words = self.filtered_words.as_slice();
+        let cursor_left = self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X;
+        let cursor_top = self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y;
+        let blur_row_buf = &mut self.blur_row_buf[..row_len];
+        let shadow_scratch = &mut self.shadow_scratch[..row_len];
+        let backdrop_cache = &mut self.backdrop_cache;
+        let glass_layer = &mut self.glass_layer;
+        let glass_scratch = &mut self.glass_scratch;
+        let path_cache = &mut self.path_cache;
+        let mut shadow_arena =
+            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
+
+        let byte_start = rect.x as usize * 4;
+        let byte_len = rect.width as usize * 4;
+        let render_clip = RenderClip::new(rect.x, rect.end_x(), self.mode.width);
+        for y in rect.y..rect.end_y().min(self.mode.height) {
+            let band_row = &mut self.band_scratch[..row_len];
+            copy_cursor_background_row(
+                blur_row_buf,
+                backdrop_cache,
+                glass_layer,
+                glass_scratch,
+                path_cache,
+                source_frame,
+                source_x_lut,
+                source_y_lut,
+                mode,
+                state,
+                proof_layout,
+                proof_layout_index,
+                filter_text,
+                filtered_words,
+                y,
+                render_clip,
+                band_row,
+                &mut self.layer_cache,
+                shadow_scratch,
+                &mut shadow_arena,
+                &mut self.col_scratch,
+                &mut self.shadow_box_cache,
+            )?;
+            let bg_offset = (y - rect.y) as usize * byte_len;
+            let bg_end = bg_offset.saturating_add(byte_len);
+            if !cursor_over_effect && bg_end <= self.cursor_bg_saved.len() {
+                self.cursor_bg_saved[bg_offset..bg_end]
+                    .copy_from_slice(&band_row[byte_start..byte_start + byte_len]);
+            }
+
+            blend_cursor_row(
+                band_row,
+                y,
+                cursor_bitmap,
+                self.cursor_width,
+                self.cursor_height,
+                cursor_left,
+                cursor_top,
+            );
+            let offset = y as usize * row_len + byte_start;
+            // Cursor rect rows are separated by framebuffer stride; a packed
+            // rect write would corrupt the gap between rows.
+            vmo_write(handle, offset, &band_row[byte_start..byte_start + byte_len])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+        }
+        self.shadow_arena_used = shadow_arena.used_bytes();
+        self.saved_cursor_rect = Some(rect);
+        self.telemetry.record_compose_timed(
+            u64::from(rect.width).saturating_mul(u64::from(rect.height)),
+            nsec()
+                .unwrap_or(render_start_ns)
+                .saturating_sub(render_start_ns),
+        );
+        self.telemetry.record_present();
+        Ok(())
+    }
+
     fn has_pending_damage(&self) -> bool {
         !self.pending_damage_rects.is_empty() || self.pending_damage_rect.is_some()
     }
+}
 
-    fn restore_cursor_bg(&mut self) {
-        let Some(handle) = self.framebuffer else {
-            return;
-        };
-        let Some((old_x, old_y, old_w, old_h)) = self.saved_cursor_rect else {
-            return;
-        };
-        let row_len = self.mode.stride as usize;
-        for local_y in 0..old_h as u32 {
-            let fb_y = (old_y.saturating_add(local_y as i32)).max(0) as u32;
-            if fb_y >= self.mode.height {
-                break;
-            }
-            let src_offset = local_y as usize * old_w as usize * 4;
-            let dst_offset = fb_y as usize * row_len + old_x.max(0) as usize * 4;
-            let copy_len =
-                (old_w as usize * 4).min(row_len.saturating_sub(old_x.max(0) as usize * 4));
-            let src_end = src_offset.saturating_add(copy_len);
-            if src_end <= self.cursor_bg_saved.len() {
-                let _ = vmo_write(
-                    handle,
-                    dst_offset,
-                    &self.cursor_bg_saved[src_offset..src_end],
-                );
-            }
-        }
-        self.saved_cursor_rect = None;
+fn cursor_damage_rect(
+    cursor_x: i32,
+    cursor_y: i32,
+    cursor_width: u32,
+    cursor_height: u32,
+    mode_width: u32,
+    mode_height: u32,
+) -> Option<DamageRect> {
+    if cursor_width == 0 || cursor_height == 0 || mode_width == 0 || mode_height == 0 {
+        return None;
+    }
+    let x0 = cursor_x.saturating_sub(crate::assets::CURSOR_HOTSPOT_X);
+    let y0 = cursor_y.saturating_sub(crate::assets::CURSOR_HOTSPOT_Y);
+    let x1 = x0.saturating_add(cursor_width as i32);
+    let y1 = y0.saturating_add(cursor_height as i32);
+    let start_x = x0.max(0).min(mode_width as i32) as u32;
+    let start_y = y0.max(0).min(mode_height as i32) as u32;
+    let end_x = x1.max(0).min(mode_width as i32) as u32;
+    let end_y = y1.max(0).min(mode_height as i32) as u32;
+    if end_x <= start_x || end_y <= start_y {
+        return None;
+    }
+    Some(DamageRect {
+        x: start_x,
+        y: start_y,
+        width: end_x - start_x,
+        height: end_y - start_y,
+    })
+}
+
+fn inflate_effect_rect(rect: ProofBoxRect, mode: VisibleBootstrapMode) -> DamageRect {
+    let pad = SOFT_PANEL_SHADOW_BLUR_RADIUS
+        .saturating_add(SOFT_PANEL_SHADOW_OFFSET_Y.unsigned_abs())
+        .saturating_add(2);
+    let x = rect.x.saturating_sub(pad);
+    let y = rect.y.saturating_sub(pad);
+    let end_x = rect
+        .x
+        .saturating_add(rect.width)
+        .saturating_add(pad)
+        .min(mode.width);
+    let end_y = rect
+        .y
+        .saturating_add(rect.height)
+        .saturating_add(pad)
+        .min(mode.height);
+    DamageRect {
+        x,
+        y,
+        width: end_x.saturating_sub(x),
+        height: end_y.saturating_sub(y),
     }
 }
 
-fn cursor_row_range(cursor_y: i32, cursor_height: u32, mode_height: u32) -> Option<(u32, u32)> {
-    if cursor_height == 0 || mode_height == 0 {
-        return None;
-    }
-    let start = cursor_y.max(0) as u32;
-    let end = (cursor_y.saturating_add(cursor_height as i32)).min(mode_height as i32);
-    if end <= start as i32 {
-        return None;
-    }
-    Some((start, end as u32))
+fn damage_rects_intersect(a: DamageRect, b: DamageRect) -> bool {
+    a.x < b.end_x() && b.x < a.end_x() && a.y < b.end_y() && b.y < a.end_y()
 }
 
 fn flush_error_label(err: WindowdError) -> &'static str {
@@ -1318,6 +1762,8 @@ fn copy_scene_row(
     blur_row_buf: &mut [u8],
     shadow_scratch: &mut [u8],
     backdrop_cache: &mut [BackdropCacheEntry],
+    glass_layer: &mut GlassLayerCache,
+    glass_scratch: &mut [u8],
     path_cache: &mut [PathCacheEntry],
     source_frame: &SourceFrame,
     source_x_lut: &[u32],
@@ -1328,20 +1774,102 @@ fn copy_scene_row(
     proof_layout_index: Option<&LayoutHotPathIndex>,
     filter_text: &str,
     filtered_words: &[&'static str],
-    cursor_bitmap: Option<&[u8]>,
-    cursor_width: u32,
-    cursor_height: u32,
-    cursor_x: i32,
-    cursor_y: i32,
+    _cursor_bitmap: Option<&[u8]>,
+    _cursor_width: u32,
+    _cursor_height: u32,
+    _cursor_x: i32,
+    _cursor_y: i32,
     y: u32,
+    render_clip: RenderClip,
     glass_quality: GlassQuality,
     paint_only: bool,
     row: &mut [u8],
     layer_cache: &mut LayerCache,
-    cursor_bg_saved: &mut [u8],
-    saved_cursor_rect: &mut Option<(i32, i32, i32, i32)>,
+    shadow_arena: &mut ShadowArena<'_>,
+    col_scratch: &mut [u8],
+    shadow_box_cache: &mut [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
 ) -> Result<(), WindowdError> {
-    copy_scaled_systemui_row(source_frame, source_x_lut, source_y_lut, mode, y, row)?;
+    copy_scaled_systemui_row_clipped(
+        source_frame,
+        source_x_lut,
+        source_y_lut,
+        mode,
+        y,
+        row,
+        render_clip,
+    )?;
+    if !paint_only {
+        compute_shadow_row(
+            state,
+            proof_layout,
+            proof_layout_index,
+            y,
+            row,
+            shadow_scratch,
+            blur_row_buf,
+            shadow_arena,
+            col_scratch,
+            shadow_box_cache,
+        )?;
+    }
+    draw_proof_surface_row(
+        state,
+        proof_layout,
+        proof_layout_index,
+        filter_text,
+        filtered_words,
+        y,
+        row,
+        render_clip,
+        backdrop_cache,
+        glass_layer,
+        glass_scratch,
+        path_cache,
+        source_frame,
+        source_x_lut,
+        source_y_lut,
+        mode,
+        glass_quality,
+        blur_row_buf,
+        layer_cache,
+        paint_only,
+    )?;
+    Ok(())
+}
+
+fn copy_cursor_background_row(
+    blur_row_buf: &mut [u8],
+    backdrop_cache: &mut [BackdropCacheEntry],
+    glass_layer: &mut GlassLayerCache,
+    glass_scratch: &mut [u8],
+    path_cache: &mut [PathCacheEntry],
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
+    state: VisibleState,
+    proof_layout: Option<&LayoutResult>,
+    proof_layout_index: Option<&LayoutHotPathIndex>,
+    filter_text: &str,
+    filtered_words: &[&'static str],
+    y: u32,
+    render_clip: RenderClip,
+    row: &mut [u8],
+    layer_cache: &mut LayerCache,
+    shadow_scratch: &mut [u8],
+    shadow_arena: &mut ShadowArena<'_>,
+    col_scratch: &mut [u8],
+    shadow_box_cache: &mut [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
+) -> Result<(), WindowdError> {
+    copy_scaled_systemui_row_clipped(
+        source_frame,
+        source_x_lut,
+        source_y_lut,
+        mode,
+        y,
+        row,
+        render_clip,
+    )?;
     compute_shadow_row(
         state,
         proof_layout,
@@ -1350,6 +1878,9 @@ fn copy_scene_row(
         row,
         shadow_scratch,
         blur_row_buf,
+        shadow_arena,
+        col_scratch,
+        shadow_box_cache,
     )?;
     draw_proof_surface_row(
         state,
@@ -1359,77 +1890,164 @@ fn copy_scene_row(
         filtered_words,
         y,
         row,
+        render_clip,
         backdrop_cache,
+        glass_layer,
+        glass_scratch,
         path_cache,
-        glass_quality,
+        source_frame,
+        source_x_lut,
+        source_y_lut,
+        mode,
+        GlassQuality::High,
         blur_row_buf,
         layer_cache,
-        paint_only,
-    )?;
-    if let Some(cursor) = cursor_bitmap {
-        // Save wallpaper pixels under the cursor before blending it on top.
-        let cx = cursor_x - crate::assets::CURSOR_HOTSPOT_X;
-        let cy = cursor_y - crate::assets::CURSOR_HOTSPOT_Y;
-        save_cursor_bg_inline(
-            row,
-            cursor_bg_saved,
-            saved_cursor_rect,
-            cx,
-            cy,
-            cursor_width,
-            cursor_height,
-            y,
-            mode.width,
-            mode.height,
-        );
-        blend_cursor_row(row, y, cursor, cursor_width, cursor_height, cx, cy);
-    }
-    Ok(())
+        true,
+    )
 }
 
-/// Save wallpaper pixels under the cursor before blending it on top.
-/// Called from copy_scene_row right before blend_cursor_row.
-fn save_cursor_bg_inline(
-    row: &[u8],
-    cursor_bg_saved: &mut [u8],
-    saved_cursor_rect: &mut Option<(i32, i32, i32, i32)>,
-    cursor_x: i32,
-    cursor_y: i32,
-    cursor_w: u32,
-    cursor_h: u32,
-    y: u32,
-    mode_width: u32,
-    mode_height: u32,
+/// Zero-copy shadow compositing pass — per-box caching with ShadowArena.
+///
+/// Phase 1 (once per box, if cache miss): render full box alpha into arena,
+/// apply 2D separable blur (zero-alloc), store offset in cache.
+/// Phase 2 (per row): blit from arena, tint, composite onto target.
+///
+/// Falls back to per-row inline rendering if the arena is full.
+/// Zero heap allocations in the hot path — all buffers pre-allocated at startup.
+fn shadow_cache_key(
+    box_id_hash: u64,
+    width: u32,
+    height: u32,
+    blur_radius: u32,
+    spread: i32,
+    color: Rgba8,
+) -> u64 {
+    let mut key = box_id_hash;
+    key ^= (width as u64).rotate_left(7);
+    key ^= (height as u64).rotate_left(17);
+    key ^= (blur_radius as u64).rotate_left(29);
+    key ^= (spread as u32 as u64).rotate_left(37);
+    key ^= (color.r as u64).rotate_left(3);
+    key ^= (color.g as u64).rotate_left(11);
+    key ^= (color.b as u64).rotate_left(19);
+    key ^ (color.a as u64).rotate_left(47)
+}
+
+fn shadow_cache_scale(width: u32, height: u32, budget_bytes: usize) -> Option<u8> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    for scale in 1..=SHADOW_CACHE_MAX_DOWNSCALE {
+        let scale_u32 = scale as u32;
+        let cache_w = width.div_ceil(scale_u32).max(1);
+        let cache_h = height.div_ceil(scale_u32).max(1);
+        let bytes = cache_w as usize * cache_h as usize * 4;
+        if bytes <= budget_bytes {
+            return Some(scale);
+        }
+    }
+    None
+}
+
+fn composite_shadow_layer_row(
+    target: &mut [u8],
+    layer_row: &[u8],
+    cached_width: u32,
+    logical_width: u32,
+    scale: u8,
+    shadow_x: i32,
+    color: Rgba8,
 ) {
-    let cy = cursor_y.max(0) as u32;
-    let ch = cursor_h.min(mode_height.saturating_sub(cy));
-    if y < cy || y >= cy.saturating_add(ch) {
+    let row_pixels = target.len() / 4;
+    let scale = scale.max(1) as usize;
+    let segment_start = shadow_x.max(0).min(row_pixels as i32) as usize;
+    let segment_end = shadow_x
+        .saturating_add(logical_width as i32)
+        .max(0)
+        .min(row_pixels as i32) as usize;
+    let sr = color.r as u32;
+    let sg = color.g as u32;
+    let sb = color.b as u32;
+    let shadow_alpha = color.a as u32;
+    for px in segment_start..segment_end {
+        let source_px = (px as i32).saturating_sub(shadow_x) as usize / scale;
+        if source_px >= cached_width as usize {
+            continue;
+        }
+        let ci = source_px.saturating_mul(4);
+        if ci + 4 > layer_row.len() {
+            continue;
+        }
+        let sa = layer_row[ci + 3] as u32;
+        if sa == 0 {
+            continue;
+        }
+        let tinted_a = (sa * shadow_alpha) / 255;
+        if tinted_a == 0 {
+            continue;
+        }
+        let inv = 255 - tinted_a;
+        let idx = px * 4;
+        target[idx] = ((sr * tinted_a + target[idx] as u32 * inv) / 255) as u8;
+        target[idx + 1] = ((sg * tinted_a + target[idx + 1] as u32 * inv) / 255) as u8;
+        target[idx + 2] = ((sb * tinted_a + target[idx + 2] as u32 * inv) / 255) as u8;
+    }
+}
+
+fn draw_soft_panel_shadow_row(y: u32, target: &mut [u8], rect: ProofBoxRect) {
+    let row_pixels = target.len() / 4;
+    let blur = SOFT_PANEL_SHADOW_BLUR_RADIUS as i32;
+    let shadow_y = rect.y as i32 + SOFT_PANEL_SHADOW_OFFSET_Y;
+    let start_x = (rect.x as i32)
+        .saturating_sub(blur)
+        .max(0)
+        .min(row_pixels as i32) as usize;
+    let end_x = (rect.x as i32)
+        .saturating_add(rect.width as i32)
+        .saturating_add(blur)
+        .max(0)
+        .min(row_pixels as i32) as usize;
+    let row_y = y as i32;
+    if row_y < shadow_y.saturating_sub(blur)
+        || row_y
+            > shadow_y
+                .saturating_add(rect.height as i32)
+                .saturating_add(blur)
+    {
         return;
     }
-    let local_y = y.saturating_sub(cy);
-    let src_start = cursor_x.max(0) as usize * 4;
-    let src_end =
-        ((cursor_x.saturating_add(cursor_w as i32)).min(mode_width as i32)).max(0) as usize * 4;
-    let dst_start = local_y as usize * cursor_w as usize * 4;
-    let len = src_end.saturating_sub(src_start);
-    let dst_end = dst_start.saturating_add(len);
-    if dst_end <= cursor_bg_saved.len() && src_end <= row.len() {
-        cursor_bg_saved[dst_start..dst_end].copy_from_slice(&row[src_start..src_end]);
+    let min_x = fixed_sdf::px_u32(rect.x);
+    let min_y = fixed_sdf::px_i32(shadow_y);
+    let max_x = fixed_sdf::px_u32(rect.x.saturating_add(rect.width));
+    let max_y = fixed_sdf::px_i32(shadow_y.saturating_add(rect.height as i32));
+    let radius = fixed_sdf::px_u32(DARK_GLASS_RADIUS);
+    let point_y = fixed_sdf::pixel_center(y);
+    for px in start_x..end_x {
+        let sd = fixed_sdf::rounded_rect_sd(
+            fixed_sdf::pixel_center(px as u32),
+            point_y,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            radius,
+        );
+        let alpha = fixed_sdf::shadow_alpha_from_distance(
+            sd.max(0),
+            SOFT_PANEL_SHADOW_BLUR_RADIUS,
+            SOFT_PANEL_SHADOW_ALPHA,
+        );
+        if alpha == 0 {
+            continue;
+        }
+        let idx = px * 4;
+        let inv = 255u32.saturating_sub(alpha);
+        target[idx] = (target[idx] as u32 * inv / 255) as u8;
+        target[idx + 1] = (target[idx + 1] as u32 * inv / 255) as u8;
+        target[idx + 2] = (target[idx + 2] as u32 * inv / 255) as u8;
     }
-    *saved_cursor_rect = Some((cursor_x, cursor_y, cursor_w as i32, cursor_h as i32));
 }
 
-/// Zero-copy shadow compositing pass — per-row.
-///
-/// For each layout box that has a `visual.shadow`, computes the shadow's
-/// contribution to this row directly into `shadow_scratch`, applies horizontal
-/// blur (zero-allocation, using pre-allocated `blur_row_buf`), tints with shadow
-/// color, and blends onto `target` using the over operator.
-///
-/// This is the shadow-pass of the two-pass renderer (RFC-0058 Phase 6a).
-/// Content is drawn on top in `draw_proof_surface_row`. Both `shadow_scratch`
-/// and `blur_row_buf` are allocated once at startup — no per-frame or per-row
-/// heap allocations in the hot path.
 fn compute_shadow_row(
     _state: VisibleState,
     proof_layout: Option<&LayoutResult>,
@@ -1438,6 +2056,9 @@ fn compute_shadow_row(
     target: &mut [u8],
     shadow_scratch: &mut [u8],
     blur_row_buf: &mut [u8],
+    shadow_arena: &mut ShadowArena<'_>,
+    col_scratch: &mut [u8],
+    shadow_box_cache: &mut [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
 ) -> Result<(), WindowdError> {
     let Some(layout) = proof_layout else {
         return Ok(());
@@ -1454,7 +2075,14 @@ fn compute_shadow_row(
         let mask = index.row_mask(y);
         (mask != 0).then_some(mask)
     });
+
     let mut draw_shadow = |layout_box: &nexus_layout::LayoutBox| {
+        if layout_box.id == Some("combined_panels") {
+            if let Some(rect) = proof_box_rect(layout_box) {
+                draw_soft_panel_shadow_row(y, target, rect);
+            }
+            return;
+        }
         let shadow = match &layout_box.visual.shadow {
             Some(shadow) => shadow,
             None => return,
@@ -1463,6 +2091,8 @@ fn compute_shadow_row(
             return;
         };
 
+        let blur_r = shadow.blur_radius.0.max(0) as u32;
+        let blur_i32 = blur_r as i32;
         let sx = (rect.x as i32)
             .saturating_add(shadow.offset_x.0)
             .saturating_sub(shadow.spread.0);
@@ -1476,8 +2106,182 @@ fn compute_shadow_row(
             return;
         }
 
-        let blur_r = shadow.blur_radius.0.max(0) as u32;
-        let blur_i32 = blur_r as i32;
+        let shadow_w = (sw + 2 * blur_i32).max(0) as u32;
+        let shadow_h = (sh + 2 * blur_i32).max(0) as u32;
+
+        // Per-box cache key
+        let box_id_hash = layout_box
+            .id
+            .map(|id| {
+                let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+                for b in id.as_bytes() {
+                    h ^= u64::from(*b);
+                    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+                h
+            })
+            .unwrap_or(0);
+        let cache_key = shadow_cache_key(
+            box_id_hash,
+            shadow_w,
+            shadow_h,
+            blur_r,
+            shadow.spread.0,
+            shadow.color,
+        );
+
+        // Check per-box cache
+        for entry in shadow_box_cache.iter() {
+            if entry.valid && entry.key == cache_key {
+                // Cache hit: blit this row from the cached full-box shadow
+                let shadow_sy = (rect.y as i32)
+                    .saturating_add(shadow.offset_y.0)
+                    .saturating_sub(shadow.spread.0)
+                    .saturating_sub(blur_i32);
+                let rel_y = if (y as i32) < shadow_sy {
+                    0
+                } else {
+                    ((y as i32).saturating_sub(shadow_sy)) as u32
+                };
+                if rel_y < entry.height {
+                    let cached_y = (rel_y / u32::from(entry.scale.max(1)))
+                        .min(entry.cache_height.saturating_sub(1));
+                    let src_start =
+                        entry.arena_offset + cached_y as usize * entry.cache_width as usize * 4;
+                    if let Some(cached_row) =
+                        shadow_arena.get(src_start, entry.cache_width as usize * 4)
+                    {
+                        composite_shadow_layer_row(
+                            target,
+                            cached_row,
+                            entry.cache_width,
+                            entry.width,
+                            entry.scale,
+                            sx.saturating_sub(blur_i32),
+                            shadow.color,
+                        );
+                    }
+                }
+                return;
+            }
+        }
+
+        // Cache miss: keep the layer inside the fixed arena by downscaling if needed.
+        let remaining_arena = shadow_arena
+            .capacity()
+            .saturating_sub(shadow_arena.used_bytes());
+        let scratch_budget = remaining_arena.min(col_scratch.len());
+        let Some(cache_scale) = shadow_cache_scale(shadow_w, shadow_h, scratch_budget) else {
+            return draw_shadow_row_fallback(
+                y,
+                target,
+                shadow_scratch,
+                blur_row_buf,
+                row_pixels,
+                sx,
+                sy,
+                sw,
+                sh,
+                blur_i32,
+                blur_r,
+                shadow.color,
+            );
+        };
+        let cache_scale_u32 = u32::from(cache_scale);
+        let cache_w = shadow_w.div_ceil(cache_scale_u32).max(1);
+        let cache_h = shadow_h.div_ceil(cache_scale_u32).max(1);
+        let arena_bytes = cache_w as usize * cache_h as usize * 4;
+
+        // Try to allocate arena slot for the compact box shadow.
+        if let Some((arena_off, arena_slot)) = shadow_arena.alloc(arena_bytes) {
+            // Render compact alpha into arena, then blur in compact space.
+            let stride = (cache_w * 4) as u32;
+            for row in 0..cache_h {
+                let row_off = row as usize * stride as usize;
+                let logical_y = row as i32 * i32::from(cache_scale);
+                let abs_y = sy + logical_y - blur_i32;
+                let dy = if abs_y < sy {
+                    sy.saturating_sub(abs_y)
+                } else if abs_y >= sy.saturating_add(sh) {
+                    abs_y.saturating_sub(sy.saturating_add(sh).saturating_sub(1))
+                } else {
+                    0
+                };
+                let vertical_alpha = if blur_r == 0 {
+                    255u32
+                } else if dy > blur_i32 {
+                    0u32
+                } else {
+                    let remaining = blur_i32.saturating_add(1).saturating_sub(dy) as u32;
+                    (remaining * 255) / (blur_r + 1)
+                };
+                for px in 0..cache_w {
+                    let logical_x = px as i32 * i32::from(cache_scale);
+                    let core_x = logical_x - blur_i32;
+                    let in_core = core_x >= 0 && core_x < sw;
+                    let a = if in_core && vertical_alpha > 0 {
+                        vertical_alpha as u8
+                    } else {
+                        0
+                    };
+                    let idx = row_off + px as usize * 4;
+                    arena_slot[idx] = 0;
+                    arena_slot[idx + 1] = 0;
+                    arena_slot[idx + 2] = 0;
+                    arena_slot[idx + 3] = a;
+                }
+            }
+
+            // Apply 2D separable blur (zero-alloc)
+            if blur_r > 0 {
+                blur_separable_zero_alloc(
+                    arena_slot,
+                    cache_w,
+                    cache_h,
+                    stride,
+                    blur_r.div_ceil(cache_scale_u32).max(1),
+                    blur_row_buf,
+                    col_scratch,
+                );
+            }
+
+            // Store in the fixed cache, replacing deterministically on collision.
+            let slot = (cache_key as usize) % shadow_box_cache.len();
+            shadow_box_cache[slot] = ShadowBoxCacheEntry {
+                key: cache_key,
+                arena_offset: arena_off,
+                width: shadow_w,
+                height: shadow_h,
+                cache_width: cache_w,
+                cache_height: cache_h,
+                scale: cache_scale,
+                valid: true,
+            };
+
+            let shadow_sy = sy.saturating_sub(blur_i32);
+            let rel_y = (y as i32).saturating_sub(shadow_sy);
+            if rel_y >= 0 && (rel_y as u32) < shadow_h {
+                let cache_y = (rel_y as u32 / cache_scale_u32).min(cache_h.saturating_sub(1));
+                let row_start = cache_y as usize * cache_w as usize * 4;
+                let row_end = row_start + cache_w as usize * 4;
+                if row_end <= arena_slot.len() {
+                    composite_shadow_layer_row(
+                        target,
+                        &arena_slot[row_start..row_end],
+                        cache_w,
+                        shadow_w,
+                        cache_scale,
+                        sx.saturating_sub(blur_i32),
+                        shadow.color,
+                    );
+                }
+            }
+            return;
+        }
+        // If the fixed arena is full, fall through to deterministic per-row
+        // degraded rendering. Never allocate to recover from arena exhaustion.
+
+        // Per-row inline rendering (fallback or immediate composite after cache miss)
         let y_i32 = y as i32;
         let dy = if y_i32 < sy {
             sy.saturating_sub(y_i32)
@@ -1568,13 +2372,100 @@ fn compute_shadow_row(
     Ok(())
 }
 
-fn copy_scaled_systemui_row(
+fn draw_shadow_row_fallback(
+    y: u32,
+    target: &mut [u8],
+    shadow_scratch: &mut [u8],
+    blur_row_buf: &mut [u8],
+    row_pixels: usize,
+    sx: i32,
+    sy: i32,
+    sw: i32,
+    sh: i32,
+    blur_i32: i32,
+    blur_r: u32,
+    color: Rgba8,
+) {
+    let y_i32 = y as i32;
+    let dy = if y_i32 < sy {
+        sy.saturating_sub(y_i32)
+    } else if y_i32 >= sy.saturating_add(sh) {
+        y_i32.saturating_sub(sy.saturating_add(sh).saturating_sub(1))
+    } else {
+        0
+    };
+    if dy > blur_i32 {
+        return;
+    }
+
+    let vertical_alpha = if blur_r == 0 {
+        255u32
+    } else {
+        let remaining = blur_i32.saturating_add(1).saturating_sub(dy) as u32;
+        (remaining * 255) / (blur_r + 1)
+    };
+    if vertical_alpha == 0 {
+        return;
+    }
+
+    let segment_start = sx.saturating_sub(blur_i32).max(0).min(row_pixels as i32) as usize;
+    let segment_end = sx
+        .saturating_add(sw)
+        .saturating_add(blur_i32)
+        .max(0)
+        .min(row_pixels as i32) as usize;
+    if segment_start >= segment_end {
+        return;
+    }
+    let segment_start_byte = segment_start * 4;
+    let segment_end_byte = segment_end * 4;
+    shadow_scratch[segment_start_byte..segment_end_byte].fill(0);
+
+    let core_start = sx.max(0).min(row_pixels as i32) as usize;
+    let core_end = sx.saturating_add(sw).max(0).min(row_pixels as i32) as usize;
+    for px in core_start..core_end {
+        shadow_scratch[px * 4 + 3] = vertical_alpha as u8;
+    }
+
+    let segment_len = segment_end_byte.saturating_sub(segment_start_byte);
+    if blur_r > 0 && segment_len != 0 {
+        blur_row_horizontal(
+            &mut shadow_scratch[segment_start_byte..segment_end_byte],
+            segment_len,
+            blur_r,
+            blur_row_buf,
+        );
+    }
+
+    let sr = color.r as u32;
+    let sg = color.g as u32;
+    let sb = color.b as u32;
+    let shadow_alpha = color.a as u32;
+    for px in segment_start..segment_end {
+        let idx = px * 4;
+        let sa = shadow_scratch[idx + 3] as u32;
+        if sa == 0 {
+            continue;
+        }
+        let tinted_a = (sa * shadow_alpha) / 255;
+        if tinted_a == 0 {
+            continue;
+        }
+        let inv = 255 - tinted_a;
+        target[idx] = ((sr * tinted_a + target[idx] as u32 * inv) / 255) as u8;
+        target[idx + 1] = ((sg * tinted_a + target[idx + 1] as u32 * inv) / 255) as u8;
+        target[idx + 2] = ((sb * tinted_a + target[idx + 2] as u32 * inv) / 255) as u8;
+    }
+}
+
+fn copy_scaled_systemui_row_clipped(
     frame: &SourceFrame,
     source_x_lut: &[u32],
     source_y_lut: &[u32],
     mode: VisibleBootstrapMode,
     y: u32,
     row: &mut [u8],
+    render_clip: RenderClip,
 ) -> Result<(), WindowdError> {
     let row_len = mode.stride as usize;
     if row.len() < row_len || frame.width == 0 || frame.height == 0 {
@@ -1583,23 +2474,56 @@ fn copy_scaled_systemui_row(
     let src_y = *source_y_lut
         .get(y as usize)
         .ok_or(WindowdError::BufferLengthMismatch)? as usize;
-    for x in 0..mode.width {
+    let src_row_base = src_y
+        .checked_mul(frame.stride as usize)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    let mut x = render_clip.start_x.min(mode.width) as usize;
+    let end_x = render_clip.end_x.min(mode.width) as usize;
+    while x < end_x {
         let src_x = *source_x_lut
-            .get(x as usize)
+            .get(x)
             .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+        let mut run = 1usize;
+        while x + run < end_x {
+            let next = *source_x_lut
+                .get(x + run)
+                .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+            if next != src_x.saturating_add(run) {
+                break;
+            }
+            run += 1;
+        }
+        if run >= 4 {
+            let src = src_row_base
+                .checked_add(
+                    src_x
+                        .checked_mul(4)
+                        .ok_or(WindowdError::ArithmeticOverflow)?,
+                )
+                .ok_or(WindowdError::ArithmeticOverflow)?;
+            let dst = x.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+            let byte_len = run.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+            row[dst..dst + byte_len].copy_from_slice(
+                frame
+                    .pixels
+                    .get(src..src + byte_len)
+                    .ok_or(WindowdError::BufferLengthMismatch)?,
+            );
+            x += run;
+            continue;
+        }
         let src = src_y
             .checked_mul(frame.stride as usize)
             .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        let dst = (x as usize)
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let dst = x.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
             frame
                 .pixels
                 .get(src..src + 4)
                 .ok_or(WindowdError::BufferLengthMismatch)?,
         );
+        x += 1;
     }
     Ok(())
 }
@@ -1794,8 +2718,15 @@ fn draw_proof_surface_row(
     filtered_words: &[&'static str],
     y: u32,
     row: &mut [u8],
+    render_clip: RenderClip,
     backdrop_cache: &mut [BackdropCacheEntry],
+    glass_layer: &mut GlassLayerCache,
+    glass_scratch: &mut [u8],
     path_cache: &mut [PathCacheEntry],
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
     glass_quality: GlassQuality,
     backdrop_scratch: &mut [u8],
     layer_cache: &mut LayerCache,
@@ -1824,8 +2755,15 @@ fn draw_proof_surface_row(
             layout_box,
             rect,
             paint_role,
+            render_clip,
             backdrop_cache,
+            glass_layer,
+            glass_scratch,
             path_cache,
+            source_frame,
+            source_x_lut,
+            source_y_lut,
+            mode,
             glass_quality,
             backdrop_scratch,
             layer_cache,
@@ -2273,20 +3211,44 @@ fn blur_backdrop_segment(
     }
     scratch[..segment_len].copy_from_slice(&dst[start..end]);
     let pixels = segment_len / 4;
+    if pixels == 0 {
+        return Ok(());
+    }
+    let mut sums = [0u32; 4];
+    let mut left = 0usize;
+    let mut right = r.min(pixels - 1);
+    for j in left..=right {
+        let bi = j * 4;
+        sums[0] += scratch[bi] as u32;
+        sums[1] += scratch[bi + 1] as u32;
+        sums[2] += scratch[bi + 2] as u32;
+        sums[3] += scratch[bi + 3] as u32;
+    }
     for i in 0..pixels {
-        let mut sum = [0u32; 4];
-        let mut count = 0u32;
-        for j in i.saturating_sub(r)..(i + r + 1).min(pixels) {
-            let bi = j * 4;
-            for c in 0..4 {
-                sum[c] += scratch[bi + c] as u32;
-            }
-            count += 1;
+        let count = (right - left + 1) as u32;
+        let di = start + i * 4;
+        for c in 0..4 {
+            dst[di + c] = (sums[c] / count).min(255) as u8;
         }
-        if count > 0 {
-            let di = start + i * 4;
-            for c in 0..4 {
-                dst[di + c] = (sum[c] / count).min(255) as u8;
+
+        if i + 1 < pixels {
+            let next_left = (i + 1).saturating_sub(r);
+            if next_left > left {
+                let bi = left * 4;
+                sums[0] = sums[0].saturating_sub(scratch[bi] as u32);
+                sums[1] = sums[1].saturating_sub(scratch[bi + 1] as u32);
+                sums[2] = sums[2].saturating_sub(scratch[bi + 2] as u32);
+                sums[3] = sums[3].saturating_sub(scratch[bi + 3] as u32);
+                left = next_left;
+            }
+            let next_right = (i + 1 + r).min(pixels - 1);
+            if next_right > right {
+                right = next_right;
+                let bi = right * 4;
+                sums[0] += scratch[bi] as u32;
+                sums[1] += scratch[bi + 1] as u32;
+                sums[2] += scratch[bi + 2] as u32;
+                sums[3] += scratch[bi + 3] as u32;
             }
         }
     }
@@ -2335,6 +3297,12 @@ fn apply_backdrop_cache_row(
         quality.blur_radius(),
         scratch,
     )?;
+    saturate_bgra_segment(
+        &mut entry.pixels[..segment_len],
+        0,
+        width,
+        DARK_GLASS_SATURATION_PERCENT,
+    );
     entry.y = y;
     entry.start_x = start_x;
     entry.width = width;
@@ -2342,6 +3310,332 @@ fn apply_backdrop_cache_row(
     entry.valid = true;
     row[row_start..row_end].copy_from_slice(&entry.pixels[..segment_len]);
     Ok(())
+}
+
+fn glass_layer_key(rect: ProofBoxRect, quality: GlassQuality) -> u64 {
+    let mut key = 0xcbf2_9ce4_8422_2325u64;
+    key ^= rect.x as u64;
+    key = key.wrapping_mul(0x0000_0100_0000_01b3);
+    key ^= (rect.y as u64).rotate_left(7);
+    key = key.wrapping_mul(0x0000_0100_0000_01b3);
+    key ^= (rect.width as u64).rotate_left(17);
+    key = key.wrapping_mul(0x0000_0100_0000_01b3);
+    key ^= (rect.height as u64).rotate_left(29);
+    key = key.wrapping_mul(0x0000_0100_0000_01b3);
+    key ^ ((quality.blur_radius() as u64).rotate_left(41))
+}
+
+fn sample_wallpaper_pixel(
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
+    x: u32,
+    y: u32,
+) -> Result<[u8; 4], WindowdError> {
+    let x = x.min(mode.width.saturating_sub(1));
+    let y = y.min(mode.height.saturating_sub(1));
+    let src_x = *source_x_lut
+        .get(x as usize)
+        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let src_y = *source_y_lut
+        .get(y as usize)
+        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let src = src_y
+        .checked_mul(source_frame.stride as usize)
+        .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    let px = source_frame
+        .pixels
+        .get(src..src + 4)
+        .ok_or(WindowdError::BufferLengthMismatch)?;
+    Ok([px[0], px[1], px[2], px[3]])
+}
+
+fn ensure_glass_layer(
+    layer: &mut GlassLayerCache,
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
+    rect: ProofBoxRect,
+    quality: GlassQuality,
+    row_scratch: &mut [u8],
+    glass_scratch: &mut [u8],
+) -> Result<(), WindowdError> {
+    let key = glass_layer_key(rect, quality);
+    let bounds = DamageRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
+    if layer.valid && layer.key == key && layer.rect == bounds {
+        return Ok(());
+    }
+
+    let cache_w = rect.width.div_ceil(GLASS_LAYER_SCALE).max(1);
+    let cache_h = rect.height.div_ceil(GLASS_LAYER_SCALE).max(1);
+    let layer_len = cache_w as usize * cache_h as usize * 4;
+    if layer_len > layer.pixels.len() || layer_len > glass_scratch.len() {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+
+    for py in 0..cache_h {
+        for px in 0..cache_w {
+            let sample_x = rect
+                .x
+                .saturating_add(px.saturating_mul(GLASS_LAYER_SCALE))
+                .saturating_add(GLASS_LAYER_SCALE / 2)
+                .min(rect.x.saturating_add(rect.width.saturating_sub(1)));
+            let sample_y = rect
+                .y
+                .saturating_add(py.saturating_mul(GLASS_LAYER_SCALE))
+                .saturating_add(GLASS_LAYER_SCALE / 2)
+                .min(rect.y.saturating_add(rect.height.saturating_sub(1)));
+            let src = sample_wallpaper_pixel(
+                source_frame,
+                source_x_lut,
+                source_y_lut,
+                mode,
+                sample_x,
+                sample_y,
+            )?;
+            let idx = (py as usize * cache_w as usize + px as usize) * 4;
+            layer.pixels[idx..idx + 4].copy_from_slice(&src);
+        }
+    }
+
+    if quality != GlassQuality::Opaque {
+        let blur_radius = DARK_GLASS_BLUR_RADIUS
+            .min(quality.blur_radius())
+            .div_ceil(GLASS_LAYER_SCALE)
+            .max(1);
+        blur_separable_zero_alloc(
+            &mut layer.pixels[..layer_len],
+            cache_w,
+            cache_h,
+            cache_w * 4,
+            blur_radius,
+            row_scratch,
+            glass_scratch,
+        );
+        saturate_bgra_segment(
+            &mut layer.pixels[..layer_len],
+            0,
+            cache_w,
+            DARK_GLASS_SATURATION_PERCENT,
+        );
+    }
+
+    layer.key = key;
+    layer.rect = bounds;
+    layer.width = cache_w;
+    layer.height = cache_h;
+    layer.valid = true;
+    Ok(())
+}
+
+fn sample_glass_layer(layer: &GlassLayerCache, x: u32, y: u32) -> [u8; 4] {
+    let local_x = x.saturating_sub(layer.rect.x);
+    let local_y = y.saturating_sub(layer.rect.y);
+    let sx = local_x / GLASS_LAYER_SCALE;
+    let sy = local_y / GLASS_LAYER_SCALE;
+    let x0 = sx.min(layer.width.saturating_sub(1));
+    let y0 = sy.min(layer.height.saturating_sub(1));
+    let x1 = x0.saturating_add(1).min(layer.width.saturating_sub(1));
+    let y1 = y0.saturating_add(1).min(layer.height.saturating_sub(1));
+    let fx = local_x % GLASS_LAYER_SCALE;
+    let fy = local_y % GLASS_LAYER_SCALE;
+    let wx1 = fx;
+    let wx0 = GLASS_LAYER_SCALE.saturating_sub(fx);
+    let wy1 = fy;
+    let wy0 = GLASS_LAYER_SCALE.saturating_sub(fy);
+    let sample = |px: u32, py: u32, c: usize| -> u32 {
+        let idx = (py as usize * layer.width as usize + px as usize) * 4 + c;
+        layer.pixels.get(idx).copied().unwrap_or(0) as u32
+    };
+    let denom = GLASS_LAYER_SCALE * GLASS_LAYER_SCALE;
+    let mut out = [0u8; 4];
+    for (c, dst) in out.iter_mut().enumerate() {
+        let v = sample(x0, y0, c) * wx0 * wy0
+            + sample(x1, y0, c) * wx1 * wy0
+            + sample(x0, y1, c) * wx0 * wy1
+            + sample(x1, y1, c) * wx1 * wy1;
+        *dst = (v / denom).min(255) as u8;
+    }
+    out
+}
+
+fn stroke_dark_glass_border_row(
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    render_clip: RenderClip,
+    stroke: u32,
+    bgra: [u8; 4],
+) -> Result<(), WindowdError> {
+    if stroke == 0 {
+        return Ok(());
+    }
+    let row_pixels = (row.len() / 4) as u32;
+    let start = rect.x.max(render_clip.start_x).min(row_pixels);
+    let end = rect
+        .x
+        .saturating_add(rect.width)
+        .min(render_clip.end_x)
+        .min(row_pixels);
+    if start >= end {
+        return Ok(());
+    }
+    let min_x = fixed_sdf::px_u32(rect.x);
+    let min_y = fixed_sdf::px_u32(rect.y);
+    let max_x = fixed_sdf::px_u32(rect.x.saturating_add(rect.width));
+    let max_y = fixed_sdf::px_u32(rect.y.saturating_add(rect.height));
+    let radius = fixed_sdf::px_u32(DARK_GLASS_RADIUS);
+    let point_y = fixed_sdf::pixel_center(y);
+    for px in start..end {
+        let sd = fixed_sdf::rounded_rect_sd(
+            fixed_sdf::pixel_center(px),
+            point_y,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            radius,
+        );
+        let alpha = fixed_sdf::border_alpha(sd, stroke).saturating_mul(u32::from(bgra[3])) / 255;
+        if alpha == 0 {
+            continue;
+        }
+        let idx = px as usize * 4;
+        let inv = 255u32.saturating_sub(alpha);
+        row[idx] = ((u32::from(bgra[0]) * alpha + u32::from(row[idx]) * inv) / 255) as u8;
+        row[idx + 1] = ((u32::from(bgra[1]) * alpha + u32::from(row[idx + 1]) * inv) / 255) as u8;
+        row[idx + 2] = ((u32::from(bgra[2]) * alpha + u32::from(row[idx + 2]) * inv) / 255) as u8;
+    }
+    Ok(())
+}
+
+fn draw_combined_panel_glass_row(
+    y: u32,
+    row: &mut [u8],
+    rect: ProofBoxRect,
+    render_clip: RenderClip,
+    quality: GlassQuality,
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
+    glass_layer: &mut GlassLayerCache,
+    row_scratch: &mut [u8],
+    glass_scratch: &mut [u8],
+) -> Result<(), WindowdError> {
+    if !rect.contains_y(y) {
+        return Ok(());
+    }
+    ensure_glass_layer(
+        glass_layer,
+        source_frame,
+        source_x_lut,
+        source_y_lut,
+        mode,
+        rect,
+        quality,
+        row_scratch,
+        glass_scratch,
+    )?;
+    let row_pixels = (row.len() / 4) as u32;
+    let start = rect.x.max(render_clip.start_x).min(row_pixels);
+    let end = rect
+        .x
+        .saturating_add(rect.width)
+        .min(render_clip.end_x)
+        .min(row_pixels);
+    if start >= end {
+        return Ok(());
+    }
+    let tint_a = DARK_GLASS_TINT.a as u32;
+    let inv_tint = 255u32.saturating_sub(tint_a);
+    let interior_left = rect.x.saturating_add(DARK_GLASS_RADIUS);
+    let interior_right = rect
+        .x
+        .saturating_add(rect.width.saturating_sub(DARK_GLASS_RADIUS));
+    let interior_top = rect.y.saturating_add(DARK_GLASS_RADIUS);
+    let interior_bottom = rect
+        .y
+        .saturating_add(rect.height.saturating_sub(DARK_GLASS_RADIUS));
+    if start >= interior_left && end <= interior_right && y >= interior_top && y < interior_bottom {
+        for px in start..end {
+            let blurred = sample_glass_layer(glass_layer, px, y);
+            let idx = px as usize * 4;
+            row[idx] =
+                ((blurred[0] as u32 * inv_tint + DARK_GLASS_TINT.b as u32 * tint_a) / 255) as u8;
+            row[idx + 1] =
+                ((blurred[1] as u32 * inv_tint + DARK_GLASS_TINT.g as u32 * tint_a) / 255) as u8;
+            row[idx + 2] =
+                ((blurred[2] as u32 * inv_tint + DARK_GLASS_TINT.r as u32 * tint_a) / 255) as u8;
+        }
+        return Ok(());
+    }
+    let min_x = fixed_sdf::px_u32(rect.x);
+    let min_y = fixed_sdf::px_u32(rect.y);
+    let max_x = fixed_sdf::px_u32(rect.x.saturating_add(rect.width));
+    let max_y = fixed_sdf::px_u32(rect.y.saturating_add(rect.height));
+    let radius = fixed_sdf::px_u32(DARK_GLASS_RADIUS);
+    let point_y = fixed_sdf::pixel_center(y);
+    for px in start..end {
+        let sd = fixed_sdf::rounded_rect_sd(
+            fixed_sdf::pixel_center(px),
+            point_y,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            radius,
+        );
+        let mask = fixed_sdf::fill_alpha(sd);
+        if mask == 0 {
+            continue;
+        }
+        let blurred = sample_glass_layer(glass_layer, px, y);
+        let final_b = (blurred[0] as u32 * inv_tint + DARK_GLASS_TINT.b as u32 * tint_a) / 255;
+        let final_g = (blurred[1] as u32 * inv_tint + DARK_GLASS_TINT.g as u32 * tint_a) / 255;
+        let final_r = (blurred[2] as u32 * inv_tint + DARK_GLASS_TINT.r as u32 * tint_a) / 255;
+        let inv_mask = 255u32.saturating_sub(mask);
+        let idx = px as usize * 4;
+        row[idx] = ((final_b * mask + row[idx] as u32 * inv_mask) / 255) as u8;
+        row[idx + 1] = ((final_g * mask + row[idx + 1] as u32 * inv_mask) / 255) as u8;
+        row[idx + 2] = ((final_r * mask + row[idx + 2] as u32 * inv_mask) / 255) as u8;
+    }
+    stroke_dark_glass_border_row(
+        y,
+        row,
+        rect,
+        render_clip,
+        1,
+        rgba_to_bgra(DARK_GLASS_BORDER),
+    )
+}
+
+fn saturate_bgra_segment(row: &mut [u8], start_x: u32, end_x: u32, saturation_percent: u32) {
+    if end_x <= start_x || saturation_percent == 100 {
+        return;
+    }
+    let start = start_x as usize * 4;
+    let end = (end_x as usize * 4).min(row.len());
+    let sat = saturation_percent as i32;
+    let mut idx = start;
+    while idx + 3 < end {
+        let b = row[idx] as i32;
+        let g = row[idx + 1] as i32;
+        let r = row[idx + 2] as i32;
+        let gray = (29 * b + 150 * g + 77 * r) >> 8;
+        row[idx] = (gray + ((b - gray) * sat) / 100).clamp(0, 255) as u8;
+        row[idx + 1] = (gray + ((g - gray) * sat) / 100).clamp(0, 255) as u8;
+        row[idx + 2] = (gray + ((r - gray) * sat) / 100).clamp(0, 255) as u8;
+        idx += 4;
+    }
 }
 
 /// SDF-based filled circle row renderer (anti-aliased edges).
@@ -2491,8 +3785,15 @@ fn draw_layout_box_row(
     layout_box: &nexus_layout::LayoutBox,
     rect: ProofBoxRect,
     paint_role: Option<ProofPaintRole>,
+    render_clip: RenderClip,
     backdrop_cache: &mut [BackdropCacheEntry],
+    glass_layer: &mut GlassLayerCache,
+    glass_scratch: &mut [u8],
     path_cache: &mut [PathCacheEntry],
+    source_frame: &SourceFrame,
+    source_x_lut: &[u32],
+    source_y_lut: &[u32],
+    mode: VisibleBootstrapMode,
     glass_quality: GlassQuality,
     backdrop_scratch: &mut [u8],
     layer_cache: &mut LayerCache,
@@ -2525,10 +3826,26 @@ fn draw_layout_box_row(
         }
     }
 
-    // Phase 5: paint-only fast-path — skip non-paint boxes and backdrop blur.
-    // Never skip translucent panels (they composite over wallpaper) or the glass background.
-    let is_glass_panel = layout_box.id == Some("combined_panels");
-    if paint_only && paint_role.is_none() && !is_glass_panel {
+    if layout_box.id == Some("combined_panels") {
+        return draw_combined_panel_glass_row(
+            y,
+            row,
+            rect,
+            render_clip,
+            glass_quality,
+            source_frame,
+            source_x_lut,
+            source_y_lut,
+            mode,
+            glass_layer,
+            backdrop_scratch,
+            glass_scratch,
+        );
+    }
+
+    // Paint-only updates redraw only active target content. Existing glass,
+    // shadow, and wallpaper remain in the framebuffer outside the target rect.
+    if paint_only && paint_role.is_none() {
         // This box is unchanged; skip re-rendering.
         return Ok(());
     }
@@ -2569,6 +3886,7 @@ fn draw_layout_box_row(
                 glass_quality.blur_radius(),
                 backdrop_scratch,
             )?;
+            saturate_bgra_segment(row, start, end, DARK_GLASS_SATURATION_PERCENT);
         }
     }
 
@@ -2853,6 +4171,9 @@ fn proof_box_background(
     paint_role: Option<ProofPaintRole>,
 ) -> Option<Rgba8> {
     let Some(role) = paint_role else {
+        if layout_box.id == Some("combined_panels") {
+            return Some(Rgba8::new(28, 28, 30, 178));
+        }
         return layout_box.visual.background;
     };
     let card = role.card.paint(state);
@@ -3309,11 +4630,13 @@ fn blend_cursor_row(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, layer_cache_key,
-        path_cache_slot, path_id_hash, record_layer_cache_row, BackdropCacheEntry, LayerCache,
-        ProofBoxRect, TileMap, TILES_X, TILES_Y, TILE_SIZE,
+        apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, cursor_damage_rect,
+        layer_cache_key, path_cache_slot, path_id_hash, record_layer_cache_row, shadow_cache_key,
+        shadow_cache_scale, BackdropCacheEntry, LayerCache, ProofBoxRect, TileMap, TILES_X,
+        TILES_Y, TILE_SIZE,
     };
     use crate::live_runtime::{DamageRect, GlassQuality};
+    use nexus_layout_types::Rgba8;
 
     #[test]
     fn scale_lut_is_monotonic_and_clamped() {
@@ -3340,6 +4663,47 @@ mod tests {
         let c = path_cache_slot(id_hash, 24, 16, [1, 2, 3, 255], 8);
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn shadow_cache_scale_keeps_large_panel_inside_fixed_budget() {
+        let scale = shadow_cache_scale(920, 360, 16 * 1024).expect("scaled cache");
+        let cache_w = 920u32.div_ceil(u32::from(scale));
+        let cache_h = 360u32.div_ceil(u32::from(scale));
+        assert!(cache_w as usize * cache_h as usize * 4 <= 16 * 1024);
+        assert!(scale > 1);
+    }
+
+    #[test]
+    fn damage_premerge_merges_only_bounded_area_growth() {
+        let mut rects = [
+            DamageRect {
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            DamageRect {
+                x: 25,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            DamageRect {
+                x: 400,
+                y: 400,
+                width: 20,
+                height: 20,
+            },
+        ];
+        let count = super::premerge_damage_rects(&mut rects, 3);
+        assert_eq!(count, 2);
+        assert!(rects[..count]
+            .iter()
+            .any(|rect| rect.width == 35 && rect.height == 20));
+        assert!(rects[..count]
+            .iter()
+            .any(|rect| rect.x == 400 && rect.y == 400));
     }
 
     #[test]
@@ -3419,6 +4783,52 @@ mod tests {
         tm.clear();
         assert!(!tm.has_dirty());
         assert!(!tm.has_dirty_in_row_range(0, 800));
+    }
+
+    #[test]
+    fn cursor_damage_rect_clips_hotspot_and_edges() {
+        let rect = cursor_damage_rect(1, 1, 32, 32, 1280, 800).expect("visible cursor");
+        assert_eq!(
+            rect,
+            DamageRect {
+                x: 0,
+                y: 0,
+                width: 31,
+                height: 31
+            }
+        );
+
+        let offscreen = cursor_damage_rect(-80, -80, 32, 32, 1280, 800);
+        assert!(offscreen.is_none());
+    }
+
+    #[test]
+    fn cursor_damage_merge_covers_old_and_new_bounds_once() {
+        let old_rect = cursor_damage_rect(100, 100, 32, 32, 1280, 800).expect("old cursor");
+        let new_rect = cursor_damage_rect(116, 112, 32, 32, 1280, 800).expect("new cursor");
+        assert_eq!(
+            old_rect.merge(new_rect),
+            DamageRect {
+                x: 98,
+                y: 98,
+                width: 48,
+                height: 44
+            }
+        );
+    }
+
+    #[test]
+    fn shadow_cache_key_includes_shape_and_effect_params() {
+        let color = Rgba8::new(1, 2, 3, 180);
+        let base = shadow_cache_key(7, 64, 32, 6, 2, color);
+        assert_ne!(base, shadow_cache_key(7, 65, 32, 6, 2, color));
+        assert_ne!(base, shadow_cache_key(7, 64, 33, 6, 2, color));
+        assert_ne!(base, shadow_cache_key(7, 64, 32, 7, 2, color));
+        assert_ne!(base, shadow_cache_key(7, 64, 32, 6, 3, color));
+        assert_ne!(
+            base,
+            shadow_cache_key(7, 64, 32, 6, 2, Rgba8::new(1, 2, 3, 181))
+        );
     }
 
     #[test]

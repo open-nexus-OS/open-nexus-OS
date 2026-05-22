@@ -27,7 +27,11 @@ mod tests {
             Self { layers: Vec::new() }
         }
         fn add(&mut self, id: u64, size: usize) {
-            self.layers.push(TestLayer { id, dirty: true, pixels: vec![0; size] });
+            self.layers.push(TestLayer {
+                id,
+                dirty: true,
+                pixels: vec![0; size],
+            });
         }
         fn mark_clean(&mut self, id: u64) {
             if let Some(l) = self.layers.iter_mut().find(|l| l.id == id) {

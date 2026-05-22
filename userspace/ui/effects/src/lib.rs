@@ -19,9 +19,12 @@ pub mod cache;
 pub mod cursor_blink;
 pub mod shadow;
 
-pub use blur::{blur_1d, blur_1x3_horizontal, blur_3x3, blur_separable, dual_kawase_blur};
+pub use blur::{
+    blur_1d, blur_1d_zero_alloc, blur_1x3_horizontal, blur_3x3, blur_separable,
+    blur_separable_zero_alloc, dual_kawase_blur,
+};
 pub use budget::EffectBudget;
-pub use cache::{EffectCache, RenderCache, ShadowArena, ShadowCache, TextCache};
+pub use cache::{EffectCache, RenderCache, ShadowArena, ShadowCache, TextCache, SHADOW_ARENA_SIZE};
 pub use shadow::{
     composite_drop_shadow, composite_nine_slice_shadow, DropShadowParams, NineSliceCompositeParams,
     NineSliceShadow,

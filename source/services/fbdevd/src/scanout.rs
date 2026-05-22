@@ -26,6 +26,15 @@ pub struct DisplayScanout {
     bytes_flushed: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayScanoutReport {
+    pub flush_hz: u64,
+    pub vsync_hz: u64,
+    pub bytes_flushed: u64,
+    pub flush_failures: u64,
+    pub stale_scanout: u64,
+}
+
 impl Default for DisplayScanout {
     fn default() -> Self {
         Self::new()
@@ -55,7 +64,9 @@ impl DisplayScanout {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::FlushWithoutConfiguredBackend);
         }
-        let byte_len = handoff.byte_len().map_err(|_| FbdevdError::PresentWithoutFrame)?;
+        let byte_len = handoff
+            .byte_len()
+            .map_err(|_| FbdevdError::PresentWithoutFrame)?;
         if byte_len == 0 {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::PresentWithoutFrame);
@@ -83,7 +94,7 @@ impl DisplayScanout {
         Ok(self.last_generation)
     }
 
-    pub fn report_if_due(&mut self, now_ns: u64) -> Option<String> {
+    pub fn report_values_if_due(&mut self, now_ns: u64) -> Option<DisplayScanoutReport> {
         if now_ns == 0 {
             return None;
         }
@@ -95,20 +106,41 @@ impl DisplayScanout {
         if elapsed < 1_000_000_000 {
             return None;
         }
-        let flush_hz =
-            self.flush_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let vsync_hz =
-            self.vsync_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        let line = format!(
-            "fps: fbdevd flush_hz={} vsync_hz={} bytes={} flush_fail={} stale_scanout={}",
-            flush_hz, vsync_hz, self.bytes_flushed, self.flush_failures, self.stale_scanout
-        );
+        let flush_hz = self
+            .flush_events
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
+        let vsync_hz = self
+            .vsync_events
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
+        let report = DisplayScanoutReport {
+            flush_hz,
+            vsync_hz,
+            bytes_flushed: self.bytes_flushed,
+            flush_failures: self.flush_failures,
+            stale_scanout: self.stale_scanout,
+        };
         self.last_report_ns = now_ns;
         self.flush_events = 0;
         self.vsync_events = 0;
         self.flush_failures = 0;
         self.stale_scanout = 0;
         self.bytes_flushed = 0;
-        Some(line)
+        Some(report)
+    }
+
+    pub fn report_if_due(&mut self, now_ns: u64) -> Option<String> {
+        let report = self.report_values_if_due(now_ns)?;
+        Some(format!(
+            "fps: fbdevd flush_hz={} vsync_hz={} bytes={} flush_fail={} stale_scanout={}",
+            report.flush_hz,
+            report.vsync_hz,
+            report.bytes_flushed,
+            report.flush_failures,
+            report.stale_scanout
+        ))
     }
 }

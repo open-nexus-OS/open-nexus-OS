@@ -11,13 +11,13 @@
 use alloc::string::String;
 
 use input_live_protocol::VisibleState;
-use windowd::{DisplayPresentHandoff, WindowdDisplayTelemetry};
+use windowd::{DisplayPresentHandoff, WindowdDisplayTelemetry, WindowdDisplayTelemetryReport};
 
 use crate::error::Result;
 use crate::protocol::{
     display_ready_for_observer, merge_observer_visible_state, merge_visible_state,
 };
-use crate::scanout::DisplayScanout;
+use crate::scanout::{DisplayScanout, DisplayScanoutReport};
 
 #[derive(Debug, Clone)]
 pub struct FbdevService {
@@ -100,7 +100,9 @@ impl FbdevService {
 
     /// Returns the cursor bitmap and dimensions, if loaded.
     pub fn cursor_overlay(&self) -> Option<(&[u8], u32, u32)> {
-        self.cursor_bitmap.as_ref().map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
+        self.cursor_bitmap
+            .as_ref()
+            .map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
     }
 
     pub fn observer_ready(&self) -> bool {
@@ -147,6 +149,22 @@ impl FbdevService {
             (Some(windowd), Some(fbdevd)) => Some((windowd, fbdevd)),
             (Some(windowd), None) => Some((windowd, String::new())),
             (None, Some(fbdevd)) => Some((String::new(), fbdevd)),
+        }
+    }
+
+    pub fn telemetry_values_if_due(
+        &mut self,
+        now_ns: u64,
+    ) -> Option<(
+        Option<WindowdDisplayTelemetryReport>,
+        Option<DisplayScanoutReport>,
+    )> {
+        let windowd = self.windowd_telemetry.report_values_if_due(now_ns);
+        let fbdevd = self.scanout.report_values_if_due(now_ns);
+        if windowd.is_none() && fbdevd.is_none() {
+            None
+        } else {
+            Some((windowd, fbdevd))
         }
     }
 }

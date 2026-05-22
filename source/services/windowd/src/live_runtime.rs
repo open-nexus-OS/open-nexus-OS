@@ -9,6 +9,8 @@
 use nexus_layout::{LayoutResult, ScrollDamage};
 
 const PANEL_BAND_ROWS: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
+const DAMAGE_MERGE_AREA_PERCENT: u64 = 125;
+const DAMAGE_MERGE_NEAR_GAP: u32 = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlassQuality {
@@ -20,8 +22,8 @@ pub(crate) enum GlassQuality {
 impl GlassQuality {
     pub(crate) const fn blur_radius(self) -> u32 {
         match self {
-            Self::High => 3,
-            Self::Low => 1,
+            Self::High => 20,
+            Self::Low => 8,
             Self::Opaque => 0,
         }
     }
@@ -67,6 +69,52 @@ impl DamageRect {
             height: end_y.saturating_sub(y),
         }
     }
+}
+
+fn damage_area(rect: DamageRect) -> u64 {
+    u64::from(rect.width).saturating_mul(u64::from(rect.height))
+}
+
+fn damage_gap(a_start: u32, a_end: u32, b_start: u32, b_end: u32) -> u32 {
+    if a_end < b_start {
+        b_start - a_end
+    } else if b_end < a_start {
+        a_start - b_end
+    } else {
+        0
+    }
+}
+
+fn should_premerge_damage(a: DamageRect, b: DamageRect) -> bool {
+    let x_gap = damage_gap(a.x, a.end_x(), b.x, b.end_x());
+    let y_gap = damage_gap(a.y, a.end_y(), b.y, b.end_y());
+    let spatially_close = (x_gap == 0 && y_gap <= DAMAGE_MERGE_NEAR_GAP)
+        || (y_gap == 0 && x_gap <= DAMAGE_MERGE_NEAR_GAP);
+    if !spatially_close {
+        return false;
+    }
+    let merged = a.merge(b);
+    let merged_area = damage_area(merged);
+    let source_area = damage_area(a).saturating_add(damage_area(b));
+    merged_area.saturating_mul(100) <= source_area.saturating_mul(DAMAGE_MERGE_AREA_PERCENT).max(1)
+}
+
+pub(crate) fn premerge_damage_rects(rects: &mut [DamageRect], mut count: usize) -> usize {
+    let mut idx = 0;
+    while idx < count {
+        let mut scan = idx + 1;
+        while scan < count {
+            if should_premerge_damage(rects[idx], rects[scan]) {
+                rects[idx] = rects[idx].merge(rects[scan]);
+                rects[scan] = rects[count - 1];
+                count -= 1;
+            } else {
+                scan += 1;
+            }
+        }
+        idx += 1;
+    }
+    count
 }
 
 #[derive(Debug, Clone)]
@@ -425,6 +473,9 @@ mod tests {
         assert_eq!(select_glass_quality(32), GlassQuality::High);
         assert_eq!(select_glass_quality(160), GlassQuality::Low);
         assert_eq!(select_glass_quality(400), GlassQuality::Opaque);
+        assert_eq!(GlassQuality::High.blur_radius(), 20);
+        assert_eq!(GlassQuality::Low.blur_radius(), 8);
+        assert_eq!(GlassQuality::Opaque.blur_radius(), 0);
     }
 
     #[test]
@@ -445,7 +496,27 @@ mod tests {
         assert!(filter_rows.1 > filter_rows.0);
         assert_ne!(index.row_mask(hover_rows.0), 0);
         assert_eq!(index.row_mask(100), 0);
+        assert!(!index.row_has_shadow(100));
         assert!(!index.overflow_boxes());
+    }
+
+    #[test]
+    fn target_damage_variants_have_stable_rect_queries() {
+        let layout = crate::layout_panel::compute_proof_layout(VisibleState::default(), "")
+            .expect("proof layout");
+        let index = LayoutHotPathIndex::build(&layout, 56, 440, 1280, 800);
+        for target in [
+            TargetDamage::Hover,
+            TargetDamage::Click,
+            TargetDamage::Scroll,
+            TargetDamage::Key,
+            TargetDamage::FilterPanel,
+            TargetDamage::FilterList,
+            TargetDamage::FilterInput,
+        ] {
+            let _ = index.target_rect(target);
+            let _ = index.target_rows(target);
+        }
     }
 
     #[test]
@@ -471,6 +542,38 @@ mod tests {
                 height: 50
             }
         );
+    }
+
+    #[test]
+    fn damage_premerge_merges_only_bounded_area_growth() {
+        let mut rects = [
+            DamageRect {
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            DamageRect {
+                x: 25,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            DamageRect {
+                x: 400,
+                y: 400,
+                width: 20,
+                height: 20,
+            },
+        ];
+        let count = premerge_damage_rects(&mut rects, 3);
+        assert_eq!(count, 2);
+        assert!(rects[..count]
+            .iter()
+            .any(|rect| rect.width == 35 && rect.height == 20));
+        assert!(rects[..count]
+            .iter()
+            .any(|rect| rect.x == 400 && rect.y == 400));
     }
 
     #[test]

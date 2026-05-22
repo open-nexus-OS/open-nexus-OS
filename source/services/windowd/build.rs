@@ -161,12 +161,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             text_path.display()
         )?;
     }
+    let cursor_svg = normalized_mocu_cursor_svg();
+    let cursor = nexus_svg::render_svg(cursor_svg)
+        .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
+    let cursor_path = out_dir.join("mocu_cursor.bgra");
+    fs::write(&cursor_path, &cursor.buffer)?;
+    writeln!(
+        generated,
+        "pub const MOCU_CURSOR_WIDTH: u32 = {};",
+        cursor.width
+    )?;
+    writeln!(
+        generated,
+        "pub const MOCU_CURSOR_HEIGHT: u32 = {};",
+        cursor.height
+    )?;
+    writeln!(
+        generated,
+        "pub const MOCU_CURSOR_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+        cursor_path.display()
+    )?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
     writeln!(
         generated,
         "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;",
-        normalized_mocu_cursor_svg()
+        cursor_svg
     )?;
     Ok(())
 }

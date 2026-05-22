@@ -18,12 +18,14 @@ mod buffer;
 mod cli;
 mod display_backend;
 mod error;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod fixed_sdf;
 mod frame;
 mod geometry;
 mod ids;
 mod layout_panel;
 mod legacy;
-#[cfg(target_os = "none")]
+#[cfg(any(test, target_os = "none"))]
 mod live_runtime;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
@@ -37,7 +39,8 @@ mod telemetry;
 mod visible_state;
 
 pub use assets::{
-    proof_text_asset, ProofTextAsset, CURSOR_HOTSPOT_X, CURSOR_HOTSPOT_Y, CURSOR_LEFT_PTR_SVG,
+    proof_text_asset, ProofTextAsset, CURSOR_HOTSPOT_X, CURSOR_HOTSPOT_Y, CURSOR_LEFT_PTR_BGRA,
+    CURSOR_LEFT_PTR_HEIGHT, CURSOR_LEFT_PTR_SVG, CURSOR_LEFT_PTR_WIDTH,
 };
 pub use buffer::{PixelFormat, SurfaceBuffer, VmoHandle, VmoRights};
 pub use cli::{execute, help};
@@ -148,7 +151,7 @@ pub use smoke::{
     VisibleDisplayCapability, VisibleSystemUiEvidence, VISIBLE_INPUT_CLICK_BGRA,
     VISIBLE_INPUT_KEYBOARD_BGRA,
 };
-pub use telemetry::WindowdDisplayTelemetry;
+pub use telemetry::{WindowdDisplayTelemetry, WindowdDisplayTelemetryReport};
 pub use visible_state::{
     compose_live_visible_frame, copy_live_visible_row, VISIBLE_INPUT_WHEEL_ACTIVE_BGRA,
     VISIBLE_INPUT_WHEEL_IDLE_BGRA,
