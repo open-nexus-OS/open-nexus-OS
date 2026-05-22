@@ -1,31 +1,33 @@
----
-title: TASK-0062 UI v5a: Production-Grade Animation + NexusGfx SDK + GPU Driver (virtio-gpu)
-status: In Progress
-owner: @ui @runtime
-created: 2025-12-23
-updated: 2026-05-22 (RFC-0059 contract; 5 phases; production-grade OHOS/Fuchsia target)
-depends-on: [TASK-0059]
-follow-up-tasks: [TASK-0063, TASK-0064]
-links:
-  - **RFC (SSOT contract)**: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
-  - Compositor baseline: tasks/TASK-0059-ui-v3b-clip-scroll-effects-ime-textinput.md
-  - Gfx track: tasks/TRACK-NEXUSGFX-SDK.md
-  - Driver track: tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - Gfx architecture: docs/architecture/nexusgfx-command-and-pass-model.md
-  - Device/MMIO model: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
----
+# RFC-0059: UI v5a Production-Grade Animation Runtime + NexusGfx SDK Minimal + GPU Driver
+
+- Status: In Progress
+- Owners: @ui @runtime
+- Created: 2026-05-22
+- Last Updated: 2026-05-22
+- Links:
+  - Tasks: `tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)
+  - Depends on: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
+  - Gfx architecture: `docs/architecture/nexusgfx-command-and-pass-model.md`, `docs/architecture/nexusgfx-resource-model.md`
+  - Gfx track: `tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`
+
+## Status at a Glance
+
+- Phase 0 (Animation Engine): ⬜
+- Phase 1 (NexusGfx SDK minimal): ⬜
+- Phase 2 (GPU Backend Trait + CPU Mock): ⬜
+- Phase 3 (gpud + virtio-gpu MMIO): ⬜
+- Phase 4 (Integration + Proof Gates): ⬜
+
+## Scope boundaries
+
+- **This RFC owns**: Animation engine, NexusGfx SDK minimal, GPU backend trait, gpud service, RISC-V optimizations, frame-budget discipline, reduced-motion
+- **This RFC does NOT own**: Full 3D NexusGfx, real GPU drivers, kernel MMIO policy, WM/scene transitions (TASK-0064), theme tokens (TASK-0063)
 
 ## Context
 
-TASK-0059 delivered a production-grade CPU compositor (`compositor/` — 18 files: runtime, surface,
-backdrop, filter, shadow, scene, cache, tile_map, types, sdf, primitives, damage, blur, source,
-font, cursor, path_cache, tests). The compositor is "immediate": no animation timeline, no GPU offload.
+TASK-0059 delivered a production-grade CPU compositor (`compositor/` — 18 files). The compositor is "immediate": no animation timeline, no GPU offload. To reach OHOS/Fuchsia-level animation quality on RISC-V without a GPU, we need three layers built together.
 
-RFC-0059 defines the architecture to reach OHOS/Fuchsia-level animation quality. This task
-implements all 5 phases.
-
-### Production-grade target
+### Production-grade framing
 
 | Property | OHOS/Fuchsia | Our target |
 |---|---|---|
@@ -35,10 +37,35 @@ implements all 5 phases.
 | Quality degradation | Automatic GPU | Explicit (GlassQuality → Low → Opaque) |
 | Reduced motion | System flag | `configd` flag, first-class |
 | GPU offload | Full compositor | Cursor + blit + scanout flip |
-| Determinism | Not guaranteed | Guaranteed (fixed-timestep) |
-| Heap during animation | GPU allocs | Zero (pre-allocated) |
+| CPU reference | Not required | Required (CpuMockBackend golden) |
+| Determinism | Not guaranteed | Guaranteed (fixed-timestep, explicit dt) |
+| Heap during animation | Yes (GPU allocs) | Zero (all pre-allocated) |
 
-## Full Architecture
+## Goals
+
+1. Animation Engine: Timeline, Spring (RK4), Keyframe, SceneUpdate, ReducedMotion
+2. NexusGfx SDK minimal: Device, Queue, CommandBuffer, RenderEncoder, Buffer, Fence
+3. GPU Backend Trait: GfxBackend + CpuMockBackend (golden) + VirtioGpuBackend
+4. gpud Service: MMIO virtio-gpu, hardware cursor, scanout flip
+5. RISC-V Optimizations: fixed-point sd_circle, (a*b*257)>>16, +zbb
+6. Modular: every crate `src/` + `tests/`, no monoliths
+
+## Non-Goals
+
+Full 3D, real GPU drivers, kernel MMIO policy, WM/scene transitions, theme tokens.
+
+## Constraints
+
+- Deterministic spring physics (fixed-timestep RK4, explicit dt)
+- No heap growth during animation (pre-allocated buffers)
+- Bounded resources (max 16 animations, 1024 commands)
+- Reduced motion first-class
+- CPU reference == GPU output for same input
+- No stubs claiming success
+
+## Proposed design
+
+### Full architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -88,65 +115,39 @@ implements all 5 phases.
                                                 └─────────────────────┘
 ```
 
-## Phases
+### Crate structure
 
-### Phase 0 — Animation Engine (`userspace/ui/animation`)
-Timeline, spring RK4, keyframes, SceneUpdate, reduced motion.
 ```
-src/  lib.rs  timeline.rs  spring.rs  keyframe.rs  property.rs  reduced_motion.rs
-tests/  spring_convergence.rs  spring_determinism.rs  keyframe_accuracy.rs
-        timeline_ordering.rs  reduced_motion_tests.rs
+userspace/ui/animation/    userspace/nexus-gfx/    userspace/gfx-backend/    source/drivers/gpud/
 ```
-Proof: `cargo test -p animation`
 
-### Phase 1 — NexusGfx SDK Minimal (`userspace/nexus-gfx`)
-Device, Queue, CommandBuffer, Buffer, RenderCommandEncoder, Fence, CommittedBuffer.
-```
-src/  lib.rs  device.rs  queue.rs  command_buffer.rs  render_encoder.rs
-      buffer.rs  fence.rs  types.rs  error.rs
-tests/  command_tests.rs  buffer_tests.rs  fence_tests.rs
-```
-Proof: `cargo test -p nexus-gfx`
+Each: `src/` (modules), `tests/` (integration), `Cargo.toml`. No file >500 lines.
 
-### Phase 2 — GPU Backend Trait + CPU Mock (`userspace/gfx-backend`)
-GfxBackend trait, CpuMockBackend, golden comparison CPU mock == write_rows().
-```
-src/  lib.rs  traits.rs  cpu_mock.rs  error.rs  types.rs
-tests/  cpu_mock_golden.rs  trait_contract.rs
-```
-Proof: `cargo test -p gfx-backend`
-
-### Phase 3 — gpud Service + virtio-gpu MMIO (`source/drivers/gpud`)
-MMIO probe, Resource, Transfer, Scanout flip, Hardware cursor.
-```
-src/  main.rs  virtio_gpu.rs  backend.rs  protocol.rs  markers.rs  error.rs
-tests/  protocol_tests.rs  backend_tests.rs
-```
-Proof: `cargo test -p gpud` + QEMU `gpud: ready`, `gpud: cursor on`, `gpud: scanout ok`
-
-### Phase 4 — windowd Integration + Proof Gates
-AnimationDriver in runtime, implicit transitions, live QEMU proof.
-Proof: `SELFTEST: ui v5 transition ok`, `SELFTEST: ui v5 spring ok`, `SELFTEST: gpu cursor move ok`
-
-## RISC-V Optimizations (inline in existing crates)
+### RISC-V optimizations (inline)
 
 | File | Change | Gain |
 |---|---|---|
 | `fixed_sdf.rs` | `circle_sd()` fixed-point | 5–10× |
 | `primitives.rs` | `(a*b*257)>>16` vs `/255` | 3–5× |
-| `.cargo/config.toml` | `+zbb` target-feature | 10–20% |
+| `.cargo/config.toml` | `+zbb` feature | 10–20% |
 | `primitives.rs` | Loop unroll `blend_overlay_row` | 2–4× |
 
-## Constraints
+## Security considerations
 
-- Deterministic spring physics (fixed-timestep RK4, explicit dt)
-- No heap growth during animation (pre-allocated buffers)
-- Bounded resources (max 16 animations, 1024 commands)
-- Reduced motion first-class
-- CPU reference == GPU output for same SceneUpdate
-- Every crate: `src/` + `tests/`, no file >500 lines, no monoliths
+- **Threat model**: Malicious GPU commands, confused deputy windowd→gpud, MMIO OOB
+- **Mitigations**: gpud validates command sizes, windowd IPC sender-id gated, Resource IDs opaque, MMIO bounds-checked
+- **Open risks**: virtio-gpu trusted (QEMU); real GPU needs own RFC
 
-## Stop conditions
+## Failure model
+
+- DeviceNotFound → `gpud: no device`, clean exit
+- CommandRejected → discard, log, no partial execution
+- ResourceExhausted → LRU evict, retry; fail → Unsupported → CPU path
+- Unsupported → explicit CPU fallback, marker emitted
+- MmioFault → `gpud: mmio fault`, exit, restartable
+- No silent fallback. CPU path always available.
+
+## Proof strategy
 
 ### Host
 ```bash
@@ -154,22 +155,37 @@ cargo test -p animation -p nexus-gfx -p gfx-backend -p gpud
 ```
 
 ### QEMU
+```bash
+RUN_UNTIL_MARKER=1 just test-os
 ```
-gpud: ready              gpud: cursor on          gpud: scanout ok
-uiruntime: on            uianim: timeline on      uianim: spring converge ok
-windowd: implicit transitions on                  windowd: live transition ok
-SELFTEST: ui v5 transition ok                     SELFTEST: ui v5 spring ok
-SELFTEST: gpu cursor move ok
-```
+
+### Markers
+`gpud: ready` `gpud: cursor on` `uiruntime: on` `uianim: timeline on`
+`windowd: implicit transitions on` `SELFTEST: ui v5 transition ok` `SELFTEST: gpu cursor move ok`
 
 ### Goldens
-CpuMockBackend output == reference write_rows() for same SceneUpdate stream.
-Spring simulation steps identical on host (x86_64) and QEMU (riscv64).
+CpuMockBackend output == reference write_rows() for same SceneUpdate. Spring steps identical host vs QEMU.
 
-## Plan
-1. Phase 0: `animation` crate (host-tested)
-2. Phase 1: `nexus-gfx` crate (host-tested)
-3. Phase 2: `gfx-backend` crate + golden comparison
-4. Phase 3: `gpud` service + virtio-gpu MMIO
-5. Phase 4: windowd integration + QEMU proof
-6. RISC-V optimizations across all phases
+## Alternatives considered
+
+- Direct virtio-gpu (no SDK) → rejected: couples to one GPU
+- Vulkan SDK v1 → rejected: too large; Metal-like sufficient
+- Wait for real GPU → rejected: virtio-gpu gives cursor/scanout now
+- Separate animation thread → rejected: single-threaded microkernel
+- Float-based springs → rejected: non-deterministic across platforms
+
+## Open questions
+
+- virtio-gpu MMIO address on RISC-V virt? → @runtime, before Phase 3
+- Vsync: poll nsec() or real interrupt? → polling sufficient v1
+- Reduced-motion config propagation? → `set_reduced_motion(bool)` in Phase 0
+
+## Implementation Checklist
+
+- [ ] Phase 0: Animation Engine — `cargo test -p animation`
+- [ ] Phase 1: NexusGfx SDK — `cargo test -p nexus-gfx`
+- [ ] Phase 2: GPU Backend — `cargo test -p gfx-backend`
+- [ ] Phase 3: gpud + virtio-gpu — QEMU `gpud: cursor on`
+- [ ] Phase 4: windowd integration — `SELFTEST: ui v5 transition ok`
+- [ ] RISC-V optimizations applied
+- [ ] All crates `src/` + `tests/`, no monoliths
