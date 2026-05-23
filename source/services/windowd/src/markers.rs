@@ -14,6 +14,11 @@ use crate::server::PresentAck;
 use alloc::format;
 use alloc::string::String;
 
+#[path = "markers/animation_markers.rs"]
+pub mod animation_markers;
+
+pub use animation_markers::*;
+
 pub const READY_MARKER: &str = "windowd: ready (w=1280, h=800, hz=120)";
 pub const SYSTEMUI_MARKER: &str = "windowd: systemui loaded (profile=desktop)";
 pub const LAUNCHER_MARKER: &str = "launcher: first frame ok";

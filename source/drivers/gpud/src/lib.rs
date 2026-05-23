@@ -7,7 +7,14 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-pub mod protocol;
+#![cfg_attr(target_os = "none", no_std)]
+
+extern crate alloc;
+
 pub mod backend;
-pub mod markers;
 pub mod error;
+pub mod markers;
+pub mod protocol;
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub mod service;

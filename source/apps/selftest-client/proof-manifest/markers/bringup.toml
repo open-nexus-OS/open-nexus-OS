@@ -115,6 +115,30 @@ proves = "TASK-0253 touchd is embedded as an init-lite OS service image"
 phase = "bringup"
 proves = "TASK-0253 touchd service image was spawned by init-lite"
 
+[marker."init: start gpud"]
+phase = "bringup"
+proves = "TASK-0062 gpud is embedded as an init-lite OS service image"
+
+[marker."init: up gpud"]
+phase = "bringup"
+proves = "TASK-0062 gpud service image was spawned before windowd submits GPU proof work"
+
+[marker."gpud: virtio-gpu probed"]
+phase = "bringup"
+proves = "gpud mapped the policy-granted virtio-gpu MMIO window and verified the real QEMU device id"
+
+[marker."gpud: scanout ok"]
+phase = "bringup"
+proves = "gpud completed CREATE_RESOURCE_2D, ATTACH_BACKING, TRANSFER_TO_HOST_2D, and SET_SCANOUT through the virtio-gpu control queue"
+
+[marker."gpud: cursor on"]
+phase = "bringup"
+proves = "gpud completed a bounded virtio-gpu cursor command after the device queue was live"
+
+[marker."gpud: ready"]
+phase = "bringup"
+proves = "gpud only reached service readiness after the real virtio-gpu probe and scanout/cursor proof commands completed"
+
 [marker."init: start windowd"]
 phase = "bringup"
 proves = "TASK-0057 windowd DisplayServer v0 is embedded as an init-lite OS service image"

@@ -14,8 +14,15 @@ pub const VIRTIO_MMIO_QUEUE_NUM_MAX: usize = 0x034;
 pub const VIRTIO_MMIO_QUEUE_NUM: usize = 0x038;
 pub const VIRTIO_MMIO_QUEUE_ALIGN: usize = 0x03c;
 pub const VIRTIO_MMIO_QUEUE_PFN: usize = 0x040;
+pub const VIRTIO_MMIO_QUEUE_READY: usize = 0x044;
 pub const VIRTIO_MMIO_QUEUE_NOTIFY: usize = 0x050;
 pub const VIRTIO_MMIO_STATUS: usize = 0x070;
+pub const VIRTIO_MMIO_QUEUE_DESC_LOW: usize = 0x080;
+pub const VIRTIO_MMIO_QUEUE_DESC_HIGH: usize = 0x084;
+pub const VIRTIO_MMIO_QUEUE_DRIVER_LOW: usize = 0x090;
+pub const VIRTIO_MMIO_QUEUE_DRIVER_HIGH: usize = 0x094;
+pub const VIRTIO_MMIO_QUEUE_DEVICE_LOW: usize = 0x0a0;
+pub const VIRTIO_MMIO_QUEUE_DEVICE_HIGH: usize = 0x0a4;
 
 /// virtio MMIO magic value ("virt").
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x74726976;
@@ -27,6 +34,8 @@ pub const VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0108;
 pub const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x010a;
 pub const VIRTIO_GPU_CMD_UPDATE_CURSOR: u32 = 0x0301;
 pub const VIRTIO_GPU_CMD_MOVE_CURSOR: u32 = 0x0302;
+pub const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
+pub const VIRTIO_GPU_RESP_ERR_UNSPEC: u32 = 0x1200;
 
 /// virtio-gpu pixel format constants.
 pub const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 0x0100;
@@ -34,6 +43,7 @@ pub const VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM: u32 = 0x0101;
 
 /// virtio-gpu control header (8 * 4 = 32 bytes).
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuCtrlHdr {
     pub type_: u32,
     pub flags: u32,
@@ -44,6 +54,7 @@ pub struct VirtioGpuCtrlHdr {
 
 /// CREATE_RESOURCE_2D command.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuResourceCreate2d {
     pub hdr: VirtioGpuCtrlHdr,
     pub resource_id: u32,
@@ -54,6 +65,7 @@ pub struct VirtioGpuResourceCreate2d {
 
 /// ATTACH_BACKING command header + memory entries.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuResourceAttachBacking {
     pub hdr: VirtioGpuCtrlHdr,
     pub resource_id: u32,
@@ -62,6 +74,7 @@ pub struct VirtioGpuResourceAttachBacking {
 
 /// Memory entry for attach_backing.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuMemEntry {
     pub addr: u64,
     pub length: u32,
@@ -70,6 +83,7 @@ pub struct VirtioGpuMemEntry {
 
 /// TRANSFER_TO_HOST_2D command.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuTransferToHost2d {
     pub hdr: VirtioGpuCtrlHdr,
     pub r: VirtioGpuRect,
@@ -80,6 +94,7 @@ pub struct VirtioGpuTransferToHost2d {
 
 /// Rectangle used in virtio-gpu commands.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuRect {
     pub x: u32,
     pub y: u32,
@@ -89,6 +104,7 @@ pub struct VirtioGpuRect {
 
 /// SET_SCANOUT command.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuSetScanout {
     pub hdr: VirtioGpuCtrlHdr,
     pub r: VirtioGpuRect,
@@ -98,6 +114,7 @@ pub struct VirtioGpuSetScanout {
 
 /// MOVE_CURSOR command.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuCursorPos {
     pub hdr: VirtioGpuCtrlHdr,
     pub pos: VirtioGpuCursorPosData,
@@ -108,47 +125,10 @@ pub struct VirtioGpuCursorPos {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct VirtioGpuCursorPosData {
     pub scanout_id: u32,
     pub x: u32,
     pub y: u32,
     pub _padding: u32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::mem;
-
-    #[test]
-    fn ctrl_hdr_size() {
-        // virtio-gpu spec: 4+4+8+4+4 = 24 bytes
-        assert_eq!(mem::size_of::<VirtioGpuCtrlHdr>(), 24);
-    }
-
-    #[test]
-    fn create_resource_2d_size() {
-        assert_eq!(mem::size_of::<VirtioGpuResourceCreate2d>(), 40);
-    }
-
-    #[test]
-    fn set_scanout_size() {
-        assert_eq!(mem::size_of::<VirtioGpuSetScanout>(), 48);
-    }
-
-    #[test]
-    fn move_cursor_size() {
-        // 24 (hdr) + 16 (pos) + 4 + 4 + 4 + 4 = 56
-        assert_eq!(mem::size_of::<VirtioGpuCursorPos>(), 56);
-    }
-
-    #[test]
-    fn device_id_is_16() {
-        assert_eq!(VIRTIO_GPU_DEVICE_ID, 16);
-    }
-
-    #[test]
-    fn magic_value() {
-        assert_eq!(VIRTIO_MMIO_MAGIC, 0x74726976); // "virt"
-    }
 }

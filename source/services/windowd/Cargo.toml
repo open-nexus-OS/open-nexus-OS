@@ -33,6 +33,7 @@ nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-effects = { path = "../../../userspace/ui/effects" }
 animation = { path = "../../../userspace/ui/animation" }
+nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 
 [build-dependencies]
 fontdue = "0.9"

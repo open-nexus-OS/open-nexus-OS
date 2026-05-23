@@ -392,6 +392,8 @@ expected_sequence=(
   "init: up hidrawd"
   "init: start touchd"
   "init: up touchd"
+  "init: start gpud"
+  "init: up gpud"
   "init: start windowd"
   "init: up windowd"
   "init: start inputd"
@@ -415,6 +417,10 @@ expected_sequence=(
   "vfsd: namespace ready"
   "execd: ready"
   "${INPUT_STARTUP_MARKERS[@]}"
+  "gpud: virtio-gpu probed"
+  "gpud: scanout ok"
+  "gpud: cursor on"
+  "gpud: ready"
   "timed: ready"
   "netstackd: ready"
   "net: virtio-net up"
@@ -542,6 +548,8 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "init: up hidrawd"
     "init: start touchd"
     "init: up touchd"
+    "init: start gpud"
+    "init: up gpud"
     "init: start windowd"
     "init: up windowd"
     "init: start inputd"
@@ -549,6 +557,10 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "init: start fbdevd"
     "init: up fbdevd"
     "${INPUT_STARTUP_MARKERS[@]}"
+    "gpud: virtio-gpu probed"
+    "gpud: scanout ok"
+    "gpud: cursor on"
+    "gpud: ready"
     "fbdevd: ready"
     "fbdevd: map ok"
     "fbdevd: ramfb configured"
@@ -586,12 +598,13 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "windowd: icon target visible"
     "fbdevd: cursor overlay on"
     "SELFTEST: ui v2b assets ok"
+    "SELFTEST: ui v5 transition ok"
   )
   # The generic RUN_UNTIL_MARKER=1 path in run-qemu-rv64.sh may stop too early
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui v2b assets ok"
+    RUN_UNTIL_MARKER="SELFTEST: ui v5 transition ok"
   fi
 fi
 
@@ -1376,6 +1389,10 @@ if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
     "fbdevd: map ok" \
     "fbdevd: ramfb configured" \
     "fbdevd: flush ok" \
+    "gpud: virtio-gpu probed" \
+    "gpud: scanout ok" \
+    "gpud: cursor on" \
+    "gpud: ready" \
     "display: bootstrap on" \
     "display: mode 1280x800 argb8888" \
     "windowd: backend=visible" \
@@ -1448,6 +1465,30 @@ if grep -aFq "SELFTEST: ui v2b assets ok" "$UART_LOG"; then
     "fbdevd: cursor overlay on"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] fake-green guard: '$m' missing before ui v2b assets ok" >&2
+      exit 1
+    fi
+  done
+fi
+
+# TASK-0062 real-GPU animation fake-green guard: the v5 transition marker is
+# only valid after gpud hardware markers and windowd animation bridge markers.
+if grep -aFq "SELFTEST: ui v5 transition ok" "$UART_LOG"; then
+  for m in \
+    "gpud: virtio-gpu probed" \
+    "gpud: scanout ok" \
+    "gpud: cursor on" \
+    "gpud: ready" \
+    "SELFTEST: ui v2b assets ok" \
+    "uiruntime: on" \
+    "uianim: timeline on" \
+    "windowd: implicit transitions on" \
+    "uiruntime: batch commit ok" \
+    "windowd: live transition ok" \
+    "uianim: spring converge ok"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+      echo "[error] UI v5 transition marker appeared before required real-GPU animation proof: $m" >&2
+      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: ui v2b assets ok"
       exit 1
     fi
   done

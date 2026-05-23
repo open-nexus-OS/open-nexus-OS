@@ -15,12 +15,18 @@ impl Buffer {
     /// Write data at offset. Pads with zeros if offset > len.
     pub fn write(&mut self, offset: usize, bytes: &[u8]) {
         let end = offset.saturating_add(bytes.len());
-        if end > self.data.len() { self.data.resize(end, 0); }
+        if end > self.data.len() {
+            self.data.resize(end, 0);
+        }
         self.data[offset..end].copy_from_slice(bytes);
     }
 
     /// Read the full buffer contents.
-    pub fn as_bytes(&self) -> &[u8] { &self.data }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
 
-    pub fn len(&self) -> usize { self.data.len() }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }

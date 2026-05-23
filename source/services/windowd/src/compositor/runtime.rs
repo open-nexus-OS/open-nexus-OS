@@ -9,13 +9,35 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
-use alloc::vec::Vec;
-use core::fmt::Write as _;
-use animation::AnimationDriver;
-use nexus_abi::{debug_println, nsec, vmo_write, Handle};
-use nexus_effects::ShadowArena;
-use nexus_layout::LayoutResult;
-use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
+use super::blur::checked_stride;
+use super::cache::{
+    BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
+};
+use super::cursor::blend_cursor_row;
+use super::damage::{
+    cursor_damage_rect, damage_rects_intersect, flush_error_label, inflate_effect_rect,
+};
+use super::emit_windowd_telemetry;
+use super::filter::{
+    build_live_proof_layouts, filter_layout_variant_index, filter_list_content_height,
+    filter_list_viewport_height, refill_filtered_words,
+};
+use super::scene::{copy_cursor_background_row, copy_scene_row};
+use super::source::build_scale_lut;
+use super::surface::proof_box_rect;
+use super::tile_map::TileMap;
+use super::types::{
+    FixedDebugLine, ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip,
+    SourceFrame,
+};
+use super::{
+    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
+    CURSOR_BG_MAX_BYTES, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
+    LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
+    PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
+    SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
+    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE,
+};
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
@@ -25,31 +47,151 @@ use crate::live_runtime::{
 use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
+use alloc::vec::Vec;
+use animation::{AnimProp, AnimationDriver, Easing, LayerId, SceneUpdate};
+use core::fmt::Write as _;
+use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
+use nexus_abi::{debug_println, nsec, vmo_write, Handle};
+use nexus_effects::ShadowArena;
+use nexus_gfx::{CommandBuffer, RenderPassDesc, TileRect};
+use nexus_ipc::{Client as _, KernelClient, Wait};
+use nexus_layout::LayoutResult;
 use nexus_layout_types::FxPx;
-use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry};
-use super::cursor::blend_cursor_row;
-use super::damage::{
-    cursor_damage_rect, damage_rects_intersect, flush_error_label, inflate_effect_rect,
-};
-use super::filter::{
-    build_live_proof_layouts, filter_layout_variant_index, filter_list_content_height,
-    filter_list_viewport_height, refill_filtered_words,
-};
-use super::scene::{copy_cursor_background_row, copy_scene_row};
-use super::source::build_scale_lut;
-use super::surface::proof_box_rect;
-use super::tile_map::TileMap;
-use super::blur::checked_stride;
-use super::types::{FixedDebugLine, SourceFrame, ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip};
-use super::emit_windowd_telemetry;
-use super::{
-    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, CURSOR_BG_MAX_BYTES,
-    GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES,
-    PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS, PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y,
-    ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS,
-    SOFT_PANEL_SHADOW_OFFSET_Y, VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE,
-    LIVE_FILTER_VARIANTS,
-};
+
+const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
+const HOVER_LAYER_ID: LayerId = LayerId(1);
+const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
+const SIDEBAR_WIDTH: u32 = 320;
+const SIDEBAR_ANIMATION_NS: u64 = 420_000_000;
+const GLASS_BUTTON_W: u32 = 156;
+const GLASS_BUTTON_H: u32 = 56;
+const GLASS_BUTTON_TOP: u32 = 24;
+const GLASS_BUTTON_RIGHT: u32 = 24;
+
+#[derive(Clone, Copy)]
+struct AnimatedSceneState {
+    hover_opacity: f32,
+    sidebar_translate_x: f32,
+    sidebar_opacity: f32,
+}
+
+impl AnimatedSceneState {
+    const fn new() -> Self {
+        Self {
+            hover_opacity: 0.0,
+            sidebar_translate_x: 320.0,
+            sidebar_opacity: 0.0,
+        }
+    }
+}
+
+fn draw_animation_proof_overlay_row(
+    row: &mut [u8],
+    y: u32,
+    mode: VisibleBootstrapMode,
+    scene: AnimatedSceneState,
+) {
+    let button_x = mode
+        .width
+        .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+    let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
+    draw_glass_rect_row(
+        row,
+        y,
+        button_x,
+        GLASS_BUTTON_TOP,
+        GLASS_BUTTON_W,
+        GLASS_BUTTON_H,
+        [235, 245, 255, button_alpha],
+        true,
+    );
+
+    let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
+    let sidebar_x = mode
+        .width
+        .saturating_sub(SIDEBAR_WIDTH)
+        .saturating_add(translate);
+    let sidebar_alpha = (128.0 * scene.sidebar_opacity).clamp(0.0, 192.0) as u8;
+    if sidebar_alpha == 0 {
+        return;
+    }
+    draw_glass_rect_row(
+        row,
+        y,
+        sidebar_x,
+        0,
+        SIDEBAR_WIDTH,
+        mode.height,
+        [220, 236, 255, sidebar_alpha],
+        true,
+    );
+}
+
+fn draw_glass_rect_row(
+    row: &mut [u8],
+    y: u32,
+    x: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+    color: [u8; 4],
+    shadow: bool,
+) {
+    if y < top || y >= top.saturating_add(height) {
+        if shadow && y >= top.saturating_add(8) && y < top.saturating_add(height + 18) {
+            blend_span(row, x.saturating_add(10), width, [0, 0, 0, 34]);
+        }
+        return;
+    }
+    if shadow && y >= top.saturating_add(6) {
+        blend_span(row, x.saturating_add(8), width, [0, 0, 0, 28]);
+    }
+    blend_span(row, x, width, color);
+    if y == top || y == top.saturating_add(height).saturating_sub(1) {
+        blend_span(row, x, width, [255, 255, 255, 90]);
+    } else {
+        blend_pixel(row, x, [255, 255, 255, 72]);
+        blend_pixel(
+            row,
+            x.saturating_add(width).saturating_sub(1),
+            [255, 255, 255, 48],
+        );
+    }
+}
+
+fn blend_span(row: &mut [u8], x: u32, width: u32, color: [u8; 4]) {
+    let max_px = (row.len() / 4) as u32;
+    let end = x.saturating_add(width).min(max_px);
+    let mut px = x.min(max_px);
+    while px < end {
+        blend_pixel(row, px, color);
+        px += 1;
+    }
+}
+
+fn blend_pixel(row: &mut [u8], x: u32, color: [u8; 4]) {
+    let idx = x as usize * 4;
+    if idx + 3 >= row.len() {
+        return;
+    }
+    let alpha = u16::from(color[3]);
+    let inv = 255u16.saturating_sub(alpha);
+    row[idx] = ((u16::from(color[0]) * alpha + u16::from(row[idx]) * inv) / 255) as u8;
+    row[idx + 1] = ((u16::from(color[1]) * alpha + u16::from(row[idx + 1]) * inv) / 255) as u8;
+    row[idx + 2] = ((u16::from(color[2]) * alpha + u16::from(row[idx + 2]) * inv) / 255) as u8;
+    row[idx + 3] = 0xff;
+}
+
+#[derive(Default)]
+struct AnimationProofState {
+    runtime_marker: bool,
+    timeline_marker: bool,
+    implicit_marker: bool,
+    batch_marker: bool,
+    live_marker: bool,
+    spring_marker: bool,
+    v5_summary_marker: bool,
+}
 
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
@@ -110,6 +252,9 @@ pub(crate) struct DisplayServerRuntime {
     selftest_v3b_emitted: bool,
     /// Animation driver: spring physics, keyframes, reduced motion (RFC-0059).
     animation_driver: AnimationDriver,
+    animated_scene: AnimatedSceneState,
+    animation_proof: AnimationProofState,
+    gpud_client: Option<KernelClient>,
 }
 
 #[derive(Default)]
@@ -222,6 +367,9 @@ impl DisplayServerRuntime {
             live_scroll_marker_emitted: false,
             selftest_v3b_emitted: false,
             animation_driver: AnimationDriver::new(),
+            animated_scene: AnimatedSceneState::new(),
+            animation_proof: AnimationProofState::default(),
+            gpud_client: None,
         })
     }
 
@@ -345,6 +493,94 @@ impl DisplayServerRuntime {
         let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
             || old_state.launcher_click_visible != self.state.launcher_click_visible
             || old_state.keyboard_visible != self.state.keyboard_visible;
+
+        // Implicit transitions (RFC-0059 Phase 4): when paint flags change,
+        // trigger spring animation for opacity/transform on the affected proof cards.
+        if paint_flags_changed && !self.animation_driver.reduced_motion() {
+            if !self.animation_proof.runtime_marker {
+                let _ = debug_println(UIRUNTIME_ON);
+                self.animation_proof.runtime_marker = true;
+            }
+            if !self.animation_proof.implicit_marker {
+                let _ = debug_println(WINDOWD_IMPLICIT_TRANSITIONS_ON);
+                self.animation_proof.implicit_marker = true;
+            }
+            let spring = animation::SpringConfig {
+                stiffness: 200.0,
+                damping: 20.0,
+                mass: 1.0,
+                initial_velocity: 0.0,
+            };
+            // Hover card opacity: 0.0 → 1.0 (or reverse)
+            if old_state.hover_visible != self.state.hover_visible {
+                let from = if old_state.hover_visible { 1.0 } else { 0.0 };
+                let to = if self.state.hover_visible { 1.0 } else { 0.0 };
+                self.animation_driver.spring_to(
+                    HOVER_LAYER_ID,
+                    AnimProp::Opacity,
+                    from,
+                    to,
+                    spring,
+                );
+                let sidebar_from = if old_state.hover_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
+                let sidebar_to = if self.state.hover_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
+                self.animation_driver.keyframe_to(
+                    SIDEBAR_LAYER_ID,
+                    AnimProp::TranslateX,
+                    alloc::vec![(0.0, sidebar_from), (1.0, sidebar_to)],
+                    SIDEBAR_ANIMATION_NS,
+                    Easing::EaseInOut,
+                );
+                self.animation_driver.keyframe_to(
+                    SIDEBAR_LAYER_ID,
+                    AnimProp::Opacity,
+                    alloc::vec![
+                        (0.0, self.animated_scene.sidebar_opacity),
+                        (1.0, if self.state.hover_visible { 1.0 } else { 0.0 }),
+                    ],
+                    SIDEBAR_ANIMATION_NS,
+                    Easing::EaseInOut,
+                );
+                if !self.animation_proof.timeline_marker {
+                    let _ = debug_println(UIANIM_TIMELINE_ON);
+                    self.animation_proof.timeline_marker = true;
+                }
+            }
+            // Click card opacity
+            if old_state.launcher_click_visible != self.state.launcher_click_visible {
+                let from = if old_state.launcher_click_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                let to = if self.state.launcher_click_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                self.animation_driver
+                    .spring_to(LayerId(2), AnimProp::Opacity, from, to, spring);
+            }
+            // Keyboard card opacity
+            if old_state.keyboard_visible != self.state.keyboard_visible {
+                let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
+                let to = if self.state.keyboard_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                self.animation_driver
+                    .spring_to(LayerId(3), AnimProp::Opacity, from, to, spring);
+            }
+        }
         let pointer_only_change =
             cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
         if pointer_only_change && self.saved_cursor_rect.is_some() {
@@ -551,11 +787,123 @@ impl DisplayServerRuntime {
     pub(crate) fn tick(&mut self, now_ns: u64) {
         // The scanout VMO persists; avoid rewriting a full 1280x800 frame on idle ticks.
         // Drive animations — produces SceneUpdates for changed properties.
-        let _anim_updates = self.animation_driver.tick(now_ns);
-        // TODO: apply SceneUpdates to layer properties and queue dirty rects.
+        let anim_updates = self.animation_driver.tick(now_ns);
+        if !anim_updates.is_empty() {
+            self.apply_scene_updates(&anim_updates);
+            let panel_damage = DamageRect {
+                x: 0,
+                y: 0,
+                width: COMBINED_PANEL_WIDTH as u32,
+                height: PROOF_PANEL_H,
+            };
+            self.queue_dirty_rect(panel_damage);
+            self.queue_dirty_rect(self.sidebar_damage_rect());
+            if self.submit_animation_to_gpud(&anim_updates).is_ok()
+                && !self.animation_proof.batch_marker
+            {
+                let _ = debug_println(UIRUNTIME_BATCH_COMMIT_OK);
+                self.animation_proof.batch_marker = true;
+            }
+            if !self.animation_proof.live_marker {
+                let _ = debug_println(WINDOWD_LIVE_TRANSITION_OK);
+                self.animation_proof.live_marker = true;
+            }
+            if self.animation_driver.active_count() == 0 && !self.animation_proof.spring_marker {
+                let _ = debug_println(UIANIM_SPRING_CONVERGE_OK);
+                self.animation_proof.spring_marker = true;
+            }
+            if self.animation_proof.batch_marker
+                && self.animation_proof.live_marker
+                && self.animation_proof.spring_marker
+                && self.input_markers_emitted.v2b_assets_summary
+                && !self.animation_proof.v5_summary_marker
+            {
+                let _ = debug_println(SELFTEST_UI_V5_TRANSITION_OK);
+                self.animation_proof.v5_summary_marker = true;
+            }
+        }
 
         if let Some(report) = self.telemetry.report_values_if_due(now_ns) {
             emit_windowd_telemetry(report);
+        }
+    }
+
+    fn apply_scene_updates(&mut self, updates: &[SceneUpdate]) {
+        for update in updates {
+            match (update.layer_id, update.property) {
+                (HOVER_LAYER_ID, AnimProp::Opacity) => {
+                    self.animated_scene.hover_opacity = update.value.clamp(0.0, 1.0);
+                }
+                (SIDEBAR_LAYER_ID, AnimProp::TranslateX) => {
+                    self.animated_scene.sidebar_translate_x =
+                        update.value.clamp(0.0, SIDEBAR_WIDTH as f32);
+                }
+                (SIDEBAR_LAYER_ID, AnimProp::Opacity) => {
+                    self.animated_scene.sidebar_opacity = update.value.clamp(0.0, 1.0);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
+        let mut cmd = CommandBuffer::new();
+        {
+            let mut encoder = cmd
+                .try_begin_render_pass(RenderPassDesc {
+                    color_attachments: alloc::vec![],
+                    width: self.mode.width,
+                    height: self.mode.height,
+                })
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            let mut payload = [0u8; 16];
+            payload[..4].copy_from_slice(&(updates.len() as u32).to_le_bytes());
+            payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
+            payload[8..12].copy_from_slice(&self.animated_scene.sidebar_translate_x.to_le_bytes());
+            payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
+            encoder
+                .try_set_fragment_bytes(0, &payload)
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            encoder
+                .try_draw_tiles(&[
+                    TileRect {
+                        x: self.mode.width.saturating_sub(SIDEBAR_WIDTH),
+                        y: 0,
+                        width: SIDEBAR_WIDTH,
+                        height: self.mode.height,
+                    },
+                    TileRect {
+                        x: self.mode.width.saturating_sub(180),
+                        y: 24,
+                        width: 156,
+                        height: 56,
+                    },
+                ])
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            encoder.end_encoding();
+        }
+        let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
+        if committed.command_count() == 0 {
+            return Err(WindowdError::InvalidDamage);
+        }
+        let frame = [GPU_ANIMATION_SUBMIT_OP];
+        if self.gpud_client.is_none() {
+            self.gpud_client = KernelClient::new_for("gpud").ok();
+        }
+        let Some(client) = self.gpud_client.as_ref() else {
+            return Err(WindowdError::InvalidDamage);
+        };
+        client
+            .send(&frame, Wait::NonBlocking)
+            .map_err(|_| WindowdError::InvalidDamage)
+    }
+
+    fn sidebar_damage_rect(&self) -> DamageRect {
+        DamageRect {
+            x: self.mode.width.saturating_sub(SIDEBAR_WIDTH),
+            y: 0,
+            width: SIDEBAR_WIDTH,
+            height: self.mode.height,
         }
     }
 
@@ -714,6 +1062,7 @@ impl DisplayServerRuntime {
         let cursor_height = self.cursor_height;
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
+        let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
@@ -771,6 +1120,7 @@ impl DisplayServerRuntime {
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
                 )?;
+                draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
             }
             let offset = band_start as usize * row_len;
             vmo_write(handle, offset, &band_scratch[..band_bytes])
@@ -829,6 +1179,7 @@ impl DisplayServerRuntime {
         let cursor_height = self.cursor_height;
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
+        let animated_scene = self.animated_scene;
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
         let backdrop_cache = &mut self.backdrop_cache;
@@ -877,6 +1228,7 @@ impl DisplayServerRuntime {
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
                 )?;
+                draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
             }
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let offset = y as usize * row_len + byte_start;
@@ -1074,7 +1426,8 @@ impl DisplayServerRuntime {
 
         let row_len = self.mode.stride as usize;
         let byte_len = rect.width as usize * 4;
-        if byte_len == 0 || byte_len.saturating_mul(rect.height as usize) > self.cursor_bg_saved.len()
+        if byte_len == 0
+            || byte_len.saturating_mul(rect.height as usize) > self.cursor_bg_saved.len()
         {
             self.saved_cursor_rect = None;
             return Ok(());
@@ -1138,7 +1491,8 @@ impl DisplayServerRuntime {
             if src_end > row_buf.len() {
                 break;
             }
-            self.cursor_bg_saved[dest_start..dest_end].copy_from_slice(&row_buf[src_start..src_end]);
+            self.cursor_bg_saved[dest_start..dest_end]
+                .copy_from_slice(&row_buf[src_start..src_end]);
             blend_cursor_row(
                 row_buf,
                 y,
@@ -1166,4 +1520,3 @@ impl DisplayServerRuntime {
         Ok(())
     }
 }
-

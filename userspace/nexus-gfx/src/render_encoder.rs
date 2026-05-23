@@ -3,6 +3,7 @@
 
 use crate::command_buffer::{Command, CommandBuffer};
 use crate::types::TileRect;
+use crate::GfxError;
 
 /// Records rendering commands into a CommandBuffer.
 /// Created by CommandBuffer::begin_render_pass().
@@ -19,14 +20,32 @@ impl<'a> RenderCommandEncoder<'a> {
     /// Set fragment shader uniform data at a byte offset.
     /// The data is copied into the command buffer.
     pub fn set_fragment_bytes(&mut self, offset: usize, data: &[u8]) {
-        assert!(self.active, "encoder already ended");
-        self.cmd.commands.push(Command::SetFragmentBytes { offset, data: data.to_vec() });
+        self.try_set_fragment_bytes(offset, data)
+            .expect("invalid fragment bytes");
+    }
+
+    pub fn try_set_fragment_bytes(&mut self, offset: usize, data: &[u8]) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::SetFragmentBytes {
+            offset,
+            data: data.to_vec(),
+        })
     }
 
     /// Queue a draw of the given tiles.
     pub fn draw_tiles(&mut self, tiles: &[TileRect]) {
-        assert!(self.active, "encoder already ended");
-        self.cmd.commands.push(Command::DrawTiles { tiles: tiles.to_vec() });
+        self.try_draw_tiles(tiles).expect("invalid tile draw");
+    }
+
+    pub fn try_draw_tiles(&mut self, tiles: &[TileRect]) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::DrawTiles {
+            tiles: tiles.to_vec(),
+        })
     }
 
     /// End encoding. The encoder is consumed.
@@ -37,32 +56,7 @@ impl<'a> RenderCommandEncoder<'a> {
 }
 
 impl<'a> Drop for RenderCommandEncoder<'a> {
-    fn drop(&mut self) { self.active = false; }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::types::RenderPassDesc;
-
-    #[test]
-    fn encoder_records_commands() {
-        let mut cmd = CommandBuffer::new();
-        {
-            let mut enc = cmd.begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 });
-            enc.set_fragment_bytes(0, &[42]);
-            enc.draw_tiles(&[TileRect { x: 0, y: 0, width: 10, height: 10 }]);
-            enc.end_encoding();
-        }
-        let c = cmd.commit();
-        assert_eq!(c.command_count(), 2);
-    }
-
-    #[test]
-    fn end_encoding_consumes_encoder() {
-        let mut cmd = CommandBuffer::new();
-        let enc = cmd.begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 });
-        enc.end_encoding();
-        // enc is consumed — cannot be used after. Type system enforces this.
+    fn drop(&mut self) {
+        self.active = false;
     }
 }

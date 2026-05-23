@@ -7,22 +7,24 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
+#![cfg_attr(target_os = "none", no_std)]
+
 extern crate alloc;
 
-pub mod device;
-pub mod queue;
-pub mod command_buffer;
-pub mod render_encoder;
 pub mod buffer;
-pub mod fence;
-pub mod types;
+pub mod command_buffer;
+pub mod device;
 pub mod error;
+pub mod fence;
+pub mod queue;
+pub mod render_encoder;
+pub mod types;
 
-pub use device::Device;
-pub use queue::Queue;
-pub use command_buffer::{CommandBuffer, CommittedBuffer};
-pub use render_encoder::RenderCommandEncoder;
 pub use buffer::Buffer;
-pub use fence::Fence;
-pub use types::{BufferUsage, PixelFormat, RenderPassDesc, ResourceId, TileRect};
+pub use command_buffer::{CommandBuffer, CommittedBuffer};
+pub use device::Device;
 pub use error::GfxError;
+pub use fence::Fence;
+pub use queue::Queue;
+pub use render_encoder::RenderCommandEncoder;
+pub use types::{BufferUsage, PixelFormat, RenderPassDesc, ResourceId, TileRect};

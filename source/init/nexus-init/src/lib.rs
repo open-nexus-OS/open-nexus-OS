@@ -41,9 +41,15 @@ mod os_lite;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 pub use os_lite::*;
 
-#[cfg(all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite"))))]
+#[cfg(all(
+    feature = "std-server",
+    not(all(nexus_env = "os", feature = "os-lite"))
+))]
 mod std_server;
-#[cfg(all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite"))))]
+#[cfg(all(
+    feature = "std-server",
+    not(all(nexus_env = "os", feature = "os-lite"))
+))]
 pub use std_server::*;
 
 // Fallback stubs for feature combinations that intentionally omit an init backend
@@ -52,7 +58,10 @@ pub use std_server::*;
 // These keep tooling/type-checking stable without pretending that init actually booted services.
 #[cfg(not(any(
     all(feature = "os-lite", nexus_env = "os"),
-    all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite")))
+    all(
+        feature = "std-server",
+        not(all(nexus_env = "os", feature = "os-lite"))
+    )
 )))]
 mod stub {
     use core::fmt;
@@ -101,6 +110,9 @@ mod stub {
 
 #[cfg(not(any(
     all(feature = "os-lite", nexus_env = "os"),
-    all(feature = "std-server", not(all(nexus_env = "os", feature = "os-lite")))
+    all(
+        feature = "std-server",
+        not(all(nexus_env = "os", feature = "os-lite"))
+    )
 )))]
 pub use stub::*;

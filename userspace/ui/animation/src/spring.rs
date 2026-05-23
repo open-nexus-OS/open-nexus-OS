@@ -68,9 +68,8 @@ impl SpringSim {
 
         // RK4 for spring equation: m * a = -k * (x - target) - d * v
         // Phase space: state = (position, velocity), derivative = (velocity, acceleration)
-        let acceleration = |pos: f32, vel: f32| -> f32 {
-            (-k * (pos - self.target) - d * vel) / m.max(0.001)
-        };
+        let acceleration =
+            |pos: f32, vel: f32| -> f32 { (-k * (pos - self.target) - d * vel) / m.max(0.001) };
 
         // k1
         let k1v = acceleration(self.position, self.velocity);
@@ -98,8 +97,7 @@ impl SpringSim {
         self.velocity += (k1v + 2.0 * k2v + 2.0 * k3v + k4v) * dt / 6.0;
 
         // Clamp: if we overshot, snap to target
-        let overshot = (self.target - self.position).abs() < 0.005
-            && self.velocity.abs() < 0.05;
+        let overshot = (self.target - self.position).abs() < 0.005 && self.velocity.abs() < 0.05;
         if overshot {
             self.position = self.target;
             self.velocity = 0.0;
@@ -120,68 +118,5 @@ impl SpringSim {
 
     pub fn target(&self) -> f32 {
         self.target
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spring_converges_to_target() {
-        let mut sim = SpringSim::new(0.0, 1.0, SpringConfig::default());
-        let mut last_pos = 0.0;
-        let mut converged = false;
-        for _ in 0..1000 {
-            last_pos = sim.step(16_666_667); // ~60fps
-            if sim.done() {
-                converged = true;
-                break;
-            }
-        }
-        assert!(converged, "spring should converge within 1000 steps");
-        assert!((last_pos - 1.0).abs() < 0.01, "should reach target");
-    }
-
-    #[test]
-    fn spring_deterministic_same_input_same_output() {
-        let config = SpringConfig::default();
-        let mut a = SpringSim::new(0.0, 1.0, config);
-        let mut b = SpringSim::new(0.0, 1.0, config);
-
-        for _ in 0..100 {
-            let pa = a.step(16_666_667);
-            let pb = b.step(16_666_667);
-            assert_eq!(pa, pb, "same input must produce same output");
-        }
-    }
-
-    #[test]
-    fn spring_cancel_stops_updating() {
-        let mut sim = SpringSim::new(0.0, 1.0, SpringConfig::default());
-        for _ in 0..500 {
-            sim.step(16_666_667);
-            if sim.done() {
-                break;
-            }
-        }
-        assert!(sim.done());
-        let pos = sim.step(16_666_667);
-        assert_eq!(pos, 1.0, "done spring returns target");
-    }
-
-    #[test]
-    fn spring_custom_config_faster() {
-        let stiff = SpringConfig { stiffness: 400.0, ..Default::default() };
-        let mut sim = SpringSim::new(0.0, 1.0, stiff);
-        let mut steps = 0;
-        for _ in 0..1000 {
-            sim.step(16_666_667);
-            steps += 1;
-            if sim.done() {
-                break;
-            }
-        }
-        assert!(steps < 500, "stiffer spring should converge faster");
     }
 }

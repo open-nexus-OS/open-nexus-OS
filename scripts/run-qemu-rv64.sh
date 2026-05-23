@@ -55,6 +55,7 @@ QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
+QEMU_GPU_DEVICE=${QEMU_GPU_DEVICE:--device virtio-gpu-device}
 QEMU_SESSION_MODE=${QEMU_SESSION_MODE:-proof}
 QEMU_MARKER_LEVEL=${QEMU_MARKER_LEVEL:-}
 QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}
@@ -1013,6 +1014,7 @@ COMMON_ARGS+=(
   ${QEMU_NETDEV_DEVICE}
   ${QEMU_RNG_OBJECT}
   ${QEMU_RNG_DEVICE}
+  ${QEMU_GPU_DEVICE}
   ${QEMU_BLK_DRIVE}
   ${QEMU_BLK_DEVICE}
 )

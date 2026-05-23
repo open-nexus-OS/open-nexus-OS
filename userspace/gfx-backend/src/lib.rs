@@ -3,14 +3,16 @@
 
 //! GfxBackend trait + CpuMockBackend.
 
+#![cfg_attr(target_os = "none", no_std)]
+
 extern crate alloc;
 
-pub mod traits;
 pub mod cpu_mock;
 pub mod error;
+pub mod traits;
 pub mod types;
 
-pub use traits::GfxBackend;
 pub use cpu_mock::CpuMockBackend;
 pub use error::GfxError;
+pub use traits::GfxBackend;
 pub use types::{Rect, ResourceId};

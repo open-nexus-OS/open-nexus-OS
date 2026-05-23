@@ -1117,7 +1117,10 @@ name = "gpud"
 version = "0.1.0"
 dependencies = [
  "gfx-backend",
+ "nexus-abi",
  "nexus-gfx",
+ "nexus-ipc",
+ "nexus-service-entry",
 ]
 
 [[package]]
@@ -3977,6 +3980,7 @@ dependencies = [
  "input-live-protocol",
  "nexus-abi",
  "nexus-effects",
+ "nexus-gfx",
  "nexus-ipc",
  "nexus-layout",
  "nexus-layout-types",

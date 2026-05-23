@@ -7,12 +7,16 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-pub mod timeline;
-pub mod spring;
+#![cfg_attr(target_os = "none", no_std)]
+
+extern crate alloc;
+
 pub mod keyframe;
 pub mod property;
+pub mod spring;
+pub mod timeline;
 
-pub use timeline::AnimationDriver;
-pub use spring::{SpringConfig, SpringSim};
 pub use keyframe::{Easing, KeyframeTrack};
 pub use property::{AnimProp, LayerId, SceneUpdate};
+pub use spring::{SpringConfig, SpringSim};
+pub use timeline::AnimationDriver;

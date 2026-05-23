@@ -131,7 +131,7 @@ impl CapTable {
     }
 
     /// Default slot count for task capability tables.
-    const DEFAULT_CAP_SLOTS: usize = 96;
+    const DEFAULT_CAP_SLOTS: usize = 128;
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {

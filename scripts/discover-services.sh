@@ -64,6 +64,7 @@ ORDER = [
     'dsoftbusd',
     'hidrawd',
     'touchd',
+    'gpud',
     'windowd',
     'inputd',
     'fbdevd',

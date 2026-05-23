@@ -300,6 +300,41 @@ phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "selftest observed the UI v2b asset pipeline (cursor + icons + fonts) loaded and visible"
 
+[marker."uiruntime: on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd activated the animation runtime after a routed visible hover/click state change"
+
+[marker."uianim: timeline on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the animation engine created a bounded ease-in-out keyframe track for the sidebar proof layer"
+
+[marker."windowd: implicit transitions on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd converted visible input state changes into implicit animation tracks"
+
+[marker."uiruntime: batch commit ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd validated and committed a bounded NexusGfx command buffer for animated scene updates"
+
+[marker."windowd: live transition ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd rendered at least one intermediate animated frame after SceneUpdate application"
+
+[marker."uianim: spring converge ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "the animation engine reached its terminal state without an unbounded active-animation tail"
+
+[marker."SELFTEST: ui v5 transition ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "visible-bootstrap observed the GPU-gated animated glass sidebar transition after gpud and windowd animation markers"
+
 [marker."windowd: clipping on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }

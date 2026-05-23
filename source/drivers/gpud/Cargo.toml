@@ -8,6 +8,21 @@ license = "Apache-2.0"
 name = "gpud"
 path = "src/lib.rs"
 
+[features]
+default = []
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 2
+
 [dependencies]
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 gfx-backend = { path = "../../../userspace/gfx-backend" }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
