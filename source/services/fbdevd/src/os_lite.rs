@@ -67,7 +67,9 @@ impl core::fmt::Write for FixedDebugLine {
 }
 
 pub fn service_main_loop() -> Result<(), &'static str> {
+    let _ = debug_println("fbdevd: entry");
     let server = bind_server()?;
+    debug_println(READY_MARKER).map_err(|_| "fbdevd entry log failed")?;
     // Always try to configure ramfb. If ramfb is not available (no fw_cfg entry),
     // configure_ramfb will fail and we fall through to the disabled loop below.
     // In interactive mode (just start), ramfb IS available via QEMU -device ramfb.

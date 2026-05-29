@@ -103,6 +103,8 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Done; TASK-0057 Minimal DisplayServer v0 delivered)
 - RFC-0057: UI v3a layout engine (Done; TASK-0058 production-grade, 31 tests)
 - RFC-0058: UI v3b clip/scroll/effects + IME contract seed (In Progress; TASK-0059 filter-box integration test)
+- RFC-0061: Selftest Observer + nexus-init Module Refactoring (In Progress; contract tests M1 complete, bootstrap scaffold landed)
+  - docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 - RFC-0056: UI v2b asset pipeline + theme system + cursor/text contract seed (Done; TASK-0057 Minimal DisplayServer v0 delivered — Mocu cursor, Inter proof text, JPEG wallpaper, transient input targets, observer-only QEMU evidence, just test-all green)
 - RFC-0040: Zero-Copy VMOs v1 plumbing contract seed (typed handle ownership contract + capability transfer discipline + host-first and OS-gated deterministic proof baseline)
 - RFC-0041: PackageFS v2 read-only image + precomputed index fastpath contract seed (bounded mount validation + deterministic reject paths + host-first/OS-gated proofs)
@@ -225,3 +227,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
 - RFC-0058: UI v3b clip/scroll/effects + IME contract seed (In Progress; TASK-0059 filter-box integration test)
   - docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
   - docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md
+- RFC-0061: Selftest Observer + nexus-init Module Refactoring (In Progress)
+  - docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md

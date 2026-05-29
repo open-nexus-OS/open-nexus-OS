@@ -1,39 +1,47 @@
-# Handoff — Unified Capability Architecture (Phase 1)
+# Handoff — RFC-0061: Selftest Observer + nexus-init Module Split
 
 Date: 2026-05-29
-Session: diagnosis + Phase 1 implementation start
+Session 3: Policyd + Spawn wiring complete
 
-## Diagnosis
+## Progress
 
-Root cause chain for black screen:
-1. gpud `create_resource()` crashes on MMIO fault (`cap_query` on VMO)
-2. init-lite `cap_transfer(dead_pid, ...)` → kernel `TransferError::InvalidChild`
-3. init-lite `fatal_err()` → PANIC
-4. windowd/inputd/fbdevd unrouted → route fallback → fbdevd recv permission-denied
-5. No framebuffer registration → black screen
+### os_payload.rs line count
+- Before: 3903 lines
+- After: 3523 lines (-380, -9.7%)
 
-## Duplicate structures found
+### Bootstrap modules (all wired)
 
-- init-lite routing table (os_payload.rs, 3771 lines): hardcoded manual wiring
-- samgrd registry (os_lite.rs, 541 lines): stub, scoped slot numbers, not used by init
-- Both exist, neither talks to the other
+| Module | Functions | Lines | Status |
+|--------|-----------|-------|--------|
+| `bootstrap/types.rs` | CtrlChannel, BootstrapState | 49 | ✅ wired |
+| `bootstrap/policyd.rs` | policyd_route_allowed, policyd_cap_allowed, policyd_exec_allowed | 152 | ✅ wired |
+| `bootstrap/route_builder.rs` | build_route_table, populate_samgrd_registry | 121 | ✅ wired |
+| `bootstrap/spawn.rs` | spawn_service, spawn_service_with_probe | 47 | ✅ wired |
+| `bootstrap/mod.rs` | module registry + re-exports | 14 | ✅ |
 
-## Plan (4 phases)
+### Visibility changes in os_payload.rs
+- `POLICY_NONCE` → `pub(crate)`
+- `debug_write_byte`, `debug_write_bytes`, `debug_write_str`, `debug_write_hex` → `pub(crate)`
+- `CtrlChannel` → removed (uses bootstrap/types.rs)
+- `BootstrapState` → removed (uses bootstrap/types.rs)
 
-| Phase | Goal | Gate |
-|-------|------|------|
-| P1 | Graceful Wiring + gpud fix | `fbdevd: flush ok` appears |
-| P2 | RouteTable as typed struct | All tests green, routing table <200 lines |
-| P3 | samgrd as SSOT | selftest-client resolves via samgrd |
-| P4 | Newtypes + hop markers | `just test-all` green |
+## Remaining in os_payload.rs (3523 lines)
 
-## Phase 1 tasks
-
-1. os_payload.rs: replace `fatal_err()` with per-service error skip
-2. gpud/backend.rs: fix `cap_query` on VMO (use vmo_map_page physical address)
-3. route_table.rs: new file with typed RouteTable, ServiceId, CapSlot
+The big remaining chunks:
+1. **`bootstrap_service_images`** (~1800 lines) — the service spawn + wiring orchestrator
+2. **`service_main_loop_images`** (~300 lines) — the routing responder loop
+3. **Helper functions** (~200 lines): `grant_mmio_cap`, `updated_boot_attempt`, `bundlemgrd_set_active_slot`, `updated_health_ok`, `decode_init_health_ok_req` family, `probe_virtio_mmio_slots`, `fatal`, `watchdog_limit_ticks`, etc.
+4. **Types/constants** (~200 lines): `ServiceImage`, `InitError`, `ReadyNotifier`, `ServiceNameGuard`, various constants
 
 ## Next step
 
-Implement Phase 1: start with route_table.rs as the foundation,
-then apply graceful wiring in os_payload.rs, then fix gpud.
+Extract `service_main_loop_images` → `bootstrap/responder.rs`. This requires:
+1. Making helper functions `pub(crate)`: `decode_init_health_ok_req`, `encode_init_health_ok_rsp`, `decode_route_get_with_optional_nonce`, `updated_health_ok`, `abi_error_label`, `ipc_error_label`, `watchdog_limit_ticks`
+2. Moving the function body (~300 lines) to bootstrap/responder.rs
+3. Replacing the os_payload.rs version with a thin wrapper that calls bootstrap
+
+## Files changed
+
+- `source/init/nexus-init/src/bootstrap/policyd.rs` (rewritten with real v3 protocol)
+- `source/init/nexus-init/src/bootstrap/mod.rs` (route_builder + policyd registered)
+- `source/init/nexus-init/src/os_payload.rs` (-380 lines: types unified, policyd/spawn/route_builder extracted)

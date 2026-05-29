@@ -36,6 +36,10 @@ pub mod slot_map;
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod route_table;
 
+/// Bootstrap subsystem — split from os_payload.rs per RFC-0061.
+#[cfg(all(feature = "os-payload", nexus_env = "os"))]
+pub(crate) mod bootstrap;
+
 /// Shared os-lite loader facade used by the deprecated init-lite wrapper.
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod os_payload;

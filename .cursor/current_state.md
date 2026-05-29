@@ -4,44 +4,33 @@ Last updated: 2026-05-29
 
 ## Active focus
 
-**TASK-0062 / Unified Capability Architecture (Phase 1/4)**
-Diagnosed: gpud MMIO fault → init-lite fatal crash → service mesh broken → black screen.
-Root cause: `cap_query()` on VMO fails; init-lite has no graceful degradation.
+**RFC-0061: Selftest Observer + nexus-init Module Refactoring**
 
-Plan: 4-phase capability architecture overhaul (Fuchsia/OHOS-inspired).
-- Phase 1: Graceful Wiring + gpud fix (IN PROGRESS)
-- Phase 2: RouteTable as typed data structure
-- Phase 3: samgrd as single source of truth
-- Phase 4: Newtypes, error propagation, hop markers
+### M1 — Contract Tests ✅
+Per-service contract tests created for keystored (44 tests), statefsd (21), samgrd (14).
+Existing tests for logd (37), policyd (25), gpud, fbdevd, windowd, inputd.
+All pass with `cargo test -p <service>`.
 
-## Architecture (capability)
+keystored now has `src/protocol.rs` — public wire-format module (host + OS).
 
-```
-Current (broken):                  Target (Phase 3):
-┌──────────────────────┐          ┌──────────────────────┐
-│ os_payload.rs (3771) │          │ init-lite (Component  │
-│ • manual cap_transfer│          │   Manager light)     │
-│ • hardcoded routing  │          │ • RouteTable         │
-│ • fatal on error     │          │ • graceful degr.     │
-└──────────────────────┘          └──────┬───────────────┘
-                                        │ populate
-┌──────────────────────┐          ┌──────┴───────────────┐
-│ samgrd (stub)        │          │ samgrd (SSOT)         │
-│ • slot numbers only  │          │ • endpoint caps       │
-│ • hardcoded allowlist│          │ • global registry     │
-│ • not used by init   │          │ • health/restart      │
-└──────────────────────┘          └──────────────────────┘
-```
+### Bootstrap Scaffold ✅
+- `bootstrap/policyd.rs` — extracted policyd helpers
+- `bootstrap/spawn.rs` — extracted spawn helpers
+- `CtrlChannel` → `pub(crate)` in os_payload.rs
+- Compiles: `cargo check -p nexus-init --no-default-features --features os-payload`
 
-## Key findings (2026-05-29 session)
+### Blocked: Full Module Split (R1-R9)
+Cannot complete until duplicate types are unified:
+- `os_payload.rs::CtrlChannel` (private, ~18 fields) vs `bootstrap/types.rs::CtrlChannel` (pub(crate), 44 fields)
+- `os_payload.rs::BootstrapState` vs `bootstrap/types.rs::BootstrapState`
 
-- gpud: probe() succeeds, create_resource() fails — `cap_query()` on vmo_create() VMO
-- init-lite: `cap_transfer` to dead PID → kernel returns TransferError::InvalidChild → init fatals
-- samgrd: exists but is stub; duplicates init-lite routing; not used for service mesh
-- 3771-line os_payload.rs: monolithic, hardcoded, no error isolation
+## Key findings
+
+- The `bootstrap_service_images` function is 1865 lines interleaving 6 distinct phases
+- Extraction requires: unify types → extract MMIO → extract wiring → extract routes → extract responder
+- All new contract test files are host-compilable — zero QEMU dependency for protocol validation
 
 ## Previous (complete)
 
-**TASK-0062 / RFC-0059: Implemented (Phases 0-5 complete).**
-38 tests green. Animation Engine + NexusGfx SDK + GfxBackend + gpud driver.
-Implicit transitions integrated. RISC-V optimizations applied.
+**TASK-0062 / Unified Capability Architecture**: route_table.rs, bootstrap scaffolding landed.
+TASK-0062 diagnostics complete (gpud MMIO fault root cause found).

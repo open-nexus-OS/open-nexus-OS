@@ -14,8 +14,11 @@
     no_std
 )]
 
-#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 extern crate alloc;
+
+/// Wire protocol constants + encoding/decoding (host + OS).
+pub mod protocol;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod os_stub;

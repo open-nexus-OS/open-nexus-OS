@@ -24,6 +24,9 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 #[cfg(nexus_env = "os")]
 use nexus_abi::{self, AbiError, IpcError, Rights};
 
+use crate::bootstrap::policyd::{policyd_cap_allowed, policyd_exec_allowed, policyd_route_allowed};
+use crate::bootstrap::route_builder;
+use crate::bootstrap::{BootstrapState, CtrlChannel};
 use crate::route_table::{CapSlot, RouteTable, ServiceId};
 
 // Tooling/host diagnostics compatibility:
@@ -337,68 +340,6 @@ const INIT_HEALTH_OP_OK: u8 = 1;
 const INIT_HEALTH_STATUS_OK: u8 = 0;
 const INIT_HEALTH_STATUS_FAILED: u8 = 1;
 
-#[derive(Clone, Copy)]
-struct CtrlChannel {
-    /// Service name for this PID (init-lite authoritative).
-    svc_name: &'static str,
-    /// PID of the spawned service task.
-    pid: u32,
-    /// Capability slot in init-lite that references the request endpoint (child sends, init receives).
-    ctrl_req_parent_slot: u32,
-    /// Capability slot in init-lite that references the reply endpoint (init sends, child receives).
-    ctrl_rsp_parent_slot: u32,
-    /// Optional routing for target "vfsd" from the perspective of this PID:
-    /// - send_slot: where this PID should send requests/replies
-    /// - recv_slot: where this PID should receive replies/requests
-    vfs_send_slot: Option<u32>,
-    vfs_recv_slot: Option<u32>,
-    pkg_send_slot: Option<u32>,
-    pkg_recv_slot: Option<u32>,
-    pol_send_slot: Option<u32>,
-    pol_recv_slot: Option<u32>,
-    bnd_send_slot: Option<u32>,
-    bnd_recv_slot: Option<u32>,
-    upd_send_slot: Option<u32>,
-    upd_recv_slot: Option<u32>,
-    sam_send_slot: Option<u32>,
-    sam_recv_slot: Option<u32>,
-    exe_send_slot: Option<u32>,
-    exe_recv_slot: Option<u32>,
-    key_send_slot: Option<u32>,
-    key_recv_slot: Option<u32>,
-    state_send_slot: Option<u32>,
-    state_recv_slot: Option<u32>,
-    /// Optional routing for target "rngd" from the perspective of this PID:
-    /// - send_slot: where this PID should send entropy requests
-    /// - recv_slot: where this PID should receive direct replies (if used)
-    rng_send_slot: Option<u32>,
-    rng_recv_slot: Option<u32>,
-    timed_send_slot: Option<u32>,
-    timed_recv_slot: Option<u32>,
-    window_send_slot: Option<u32>,
-    window_recv_slot: Option<u32>,
-    input_send_slot: Option<u32>,
-    input_recv_slot: Option<u32>,
-    fbdev_send_slot: Option<u32>,
-    fbdev_recv_slot: Option<u32>,
-    gpud_send_slot: Option<u32>,
-    gpud_recv_slot: Option<u32>,
-    net_send_slot: Option<u32>,
-    net_recv_slot: Option<u32>,
-    metrics_send_slot: Option<u32>,
-    metrics_recv_slot: Option<u32>,
-    log_send_slot: Option<u32>,
-    log_recv_slot: Option<u32>,
-    /// Optional routing for target "dsoftbusd" from the perspective of this PID:
-    /// - send_slot: where this PID should send requests/replies
-    /// - recv_slot: where this PID should receive replies/requests
-    dsoft_send_slot: Option<u32>,
-    dsoft_recv_slot: Option<u32>,
-    /// Self reply-inbox slots (only populated for requesters that need CAP_MOVE reply routing).
-    reply_send_slot: Option<u32>,
-    reply_recv_slot: Option<u32>,
-}
-
 /// Optional bring-up watchdog to force a panic if init spins forever.
 fn watchdog_limit_ticks() -> Option<usize> {
     match option_env!("INIT_LITE_WATCHDOG_TICKS") {
@@ -473,7 +414,7 @@ const GUARD_STR_PROBE_LIMIT: usize = 128;
 static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // Nonce for policyd v2 (correlated) control-plane requests.
-static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
+pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 const DEVICE_MMIO_CAP_SLOT: u32 = 48;
 const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
@@ -562,21 +503,21 @@ fn probe_virtio_mmio_slots() -> Result<(
     Ok((net_slot, rng_slot, blk_slot, gpu_slot, input_slots))
 }
 
-fn debug_write_byte(byte: u8) {
+pub(crate) fn debug_write_byte(byte: u8) {
     let _ = nexus_abi::debug_putc(byte);
 }
 
-fn debug_write_bytes(bytes: &[u8]) {
+pub(crate) fn debug_write_bytes(bytes: &[u8]) {
     for &b in bytes {
         debug_write_byte(b);
     }
 }
 
-fn debug_write_str(s: &str) {
+pub(crate) fn debug_write_str(s: &str) {
     debug_write_bytes(s.as_bytes());
 }
 
-fn debug_write_hex(value: usize) {
+pub(crate) fn debug_write_hex(value: usize) {
     const NIBBLES: usize = core::mem::size_of::<usize>() * 2;
     for shift in (0..NIBBLES).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
@@ -777,7 +718,7 @@ where
             debug_write_byte(b']');
         }
         debug_write_byte(b'\n');
-        match spawn_service(image, &name) {
+        match crate::bootstrap::spawn::spawn_service_with_probe(image, probes_enabled()) {
             Ok(pid) => {
                 // Create private control endpoints (REQ/RSP) for this service and transfer them first.
                 // This ensures a deterministic slot assignment in the child (slots 1 and 2).
@@ -1365,6 +1306,32 @@ where
             }
         }
     }
+    // Grant fw_cfg to fbdevd for ramfb configuration.
+    {
+        let (mmio_base, mmio_len) = (FW_CFG_MMIO_BASE, FW_CFG_MMIO_LEN);
+        let deadline = match nexus_abi::nsec() {
+            Ok(now) => now.saturating_add(1_000_000_000),
+            Err(_) => 0,
+        };
+        loop {
+            match grant_mmio_cap(
+                fbdevd_pid, "fbdevd", "device.mmio.fwcfg",
+                mmio_base, mmio_len,
+                pol_ctl_route_req, pol_ctl_route_rsp, FW_CFG_MMIO_CAP_SLOT,
+            )? {
+                Some(true) => break,
+                Some(false) => return Err(InitError::Map("fbdevd fw_cfg mmio policy denied")),
+                None => {
+                    let now = match nexus_abi::nsec() { Ok(v) => v, Err(_) => 0 };
+                    if now >= deadline {
+                        return Err(InitError::Map("fbdevd fw_cfg mmio policy timeout"));
+                    }
+                    let _ = nexus_abi::yield_();
+                }
+            }
+        }
+    }
+
     for (idx, input_slot) in input_slots.iter().copied().enumerate() {
         if let Some(input_slot) = input_slot {
             grant_mmio_with_wait(
@@ -2531,8 +2498,8 @@ where
         }
     }
 
-    let route_table = build_route_table(&ctrl_channels);
-    populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
+    let route_table = route_builder::build_route_table(&ctrl_channels);
+    route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
     Ok(BootstrapState {
         ctrl_channels,
         route_table,
@@ -2545,143 +2512,6 @@ where
         upd_reply_recv: pol_ctl_route_rsp,
         upd_pending,
     })
-}
-
-/// Send OP_REGISTER to samgrd for every route in the table.
-fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &RouteTable) {
-    // Collect unique service registrations: for each (from, to) route,
-    // samgrd needs to know about the target service's slots.
-    // We register each target service's self-route (the one where from == to).
-    for id in &[
-        ServiceId::Vfsd, ServiceId::Packagefsd, ServiceId::Policyd,
-        ServiceId::Bundlemgrd, ServiceId::Updated, ServiceId::Samgrd,
-        ServiceId::Execd, ServiceId::Keystored, ServiceId::Statefsd,
-        ServiceId::Rngd, ServiceId::Timed, ServiceId::Windowd,
-        ServiceId::Inputd, ServiceId::Fbdevd, ServiceId::Gpud,
-        ServiceId::Netstackd, ServiceId::Metricsd, ServiceId::Logd,
-        ServiceId::Dsoftbusd, ServiceId::Hidrawd, ServiceId::Touchd,
-        ServiceId::SelftestClient,
-    ] {
-        // Look up self-route: from==to
-        if let Some(route) = table.lookup(*id, *id) {
-            let name = id.name();
-            // OP_REGISTER frame: [S,M,1,OP_REGISTER=1, name_len, send_slot:4, recv_slot:4, name...]
-            let mut req = [0u8; 64];
-            req[0] = b'S';
-            req[1] = b'M';
-            req[2] = 1; // version
-            req[3] = 1; // OP_REGISTER
-            let name_bytes = name.as_bytes();
-            req[4] = name_bytes.len() as u8;
-            req[5..9].copy_from_slice(&route.send.slot.to_le_bytes());
-            req[9..13].copy_from_slice(&route.recv.slot.to_le_bytes());
-            let name_start = 13;
-            let name_end = name_start + name_bytes.len();
-            req[name_start..name_end].copy_from_slice(name_bytes);
-            let req_len = name_end;
-            // Send non-blocking (samgrd may not be ready yet in bring-up)
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-            let _ = nexus_abi::ipc_send_v1(
-                send_cap,
-                &hdr,
-                &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK,
-                0,
-            );
-            // Drain response non-blocking
-            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 16];
-            let _ = nexus_abi::ipc_recv_v1(
-                recv_cap,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            );
-        }
-    }
-}
-
-/// Build a RouteTable from the wired ctrl_channels.
-fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
-    let mut table = RouteTable::new();
-    for chan in channels {
-        let Some(from) = ServiceId::from_name(chan.svc_name.as_bytes()) else {
-            continue;
-        };
-        // For each target, check if slots are populated and add route.
-        if let (Some(s), Some(r)) = (chan.vfs_send_slot, chan.vfs_recv_slot) {
-            table.add_route(from, ServiceId::Vfsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.pkg_send_slot, chan.pkg_recv_slot) {
-            table.add_route(from, ServiceId::Packagefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.pol_send_slot, chan.pol_recv_slot) {
-            table.add_route(from, ServiceId::Policyd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.bnd_send_slot, chan.bnd_recv_slot) {
-            table.add_route(from, ServiceId::Bundlemgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.upd_send_slot, chan.upd_recv_slot) {
-            table.add_route(from, ServiceId::Updated, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.sam_send_slot, chan.sam_recv_slot) {
-            table.add_route(from, ServiceId::Samgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.exe_send_slot, chan.exe_recv_slot) {
-            table.add_route(from, ServiceId::Execd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.key_send_slot, chan.key_recv_slot) {
-            table.add_route(from, ServiceId::Keystored, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.state_send_slot, chan.state_recv_slot) {
-            table.add_route(from, ServiceId::Statefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.rng_send_slot, chan.rng_recv_slot) {
-            table.add_route(from, ServiceId::Rngd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.timed_send_slot, chan.timed_recv_slot) {
-            table.add_route(from, ServiceId::Timed, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.window_send_slot, chan.window_recv_slot) {
-            table.add_route(from, ServiceId::Windowd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.input_send_slot, chan.input_recv_slot) {
-            table.add_route(from, ServiceId::Inputd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.fbdev_send_slot, chan.fbdev_recv_slot) {
-            table.add_route(from, ServiceId::Fbdevd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.gpud_send_slot, chan.gpud_recv_slot) {
-            table.add_route(from, ServiceId::Gpud, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.net_send_slot, chan.net_recv_slot) {
-            table.add_route(from, ServiceId::Netstackd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.metrics_send_slot, chan.metrics_recv_slot) {
-            table.add_route(from, ServiceId::Metricsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.log_send_slot, chan.log_recv_slot) {
-            table.add_route(from, ServiceId::Logd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-        if let (Some(s), Some(r)) = (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
-            table.add_route(from, ServiceId::Dsoftbusd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
-        }
-    }
-    table
-}
-
-struct BootstrapState {
-    ctrl_channels: Vec<CtrlChannel>,
-    route_table: RouteTable,
-    pol_ctl_route_req: u32,
-    pol_ctl_route_rsp: u32,
-    pol_ctl_exec_req: u32,
-    pol_ctl_exec_rsp: u32,
-    upd_req: u32,
-    upd_reply_send: u32,
-    upd_reply_recv: u32,
-    upd_pending: nexus_ipc::reqrep::FrameStash<8, 16>,
 }
 
 fn decode_route_get_with_optional_nonce(frame: &[u8]) -> Option<(&[u8], Option<u32>)> {
@@ -3038,143 +2868,6 @@ where
                 fatal("init-lite: watchdog fired");
             }
         }
-    }
-}
-
-fn spawn_service(image: &ServiceImage, _name: &ServiceNameGuard<'_>) -> Result<u32> {
-    if image.elf.is_empty() {
-        return Err(InitError::MissingElf);
-    }
-
-    let stack_pages = image.stack_pages.max(1) as usize;
-    if probes_enabled() {
-        debug_write_bytes(b"!exec call name=");
-        debug_write_str(image.name);
-        debug_write_byte(b'\n');
-    }
-    let pid = nexus_abi::exec_v2(image.elf, stack_pages, image.global_pointer, image.name)
-        .map_err(InitError::Abi)?;
-    if probes_enabled() {
-        debug_write_bytes(b"!exec ret\n");
-    }
-
-    // NOTE: Child bootstrap endpoint is already seeded at slot 0 by `spawn`/`exec_v2`
-    // (TaskTable::spawn copies the parent's bootstrap slot into the child cap table).
-    // Do NOT cap_transfer it again here, otherwise it shifts deterministic slot assignment
-    // for service endpoints (e.g. VFS req/rsp slots 1/2).
-
-    Ok(pid)
-}
-
-fn policyd_route_allowed(
-    pol_send_slot: u32,
-    pol_recv_slot: u32,
-    requester: &str,
-    target: &[u8],
-) -> Option<bool> {
-    // policyd OP_ROUTE request (v3, nonce-correlated, ID-based):
-    // [P,O,ver=3,OP_ROUTE=2, nonce:u32le, requester_id:u64le, target_id:u64le]
-    if requester.len() > 48 || target.is_empty() || target.len() > 48 {
-        return None;
-    }
-    let nonce = POLICY_NONCE.fetch_add(1, Ordering::Relaxed);
-    let mut frame = [0u8; 10 + 48 + 48];
-    let requester_id = nexus_abi::service_id_from_name(requester.as_bytes());
-    let target_id = nexus_abi::service_id_from_name(target);
-    let n = nexus_abi::policyd::encode_route_v3_id(nonce, requester_id, target_id, &mut frame)?;
-
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(200_000_000),
-        Err(_) => 0,
-    };
-
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
-        return None;
-    }
-    // Wait for the matching nonce. If a stale reply is queued, we'll consume and ignore it.
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 16];
-    loop {
-        let got = nexus_abi::ipc_recv_v1(
-            pol_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        )
-        .ok()? as usize;
-        // IPC_SYS_TRUNCATE can report a length larger than our local buffer.
-        // Never slice past the buffer (would panic and destabilize bring-up).
-        let got = core::cmp::min(got, buf.len());
-        let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;
-        if op != nexus_abi::policyd::OP_ROUTE || got_nonce != nonce {
-            continue;
-        }
-        // Deterministic debug (once) for the bundlemgrd->execd denial gate.
-        if requester == "bundlemgrd" && target == b"execd" {
-            debug_write_bytes(b"init: policyd route bundlemgrd->execd status=0x");
-            debug_write_hex(status as usize);
-            debug_write_byte(b'\n');
-        }
-        return match status {
-            nexus_abi::policyd::STATUS_ALLOW => Some(true),
-            nexus_abi::policyd::STATUS_DENY => Some(false),
-            _ => None,
-        };
-    }
-}
-
-fn policyd_cap_allowed(
-    pol_send_slot: u32,
-    pol_recv_slot: u32,
-    subject_id: u64,
-    cap: &[u8],
-) -> Option<bool> {
-    if cap.is_empty() || cap.len() > 48 {
-        return None;
-    }
-    // policyd OP_CHECK_CAP request (v1):
-    // [P,O,ver=1,OP_CHECK_CAP, subject_id:u64le, cap_len:u8, cap...]
-    let mut frame = [0u8; 13 + 48];
-    frame[0] = b'P';
-    frame[1] = b'O';
-    frame[2] = nexus_abi::policyd::VERSION_V1;
-    frame[3] = nexus_abi::policyd::OP_CHECK_CAP;
-    frame[4..12].copy_from_slice(&subject_id.to_le_bytes());
-    frame[12] = cap.len() as u8;
-    frame[13..13 + cap.len()].copy_from_slice(cap);
-    let n = 13 + cap.len();
-
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
-        return None;
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 16];
-    let got = nexus_abi::ipc_recv_v1(
-        pol_recv_slot,
-        &mut rh,
-        &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        deadline,
-    )
-    .ok()? as usize;
-    let got = core::cmp::min(got, buf.len());
-    if got < 6 || buf[0] != b'P' || buf[1] != b'O' || buf[2] != nexus_abi::policyd::VERSION_V1 {
-        return None;
-    }
-    if buf[3] != (nexus_abi::policyd::OP_CHECK_CAP | 0x80) {
-        return None;
-    }
-    match buf[4] {
-        nexus_abi::policyd::STATUS_ALLOW => Some(true),
-        nexus_abi::policyd::STATUS_DENY => Some(false),
-        _ => None,
     }
 }
 
@@ -3745,53 +3438,6 @@ fn updated_get_status(
             Err(e) => return Err(InitError::Ipc(e)),
         }
         j = j.wrapping_add(1);
-    }
-}
-
-fn policyd_exec_allowed(
-    pol_send_slot: u32,
-    pol_recv_slot: u32,
-    requester: &[u8],
-    image_id: u8,
-) -> Option<bool> {
-    // policyd OP_EXEC request (v3, nonce-correlated, ID-based):
-    // [P,O,ver=3,OP_EXEC=3, nonce:u32le, requester_id:u64le, image_id]
-    if requester.is_empty() || requester.len() > 48 {
-        return None;
-    }
-    let nonce = POLICY_NONCE.fetch_add(1, Ordering::Relaxed);
-    let mut frame = [0u8; 10 + 48];
-    let requester_id = nexus_abi::service_id_from_name(requester);
-    let n = nexus_abi::policyd::encode_exec_v3_id(nonce, requester_id, image_id, &mut frame)?;
-
-    let deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
-    if nexus_abi::ipc_send_v1(pol_send_slot, &hdr, &frame[..n], 0, deadline).is_err() {
-        return None;
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 16];
-    loop {
-        let got = nexus_abi::ipc_recv_v1(
-            pol_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            deadline,
-        )
-        .ok()? as usize;
-        let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;
-        if op != nexus_abi::policyd::OP_EXEC || got_nonce != nonce {
-            continue;
-        }
-        return match status {
-            nexus_abi::policyd::STATUS_ALLOW => Some(true),
-            nexus_abi::policyd::STATUS_DENY => Some(false),
-            _ => None,
-        };
     }
 }
 
