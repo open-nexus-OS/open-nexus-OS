@@ -26,6 +26,7 @@ use crate::backend::ramfb::{configure_ramfb, display_bootstrap_requested};
 use crate::error::{
     classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass,
 };
+use crate::splash;
 use crate::markers::{FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER};
 use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};
@@ -67,7 +68,12 @@ impl core::fmt::Write for FixedDebugLine {
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = bind_server()?;
-    if !display_bootstrap_requested() {
+    // Always try to configure ramfb. If ramfb is not available (no fw_cfg entry),
+    // configure_ramfb will fail and we fall through to the disabled loop below.
+    // In interactive mode (just start), ramfb IS available via QEMU -device ramfb.
+    let ramfb_available = display_bootstrap_requested()
+        || crate::backend::ramfb::find_file_select(b"etc/ramfb").is_some();
+    if !ramfb_available {
         let service = FbdevService::disabled();
         loop {
             service_requests(&server, service.visible_state())?;
@@ -84,6 +90,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
 
     configure_ramfb(framebuffer.base, mode).map_err(|err| fail(err))?;
     debug_println(RAMFB_CONFIGURED_MARKER).map_err(|_| "fbdevd ramfb log failed")?;
+    // Write boot splash so the user sees something immediately.
+    splash::write_splash(framebuffer.handle as u32, mode);
 
     // fbdevd is now scanout-only. windowd composes and writes frames into our VMO.
     // We handle observer queries and telemetry.

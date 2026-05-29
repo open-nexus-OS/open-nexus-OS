@@ -22,6 +22,7 @@ mod protocol;
 mod reactor;
 mod scanout;
 mod service;
+mod splash;
 mod vsync;
 
 pub use backend::framebuffer::{blend_cursor_row, validate_framebuffer_cap, validate_handoff};

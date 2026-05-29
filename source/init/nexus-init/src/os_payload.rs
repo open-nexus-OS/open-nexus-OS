@@ -1063,6 +1063,10 @@ where
         .map_err(InitError::Abi)?;
     let fbdev_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
+
+    // Priority-wire display services early (right after their endpoints exist)
+    // so fbdevd gets scheduled by the existing yield after MMIO grants.
+
     let gpud_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, gpud_pid, 8)
         .map_err(InitError::Abi)?;
     let gpud_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, gpud_pid, 8)
@@ -1185,6 +1189,47 @@ where
         POLICYD_CTL_EXEC_SEND_SLOT,
     )
     .map_err(InitError::Abi)?;
+
+    // Priority-wire policyd BEFORE MMIO grants so policy checks complete in microseconds.
+    // Clone caps so the originals stay available for other services that need SEND rights.
+    {
+        let pol_req_clone = nexus_abi::cap_clone(pol_req).map_err(InitError::Abi)?;
+        let pol_rsp_clone = nexus_abi::cap_clone(pol_rsp).map_err(InitError::Abi)?;
+        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "policyd") {
+            let pid = chan.pid;
+            chan.pol_recv_slot = Some(nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV).map_err(InitError::Abi)?);
+            chan.pol_send_slot = Some(nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            debug_write_bytes(b"init: policyd priority-wired\n");
+        }
+    }
+
+    // Priority-wire fbdevd + windowd + inputd using clones.
+    {
+        let fbdev_req_clone = nexus_abi::cap_clone(fbdev_req).map_err(InitError::Abi)?;
+        let fbdev_rsp_clone = nexus_abi::cap_clone(fbdev_rsp).map_err(InitError::Abi)?;
+        let window_req_clone = nexus_abi::cap_clone(window_req).map_err(InitError::Abi)?;
+        let window_rsp_clone = nexus_abi::cap_clone(window_rsp).map_err(InitError::Abi)?;
+        let input_req_clone = nexus_abi::cap_clone(input_req).map_err(InitError::Abi)?;
+        let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
+        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "fbdevd") {
+            let pid = chan.pid;
+            chan.fbdev_recv_slot = Some(nexus_abi::cap_transfer(pid, fbdev_req_clone, Rights::RECV).map_err(InitError::Abi)?);
+            chan.fbdev_send_slot = Some(nexus_abi::cap_transfer(pid, fbdev_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            debug_write_bytes(b"init: fbdevd priority-wired\n");
+        }
+        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
+            let pid = chan.pid;
+            chan.window_recv_slot = Some(nexus_abi::cap_transfer(pid, window_req_clone, Rights::RECV).map_err(InitError::Abi)?);
+            chan.window_send_slot = Some(nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            debug_write_bytes(b"init: windowd priority-wired\n");
+        }
+        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
+            let pid = chan.pid;
+            chan.input_recv_slot = Some(nexus_abi::cap_transfer(pid, input_req_clone, Rights::RECV).map_err(InitError::Abi)?);
+            chan.input_send_slot = Some(nexus_abi::cap_transfer(pid, input_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            debug_write_bytes(b"init: inputd priority-wired\n");
+        }
+    }
 
     // Policy-gated DeviceMmio grants (per-device windows) before other cap transfers.
     let grant_mmio_with_wait =
@@ -1320,35 +1365,6 @@ where
             }
         }
     }
-    let fbdevd_fwcfg_deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
-    loop {
-        match grant_mmio_cap(
-            fbdevd_pid,
-            "fbdevd",
-            "device.mmio.fwcfg",
-            FW_CFG_MMIO_BASE,
-            FW_CFG_MMIO_LEN,
-            pol_ctl_route_req,
-            pol_ctl_route_rsp,
-            FW_CFG_MMIO_CAP_SLOT,
-        )? {
-            Some(true) => break,
-            Some(false) => return Err(InitError::Map("fbdevd fw_cfg mmio policy denied")),
-            None => {
-                let now = match nexus_abi::nsec() {
-                    Ok(value) => value,
-                    Err(_) => 0,
-                };
-                if now >= fbdevd_fwcfg_deadline {
-                    return Err(InitError::Map("fbdevd fw_cfg mmio policy timeout"));
-                }
-                let _ = nexus_abi::yield_();
-            }
-        }
-    }
     for (idx, input_slot) in input_slots.iter().copied().enumerate() {
         if let Some(input_slot) = input_slot {
             grant_mmio_with_wait(
@@ -1411,6 +1427,10 @@ where
             }
         }
     }
+
+    // Yield so fbdevd (priority-wired, fw_cfg granted) can configure ramfb
+    // and write the boot splash BEFORE the full wiring loop runs.
+    let _ = nexus_abi::yield_();
 
     for chan in &mut ctrl_channels {
         let pid = chan.pid;
@@ -1592,6 +1612,29 @@ where
                 chan.bnd_recv_slot = Some(reply_recv_slot);
             }
             "policyd" => {
+                // Already priority-wired before MMIO grants — skip re-wiring.
+                if chan.pol_send_slot.is_some() && chan.pol_recv_slot.is_some() {
+                    debug_write_bytes(b"init: policyd already priority-wired, skip\n");
+                    // Still need reply inbox and logd caps.
+                    let pid = chan.pid;
+                    let reply_ep =
+                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                            .map_err(InitError::Abi)?;
+                    let reply_recv_slot =
+                        nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
+                    let reply_send_slot =
+                        nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.reply_recv_slot = Some(reply_recv_slot);
+                    chan.reply_send_slot = Some(reply_send_slot);
+                    chan.state_recv_slot = Some(reply_recv_slot);
+                    let _ = nexus_abi::cap_close(reply_ep);
+                    if let Some(req) = log_req {
+                        let send_slot =
+                            nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
+                    chan.log_send_slot = Some(send_slot);
+                    chan.log_recv_slot = Some(reply_recv_slot);
+                }
+            } else {
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pol_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
@@ -1634,6 +1677,7 @@ where
                     debug_write_hex(reply_recv_slot as usize);
                     debug_write_byte(b'\n');
                 }
+            }
             }
             "bundlemgrd" => {
                 let recv_slot =
@@ -2091,6 +2135,18 @@ where
                 }
             }
             "windowd" => {
+                // Already priority-wired before MMIO grants — skip re-wiring.
+                if chan.window_send_slot.is_some() && chan.window_recv_slot.is_some() {
+                    debug_write_bytes(b"init: windowd already priority-wired, skip\n");
+                    // Still need gpud caps.
+                    let gpud_send_slot = try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
+                    let gpud_recv_slot = try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                    if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
+                        chan.gpud_send_slot = Some(gpud_send);
+                        chan.gpud_recv_slot = Some(gpud_recv);
+                    }
+                    continue;
+                }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::SEND)
@@ -2118,6 +2174,10 @@ where
                 }
             }
             "inputd" => {
+                if chan.input_send_slot.is_some() && chan.input_recv_slot.is_some() {
+                    debug_write_bytes(b"init: inputd already priority-wired, skip\n");
+                    continue;
+                }
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND)
@@ -2142,6 +2202,10 @@ where
                 debug_write_byte(b'\n');
             }
             "fbdevd" => {
+                if chan.fbdev_send_slot.is_some() && chan.fbdev_recv_slot.is_some() {
+                    debug_write_bytes(b"init: fbdevd already priority-wired, skip\n");
+                    continue;
+                }
                 let recv_slot = nexus_abi::cap_transfer(pid, fbdev_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, fbdev_rsp, Rights::SEND)

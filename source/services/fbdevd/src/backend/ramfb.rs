@@ -255,7 +255,7 @@ fn map_dma_stage_page(dma_vmo: Handle, flags: u32) -> Result<usize> {
 }
 
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-fn find_file_select(target_name: &[u8]) -> Option<(u16, u32)> {
+pub fn find_file_select(target_name: &[u8]) -> Option<(u16, u32)> {
     if !fw_cfg_signature_ok() {
         return None;
     }
