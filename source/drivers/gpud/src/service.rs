@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use gfx_backend::GfxBackend;
+use nexus_gfx::backend::traits::GfxBackend;
 use nexus_abi::{debug_println, mmio_map, yield_, AbiError};
 use nexus_gfx::PixelFormat;
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -42,7 +42,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     backend
         .transfer_to_host(
             proof_resource,
-            gfx_backend::types::Rect {
+            nexus_gfx::backend::types::Rect {
                 x: 0,
                 y: 0,
                 width: PROOF_RESOURCE_W,
@@ -115,7 +115,7 @@ fn bind_server() -> KernelServer {
 fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
-    proof_resource: gfx_backend::types::ResourceId,
+    proof_resource: nexus_gfx::backend::types::ResourceId,
 ) -> Result<(), nexus_abi::AbiError> {
     loop {
         match server.recv_request_with_meta(Wait::NonBlocking) {
@@ -138,7 +138,7 @@ fn service_requests(
 
 fn handle_frame(
     backend: &mut VirtioGpuBackend,
-    proof_resource: gfx_backend::types::ResourceId,
+    proof_resource: nexus_gfx::backend::types::ResourceId,
     frame: &[u8],
 ) -> u8 {
     let Some(op) = frame.first().copied() else {
@@ -148,7 +148,7 @@ fn handle_frame(
         OP_SUBMIT_ANIMATION_FRAME => {
             let transfer = backend.transfer_to_host(
                 proof_resource,
-                gfx_backend::types::Rect {
+                nexus_gfx::backend::types::Rect {
                     x: 0,
                     y: 0,
                     width: PROOF_RESOURCE_W,

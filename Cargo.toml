@@ -28,7 +28,6 @@ members = [
     "userspace/ui/sdf",
     "userspace/ui/animation",
     "userspace/nexus-gfx",
-    "userspace/gfx-backend",
     "tests/ui_v3a_host",
     "tests/ui_v3b_host",
     "tests/ui_v4_host",

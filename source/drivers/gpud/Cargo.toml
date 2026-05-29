@@ -22,7 +22,6 @@ stack_pages = 2
 
 [dependencies]
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
-gfx-backend = { path = "../../../userspace/gfx-backend" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }

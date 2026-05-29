@@ -1,12 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use gfx_backend::traits::GfxBackend;
-use gfx_backend::types::{Rect, ResourceId};
-use gfx_backend::GfxError;
-use nexus_gfx::command_buffer::CommittedBuffer;
-use nexus_gfx::fence::Fence;
-use nexus_gfx::types::PixelFormat;
+use nexus_gfx::backend::error::GfxError;
+use nexus_gfx::backend::traits::GfxBackend;
+use nexus_gfx::backend::types::{Rect, ResourceId};
+use nexus_gfx::command::buffer::CommittedBuffer;
+use nexus_gfx::core::fence::Fence;
+use nexus_gfx::core::types::PixelFormat;
 
 use crate::error::GpuDriverError;
 use crate::markers::{

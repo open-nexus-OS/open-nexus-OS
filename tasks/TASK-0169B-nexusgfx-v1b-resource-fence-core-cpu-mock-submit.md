@@ -22,6 +22,12 @@ links:
 
 ## Context
 
+> **2026-05-29 Update:** NexusGfx module structure established (RFC-0059 Phase 5).
+> The flat `src/` layout has been replaced by a 10-directory Metal-like tree.
+> This task's scope now focuses on extending the `resource/` and `core/` modules
+> with VMO-backed Buffer/Image and real TimelineFence — building on the skeleton
+> files already in place.
+
 `TASK-0169` locks the host-first Scene-IR and backend abstraction, but it intentionally stops short of defining the
 portable resource, queue, and fence vocabulary that later CPU/GPU/compute executors must share.
 

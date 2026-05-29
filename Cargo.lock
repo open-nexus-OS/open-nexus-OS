@@ -1069,13 +1069,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gfx-backend"
-version = "0.1.0"
-dependencies = [
- "nexus-gfx",
-]
-
-[[package]]
 name = "ghash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,7 +1109,6 @@ dependencies = [
 name = "gpud"
 version = "0.1.0"
 dependencies = [
- "gfx-backend",
  "nexus-abi",
  "nexus-gfx",
  "nexus-ipc",

@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Unit tests for nexus_gfx::command_buffer.
+//! CONTEXT: Unit tests for nexus_gfx::command::buffer.
 //! OWNERS: @ui @runtime
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
@@ -96,7 +96,7 @@ fn test_reject_fragment_bytes_over_budget() {
             height: 64,
         })
         .unwrap();
-    let bytes = vec![0u8; nexus_gfx::command_buffer::MAX_FRAGMENT_BYTES + 1];
+    let bytes = vec![0u8; nexus_gfx::command::buffer::MAX_FRAGMENT_BYTES + 1];
     let err = enc.try_set_fragment_bytes(0, &bytes).err();
     assert_eq!(err, Some(GfxError::ResourceExhausted));
 }

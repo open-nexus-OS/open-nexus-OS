@@ -21,6 +21,12 @@ links:
 
 ## Context
 
+> **2026-05-29 Update:** NexusGfx module structure established (RFC-0059 Phase 5).
+> The `command/` module now holds buffer, render_encoder, and skeleton files for
+> compute_encoder, blit_encoder, pass, and validation. This task's scope focuses
+> on implementing the pass planning and present completion in `command/pass.rs`
+> and `sync/timeline.rs` — building on the skeleton files already in place.
+
 `TASK-0170` wires `windowd` to the renderer backend and proves basic present behavior, but it does not yet lock the
 portable handoff between UI composition and a future `NexusGfx` pass/submit model.
 

@@ -8,6 +8,7 @@ links:
   - Playbook: docs/agents/PLAYBOOK.md
   - Extracted (NexusGfx v1b resource/fence core): tasks/TASK-0169B-nexusgfx-v1b-resource-fence-core-cpu-mock-submit.md
   - Extracted (NexusGfx v1c windowd handoff): tasks/TASK-0170B-nexusgfx-v1c-windowd-handoff-minimal-pass-planning.md
+  - Current state (2026-05-29): Module structure established (Phase 5 of RFC-0059). 10-directory Metal-like tree, 40+ skeleton files. Existing v0 code moved into core/, resource/, command/. Backward-compatible re-exports. See RFC-0059 for full structure.
   - Gfx compute/executor model: docs/architecture/nexusgfx-compute-and-executor-model.md
   - Gfx resource model: docs/architecture/nexusgfx-resource-model.md
   - Gfx sync/lifetime model: docs/architecture/nexusgfx-sync-and-lifetime.md
