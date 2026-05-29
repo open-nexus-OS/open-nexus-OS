@@ -32,6 +32,10 @@
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod slot_map;
 
+/// Typed capability routing table — single source of truth for IPC routes.
+#[cfg(all(feature = "os-payload", nexus_env = "os"))]
+pub mod route_table;
+
 /// Shared os-lite loader facade used by the deprecated init-lite wrapper.
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod os_payload;

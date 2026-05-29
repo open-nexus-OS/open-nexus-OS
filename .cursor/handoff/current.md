@@ -1,70 +1,39 @@
-# Handoff — TASK-0062 / RFC-0059 (Implemented)
+# Handoff — Unified Capability Architecture (Phase 1)
 
-Date: 2026-05-22
-Session: full implementation + test structure + docs
+Date: 2026-05-29
+Session: diagnosis + Phase 1 implementation start
 
-## Summary
+## Diagnosis
 
-TASK-0062 / RFC-0059 implemented: 5 phases complete, 38 tests green, all production-grade.
-Three-layer animation architecture: Animation Engine + NexusGfx SDK + GPU Driver.
+Root cause chain for black screen:
+1. gpud `create_resource()` crashes on MMIO fault (`cap_query` on VMO)
+2. init-lite `cap_transfer(dead_pid, ...)` → kernel `TransferError::InvalidChild`
+3. init-lite `fatal_err()` → PANIC
+4. windowd/inputd/fbdevd unrouted → route fallback → fbdevd recv permission-denied
+5. No framebuffer registration → black screen
 
-## What was implemented
+## Duplicate structures found
 
-### Phase 0 — Animation Engine
-- `userspace/ui/animation/` — `src/` + `tests/` (12 tests)
-- Timeline, Spring (RK4), Keyframe (Linear/EaseIn/EaseOut/EaseInOut), SceneUpdate, Reduced Motion
-- Fixed-timestep determinism: same input = same frames on x86_64 and riscv64
+- init-lite routing table (os_payload.rs, 3771 lines): hardcoded manual wiring
+- samgrd registry (os_lite.rs, 541 lines): stub, scoped slot numbers, not used by init
+- Both exist, neither talks to the other
 
-### Phase 1 — NexusGfx SDK
-- `userspace/nexus-gfx/` — `src/` + `tests/` (4 tests)
-- Metal-like API: Device, Queue, CommandBuffer, RenderCommandEncoder, Buffer, Fence
-- CommittedBuffer sealed pattern — no mutation after commit
+## Plan (4 phases)
 
-### Phase 2 — GPU Backend
-- `userspace/gfx-backend/` — `src/` + `tests/` (4 tests)
-- GfxBackend trait (submit, create_resource, transfer_to_host, set_scanout, move_cursor)
-- CpuMockBackend — golden reference for GPU output comparison
+| Phase | Goal | Gate |
+|-------|------|------|
+| P1 | Graceful Wiring + gpud fix | `fbdevd: flush ok` appears |
+| P2 | RouteTable as typed struct | All tests green, routing table <200 lines |
+| P3 | samgrd as SSOT | selftest-client resolves via samgrd |
+| P4 | Newtypes + hop markers | `just test-all` green |
 
-### Phase 3 — GPU Driver
-- `source/drivers/gpud/` — `src/` + `tests/` (9 tests)
-- virtio-gpu MMIO protocol (CREATE_RESOURCE_2D, SET_SCANOUT, MOVE_CURSOR)
-- VirtioGpuBackend implementing GfxBackend
-- Protocol struct size validation (CtrlHdr=32, CreateResource=40, SetScanout=48, CursorPos=56)
+## Phase 1 tasks
 
-### Phase 4 — windowd Integration
-- AnimationDriver in DisplayServerRuntime::tick()
-- SceneUpdate → TileMap::mark_rect() damage pipeline
-- Implicit transitions: paint flag changes → spring_to() opacity animations
-- `reduced_motion()` query method, `active_count()` for tests
-
-### Phase 5 — RISC-V Optimizations
-- `fixed_sdf.rs`: `circle_sd()` fixed-point (integer math only)
-- `primitives.rs`: `div255(x) = ((x*257)+32768)>>16` replacement
-- `.cargo/config.toml`: `+zbb` target-feature
-
-### Clean test structure
-- All 4 crates: `src/` for code, `tests/` for test files with meaningful names:
-  - `spring_physics_tests.rs`, `keyframe_interpolation_tests.rs`, `timeline_ordering_tests.rs`
-  - `command_buffer_tests.rs`, `render_encoder_tests.rs`
-  - `cpu_mock_tests.rs`
-  - `protocol_tests.rs`, `backend_tests.rs`
-
-### Documentation
-- `docs/adr/0031-three-layer-animation-architecture.md` — ADR with architectural decisions
-- `docs/architecture/animation-nexusgfx-gpu-three-layer-stack.md` — full architecture reference
-
-## Verification
-
-```bash
-cargo check -p windowd --features os-lite   # 0 errors
-cargo test -p animation                      # 12/12
-cargo test -p nexus-gfx                      # 4/4
-cargo test -p gfx-backend                    # 4/4
-cargo test -p gpud                           # 9/9
-cargo test -p windowd                        # 9/9
-```
+1. os_payload.rs: replace `fatal_err()` with per-service error skip
+2. gpud/backend.rs: fix `cap_query` on VMO (use vmo_map_page physical address)
+3. route_table.rs: new file with typed RouteTable, ServiceId, CapSlot
 
 ## Next step
 
-Selftest-client integration: observer-only UART markers verification. Add animation hop markers
-to `scripts/qemu-test.sh` marker ladder. Real virtio-gpu execution for QEMU virtio-gpu-device.
+Implement Phase 1: start with route_table.rs as the foundation,
+then apply graceful wiring in os_payload.rs, then fix gpud.

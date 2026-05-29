@@ -9,6 +9,10 @@ use nexus_gfx::fence::Fence;
 use nexus_gfx::types::PixelFormat;
 
 use crate::error::GpuDriverError;
+use crate::markers::{
+    GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL, GPUD_RESOURCE_CREATED,
+    GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
+};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 
@@ -317,15 +321,20 @@ impl VirtioGpuBackend {
         let resource_index = self.resources.len();
         let backing_len = align_page(byte_len);
         let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
-        let backing_vmo =
-            nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
+        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|e| {
+            let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
+            GfxError::ResourceExhausted
+        })?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         for offset in (0..backing_len).step_by(4096) {
             nexus_abi::vmo_map_page(backing_vmo, backing_va + offset, offset, flags)
-                .map_err(|_| GfxError::MmioFault)?;
+                .map_err(|e| {
+                    let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
+                    GfxError::MmioFault
+                })?;
         }
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
         let mut info = nexus_abi::CapQuery {
@@ -334,7 +343,10 @@ impl VirtioGpuBackend {
             base: 0,
             len: 0,
         };
-        nexus_abi::cap_query(backing_vmo, &mut info).map_err(|_| GfxError::MmioFault)?;
+        nexus_abi::cap_query(backing_vmo, &mut info).map_err(|e| {
+            let _ = nexus_abi::debug_println(GPUD_RESOURCE_CAP_QUERY_FAIL);
+            GfxError::MmioFault
+        })?;
 
         let create = protocol::VirtioGpuResourceCreate2d {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
@@ -343,7 +355,10 @@ impl VirtioGpuBackend {
             width: w,
             height: h,
         };
-        self.ctrl_submit_struct(&create)?;
+        self.ctrl_submit_struct(&create).map_err(|e| {
+            let _ = nexus_abi::debug_println(GPUD_RESOURCE_CREATE_CMD_FAIL);
+            e
+        })?;
 
         let attach = protocol::VirtioGpuResourceAttachBacking {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
@@ -355,7 +370,11 @@ impl VirtioGpuBackend {
             length: byte_len as u32,
             _padding: 0,
         };
-        self.ctrl_submit_pair(&attach, &entry)?;
+        self.ctrl_submit_pair(&attach, &entry).map_err(|e| {
+            let _ = nexus_abi::debug_println(GPUD_RESOURCE_ATTACH_CMD_FAIL);
+            e
+        })?;
+        let _ = nexus_abi::debug_println(GPUD_RESOURCE_CREATED);
         Ok((backing_va, info.base, backing_len))
     }
 

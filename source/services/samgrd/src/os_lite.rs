@@ -361,8 +361,7 @@ fn handle_frame(
         OP_RESOLVE_STATUS => {
             // RESOLVE_STATUS request:
             //   [S, M, ver, OP_RESOLVE_STATUS, name_len:u8, name...]
-            // Response uses the common 13-byte shape:
-            //   [S, M, ver, OP_RESOLVE_STATUS|0x80, status, 0,0,0,0,0,0,0,0]
+            // Response: [S, M, ver, OP_RESOLVE_STATUS|0x80, status, 0,0,0,0,0,0,0,0]
             //
             // Security note (TASK-0005): this op returns ONLY status, never capability slots.
             let n = frame[4] as usize;
@@ -370,24 +369,12 @@ fn handle_frame(
                 return rsp(op, STATUS_MALFORMED, 0, 0);
             }
             let name = &frame[5..];
-            // Bring-up semantics (TASK-0005): resolve is a *status* API (no capability transfer).
-            //
-            // Under os-lite bring-up, not every service has full routing to every other service yet.
-            // For RESOLVE_STATUS we therefore answer based on a bounded allowlist of known core services
-            // that are expected to be present in the image.
-            let ok = matches!(
-                name,
-                b"keystored"
-                    | b"policyd"
-                    | b"samgrd"
-                    | b"bundlemgrd"
-                    | b"packagefsd"
-                    | b"vfsd"
-                    | b"execd"
-                    | b"netstackd"
-                    | b"dsoftbusd"
-            );
-            if ok {
+            // Phase-3: query the registry (populated by init-lite at boot).
+            // Look across all sender scopes to find any registration for this name.
+            let found = registry
+                .iter()
+                .any(|((_sid, reg_name), _slots)| reg_name.as_slice() == name);
+            if found {
                 rsp(op, STATUS_OK, 0, 0)
             } else {
                 rsp(op, STATUS_NOT_FOUND, 0, 0)

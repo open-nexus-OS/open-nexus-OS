@@ -24,6 +24,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 #[cfg(nexus_env = "os")]
 use nexus_abi::{self, AbiError, IpcError, Rights};
 
+use crate::route_table::{CapSlot, RouteTable, ServiceId};
+
 // Tooling/host diagnostics compatibility:
 // `os_payload` is OS-only (selected by `lib.rs`), but rust-analyzer may still parse this file
 // under a host `cfg` set. Provide minimal stubs so diagnostics don't fail the workspace.
@@ -978,8 +980,11 @@ where
         .map_err(InitError::Abi)?;
     let sam_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, samgrd_pid, 8)
         .map_err(InitError::Abi)?;
+    // Clone so init-lite keeps a SEND cap to samgrd for registry population.
+    let init_sam_send = nexus_abi::cap_clone(sam_req).map_err(InitError::Abi)?;
     let sam_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
         .map_err(InitError::Abi)?;
+    let init_sam_recv = nexus_abi::cap_clone(sam_rsp).map_err(InitError::Abi)?;
     let exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
         .map_err(InitError::Abi)?;
     let exe_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
@@ -1375,6 +1380,36 @@ where
             blk_slot,
             DEVICE_MMIO_CAP_SLOT,
         )?;
+    }
+
+    /// Transfer a capability to a child PID with graceful error handling.
+    /// Returns Some(slot) on success, None on failure (logs the error).
+    /// On success, emits a `cap:` hop marker for traceability.
+    fn try_transfer(pid: u32, cap: u32, rights: Rights, svc: &str, label: &str) -> Option<u32> {
+        match nexus_abi::cap_transfer(pid, cap, rights) {
+            Ok(slot) => {
+                debug_write_bytes(b"cap: route init->");
+                debug_write_str(svc);
+                debug_write_bytes(b" ");
+                debug_write_str(label);
+                debug_write_bytes(b" src=0x");
+                debug_write_hex(cap as usize);
+                debug_write_bytes(b" dst=0x");
+                debug_write_hex(slot as usize);
+                debug_write_byte(b'\n');
+                Some(slot)
+            }
+            Err(e) => {
+                debug_write_bytes(b"init: skip ");
+                debug_write_str(svc);
+                debug_write_bytes(b" ");
+                debug_write_str(label);
+                debug_write_bytes(b": ");
+                debug_write_str(abi_error_label(e));
+                debug_write_byte(b'\n');
+                None
+            }
+        }
     }
 
     for chan in &mut ctrl_channels {
@@ -2043,17 +2078,17 @@ where
                 debug_write_byte(b'\n');
             }
             "gpud" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, gpud_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, gpud_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.gpud_send_slot = Some(send_slot);
-                chan.gpud_recv_slot = Some(recv_slot);
-                debug_write_bytes(b"init: gpud slots recv=0x");
-                debug_write_hex(recv_slot as usize);
-                debug_write_bytes(b" send=0x");
-                debug_write_hex(send_slot as usize);
-                debug_write_byte(b'\n');
+                let recv_slot = try_transfer(pid, gpud_req, Rights::RECV, "gpud", "RECV");
+                let send_slot = try_transfer(pid, gpud_rsp, Rights::SEND, "gpud", "SEND");
+                if let (Some(recv), Some(send)) = (recv_slot, send_slot) {
+                    chan.gpud_send_slot = Some(send);
+                    chan.gpud_recv_slot = Some(recv);
+                    debug_write_bytes(b"init: gpud slots recv=0x");
+                    debug_write_hex(recv as usize);
+                    debug_write_bytes(b" send=0x");
+                    debug_write_hex(send as usize);
+                    debug_write_byte(b'\n');
+                }
             }
             "windowd" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -2062,22 +2097,25 @@ where
                     .map_err(InitError::Abi)?;
                 chan.window_send_slot = Some(send_slot);
                 chan.window_recv_slot = Some(recv_slot);
-                let gpud_send_slot =
-                    nexus_abi::cap_transfer(pid, gpud_req, Rights::SEND).map_err(InitError::Abi)?;
-                let gpud_recv_slot =
-                    nexus_abi::cap_transfer(pid, gpud_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.gpud_send_slot = Some(gpud_send_slot);
-                chan.gpud_recv_slot = Some(gpud_recv_slot);
+                // gpud may have crashed — graceful transfer
+                let gpud_send_slot = try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
+                let gpud_recv_slot = try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
+                    chan.gpud_send_slot = Some(gpud_send);
+                    chan.gpud_recv_slot = Some(gpud_recv);
+                }
                 debug_write_bytes(b"init: windowd slots recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_bytes(b" send=0x");
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
-                debug_write_bytes(b"init: windowd gpud slots send=0x");
-                debug_write_hex(gpud_send_slot as usize);
-                debug_write_bytes(b" recv=0x");
-                debug_write_hex(gpud_recv_slot as usize);
-                debug_write_byte(b'\n');
+                if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
+                    debug_write_bytes(b"init: windowd gpud slots send=0x");
+                    debug_write_hex(gpud_send as usize);
+                    debug_write_bytes(b" recv=0x");
+                    debug_write_hex(gpud_recv as usize);
+                    debug_write_byte(b'\n');
+                }
             }
             "inputd" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
@@ -2429,8 +2467,11 @@ where
         }
     }
 
+    let route_table = build_route_table(&ctrl_channels);
+    populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
     Ok(BootstrapState {
         ctrl_channels,
+        route_table,
         pol_ctl_route_req,
         pol_ctl_route_rsp,
         pol_ctl_exec_req,
@@ -2442,8 +2483,133 @@ where
     })
 }
 
+/// Send OP_REGISTER to samgrd for every route in the table.
+fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &RouteTable) {
+    // Collect unique service registrations: for each (from, to) route,
+    // samgrd needs to know about the target service's slots.
+    // We register each target service's self-route (the one where from == to).
+    for id in &[
+        ServiceId::Vfsd, ServiceId::Packagefsd, ServiceId::Policyd,
+        ServiceId::Bundlemgrd, ServiceId::Updated, ServiceId::Samgrd,
+        ServiceId::Execd, ServiceId::Keystored, ServiceId::Statefsd,
+        ServiceId::Rngd, ServiceId::Timed, ServiceId::Windowd,
+        ServiceId::Inputd, ServiceId::Fbdevd, ServiceId::Gpud,
+        ServiceId::Netstackd, ServiceId::Metricsd, ServiceId::Logd,
+        ServiceId::Dsoftbusd, ServiceId::Hidrawd, ServiceId::Touchd,
+        ServiceId::SelftestClient,
+    ] {
+        // Look up self-route: from==to
+        if let Some(route) = table.lookup(*id, *id) {
+            let name = id.name();
+            // OP_REGISTER frame: [S,M,1,OP_REGISTER=1, name_len, send_slot:4, recv_slot:4, name...]
+            let mut req = [0u8; 64];
+            req[0] = b'S';
+            req[1] = b'M';
+            req[2] = 1; // version
+            req[3] = 1; // OP_REGISTER
+            let name_bytes = name.as_bytes();
+            req[4] = name_bytes.len() as u8;
+            req[5..9].copy_from_slice(&route.send.slot.to_le_bytes());
+            req[9..13].copy_from_slice(&route.recv.slot.to_le_bytes());
+            let name_start = 13;
+            let name_end = name_start + name_bytes.len();
+            req[name_start..name_end].copy_from_slice(name_bytes);
+            let req_len = name_end;
+            // Send non-blocking (samgrd may not be ready yet in bring-up)
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
+            let _ = nexus_abi::ipc_send_v1(
+                send_cap,
+                &hdr,
+                &req[..req_len],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            );
+            // Drain response non-blocking
+            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 16];
+            let _ = nexus_abi::ipc_recv_v1(
+                recv_cap,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            );
+        }
+    }
+}
+
+/// Build a RouteTable from the wired ctrl_channels.
+fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
+    let mut table = RouteTable::new();
+    for chan in channels {
+        let Some(from) = ServiceId::from_name(chan.svc_name.as_bytes()) else {
+            continue;
+        };
+        // For each target, check if slots are populated and add route.
+        if let (Some(s), Some(r)) = (chan.vfs_send_slot, chan.vfs_recv_slot) {
+            table.add_route(from, ServiceId::Vfsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.pkg_send_slot, chan.pkg_recv_slot) {
+            table.add_route(from, ServiceId::Packagefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.pol_send_slot, chan.pol_recv_slot) {
+            table.add_route(from, ServiceId::Policyd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.bnd_send_slot, chan.bnd_recv_slot) {
+            table.add_route(from, ServiceId::Bundlemgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.upd_send_slot, chan.upd_recv_slot) {
+            table.add_route(from, ServiceId::Updated, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.sam_send_slot, chan.sam_recv_slot) {
+            table.add_route(from, ServiceId::Samgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.exe_send_slot, chan.exe_recv_slot) {
+            table.add_route(from, ServiceId::Execd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.key_send_slot, chan.key_recv_slot) {
+            table.add_route(from, ServiceId::Keystored, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.state_send_slot, chan.state_recv_slot) {
+            table.add_route(from, ServiceId::Statefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.rng_send_slot, chan.rng_recv_slot) {
+            table.add_route(from, ServiceId::Rngd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.timed_send_slot, chan.timed_recv_slot) {
+            table.add_route(from, ServiceId::Timed, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.window_send_slot, chan.window_recv_slot) {
+            table.add_route(from, ServiceId::Windowd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.input_send_slot, chan.input_recv_slot) {
+            table.add_route(from, ServiceId::Inputd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.fbdev_send_slot, chan.fbdev_recv_slot) {
+            table.add_route(from, ServiceId::Fbdevd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.gpud_send_slot, chan.gpud_recv_slot) {
+            table.add_route(from, ServiceId::Gpud, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.net_send_slot, chan.net_recv_slot) {
+            table.add_route(from, ServiceId::Netstackd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.metrics_send_slot, chan.metrics_recv_slot) {
+            table.add_route(from, ServiceId::Metricsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.log_send_slot, chan.log_recv_slot) {
+            table.add_route(from, ServiceId::Logd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+        if let (Some(s), Some(r)) = (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
+            table.add_route(from, ServiceId::Dsoftbusd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+        }
+    }
+    table
+}
+
 struct BootstrapState {
     ctrl_channels: Vec<CtrlChannel>,
+    route_table: RouteTable,
     pol_ctl_route_req: u32,
     pol_ctl_route_rsp: u32,
     pol_ctl_exec_req: u32,
@@ -2492,6 +2658,7 @@ where
 {
     let state = bootstrap_service_images(images, notifier)?;
     let ctrl_channels = state.ctrl_channels;
+    let route_table = state.route_table;
     let pol_ctl_route_req = state.pol_ctl_route_req;
     let pol_ctl_route_rsp = state.pol_ctl_route_rsp;
     let pol_ctl_exec_req = state.pol_ctl_exec_req;
@@ -2734,136 +2901,11 @@ where
                 continue;
             }
 
-            let (status, send_slot, recv_slot) = if name == b"vfsd" {
-                // Debug: log vfsd routing lookup.
-                debug_write_bytes(b"init: route vfsd lookup svc=");
-                debug_write_str(chan.svc_name);
-                debug_write_bytes(b" has_slots=");
-                debug_write_byte(
-                    if chan.vfs_send_slot.is_some() && chan.vfs_recv_slot.is_some() {
-                        b'Y'
-                    } else {
-                        b'N'
-                    },
-                );
-                debug_write_byte(b'\n');
-                match (chan.vfs_send_slot, chan.vfs_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"packagefsd" {
-                match (chan.pkg_send_slot, chan.pkg_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"policyd" {
-                debug_write_bytes(b"init: route policyd from ");
-                debug_write_str(chan.svc_name);
-                debug_write_bytes(b" pol_send=");
-                if let Some(s) = chan.pol_send_slot {
-                    debug_write_hex(s as usize);
-                } else {
-                    debug_write_bytes(b"None");
-                }
-                debug_write_bytes(b" pol_recv=");
-                if let Some(r) = chan.pol_recv_slot {
-                    debug_write_hex(r as usize);
-                } else {
-                    debug_write_bytes(b"None");
-                }
-                debug_write_byte(b'\n');
-                match (chan.pol_send_slot, chan.pol_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"bundlemgrd" {
-                match (chan.bnd_send_slot, chan.bnd_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"logd" {
-                match (chan.log_send_slot, chan.log_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"metricsd" {
-                match (chan.metrics_send_slot, chan.metrics_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"updated" {
-                match (chan.upd_send_slot, chan.upd_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"samgrd" {
-                match (chan.sam_send_slot, chan.sam_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"execd" {
-                match (chan.exe_send_slot, chan.exe_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"keystored" {
-                match (chan.key_send_slot, chan.key_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"statefsd" {
-                match (chan.state_send_slot, chan.state_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"netstackd" {
-                match (chan.net_send_slot, chan.net_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"logd" {
-                match (chan.log_send_slot, chan.log_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"dsoftbusd" {
-                match (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"rngd" {
-                match (chan.rng_send_slot, chan.rng_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"timed" {
-                match (chan.timed_send_slot, chan.timed_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"windowd" {
-                match (chan.window_send_slot, chan.window_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"inputd" {
-                match (chan.input_send_slot, chan.input_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"fbdevd" {
-                match (chan.fbdev_send_slot, chan.fbdev_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else if name == b"gpud" {
-                match (chan.gpud_send_slot, chan.gpud_recv_slot) {
-                    (Some(send), Some(recv)) => (nexus_abi::routing::STATUS_OK, send, recv),
-                    _ => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
-                }
-            } else {
-                (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32)
-            };
+            let (status, send_slot, recv_slot) =
+                match route_table.lookup_by_name(chan.svc_name.as_bytes(), name) {
+                    Ok(route) => (nexus_abi::routing::STATUS_OK, route.send.slot, route.recv.slot),
+                    Err(_) => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
+                };
             if name == b"samgrd" && chan.svc_name == "selftest-client" {
                 debug_write_bytes(b"init: route samgrd rsp status=0x");
                 debug_write_hex(status as usize);
