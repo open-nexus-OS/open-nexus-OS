@@ -7,7 +7,9 @@
 //! API_STABILITY: Unstable
 
 pub(crate) mod types;
+pub(crate) mod orchestrator;
 pub(crate) mod policyd;
+pub(crate) mod responder;
 pub(crate) mod route_builder;
 pub(crate) mod spawn;
 
