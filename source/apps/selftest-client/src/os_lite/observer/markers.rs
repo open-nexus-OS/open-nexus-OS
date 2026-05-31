@@ -11,18 +11,13 @@
 
 extern crate alloc;
 use alloc::vec::Vec;
-use core::time::Duration;
 use nexus_abi::yield_;
-use nexus_ipc::{Client as _, KernelClient, Wait};
+use nexus_ipc::KernelClient;
 
 /// Wait for a specific marker string to appear in logd output.
 ///
 /// Returns `true` if the marker was found within the deadline.
-pub(crate) fn wait_for_marker(
-    logd: &KernelClient,
-    marker: &[u8],
-    deadline_ns: u64,
-) -> bool {
+pub(crate) fn wait_for_marker(logd: &KernelClient, marker: &[u8], deadline_ns: u64) -> bool {
     let start = nexus_abi::nsec().unwrap_or(0);
     let deadline = start.saturating_add(deadline_ns);
     loop {
@@ -72,15 +67,19 @@ fn logd_contains(logd: &KernelClient, offset: u64, pattern: &[u8]) -> bool {
     let _ = req; // suppress unused warning for now
 
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 16);
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..16], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..16], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err()
+    {
         return false;
     }
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 256];
     let n = match nexus_abi::ipc_recv_v1(
-        recv_slot, &mut rh, &mut buf,
-        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE, 0,
+        recv_slot,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+        0,
     ) {
         Ok(n) => n as usize,
         Err(_) => return false,
@@ -117,15 +116,19 @@ pub(crate) fn read_markers_since(
     req[12..16].copy_from_slice(&limit.to_le_bytes());
 
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 16);
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..16], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..16], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err()
+    {
         return None;
     }
 
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 256];
     let n = match nexus_abi::ipc_recv_v1(
-        recv_slot, &mut rh, &mut buf,
-        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE, 0,
+        recv_slot,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+        0,
     ) {
         Ok(n) => n as usize,
         Err(_) => return None,

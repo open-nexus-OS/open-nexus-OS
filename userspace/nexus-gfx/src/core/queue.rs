@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::buffer::{CommandBuffer, CommittedBuffer};
-use crate::core::fence::Fence;
 use crate::core::error::GfxError;
+use crate::core::fence::Fence;
 
 pub const DEFAULT_QUEUE_DEPTH: u8 = 2;
 
@@ -16,20 +16,14 @@ pub struct Queue {
 
 impl Queue {
     pub fn new() -> Self {
-        Self {
-            max_in_flight: DEFAULT_QUEUE_DEPTH,
-            in_flight: 0,
-        }
+        Self { max_in_flight: DEFAULT_QUEUE_DEPTH, in_flight: 0 }
     }
 
     pub fn with_depth(max_in_flight: u8) -> Result<Self, GfxError> {
         if max_in_flight == 0 {
             return Err(GfxError::InvalidArgument);
         }
-        Ok(Self {
-            max_in_flight,
-            in_flight: 0,
-        })
+        Ok(Self { max_in_flight, in_flight: 0 })
     }
 
     pub fn submit(&mut self, cmd: CommandBuffer) -> Result<Fence, GfxError> {

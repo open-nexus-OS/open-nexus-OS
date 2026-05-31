@@ -958,7 +958,12 @@ COMMON_ARGS=(
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
   load_systemui_input_profile
   RESOLVED_QEMU_DISPLAY_BACKEND=$(resolve_qemu_display_backend)
-  COMMON_ARGS+=( -display "$RESOLVED_QEMU_DISPLAY_BACKEND" -serial mon:stdio -device ramfb )
+  # virtio-gpu as primary display (controls GTK window size via SET_SCANOUT).
+  # ramfb as secondary console for the early boot splash path.
+  # Production-grade: once gpud takes over, the GTK window resizes to 1280x800.
+  COMMON_ARGS+=( -display "$RESOLVED_QEMU_DISPLAY_BACKEND" -serial mon:stdio )
+  COMMON_ARGS+=( -device virtio-gpu-device,max_outputs=1 -device ramfb )
+  QEMU_GPU_DEVICE_PLACED=1
   if [[ "$NEXUS_PROFILE_INPUT_KBD" == "1" ]]; then
     COMMON_ARGS+=( -device virtio-keyboard-device )
   fi
@@ -1014,10 +1019,13 @@ COMMON_ARGS+=(
   ${QEMU_NETDEV_DEVICE}
   ${QEMU_RNG_OBJECT}
   ${QEMU_RNG_DEVICE}
-  ${QEMU_GPU_DEVICE}
   ${QEMU_BLK_DRIVE}
   ${QEMU_BLK_DEVICE}
 )
+# virtio-gpu may already have been placed as primary display in the bootstrap path.
+if [[ -z "${QEMU_GPU_DEVICE_PLACED:-}" ]]; then
+  COMMON_ARGS+=( ${QEMU_GPU_DEVICE} )
+fi
 
 # #region agent log
 has_usb_kbd=0

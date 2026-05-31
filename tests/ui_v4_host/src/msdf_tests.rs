@@ -40,11 +40,7 @@ mod tests {
     #[test]
     fn test_atlas_byte_count_matches() {
         let expected = (MSDF_ATLAS_WIDTH * MSDF_ATLAS_HEIGHT * 4) as usize;
-        assert_eq!(
-            MSDF_ATLAS.len(),
-            expected,
-            "atlas byte count should match dimensions"
-        );
+        assert_eq!(MSDF_ATLAS.len(), expected, "atlas byte count should match dimensions");
     }
 
     #[test]
@@ -84,18 +80,12 @@ mod tests {
     fn test_glyph_metrics_out_of_range_returns_none() {
         assert!(glyph_metrics('\0').is_none(), "null char outside range");
         assert!(glyph_metrics('\u{7f}').is_none(), "DEL outside range");
-        assert!(
-            glyph_metrics('é').is_none(),
-            "accented char outside ASCII range"
-        );
+        assert!(glyph_metrics('é').is_none(), "accented char outside ASCII range");
     }
 
     #[test]
     fn test_glyph_metrics_last_char_tilde() {
-        assert!(
-            glyph_metrics('~').is_some(),
-            "'~' should be in atlas (last printable)"
-        );
+        assert!(glyph_metrics('~').is_some(), "'~' should be in atlas (last printable)");
     }
 
     // ─── SDF sampling ───
@@ -147,10 +137,7 @@ mod tests {
         // At exactly the edge (128), alpha should be around half
         let alpha = sdf_to_alpha(128, 16);
         // smoothstep(112, 144, 128) → t=(128-112)=16 → 16*255/32 = 127
-        assert!(
-            alpha > 100 && alpha < 155,
-            "edge alpha should be ~127 (got {alpha})"
-        );
+        assert!(alpha > 100 && alpha < 155, "edge alpha should be ~127 (got {alpha})");
     }
 
     #[test]
@@ -182,10 +169,7 @@ mod tests {
     #[test]
     fn test_sample_alpha_i_inside() {
         let alpha = sample_alpha('I', 0.5, 0.5, 16);
-        assert!(
-            alpha > 100,
-            "center of 'I' should be at least semi-opaque (alpha={alpha})"
-        );
+        assert!(alpha > 100, "center of 'I' should be at least semi-opaque (alpha={alpha})");
     }
 
     #[test]

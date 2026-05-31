@@ -22,10 +22,7 @@ pub struct EffectBudget {
 impl EffectBudget {
     /// Create a new budget with the given total pixel allowance per frame.
     pub const fn new(pixels_per_frame: u32) -> Self {
-        Self {
-            remaining: pixels_per_frame,
-            total: pixels_per_frame,
-        }
+        Self { remaining: pixels_per_frame, total: pixels_per_frame }
     }
 
     /// Try to reserve `count` pixels. Returns true if reserved, false if budget exhausted.

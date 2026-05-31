@@ -104,14 +104,8 @@ impl GfxBackend for CpuMockBackend {
         let Some(resource) = self.resources.get((r.0.saturating_sub(1)) as usize) else {
             return Err(GfxError::InvalidArgument);
         };
-        let end_x = rect
-            .x
-            .checked_add(rect.width)
-            .ok_or(GfxError::InvalidArgument)?;
-        let end_y = rect
-            .y
-            .checked_add(rect.height)
-            .ok_or(GfxError::InvalidArgument)?;
+        let end_x = rect.x.checked_add(rect.width).ok_or(GfxError::InvalidArgument)?;
+        let end_y = rect.y.checked_add(rect.height).ok_or(GfxError::InvalidArgument)?;
         if rect.width == 0 || rect.height == 0 || end_x > resource.width || end_y > resource.height
         {
             return Err(GfxError::InvalidArgument);
@@ -119,11 +113,7 @@ impl GfxBackend for CpuMockBackend {
         Ok(())
     }
     fn set_scanout(&mut self, r: ResourceId) -> Result<(), GfxError> {
-        if self
-            .resources
-            .get((r.0.saturating_sub(1)) as usize)
-            .is_none()
-        {
+        if self.resources.get((r.0.saturating_sub(1)) as usize).is_none() {
             return Err(GfxError::InvalidArgument);
         }
         Ok(())

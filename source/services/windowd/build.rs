@@ -44,96 +44,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let generated_path = out_dir.join("windowd_generated_assets.rs");
     let mut generated = File::create(generated_path)?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_BG_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_BG,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_PANEL_BG_RGBA", &theme_runtime, TOKEN_PANEL_BG)?;
     emit_theme_color(
         &mut generated,
         "PROOF_PANEL_BORDER_RGBA",
         &theme_runtime,
         TOKEN_PANEL_BORDER,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_TITLE_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_TITLE,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_PANEL_TITLE_RGBA", &theme_runtime, TOKEN_PANEL_TITLE)?;
     emit_theme_color(
         &mut generated,
         "PROOF_PANEL_SUBTITLE_RGBA",
         &theme_runtime,
         TOKEN_PANEL_SUBTITLE,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_PANEL_MUTED_RGBA",
-        &theme_runtime,
-        TOKEN_PANEL_MUTED,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_BG_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_BG,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_PANEL_MUTED_RGBA", &theme_runtime, TOKEN_PANEL_MUTED)?;
+    emit_theme_color(&mut generated, "PROOF_CARD_BG_RGBA", &theme_runtime, TOKEN_CARD_BG)?;
     emit_theme_color(
         &mut generated,
         "PROOF_CARD_ACTIVE_BG_RGBA",
         &theme_runtime,
         TOKEN_CARD_ACTIVE_BG,
     )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_BORDER_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_BORDER,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CARD_LABEL_RGBA",
-        &theme_runtime,
-        TOKEN_CARD_LABEL,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_ICON_BG_RGBA",
-        &theme_runtime,
-        TOKEN_ICON_BG,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_ICON_FG_RGBA",
-        &theme_runtime,
-        TOKEN_ICON_FG,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_HOVER_RGBA",
-        &theme_runtime,
-        TOKEN_HOVER,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_CLICK_RGBA",
-        &theme_runtime,
-        TOKEN_CLICK,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_SCROLL_RGBA",
-        &theme_runtime,
-        TOKEN_SCROLL,
-    )?;
-    emit_theme_color(
-        &mut generated,
-        "PROOF_KEYBOARD_RGBA",
-        &theme_runtime,
-        TOKEN_KEYBOARD,
-    )?;
+    emit_theme_color(&mut generated, "PROOF_CARD_BORDER_RGBA", &theme_runtime, TOKEN_CARD_BORDER)?;
+    emit_theme_color(&mut generated, "PROOF_CARD_LABEL_RGBA", &theme_runtime, TOKEN_CARD_LABEL)?;
+    emit_theme_color(&mut generated, "PROOF_ICON_BG_RGBA", &theme_runtime, TOKEN_ICON_BG)?;
+    emit_theme_color(&mut generated, "PROOF_ICON_FG_RGBA", &theme_runtime, TOKEN_ICON_FG)?;
+    emit_theme_color(&mut generated, "PROOF_HOVER_RGBA", &theme_runtime, TOKEN_HOVER)?;
+    emit_theme_color(&mut generated, "PROOF_CLICK_RGBA", &theme_runtime, TOKEN_CLICK)?;
+    emit_theme_color(&mut generated, "PROOF_SCROLL_RGBA", &theme_runtime, TOKEN_SCROLL)?;
+    emit_theme_color(&mut generated, "PROOF_KEYBOARD_RGBA", &theme_runtime, TOKEN_KEYBOARD)?;
 
     for spec in ALL_TEXT_SPECS {
         let rendered = render_text_asset(
@@ -145,16 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let const_prefix = const_prefix(spec.id);
         let text_path = out_dir.join(format!("{}.bgra", spec.id));
         fs::write(&text_path, &rendered.data)?;
-        writeln!(
-            generated,
-            "pub const {const_prefix}_WIDTH: u32 = {};",
-            rendered.width
-        )?;
-        writeln!(
-            generated,
-            "pub const {const_prefix}_HEIGHT: u32 = {};",
-            rendered.height
-        )?;
+        writeln!(generated, "pub const {const_prefix}_WIDTH: u32 = {};", rendered.width)?;
+        writeln!(generated, "pub const {const_prefix}_HEIGHT: u32 = {};", rendered.height)?;
         writeln!(
             generated,
             "pub const {const_prefix}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
@@ -166,16 +98,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
     let cursor_path = out_dir.join("mocu_cursor.bgra");
     fs::write(&cursor_path, &cursor.buffer)?;
-    writeln!(
-        generated,
-        "pub const MOCU_CURSOR_WIDTH: u32 = {};",
-        cursor.width
-    )?;
-    writeln!(
-        generated,
-        "pub const MOCU_CURSOR_HEIGHT: u32 = {};",
-        cursor.height
-    )?;
+    writeln!(generated, "pub const MOCU_CURSOR_WIDTH: u32 = {};", cursor.width)?;
+    writeln!(generated, "pub const MOCU_CURSOR_HEIGHT: u32 = {};", cursor.height)?;
     writeln!(
         generated,
         "pub const MOCU_CURSOR_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
@@ -183,11 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
-    writeln!(
-        generated,
-        "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;",
-        cursor_svg
-    )?;
+    writeln!(generated, "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;", cursor_svg)?;
     Ok(())
 }
 
@@ -216,11 +136,7 @@ fn render_text_asset(font: &fontdue::Font, text: &str, px: f32, bgra: [u8; 4]) -
         pen_x += metrics.advance_width.ceil() as i32;
     }
     if min_x == i32::MAX || min_y == i32::MAX {
-        return RenderedText {
-            width: 1,
-            height: 1,
-            data: vec![0u8; 4],
-        };
+        return RenderedText { width: 1, height: 1, data: vec![0u8; 4] };
     }
     let width = (max_x - min_x).max(1) as usize;
     let height = (max_y - min_y).max(1) as usize;
@@ -250,11 +166,7 @@ fn render_text_asset(font: &fontdue::Font, text: &str, px: f32, bgra: [u8; 4]) -
         }
         pen_x += metrics.advance_width.ceil() as i32;
     }
-    RenderedText {
-        width,
-        height,
-        data: out,
-    }
+    RenderedText { width, height, data: out }
 }
 
 fn blend(dst: &mut [u8], src: [u8; 4]) {
@@ -288,13 +200,7 @@ fn color_bgra(color: ColorValue) -> [u8; 4] {
 
 fn const_prefix(id: &str) -> String {
     id.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_uppercase() } else { '_' })
         .collect()
 }
 

@@ -195,34 +195,19 @@ struct RouteEntry {
 impl RouteTable {
     /// Create an empty routing table with space for 64 routes.
     pub fn new() -> Self {
-        Self {
-            routes: Vec::with_capacity(64),
-        }
+        Self { routes: Vec::with_capacity(64) }
     }
 
     /// Add a route from `from` to `to`. Overwrites if already present.
-    pub fn add_route(
-        &mut self,
-        from: ServiceId,
-        to: ServiceId,
-        send: CapSlot,
-        recv: CapSlot,
-    ) {
+    pub fn add_route(&mut self, from: ServiceId, to: ServiceId, send: CapSlot, recv: CapSlot) {
         // Remove any existing entry for this pair.
         self.routes.retain(|e| !(e.from == from && e.to == to));
-        self.routes.push(RouteEntry {
-            from,
-            to,
-            route: ServiceRoute { send, recv },
-        });
+        self.routes.push(RouteEntry { from, to, route: ServiceRoute { send, recv } });
     }
 
     /// Look up the route for `from` → `to`.
     pub fn lookup(&self, from: ServiceId, to: ServiceId) -> Option<ServiceRoute> {
-        self.routes
-            .iter()
-            .find(|e| e.from == from && e.to == to)
-            .map(|e| e.route)
+        self.routes.iter().find(|e| e.from == from && e.to == to).map(|e| e.route)
     }
 
     /// Look up a route using raw byte names (for the routing responder).
@@ -237,11 +222,11 @@ impl RouteTable {
     }
 
     /// Iterate all routes from a given service.
-    pub fn routes_from(&self, from: ServiceId) -> impl Iterator<Item = (ServiceId, ServiceRoute)> + '_ {
-        self.routes
-            .iter()
-            .filter(move |e| e.from == from)
-            .map(|e| (e.to, e.route))
+    pub fn routes_from(
+        &self,
+        from: ServiceId,
+    ) -> impl Iterator<Item = (ServiceId, ServiceRoute)> + '_ {
+        self.routes.iter().filter(move |e| e.from == from).map(|e| (e.to, e.route))
     }
 
     /// Returns the number of routes in the table.
@@ -309,9 +294,7 @@ mod tests {
             CapSlot::new(0x31, Rights::RECV),
         );
 
-        let route = table
-            .lookup_by_name(b"fbdevd", b"windowd")
-            .expect("route should exist");
+        let route = table.lookup_by_name(b"fbdevd", b"windowd").expect("route should exist");
         assert_eq!(route.send.slot, 0x30);
         assert_eq!(route.recv.slot, 0x31);
     }
@@ -332,9 +315,8 @@ mod tests {
             CapSlot::new(0x41, Rights::RECV),
         );
 
-        let route = table
-            .lookup(ServiceId::Fbdevd, ServiceId::Windowd)
-            .expect("route should exist");
+        let route =
+            table.lookup(ServiceId::Fbdevd, ServiceId::Windowd).expect("route should exist");
         assert_eq!(route.send.slot, 0x40);
     }
 

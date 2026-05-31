@@ -17,12 +17,7 @@ fn committed_buffer_is_sealed() {
             height: 64,
         });
         enc.set_fragment_bytes(0, &[1, 2, 3, 4]);
-        enc.draw_tiles(&[TileRect {
-            x: 0,
-            y: 0,
-            width: 10,
-            height: 10,
-        }]);
+        enc.draw_tiles(&[TileRect { x: 0, y: 0, width: 10, height: 10 }]);
         enc.end_encoding();
     }
     let committed = cmd.commit();
@@ -56,11 +51,7 @@ fn command_buffer_deterministic() {
 fn test_reject_invalid_render_pass_extent() {
     let mut cmd = CommandBuffer::new();
     let err = cmd
-        .try_begin_render_pass(RenderPassDesc {
-            color_attachments: vec![],
-            width: 0,
-            height: 64,
-        })
+        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 0, height: 64 })
         .err();
     assert_eq!(err, Some(GfxError::InvalidArgument));
 }
@@ -69,20 +60,9 @@ fn test_reject_invalid_render_pass_extent() {
 fn test_reject_tile_outside_render_pass() {
     let mut cmd = CommandBuffer::new();
     let mut enc = cmd
-        .try_begin_render_pass(RenderPassDesc {
-            color_attachments: vec![],
-            width: 64,
-            height: 64,
-        })
+        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
-    let err = enc
-        .try_draw_tiles(&[TileRect {
-            x: 60,
-            y: 0,
-            width: 8,
-            height: 8,
-        }])
-        .err();
+    let err = enc.try_draw_tiles(&[TileRect { x: 60, y: 0, width: 8, height: 8 }]).err();
     assert_eq!(err, Some(GfxError::InvalidArgument));
 }
 
@@ -90,11 +70,7 @@ fn test_reject_tile_outside_render_pass() {
 fn test_reject_fragment_bytes_over_budget() {
     let mut cmd = CommandBuffer::new();
     let mut enc = cmd
-        .try_begin_render_pass(RenderPassDesc {
-            color_attachments: vec![],
-            width: 64,
-            height: 64,
-        })
+        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
     let bytes = vec![0u8; nexus_gfx::command::buffer::MAX_FRAGMENT_BYTES + 1];
     let err = enc.try_set_fragment_bytes(0, &bytes).err();
@@ -112,13 +88,7 @@ fn queue_submit_validates_committed_buffers() {
                 height: 64,
             })
             .unwrap();
-        enc.try_draw_tiles(&[TileRect {
-            x: 0,
-            y: 0,
-            width: 8,
-            height: 8,
-        }])
-        .unwrap();
+        enc.try_draw_tiles(&[TileRect { x: 0, y: 0, width: 8, height: 8 }]).unwrap();
     }
     let mut queue = Queue::with_depth(1).unwrap();
     assert!(queue.submit(cmd).unwrap().signaled());

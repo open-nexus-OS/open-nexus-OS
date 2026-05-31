@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::render_encoder::RenderCommandEncoder;
-use crate::core::types::{RenderPassDesc, TileRect};
 use crate::core::error::GfxError;
+use crate::core::types::{RenderPassDesc, TileRect};
 use alloc::vec::Vec;
 
 pub const MAX_COMMANDS: usize = 1024;
@@ -27,17 +27,13 @@ pub struct CommandBuffer {
 
 impl CommandBuffer {
     pub fn new() -> Self {
-        Self {
-            commands: Vec::new(),
-            render_extent: None,
-        }
+        Self { commands: Vec::new(), render_extent: None }
     }
 
     /// Begin a render pass. Returns a RenderCommandEncoder for recording.
     /// The encoder borrows the CommandBuffer mutably.
     pub fn begin_render_pass(&mut self, desc: RenderPassDesc) -> RenderCommandEncoder<'_> {
-        self.try_begin_render_pass(desc)
-            .expect("invalid render pass")
+        self.try_begin_render_pass(desc).expect("invalid render pass")
     }
 
     pub fn try_begin_render_pass(
@@ -57,9 +53,7 @@ impl CommandBuffer {
 
     pub fn try_commit(self) -> Result<CommittedBuffer, GfxError> {
         validate_commands(&self.commands, self.render_extent)?;
-        Ok(CommittedBuffer {
-            commands: self.commands,
-        })
+        Ok(CommittedBuffer { commands: self.commands })
     }
 
     pub(crate) fn push_command(&mut self, command: Command) -> Result<(), GfxError> {
@@ -125,9 +119,7 @@ fn validate_commands(
 fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Result<(), GfxError> {
     match command {
         Command::SetFragmentBytes { offset, data } => {
-            let end = offset
-                .checked_add(data.len())
-                .ok_or(GfxError::InvalidArgument)?;
+            let end = offset.checked_add(data.len()).ok_or(GfxError::InvalidArgument)?;
             if data.len() > MAX_FRAGMENT_BYTES || end > MAX_FRAGMENT_BYTES {
                 return Err(GfxError::ResourceExhausted);
             }
@@ -148,14 +140,8 @@ fn validate_tile(tile: TileRect, render_extent: Option<(u32, u32)>) -> Result<()
     if tile.width == 0 || tile.height == 0 {
         return Err(GfxError::InvalidArgument);
     }
-    let end_x = tile
-        .x
-        .checked_add(tile.width)
-        .ok_or(GfxError::InvalidArgument)?;
-    let end_y = tile
-        .y
-        .checked_add(tile.height)
-        .ok_or(GfxError::InvalidArgument)?;
+    let end_x = tile.x.checked_add(tile.width).ok_or(GfxError::InvalidArgument)?;
+    let end_y = tile.y.checked_add(tile.height).ok_or(GfxError::InvalidArgument)?;
     if let Some((width, height)) = render_extent {
         if end_x > width || end_y > height {
             return Err(GfxError::InvalidArgument);

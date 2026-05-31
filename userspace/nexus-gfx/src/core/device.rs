@@ -21,11 +21,7 @@ impl Device {
     }
 
     pub fn new_buffer(&self, size: usize, usage: BufferUsage) -> Buffer {
-        let data = if usage.render_target {
-            vec![0u8; size]
-        } else {
-            Vec::with_capacity(size)
-        };
+        let data = if usage.render_target { vec![0u8; size] } else { Vec::with_capacity(size) };
         Buffer { data, usage }
     }
 

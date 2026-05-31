@@ -53,18 +53,14 @@ impl MemStore {
                 )
             }
             proto::Request::List { prefix, limit } => {
-                let mut matches: Vec<String> = self.data.keys()
-                    .filter(|k| k.starts_with(prefix))
-                    .cloned()
-                    .collect();
+                let mut matches: Vec<String> =
+                    self.data.keys().filter(|k| k.starts_with(prefix)).cloned().collect();
                 matches.sort();
                 let limit = limit.min(proto::MAX_LIST_LIMIT) as usize;
                 matches.truncate(limit);
                 proto::encode_list_response(proto::STATUS_OK, &matches, 4096)
             }
-            proto::Request::Sync => {
-                proto::encode_status_response(proto::OP_SYNC, proto::STATUS_OK)
-            }
+            proto::Request::Sync => proto::encode_status_response(proto::OP_SYNC, proto::STATUS_OK),
             proto::Request::Reopen => {
                 proto::encode_status_response(proto::OP_REOPEN, proto::STATUS_OK)
             }

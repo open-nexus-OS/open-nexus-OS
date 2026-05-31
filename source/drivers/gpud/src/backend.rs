@@ -72,6 +72,68 @@ impl VirtioGpuBackend {
         self.probed
     }
 
+    /// Attach an externally-owned VMO as the display scanout backing.
+    /// Zero-copy: the same VMO that windowd composes into becomes the GPU scanout.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn attach_external_framebuffer(
+        &mut self,
+        vmo_slot: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        if !self.probed {
+            return Err(GfxError::DeviceNotFound);
+        }
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        nexus_abi::cap_query(vmo_slot, &mut info).map_err(|_| GfxError::MmioFault)?;
+        if info.kind_tag != 1 || info.len < (width as u64 * height as u64 * 4) {
+            return Err(GfxError::InvalidArgument);
+        }
+        let id = ResourceId(self.next_resource_id);
+        self.next_resource_id += 1;
+
+        let create = protocol::VirtioGpuResourceCreate2d {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
+            resource_id: id.0,
+            format: Self::to_gpu_format(PixelFormat::Bgra8888),
+            width,
+            height,
+        };
+        self.ctrl_submit_struct(&create).map_err(|_| GfxError::CommandRejected)?;
+
+        let attach = protocol::VirtioGpuResourceAttachBacking {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
+            resource_id: id.0,
+            nr_entries: 1,
+        };
+        let entry = protocol::VirtioGpuMemEntry {
+            addr: info.base,
+            length: (width * height * 4) as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_pair(&attach, &entry).map_err(|_| GfxError::CommandRejected)?;
+
+        // Set as primary scanout — QEMU GTK window resizes to match.
+        let scanout = protocol::VirtioGpuSetScanout {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_SET_SCANOUT),
+            r: protocol::VirtioGpuRect { x: 0, y: 0, width, height },
+            scanout_id: 0,
+            resource_id: id.0,
+        };
+        self.ctrl_submit_struct(&scanout).map_err(|_| GfxError::CommandRejected)?;
+
+        self.resources.push(ResourceRecord {
+            id,
+            width,
+            height,
+            format: PixelFormat::Bgra8888,
+            backing_va: 0,
+            backing_pa: info.base,
+            backing_len: (width * height * 4) as usize,
+        });
+        Ok(())
+    }
+
     /// Convert PixelFormat to virtio-gpu format constant.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     fn to_gpu_format(fmt: PixelFormat) -> u32 {
@@ -82,10 +144,7 @@ impl VirtioGpuBackend {
     }
 
     fn find_resource(&self, res: ResourceId) -> Option<ResourceRecord> {
-        self.resources
-            .iter()
-            .copied()
-            .find(|record| record.id == res)
+        self.resources.iter().copied().find(|record| record.id == res)
     }
 }
 
@@ -177,9 +236,7 @@ impl GfxBackend for VirtioGpuBackend {
 }
 
 fn resource_byte_len(w: u32, h: u32) -> Result<usize, GfxError> {
-    let pixels = u64::from(w)
-        .checked_mul(u64::from(h))
-        .ok_or(GfxError::ResourceExhausted)?;
+    let pixels = u64::from(w).checked_mul(u64::from(h)).ok_or(GfxError::ResourceExhausted)?;
     let bytes = pixels.checked_mul(4).ok_or(GfxError::ResourceExhausted)?;
     if bytes == 0 || bytes > 16 * 1024 * 1024 {
         return Err(GfxError::ResourceExhausted);
@@ -188,14 +245,8 @@ fn resource_byte_len(w: u32, h: u32) -> Result<usize, GfxError> {
 }
 
 fn validate_rect(record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
-    let end_x = rect
-        .x
-        .checked_add(rect.width)
-        .ok_or(GfxError::InvalidArgument)?;
-    let end_y = rect
-        .y
-        .checked_add(rect.height)
-        .ok_or(GfxError::InvalidArgument)?;
+    let end_x = rect.x.checked_add(rect.width).ok_or(GfxError::InvalidArgument)?;
+    let end_y = rect.y.checked_add(rect.height).ok_or(GfxError::InvalidArgument)?;
     if rect.width == 0 || rect.height == 0 || end_x > record.width || end_y > record.height {
         return Err(GfxError::InvalidArgument);
     }
@@ -330,19 +381,15 @@ impl VirtioGpuBackend {
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         for offset in (0..backing_len).step_by(4096) {
-            nexus_abi::vmo_map_page(backing_vmo, backing_va + offset, offset, flags)
-                .map_err(|e| {
+            nexus_abi::vmo_map_page(backing_vmo, backing_va + offset, offset, flags).map_err(
+                |e| {
                     let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
                     GfxError::MmioFault
-                })?;
+                },
+            )?;
         }
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
-        let mut info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(backing_vmo, &mut info).map_err(|e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_CAP_QUERY_FAIL);
             GfxError::MmioFault
@@ -365,11 +412,8 @@ impl VirtioGpuBackend {
             resource_id: id.0,
             nr_entries: 1,
         };
-        let entry = protocol::VirtioGpuMemEntry {
-            addr: info.base,
-            length: byte_len as u32,
-            _padding: 0,
-        };
+        let entry =
+            protocol::VirtioGpuMemEntry { addr: info.base, length: byte_len as u32, _padding: 0 };
         self.ctrl_submit_pair(&attach, &entry).map_err(|e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_ATTACH_CMD_FAIL);
             e
@@ -397,12 +441,7 @@ impl VirtioGpuBackend {
     fn set_scanout_os(&mut self, record: ResourceRecord) -> Result<(), GfxError> {
         let cmd = protocol::VirtioGpuSetScanout {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_SET_SCANOUT),
-            r: protocol::VirtioGpuRect {
-                x: 0,
-                y: 0,
-                width: record.width,
-                height: record.height,
-            },
+            r: protocol::VirtioGpuRect { x: 0, y: 0, width: record.width, height: record.height },
             scanout_id: 0,
             resource_id: record.id.0,
         };
@@ -412,12 +451,7 @@ impl VirtioGpuBackend {
     fn move_cursor_os(&mut self, x: u32, y: u32) -> Result<(), GfxError> {
         let cmd = protocol::VirtioGpuCursorPos {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_MOVE_CURSOR),
-            pos: protocol::VirtioGpuCursorPosData {
-                scanout_id: 0,
-                x,
-                y,
-                _padding: 0,
-            },
+            pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x, y, _padding: 0 },
             resource_id: 0,
             hot_x: 0,
             hot_y: 0,
@@ -466,24 +500,9 @@ impl CtrlQueue {
             .map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::vmo_map_page(resp_vmo, GPU_RESP_VA, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        let mut q_info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
-        let mut cmd_info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
-        let mut resp_info = nexus_abi::CapQuery {
-            kind_tag: 0,
-            reserved: 0,
-            base: 0,
-            len: 0,
-        };
+        let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(q_vmo, &mut q_info).map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::cap_query(cmd_vmo, &mut cmd_info).map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::cap_query(resp_vmo, &mut resp_info).map_err(|_| GpuDriverError::MmioFault)?;
@@ -544,10 +563,7 @@ impl CtrlQueue {
         first: &[u8],
         second: &[u8],
     ) -> Result<(), GfxError> {
-        let total = first
-            .len()
-            .checked_add(second.len())
-            .ok_or(GfxError::ResourceExhausted)?;
+        let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
         if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total
         {
             return Err(GfxError::CommandRejected);
@@ -565,12 +581,7 @@ impl CtrlQueue {
             }
             core::ptr::write_volatile(
                 self.desc.add(0),
-                VqDesc {
-                    addr: self.cmd_pa,
-                    len: total as u32,
-                    flags: 1,
-                    next: 1,
-                },
+                VqDesc { addr: self.cmd_pa, len: total as u32, flags: 1, next: 1 },
             );
             core::ptr::write_volatile(
                 self.desc.add(1),
@@ -587,11 +598,7 @@ impl CtrlQueue {
             core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        write_reg(
-            mmio_base,
-            protocol::VIRTIO_MMIO_QUEUE_NOTIFY,
-            CTRL_QUEUE_INDEX,
-        );
+        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, CTRL_QUEUE_INDEX);
         self.wait_complete()
     }
 
@@ -621,13 +628,7 @@ impl CtrlQueue {
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 fn ctrl_hdr(type_: u32) -> protocol::VirtioGpuCtrlHdr {
-    protocol::VirtioGpuCtrlHdr {
-        type_,
-        flags: 0,
-        fence_id: 0,
-        ctx_id: 0,
-        _padding: 0,
-    }
+    protocol::VirtioGpuCtrlHdr { type_, flags: 0, fence_id: 0, ctx_id: 0, _padding: 0 }
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]

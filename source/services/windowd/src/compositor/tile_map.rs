@@ -7,8 +7,8 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 3 unit tests
 
+use super::{TILES_X, TILES_Y, TILE_COUNT, TILE_DIRTY_WORDS, TILE_SIZE};
 use crate::live_runtime::DamageRect;
-use super::{TILE_COUNT, TILE_DIRTY_WORDS, TILES_X, TILES_Y, TILE_SIZE};
 
 /// Tile-based damage map. Tracks which 64×64 tiles are dirty and need re-rendering.
 #[derive(Clone)]
@@ -18,9 +18,7 @@ pub(crate) struct TileMap {
 
 impl TileMap {
     pub(crate) fn new() -> Self {
-        Self {
-            dirty: [0; TILE_DIRTY_WORDS],
-        }
+        Self { dirty: [0; TILE_DIRTY_WORDS] }
     }
 
     pub(crate) fn tile_index(x: u32, y: u32) -> usize {

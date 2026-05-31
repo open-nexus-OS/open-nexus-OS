@@ -66,11 +66,7 @@ mod tests {
         // Check center pixel's red channel (offset 2 in BGRA)
         let ci = (7 * stride + 7 * 4) as usize;
         let r_ch = pixels[ci + 2];
-        assert!(
-            (r_ch as i32 - 200).abs() < 50,
-            "red channel roughly preserved (got {})",
-            r_ch
-        );
+        assert!((r_ch as i32 - 200).abs() < 50, "red channel roughly preserved (got {})", r_ch);
         // Alpha should be preserved (blur averages alpha too)
         let a_ch = pixels[ci + 3];
         assert!(a_ch > 200, "alpha roughly preserved (got {})", a_ch);
@@ -92,10 +88,7 @@ mod tests {
 
         dual_kawase_blur(&mut pixels, w, h, stride, 4, 2);
 
-        assert!(
-            alpha_at(&pixels, stride, cx as u32, cy as u32) > 0,
-            "center still has alpha"
-        );
+        assert!(alpha_at(&pixels, stride, cx as u32, cy as u32) > 0, "center still has alpha");
         assert!(
             alpha_at(&pixels, stride, cx as u32, (cy - 1) as u32) > 0,
             "neighbor picked up alpha"

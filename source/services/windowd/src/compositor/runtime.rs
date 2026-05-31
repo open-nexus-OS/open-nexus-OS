@@ -51,7 +51,7 @@ use alloc::vec::Vec;
 use animation::{AnimProp, AnimationDriver, Easing, LayerId, SceneUpdate};
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
-use nexus_abi::{debug_println, nsec, vmo_write, Handle};
+use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
 use nexus_gfx::{CommandBuffer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
@@ -59,6 +59,7 @@ use nexus_layout::LayoutResult;
 use nexus_layout_types::FxPx;
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
+const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
 const HOVER_LAYER_ID: LayerId = LayerId(1);
 const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
 const SIDEBAR_WIDTH: u32 = 320;
@@ -77,11 +78,7 @@ struct AnimatedSceneState {
 
 impl AnimatedSceneState {
     const fn new() -> Self {
-        Self {
-            hover_opacity: 0.0,
-            sidebar_translate_x: 320.0,
-            sidebar_opacity: 0.0,
-        }
+        Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
     }
 }
 
@@ -91,9 +88,7 @@ fn draw_animation_proof_overlay_row(
     mode: VisibleBootstrapMode,
     scene: AnimatedSceneState,
 ) {
-    let button_x = mode
-        .width
-        .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+    let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
     draw_glass_rect_row(
         row,
@@ -107,10 +102,7 @@ fn draw_animation_proof_overlay_row(
     );
 
     let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-    let sidebar_x = mode
-        .width
-        .saturating_sub(SIDEBAR_WIDTH)
-        .saturating_add(translate);
+    let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
     let sidebar_alpha = (128.0 * scene.sidebar_opacity).clamp(0.0, 192.0) as u8;
     if sidebar_alpha == 0 {
         return;
@@ -151,11 +143,7 @@ fn draw_glass_rect_row(
         blend_span(row, x, width, [255, 255, 255, 90]);
     } else {
         blend_pixel(row, x, [255, 255, 255, 72]);
-        blend_pixel(
-            row,
-            x.saturating_add(width).saturating_sub(1),
-            [255, 255, 255, 48],
-        );
+        blend_pixel(row, x.saturating_add(width).saturating_sub(1), [255, 255, 255, 48]);
     }
 }
 
@@ -279,13 +267,39 @@ struct InputMarkerState {
 
 impl DisplayServerRuntime {
     pub(crate) fn new() -> Result<Self, WindowdError> {
+        let _ = debug_println(RUNTIME_INIT_START);
         let mode = VisibleBootstrapMode::fixed()?.validate()?;
-        let (source_width, source_height) = systemui::wallpaper_decoded_size();
+
+        // Wallpaper: prefer JPEG, fall back to solid dark color on failure.
+        // Production-grade: the compositor must start even without wallpaper assets.
+        let (source_width, source_height, source_pixels) = if systemui::wallpaper_source_is_jpeg() {
+            let _ = debug_println(WALLPAPER_LOADED);
+            let (w, h) = systemui::wallpaper_decoded_size();
+            (w, h, systemui::wallpaper_bgra())
+        } else {
+            let _ = debug_println(WALLPAPER_FALLBACK);
+            // 160×100 solid dark-blue fallback — scaled to fill the display.
+            const FALLBACK_W: u32 = 160;
+            const FALLBACK_H: u32 = 100;
+            static FALLBACK_BGRA: [u8; (FALLBACK_W * FALLBACK_H * 4) as usize] = {
+                let mut buf = [0u8; (FALLBACK_W * FALLBACK_H * 4) as usize];
+                let mut i = 0;
+                while i < buf.len() {
+                    buf[i] = 10; // B
+                    buf[i + 1] = 22; // G
+                    buf[i + 2] = 40; // R
+                    buf[i + 3] = 255; // A
+                    i += 4;
+                }
+                buf
+            };
+            (FALLBACK_W, FALLBACK_H, &FALLBACK_BGRA[..])
+        };
         let source_frame = SourceFrame {
             width: source_width,
             height: source_height,
             stride: checked_stride(source_width)?,
-            pixels: systemui::wallpaper_bgra(),
+            pixels: source_pixels,
         };
         let source_x_lut = build_scale_lut(mode.width, source_width)?;
         let source_y_lut = build_scale_lut(mode.height, source_height)?;
@@ -312,10 +326,8 @@ impl DisplayServerRuntime {
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
         let proof_layouts = build_live_proof_layouts(initial_state);
-        let proof_layout_index = proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.first())
-            .map(|layout| {
+        let proof_layout_index =
+            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
                 LayoutHotPathIndex::build(
                     layout,
                     PROOF_PANEL_X,
@@ -324,6 +336,7 @@ impl DisplayServerRuntime {
                     mode.height,
                 )
             });
+        let _ = debug_println(RUNTIME_INIT_OK);
         Ok(Self {
             mode,
             source_frame,
@@ -423,6 +436,11 @@ impl DisplayServerRuntime {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
         self.refresh_observer_state();
+
+        // Notify gpud: send the framebuffer VMO for zero-copy GPU scanout.
+        // If gpud is not available, the CPU path (ramfb) remains active.
+        self.try_handoff_framebuffer_to_gpud(handle);
+
         if self.write_current_frame().is_err() {
             return STATUS_MALFORMED;
         }
@@ -522,16 +540,8 @@ impl DisplayServerRuntime {
                     to,
                     spring,
                 );
-                let sidebar_from = if old_state.hover_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
-                let sidebar_to = if self.state.hover_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
+                let sidebar_from = if old_state.hover_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                let sidebar_to = if self.state.hover_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
                 self.animation_driver.keyframe_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
@@ -556,29 +566,15 @@ impl DisplayServerRuntime {
             }
             // Click card opacity
             if old_state.launcher_click_visible != self.state.launcher_click_visible {
-                let from = if old_state.launcher_click_visible {
-                    1.0
-                } else {
-                    0.0
-                };
-                let to = if self.state.launcher_click_visible {
-                    1.0
-                } else {
-                    0.0
-                };
-                self.animation_driver
-                    .spring_to(LayerId(2), AnimProp::Opacity, from, to, spring);
+                let from = if old_state.launcher_click_visible { 1.0 } else { 0.0 };
+                let to = if self.state.launcher_click_visible { 1.0 } else { 0.0 };
+                self.animation_driver.spring_to(LayerId(2), AnimProp::Opacity, from, to, spring);
             }
             // Keyboard card opacity
             if old_state.keyboard_visible != self.state.keyboard_visible {
                 let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
-                let to = if self.state.keyboard_visible {
-                    1.0
-                } else {
-                    0.0
-                };
-                self.animation_driver
-                    .spring_to(LayerId(3), AnimProp::Opacity, from, to, spring);
+                let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
+                self.animation_driver.spring_to(LayerId(3), AnimProp::Opacity, from, to, spring);
             }
         }
         let pointer_only_change =
@@ -663,11 +659,8 @@ impl DisplayServerRuntime {
         let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
-            let container_id = layout
-                .boxes
-                .iter()
-                .find(|b| b.id == Some("filter_list"))
-                .map(|b| b.node_id);
+            let container_id =
+                layout.boxes.iter().find(|b| b.id == Some("filter_list")).map(|b| b.node_id);
 
             if let Some(id) = container_id {
                 let viewport_h = layout
@@ -676,7 +669,7 @@ impl DisplayServerRuntime {
                     .find(|b| b.node_id == id)
                     .map(|b| {
                         FxPx::new(
-                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32
                         )
                     })
                     .unwrap_or(FxPx::ZERO);
@@ -687,11 +680,7 @@ impl DisplayServerRuntime {
                     .map(|b| b.scroll_offset)
                     .unwrap_or((FxPx::ZERO, FxPx::ZERO));
 
-                let dy = if wheel_down_visible {
-                    FxPx::new(20)
-                } else {
-                    FxPx::new(-20)
-                };
+                let dy = if wheel_down_visible { FxPx::new(20) } else { FxPx::new(-20) };
                 let max_scroll = FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
@@ -706,12 +695,7 @@ impl DisplayServerRuntime {
                 let w = rect.width.as_u32().unwrap_or(0);
                 let h = rect.height.as_u32().unwrap_or(0);
                 if w > 0 && h > 0 {
-                    self.queue_dirty_rect(DamageRect {
-                        x,
-                        y,
-                        width: w,
-                        height: h,
-                    });
+                    self.queue_dirty_rect(DamageRect { x, y, width: w, height: h });
                 }
             }
             if !damage.is_empty() {
@@ -846,6 +830,24 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
+    /// Falls back silently if gpud is not reachable — the CPU ramfb path stays active.
+    fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) {
+        let Ok(clone) = nexus_abi::cap_clone(fb_handle) else {
+            return;
+        };
+        if self.gpud_client.is_none() {
+            self.gpud_client = KernelClient::new_for("gpud").ok();
+        }
+        let Some(client) = self.gpud_client.as_ref() else {
+            return;
+        };
+        let request = [GPU_SET_FRAMEBUFFER_VMO_OP];
+        if client.send_with_cap_move_wait(&request, clone, Wait::NonBlocking).is_ok() {
+            let _ = debug_println("windowd: fb handoff to gpud ok");
+        }
+    }
+
     fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
         let mut cmd = CommandBuffer::new();
         {
@@ -861,9 +863,7 @@ impl DisplayServerRuntime {
             payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
             payload[8..12].copy_from_slice(&self.animated_scene.sidebar_translate_x.to_le_bytes());
             payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
-            encoder
-                .try_set_fragment_bytes(0, &payload)
-                .map_err(|_| WindowdError::InvalidDamage)?;
+            encoder.try_set_fragment_bytes(0, &payload).map_err(|_| WindowdError::InvalidDamage)?;
             encoder
                 .try_draw_tiles(&[
                     TileRect {
@@ -893,9 +893,7 @@ impl DisplayServerRuntime {
         let Some(client) = self.gpud_client.as_ref() else {
             return Err(WindowdError::InvalidDamage);
         };
-        client
-            .send(&frame, Wait::NonBlocking)
-            .map_err(|_| WindowdError::InvalidDamage)
+        client.send(&frame, Wait::NonBlocking).map_err(|_| WindowdError::InvalidDamage)
     }
 
     fn sidebar_damage_rect(&self) -> DamageRect {
@@ -1020,12 +1018,7 @@ impl DisplayServerRuntime {
             width: self.mode.width,
             height: self.mode.height,
         });
-        self.write_rows(
-            0,
-            self.mode.height,
-            select_glass_quality(PROOF_PANEL_H),
-            false,
-        )?;
+        self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)?;
         self.write_cursor_overlay()
     }
 
@@ -1045,10 +1038,8 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self
-            .proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -1131,9 +1122,7 @@ impl DisplayServerRuntime {
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         self.telemetry.record_compose_timed(
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec()
-                .unwrap_or(render_start_ns)
-                .saturating_sub(render_start_ns),
+            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -1162,10 +1151,8 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self
-            .proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -1257,9 +1244,7 @@ impl DisplayServerRuntime {
         self.telemetry.record_compose_timed(
             u64::from(end_x.saturating_sub(start_x))
                 .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec()
-                .unwrap_or(render_start_ns)
-                .saturating_sub(render_start_ns),
+            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -1316,12 +1301,7 @@ impl DisplayServerRuntime {
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
         let mut wrote_any = false;
-        let mut rects = [DamageRect {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        }; 5];
+        let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut rect_count = 0usize;
 
         if let Some(rect) = self.pending_damage_rect.take() {
@@ -1392,12 +1372,8 @@ impl DisplayServerRuntime {
                 continue;
             }
             let dst_offset = y as usize * row_len + rect.x as usize * 4;
-            vmo_write(
-                handle,
-                dst_offset,
-                &self.cursor_bg_saved[src_offset..src_end],
-            )
-            .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            vmo_write(handle, dst_offset, &self.cursor_bg_saved[src_offset..src_end])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         self.telemetry.record_present();
         Ok(())
@@ -1433,10 +1409,8 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self
-            .proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -1512,9 +1486,7 @@ impl DisplayServerRuntime {
         self.refresh_observer_state();
         self.telemetry.record_compose_timed(
             u64::from(rect.width).saturating_mul(u64::from(rect.height)),
-            nsec()
-                .unwrap_or(render_start_ns)
-                .saturating_sub(render_start_ns),
+            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         Ok(())

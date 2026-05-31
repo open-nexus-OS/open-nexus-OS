@@ -44,11 +44,7 @@ impl ShadowCache {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            entries: Vec::with_capacity(capacity),
-            capacity,
-            generation: 0,
-        }
+        Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
     }
 
     pub fn get(&mut self, key: u64) -> Option<&[u8]> {
@@ -83,19 +79,12 @@ impl ShadowCache {
                 .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
-        self.entries.push(CachedShadow {
-            key,
-            data,
-            width,
-            height,
-            age: self.generation,
-        });
+        self.entries.push(CachedShadow { key, data, width, height, age: self.generation });
     }
 
     pub fn invalidate_node(&mut self, node_id_hash: u32) {
         let _prefix = (node_id_hash as u64) << 32;
-        self.entries
-            .retain(|e| (e.key >> 32) as u32 != node_id_hash);
+        self.entries.retain(|e| (e.key >> 32) as u32 != node_id_hash);
     }
 
     pub fn len(&self) -> usize {
@@ -141,11 +130,7 @@ impl TextCache {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            entries: Vec::with_capacity(capacity),
-            capacity,
-            generation: 0,
-        }
+        Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
     }
 
     pub fn get(&mut self, key: u64) -> Option<&[u8]> {
@@ -180,19 +165,12 @@ impl TextCache {
                 .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
-        self.entries.push(CachedGlyph {
-            key,
-            bitmap,
-            width,
-            height,
-            age: self.generation,
-        });
+        self.entries.push(CachedGlyph { key, bitmap, width, height, age: self.generation });
     }
 
     pub fn invalidate_scale(&mut self, scale_bucket: u16) {
         let _prefix = (scale_bucket as u64) << 48;
-        self.entries
-            .retain(|e| (e.key >> 48) as u16 != scale_bucket);
+        self.entries.retain(|e| (e.key >> 48) as u16 != scale_bucket);
     }
 
     pub fn len(&self) -> usize {
@@ -238,11 +216,7 @@ impl EffectCache {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            entries: Vec::with_capacity(capacity),
-            capacity,
-            generation: 0,
-        }
+        Self { entries: Vec::with_capacity(capacity), capacity, generation: 0 }
     }
 
     pub fn get(&mut self, key: u64) -> Option<&[u8]> {
@@ -277,13 +251,7 @@ impl EffectCache {
                 .unwrap_or(0);
             self.entries.swap_remove(lru);
         }
-        self.entries.push(CachedEffect {
-            key,
-            data,
-            width,
-            height,
-            age: self.generation,
-        });
+        self.entries.push(CachedEffect { key, data, width, height, age: self.generation });
     }
 
     pub fn len(&self) -> usize {
@@ -377,10 +345,7 @@ impl<'a> ShadowArena<'a> {
     /// Create an arena over caller-owned storage while preserving a previous bump offset.
     pub fn from_buffer_with_used(buf: &'a mut [u8], used: usize) -> Self {
         let capacity = buf.len();
-        Self {
-            buf,
-            used: used.min(capacity),
-        }
+        Self { buf, used: used.min(capacity) }
     }
 
     /// Reserve `len` bytes in the arena. Returns `(offset, &mut [u8])` on success,

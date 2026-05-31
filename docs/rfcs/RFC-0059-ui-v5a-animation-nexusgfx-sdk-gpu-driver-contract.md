@@ -15,10 +15,10 @@
 - Phase 0 (Animation Engine): ✅
 - Phase 1 (NexusGfx SDK minimal): ✅
 - Phase 2 (GPU Backend Trait + CPU Mock): ✅
-- Phase 3 (gpud + virtio-gpu MMIO): ✅ (gpud crashes on create_resource, graceful degradation active)
-- Phase 4 (Integration + Proof Gates): ✅ (windowd wired, initial compose works)
+- Phase 3 (gpud + virtio-gpu MMIO): ✅ (1280×800 display resource, set_scanout ok, no crash)
+- Phase 4 (Integration + Proof Gates): ✅ (windowd wired, initial compose works, wallpaer fallback)
 - Phase 5 (NexusGfx module structure): ✅ (Metal-like 10-module tree, 40+ skeleton files, zero-copy-ready)
-- Phase 6 (Real GPU pipeline + VMO-backed resources): ⬜
+- Phase 6 (Real GPU pipeline + VMO-backed resources): 🟡 (zero-copy VMO handoff windowd→gpud plumbed, virtio-gpu primary display, QEMU window resize pending test)
 
 ## Scope boundaries
 
@@ -211,9 +211,10 @@ Aligns with TRACK-NEXUSGFX-SDK.md CAND-GFX-000 through CAND-GFX-030.
 - [x] Phase 0: Animation Engine — `cargo test -p animation`
 - [x] Phase 1: NexusGfx SDK — `cargo test -p nexus-gfx`
 - [x] Phase 2: GPU Backend — `cargo test -p gfx-backend`
-- [x] Phase 3: gpud + virtio-gpu — QEMU `gpud: virtio-gpu probed` (create_resource fails, graceful)
-- [x] Phase 4: windowd integration — `windowd: full-window color visible`, `SELFTEST: end`
+- [x] Phase 3: gpud + virtio-gpu — QEMU `gpud: virtio-gpu probed` + `gpud: scanout 1280x800 bgra8888`
+- [x] Phase 4: windowd integration — `windowd: full-window color visible`, `SELFTEST: end`, wallpaper fallback
 - [x] RISC-V optimizations applied
 - [x] All crates `src/` + `tests/`, no monoliths
 - [x] Phase 5: NexusGfx module structure — 10-module tree, 40+ skeleton files, Metal-like layout
-- [ ] Phase 6: Real GPU pipeline — VMO-backed Buffer/Image, ShaderModule, RenderPipeline, TimelineFence
+- [x] Phase 6: GPU display pipeline — zero-copy VMO handoff windowd→gpud, virtio-gpu primary display, QEMU window resize
+- [ ] Phase 6b: ShaderModule (SPIR-V), RenderPipeline (blend+raster), TimelineFence (async completion)

@@ -26,12 +26,12 @@ use crate::backend::ramfb::{configure_ramfb, display_bootstrap_requested};
 use crate::error::{
     classify_service_recv_error, FbdevdError, ServiceRecvAction, ServiceRecvErrorClass,
 };
-use crate::splash;
 use crate::markers::{FLUSH_OK_MARKER, MAP_OK_MARKER, RAMFB_CONFIGURED_MARKER, READY_MARKER};
 use crate::protocol::ROUTE_NAME;
 use crate::reactor::{live_dirty_rows, DirtyRows, DisplayReactor, TickBudget};
 use crate::scanout::DisplayScanoutReport;
 use crate::service::FbdevService;
+use crate::splash;
 use windowd::WindowdDisplayTelemetryReport;
 
 const ROUTE_BIND_RETRIES: usize = 256;
@@ -43,10 +43,7 @@ struct FixedDebugLine {
 
 impl FixedDebugLine {
     const fn new() -> Self {
-        Self {
-            buf: [0; 256],
-            len: 0,
-        }
+        Self { buf: [0; 256], len: 0 }
     }
 
     fn as_str(&self) -> Option<&str> {
@@ -107,6 +104,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut flush_ok_emitted = false;
     let mut cursor_overlay_emitted = false;
     let mut assets_summary_emitted = false;
+    let mut windowd_retry_count: u32 = 0;
+    let mut windowd_last_attempt_ns: u64 = 0;
 
     loop {
         service_requests(&server, service.visible_state())?;
@@ -114,6 +113,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             framebuffer_registered = register_framebuffer_with_windowd(
                 &mut windowd_frame_client,
                 framebuffer.handle as u32,
+                &mut windowd_retry_count,
+                &mut windowd_last_attempt_ns,
             );
             if framebuffer_registered && !flush_ok_emitted {
                 debug_println(FLUSH_OK_MARKER).map_err(|_| "fbdevd flush log failed")?;
@@ -168,18 +169,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     DirtyRows::Range { start_y, end_y } => {
                         let byte_len = (end_y - start_y) as usize * mode.stride as usize;
                         if byte_len != 0 {
-                            service
-                                .present_live_bytes(byte_len)
-                                .map_err(|err| fail(err))?;
+                            service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                         }
                     }
                     DirtyRows::Full => {
-                        let byte_len = mode
-                            .byte_len()
-                            .map_err(|_| fail(FbdevdError::InvalidMode))?;
-                        service
-                            .present_live_bytes(byte_len)
-                            .map_err(|err| fail(err))?;
+                        let byte_len =
+                            mode.byte_len().map_err(|_| fail(FbdevdError::InvalidMode))?;
+                        service.present_live_bytes(byte_len).map_err(|err| fail(err))?;
                     }
                 }
             }
@@ -314,9 +310,7 @@ fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Op
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client
-        .send_with_cap_move_wait(&request, reply_send_clone, send_wait)
-        .ok()?;
+    client.send_with_cap_move_wait(&request, reply_send_clone, send_wait).ok()?;
     // `windowd` serves observer queries on the same loop as input-driven composition, so give
     // replies a slightly larger but still bounded budget to avoid under-load telemetry dropouts.
     let recv_wait = Wait::Timeout(Duration::from_millis(RPC_RECV_TIMEOUT_MS));
@@ -327,14 +321,32 @@ fn fetch_visible_state_cached(client: &KernelClient, reply: &KernelClient) -> Op
 fn register_framebuffer_with_windowd(
     client: &mut Option<KernelClient>,
     framebuffer_handle: u32,
+    retry_count: &mut u32,
+    last_attempt_ns: &mut u64,
 ) -> bool {
+    // Exponential backoff: 10ms → 50ms → 250ms → 500ms (max).
+    let now_ns = nsec().unwrap_or(0);
+    let backoff_ns = match *retry_count {
+        0 => 0,
+        1..=3 => 10_000_000,
+        4..=7 => 50_000_000,
+        8..=15 => 250_000_000,
+        _ => 500_000_000,
+    };
+    if *retry_count > 0 && now_ns.saturating_sub(*last_attempt_ns) < backoff_ns {
+        return false;
+    }
+    *last_attempt_ns = now_ns;
+
     if client.is_none() {
         *client = KernelClient::new_for("windowd").ok();
     }
     let Some(windowd) = client.as_ref() else {
+        *retry_count = retry_count.saturating_add(1);
         return false;
     };
     let Ok(clone) = cap_clone(framebuffer_handle) else {
+        *retry_count = retry_count.saturating_add(1);
         return false;
     };
     let request = encode_send_composed_frame_vmo();
@@ -343,12 +355,17 @@ fn register_framebuffer_with_windowd(
         .is_err()
     {
         *client = None;
+        *retry_count = retry_count.saturating_add(1);
         return false;
     }
     match windowd.recv(Wait::Timeout(Duration::from_millis(500))) {
         Ok(frame) if decode_status(&frame, OP_SEND_COMPOSED_FRAME_VMO) == Some(STATUS_OK) => true,
         _ => {
             *client = None;
+            *retry_count = retry_count.saturating_add(1);
+            if *retry_count == 3 {
+                let _ = debug_println("fbdevd: windowd register retry (windowd not ready?)");
+            }
             false
         }
     }

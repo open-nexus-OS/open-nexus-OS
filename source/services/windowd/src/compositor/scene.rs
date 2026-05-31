@@ -7,20 +7,22 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-use alloc::vec::Vec;
-use crate::error::WindowdError;
-use crate::live_runtime::{GlassQuality, LayoutHotPathIndex};
-use crate::smoke::VisibleBootstrapMode;
-use input_live_protocol::VisibleState;
-use nexus_effects::ShadowArena;
-use nexus_layout::LayoutResult;
-use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry};
+use super::cache::{
+    BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
+};
 use super::cursor::blend_cursor_row;
 use super::shadow::compute_shadow_row;
 use super::source::copy_scaled_systemui_row_clipped;
 use super::surface::draw_proof_surface_row;
 use super::types::{RenderClip, SourceFrame};
 use super::SHADOW_BOX_CACHE_ENTRIES;
+use crate::error::WindowdError;
+use crate::live_runtime::{GlassQuality, LayoutHotPathIndex};
+use crate::smoke::VisibleBootstrapMode;
+use alloc::vec::Vec;
+use input_live_protocol::VisibleState;
+use nexus_effects::ShadowArena;
+use nexus_layout::LayoutResult;
 
 pub(crate) fn copy_scene_row(
     blur_row_buf: &mut [u8],

@@ -23,20 +23,12 @@ impl CursorBlink {
     pub const DEFAULT_INTERVAL: u64 = 30;
 
     pub fn new() -> Self {
-        Self {
-            visible: true,
-            tick_interval: Self::DEFAULT_INTERVAL,
-            current_tick: 0,
-        }
+        Self { visible: true, tick_interval: Self::DEFAULT_INTERVAL, current_tick: 0 }
     }
 
     /// Set the blink interval in frame ticks.
     pub fn with_interval(interval: u64) -> Self {
-        Self {
-            visible: true,
-            tick_interval: interval,
-            current_tick: 0,
-        }
+        Self { visible: true, tick_interval: interval, current_tick: 0 }
     }
 
     /// Advance the blink timer by one frame tick. Toggles visibility when threshold reached.

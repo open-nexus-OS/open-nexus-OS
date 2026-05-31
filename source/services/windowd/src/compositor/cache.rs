@@ -8,11 +8,13 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-use alloc::vec::Vec;
 use crate::live_runtime::{DamageRect, GlassQuality};
+use alloc::vec::Vec;
 
-use super::{BACKDROP_CACHE_MAX_WIDTH, GLASS_LAYER_MAX_BYTES, PATH_CACHE_MAX_PIXELS,
-    SHADOW_BOX_CACHE_ENTRIES, LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES};
+use super::{
+    BACKDROP_CACHE_MAX_WIDTH, GLASS_LAYER_MAX_BYTES, LAYER_CACHE_MAX_BYTES,
+    LAYER_CACHE_MAX_LAYER_BYTES, PATH_CACHE_MAX_PIXELS, SHADOW_BOX_CACHE_ENTRIES,
+};
 
 /// Per-box shadow cache entry: stores arena offset for pre-rendered full-box shadow.
 /// Zero heap allocation — fixed-size array, linear-probe lookup.
@@ -80,12 +82,7 @@ impl GlassLayerCache {
     pub(crate) fn new() -> Self {
         Self {
             key: 0,
-            rect: DamageRect {
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-            },
+            rect: DamageRect { x: 0, y: 0, width: 0, height: 0 },
             width: 0,
             height: 0,
             valid: false,
@@ -131,7 +128,12 @@ pub(crate) struct Layer {
 }
 
 impl Layer {
-    pub(crate) fn new(id: u64, bounds: DamageRect, opacity: u8, backdrop_blur: Option<u32>) -> Self {
+    pub(crate) fn new(
+        id: u64,
+        bounds: DamageRect,
+        opacity: u8,
+        backdrop_blur: Option<u32>,
+    ) -> Self {
         let pixel_count = bounds.width as usize * bounds.height as usize * 4;
         Self {
             id,

@@ -371,9 +371,8 @@ fn handle_frame(
             let name = &frame[5..];
             // Phase-3: query the registry (populated by init-lite at boot).
             // Look across all sender scopes to find any registration for this name.
-            let found = registry
-                .iter()
-                .any(|((_sid, reg_name), _slots)| reg_name.as_slice() == name);
+            let found =
+                registry.iter().any(|((_sid, reg_name), _slots)| reg_name.as_slice() == name);
             if found {
                 rsp(op, STATUS_OK, 0, 0)
             } else {

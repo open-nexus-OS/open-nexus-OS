@@ -18,9 +18,9 @@
 //!   - `keystored::protocol`: wire format constants + encode/decode functions
 
 use keystored::protocol::{
-    self, decode_response, encode_request, encode_response, OP_DEL, OP_GET, OP_PUT,
-    STATUS_MALFORMED, STATUS_NOT_FOUND, STATUS_OK, STATUS_TOO_LARGE, STATUS_UNSUPPORTED,
-    MAX_KEY_LEN, MAX_VAL_LEN, RESPONSE_FLAG,
+    self, decode_response, encode_request, encode_response, MAX_KEY_LEN, MAX_VAL_LEN, OP_DEL,
+    OP_GET, OP_PUT, RESPONSE_FLAG, STATUS_MALFORMED, STATUS_NOT_FOUND, STATUS_OK, STATUS_TOO_LARGE,
+    STATUS_UNSUPPORTED,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -32,9 +32,7 @@ struct KeyValueStore {
 
 impl KeyValueStore {
     fn new() -> Self {
-        Self {
-            store: std::collections::BTreeMap::new(),
-        }
+        Self { store: std::collections::BTreeMap::new() }
     }
 
     fn handle(&mut self, frame: &[u8]) -> Vec<u8> {
@@ -215,9 +213,7 @@ fn key_too_long_returns_too_large() {
     assert!(encode_request(OP_PUT, &long_key, b"").is_err());
 
     // But a malformed frame with bad length field should be caught server-side
-    let mut bad = vec![
-        protocol::MAGIC0, protocol::MAGIC1, protocol::VERSION, OP_PUT,
-    ];
+    let mut bad = vec![protocol::MAGIC0, protocol::MAGIC1, protocol::VERSION, OP_PUT];
     bad.push((MAX_KEY_LEN + 1) as u8); // key_len overflow as u8
     bad.extend_from_slice(&0u16.to_le_bytes()); // val_len=0
     bad.extend(std::iter::repeat(b'x').take(MAX_KEY_LEN + 1));
@@ -235,15 +231,8 @@ fn response_flag_is_set_on_all_responses() {
     for &op in &ops {
         let req = encode_request(op, b"t", b"").unwrap();
         let rsp = svc.handle(&req);
-        assert!(
-            rsp.len() >= 4,
-            "response too short for op {op}"
-        );
-        assert_eq!(
-            rsp[3] & RESPONSE_FLAG,
-            RESPONSE_FLAG,
-            "response flag not set for op {op}"
-        );
+        assert!(rsp.len() >= 4, "response too short for op {op}");
+        assert_eq!(rsp[3] & RESPONSE_FLAG, RESPONSE_FLAG, "response flag not set for op {op}");
     }
 }
 
@@ -254,7 +243,10 @@ fn unsupported_opcode_returns_unsupported_status() {
     // Use opcode 99 (not defined), with valid key_len/val_len to bypass header checks.
     let req = {
         let mut buf = vec![
-            protocol::MAGIC0, protocol::MAGIC1, protocol::VERSION, 99u8,
+            protocol::MAGIC0,
+            protocol::MAGIC1,
+            protocol::VERSION,
+            99u8,
             1u8, // key_len=1
         ];
         buf.extend_from_slice(&0u16.to_le_bytes()); // val_len=0

@@ -77,7 +77,9 @@ struct Registry {
 }
 
 impl Registry {
-    fn new() -> Self { Self { entries: std::collections::BTreeMap::new() } }
+    fn new() -> Self {
+        Self { entries: std::collections::BTreeMap::new() }
+    }
 
     fn handle(&mut self, frame: &[u8]) -> Vec<u8> {
         if frame.len() < 6 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {

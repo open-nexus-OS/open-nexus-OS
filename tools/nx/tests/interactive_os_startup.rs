@@ -65,10 +65,7 @@ fn make_run_uses_interactive_minimal_runtime_mode_without_rebuild() {
 fn just_start_builds_then_runs_full_interactive_breadcrumbs() {
     let justfile = read_repo_file("justfile");
 
-    assert!(
-        justfile.contains("start *args:"),
-        "`just start` recipe must exist"
-    );
+    assert!(justfile.contains("start *args:"), "`just start` recipe must exist");
     assert!(
         justfile.contains("make MODE=${NEXUS_START_BUILD_MODE:-host} build"),
         "`just start` must perform its own build before launching"
@@ -128,10 +125,7 @@ fn run_qemu_runner_passes_runtime_mode_and_profile_via_fw_cfg() {
         "opt/org.open-nexus/selftest-mode",
         "opt/org.open-nexus/selftest-profile",
     ] {
-        assert!(
-            runner.contains(needle),
-            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
-        );
+        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
     }
     assert!(
         runner.contains("RUN_TIMEOUT=0") || runner.contains("\"$RUN_TIMEOUT\" == \"0\""),
@@ -152,10 +146,7 @@ fn interactive_minimal_timeout_is_only_accepted_after_scene_ready() {
         "\"$QEMU_MARKER_LEVEL\" == \"minimal\"",
         "| tee >(monitor_uart) >(monitor_agent_uart) \\",
     ] {
-        assert!(
-            runner.contains(needle),
-            "`scripts/run-qemu-rv64.sh` must contain `{needle}`"
-        );
+        assert!(runner.contains(needle), "`scripts/run-qemu-rv64.sh` must contain `{needle}`");
     }
 }
 
@@ -363,11 +354,7 @@ fn kernel_linker_keeps_private_selftest_stack() {
     let base = read_map_symbol(&map, "__selftest_stack_base");
     let top = read_map_symbol(&map, "__selftest_stack_top");
 
-    assert_eq!(
-        base - guard_lo,
-        0x1000,
-        "selftest stack low guard must be one page"
-    );
+    assert_eq!(base - guard_lo, 0x1000, "selftest stack low guard must be one page");
     assert_eq!(top - base, 0x8000, "private selftest stack must be 32 KiB");
 }
 
@@ -470,10 +457,7 @@ fn hidrawd_service_owns_periodic_chain_fps_telemetry() {
         "rebinds={}",
         "idle_yields={}",
     ] {
-        assert!(
-            hidrawd.contains(needle),
-            "`hidrawd` service telemetry must include `{needle}`"
-        );
+        assert!(hidrawd.contains(needle), "`hidrawd` service telemetry must include `{needle}`");
     }
 }
 
@@ -543,10 +527,7 @@ fn inputd_service_owns_periodic_chain_fps_telemetry() {
         "kbd_deliv={}",
         "idle_yields={}",
     ] {
-        assert!(
-            inputd.contains(needle),
-            "`inputd` service telemetry must include `{needle}`"
-        );
+        assert!(inputd.contains(needle), "`inputd` service telemetry must include `{needle}`");
     }
 }
 
@@ -1200,12 +1181,9 @@ fn visible_bootstrap_harness_requires_service_owned_display_markers() {
     let harness = read_repo_file("scripts/qemu-test.sh");
     let ui_markers = read_repo_file("source/apps/selftest-client/proof-manifest/markers/ui.toml");
 
-    for marker in [
-        "fbdevd: ready",
-        "fbdevd: map ok",
-        "fbdevd: ramfb configured",
-        "fbdevd: flush ok",
-    ] {
+    for marker in
+        ["fbdevd: ready", "fbdevd: map ok", "fbdevd: ramfb configured", "fbdevd: flush ok"]
+    {
         assert!(
             harness.contains(marker),
             "visible-bootstrap ladder must require service-owned display marker `{marker}`"

@@ -17,12 +17,7 @@ fn encoder_records_commands() {
             height: 64,
         });
         enc.set_fragment_bytes(0, &[42]);
-        enc.draw_tiles(&[TileRect {
-            x: 0,
-            y: 0,
-            width: 10,
-            height: 10,
-        }]);
+        enc.draw_tiles(&[TileRect { x: 0, y: 0, width: 10, height: 10 }]);
         enc.end_encoding();
     }
     let c = cmd.commit();
@@ -32,11 +27,8 @@ fn encoder_records_commands() {
 #[test]
 fn end_encoding_consumes_encoder() {
     let mut cmd = CommandBuffer::new();
-    let enc = cmd.begin_render_pass(RenderPassDesc {
-        color_attachments: vec![],
-        width: 64,
-        height: 64,
-    });
+    let enc =
+        cmd.begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 });
     enc.end_encoding();
     // enc is consumed — cannot be used after. Type system enforces this.
 }
@@ -45,14 +37,7 @@ fn end_encoding_consumes_encoder() {
 fn test_reject_empty_tile_draw() {
     let mut cmd = CommandBuffer::new();
     let mut enc = cmd
-        .try_begin_render_pass(RenderPassDesc {
-            color_attachments: vec![],
-            width: 64,
-            height: 64,
-        })
+        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
-    assert_eq!(
-        enc.try_draw_tiles(&[]).err(),
-        Some(GfxError::InvalidArgument)
-    );
+    assert_eq!(enc.try_draw_tiles(&[]).err(), Some(GfxError::InvalidArgument));
 }

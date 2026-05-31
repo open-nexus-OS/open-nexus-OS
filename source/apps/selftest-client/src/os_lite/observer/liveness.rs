@@ -10,7 +10,8 @@
 //! Reads service registration status from samgrd without initiating
 //! control-plane IPC (uses logd markers as the health signal).
 
-use core::time::Duration;
+extern crate alloc;
+use alloc::vec::Vec;
 
 /// Service health status as observed from logd markers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,9 +35,7 @@ pub(crate) struct LivenessChecker {
 impl LivenessChecker {
     /// Create a liveness checker for the given service list.
     pub fn new(services: &[&'static str]) -> Self {
-        Self {
-            ready_services: services.iter().map(|&s| (s, false)).collect(),
-        }
+        Self { ready_services: services.iter().map(|&s| (s, false)).collect() }
     }
 
     /// Mark a service as ready when its marker is observed.
@@ -56,18 +55,12 @@ impl LivenessChecker {
 
     /// Check if a specific service is ready.
     pub fn is_ready(&self, service: &str) -> bool {
-        self.ready_services
-            .iter()
-            .any(|(name, ready)| *name == service && *ready)
+        self.ready_services.iter().any(|(name, ready)| *name == service && *ready)
     }
 
     /// Return list of services not yet ready.
     pub fn pending(&self) -> Vec<&'static str> {
-        self.ready_services
-            .iter()
-            .filter(|(_, ready)| !*ready)
-            .map(|(name, _)| *name)
-            .collect()
+        self.ready_services.iter().filter(|(_, ready)| !*ready).map(|(name, _)| *name).collect()
     }
 }
 

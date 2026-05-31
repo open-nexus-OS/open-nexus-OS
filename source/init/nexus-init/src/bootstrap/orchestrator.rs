@@ -9,12 +9,12 @@
 //! ADR: docs/adr/0017-service-architecture.md
 //! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
-use alloc::vec::Vec;
+use crate::bootstrap::route_builder;
+use crate::bootstrap::spawn::spawn_service_with_probe;
 use crate::bootstrap::{BootstrapState, CtrlChannel};
 use crate::os_payload::*;
 use crate::route_table::RouteTable;
-use crate::bootstrap::route_builder;
-use crate::bootstrap::spawn::spawn_service_with_probe;
+use alloc::vec::Vec;
 
 pub(crate) fn run_bootstrap<F>(
     images: &'static [ServiceImage],
@@ -504,8 +504,14 @@ where
         let pol_rsp_clone = nexus_abi::cap_clone(pol_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "policyd") {
             let pid = chan.pid;
-            chan.pol_recv_slot = Some(nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV).map_err(InitError::Abi)?);
-            chan.pol_send_slot = Some(nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            chan.pol_recv_slot = Some(
+                nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV)
+                    .map_err(InitError::Abi)?,
+            );
+            chan.pol_send_slot = Some(
+                nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND)
+                    .map_err(InitError::Abi)?,
+            );
             debug_write_bytes(b"init: policyd priority-wired\n");
         }
     }
@@ -520,20 +526,38 @@ where
         let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "fbdevd") {
             let pid = chan.pid;
-            chan.fbdev_recv_slot = Some(nexus_abi::cap_transfer(pid, fbdev_req_clone, Rights::RECV).map_err(InitError::Abi)?);
-            chan.fbdev_send_slot = Some(nexus_abi::cap_transfer(pid, fbdev_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            chan.fbdev_recv_slot = Some(
+                nexus_abi::cap_transfer(pid, fbdev_req_clone, Rights::RECV)
+                    .map_err(InitError::Abi)?,
+            );
+            chan.fbdev_send_slot = Some(
+                nexus_abi::cap_transfer(pid, fbdev_rsp_clone, Rights::SEND)
+                    .map_err(InitError::Abi)?,
+            );
             debug_write_bytes(b"init: fbdevd priority-wired\n");
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
             let pid = chan.pid;
-            chan.window_recv_slot = Some(nexus_abi::cap_transfer(pid, window_req_clone, Rights::RECV).map_err(InitError::Abi)?);
-            chan.window_send_slot = Some(nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            chan.window_recv_slot = Some(
+                nexus_abi::cap_transfer(pid, window_req_clone, Rights::RECV)
+                    .map_err(InitError::Abi)?,
+            );
+            chan.window_send_slot = Some(
+                nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::SEND)
+                    .map_err(InitError::Abi)?,
+            );
             debug_write_bytes(b"init: windowd priority-wired\n");
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
             let pid = chan.pid;
-            chan.input_recv_slot = Some(nexus_abi::cap_transfer(pid, input_req_clone, Rights::RECV).map_err(InitError::Abi)?);
-            chan.input_send_slot = Some(nexus_abi::cap_transfer(pid, input_rsp_clone, Rights::SEND).map_err(InitError::Abi)?);
+            chan.input_recv_slot = Some(
+                nexus_abi::cap_transfer(pid, input_req_clone, Rights::RECV)
+                    .map_err(InitError::Abi)?,
+            );
+            chan.input_send_slot = Some(
+                nexus_abi::cap_transfer(pid, input_rsp_clone, Rights::SEND)
+                    .map_err(InitError::Abi)?,
+            );
             debug_write_bytes(b"init: inputd priority-wired\n");
         }
     }
@@ -621,21 +645,9 @@ where
         net_slot,
         DEVICE_MMIO_CAP_SLOT,
     )?;
-    grant_mmio_with_wait(
-        rngd_pid,
-        "rngd",
-        "device.mmio.rng",
-        rng_slot,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
+    grant_mmio_with_wait(rngd_pid, "rngd", "device.mmio.rng", rng_slot, DEVICE_MMIO_CAP_SLOT)?;
     let gpu_slot = gpu_slot.ok_or(InitError::Map("virtio-gpu slot not found"))?;
-    grant_mmio_with_wait(
-        gpud_pid,
-        "gpud",
-        "device.mmio.gpu",
-        gpu_slot,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
+    grant_mmio_with_wait(gpud_pid, "gpud", "device.mmio.gpu", gpu_slot, DEVICE_MMIO_CAP_SLOT)?;
     grant_mmio_with_wait(
         selftest_pid,
         "selftest-client",
@@ -681,14 +693,22 @@ where
         };
         loop {
             match grant_mmio_cap(
-                fbdevd_pid, "fbdevd", "device.mmio.fwcfg",
-                mmio_base, mmio_len,
-                pol_ctl_route_req, pol_ctl_route_rsp, FW_CFG_MMIO_CAP_SLOT,
+                fbdevd_pid,
+                "fbdevd",
+                "device.mmio.fwcfg",
+                mmio_base,
+                mmio_len,
+                pol_ctl_route_req,
+                pol_ctl_route_rsp,
+                FW_CFG_MMIO_CAP_SLOT,
             )? {
                 Some(true) => break,
                 Some(false) => return Err(InitError::Map("fbdevd fw_cfg mmio policy denied")),
                 None => {
-                    let now = match nexus_abi::nsec() { Ok(v) => v, Err(_) => 0 };
+                    let now = match nexus_abi::nsec() {
+                        Ok(v) => v,
+                        Err(_) => 0,
+                    };
                     if now >= deadline {
                         return Err(InitError::Map("fbdevd fw_cfg mmio policy timeout"));
                     }
@@ -953,64 +973,64 @@ where
                     let reply_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
                             .map_err(InitError::Abi)?;
-                    let reply_recv_slot =
-                        nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                    let reply_send_slot =
-                        nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
+                    let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                        .map_err(InitError::Abi)?;
+                    let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                        .map_err(InitError::Abi)?;
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
                     chan.state_recv_slot = Some(reply_recv_slot);
                     let _ = nexus_abi::cap_close(reply_ep);
                     if let Some(req) = log_req {
-                        let send_slot =
-                            nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
-                }
-            } else {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, pol_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.pol_send_slot = Some(send_slot);
-                chan.pol_recv_slot = Some(recv_slot);
-                debug_write_bytes(b"init: policyd slots recv=0x");
-                debug_write_hex(recv_slot as usize);
-                debug_write_bytes(b" send=0x");
-                debug_write_hex(send_slot as usize);
-                debug_write_byte(b'\n');
-
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        chan.log_send_slot = Some(send_slot);
+                        chan.log_recv_slot = Some(reply_recv_slot);
+                    }
+                } else {
+                    let recv_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::RECV)
                         .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                chan.state_recv_slot = Some(reply_recv_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-                debug_write_bytes(b"init: policyd reply slots recv=0x");
-                debug_write_hex(reply_recv_slot as usize);
-                debug_write_bytes(b" send=0x");
-                debug_write_hex(reply_send_slot as usize);
-                debug_write_byte(b'\n');
-
-                // TASK-0006: allow policyd to send structured logs to logd via CAP_MOVE (reply inbox).
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
-                    debug_write_bytes(b"init: policyd logd slots send=0x");
+                    let send_slot = nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND)
+                        .map_err(InitError::Abi)?;
+                    chan.pol_send_slot = Some(send_slot);
+                    chan.pol_recv_slot = Some(recv_slot);
+                    debug_write_bytes(b"init: policyd slots recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_bytes(b" send=0x");
                     debug_write_hex(send_slot as usize);
-                    debug_write_bytes(b" recv=0x");
-                    debug_write_hex(reply_recv_slot as usize);
                     debug_write_byte(b'\n');
+
+                    // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
+                    let reply_ep =
+                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                            .map_err(InitError::Abi)?;
+                    let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                        .map_err(InitError::Abi)?;
+                    let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                        .map_err(InitError::Abi)?;
+                    chan.reply_recv_slot = Some(reply_recv_slot);
+                    chan.reply_send_slot = Some(reply_send_slot);
+                    chan.state_recv_slot = Some(reply_recv_slot);
+                    let _ = nexus_abi::cap_close(reply_ep);
+                    debug_write_bytes(b"init: policyd reply slots recv=0x");
+                    debug_write_hex(reply_recv_slot as usize);
+                    debug_write_bytes(b" send=0x");
+                    debug_write_hex(reply_send_slot as usize);
+                    debug_write_byte(b'\n');
+
+                    // TASK-0006: allow policyd to send structured logs to logd via CAP_MOVE (reply inbox).
+                    if let Some(req) = log_req {
+                        let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                        chan.log_send_slot = Some(send_slot);
+                        chan.log_recv_slot = Some(reply_recv_slot);
+                        debug_write_bytes(b"init: policyd logd slots send=0x");
+                        debug_write_hex(send_slot as usize);
+                        debug_write_bytes(b" recv=0x");
+                        debug_write_hex(reply_recv_slot as usize);
+                        debug_write_byte(b'\n');
+                    }
                 }
-            }
             }
             "bundlemgrd" => {
                 let recv_slot =
@@ -1472,8 +1492,10 @@ where
                 if chan.window_send_slot.is_some() && chan.window_recv_slot.is_some() {
                     debug_write_bytes(b"init: windowd already priority-wired, skip\n");
                     // Still need gpud caps.
-                    let gpud_send_slot = try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
-                    let gpud_recv_slot = try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                    let gpud_send_slot =
+                        try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
+                    let gpud_recv_slot =
+                        try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
                     if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
                         chan.gpud_send_slot = Some(gpud_send);
                         chan.gpud_recv_slot = Some(gpud_recv);
@@ -1487,8 +1509,10 @@ where
                 chan.window_send_slot = Some(send_slot);
                 chan.window_recv_slot = Some(recv_slot);
                 // gpud may have crashed — graceful transfer
-                let gpud_send_slot = try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
-                let gpud_recv_slot = try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
+                let gpud_send_slot =
+                    try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
+                let gpud_recv_slot =
+                    try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
                 if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
                     chan.gpud_send_slot = Some(gpud_send);
                     chan.gpud_recv_slot = Some(gpud_recv);
@@ -1838,12 +1862,7 @@ where
 
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
-    match updated_boot_attempt(
-        &mut upd_pending,
-        upd_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
-    ) {
+    match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
         Ok(Some(slot)) => {
             let ok = bundlemgrd_set_active_slot(
                 &mut upd_pending,

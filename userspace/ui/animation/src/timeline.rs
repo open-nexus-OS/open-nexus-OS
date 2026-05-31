@@ -7,16 +7,8 @@ use crate::spring::{SpringConfig, SpringSim};
 use alloc::vec::Vec;
 
 enum ActiveAnimation {
-    Spring {
-        layer: LayerId,
-        prop: AnimProp,
-        sim: SpringSim,
-    },
-    Keyframe {
-        layer: LayerId,
-        prop: AnimProp,
-        track: KeyframeTrack,
-    },
+    Spring { layer: LayerId, prop: AnimProp, sim: SpringSim },
+    Keyframe { layer: LayerId, prop: AnimProp, track: KeyframeTrack },
 }
 
 pub struct AnimationDriver {
@@ -28,12 +20,7 @@ pub struct AnimationDriver {
 
 impl AnimationDriver {
     pub fn new() -> Self {
-        Self {
-            start: 0,
-            last_tick: 0,
-            animations: Vec::new(),
-            reduced_motion: false,
-        }
+        Self { start: 0, last_tick: 0, animations: Vec::new(), reduced_motion: false }
     }
 
     pub fn tick(&mut self, now_ns: u64) -> Vec<SceneUpdate> {
@@ -46,11 +33,7 @@ impl AnimationDriver {
             return Vec::new();
         }
 
-        let effective_dt = if self.reduced_motion {
-            dt.min(100_000_000)
-        } else {
-            dt
-        };
+        let effective_dt = if self.reduced_motion { dt.min(100_000_000) } else { dt };
         let mut updates = Vec::new();
         let mut i = 0;
         while i < self.animations.len() {
@@ -101,11 +84,7 @@ impl AnimationDriver {
     ) {
         self.cancel(layer, prop);
         let cfg = if self.reduced_motion {
-            SpringConfig {
-                stiffness: 1000.0,
-                damping: 100.0,
-                ..config
-            }
+            SpringConfig { stiffness: 1000.0, damping: 100.0, ..config }
         } else {
             config
         };
@@ -125,11 +104,7 @@ impl AnimationDriver {
         easing: Easing,
     ) {
         self.cancel(layer, prop);
-        let dur = if self.reduced_motion {
-            duration_ns.min(100_000_000)
-        } else {
-            duration_ns
-        };
+        let dur = if self.reduced_motion { duration_ns.min(100_000_000) } else { duration_ns };
         self.animations.push(ActiveAnimation::Keyframe {
             layer,
             prop,
@@ -139,12 +114,8 @@ impl AnimationDriver {
 
     pub fn cancel(&mut self, layer: LayerId, prop: AnimProp) {
         self.animations.retain(|a| match a {
-            ActiveAnimation::Spring {
-                layer: l, prop: p, ..
-            } => *l != layer || *p != prop,
-            ActiveAnimation::Keyframe {
-                layer: l, prop: p, ..
-            } => *l != layer || *p != prop,
+            ActiveAnimation::Spring { layer: l, prop: p, .. } => *l != layer || *p != prop,
+            ActiveAnimation::Keyframe { layer: l, prop: p, .. } => *l != layer || *p != prop,
         });
     }
 

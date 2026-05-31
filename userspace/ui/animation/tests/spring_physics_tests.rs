@@ -5,7 +5,7 @@
 //! OWNERS: @ui
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use animation::{SpringSim, SpringConfig};
+use animation::{SpringConfig, SpringSim};
 
 #[test]
 fn spring_converges_to_target() {

@@ -7,11 +7,7 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-#![cfg_attr(
-    all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),
-    no_std,
-    no_main
-)]
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![cfg_attr(
     not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")),
     forbid(unsafe_code)

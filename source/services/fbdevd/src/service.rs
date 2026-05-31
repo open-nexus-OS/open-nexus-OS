@@ -100,9 +100,7 @@ impl FbdevService {
 
     /// Returns the cursor bitmap and dimensions, if loaded.
     pub fn cursor_overlay(&self) -> Option<(&[u8], u32, u32)> {
-        self.cursor_bitmap
-            .as_ref()
-            .map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
+        self.cursor_bitmap.as_ref().map(|bm| (bm.as_slice(), self.cursor_width, self.cursor_height))
     }
 
     pub fn observer_ready(&self) -> bool {
@@ -155,10 +153,7 @@ impl FbdevService {
     pub fn telemetry_values_if_due(
         &mut self,
         now_ns: u64,
-    ) -> Option<(
-        Option<WindowdDisplayTelemetryReport>,
-        Option<DisplayScanoutReport>,
-    )> {
+    ) -> Option<(Option<WindowdDisplayTelemetryReport>, Option<DisplayScanoutReport>)> {
         let windowd = self.windowd_telemetry.report_values_if_due(now_ns);
         let fbdevd = self.scanout.report_values_if_due(now_ns);
         if windowd.is_none() && fbdevd.is_none() {

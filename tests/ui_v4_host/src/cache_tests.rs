@@ -57,10 +57,7 @@ mod tests {
         // Insert 3 → should evict key 2 (least recently used)
         cache.insert(3, vec![3], 1, 1);
         assert_eq!(cache.len(), 2);
-        assert!(
-            cache.get(1).is_some(),
-            "key 1 should survive (recently accessed)"
-        );
+        assert!(cache.get(1).is_some(), "key 1 should survive (recently accessed)");
         assert!(cache.get(3).is_some(), "key 3 should be present");
         assert!(cache.get(2).is_none(), "key 2 should be evicted (LRU)");
     }
@@ -267,12 +264,7 @@ mod tests {
             assert!(off < cap, "offset must be within capacity (cycle {})", i);
             assert_eq!(arena.capacity(), cap, "capacity must not change");
             arena.reset();
-            assert_eq!(
-                arena.used_bytes(),
-                0,
-                "used must be 0 after reset (cycle {})",
-                i
-            );
+            assert_eq!(arena.used_bytes(), 0, "used must be 0 after reset (cycle {})", i);
         }
     }
 
@@ -335,9 +327,6 @@ mod tests {
         let _ = a2.alloc(20);
         let u2 = a2.used_bytes();
 
-        assert_eq!(
-            u1, u2,
-            "identical usage patterns must produce identical used_bytes"
-        );
+        assert_eq!(u1, u2, "identical usage patterns must produce identical used_bytes");
     }
 }

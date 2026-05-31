@@ -29,8 +29,12 @@ fn encode_status(op: u8, status: u8) -> Vec<u8> {
 }
 
 fn decode_rsp(frame: &[u8]) -> Result<(u8, u8), &'static str> {
-    if frame.len() < 5 { return Err("too short"); }
-    if frame[0] != MAGIC0 || frame[1] != MAGIC1 { return Err("bad magic"); }
+    if frame.len() < 5 {
+        return Err("too short");
+    }
+    if frame[0] != MAGIC0 || frame[1] != MAGIC1 {
+        return Err("bad magic");
+    }
     let op = frame[3] & !RESPONSE_FLAG;
     Ok((op, frame[4]))
 }
@@ -52,7 +56,10 @@ fn server_handle(frame: &[u8]) -> Vec<u8> {
         Err(_) => return encode_status(op, STATUS_MALFORMED),
     };
     match op {
-        OP_REGISTER => { reg.entry(name.to_string()).or_insert(0); encode_status(OP_REGISTER, STATUS_OK) }
+        OP_REGISTER => {
+            reg.entry(name.to_string()).or_insert(0);
+            encode_status(OP_REGISTER, STATUS_OK)
+        }
         OP_LOOKUP => {
             if reg.contains_key(name) {
                 let mut out = vec![MAGIC0, MAGIC1, VERSION, OP_LOOKUP | RESPONSE_FLAG, STATUS_OK];

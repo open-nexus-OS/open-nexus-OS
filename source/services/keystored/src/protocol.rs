@@ -166,19 +166,13 @@ mod tests {
     #[test]
     fn encode_rejects_key_too_long() {
         let long_key = [b'x'; MAX_KEY_LEN + 1];
-        assert_eq!(
-            encode_request(OP_PUT, &long_key, b""),
-            Err(ProtocolError::KeyTooLong)
-        );
+        assert_eq!(encode_request(OP_PUT, &long_key, b""), Err(ProtocolError::KeyTooLong));
     }
 
     #[test]
     fn encode_rejects_value_too_long() {
         let long_val = [b'x'; MAX_VAL_LEN + 1];
-        assert_eq!(
-            encode_request(OP_PUT, b"k", &long_val),
-            Err(ProtocolError::ValueTooLong)
-        );
+        assert_eq!(encode_request(OP_PUT, b"k", &long_val), Err(ProtocolError::ValueTooLong));
     }
 
     #[test]
@@ -216,10 +210,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_frame_too_short() {
-        assert_eq!(
-            decode_response(&[0u8; 4], OP_PUT),
-            Err(ProtocolError::FrameTooShort)
-        );
+        assert_eq!(decode_response(&[0u8; 4], OP_PUT), Err(ProtocolError::FrameTooShort));
     }
 
     #[test]
@@ -233,19 +224,13 @@ mod tests {
     fn decode_rejects_wrong_version() {
         let mut rsp = encode_response(OP_PUT, STATUS_OK, &[]);
         rsp[2] = 99;
-        assert_eq!(
-            decode_response(&rsp, OP_PUT),
-            Err(ProtocolError::UnsupportedVersion)
-        );
+        assert_eq!(decode_response(&rsp, OP_PUT), Err(ProtocolError::UnsupportedVersion));
     }
 
     #[test]
     fn decode_rejects_opcode_mismatch() {
         let rsp = encode_response(OP_PUT, STATUS_OK, &[]);
-        assert_eq!(
-            decode_response(&rsp, OP_GET),
-            Err(ProtocolError::OpcodeMismatch)
-        );
+        assert_eq!(decode_response(&rsp, OP_GET), Err(ProtocolError::OpcodeMismatch));
     }
 
     #[test]
@@ -254,10 +239,7 @@ mod tests {
         // Corrupt the length field to claim 5 bytes.
         rsp[5] = 5;
         rsp[6] = 0;
-        assert_eq!(
-            decode_response(&rsp, OP_PUT),
-            Err(ProtocolError::LengthMismatch)
-        );
+        assert_eq!(decode_response(&rsp, OP_PUT), Err(ProtocolError::LengthMismatch));
     }
 
     // ── Header validation ─────────────────────────────────────────
@@ -288,9 +270,18 @@ mod tests {
     fn opcodes_do_not_overlap_with_response_flag() {
         // No opcode should have the RESPONSE_FLAG bit set.
         let ops = [
-            OP_PUT, OP_GET, OP_DEL, OP_VERIFY, OP_SIGN, OP_PUBKEY, OP_CAPMOVE,
-            OP_DEVICE_KEYGEN, OP_GET_DEVICE_PUBKEY, OP_DEVICE_SIGN,
-            OP_GET_DEVICE_PRIVKEY, OP_DEVICE_RELOAD,
+            OP_PUT,
+            OP_GET,
+            OP_DEL,
+            OP_VERIFY,
+            OP_SIGN,
+            OP_PUBKEY,
+            OP_CAPMOVE,
+            OP_DEVICE_KEYGEN,
+            OP_GET_DEVICE_PUBKEY,
+            OP_DEVICE_SIGN,
+            OP_GET_DEVICE_PRIVKEY,
+            OP_DEVICE_RELOAD,
         ];
         for &op in &ops {
             assert_eq!(op & RESPONSE_FLAG, 0, "opcode {op:#x} overlaps response flag");
@@ -300,8 +291,14 @@ mod tests {
     #[test]
     fn status_codes_are_distinct() {
         let statuses = [
-            STATUS_OK, STATUS_NOT_FOUND, STATUS_MALFORMED, STATUS_TOO_LARGE,
-            STATUS_UNSUPPORTED, STATUS_DENY, STATUS_KEY_EXISTS, STATUS_KEY_NOT_FOUND,
+            STATUS_OK,
+            STATUS_NOT_FOUND,
+            STATUS_MALFORMED,
+            STATUS_TOO_LARGE,
+            STATUS_UNSUPPORTED,
+            STATUS_DENY,
+            STATUS_KEY_EXISTS,
+            STATUS_KEY_NOT_FOUND,
             STATUS_PRIVATE_EXPORT_DENIED,
         ];
         for i in 0..statuses.len() {

@@ -30,12 +30,7 @@ mod tests {
     }
 
     fn black_shadow() -> Rgba8 {
-        Rgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 128,
-        }
+        Rgba8 { r: 0, g: 0, b: 0, a: 128 }
     }
 
     // ─── basic 9-slice rendering ───
@@ -45,12 +40,8 @@ mod tests {
         let elem_w: u32 = 100;
         let elem_h: u32 = 80;
         let (mut target, stride) = make_target(200, 200);
-        let shadow = NineSliceShadow {
-            corner_size: 12,
-            blur_radius: 4,
-            spread: 2,
-            color: black_shadow(),
-        };
+        let shadow =
+            NineSliceShadow { corner_size: 12, blur_radius: 4, spread: 2, color: black_shadow() };
         let mut budget = EffectBudget::default();
         let count = composite_nine_slice_shadow(
             &mut target,
@@ -101,12 +92,8 @@ mod tests {
     #[test]
     fn test_nine_slice_budget_exhausted() {
         let (mut target, stride) = make_target(200, 200);
-        let shadow = NineSliceShadow {
-            corner_size: 12,
-            blur_radius: 4,
-            spread: 0,
-            color: black_shadow(),
-        };
+        let shadow =
+            NineSliceShadow { corner_size: 12, blur_radius: 4, spread: 0, color: black_shadow() };
         let mut budget = EffectBudget::new(0); // zero budget
         let count = composite_nine_slice_shadow(
             &mut target,
@@ -134,12 +121,8 @@ mod tests {
         let elem_h: u32 = 60;
         let (mut target, stride) = make_target(120, 120);
         // Blur radius > 0 should soften corners
-        let blurred = NineSliceShadow {
-            corner_size: 10,
-            blur_radius: 4,
-            spread: 0,
-            color: black_shadow(),
-        };
+        let blurred =
+            NineSliceShadow { corner_size: 10, blur_radius: 4, spread: 0, color: black_shadow() };
         let mut budget = EffectBudget::default();
         let _ = composite_nine_slice_shadow(
             &mut target,
@@ -168,12 +151,8 @@ mod tests {
         let elem_w: u32 = 100;
         let elem_h: u32 = 100;
         let (mut target, stride) = make_target(200, 200);
-        let shadow = NineSliceShadow {
-            corner_size: 12,
-            blur_radius: 0,
-            spread: 0,
-            color: black_shadow(),
-        };
+        let shadow =
+            NineSliceShadow { corner_size: 12, blur_radius: 0, spread: 0, color: black_shadow() };
         let mut budget = EffectBudget::default();
         let _ = composite_nine_slice_shadow(
             &mut target,
@@ -194,11 +173,7 @@ mod tests {
         let cx = 50 + elem_w as i32 / 2;
         let cy = 50 + elem_h as i32 / 2;
         let idx = (cy as usize) * stride as usize + (cx as usize) * 4;
-        assert_eq!(
-            target[idx + 3],
-            shadow.color.a,
-            "center fill should be solid shadow alpha"
-        );
+        assert_eq!(target[idx + 3], shadow.color.a, "center fill should be solid shadow alpha");
     }
 
     // ─── cache ───
@@ -209,12 +184,8 @@ mod tests {
         let elem_h: u32 = 40;
         let (mut target1, stride) = make_target(120, 120);
         let (mut target2, _) = make_target(120, 120);
-        let shadow = NineSliceShadow {
-            corner_size: 10,
-            blur_radius: 3,
-            spread: 1,
-            color: black_shadow(),
-        };
+        let shadow =
+            NineSliceShadow { corner_size: 10, blur_radius: 3, spread: 1, color: black_shadow() };
         let mut budget = EffectBudget::default();
         let mut cache = EffectCache::with_capacity(16);
 
@@ -234,11 +205,7 @@ mod tests {
             Some(&mut cache),
         );
         assert!(c1 > 0);
-        assert_eq!(
-            cache.len(),
-            1,
-            "cache should have one entry after first render"
-        );
+        assert_eq!(cache.len(), 1, "cache should have one entry after first render");
 
         let c2 = composite_nine_slice_shadow(
             &mut target2,
@@ -264,18 +231,10 @@ mod tests {
     fn test_nine_slice_different_params_different_cache_key() {
         let (mut target1, stride) = make_target(120, 120);
         let (mut target2, _) = make_target(120, 120);
-        let shadow1 = NineSliceShadow {
-            corner_size: 8,
-            blur_radius: 2,
-            spread: 0,
-            color: black_shadow(),
-        };
-        let shadow2 = NineSliceShadow {
-            corner_size: 10,
-            blur_radius: 4,
-            spread: 0,
-            color: black_shadow(),
-        };
+        let shadow1 =
+            NineSliceShadow { corner_size: 8, blur_radius: 2, spread: 0, color: black_shadow() };
+        let shadow2 =
+            NineSliceShadow { corner_size: 10, blur_radius: 4, spread: 0, color: black_shadow() };
         let mut budget = EffectBudget::default();
         let mut cache = EffectCache::with_capacity(16);
 
@@ -309,11 +268,7 @@ mod tests {
             &mut budget,
             Some(&mut cache),
         );
-        assert_eq!(
-            cache.len(),
-            2,
-            "different params should be separate cache entries"
-        );
+        assert_eq!(cache.len(), 2, "different params should be separate cache entries");
     }
 
     // ─── comparison with full-surface blur ───
@@ -325,12 +280,8 @@ mod tests {
         let (mut target_nine, stride) = make_target(160, 160);
         let (mut target_full, _) = make_target(160, 160);
 
-        let shadow = NineSliceShadow {
-            corner_size: 10,
-            blur_radius: 3,
-            spread: 0,
-            color: black_shadow(),
-        };
+        let shadow =
+            NineSliceShadow { corner_size: 10, blur_radius: 3, spread: 0, color: black_shadow() };
         let mut budget = EffectBudget::default();
 
         let _ = composite_nine_slice_shadow(

@@ -5,7 +5,7 @@
 //! OWNERS: @ui
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use animation::{KeyframeTrack, Easing};
+use animation::{Easing, KeyframeTrack};
 
 #[test]
 fn linear_reaches_target() {
@@ -24,23 +24,17 @@ fn linear_reaches_target() {
 
 #[test]
 fn ease_out_starts_fast_ends_slow() {
-    let mut track = KeyframeTrack::new(
-        vec![(0.0, 0.0), (1.0, 100.0)],
-        1_000_000_000,
-        Easing::EaseOut,
-    );
+    let mut track =
+        KeyframeTrack::new(vec![(0.0, 0.0), (1.0, 100.0)], 1_000_000_000, Easing::EaseOut);
     let v1 = track.step(16_666_667); // first frame
-    // EaseOut: early frames have larger steps
+                                     // EaseOut: early frames have larger steps
     assert!(v1 > 1.0, "ease-out starts fast, got {v1}");
 }
 
 #[test]
 fn ease_in_starts_slow_ends_fast() {
-    let mut track = KeyframeTrack::new(
-        vec![(0.0, 0.0), (1.0, 100.0)],
-        1_000_000_000,
-        Easing::EaseIn,
-    );
+    let mut track =
+        KeyframeTrack::new(vec![(0.0, 0.0), (1.0, 100.0)], 1_000_000_000, Easing::EaseIn);
     let v1 = track.step(16_666_667);
     assert!(v1 < 5.0, "ease-in starts slow, got {v1}");
 }

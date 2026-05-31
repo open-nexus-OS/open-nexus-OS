@@ -38,10 +38,7 @@ pub struct KeyframeTrack {
 impl KeyframeTrack {
     pub fn new(keyframes: Vec<(f32, f32)>, duration_ns: u64, easing: Easing) -> Self {
         assert!(!keyframes.is_empty(), "keyframes must not be empty");
-        assert!(
-            (keyframes[0].0 - 0.0).abs() < 0.001,
-            "first keyframe must be at 0.0"
-        );
+        assert!((keyframes[0].0 - 0.0).abs() < 0.001, "first keyframe must be at 0.0");
         assert!(
             (keyframes[keyframes.len() - 1].0 - 1.0).abs() < 0.001,
             "last keyframe must be at 1.0"

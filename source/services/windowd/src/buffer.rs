@@ -29,17 +29,11 @@ pub struct VmoRights {
 
 impl VmoRights {
     pub const fn read_write() -> Self {
-        Self {
-            read: true,
-            write: true,
-        }
+        Self { read: true, write: true }
     }
 
     pub const fn read_only() -> Self {
-        Self {
-            read: true,
-            write: false,
-        }
+        Self { read: true, write: false }
     }
 }
 
@@ -75,9 +69,7 @@ impl SurfaceBuffer {
         let len = checked_len(stride, height)?;
         let mut pixels = vec![0u8; len];
         for y in 0..height as usize {
-            let row = y
-                .checked_mul(stride as usize)
-                .ok_or(WindowdError::ArithmeticOverflow)?;
+            let row = y.checked_mul(stride as usize).ok_or(WindowdError::ArithmeticOverflow)?;
             for x in 0..width as usize {
                 let idx = row
                     .checked_add(x.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?)
@@ -148,10 +140,7 @@ pub(crate) fn validate_buffer(caller: CallerCtx, buffer: &SurfaceBuffer) -> Resu
     if buffer.format != PixelFormat::Bgra8888 {
         return Err(WindowdError::UnsupportedFormat);
     }
-    let min_stride = buffer
-        .width
-        .checked_mul(4)
-        .ok_or(WindowdError::ArithmeticOverflow)?;
+    let min_stride = buffer.width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
     if buffer.stride < min_stride || buffer.stride.checked_rem(64) != Some(0) {
         return Err(WindowdError::InvalidStride);
     }

@@ -59,14 +59,8 @@ mod tests {
         let evidence = windowd::run_visible_input_smoke().expect("visible input smoke");
 
         // --- Downstream output: verify evidence from composed chain ---
-        assert!(
-            evidence.input_visible_on,
-            "windowd reports input visible on"
-        );
-        assert!(
-            evidence.cursor_move_visible,
-            "cursor move visible in evidence"
-        );
+        assert!(evidence.input_visible_on, "windowd reports input visible on");
+        assert!(evidence.cursor_move_visible, "cursor move visible in evidence");
         assert!(evidence.hover_visible, "hover visible in evidence");
         assert!(evidence.focus_visible, "focus visible in evidence");
         assert!(evidence.keyboard_visible, "keyboard visible in evidence");
@@ -92,33 +86,15 @@ mod tests {
         // --- Downstream evidence for fbdevd ---
         assert!(evidence.mode.width > 0, "mode width valid");
         assert!(evidence.mode.height > 0, "mode height valid");
-        assert!(
-            evidence.damage_rects > 0,
-            "bootstrap handoff produces damage rects"
-        );
+        assert!(evidence.damage_rects > 0, "bootstrap handoff produces damage rects");
         assert!(evidence.backend_visible, "backend visible flag set");
-        assert!(
-            evidence.systemui_first_frame_visible,
-            "systemui first frame visible"
-        );
+        assert!(evidence.systemui_first_frame_visible, "systemui first frame visible");
 
         // fbdevd gates on: materialized frame dimensions
-        let frame = evidence
-            .materialize_frame()
-            .expect("materialize composed frame");
-        assert_eq!(
-            frame.width, evidence.mode.width,
-            "composed frame matches mode width"
-        );
-        assert_eq!(
-            frame.height, evidence.mode.height,
-            "composed frame matches mode height"
-        );
-        assert_eq!(
-            frame.stride,
-            evidence.mode.width * 4,
-            "stride = width * 4 (BGRA8888)"
-        );
+        let frame = evidence.materialize_frame().expect("materialize composed frame");
+        assert_eq!(frame.width, evidence.mode.width, "composed frame matches mode width");
+        assert_eq!(frame.height, evidence.mode.height, "composed frame matches mode height");
+        assert_eq!(frame.stride, evidence.mode.width * 4, "stride = width * 4 (BGRA8888)");
         assert!(!frame.pixels.is_empty(), "composed frame has pixel data");
 
         // fbdevd gates on: first present seq via marker postflight

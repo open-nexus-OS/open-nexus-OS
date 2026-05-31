@@ -152,14 +152,7 @@ fn nine_slice_dims(elem_w: u32, elem_h: u32, shadow: &NineSliceShadow) -> Shadow
     let inner_y = cs.min(total_h);
     let inner_w = total_w.saturating_sub(2 * cs);
     let inner_h = total_h.saturating_sub(2 * cs);
-    ShadowDims {
-        total_w,
-        total_h,
-        inner_x,
-        inner_y,
-        inner_w,
-        inner_h,
-    }
+    ShadowDims { total_w, total_h, inner_x, inner_y, inner_w, inner_h }
 }
 
 fn nine_slice_cache_key(elem_w: u32, elem_h: u32, shadow: &NineSliceShadow) -> u64 {

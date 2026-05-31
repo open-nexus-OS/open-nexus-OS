@@ -11,19 +11,19 @@
 use crate::error::WindowdError;
 
 pub(crate) fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width
-        .checked_mul(4)
-        .ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes
-        .checked_add(63)
-        .ok_or(WindowdError::ArithmeticOverflow)
-        .map(|v| v / 64 * 64)
+    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
 }
 
 /// Single-row horizontal box blur with variable radius.
 /// Zero-allocation: uses `row_buf` (pre-allocated) for the temporary copy.
 /// Sliding window: O(width) operations regardless of radius.
-pub(crate) fn blur_row_horizontal(pixels: &mut [u8], row_bytes: usize, radius: u32, row_buf: &mut [u8]) {
+pub(crate) fn blur_row_horizontal(
+    pixels: &mut [u8],
+    row_bytes: usize,
+    radius: u32,
+    row_buf: &mut [u8],
+) {
     if row_bytes == 0 || radius == 0 {
         return;
     }

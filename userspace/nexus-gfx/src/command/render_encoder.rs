@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::buffer::{Command, CommandBuffer};
-use crate::core::types::TileRect;
 use crate::core::error::GfxError;
+use crate::core::types::TileRect;
 
 /// Records rendering commands into a CommandBuffer.
 /// Created by CommandBuffer::begin_render_pass().
@@ -20,18 +20,14 @@ impl<'a> RenderCommandEncoder<'a> {
     /// Set fragment shader uniform data at a byte offset.
     /// The data is copied into the command buffer.
     pub fn set_fragment_bytes(&mut self, offset: usize, data: &[u8]) {
-        self.try_set_fragment_bytes(offset, data)
-            .expect("invalid fragment bytes");
+        self.try_set_fragment_bytes(offset, data).expect("invalid fragment bytes");
     }
 
     pub fn try_set_fragment_bytes(&mut self, offset: usize, data: &[u8]) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
         }
-        self.cmd.push_command(Command::SetFragmentBytes {
-            offset,
-            data: data.to_vec(),
-        })
+        self.cmd.push_command(Command::SetFragmentBytes { offset, data: data.to_vec() })
     }
 
     /// Queue a draw of the given tiles.
@@ -43,9 +39,7 @@ impl<'a> RenderCommandEncoder<'a> {
         if !self.active {
             return Err(GfxError::CommandRejected);
         }
-        self.cmd.push_command(Command::DrawTiles {
-            tiles: tiles.to_vec(),
-        })
+        self.cmd.push_command(Command::DrawTiles { tiles: tiles.to_vec() })
     }
 
     /// End encoding. The encoder is consumed.

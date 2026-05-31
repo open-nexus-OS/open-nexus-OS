@@ -20,12 +20,7 @@ pub struct SpringConfig {
 
 impl Default for SpringConfig {
     fn default() -> Self {
-        Self {
-            stiffness: 100.0,
-            damping: 10.0,
-            mass: 1.0,
-            initial_velocity: 0.0,
-        }
+        Self { stiffness: 100.0, damping: 10.0, mass: 1.0, initial_velocity: 0.0 }
     }
 }
 
@@ -44,13 +39,7 @@ pub struct SpringSim {
 
 impl SpringSim {
     pub fn new(from: f32, to: f32, config: SpringConfig) -> Self {
-        Self {
-            position: from,
-            velocity: config.initial_velocity,
-            target: to,
-            config,
-            done: false,
-        }
+        Self { position: from, velocity: config.initial_velocity, target: to, config, done: false }
     }
 
     /// Advance simulation by dt_ns nanoseconds. Returns current position.

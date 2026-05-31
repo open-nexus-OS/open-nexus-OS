@@ -12,26 +12,24 @@
 //! Contains: MMIO probing/grants, OTA boot attempts, health checks, debug helpers,
 //! error labels, and all small utility functions.
 
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
-use nexus_abi::{self, AbiError, IpcError, Rights, MsgHeader};
+use crate::bootstrap::policyd::policyd_cap_allowed;
+use crate::bootstrap::route_builder;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::{
-    ServiceImage, InitError, ReadyNotifier, ServiceNameGuard,
-    BootstrapState, RouteTable, POLICY_NONCE,
-    CTRL_EP_DEPTH, CTRL_CHILD_SEND_SLOT, CTRL_CHILD_RECV_SLOT,
-    DEVICE_MMIO_CAP_SLOT, FW_CFG_MMIO_CAP_SLOT, FW_CFG_MMIO_BASE, FW_CFG_MMIO_LEN,
-    INPUT_MMIO_CAP_SLOT_BASE, VIRTIO_MMIO_BASE, VIRTIO_MMIO_STRIDE,
-    INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION,
-    INIT_HEALTH_OP_OK, INIT_HEALTH_STATUS_OK, INIT_HEALTH_STATUS_FAILED,
-    debug_write_byte, debug_write_bytes, debug_write_str, debug_write_hex,
-    fatal, probes_enabled,
+    debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str, fatal, probes_enabled,
+    BootstrapState, InitError, ReadyNotifier, RouteTable, ServiceImage, ServiceNameGuard,
+    CTRL_CHILD_RECV_SLOT, CTRL_CHILD_SEND_SLOT, CTRL_EP_DEPTH, DEVICE_MMIO_CAP_SLOT,
+    FW_CFG_MMIO_BASE, FW_CFG_MMIO_CAP_SLOT, FW_CFG_MMIO_LEN, INIT_HEALTH_MAGIC0,
+    INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK, INIT_HEALTH_STATUS_FAILED, INIT_HEALTH_STATUS_OK,
+    INIT_HEALTH_VERSION, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE, VIRTIO_MMIO_BASE,
+    VIRTIO_MMIO_STRIDE,
 };
-use crate::bootstrap::route_builder;
-use crate::bootstrap::policyd::policyd_cap_allowed;
+use nexus_abi::{self, AbiError, IpcError, MsgHeader, Rights};
 use nexus_ipc::reqrep::FrameStash;
 use nexus_log::StrRef;
 
@@ -120,19 +118,11 @@ const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
 const FW_CFG_MMIO_LEN: usize = 0x1000;
 
 fn virtio_mmio_window(slot: usize) -> (usize, usize) {
-    (
-        VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE,
-        VIRTIO_MMIO_STRIDE,
-    )
+    (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
 }
 
-fn probe_virtio_mmio_slots() -> Result<(
-    usize,
-    usize,
-    Option<usize>,
-    Option<usize>,
-    [Option<usize>; 3],
-)> {
+fn probe_virtio_mmio_slots(
+) -> Result<(usize, usize, Option<usize>, Option<usize>, [Option<usize>; 3])> {
     // Map the supported virtio-mmio window to discover device slots, then mint
     // per-device caps. Scanning past the platform window faults in guest bring-up.
     const MAX_SLOTS: usize = 8;
@@ -215,11 +205,7 @@ pub(crate) fn debug_write_hex(value: usize) {
     const NIBBLES: usize = core::mem::size_of::<usize>() * 2;
     for shift in (0..NIBBLES).rev() {
         let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 {
-            b'0' + nibble
-        } else {
-            b'a' + (nibble - 10)
-        };
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
         debug_write_byte(ch);
     }
 }
@@ -643,13 +629,7 @@ pub(crate) fn decode_init_health_ok_req(frame: &[u8]) -> bool {
 }
 
 pub(crate) fn encode_init_health_ok_rsp(status: u8) -> [u8; 5] {
-    [
-        INIT_HEALTH_MAGIC0,
-        INIT_HEALTH_MAGIC1,
-        INIT_HEALTH_VERSION,
-        INIT_HEALTH_OP_OK | 0x80,
-        status,
-    ]
+    [INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_VERSION, INIT_HEALTH_OP_OK | 0x80, status]
 }
 
 pub(crate) fn decode_init_health_ok_req_with_optional_nonce(frame: &[u8]) -> Option<Option<u32>> {
@@ -679,7 +659,10 @@ pub(crate) fn decode_init_health_ok_req_with_optional_nonce(frame: &[u8]) -> Opt
     None
 }
 
-pub(crate) fn encode_init_health_ok_rsp_with_optional_nonce(status: u8, nonce: Option<u32>) -> [u8; 9] {
+pub(crate) fn encode_init_health_ok_rsp_with_optional_nonce(
+    status: u8,
+    nonce: Option<u32>,
+) -> [u8; 9] {
     // v1+nonce response: [I,H,1,OP_OK|0x80, status, nonce:u32le]
     let mut out = [0u8; 9];
     out[0] = INIT_HEALTH_MAGIC0;
@@ -702,13 +685,8 @@ pub(crate) fn updated_health_ok(
     let len = nexus_abi::updated::encode_health_ok_req(&mut req)
         .ok_or(InitError::Map("updated health_ok encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
@@ -806,13 +784,8 @@ fn updated_get_status(
     let len = nexus_abi::updated::encode_get_status_req(&mut req)
         .ok_or(InitError::Map("updated status encode failed"))?;
     let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        len as u32,
-    );
+    let hdr =
+        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
     let start = nexus_abi::nsec().map_err(InitError::Abi)?;
     let deadline = start.saturating_add(20_000_000_000); // 20s (can contend with stage work under QEMU)
     let mut i: usize = 0;

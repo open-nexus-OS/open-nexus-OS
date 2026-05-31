@@ -33,43 +33,43 @@
 //!
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
-mod types;
-mod cache;
-mod tile_map;
-mod font;
+mod backdrop;
 mod blur;
+mod cache;
+mod cursor;
 mod damage;
+mod filter;
+mod font;
+mod path_cache;
+mod primitives;
+mod runtime;
+mod scene;
+mod sdf;
 mod shadow;
 mod source;
-mod path_cache;
-mod sdf;
-mod primitives;
-mod cursor;
-mod scene;
-mod backdrop;
 mod surface;
-mod filter;
-mod runtime;
 #[cfg(test)]
 mod tests;
+mod tile_map;
+mod types;
 
-use types::*;
-use runtime::*;
-use cache::*;
-use tile_map::TileMap;
-use font::bitmap_font_5x7;
+use backdrop::*;
 use blur::*;
+use cache::*;
+use cursor::*;
 use damage::*;
+use filter::*;
+use font::bitmap_font_5x7;
+use path_cache::*;
+use primitives::*;
+use runtime::*;
+use scene::*;
+use sdf::*;
 use shadow::*;
 use source::*;
-use path_cache::*;
-use sdf::*;
-use primitives::*;
-use cursor::*;
-use scene::*;
-use backdrop::*;
 use surface::*;
-use filter::*;
+use tile_map::TileMap;
+use types::*;
 
 extern crate alloc;
 
@@ -101,7 +101,7 @@ use crate::markers::{
     SELFTEST_UI_V2_PRESENT_OK_MARKER, SELFTEST_UI_VISIBLE_INPUT_OK_MARKER,
     SELFTEST_UI_VISIBLE_PRESENT_MARKER, SELFTEST_UI_VISIBLE_WHEEL_OK_MARKER,
     SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER, TEXT_WRAPPING_ON_MARKER, VISIBLE_BACKEND_MARKER,
-    WHEEL_VISIBLE_MARKER,
+    WALLPAPER_FAIL, WHEEL_VISIBLE_MARKER,
 };
 use nexus_effects::{blur_separable_zero_alloc, ShadowArena};
 use nexus_layout::LayoutResult;
@@ -123,7 +123,8 @@ pub(crate) const FILTER_INPUT_PADDING_X: u32 = 8;
 pub(crate) const FILTER_INPUT_FONT_W: u32 = 5;
 pub(crate) const FILTER_INPUT_FONT_H: u32 = 7;
 pub(crate) const FILTER_INPUT_FONT_SCALE: u32 = 2;
-pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 = (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
+pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 =
+    (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
 pub(crate) const ROW_WRITE_CHUNK: usize = 4;
 pub(crate) const IPC_BATCH_LIMIT: usize = 8;
 pub(crate) const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
@@ -131,11 +132,14 @@ pub(crate) const BACKDROP_CACHE_ENTRIES: usize = 4;
 pub(crate) const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
 pub(crate) const COMBINED_PANEL_WIDTH: usize = (crate::proof_panel_spec::PANEL_WIDTH
     + crate::proof_panel_spec::PANEL_GAP
-    + crate::proof_panel_spec::FILTER_PANEL_WIDTH) as usize;
+    + crate::proof_panel_spec::FILTER_PANEL_WIDTH)
+    as usize;
 pub(crate) const COMBINED_PANEL_HEIGHT: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
 pub(crate) const GLASS_LAYER_SCALE: u32 = 4;
-pub(crate) const GLASS_LAYER_MAX_WIDTH: usize = COMBINED_PANEL_WIDTH.div_ceil(GLASS_LAYER_SCALE as usize);
-pub(crate) const GLASS_LAYER_MAX_HEIGHT: usize = COMBINED_PANEL_HEIGHT.div_ceil(GLASS_LAYER_SCALE as usize);
+pub(crate) const GLASS_LAYER_MAX_WIDTH: usize =
+    COMBINED_PANEL_WIDTH.div_ceil(GLASS_LAYER_SCALE as usize);
+pub(crate) const GLASS_LAYER_MAX_HEIGHT: usize =
+    COMBINED_PANEL_HEIGHT.div_ceil(GLASS_LAYER_SCALE as usize);
 pub(crate) const GLASS_LAYER_MAX_BYTES: usize = GLASS_LAYER_MAX_WIDTH * GLASS_LAYER_MAX_HEIGHT * 4;
 pub(crate) const DARK_GLASS_RADIUS: u32 = 12;
 pub(crate) const DARK_GLASS_BLUR_RADIUS: u32 = 20;
@@ -169,9 +173,17 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             KernelServer::new_with_slots(3, 4).map_err(|_| "windowd: init fail kernel-server")?
         }
     };
-    let mut runtime =
-        DisplayServerRuntime::new().map_err(|_| "windowd: init fail display-server")?;
-    let _ = debug_println(READY_MARKER);
+    let mut runtime = match DisplayServerRuntime::new() {
+        Ok(rt) => {
+            let _ = debug_println(READY_MARKER);
+            rt
+        }
+        Err(_) => {
+            let _ = debug_println("windowd: init fail display-server (wallpaper?)");
+            let _ = debug_println(WALLPAPER_FAIL);
+            return Err("windowd: init fail display-server");
+        }
+    };
     let mut recv_frame = [0u8; 512];
     loop {
         let mut visible_updates_since_flush = 0usize;
@@ -265,4 +277,3 @@ fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {
         let _ = debug_println(line);
     }
 }
-

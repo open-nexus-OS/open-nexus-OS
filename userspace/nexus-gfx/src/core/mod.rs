@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 
 pub mod device;
-pub mod queue;
-pub mod fence;
 pub mod error;
+pub mod fence;
+pub mod queue;
 pub mod types;

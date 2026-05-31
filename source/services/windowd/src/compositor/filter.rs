@@ -8,17 +8,21 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-use alloc::vec::Vec;
+use super::font::bitmap_font_5x7;
+use super::primitives::{blend_asset_row_clipped, fill_row_rect, rgba_to_bgra};
+use super::types::ProofBoxRect;
+use super::{
+    FILTER_INPUT_FONT_ADVANCE, FILTER_INPUT_FONT_H, FILTER_INPUT_FONT_SCALE, FILTER_INPUT_FONT_W,
+    FILTER_INPUT_PADDING_X, FILTER_LIST_PADDING_X, FILTER_LIST_PADDING_Y, FILTER_LIST_ROW_GAP,
+    LIVE_FILTER_VARIANTS,
+};
 use crate::assets;
 use crate::error::WindowdError;
 use crate::layout_panel;
+use alloc::vec::Vec;
 use input_live_protocol::VisibleState;
 use nexus_layout::LayoutResult;
 use nexus_layout_types::FxPx;
-use super::types::ProofBoxRect;
-use super::font::bitmap_font_5x7;
-use super::primitives::{blend_asset_row_clipped, fill_row_rect, rgba_to_bgra};
-use super::{FILTER_INPUT_FONT_W, FILTER_INPUT_FONT_H, FILTER_INPUT_FONT_SCALE, FILTER_INPUT_FONT_ADVANCE, FILTER_INPUT_PADDING_X, FILTER_LIST_PADDING_X, FILTER_LIST_PADDING_Y, FILTER_LIST_ROW_GAP, LIVE_FILTER_VARIANTS};
 
 pub(crate) fn refill_filtered_words(out: &mut Vec<&'static str>, filter_text: &str) {
     out.clear();
@@ -71,9 +75,7 @@ pub(crate) fn filter_list_content_height(filtered_words: &[&'static str]) -> u32
     let mut h: u32 = 0;
     for &word in filtered_words {
         if let Some(asset) = crate::assets::proof_text_asset(filter_word_asset_id(word)) {
-            h = h
-                .saturating_add(asset.height)
-                .saturating_add(FILTER_LIST_ROW_GAP);
+            h = h.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
         }
     }
     h.saturating_sub(FILTER_LIST_ROW_GAP) // remove trailing gap
@@ -122,9 +124,7 @@ pub(crate) fn draw_filter_word_list_row(
                 viewport_width,
             )?;
         }
-        word_top = word_top
-            .saturating_add(asset.height)
-            .saturating_add(FILTER_LIST_ROW_GAP);
+        word_top = word_top.saturating_add(asset.height).saturating_add(FILTER_LIST_ROW_GAP);
     }
 
     // ── Scrollbar ──
@@ -150,15 +150,7 @@ fn draw_filter_scrollbar_row(
     let gutter_width = rect.x.saturating_add(rect.width).saturating_sub(strip_x);
     let track_bgra = rgba_to_bgra(crate::assets::PROOF_PANEL_BG);
     if y >= viewport_y && y < viewport_y.saturating_add(viewport_height) {
-        fill_row_rect(
-            y,
-            row,
-            strip_x,
-            viewport_y,
-            gutter_width,
-            viewport_height,
-            track_bgra,
-        )?;
+        fill_row_rect(y, row, strip_x, viewport_y, gutter_width, viewport_height, track_bgra)?;
     }
 
     let Some((thumb_y, thumb_height)) = layout_panel::filter_scrollbar_thumb_bounds(
@@ -201,9 +193,7 @@ pub(crate) fn draw_filter_input_text_row(
     }
     let glyph_row = ((y - text_top) / FILTER_INPUT_FONT_SCALE) as usize;
     let color = rgba_to_bgra(crate::assets::PROOF_PANEL_TITLE);
-    let max_x = rect
-        .x
-        .saturating_add(rect.width.saturating_sub(FILTER_INPUT_PADDING_X));
+    let max_x = rect.x.saturating_add(rect.width.saturating_sub(FILTER_INPUT_PADDING_X));
     let mut pen_x = rect.x + FILTER_INPUT_PADDING_X;
     for ch in filter_text.chars() {
         if pen_x.saturating_add(FILTER_INPUT_FONT_W * FILTER_INPUT_FONT_SCALE) > max_x {

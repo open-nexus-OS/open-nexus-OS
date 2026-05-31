@@ -208,14 +208,7 @@ pub fn blur_1d(
                 col_buf[dst..dst + 4].copy_from_slice(&pixels[src..src + 4]);
             }
         }
-        let count = blur_1d(
-            &mut col_buf,
-            h as u32,
-            w as u32,
-            (h * 4) as u32,
-            radius,
-            true,
-        );
+        let count = blur_1d(&mut col_buf, h as u32, w as u32, (h * 4) as u32, radius, true);
         for y in 0..h {
             for x in 0..w {
                 let src = (x * h + y) * 4;
@@ -256,10 +249,7 @@ pub fn blur_1d_zero_alloc(
     let s = stride as usize;
     let row_bytes = w.saturating_mul(4);
     let col_bytes = w.saturating_mul(h).saturating_mul(4);
-    if pixels.len()
-        < h.saturating_sub(1)
-            .saturating_mul(s)
-            .saturating_add(row_bytes)
+    if pixels.len() < h.saturating_sub(1).saturating_mul(s).saturating_add(row_bytes)
         || row_scratch.len() < w.max(h).saturating_mul(4)
         || (!horizontal && col_scratch.len() < col_bytes)
     {
@@ -414,26 +404,10 @@ pub fn blur_separable_zero_alloc(
     row_scratch: &mut [u8],
     col_scratch: &mut [u8],
 ) -> u32 {
-    let c1 = blur_1d_zero_alloc(
-        pixels,
-        width,
-        height,
-        stride,
-        radius,
-        true,
-        row_scratch,
-        col_scratch,
-    );
-    let c2 = blur_1d_zero_alloc(
-        pixels,
-        width,
-        height,
-        stride,
-        radius,
-        false,
-        row_scratch,
-        col_scratch,
-    );
+    let c1 =
+        blur_1d_zero_alloc(pixels, width, height, stride, radius, true, row_scratch, col_scratch);
+    let c2 =
+        blur_1d_zero_alloc(pixels, width, height, stride, radius, false, row_scratch, col_scratch);
     c1 + c2
 }
 

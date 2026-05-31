@@ -19,10 +19,7 @@ pub struct BufferUsage {
 
 impl Default for BufferUsage {
     fn default() -> Self {
-        Self {
-            render_target: true,
-            shader_read: false,
-        }
+        Self { render_target: true, shader_read: false }
     }
 }
 

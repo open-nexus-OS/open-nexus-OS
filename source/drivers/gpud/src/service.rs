@@ -7,20 +7,21 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_gfx::backend::traits::GfxBackend;
 use nexus_abi::{debug_println, mmio_map, yield_, AbiError};
+use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::PixelFormat;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::backend::VirtioGpuBackend;
 use crate::markers::{
-    GPUD_CURSOR_ON, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY, GPUD_SCANOUT_OK,
-    GPUD_VIRTIO_GPU_PROBED,
+    GPUD_CURSOR_ON, GPUD_DISPLAY_READY, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY,
+    GPUD_SCANOUT_MODE, GPUD_SCANOUT_OK, GPUD_VIRTIO_GPU_PROBED,
 };
 
 pub const ROUTE_NAME: &str = "gpud";
 pub const OP_SUBMIT_ANIMATION_FRAME: u8 = 1;
 pub const OP_MOVE_CURSOR: u8 = 2;
+pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_DEVICE_ERROR: u8 = 2;
@@ -28,45 +29,48 @@ pub const STATUS_DEVICE_ERROR: u8 = 2;
 const GPU_MMIO_CAP_SLOT: u32 = 48;
 const GPU_MMIO_VA: usize = 0x2020_0000;
 const GPU_MMIO_LEN: usize = 0x1000;
-const PROOF_RESOURCE_W: u32 = 64;
-const PROOF_RESOURCE_H: u32 = 64;
-
+/// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
+/// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
+const DISPLAY_WIDTH: u32 = 1280;
+const DISPLAY_HEIGHT: u32 = 800;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut backend = open_backend_blocking()?;
-    let proof_resource = backend
-        .create_resource(PROOF_RESOURCE_W, PROOF_RESOURCE_H, PixelFormat::Bgra8888)
+    let display_resource = backend
+        .create_resource(DISPLAY_WIDTH, DISPLAY_HEIGHT, PixelFormat::Bgra8888)
         .map_err(|_| {
             let _ = debug_println(GPUD_MMIO_FAULT);
             nexus_abi::AbiError::InvalidArgument
         })?;
     backend
         .transfer_to_host(
-            proof_resource,
+            display_resource,
             nexus_gfx::backend::types::Rect {
                 x: 0,
                 y: 0,
-                width: PROOF_RESOURCE_W,
-                height: PROOF_RESOURCE_H,
+                width: DISPLAY_WIDTH,
+                height: DISPLAY_HEIGHT,
             },
         )
         .map_err(|_| {
             let _ = debug_println(GPUD_MMIO_FAULT);
             nexus_abi::AbiError::InvalidArgument
         })?;
-    backend.set_scanout(proof_resource).map_err(|_| {
+    backend.set_scanout(display_resource).map_err(|_| {
         let _ = debug_println(GPUD_MMIO_FAULT);
         nexus_abi::AbiError::InvalidArgument
     })?;
     debug_println(GPUD_SCANOUT_OK)?;
+    debug_println(GPUD_SCANOUT_MODE)?;
     backend.move_cursor(0, 0).map_err(|_| {
         let _ = debug_println(GPUD_MMIO_FAULT);
         nexus_abi::AbiError::InvalidArgument
     })?;
     debug_println(GPUD_CURSOR_ON)?;
+    debug_println(GPUD_DISPLAY_READY)?;
     debug_println(GPUD_READY)?;
 
     let server = bind_server();
-    service_requests(server, backend, proof_resource)
+    service_requests(server, backend, display_resource)
 }
 
 fn open_backend_blocking() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
@@ -115,18 +119,40 @@ fn bind_server() -> KernelServer {
 fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
-    proof_resource: nexus_gfx::backend::types::ResourceId,
+    display_resource: nexus_gfx::backend::types::ResourceId,
 ) -> Result<(), nexus_abi::AbiError> {
+    let mut recv_frame = [0u8; 128];
     loop {
-        match server.recv_request_with_meta(Wait::NonBlocking) {
-            Ok((frame, _sender_service_id, reply)) => {
-                let status = handle_frame(&mut backend, proof_resource, frame.as_slice());
+        match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
+            Ok((frame_len, _sid, mut moved_cap)) => {
+                let frame = &recv_frame[..frame_len];
+                let op = match frame.first().copied() {
+                    Some(op) => op,
+                    None => {
+                        let _ = server.send(&[STATUS_MALFORMED], Wait::Blocking);
+                        continue;
+                    }
+                };
+                let status = match op {
+                    OP_SET_FRAMEBUFFER_VMO => match moved_cap.take() {
+                        Some(cap) => match backend.attach_external_framebuffer(
+                            cap.slot(),
+                            DISPLAY_WIDTH,
+                            DISPLAY_HEIGHT,
+                        ) {
+                            Ok(()) => {
+                                let _ = debug_println(GPUD_SCANOUT_MODE);
+                                STATUS_OK
+                            }
+                            Err(_) => STATUS_DEVICE_ERROR,
+                        },
+                        None => STATUS_MALFORMED,
+                    },
+                    _ => handle_frame(&mut backend, display_resource, frame),
+                };
                 let response = [status];
-                if let Some(reply) = reply {
-                    let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                } else {
-                    let _ = server.send(&response, Wait::Blocking);
-                }
+                drop(moved_cap);
+                let _ = server.send(&response, Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 let _ = yield_();
@@ -138,7 +164,7 @@ fn service_requests(
 
 fn handle_frame(
     backend: &mut VirtioGpuBackend,
-    proof_resource: nexus_gfx::backend::types::ResourceId,
+    display_resource: nexus_gfx::backend::types::ResourceId,
     frame: &[u8],
 ) -> u8 {
     let Some(op) = frame.first().copied() else {
@@ -147,15 +173,15 @@ fn handle_frame(
     match op {
         OP_SUBMIT_ANIMATION_FRAME => {
             let transfer = backend.transfer_to_host(
-                proof_resource,
+                display_resource,
                 nexus_gfx::backend::types::Rect {
                     x: 0,
                     y: 0,
-                    width: PROOF_RESOURCE_W,
-                    height: PROOF_RESOURCE_H,
+                    width: DISPLAY_WIDTH,
+                    height: DISPLAY_HEIGHT,
                 },
             );
-            if transfer.is_err() || backend.set_scanout(proof_resource).is_err() {
+            if transfer.is_err() || backend.set_scanout(display_resource).is_err() {
                 return STATUS_DEVICE_ERROR;
             }
             STATUS_OK

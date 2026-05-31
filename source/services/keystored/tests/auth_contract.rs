@@ -20,9 +20,8 @@
 //!   - `keystored::protocol`: wire format constants + encode/decode functions
 
 use keystored::protocol::{
-    decode_response, encode_request, encode_response, is_valid_header,
-    OP_GET, OP_PUT, STATUS_MALFORMED, STATUS_UNSUPPORTED,
-    MAGIC0, MAGIC1, VERSION,
+    decode_response, encode_request, encode_response, is_valid_header, MAGIC0, MAGIC1, OP_GET,
+    OP_PUT, STATUS_MALFORMED, STATUS_UNSUPPORTED, VERSION,
 };
 
 // ── Reject tests ──────────────────────────────────────────────────
@@ -140,13 +139,9 @@ fn server_handle(frame: &[u8]) -> Vec<u8> {
     static mut STORE: Option<BTreeMap<Vec<u8>, Vec<u8>>> = None;
 
     // Leak a static store for simplicity in tests
-    let store = unsafe {
-        STORE.get_or_insert_with(BTreeMap::new)
-    };
+    let store = unsafe { STORE.get_or_insert_with(BTreeMap::new) };
 
-    use keystored::protocol::{
-        MAX_KEY_LEN, MAX_VAL_LEN, STATUS_TOO_LARGE,
-    };
+    use keystored::protocol::{MAX_KEY_LEN, MAX_VAL_LEN, STATUS_TOO_LARGE};
 
     if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return encode_response(OP_GET, STATUS_MALFORMED, &[]);

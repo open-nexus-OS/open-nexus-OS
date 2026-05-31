@@ -99,30 +99,21 @@ pub struct LoopbackClient {
 
 impl LoopbackClient {
     fn new(request_tx: Sender<RequestFrame>, response_rx: Mutex<Receiver<ReplyFrame>>) -> Self {
-        Self {
-            request_tx,
-            response_rx,
-        }
+        Self { request_tx, response_rx }
     }
 }
 
 impl Client for LoopbackClient {
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.request_tx
-            .send(RequestFrame::from_bytes(frame))
-            .map_err(|_| IpcError::Disconnected)
+        self.request_tx.send(RequestFrame::from_bytes(frame)).map_err(|_| IpcError::Disconnected)
     }
 
     fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
-        let receiver = self
-            .response_rx
-            .lock()
-            .map_err(|_| IpcError::Disconnected)?;
+        let receiver = self.response_rx.lock().map_err(|_| IpcError::Disconnected)?;
         match wait {
-            Wait::Blocking => receiver
-                .recv()
-                .map(ReplyFrame::into_bytes)
-                .map_err(|_| IpcError::Disconnected),
+            Wait::Blocking => {
+                receiver.recv().map(ReplyFrame::into_bytes).map_err(|_| IpcError::Disconnected)
+            }
             Wait::NonBlocking => receiver
                 .try_recv()
                 .map_err(|err| match err {
@@ -160,10 +151,7 @@ pub struct LoopbackServer {
 
 impl LoopbackServer {
     fn new(request_rx: Mutex<Receiver<RequestFrame>>, response_tx: Sender<ReplyFrame>) -> Self {
-        Self {
-            request_rx,
-            response_tx,
-        }
+        Self { request_rx, response_tx }
     }
 }
 
@@ -171,10 +159,9 @@ impl Server for LoopbackServer {
     fn recv(&self, wait: Wait) -> Result<Vec<u8>> {
         let receiver = self.request_rx.lock().map_err(|_| IpcError::Disconnected)?;
         match wait {
-            Wait::Blocking => receiver
-                .recv()
-                .map(RequestFrame::into_bytes)
-                .map_err(|_| IpcError::Disconnected),
+            Wait::Blocking => {
+                receiver.recv().map(RequestFrame::into_bytes).map_err(|_| IpcError::Disconnected)
+            }
             Wait::NonBlocking => receiver
                 .try_recv()
                 .map_err(|err| match err {
@@ -204,9 +191,7 @@ impl Server for LoopbackServer {
     }
 
     fn send(&self, frame: &[u8], _wait: Wait) -> Result<()> {
-        self.response_tx
-            .send(ReplyFrame::from_bytes(frame))
-            .map_err(|_| IpcError::Disconnected)
+        self.response_tx.send(ReplyFrame::from_bytes(frame)).map_err(|_| IpcError::Disconnected)
     }
 }
 
@@ -225,9 +210,7 @@ mod tests {
     #[test]
     fn recv_timeout() {
         let (client, _server) = loopback_channel();
-        let err = client
-            .recv(Wait::Timeout(Duration::from_millis(10)))
-            .unwrap_err();
+        let err = client.recv(Wait::Timeout(Duration::from_millis(10))).unwrap_err();
         assert_eq!(err, IpcError::Timeout);
     }
 }

@@ -21,17 +21,19 @@ const BG_COLOR: Pixel = [10, 22, 40, 255];
 const ACCENT_COLOR: Pixel = [58, 134, 255, 255];
 const WHITE_COLOR: Pixel = [255, 255, 255, 255];
 
-/// Render the splash to the framebuffer VMO, row by row.
+/// Render the splash to the framebuffer VMO in a single bulk write.
+/// Production-grade: one `vmo_write` syscall instead of 800 per-row calls.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub fn write_splash(fb_handle: u32, mode: VisibleBootstrapMode) {
     let w = mode.width as usize;
     let h = mode.height as usize;
-    let stride = mode.stride as usize; // bytes per row
+    let stride = mode.stride as usize;
+    let total_bytes = stride * h;
 
-    // Pre-compute the title text positions
+    // Pre-compute text positions
     let title = "OPEN NEXUS OS";
     let scale: usize = 3;
-    let char_sz = 8 * scale; // pixels per character
+    let char_sz = 8 * scale;
     let title_w = title.len() * char_sz;
     let title_x = (w - title_w) / 2;
     let title_y = h / 2 - char_sz;
@@ -50,23 +52,25 @@ pub fn write_splash(fb_handle: u32, mode: VisibleBootstrapMode) {
     let ver_x = (w - ver_w) / 2;
     let ver_y = h - 40;
 
-    let box_margin: usize = 60;
     let box_x = title_x.saturating_sub(40);
     let box_y = title_y.saturating_sub(24);
     let box_w = title_w + 80;
     let box_h = char_sz + 60;
 
-    // Allocate one row buffer
-    let mut row = alloc::vec![0u8; stride];
+    // Single bulk framebuffer — render once, write once.
+    let mut fb = alloc::vec![0u8; total_bytes];
 
     for y in 0..h {
-        // Fill with background
+        let row_start = y * stride;
+        let row = &mut fb[row_start..row_start + stride];
+
+        // Background fill
         for x in 0..w {
             let off = x * 4;
             row[off..off + 4].copy_from_slice(&BG_COLOR);
         }
 
-        // Accent bars
+        // Accent bars (top/bottom 4 rows)
         if y < 4 || y >= h - 4 {
             for x in 0..w {
                 let off = x * 4;
@@ -87,7 +91,6 @@ pub fn write_splash(fb_handle: u32, mode: VisibleBootstrapMode) {
                     }
                 }
             }
-            // left and right edges
             if box_x < w {
                 row[box_x * 4..box_x * 4 + 4].copy_from_slice(&ACCENT_COLOR);
             }
@@ -97,18 +100,14 @@ pub fn write_splash(fb_handle: u32, mode: VisibleBootstrapMode) {
             }
         }
 
-        // Title text
-        draw_text_row(&mut row, y, title_x, title_y, title, scale, WHITE_COLOR);
-
-        // Subtitle
-        draw_text_row(&mut row, y, sub_x, sub_y, subtitle, sub_scale, ACCENT_COLOR);
-
-        // Version
-        draw_text_row(&mut row, y, ver_x, ver_y, version, ver_scale, ACCENT_COLOR);
-
-        // Write this row to the VMO
-        let _ = vmo_write(fb_handle, y * stride, &row[..stride]);
+        // Text
+        draw_text_row(row, y, title_x, title_y, title, scale, WHITE_COLOR);
+        draw_text_row(row, y, sub_x, sub_y, subtitle, sub_scale, ACCENT_COLOR);
+        draw_text_row(row, y, ver_x, ver_y, version, ver_scale, ACCENT_COLOR);
     }
+
+    // Single bulk write — 1 syscall instead of 800.
+    let _ = vmo_write(fb_handle, 0, &fb[..total_bytes]);
 }
 
 fn draw_text_row(

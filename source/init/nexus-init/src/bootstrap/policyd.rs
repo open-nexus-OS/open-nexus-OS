@@ -18,7 +18,9 @@ pub(crate) fn policyd_route_allowed(
     requester: &str,
     target: &[u8],
 ) -> Option<bool> {
-    use crate::os_payload::{debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str, POLICY_NONCE};
+    use crate::os_payload::{
+        debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str, POLICY_NONCE,
+    };
 
     if requester.len() > 48 || target.is_empty() || target.len() > 48 {
         return None;
@@ -41,9 +43,13 @@ pub(crate) fn policyd_route_allowed(
     let mut buf = [0u8; 16];
     loop {
         let got = nexus_abi::ipc_recv_v1(
-            pol_recv_slot, &mut rh, &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE, deadline,
-        ).ok()? as usize;
+            pol_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
+        )
+        .ok()? as usize;
         let got = core::cmp::min(got, buf.len());
         let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;
         if op != nexus_abi::policyd::OP_ROUTE || got_nonce != nonce {
@@ -93,9 +99,13 @@ pub(crate) fn policyd_cap_allowed(
     let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
     let got = nexus_abi::ipc_recv_v1(
-        pol_recv_slot, &mut rh, &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE, deadline,
-    ).ok()? as usize;
+        pol_recv_slot,
+        &mut rh,
+        &mut buf,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    )
+    .ok()? as usize;
     let got = core::cmp::min(got, buf.len());
     if got < 6 || buf[0] != b'P' || buf[1] != b'O' || buf[2] != nexus_abi::policyd::VERSION_V1 {
         return None;
@@ -139,9 +149,13 @@ pub(crate) fn policyd_exec_allowed(
     let mut buf = [0u8; 16];
     loop {
         let got = nexus_abi::ipc_recv_v1(
-            pol_recv_slot, &mut rh, &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE, deadline,
-        ).ok()? as usize;
+            pol_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
+        )
+        .ok()? as usize;
         let (_ver, op, got_nonce, status) = nexus_abi::policyd::decode_rsp_v2_or_v3(&buf[..got])?;
         if op != nexus_abi::policyd::OP_EXEC || got_nonce != nonce {
             continue;

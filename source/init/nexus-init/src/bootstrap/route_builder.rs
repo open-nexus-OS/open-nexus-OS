@@ -21,61 +21,156 @@ pub(crate) fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
             continue;
         };
         if let (Some(s), Some(r)) = (chan.vfs_send_slot, chan.vfs_recv_slot) {
-            table.add_route(from, ServiceId::Vfsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Vfsd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.pkg_send_slot, chan.pkg_recv_slot) {
-            table.add_route(from, ServiceId::Packagefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Packagefsd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.pol_send_slot, chan.pol_recv_slot) {
-            table.add_route(from, ServiceId::Policyd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Policyd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.bnd_send_slot, chan.bnd_recv_slot) {
-            table.add_route(from, ServiceId::Bundlemgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Bundlemgrd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.upd_send_slot, chan.upd_recv_slot) {
-            table.add_route(from, ServiceId::Updated, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Updated,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.sam_send_slot, chan.sam_recv_slot) {
-            table.add_route(from, ServiceId::Samgrd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Samgrd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.exe_send_slot, chan.exe_recv_slot) {
-            table.add_route(from, ServiceId::Execd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Execd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.key_send_slot, chan.key_recv_slot) {
-            table.add_route(from, ServiceId::Keystored, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Keystored,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.state_send_slot, chan.state_recv_slot) {
-            table.add_route(from, ServiceId::Statefsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Statefsd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.rng_send_slot, chan.rng_recv_slot) {
-            table.add_route(from, ServiceId::Rngd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Rngd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.timed_send_slot, chan.timed_recv_slot) {
-            table.add_route(from, ServiceId::Timed, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Timed,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.window_send_slot, chan.window_recv_slot) {
-            table.add_route(from, ServiceId::Windowd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Windowd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.input_send_slot, chan.input_recv_slot) {
-            table.add_route(from, ServiceId::Inputd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Inputd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.fbdev_send_slot, chan.fbdev_recv_slot) {
-            table.add_route(from, ServiceId::Fbdevd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Fbdevd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.gpud_send_slot, chan.gpud_recv_slot) {
-            table.add_route(from, ServiceId::Gpud, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Gpud,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.net_send_slot, chan.net_recv_slot) {
-            table.add_route(from, ServiceId::Netstackd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Netstackd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.metrics_send_slot, chan.metrics_recv_slot) {
-            table.add_route(from, ServiceId::Metricsd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Metricsd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.log_send_slot, chan.log_recv_slot) {
-            table.add_route(from, ServiceId::Logd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Logd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
         if let (Some(s), Some(r)) = (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
-            table.add_route(from, ServiceId::Dsoftbusd, CapSlot::new(s, Rights::SEND), CapSlot::new(r, Rights::RECV));
+            table.add_route(
+                from,
+                ServiceId::Dsoftbusd,
+                CapSlot::new(s, Rights::SEND),
+                CapSlot::new(r, Rights::RECV),
+            );
         }
     }
     table
@@ -84,13 +179,27 @@ pub(crate) fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
 /// Send OP_REGISTER to samgrd for every route in the table.
 pub(crate) fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &RouteTable) {
     for id in &[
-        ServiceId::Vfsd, ServiceId::Packagefsd, ServiceId::Policyd,
-        ServiceId::Bundlemgrd, ServiceId::Updated, ServiceId::Samgrd,
-        ServiceId::Execd, ServiceId::Keystored, ServiceId::Statefsd,
-        ServiceId::Rngd, ServiceId::Timed, ServiceId::Windowd,
-        ServiceId::Inputd, ServiceId::Fbdevd, ServiceId::Gpud,
-        ServiceId::Netstackd, ServiceId::Metricsd, ServiceId::Logd,
-        ServiceId::Dsoftbusd, ServiceId::Hidrawd, ServiceId::Touchd,
+        ServiceId::Vfsd,
+        ServiceId::Packagefsd,
+        ServiceId::Policyd,
+        ServiceId::Bundlemgrd,
+        ServiceId::Updated,
+        ServiceId::Samgrd,
+        ServiceId::Execd,
+        ServiceId::Keystored,
+        ServiceId::Statefsd,
+        ServiceId::Rngd,
+        ServiceId::Timed,
+        ServiceId::Windowd,
+        ServiceId::Inputd,
+        ServiceId::Fbdevd,
+        ServiceId::Gpud,
+        ServiceId::Netstackd,
+        ServiceId::Metricsd,
+        ServiceId::Logd,
+        ServiceId::Dsoftbusd,
+        ServiceId::Hidrawd,
+        ServiceId::Touchd,
         ServiceId::SelftestClient,
     ] {
         if let Some(route) = table.lookup(*id, *id) {
@@ -110,14 +219,20 @@ pub(crate) fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &Rou
             let req_len = name_end;
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
             let _ = nexus_abi::ipc_send_v1(
-                send_cap, &hdr, &req[..req_len],
-                nexus_abi::IPC_SYS_NONBLOCK, 0,
+                send_cap,
+                &hdr,
+                &req[..req_len],
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
             );
             let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
             let mut buf = [0u8; 16];
             let _ = nexus_abi::ipc_recv_v1(
-                recv_cap, &mut rh, &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE, 0,
+                recv_cap,
+                &mut rh,
+                &mut buf,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
             );
         }
     }

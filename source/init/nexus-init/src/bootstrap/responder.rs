@@ -12,9 +12,9 @@
 //! Runs the init-lite control-channel responder: processes route-get, health-ok,
 //! and exec-check requests from spawned services, consulting policyd for gating.
 
-use alloc::vec::Vec;
 use crate::bootstrap::CtrlChannel;
 use crate::route_table::RouteTable;
+use alloc::vec::Vec;
 use nexus_ipc::reqrep::FrameStash;
 
 /// Run the routing responder loop forever. Only returns via `fatal()` on watchdog expiry.
@@ -30,8 +30,8 @@ pub(crate) fn run_responder_loop(
     upd_reply_recv: u32,
     mut upd_pending: FrameStash<8, 16>,
 ) -> ! {
-    use crate::os_payload::*;
     use crate::bootstrap::policyd::{policyd_exec_allowed, policyd_route_allowed};
+    use crate::os_payload::*;
 
     let watchdog = watchdog_limit_ticks();
     let mut ticks: usize = 0;
@@ -86,15 +86,21 @@ pub(crate) fn run_responder_loop(
                     let rsp = encode_init_health_ok_rsp_with_optional_nonce(status, nonce);
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 } else {
                     let rsp = encode_init_health_ok_rsp(status);
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 }
                 continue;
@@ -108,18 +114,26 @@ pub(crate) fn run_responder_loop(
                     {
                         if chan.svc_name != "execd" {
                             let rsp = nexus_abi::policy::encode_exec_check_rsp(
-                                nonce, nexus_abi::policy::STATUS_DENY,
+                                nonce,
+                                nexus_abi::policy::STATUS_DENY,
                             );
                             let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                             let _ = nexus_abi::ipc_send_v1(
-                                chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                                nexus_abi::IPC_SYS_NONBLOCK, 0,
+                                chan.ctrl_rsp_parent_slot,
+                                &rh,
+                                &rsp,
+                                nexus_abi::IPC_SYS_NONBLOCK,
+                                0,
                             );
                             continue;
                         }
                         let allowed = policyd_exec_allowed(
-                            pol_ctl_exec_req, pol_ctl_exec_rsp, requester, image_id,
-                        ).unwrap_or(true);
+                            pol_ctl_exec_req,
+                            pol_ctl_exec_rsp,
+                            requester,
+                            image_id,
+                        )
+                        .unwrap_or(true);
                         let status = if allowed {
                             nexus_abi::policy::STATUS_ALLOW
                         } else {
@@ -128,8 +142,11 @@ pub(crate) fn run_responder_loop(
                         let rsp = nexus_abi::policy::encode_exec_check_rsp(nonce, status);
                         let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                         let _ = nexus_abi::ipc_send_v1(
-                            chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                            nexus_abi::IPC_SYS_NONBLOCK, 0,
+                            chan.ctrl_rsp_parent_slot,
+                            &rh,
+                            &rsp,
+                            nexus_abi::IPC_SYS_NONBLOCK,
+                            0,
                         );
                     }
                     continue;
@@ -163,15 +180,21 @@ pub(crate) fn run_responder_loop(
                     rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 } else {
                     let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 }
                 continue;
@@ -193,24 +216,34 @@ pub(crate) fn run_responder_loop(
                 }
                 if let Some(nonce) = route_nonce {
                     let base = nexus_abi::routing::encode_route_rsp(
-                        nexus_abi::routing::STATUS_DENIED, 0, 0,
+                        nexus_abi::routing::STATUS_DENIED,
+                        0,
+                        0,
                     );
                     let mut rsp = [0u8; 17];
                     rsp[..13].copy_from_slice(&base);
                     rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 } else {
                     let rsp = nexus_abi::routing::encode_route_rsp(
-                        nexus_abi::routing::STATUS_DENIED, 0, 0,
+                        nexus_abi::routing::STATUS_DENIED,
+                        0,
+                        0,
                     );
                     let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                     let _ = nexus_abi::ipc_send_v1(
-                        chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                        nexus_abi::IPC_SYS_NONBLOCK, 0,
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
                     );
                 }
                 continue;
@@ -264,15 +297,21 @@ pub(crate) fn run_responder_loop(
                 rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
                 let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                 let _ = nexus_abi::ipc_send_v1(
-                    chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK, 0,
+                    chan.ctrl_rsp_parent_slot,
+                    &rh,
+                    &rsp,
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
                 );
             } else {
                 let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
                 let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
                 let _ = nexus_abi::ipc_send_v1(
-                    chan.ctrl_rsp_parent_slot, &rh, &rsp,
-                    nexus_abi::IPC_SYS_NONBLOCK, 0,
+                    chan.ctrl_rsp_parent_slot,
+                    &rh,
+                    &rsp,
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
                 );
             }
         }

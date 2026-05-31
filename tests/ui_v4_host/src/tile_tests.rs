@@ -27,9 +27,7 @@ mod tests {
 
     impl SimpleTileMap {
         fn new() -> Self {
-            Self {
-                dirty: [false; TILE_COUNT],
-            }
+            Self { dirty: [false; TILE_COUNT] }
         }
 
         fn mark_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {

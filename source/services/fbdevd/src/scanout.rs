@@ -64,9 +64,7 @@ impl DisplayScanout {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::FlushWithoutConfiguredBackend);
         }
-        let byte_len = handoff
-            .byte_len()
-            .map_err(|_| FbdevdError::PresentWithoutFrame)?;
+        let byte_len = handoff.byte_len().map_err(|_| FbdevdError::PresentWithoutFrame)?;
         if byte_len == 0 {
             self.flush_failures = self.flush_failures.saturating_add(1);
             return Err(FbdevdError::PresentWithoutFrame);
@@ -106,16 +104,10 @@ impl DisplayScanout {
         if elapsed < 1_000_000_000 {
             return None;
         }
-        let flush_hz = self
-            .flush_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let vsync_hz = self
-            .vsync_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let flush_hz =
+            self.flush_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let vsync_hz =
+            self.vsync_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let report = DisplayScanoutReport {
             flush_hz,
             vsync_hz,

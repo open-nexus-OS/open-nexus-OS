@@ -5,8 +5,8 @@
 //! OWNERS: @ui @runtime
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_gfx::backend::traits::GfxBackend;
 use gpud::backend::VirtioGpuBackend;
+use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::PixelFormat;
 
 #[test]
@@ -38,12 +38,7 @@ fn transfer_rejects_out_of_bounds_rect() {
     let resource = b.create_resource(16, 16, PixelFormat::Bgra8888).unwrap();
     let err = b.transfer_to_host(
         resource,
-        nexus_gfx::backend::types::Rect {
-            x: 12,
-            y: 0,
-            width: 8,
-            height: 8,
-        },
+        nexus_gfx::backend::types::Rect { x: 12, y: 0, width: 8, height: 8 },
     );
     assert!(err.is_err());
 }

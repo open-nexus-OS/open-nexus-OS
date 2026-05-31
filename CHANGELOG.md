@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-05-31
+
+#### RFC-0059 Phase 3–6: Production-Grade Display Pipeline
+
+- **gpud**: Display resource upgraded from 64×64 proof to 1280×800 (`DISPLAY_WIDTH`/`DISPLAY_HEIGHT`).
+  `virtio-gpu-device` promoted to primary QEMU display (before `ramfb`). New markers:
+  `gpud: scanout 1280x800 bgra8888`, `gpud: display ready (w=1280, h=800)`.
+- **gpud**: New IPC op `OP_SET_FRAMEBUFFER_VMO` (3) — windowd sends framebuffer VMO for
+  zero-copy GPU scanout. `VirtioGpuBackend::attach_external_framebuffer()` attaches external
+  VMO as virtio-gpu resource backing, sets as primary scanout.
+- **fbdevd**: Boot splash optimized from 800 per-row `vmo_write` calls to single bulk write.
+  fbdevd promoted to Priority-0 (3rd service spawned) for <200ms splash visibility.
+- **windowd**: Defensive init with wallpaper fallback (solid dark-blue 160×100 when JPEG
+  unavailable). New diagnostic markers: `windowd: runtime init start/ok`,
+  `windowd: wallpaper loaded (jpeg)`, `windowd: wallpaper fallback solid`.
+- **windowd**: `try_handoff_framebuffer_to_gpud()` sends framebuffer VMO to gpud on registration.
+  Falls back silently to CPU ramfb path when gpud unreachable.
+- **fbdevd**: `register_framebuffer_with_windowd()` exponential backoff (10ms→500ms) with
+  diagnostic marker on 3rd retry.
+
 ### Changed - 2026-05-22
 
 #### TASK-0059: Compositor module refactoring

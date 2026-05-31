@@ -97,9 +97,7 @@ pub struct HostClock {
 impl HostClock {
     /// Creates a new host clock.
     pub fn new() -> Self {
-        Self {
-            start: std::time::Instant::now(),
-        }
+        Self { start: std::time::Instant::now() }
     }
 }
 
@@ -128,9 +126,7 @@ impl Clock for HostClock {
 }
 
 fn duration_to_ns(d: Duration) -> u64 {
-    d.as_secs()
-        .saturating_mul(1_000_000_000)
-        .saturating_add(d.subsec_nanos() as u64)
+    d.as_secs().saturating_mul(1_000_000_000).saturating_add(d.subsec_nanos() as u64)
 }
 
 /// Computes a deadline timestamp based on `clock.now_ns() + budget`.
@@ -303,10 +299,7 @@ pub fn route_with_nonce_budgeted(
         }
 
         return if status == nexus_abi::routing::STATUS_OK {
-            RouteRetryOutcome::Success {
-                send_slot,
-                recv_slot,
-            }
+            RouteRetryOutcome::Success { send_slot, recv_slot }
         } else {
             RouteRetryOutcome::Rejected
         };
@@ -385,10 +378,8 @@ mod tests {
 
         fn yield_now(&self) {
             // Deterministic: advance the synthetic clock without sleeping.
-            self.yield_calls
-                .set(self.yield_calls.get().saturating_add(1));
-            self.now
-                .set(self.now.get().saturating_add(self.advance_per_yield_ns));
+            self.yield_calls.set(self.yield_calls.get().saturating_add(1));
+            self.now.set(self.now.get().saturating_add(self.advance_per_yield_ns));
         }
     }
 
@@ -423,10 +414,7 @@ mod tests {
 
     #[test]
     fn retry_succeeds_after_wouldblock() {
-        let clock = TestClock {
-            advance_per_yield_ns: 1_000_000,
-            ..Default::default()
-        };
+        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
         let mut attempts = 0u32;
         let v = retry_ipc_budgeted(&clock, Duration::from_millis(10), || {
             attempts += 1;
@@ -443,10 +431,7 @@ mod tests {
 
     #[test]
     fn retry_times_out_deterministically() {
-        let clock = TestClock {
-            advance_per_yield_ns: 1_000_000,
-            ..Default::default()
-        };
+        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
         let err = retry_ipc_budgeted(&clock, Duration::from_millis(3), || -> Result<()> {
             Err(IpcError::WouldBlock)
         })
@@ -458,10 +443,7 @@ mod tests {
     #[test]
     fn deadline_check_is_periodic_not_per_spin() {
         // If the operation succeeds quickly, we should not consult the clock on every spin.
-        let clock = TestClock {
-            advance_per_yield_ns: 0,
-            ..Default::default()
-        };
+        let clock = TestClock { advance_per_yield_ns: 0, ..Default::default() };
         let deadline = 123;
         let mut attempts = 0usize;
         retry_ipc_until(&clock, deadline, || {
@@ -474,23 +456,13 @@ mod tests {
         })
         .unwrap();
         // now_ns is called once per 128 spins (plus a small constant). 300 spins -> ~3 calls.
-        assert!(
-            clock.now_calls.get() <= 6,
-            "now_ns called too often: {}",
-            clock.now_calls.get()
-        );
+        assert!(clock.now_calls.get() <= 6, "now_ns called too often: {}", clock.now_calls.get());
     }
 
     #[test]
     fn send_and_recv_budgeted_spin_until_progress() {
-        let clock = TestClock {
-            advance_per_yield_ns: 1,
-            ..Default::default()
-        };
-        let client = TestClient {
-            wouldblock_before_ok: 4,
-            ..Default::default()
-        };
+        let clock = TestClock { advance_per_yield_ns: 1, ..Default::default() };
+        let client = TestClient { wouldblock_before_ok: 4, ..Default::default() };
 
         send_budgeted(&clock, &client, b"hi", Duration::from_millis(5)).unwrap();
         let rsp = recv_budgeted(&clock, &client, Duration::from_millis(5)).unwrap();
@@ -500,14 +472,8 @@ mod tests {
 
     #[test]
     fn send_budgeted_times_out() {
-        let clock = TestClock {
-            advance_per_yield_ns: 1_000_000,
-            ..Default::default()
-        };
-        let client = TestClient {
-            wouldblock_before_ok: u32::MAX,
-            ..Default::default()
-        };
+        let clock = TestClock { advance_per_yield_ns: 1_000_000, ..Default::default() };
+        let client = TestClient { wouldblock_before_ok: u32::MAX, ..Default::default() };
 
         let err = send_budgeted(&clock, &client, b"hi", Duration::from_millis(2)).unwrap_err();
         assert_eq!(err, IpcError::Timeout);
