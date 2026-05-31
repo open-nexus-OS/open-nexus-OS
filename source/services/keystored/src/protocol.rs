@@ -5,6 +5,8 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable (v1.0)
+//! TEST_COVERAGE: 20 unit tests (host-compilable)
+//! ADR: docs/adr/0017-service-architecture.md
 //!
 //! This module is available on both host (`std`) and OS (`os-lite`) builds
 //! so that contract tests can verify the protocol layer without QEMU.

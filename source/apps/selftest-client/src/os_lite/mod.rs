@@ -28,6 +28,7 @@ mod dsoftbus;
 mod ipc;
 mod mmio;
 mod net;
+mod observer;
 mod phases;
 mod probes;
 mod profile;

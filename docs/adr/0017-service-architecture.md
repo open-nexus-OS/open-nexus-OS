@@ -73,3 +73,4 @@ Services performing sensitive operations must use `policyd` for authorization:
 
 ## Related ADRs
 - `docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md`
+- `docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md` — nexus-init module split + selftest observer refactoring

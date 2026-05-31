@@ -5,6 +5,9 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
+//! TEST_COVERAGE: unit tests in route_table.rs
+//! ADR: docs/adr/0017-service-architecture.md
+//! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
 use crate::bootstrap::CtrlChannel;
 use crate::route_table::{CapSlot, RouteTable, ServiceId};

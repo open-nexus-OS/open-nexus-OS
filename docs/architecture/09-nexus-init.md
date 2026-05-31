@@ -1,13 +1,34 @@
 # `nexus-init` (boot orchestration) — onboarding
 
 `nexus-init` is the **orchestrator** for userspace bring-up.
-It is the place where “what the OS boots” becomes concrete and testable.
+It is the place where "what the OS boots" becomes concrete and testable.
 
 This page is intentionally high-level and drift-resistant:
 
 - **Canonical QEMU smoke contract** (marker ordering): `scripts/qemu-test.sh`
 - **Contributor workflow + marker guidance**: `docs/testing/index.md`
 - **Role/boundary decision**: `docs/adr/0001-runtime-roles-and-boundaries.md`
+- **Module split (RFC-0061)**: `docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md`
+
+## Module structure (post RFC-0061)
+
+`nexus-init` was refactored from a monolithic `os_payload.rs` (3903 lines)
+into 8 focused `bootstrap/` modules (3540 lines) plus a thin `os_payload.rs`
+(404 lines — public types and thin wrappers).
+
+```
+source/init/nexus-init/src/
+├── os_payload.rs          ← public types (ServiceImage, InitError) + thin wrappers
+├── route_table.rs         ← RouteTable, ServiceId, CapSlot
+├── bootstrap/
+│   ├── types.rs           ← CtrlChannel, BootstrapState
+│   ├── spawn.rs           ← spawn_service_with_probe
+│   ├── policyd.rs         ← policyd_route/cap/exec_allowed (v3 protocol)
+│   ├── route_builder.rs   ← build_route_table, populate_samgrd_registry
+│   ├── responder.rs       ← run_responder_loop (route-get, health-ok, exec-check)
+│   ├── helpers.rs         ← MMIO probing, OTA, health checks, debug helpers
+│   └── orchestrator.rs    ← run_bootstrap (spawn + endpoints + wiring)
+```
 
 ## Responsibilities (what `nexus-init` owns)
 

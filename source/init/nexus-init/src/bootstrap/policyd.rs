@@ -5,6 +5,9 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os)
+//! ADR: docs/adr/0017-service-architecture.md
+//! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
 use core::sync::atomic::{AtomicU32, Ordering};
 

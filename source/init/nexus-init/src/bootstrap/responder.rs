@@ -5,6 +5,9 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU marker ladder (just test-os)
+//! ADR: docs/adr/0017-service-architecture.md
+//! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 //!
 //! Runs the init-lite control-channel responder: processes route-get, health-ok,
 //! and exec-check requests from spawned services, consulting policyd for gating.
