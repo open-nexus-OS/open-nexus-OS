@@ -38,6 +38,11 @@ mod updated;
 mod vfs;
 
 pub fn run() -> core::result::Result<(), ()> {
+    // QoS: Selftest-Client läuft mit Interactive-Priorität, damit er unter
+    // SMP=2 nicht von Normal-Services (metricsd, windowd, …) verhungert.
+    // RFC-0023: Self-Path erlaubt dem Task, seine eigene QoS zu setzen.
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Interactive);
+
     use profile::{PhaseId, Profile};
     let mut ctx = context::PhaseCtx::bootstrap()?;
 

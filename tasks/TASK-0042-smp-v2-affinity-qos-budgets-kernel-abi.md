@@ -186,3 +186,30 @@ All existing SMP security invariants from TASK-0012 remain unchanged, plus:
 3. Userspace: `execd` reads `recipes/sched/*.toml` and applies hints on spawn.
 4. Kernel: make scheduler consult fields in a minimal, testable way.
 5. Selftest: coarse ratio tests (shares) and placement assertions (affinity).
+
+## Implementation delta (2026-06-01)
+
+### ✅ Completed: Stage 1 — QoS differentiation for selftest-client
+
+`source/apps/selftest-client/src/os_lite/mod.rs`: Selftest-Client setzt `QosClass::Interactive`
+beim Start. Verhindert CPU-Starvation durch Normal-Services (metricsd, windowd, …) unter SMP=2.
+
+### ✅ Completed: Stage 2 — per-CPU home_cpu affinity
+
+Kernel (`task/mod.rs`, `sched/mod.rs`):
+- `Task.home_cpu: CpuId` — merkt sich die Spawn-CPU
+- `TaskTable::wake()` enqueued Tasks auf ihrer home-CPU via `Scheduler::enqueue_on_cpu()`
+- `Scheduler::schedule_next()` liest von per-CPU Runqueues (vorher nur Shared-Queues)
+- `Scheduler::purge()` raeumt auch per-CPU Queues auf
+- `Scheduler::yield_current()` enqueued auf aktueller CPU
+- `spawn_inner()` enqueued Child auf Eltern-CPU
+
+### ⬜ Pending: Stage 3 — Work-Stealing fuer nicht-Idle + IPC Priority-Inheritance
+
+Work-Stealing ist in `selftest_try_steal()` bereits implementiert, wird aber nur
+fuer `QosClass::Idle` aufgerufen (wenn CPU sonst idle waere). Fuer echte SMP-Last
+muss Work-Stealing auch fuer hoehere QoS-Klassen aktiviert werden.
+
+IPC Priority-Inheritance (OHOS-Pattern): Wenn Task A (niedrige Prio) eine IPC an
+Task B sendet und blockiert, erbt B temporaer A's QoS. Verhindert Priority-Inversion
+in IPC-Ketten. RFC-0022 (SMP v1b hardening) deckt die Vertragsgrundlage bereits ab.

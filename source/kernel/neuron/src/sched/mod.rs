@@ -361,6 +361,14 @@ impl Scheduler {
         for q in &mut self.queues {
             q.retain(|t| t.id != id);
         }
+        for cpu in &mut self.selftest_cpus {
+            for q in &mut cpu.queues {
+                q.retain(|t| t.id != id);
+            }
+            if cpu.current.as_ref().is_some_and(|t| t.id == id) {
+                cpu.current = None;
+            }
+        }
         if self.current.as_ref().is_some_and(|t| t.id == id) {
             self.current = None;
         }
@@ -426,6 +434,16 @@ impl Scheduler {
             queue.clear();
         }
         self.selftest_cpus[cpu_idx].current = None;
+    }
+
+    /// Enqueues a task on a specific CPU's per-CPU runqueue.
+    ///
+    /// This is the runtime (non-selftest) path for SMP-aware wakeups.
+    /// The caller (typically `TaskTable::wake`) passes the task's `home_cpu`
+    /// to ensure tasks stay on their home CPU and avoid cross-CPU migration
+    /// during IPC wakeups.
+    pub fn enqueue_on_cpu(&mut self, cpu: CpuId, id: TaskId, qos: QosClass) -> EnqueueOutcome {
+        self.selftest_try_enqueue_on_cpu(cpu, id, qos)
     }
 
     pub fn selftest_enqueue_on_cpu(

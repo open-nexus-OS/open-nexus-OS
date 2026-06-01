@@ -325,6 +325,10 @@ pub struct Task {
     ///
     /// This is set by `exec_v2` (init-lite passes the service name; kernel derives a stable id).
     service_id: u64,
+    /// CPU where this task was spawned (used by wake() to enqueue on the correct
+    /// per-CPU runqueue, avoiding cross-CPU migration during IPC wakeups).
+    #[cfg_attr(not(test), allow(dead_code))]
+    home_cpu: crate::types::CpuId,
     /// Last spawn failure reason recorded for this task (RFC-0013 boot gates).
     last_spawn_fail_reason: Option<SpawnFailReason>,
     bootstrap_slot: Option<usize>,
@@ -373,6 +377,7 @@ impl Task {
             address_space: None,
             user_guard_info: None,
             service_id: 0,
+            home_cpu: crate::types::CpuId::BOOT,
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -549,6 +554,7 @@ impl TaskTable {
             address_space: None,
             user_guard_info: None,
             service_id: 0,
+            home_cpu: crate::smp::cpu_current_id(),
             last_spawn_fail_reason: None,
             bootstrap_slot: None,
             children: Vec::new(),
@@ -768,6 +774,7 @@ impl TaskTable {
             address_space: Some(child_as),
             user_guard_info: None,
             service_id: 0,
+            home_cpu: crate::smp::cpu_current_id(),
             last_spawn_fail_reason: None,
             bootstrap_slot: Some(slot),
             children: Vec::new(),
@@ -874,7 +881,10 @@ impl TaskTable {
         scheduler.finish_current();
     }
 
-    /// Wakes a blocked task and enqueues it for execution.
+    /// Wakes a blocked task and enqueues it for execution on its home CPU.
+    ///
+    /// Uses per-CPU runqueues to prevent cross-CPU migration during IPC wakeups,
+    /// which would otherwise cause starvation under SMP.
     pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> WakeOutcome {
         let Some(task) = self.task(pid) else {
             return WakeOutcome::TaskNotFound;

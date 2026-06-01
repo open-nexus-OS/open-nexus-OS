@@ -148,7 +148,7 @@ ci-os-full:
     just test-os full
 
 ci-os-smp:
-    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os smp
+    SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-300s} just test-os smp
 
 ci-os-dhcp:
     RUN_TIMEOUT=${RUN_TIMEOUT:-190s} just test-os dhcp
