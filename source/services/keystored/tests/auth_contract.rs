@@ -134,6 +134,7 @@ fn reject_nonexistent_key_is_not_malformed() {
 
 // ── Minimal server simulator (mirrors os_stub.rs header parsing) ──
 
+#[allow(static_mut_refs)]
 fn server_handle(frame: &[u8]) -> Vec<u8> {
     use std::collections::BTreeMap;
     static mut STORE: Option<BTreeMap<Vec<u8>, Vec<u8>>> = None;

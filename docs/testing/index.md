@@ -807,3 +807,22 @@ Network/distributed debugging runbooks, packet capture workflow, `os2vm` phase c
 - `docs/testing/network-distributed-debugging.md` (SSOT)
 
 Keep this index focused on the global testing framework; use the SSOT document for operational network/distributed triage details.
+
+### Test log structure
+
+Since 2026-05-31 all test logs live under `build/logs/`:
+
+```
+build/logs/
+  README.md              ← hypothesis grid reference (agent-readable)
+  latest → {run_dir}/    ← symlink to most recent run
+  {run_dir}/             ← e.g. visible-bootstrap--2026-05-31T13-20-05
+    hypothesis.json       ← structured check grid (one JSON line per hypothesis)
+    uart.log              ← guest serial output
+    qemu.stderr           ← QEMU's own error stream
+    build.stderr          ← compiler warnings/errors (persisted)
+```
+
+The old flat files (`uart.log`, `qemu.log` in repo root) and `.cursor/debug*.log` are obsolete.
+Use `build/logs/latest/hypothesis.json` as the first triage stop after any QEMU run.
+See `build/logs/README.md` for the full hypothesis grid legend.

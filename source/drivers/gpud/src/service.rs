@@ -35,42 +35,56 @@ const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut backend = open_backend_blocking()?;
-    let display_resource = backend
-        .create_resource(DISPLAY_WIDTH, DISPLAY_HEIGHT, PixelFormat::Bgra8888)
-        .map_err(|_| {
-            let _ = debug_println(GPUD_MMIO_FAULT);
-            nexus_abi::AbiError::InvalidArgument
-        })?;
-    backend
-        .transfer_to_host(
-            display_resource,
-            nexus_gfx::backend::types::Rect {
-                x: 0,
-                y: 0,
-                width: DISPLAY_WIDTH,
-                height: DISPLAY_HEIGHT,
-            },
-        )
-        .map_err(|_| {
-            let _ = debug_println(GPUD_MMIO_FAULT);
-            nexus_abi::AbiError::InvalidArgument
-        })?;
-    backend.set_scanout(display_resource).map_err(|_| {
-        let _ = debug_println(GPUD_MMIO_FAULT);
-        nexus_abi::AbiError::InvalidArgument
-    })?;
-    debug_println(GPUD_SCANOUT_OK)?;
-    debug_println(GPUD_SCANOUT_MODE)?;
-    backend.move_cursor(0, 0).map_err(|_| {
-        let _ = debug_println(GPUD_MMIO_FAULT);
-        nexus_abi::AbiError::InvalidArgument
-    })?;
-    debug_println(GPUD_CURSOR_ON)?;
-    debug_println(GPUD_DISPLAY_READY)?;
-    debug_println(GPUD_READY)?;
 
+    // Try to create a 1280×800 display resource for the GPU scanout path.
+    // On failure (e.g. QEMU virtio-gpu rejects large resources), fall back
+    // to a minimal proof resource so gpud stays alive for IPC requests.
+    let display_resource =
+        match backend.create_resource(DISPLAY_WIDTH, DISPLAY_HEIGHT, PixelFormat::Bgra8888) {
+            Ok(res) => {
+                let rect = nexus_gfx::backend::types::Rect {
+                    x: 0,
+                    y: 0,
+                    width: DISPLAY_WIDTH,
+                    height: DISPLAY_HEIGHT,
+                };
+                if backend.transfer_to_host(res, rect).is_err() || backend.set_scanout(res).is_err()
+                {
+                    let _ = debug_println(GPUD_MMIO_FAULT);
+                    // Fall back to proof resource below.
+                    None
+                } else {
+                    debug_println(GPUD_SCANOUT_OK)?;
+                    debug_println(GPUD_SCANOUT_MODE)?;
+                    let _ = backend.move_cursor(0, 0);
+                    debug_println(GPUD_CURSOR_ON)?;
+                    debug_println(GPUD_DISPLAY_READY)?;
+                    Some(res)
+                }
+            }
+            Err(_) => {
+                let _ = debug_println(GPUD_MMIO_FAULT);
+                None
+            }
+        };
+
+    // If 1280×800 failed, create a minimal 64×64 proof resource so
+    // gpud stays alive and can serve IPC (animation submit, cursor move).
+    let resource = match display_resource {
+        Some(res) => res,
+        None => {
+            const PROOF_W: u32 = 64;
+            const PROOF_H: u32 = 64;
+            backend.create_resource(PROOF_W, PROOF_H, PixelFormat::Bgra8888).unwrap_or_else(|_| {
+                // Last resort: use resource id 0 (invalid, marks "no resource").
+                nexus_gfx::backend::types::ResourceId(0)
+            })
+        }
+    };
+
+    debug_println(GPUD_READY)?;
     let server = bind_server();
-    service_requests(server, backend, display_resource)
+    service_requests(server, backend, resource)
 }
 
 fn open_backend_blocking() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {

@@ -14,6 +14,8 @@ mod error;
 mod output;
 mod runtime;
 
+pub mod chain;
+
 extern crate nexus_policy;
 
 pub use commands::run;

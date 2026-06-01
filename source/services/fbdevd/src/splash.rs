@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(dead_code, unused_imports)] // os-lite markers only used in OS cfg
+
 //! CONTEXT: Boot splash screen — rendered via VMO writes to the framebuffer after ramfb config.
 //! OWNERS: @runtime
 //! STATUS: Experimental
@@ -208,7 +210,7 @@ fn get_glyph(ch: u8) -> [u8; 8] {
         [0x10, 0x38, 0x6C, 0xC6, 0x00, 0x00, 0x00, 0x00], // ^
         [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF], // _
     ];
-    if ch >= b' ' && ch <= b'_' {
+    if (b' '..=b'_').contains(&ch) {
         FONT[(ch - b' ') as usize]
     } else {
         FONT[0] // space for unknown chars

@@ -83,5 +83,10 @@ thiserror = { version = "2", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", optional = true }
 
+[[bin]]
+name = "nexus-init"
+path = "src/main.rs"
+required-features = ["std-server"]
+
 [dev-dependencies]
 tempfile = "3"

@@ -8,15 +8,19 @@
 //! TEST_COVERAGE: Marker literals and postflight gates covered by `ui_windowd_host` and `ui_v2a_host`
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
+#![allow(dead_code)] // markers used in os-lite cfg, not in host clippy
+
 use crate::error::{Result, WindowdError};
 use crate::ids::SurfaceId;
 use crate::server::PresentAck;
+
 use alloc::format;
 use alloc::string::String;
 
 #[path = "markers/animation_markers.rs"]
 pub mod animation_markers;
 
+#[allow(unused_imports)]
 pub use animation_markers::*;
 
 pub const READY_MARKER: &str = "windowd: ready (w=1280, h=800, hz=120)";

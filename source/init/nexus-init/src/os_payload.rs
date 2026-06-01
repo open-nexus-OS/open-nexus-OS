@@ -21,9 +21,26 @@ use core::fmt;
 use core::sync::atomic::AtomicBool;
 
 #[cfg(nexus_env = "os")]
-use nexus_abi::{self, AbiError, IpcError, Rights};
+use nexus_abi::{self, AbiError, IpcError};
 
-use crate::bootstrap::BootstrapState;
+pub(crate) use crate::bootstrap::BootstrapState;
+
+// Re-export items moved to bootstrap/ during RFC-0061 refactoring
+// so existing imports from `crate::os_payload` continue to resolve.
+pub use crate::bootstrap::helpers::fatal_err;
+pub(crate) use crate::bootstrap::helpers::{
+    abi_error_label, bundlemgrd_set_active_slot, configure_log_topics, debug_write_byte,
+    debug_write_bytes, debug_write_hex, debug_write_str, decode_init_health_ok_req,
+    decode_init_health_ok_req_with_optional_nonce, encode_init_health_ok_rsp,
+    encode_init_health_ok_rsp_with_optional_nonce, fatal, grant_mmio_cap, ipc_error_label,
+    log_str_ptr, probe_debug_write_words, probe_virtio_mmio_slots, probes_enabled, raw_probe_str,
+    updated_boot_attempt, updated_health_ok, virtio_mmio_window, watchdog_limit_ticks,
+    ServiceNameGuard, DEVICE_MMIO_CAP_SLOT, FW_CFG_MMIO_BASE, FW_CFG_MMIO_CAP_SLOT,
+    FW_CFG_MMIO_LEN, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE, VIRTIO_MMIO_BASE, VIRTIO_MMIO_STRIDE,
+};
+pub(crate) use crate::bootstrap::policyd::policyd_cap_allowed;
+pub(crate) use crate::route_table::RouteTable;
+pub(crate) use nexus_abi::Rights;
 
 // Tooling/host diagnostics compatibility:
 // `os_payload` is OS-only (selected by `lib.rs`), but rust-analyzer may still parse this file
@@ -174,15 +191,15 @@ use abi_compat as nexus_abi;
 use abi_compat::{AbiError, IpcError, Rights};
 use nexus_log::{self, LineBuilder, StrRef};
 
-const MAX_LOG_STR_LEN: usize = 512;
+pub(crate) const MAX_LOG_STR_LEN: usize = 512;
 
 extern "C" {
-    static __rodata_start: u8;
-    static __rodata_end: u8;
-    static __data_start: u8;
-    static __data_end: u8;
-    static __small_data_guard: u8;
-    static __image_end: u8;
+    pub(crate) static __rodata_start: u8;
+    pub(crate) static __rodata_end: u8;
+    pub(crate) static __data_start: u8;
+    pub(crate) static __data_end: u8;
+    pub(crate) static __small_data_guard: u8;
+    pub(crate) static __image_end: u8;
 }
 
 /// Prepackaged service image embedded into the init payload.
@@ -239,7 +256,7 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
     }
 }
 
-mod log_topics {
+pub(crate) mod log_topics {
     use nexus_log::{Topic, TOPIC_GENERAL};
 
     pub const GENERAL: Topic = TOPIC_GENERAL;
@@ -320,14 +337,14 @@ mod log_topics {
     }
 }
 
-type Result<T> = core::result::Result<T, InitError>;
+pub(crate) type Result<T> = core::result::Result<T, InitError>;
 
-static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
+pub(crate) static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 // RFC-0005: per-service bootstrap routing protocol (init-lite responder over a private control EP).
-const CTRL_EP_DEPTH: usize = 8;
-const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
-const CTRL_CHILD_RECV_SLOT: u32 = 2; // Second cap_transfer (paired reply endpoint).
+pub(crate) const CTRL_EP_DEPTH: usize = 8;
+pub(crate) const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
+pub(crate) const CTRL_CHILD_RECV_SLOT: u32 = 2; // Second cap_transfer (paired reply endpoint).
 
 pub(crate) const INIT_HEALTH_MAGIC0: u8 = b'I';
 pub(crate) const INIT_HEALTH_MAGIC1: u8 = b'H';

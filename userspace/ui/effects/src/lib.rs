@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::unwrap_used, clippy::too_many_arguments, clippy::needless_return)]
+
 //! CONTEXT: CPU effects (blur/drop-shadow/9-slice/kawase) with deterministic budgets and render cache for TASK-0059 / RFC-0058.
 //! OWNERS: @ui
 //! STATUS: Functional

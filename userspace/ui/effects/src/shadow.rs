@@ -194,7 +194,7 @@ pub fn composite_nine_slice_shadow(
     let cached = cache.as_mut().and_then(|c| c.get(cache_key));
 
     if let Some(data) = cached {
-        return composite_shadow_layer(target, data, dims.total_w, dims.total_h, shadow, params);
+        composite_shadow_layer(target, data, dims.total_w, dims.total_h, shadow, params)
     } else {
         let pixels = dims.total_w * dims.total_h;
         if !budget.try_reserve(pixels) {
@@ -209,7 +209,7 @@ pub fn composite_nine_slice_shadow(
         if let Some(c) = cache {
             c.insert(cache_key, layer, dims.total_w, dims.total_h);
         }
-        return composited;
+        composited
     }
 }
 

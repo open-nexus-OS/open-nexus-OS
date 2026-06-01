@@ -70,6 +70,7 @@ fn damage_area(rect: DamageRect) -> u64 {
     u64::from(rect.width).saturating_mul(u64::from(rect.height))
 }
 
+#[allow(clippy::implicit_saturating_sub)]
 fn damage_gap(a_start: u32, a_end: u32, b_start: u32, b_end: u32) -> u32 {
     if a_end < b_start {
         b_start - a_end

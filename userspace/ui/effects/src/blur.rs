@@ -230,6 +230,7 @@ pub fn blur_1d(
 /// - `col_scratch`: at least `width * height * 4` bytes (only used for vertical pass)
 ///
 /// Returns the number of pixels blurred.
+#[allow(clippy::too_many_arguments)]
 pub fn blur_1d_zero_alloc(
     pixels: &mut [u8],
     width: u32,
@@ -268,6 +269,7 @@ pub fn blur_1d_zero_alloc(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn blur_1d_zero_alloc_checked(
     pixels: &mut [u8],
     width: u32,

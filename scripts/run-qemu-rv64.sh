@@ -46,8 +46,12 @@ RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-0}
 QEMU_TIMEOUT_SIGNAL=${QEMU_TIMEOUT_SIGNAL:-TERM}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
-QEMU_LOG=${QEMU_LOG:-qemu.log}
-UART_LOG=${UART_LOG:-uart.log}
+# Log directory: qemu-test.sh sets LOG_DIR per run; fallback for manual runs.
+LOG_DIR=${LOG_DIR:-$ROOT/build/logs/manual--$(date +%Y-%m-%dT%H-%M-%S)}
+mkdir -p "$LOG_DIR"
+QEMU_LOG=${QEMU_LOG:-$LOG_DIR/qemu.stderr}
+UART_LOG=${UART_LOG:-$LOG_DIR/uart.log}
+BUILD_LOG=${BUILD_LOG:-$LOG_DIR/build.stderr}
 INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
 NEURON_BOOT_FEATURES=${NEURON_BOOT_FEATURES:-}
 # Allow overriding the QEMU net backend (default: usernet) for opt-in harnesses.
@@ -112,9 +116,8 @@ SANDBOX_CACHE_TARGET_FREE_MB=${SANDBOX_CACHE_TARGET_FREE_MB:-1024}
 SANDBOX_CACHE_MIN_AGE_SECS=${SANDBOX_CACHE_MIN_AGE_SECS:-1800}
 BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
 BUILD_TMP_MIN_FREE_MB=${BUILD_TMP_MIN_FREE_MB:-256}
-DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug-8cde1d.log"}
-DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-"8cde1d"}
-DEBUG_RUN_ID=${DEBUG_RUN_ID:-"run-qemu-$(date +%s)-$$"}
+HYPOTHESIS_LOG=${HYPOTHESIS_LOG:-$LOG_DIR/hypothesis.json}
+RUN_ID=${RUN_ID:-"run-qemu-$(date +%s)-$$"}
 
 # When NEXUS_SKIP_BUILD=1, every per-component `cargo build` below is
 # replaced with a "must-already-exist" artifact check. The Makefile sets
@@ -223,13 +226,9 @@ debug_log() {
   local data_json=${4:-"{}"}
   local ts
   ts=$(date +%s%3N 2>/dev/null || date +%s000)
-  if [[ -n "$DEBUG_SESSION_ID" ]]; then
-    printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-      "$DEBUG_SESSION_ID" "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
-  else
-    printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-      "$DEBUG_RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
-  fi
+  data_json=$(printf '%s' "$data_json" | tr -d '\n\r')
+  printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+    "$RUN_ID" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$HYPOTHESIS_LOG" 2>/dev/null || true
 }
 # #endregion
 

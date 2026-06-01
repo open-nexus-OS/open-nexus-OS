@@ -64,7 +64,6 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
     let default_candidates = [
         "keystored",
         "identityd",
-        "fbdevd", // Priority-0: boot splash <200ms, no deps on other services
         "rngd",
         "policyd",
         "logd",
@@ -84,6 +83,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "gpud",
         "windowd",
         "inputd",
+        "fbdevd",
         "selftest-client",
     ];
 

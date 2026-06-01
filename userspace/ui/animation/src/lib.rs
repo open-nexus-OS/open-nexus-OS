@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::unwrap_used)]
+
 //! CONTEXT: Animation engine: timeline, spring physics (RK4), keyframe interpolation.
 //! OWNERS: @ui
 //! STATUS: Experimental

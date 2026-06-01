@@ -26,6 +26,7 @@ const RESPONSE_FLAG: u8 = 0x80;
 
 const OP_REGISTER: u8 = 1;
 const OP_LOOKUP: u8 = 2;
+#[allow(dead_code)]
 const OP_RESOLVE_STATUS: u8 = 6;
 
 const STATUS_OK: u8 = 0;

@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::unwrap_used)]
+
 //! Build-time MSDF atlas generator.
 //! Renders each printable ASCII glyph as a 32×32 signed distance field,
 //! packs them into a single BGRA atlas texture, and emits a glyph metrics

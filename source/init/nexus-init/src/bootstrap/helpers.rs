@@ -20,18 +20,17 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use crate::bootstrap::policyd::policyd_cap_allowed;
 use crate::bootstrap::route_builder;
 use crate::bootstrap::CtrlChannel;
+use crate::os_payload::log_topics;
 use crate::os_payload::{
-    debug_write_byte, debug_write_bytes, debug_write_hex, debug_write_str, fatal, probes_enabled,
-    BootstrapState, InitError, ReadyNotifier, RouteTable, ServiceImage, ServiceNameGuard,
-    CTRL_CHILD_RECV_SLOT, CTRL_CHILD_SEND_SLOT, CTRL_EP_DEPTH, DEVICE_MMIO_CAP_SLOT,
-    FW_CFG_MMIO_BASE, FW_CFG_MMIO_CAP_SLOT, FW_CFG_MMIO_LEN, INIT_HEALTH_MAGIC0,
-    INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK, INIT_HEALTH_STATUS_FAILED, INIT_HEALTH_STATUS_OK,
-    INIT_HEALTH_VERSION, INPUT_MMIO_CAP_SLOT_BASE, POLICY_NONCE, VIRTIO_MMIO_BASE,
-    VIRTIO_MMIO_STRIDE,
+    self, BootstrapState, InitError, ReadyNotifier, Result, RouteTable, ServiceImage, __data_end,
+    __data_start, __rodata_end, __rodata_start, CTRL_CHILD_RECV_SLOT, CTRL_CHILD_SEND_SLOT,
+    CTRL_EP_DEPTH, INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK,
+    INIT_HEALTH_STATUS_FAILED, INIT_HEALTH_STATUS_OK, INIT_HEALTH_VERSION, MAX_LOG_STR_LEN,
+    PROBE_ENABLED,
 };
 use nexus_abi::{self, AbiError, IpcError, MsgHeader, Rights};
 use nexus_ipc::reqrep::FrameStash;
-use nexus_log::StrRef;
+use nexus_log::{LineBuilder, StrRef};
 
 pub(crate) fn watchdog_limit_ticks() -> Option<usize> {
     match option_env!("INIT_LITE_WATCHDOG_TICKS") {
@@ -81,9 +80,9 @@ pub fn fatal_err(err: InitError) -> ! {
     fatal("init-lite fatal");
 }
 
-fn configure_log_topics() {
+pub(crate) fn configure_log_topics() {
     let mask = match option_env!("INIT_LITE_LOG_TOPICS") {
-        Some(spec) if !spec.is_empty() => log_topics::parse_spec(spec.as_bytes()),
+        Some(spec) if !spec.is_empty() => os_payload::log_topics::parse_spec(spec.as_bytes()),
         _ => log_topics::DEFAULT_MASK,
     };
     nexus_log::set_topic_mask(mask);
@@ -98,7 +97,7 @@ fn configure_log_topics() {
     debug_write_byte(b'\n');
 }
 
-fn probes_enabled() -> bool {
+pub(crate) fn probes_enabled() -> bool {
     PROBE_ENABLED.load(Ordering::Relaxed)
 }
 
@@ -108,20 +107,20 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 // Nonce for policyd v2 (correlated) control-plane requests.
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
-const DEVICE_MMIO_CAP_SLOT: u32 = 48;
-const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
-const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
+pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = 48;
+pub(crate) const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
+pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
-const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
-const VIRTIO_MMIO_STRIDE: usize = 0x1000;
-const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
-const FW_CFG_MMIO_LEN: usize = 0x1000;
+pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
+pub(crate) const VIRTIO_MMIO_STRIDE: usize = 0x1000;
+pub(crate) const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
+pub(crate) const FW_CFG_MMIO_LEN: usize = 0x1000;
 
-fn virtio_mmio_window(slot: usize) -> (usize, usize) {
+pub(crate) fn virtio_mmio_window(slot: usize) -> (usize, usize) {
     (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
 }
 
-fn probe_virtio_mmio_slots(
+pub(crate) fn probe_virtio_mmio_slots(
 ) -> Result<(usize, usize, Option<usize>, Option<usize>, [Option<usize>; 3])> {
     // Map the supported virtio-mmio window to discover device slots, then mint
     // per-device caps. Scanning past the platform window faults in guest bring-up.
@@ -210,7 +209,7 @@ pub(crate) fn debug_write_hex(value: usize) {
     }
 }
 
-fn probe_debug_write_words() {
+pub(crate) fn probe_debug_write_words() {
     if !probes_enabled() {
         return;
     }
@@ -232,7 +231,7 @@ fn probe_debug_write_words() {
     }
 }
 
-fn raw_probe_str(tag: &str, value: &str) {
+pub(crate) fn raw_probe_str(tag: &str, value: &str) {
     if !probes_enabled() {
         return;
     }
@@ -244,7 +243,7 @@ fn raw_probe_str(tag: &str, value: &str) {
     debug_write_byte(b'\n');
 }
 
-fn log_str_ptr(tag: &str, value: &str) {
+pub(crate) fn log_str_ptr(tag: &str, value: &str) {
     raw_probe_str(tag, value);
     nexus_log::trace_topic("init", log_topics::SERVICE_META, |line| {
         line.text_ref(StrRef::from(tag));
@@ -301,14 +300,14 @@ fn is_user_str_valid(ptr: usize, len: usize) -> bool {
     section_contains(&ro_range, ptr, len) || section_contains(&data_range, ptr, len)
 }
 
-struct ServiceNameGuard<'a> {
-    value: Option<&'a str>,
-    ptr: usize,
-    len: usize,
+pub(crate) struct ServiceNameGuard<'a> {
+    pub(crate) value: Option<&'a str>,
+    pub(crate) ptr: usize,
+    pub(crate) len: usize,
 }
 
 impl<'a> ServiceNameGuard<'a> {
-    fn new(raw: &'a str) -> Self {
+    pub(crate) fn new(raw: &'a str) -> Self {
         let ptr = raw.as_ptr() as usize;
         let len = raw.len();
         let value = if is_user_str_valid(ptr, len) {
@@ -321,7 +320,7 @@ impl<'a> ServiceNameGuard<'a> {
         Self { value, ptr, len }
     }
 
-    fn trace_metadata(&self) {
+    pub(crate) fn trace_metadata(&self) {
         if !probes_enabled() {
             return;
         }
@@ -329,7 +328,7 @@ impl<'a> ServiceNameGuard<'a> {
     }
 }
 
-fn grant_mmio_cap(
+pub(crate) fn grant_mmio_cap(
     pid: u32,
     svc_name: &str,
     cap_name: &str,
@@ -447,7 +446,7 @@ fn grant_mmio_cap(
     Ok(Some(true))
 }
 
-fn updated_boot_attempt(
+pub(crate) fn updated_boot_attempt(
     pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     upd_req: u32,
     reply_send: u32,
@@ -550,7 +549,7 @@ fn updated_boot_attempt(
     }
 }
 
-fn bundlemgrd_set_active_slot(
+pub(crate) fn bundlemgrd_set_active_slot(
     pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     bnd_req: u32,
     reply_send: u32,

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-06-01
+
+#### nexus-init OS build regression (RFC-0061 incomplete refactoring)
+- **`source/init/nexus-init/Cargo.toml`**: Added `[[bin]] required-features = ["std-server"]` to prevent RISC-V compilation of host-only binary.
+- **`source/init/nexus-init/src/lib.rs`**: Added missing `extern crate alloc;` for `no_std` OS builds.
+- **`source/init/nexus-init/src/os_payload.rs`**: Added `pub(crate) use` re-exports (`debug_write_*`, `fatal_err`, `ServiceNameGuard`, `RouteTable`, etc.) for items moved to `bootstrap/` during RFC-0061 refactoring. Made private constants and type aliases `pub(crate)`.
+- **`source/init/nexus-init/src/bootstrap/helpers.rs`**: Added `pub(crate)` visibility to functions used by sibling modules. Added missing imports (`LineBuilder`, `log_topics`, `extern` symbols). Made `ServiceNameGuard` struct and fields `pub(crate)`.
+
+#### Compiler warnings
+- **gpud/backend.rs**: Prefixed unused closure params with `_`, added `#[allow(dead_code)]` on `ResourceRecord` and `CURSOR_QUEUE_INDEX`.
+- **windowd/compositor/backdrop.rs**: Removed unused imports.
+
+#### Proof-manifest
+- **markers/ui.toml**: Changed `fbdevd: ready` from `phase=end emit_when={profile=visible-bootstrap}` to `phase=bringup` (fbdevd now starts early per RFC-0059 Phase B).
+
 ### Changed - 2026-05-31
 
 #### RFC-0059 Phase 3–6: Production-Grade Display Pipeline

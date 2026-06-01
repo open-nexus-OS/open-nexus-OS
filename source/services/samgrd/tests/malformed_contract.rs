@@ -39,6 +39,7 @@ fn decode_rsp(frame: &[u8]) -> Result<(u8, u8), &'static str> {
     Ok((op, frame[4]))
 }
 
+#[allow(static_mut_refs)]
 fn server_handle(frame: &[u8]) -> Vec<u8> {
     static mut REG: Option<BTreeMap<String, u32>> = None;
     let reg = unsafe { REG.get_or_insert_with(BTreeMap::new) };

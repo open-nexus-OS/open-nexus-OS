@@ -28,6 +28,8 @@
 //! variant uses a cooperative bootstrap stub that will gain capabilities in
 //! later stages of the migration.
 
+extern crate alloc;
+
 /// Deterministic capability slot assignment map for early boot validation.
 #[cfg(all(feature = "os-payload", nexus_env = "os"))]
 pub mod slot_map;

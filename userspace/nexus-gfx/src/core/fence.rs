@@ -25,6 +25,7 @@ impl Fence {
         self.signaled
     }
 
+    #[allow(dead_code)]
     pub(crate) fn signal(&mut self) {
         self.signaled = true;
     }

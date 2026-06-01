@@ -58,6 +58,7 @@ pub(crate) fn rounded_rect_sd(
 }
 
 /// Fixed-point circle SDF: distance from (px, py) to center (cx, cy) minus radius.
+#[allow(dead_code)]
 pub(crate) fn circle_sd(px: i32, py: i32, cx: i32, cy: i32, radius: i32) -> i32 {
     let dx = px.saturating_sub(cx);
     let dy = py.saturating_sub(cy);

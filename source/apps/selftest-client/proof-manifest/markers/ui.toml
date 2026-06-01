@@ -39,9 +39,8 @@ phase = "end"
 proves = "visible bootstrap accepted exactly the fixed 1280x800 ARGB8888 ramfb mode"
 
 [marker."fbdevd: ready"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "fbdevd became the single scanout owner before any observer-only visible closure marker"
+phase = "bringup"
+proves = "fbdevd completed service init, framebuffer allocation, and windowd registration"
 
 [marker."fbdevd: map ok"]
 phase = "end"

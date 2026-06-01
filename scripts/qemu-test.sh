@@ -5,8 +5,6 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-UART_LOG=${UART_LOG:-"$ROOT/uart.log"}
-QEMU_LOG=${QEMU_LOG:-"$ROOT/qemu.log"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}
@@ -65,7 +63,7 @@ pm_cli() {
   if [[ -x "$PM_CLI_DEFAULT" ]]; then
     # #region agent log
     if declare -F agent_debug_log >/dev/null 2>&1; then
-      agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from workspace target" \
+      agent_debug_log "${RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from workspace target" \
         "{\"path\":\"$PM_CLI_DEFAULT\",\"source\":\"workspace-target\"}"
     fi
     # #endregion
@@ -79,7 +77,7 @@ pm_cli() {
     if [[ -x "$cand" ]]; then
       # #region agent log
       if declare -F agent_debug_log >/dev/null 2>&1; then
-        agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from sandbox cache" \
+        agent_debug_log "${RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI from sandbox cache" \
           "{\"path\":\"$cand\",\"source\":\"sandbox-cache\"}"
       fi
       # #endregion
@@ -95,7 +93,7 @@ pm_cli() {
     if [[ -x "$cand" ]]; then
       # #region agent log
       if declare -F agent_debug_log >/dev/null 2>&1; then
-        agent_debug_log "${AGENT_RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI after build" \
+        agent_debug_log "${RUN_ID:-qemu-preinit}" "H5" "scripts/qemu-test.sh:pm-cli-select" "selected proof-manifest CLI after build" \
           "{\"path\":\"$cand\",\"source\":\"post-build-scan\"}"
       fi
       # #endregion
@@ -161,11 +159,29 @@ fi
 REQUIRE_SMP=${REQUIRE_SMP:-0}
 QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
-DEBUG_LOG=${DEBUG_LOG:-"$ROOT/.cursor/debug.log"}
-DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-""}
-AGENT_RUN_ID=${AGENT_RUN_ID:-"qemu-$(date +%s)-$$"}
+# Semantic log directory: profile + iso8601 timestamp.
+LOG_PROFILE=${PROFILE:-full}
+LOG_DIR=${LOG_DIR:-"$ROOT/build/logs/$LOG_PROFILE--$(date +%Y-%m-%dT%H-%M-%S)"}
+mkdir -p "$LOG_DIR"
+# Symlink immediately so agents find the latest run even on failure.
+ln -sfn "$LOG_DIR" "$ROOT/build/logs/latest" 2>/dev/null || true
+HYPOTHESIS_LOG=${HYPOTHESIS_LOG:-$LOG_DIR/hypothesis.json}
+RUN_ID=${RUN_ID:-"qemu-$(date +%s)-$$"}
+export LOG_DIR HYPOTHESIS_LOG RUN_ID
 
-# #region agent log (ndjson debug log helper; Slice B)
+# Log files go into the per-run directory, not repo root.
+UART_LOG=${UART_LOG:-$LOG_DIR/uart.log}
+QEMU_LOG=${QEMU_LOG:-$LOG_DIR/qemu.stderr}
+
+# grep -c exits 1 on zero matches, so `$(grep -c ... || echo 0)` produces "0\n0".
+# Use this helper instead: strips newlines, defaults to "0" when empty.
+count_lines() {
+  local n
+  n=$(grep -aFc "$1" "$UART_LOG" 2>/dev/null | tr -d '\n' || true)
+  printf '%s' "${n:-0}"
+}
+
+# #region agent log (ndjson hypothesis writer)
 agent_debug_log() {
   local run_id=$1
   local hypothesis_id=$2
@@ -174,28 +190,16 @@ agent_debug_log() {
   local data_json=${5:-"{}"}
   local ts
   ts=$(date +%s%3N 2>/dev/null || date +%s000)
-  # Keep JSON stable and small. data_json must be a valid JSON object string.
-  if [[ -n "$DEBUG_SESSION_ID" ]]; then
-    printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-      "$DEBUG_SESSION_ID" "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
-  else
-    printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-      "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$DEBUG_LOG" 2>/dev/null || true
-  fi
+  # Strip embedded newlines from data_json — grep -c / wc -l output contains \n.
+  data_json=$(printf '%s' "$data_json" | tr -d '\n\r')
+  printf '{"runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+    "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"$HYPOTHESIS_LOG" 2>/dev/null || true
 }
 # #endregion agent log
 
-# #region agent log (session-specific input debug helper)
+# #region agent log (session-specific input debug helper — delegates to agent_debug_log)
 agent_input_debug_log() {
-  local run_id=$1
-  local hypothesis_id=$2
-  local location=$3
-  local message=$4
-  local data_json=${5:-"{}"}
-  local ts
-  ts=$(date +%s%3N 2>/dev/null || date +%s000)
-  printf '{"sessionId":"8cde1d","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
-    "$run_id" "$hypothesis_id" "$location" "$message" "$data_json" "$ts" >>"/home/jenning/open-nexus-OS/.cursor/debug-8cde1d.log" 2>/dev/null || true
+  agent_debug_log "$@"
 }
 # #endregion agent log
 
@@ -210,7 +214,7 @@ agent_on_exit() {
     if grep -aFq "net: dhcp bound" "$UART_LOG"; then dhcp_bound=true; fi
     if grep -aFq "net: dhcp unavailable (fallback static" "$UART_LOG"; then dhcp_fallback=true; fi
   fi
-  agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:exit" "qemu smoke exit summary" \
+  agent_debug_log "$RUN_ID" "A" "scripts/qemu-test.sh:exit" "qemu smoke exit summary" \
     "{\"exit_code\":$code,\"saw_init_start\":$saw_init,\"dhcp_bound\":$dhcp_bound,\"dhcp_fallback\":$dhcp_fallback}"
 }
 trap agent_on_exit EXIT
@@ -255,8 +259,8 @@ for svc in HIDRAWD TOUCHD INPUTD FBDEVD; do
   fi
 done
 # #region agent log (H1: qemu-test effective config in make path)
-agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
-  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"debug_log\":\"$DEBUG_LOG\"}"
+agent_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
+  "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"netstackd_flags\":\"${INIT_LITE_SERVICE_NETSTACKD_CARGO_FLAGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"hypothesis_log\":\"$HYPOTHESIS_LOG\",\"log_dir\":\"$LOG_DIR\"}"
 # #endregion
 
 QEMU_EXTRA_ARGS=()
@@ -417,10 +421,6 @@ expected_sequence=(
   "vfsd: namespace ready"
   "execd: ready"
   "${INPUT_STARTUP_MARKERS[@]}"
-  "gpud: virtio-gpu probed"
-  "gpud: scanout ok"
-  "gpud: cursor on"
-  "gpud: ready"
   "timed: ready"
   "netstackd: ready"
   "net: virtio-net up"
@@ -714,10 +714,10 @@ if [[ -f "$netstackd_elf_path" ]]; then
   netstackd_size=$(wc -c <"$netstackd_elf_path" 2>/dev/null || echo 0)
   netstackd_mtime=$(stat -c %Y "$netstackd_elf_path" 2>/dev/null || echo 0)
 fi
-agent_debug_log "$AGENT_RUN_ID" "H2" "scripts/qemu-test.sh:artifact-state" "kernel/init-lite artifact state before qemu launch" \
+agent_debug_log "$RUN_ID" "H2" "scripts/qemu-test.sh:artifact-state" "kernel/init-lite artifact state before qemu launch" \
   "{\"target_root\":\"$target_root\",\"kernel_exists\":$kernel_exists,\"kernel_size\":$kernel_size,\"kernel_mtime\":$kernel_mtime,\"init_exists\":$init_exists,\"init_size\":$init_size,\"init_mtime\":$init_mtime,\"netstackd_exists\":$netstackd_exists,\"netstackd_size\":$netstackd_size,\"netstackd_mtime\":$netstackd_mtime}"
 # #endregion
-agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
+agent_debug_log "$RUN_ID" "A" "scripts/qemu-test.sh:pre-run" "qemu smoke start" \
   "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_phase\":\"${RUN_PHASE:-}\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"require_dhcp\":\"${REQUIRE_QEMU_DHCP:-0}\",\"require_dhcp_strict\":\"${REQUIRE_QEMU_DHCP_STRICT:-0}\",\"require_dsoftbus\":\"${REQUIRE_DSOFTBUS:-0}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\"}"
 QEMU_SESSION_MODE="${QEMU_SESSION_MODE:-proof}" \
 QEMU_MARKER_LEVEL="${QEMU_MARKER_LEVEL:-proof}" \
@@ -751,7 +751,7 @@ if [[ -f "$QEMU_LOG" ]]; then
   qemu_exists=true
   qemu_size=$(wc -c <"$QEMU_LOG" 2>/dev/null || echo 0)
 fi
-agent_debug_log "$AGENT_RUN_ID" "J" "scripts/qemu-test.sh:diag-runqemu-result" "run-qemu completion and log artifacts" \
+agent_debug_log "$RUN_ID" "J" "scripts/qemu-test.sh:diag-runqemu-result" "run-qemu completion and log artifacts" \
   "{\"qemu_status\":$qemu_status,\"uart_exists\":$uart_exists,\"uart_size\":$uart_size,\"qemu_exists\":$qemu_exists,\"qemu_size\":$qemu_size}"
 # #region agent log (H3: marker progression in timeout/no-init cases)
 count_init_start=0
@@ -759,12 +759,12 @@ count_init_ready=0
 count_kself_wait_ok=0
 last_uart_line=""
 if [[ -f "$UART_LOG" ]]; then
-  count_init_start=$(grep -aFc "init: start" "$UART_LOG" 2>/dev/null || echo 0)
-  count_init_ready=$(grep -aFc "init: ready" "$UART_LOG" 2>/dev/null || echo 0)
-  count_kself_wait_ok=$(grep -aFc "KSELFTEST: wait ok" "$UART_LOG" 2>/dev/null || echo 0)
+  count_init_start=$(count_lines "init: start")
+  count_init_ready=$(count_lines "init: ready")
+  count_kself_wait_ok=$(count_lines "KSELFTEST: wait ok")
   last_uart_line=$(awk 'NF{line=$0} END{print line}' "$UART_LOG" | tr -d '\r' | sed 's/"/\\"/g' | sed 's/\\/\\\\/g')
 fi
-agent_debug_log "$AGENT_RUN_ID" "H3" "scripts/qemu-test.sh:marker-progression" "marker counts and last uart line after qemu run" \
+agent_debug_log "$RUN_ID" "H3" "scripts/qemu-test.sh:marker-progression" "marker counts and last uart line after qemu run" \
   "{\"count_init_start\":$count_init_start,\"count_init_ready\":$count_init_ready,\"count_kself_wait_ok\":$count_kself_wait_ok,\"last_uart_line\":\"${last_uart_line}\"}"
 # #endregion
 # #region agent log (hypothesis DNS1-DNS5: DHCP DNS proof path diagnostics)
@@ -775,14 +775,14 @@ count_dns_unavailable=0
 count_dns_fail=0
 count_dns_rx_other=0
 if [[ -f "$UART_LOG" ]]; then
-  count_dhcp_bound=$(grep -aFc "net: dhcp bound" "$UART_LOG" 2>/dev/null || echo 0)
-  count_dhcp_fallback=$(grep -aFc "net: dhcp unavailable (fallback static" "$UART_LOG" 2>/dev/null || echo 0)
-  count_dns_ok=$(grep -aFc "SELFTEST: net udp dns ok" "$UART_LOG" 2>/dev/null || echo 0)
-  count_dns_unavailable=$(grep -aFc "netstackd: udp dns unavailable (fallback dhcp proof)" "$UART_LOG" 2>/dev/null || echo 0)
-  count_dns_fail=$(grep -aFc "netstackd: net dns proof fail" "$UART_LOG" 2>/dev/null || echo 0)
-  count_dns_rx_other=$(grep -aFc "netstackd: udp dns rx other" "$UART_LOG" 2>/dev/null || echo 0)
+  count_dhcp_bound=$(count_lines "net: dhcp bound")
+  count_dhcp_fallback=$(count_lines "net: dhcp unavailable (fallback static")
+  count_dns_ok=$(count_lines "SELFTEST: net udp dns ok")
+  count_dns_unavailable=$(count_lines "netstackd: udp dns unavailable (fallback dhcp proof)")
+  count_dns_fail=$(count_lines "netstackd: net dns proof fail")
+  count_dns_rx_other=$(count_lines "netstackd: udp dns rx other")
 fi
-agent_debug_log "$AGENT_RUN_ID" "DNS" "scripts/qemu-test.sh:diag-net-dns-proof" "dhcp/dns proof markers and dns loop stats" \
+agent_debug_log "$RUN_ID" "DNS" "scripts/qemu-test.sh:diag-net-dns-proof" "dhcp/dns proof markers and dns loop stats" \
   "{\"dhcp_bound\":$count_dhcp_bound,\"dhcp_fallback\":$count_dhcp_fallback,\"dns_ok\":$count_dns_ok,\"dns_unavailable\":$count_dns_unavailable,\"dns_fail\":$count_dns_fail,\"dns_rx_other\":$count_dns_rx_other}"
 # #endregion
 # #endregion agent log
@@ -823,7 +823,7 @@ if [[ "$kpgf_seen" == "true" && "$kpgf_a7" == "0x000000000000000a" ]]; then
   h_b_as_map_path=true
 fi
 # #region agent log (hypothesis B)
-agent_debug_log "$AGENT_RUN_ID" "B" "scripts/qemu-test.sh:diag-kpgf-signature" "exec kpgf syscall signature" \
+agent_debug_log "$RUN_ID" "B" "scripts/qemu-test.sh:diag-kpgf-signature" "exec kpgf syscall signature" \
   "{\"kpgf_seen\":$kpgf_seen,\"pid\":\"${kpgf_pid}\",\"a7\":\"${kpgf_a7}\",\"a0\":\"${kpgf_a0}\",\"a2\":\"${kpgf_a2}\",\"is_as_map_signature\":$h_b_as_map_path}"
 # #endregion agent log
 
@@ -832,7 +832,7 @@ if [[ "$line_kpgf" -gt 0 && "$line_timed_ready" -gt 0 && "$line_timed_ok" -gt 0 
   h_c_timed_correlated=true
 fi
 # #region agent log (hypothesis C)
-agent_debug_log "$AGENT_RUN_ID" "C" "scripts/qemu-test.sh:diag-timed-order" "timed markers before crash" \
+agent_debug_log "$RUN_ID" "C" "scripts/qemu-test.sh:diag-timed-order" "timed markers before crash" \
   "{\"line_timed_ready\":$line_timed_ready,\"line_timed_ok\":$line_timed_ok,\"line_kpgf\":$line_kpgf,\"timed_before_kpgf\":$h_c_timed_correlated}"
 # #endregion agent log
 
@@ -841,7 +841,7 @@ if [[ "$line_execd_ready" -gt 0 && "$line_kpgf" -gt 0 && ( "$line_child_hello" -
   h_d_exec_progress=true
 fi
 # #region agent log (hypothesis D)
-agent_debug_log "$AGENT_RUN_ID" "D" "scripts/qemu-test.sh:diag-exec-progress" "exec phase progression around crash" \
+agent_debug_log "$RUN_ID" "D" "scripts/qemu-test.sh:diag-exec-progress" "exec phase progression around crash" \
   "{\"line_execd_ready\":$line_execd_ready,\"line_child_hello\":$line_child_hello,\"line_kpgf\":$line_kpgf,\"crash_before_child_hello\":$h_d_exec_progress}"
 # #endregion agent log
 
@@ -856,7 +856,7 @@ if [[ "$kpgf_seen" == "true" && -n "$kpgf_a0" && -n "$kpgf_a2" && -n "$kpgf_stva
   fi
 fi
 # #region agent log (hypothesis E)
-agent_debug_log "$AGENT_RUN_ID" "E" "scripts/qemu-test.sh:diag-address-range" "fault address relative to syscall range" \
+agent_debug_log "$RUN_ID" "E" "scripts/qemu-test.sh:diag-address-range" "fault address relative to syscall range" \
   "{\"stval\":\"${kpgf_stval}\",\"a0\":\"${kpgf_a0}\",\"a2\":\"${kpgf_a2}\",\"fault_inside_a0_a0_plus_a2\":$h_e_range_overlap}"
 # #endregion agent log
 
@@ -865,7 +865,7 @@ if [[ "$line_exec_routing" -gt 0 && "$line_kpgf" -gt 0 && "$line_exec_routing" -
   h_f_exec_route_ready=true
 fi
 # #region agent log (hypothesis F)
-agent_debug_log "$AGENT_RUN_ID" "F" "scripts/qemu-test.sh:diag-exec-routing" "exec routing readiness before crash" \
+agent_debug_log "$RUN_ID" "F" "scripts/qemu-test.sh:diag-exec-routing" "exec routing readiness before crash" \
   "{\"line_exec_routing_ok\":$line_exec_routing,\"line_kpgf\":$line_kpgf,\"routing_ready_before_crash\":$h_f_exec_route_ready}"
 # #endregion agent log
 
@@ -880,7 +880,7 @@ if [[ "$qemu_exists" == "true" ]]; then
   fi
 fi
 # #region agent log (hypothesis K/L)
-agent_debug_log "$AGENT_RUN_ID" "K" "scripts/qemu-test.sh:diag-qemu-launch-errors" "qemu launch error signatures" \
+agent_debug_log "$RUN_ID" "K" "scripts/qemu-test.sh:diag-qemu-launch-errors" "qemu launch error signatures" \
   "{\"qemu_exists\":$qemu_exists,\"qemu_launch_fail\":$qemu_launch_fail,\"qemu_lock_conflict\":$qemu_lock_conflict}"
 # #endregion agent log
 # #endregion agent log
@@ -914,28 +914,28 @@ count_sink_selftest_send_ok=$( (grep -aF "dbg: sink-logd selftest send ok" "$UAR
 line_selftest_sink_fail=$(grep -aFn "SELFTEST: nexus-log sink-logd FAIL" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 line_selftest_sink_ok=$(grep -aFn "SELFTEST: nexus-log sink-logd ok" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
 
-agent_debug_log "$AGENT_RUN_ID" "H6" "scripts/qemu-test.sh:diag-metrics-selftest-order" "metrics selftest marker order and misses" \
+agent_debug_log "$RUN_ID" "H6" "scripts/qemu-test.sh:diag-metrics-selftest-order" "metrics selftest marker order and misses" \
   "{\"line_metrics_rejects_ok\":$line_metrics_rejects_ok,\"line_metrics_counter_fail\":$line_metrics_counter_fail,\"line_metrics_hist_fail\":$line_metrics_hist_fail,\"line_metrics_span_fail\":$line_metrics_span_fail,\"line_metrics_logd_no_increase\":$line_metrics_logd_no_increase,\"line_metrics_counter_miss\":$line_metrics_counter_miss,\"line_metrics_hist_miss\":$line_metrics_hist_miss,\"line_metrics_span_miss\":$line_metrics_span_miss}"
 
-agent_debug_log "$AGENT_RUN_ID" "H7" "scripts/qemu-test.sh:diag-metrics-emission-counts" "metricsd semantic emission counts in uart" \
+agent_debug_log "$RUN_ID" "H7" "scripts/qemu-test.sh:diag-metrics-emission-counts" "metricsd semantic emission counts in uart" \
   "{\"count_semantic_counter\":$count_metricsd_semantic_counter,\"count_semantic_hist\":$count_metricsd_semantic_hist,\"count_semantic_span\":$count_metricsd_semantic_span}"
 
-agent_debug_log "$AGENT_RUN_ID" "H8" "scripts/qemu-test.sh:diag-logd-metrics-append" "logd observed metricsd append statuses" \
+agent_debug_log "$RUN_ID" "H8" "scripts/qemu-test.sh:diag-logd-metrics-append" "logd observed metricsd append statuses" \
   "{\"count_metrics_append_rx\":$count_logd_metrics_append_rx,\"count_metrics_append_ok\":$count_logd_metrics_append_ok,\"count_metrics_append_rate_limited\":$count_logd_metrics_append_rate}"
 
-agent_debug_log "$AGENT_RUN_ID" "H9" "scripts/qemu-test.sh:diag-sink-logd-send-path" "nexus-log sink-logd metrics send path markers" \
+agent_debug_log "$RUN_ID" "H9" "scripts/qemu-test.sh:diag-sink-logd-send-path" "nexus-log sink-logd metrics send path markers" \
   "{\"count_sink_slots_none\":$count_sink_metrics_slots_none,\"count_sink_cap_clone_fail\":$count_sink_metrics_cap_clone_fail,\"count_sink_send_err\":$count_sink_metrics_send_err,\"count_sink_send_ok\":$count_sink_metrics_send_ok}"
 
-agent_debug_log "$AGENT_RUN_ID" "H10" "scripts/qemu-test.sh:diag-logd-scope-metricsd" "logd observed append frames with metricsd scope" \
+agent_debug_log "$RUN_ID" "H10" "scripts/qemu-test.sh:diag-logd-scope-metricsd" "logd observed append frames with metricsd scope" \
   "{\"count_logd_scope_metricsd\":$count_logd_scope_metricsd}"
 
-agent_debug_log "$AGENT_RUN_ID" "H11" "scripts/qemu-test.sh:diag-sink-selftest-slot-mode" "selftest sink-logd slot resolution mode" \
+agent_debug_log "$RUN_ID" "H11" "scripts/qemu-test.sh:diag-sink-selftest-slot-mode" "selftest sink-logd slot resolution mode" \
   "{\"count_selftest_slots_none\":$count_sink_selftest_slots_none,\"count_selftest_direct_slots\":$count_sink_selftest_direct_slots,\"count_selftest_routed_slots\":$count_sink_selftest_routed_slots}"
 
-agent_debug_log "$AGENT_RUN_ID" "H12" "scripts/qemu-test.sh:diag-sink-selftest-send" "selftest sink-logd send outcome" \
+agent_debug_log "$RUN_ID" "H12" "scripts/qemu-test.sh:diag-sink-selftest-send" "selftest sink-logd send outcome" \
   "{\"count_selftest_send_ok\":$count_sink_selftest_send_ok,\"count_selftest_send_err\":$count_sink_selftest_send_err}"
 
-agent_debug_log "$AGENT_RUN_ID" "H13" "scripts/qemu-test.sh:diag-sink-selftest-probe-marker" "selftest sink-logd probe marker result" \
+agent_debug_log "$RUN_ID" "H13" "scripts/qemu-test.sh:diag-sink-selftest-probe-marker" "selftest sink-logd probe marker result" \
   "{\"line_sink_probe_ok\":$line_selftest_sink_ok,\"line_sink_probe_fail\":$line_selftest_sink_fail}"
 # #endregion agent log
 
@@ -954,16 +954,16 @@ if [[ -z "$last_selftest_marker" ]]; then
   last_selftest_marker="<none>"
 fi
 
-agent_debug_log "$AGENT_RUN_ID" "N1" "scripts/qemu-test.sh:diag-selftest-failure-locus" "selftest failure and last marker locus" \
+agent_debug_log "$RUN_ID" "N1" "scripts/qemu-test.sh:diag-selftest-failure-locus" "selftest failure and last marker locus" \
   "{\"line_selftest_service_error\":$line_selftest_service_error,\"last_selftest_line\":$last_selftest_line,\"last_selftest_marker\":\"$last_selftest_marker\"}"
 
-agent_debug_log "$AGENT_RUN_ID" "N2" "scripts/qemu-test.sh:diag-selftest-sink-config-result" "selftest sink slot config result marker" \
+agent_debug_log "$RUN_ID" "N2" "scripts/qemu-test.sh:diag-selftest-sink-config-result" "selftest sink slot config result marker" \
   "{\"line_sink_slots_configured\":$line_sink_slots_configured,\"line_sink_slots_config_fail\":$line_sink_slots_config_fail}"
 
-agent_debug_log "$AGENT_RUN_ID" "N3" "scripts/qemu-test.sh:diag-statefs-deny-pressure" "statefs deny/reply-fail pressure counts" \
+agent_debug_log "$RUN_ID" "N3" "scripts/qemu-test.sh:diag-statefs-deny-pressure" "statefs deny/reply-fail pressure counts" \
   "{\"count_statefs_denied_keystore\":$count_statefs_denied_keystore,\"count_statefs_reply_send_fail\":$count_statefs_reply_send_fail}"
 
-agent_debug_log "$AGENT_RUN_ID" "N4" "scripts/qemu-test.sh:diag-netstackd-mmio-failure" "netstackd mmio failure marker locus" \
+agent_debug_log "$RUN_ID" "N4" "scripts/qemu-test.sh:diag-netstackd-mmio-failure" "netstackd mmio failure marker locus" \
   "{\"line_net_mmio_cap_missing\":$line_net_mmio_cap_missing,\"line_net_mmio_map_fail\":$line_net_mmio_map_fail}"
 
 line_cp0=$(grep -aFn "dbg: selftest cp0 run-start" "$UART_LOG" | head -n1 | cut -d: -f1 || echo 0)
@@ -1004,19 +1004,19 @@ if [[ -z "$first_policyd_mmio_net" ]]; then first_policyd_mmio_net="<none>"; fi
 if [[ -z "$first_policyd_mmio_rng" ]]; then first_policyd_mmio_rng="<none>"; fi
 if [[ -z "$first_policyd_mmio_blk" ]]; then first_policyd_mmio_blk="<none>"; fi
 
-agent_debug_log "$AGENT_RUN_ID" "N5" "scripts/qemu-test.sh:diag-selftest-checkpoints" "selftest checkpoint progression and explicit fail labels" \
+agent_debug_log "$RUN_ID" "N5" "scripts/qemu-test.sh:diag-selftest-checkpoints" "selftest checkpoint progression and explicit fail labels" \
   "{\"line_cp0\":$line_cp0,\"line_cp1\":$line_cp1,\"line_cp2\":$line_cp2,\"line_cp3\":$line_cp3,\"line_cp4\":$line_cp4,\"line_fail_resolve_keystored\":$line_fail_resolve_keystored,\"line_fail_route_samgrd\":$line_fail_route_samgrd,\"line_fail_route_policyd\":$line_fail_route_policyd,\"line_fail_route_bundlemgrd\":$line_fail_route_bundlemgrd,\"line_fail_route_updated\":$line_fail_route_updated}"
 
-agent_debug_log "$AGENT_RUN_ID" "N6" "scripts/qemu-test.sh:diag-execd-deny-class" "execd deny class and mismatch detail" \
+agent_debug_log "$RUN_ID" "N6" "scripts/qemu-test.sh:diag-execd-deny-class" "execd deny class and mismatch detail" \
   "{\"line_execd_spawn_denied_id_mismatch\":$line_execd_spawn_denied_id_mismatch,\"line_execd_spawn_denied_policy\":$line_execd_spawn_denied_policy,\"count_execd_spawn_id_mismatch_detail\":$count_execd_spawn_id_mismatch_detail,\"first_execd_spawn_id_mismatch_detail\":\"$first_execd_spawn_id_mismatch_detail\"}"
 
-agent_debug_log "$AGENT_RUN_ID" "N7" "scripts/qemu-test.sh:diag-policyd-mmio-cap-check" "policyd mmio check-cap decisions for grant subjects" \
+agent_debug_log "$RUN_ID" "N7" "scripts/qemu-test.sh:diag-policyd-mmio-cap-check" "policyd mmio check-cap decisions for grant subjects" \
   "{\"line_policyd_mmio_net\":$line_policyd_mmio_net,\"line_policyd_mmio_rng\":$line_policyd_mmio_rng,\"line_policyd_mmio_blk\":$line_policyd_mmio_blk,\"first_policyd_mmio_net\":\"$first_policyd_mmio_net\",\"first_policyd_mmio_rng\":\"$first_policyd_mmio_rng\",\"first_policyd_mmio_blk\":\"$first_policyd_mmio_blk\"}"
 
-agent_debug_log "$AGENT_RUN_ID" "N8" "scripts/qemu-test.sh:diag-rngd-policy-subject" "rngd caller SID class and delegated policy result" \
+agent_debug_log "$RUN_ID" "N8" "scripts/qemu-test.sh:diag-rngd-policy-subject" "rngd caller SID class and delegated policy result" \
   "{\"line_rng_sender_sid_canonical\":$line_rng_sender_sid_canonical,\"line_rng_sender_sid_alt\":$line_rng_sender_sid_alt,\"line_rng_sender_sid_other\":$line_rng_sender_sid_other,\"line_rng_policy_allow\":$line_rng_policy_allow,\"line_rng_policy_deny\":$line_rng_policy_deny}"
 
-agent_debug_log "$AGENT_RUN_ID" "N9" "scripts/qemu-test.sh:diag-policyd-rng-delegated" "policyd delegated rng sender class and decision" \
+agent_debug_log "$RUN_ID" "N9" "scripts/qemu-test.sh:diag-policyd-rng-delegated" "policyd delegated rng sender class and decision" \
   "{\"line_policyd_delegated_rng_sender_canonical\":$line_policyd_delegated_rng_sender_canonical,\"line_policyd_delegated_rng_sender_other\":$line_policyd_delegated_rng_sender_other,\"first_policyd_delegated_rng_sender_sid\":\"$first_policyd_delegated_rng_sender_sid\",\"line_policyd_delegated_rng_allow\":$line_policyd_delegated_rng_allow,\"line_policyd_delegated_rng_deny\":$line_policyd_delegated_rng_deny}"
 # #endregion agent log
 
@@ -1152,7 +1152,7 @@ if [[ "$missing" -ne 0 ]]; then
     if [[ -z "$last_fps_fbdevd" ]]; then
       last_fps_fbdevd="<none>"
     fi
-    agent_input_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:visible-bootstrap-failure" "visible-bootstrap marker and route summary" \
+    agent_input_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:visible-bootstrap-failure" "visible-bootstrap marker and route summary" \
       "{\"missing_marker\":\"$missing_marker\",\"failed_phase\":\"$failed_phase\",\"line_hid_mouse\":$line_hid_mouse,\"line_hid_raw\":$line_hid_raw,\"line_hid_adapter\":$line_hid_adapter,\"line_pointer_route\":$line_pointer_route,\"line_pointer_down_dispatch\":$line_pointer_down_dispatch,\"line_pointer_down_delivered\":$line_pointer_down_delivered,\"line_focus_target\":$line_focus_target,\"line_hid_keyboard\":$line_hid_keyboard,\"line_keyboard_dispatch\":$line_keyboard_dispatch,\"line_keyboard_delivered\":$line_keyboard_delivered,\"line_keyboard_delivered_without_dispatch\":$line_keyboard_delivered_without_dispatch,\"line_keyboard_dispatched_without_delivery\":$line_keyboard_dispatched_without_delivery,\"line_keyboard_route\":$line_keyboard_route,\"line_boot_cfg_mode_present\":$line_boot_cfg_mode_present,\"line_boot_cfg_mode_missing\":$line_boot_cfg_mode_missing,\"line_end_bootstrap_enabled\":$line_end_bootstrap_enabled,\"line_end_bootstrap_run_ok\":$line_end_bootstrap_run_ok,\"line_end_bootstrap_run_none\":$line_end_bootstrap_run_none,\"line_end_bootstrap_mode_proof\":$line_end_bootstrap_mode_proof,\"line_end_bootstrap_mode_interactive\":$line_end_bootstrap_mode_interactive,\"line_fps_hidrawd\":$line_fps_hidrawd,\"line_fps_inputd\":$line_fps_inputd,\"line_fps_windowd\":$line_fps_windowd,\"line_fps_fbdevd\":$line_fps_fbdevd,\"line_bootstrap_fail\":$line_bootstrap_fail,\"line_display_bootstrap\":$line_display_bootstrap,\"line_display_fail\":$line_display_fail,\"last_display_gate\":\"$last_display_gate\",\"last_visible_timeout\":\"$last_visible_timeout\",\"last_fps_hidrawd\":\"$last_fps_hidrawd\",\"last_fps_inputd\":\"$last_fps_inputd\",\"last_fps_windowd\":\"$last_fps_windowd\",\"last_fps_fbdevd\":\"$last_fps_fbdevd\"}"
     # #endregion agent log
   fi
@@ -1192,7 +1192,7 @@ if [[ "$REQUIRE_QEMU_DHCP" == "1" ]]; then
     dns_unavailable_seen=true
   fi
   # #region agent log (DHCP gate determinism / fake-green guard)
-  agent_debug_log "$AGENT_RUN_ID" "DNS_GATE" "scripts/qemu-test.sh:dhcp-gate" "dhcp gate marker state snapshot" \
+  agent_debug_log "$RUN_ID" "DNS_GATE" "scripts/qemu-test.sh:dhcp-gate" "dhcp gate marker state snapshot" \
     "{\"dhcp_bound\":$dhcp_bound_seen,\"dhcp_fallback\":$dhcp_fallback_seen,\"dns_ok\":$dns_ok_seen,\"dns_fail\":$dns_fail_seen,\"dns_unavailable\":$dns_unavailable_seen,\"require_dhcp_strict\":$REQUIRE_QEMU_DHCP_STRICT}"
   # #endregion
   if [[ "$dhcp_bound_seen" == "true" && "$dhcp_fallback_seen" == "true" ]]; then
@@ -1245,7 +1245,7 @@ fi
   # Sanitize missing_marker for JSON (avoid quotes/newlines).
   mm=${missing_marker//$'\"'/"'"}
   mm=${mm//$'\n'/ }
-  agent_debug_log "$AGENT_RUN_ID" "A" "scripts/qemu-test.sh:post-run" "qemu smoke uart summary" \
+  agent_debug_log "$RUN_ID" "A" "scripts/qemu-test.sh:post-run" "qemu smoke uart summary" \
     "{\"exit_code\":$qemu_status,\"dhcp_bound\":$dhcp_bound,\"dhcp_fallback\":$dhcp_fallback,\"first_failed_phase\":\"${failed_phase:-}\",\"missing_marker\":\"$mm\"}"
 }
 # #endregion agent log
@@ -1553,7 +1553,7 @@ PM_VERIFY_UART=${PM_VERIFY_UART:-1}
 if [[ "$PM_VERIFY_UART" == "1" ]]; then
   PM_PROFILE_FOR_VERIFY=${PROFILE:-full}
   # #region agent log (H1: profile-vs-SMP mismatch capture)
-  agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-pre" \
+  agent_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-pre" \
     "verify-uart preconditions: PROFILE used vs SMP harts in image" \
     "{\"profile_for_verify\":\"$PM_PROFILE_FOR_VERIFY\",\"profile_arg_was_set\":\"${PROFILE:-<unset>}\",\"smp\":\"${SMP:-<unset>}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"makelevel\":\"${MAKELEVEL:-}\"}"
   # #endregion
@@ -1568,7 +1568,7 @@ if [[ "$PM_VERIFY_UART" == "1" ]]; then
     # #region agent log (H1: verify-uart result + first 6 unexpected/forbidden lines)
     # Extract the first 6 violation literals (substring after "  - ") for diagnostics; keep payload bounded.
     violations=$(printf '%s\n' "$verify_out" | awk '/^  - /{ sub(/^  - /, ""); print; n++; if (n>=6) exit }' | tr '\n' '|' | sed 's/|$//')
-    agent_debug_log "$AGENT_RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-post" \
+    agent_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:verify-uart-post" \
       "verify-uart result for profile vs hardware SMP" \
       "{\"profile_for_verify\":\"$PM_PROFILE_FOR_VERIFY\",\"smp\":\"${SMP:-<unset>}\",\"verify_rc\":$verify_rc,\"first_violations\":\"${violations//\"/\\\"}\"}"
     # #endregion

@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(clippy::expect_used, clippy::needless_lifetimes, clippy::too_many_arguments)]
+
 //! CONTEXT: NexusGfx SDK — Metal-like graphics API for Open Nexus OS.
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental

@@ -7,15 +7,13 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry};
+use super::cache::{BackdropCacheEntry, GlassLayerCache};
 use super::primitives::rgba_to_bgra;
 use super::sdf::stroke_dark_glass_border_row;
 use super::types::{ProofBoxRect, RenderClip, SourceFrame};
 use super::{
-    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COMBINED_PANEL_HEIGHT, COMBINED_PANEL_WIDTH,
-    DARK_GLASS_BLUR_RADIUS, DARK_GLASS_BORDER, DARK_GLASS_RADIUS, DARK_GLASS_SATURATION_PERCENT,
-    DARK_GLASS_TINT, GLASS_LAYER_MAX_BYTES, GLASS_LAYER_MAX_HEIGHT, GLASS_LAYER_MAX_WIDTH,
-    GLASS_LAYER_SCALE, PROOF_PANEL_X, PROOF_PANEL_Y,
+    BACKDROP_CACHE_MAX_WIDTH, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_BORDER, DARK_GLASS_RADIUS,
+    DARK_GLASS_SATURATION_PERCENT, DARK_GLASS_TINT, GLASS_LAYER_SCALE,
 };
 use crate::assets;
 use crate::error::WindowdError;

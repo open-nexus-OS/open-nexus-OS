@@ -77,7 +77,7 @@ impl CpuMockBackend {
 
 impl GfxBackend for CpuMockBackend {
     fn submit(&mut self, cmd: CommittedBuffer) -> Result<Fence, GfxError> {
-        cmd.validate().map_err(|e| GfxError::from(e))?;
+        cmd.validate().map_err(GfxError::from)?;
         self.execute(cmd.commands())?;
         Ok(Fence::new_signaled())
     }

@@ -1,6 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(unused_imports)] // os-lite markers only used in OS cfg
+
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::{Rect, ResourceId};
@@ -30,6 +32,7 @@ pub struct VirtioGpuBackend {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 struct ResourceRecord {
     id: ResourceId,
     width: u32,
@@ -267,6 +270,7 @@ fn map_nexus_error(err: nexus_gfx::GfxError) -> GfxError {
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const CTRL_QUEUE_INDEX: u32 = 0;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
+#[allow(dead_code)]
 const CURSOR_QUEUE_INDEX: u32 = 1;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const QUEUE_LEN: usize = 4;
@@ -372,7 +376,7 @@ impl VirtioGpuBackend {
         let resource_index = self.resources.len();
         let backing_len = align_page(byte_len);
         let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
-        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|e| {
+        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
         })?;
@@ -382,7 +386,7 @@ impl VirtioGpuBackend {
             | nexus_abi::page_flags::WRITE;
         for offset in (0..backing_len).step_by(4096) {
             nexus_abi::vmo_map_page(backing_vmo, backing_va + offset, offset, flags).map_err(
-                |e| {
+                |_e| {
                     let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
                     GfxError::MmioFault
                 },
@@ -390,7 +394,7 @@ impl VirtioGpuBackend {
         }
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-        nexus_abi::cap_query(backing_vmo, &mut info).map_err(|e| {
+        nexus_abi::cap_query(backing_vmo, &mut info).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_CAP_QUERY_FAIL);
             GfxError::MmioFault
         })?;

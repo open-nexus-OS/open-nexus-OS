@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEBUG_LOG_PATH = Path("/home/jenning/open-nexus-OS/.cursor/debug-8cde1d.log")
-DEBUG_SESSION_ID = "8cde1d"
-DEBUG_RUN_ID = "visible-bootstrap-qmp"
-DEFAULT_UART_LOG_PATH = REPO_ROOT / "uart.log"
+LOG_DIR = Path(os.environ.get("LOG_DIR", str(REPO_ROOT / "build/logs/manual-inject")))
+HYPOTHESIS_LOG = LOG_DIR / "hypothesis.json"
+RUN_ID = os.environ.get("RUN_ID", "visible-bootstrap-qmp")
+DEFAULT_UART_LOG_PATH = Path(os.environ.get("UART_LOG", str(LOG_DIR / "uart.log")))
 DEFAULT_WAIT_MARKER = "windowd: present visible ok"
 DEFAULT_WAIT_TIMEOUT_S = 60.0
 QEMU_ABS_MAX = 32767
@@ -109,8 +109,7 @@ def send_input_events(
 # region agent log
 def append_debug_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     payload = {
-        "sessionId": DEBUG_SESSION_ID,
-        "runId": DEBUG_RUN_ID,
+        "runId": RUN_ID,
         "hypothesisId": hypothesis_id,
         "location": location,
         "message": message,
@@ -118,7 +117,8 @@ def append_debug_log(hypothesis_id: str, location: str, message: str, data: dict
         "timestamp": int(time.time() * 1000),
     }
     try:
-        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with HYPOTHESIS_LOG.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, separators=(",", ":")) + "\n")
     except Exception:
         pass
