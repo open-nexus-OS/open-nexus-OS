@@ -1,52 +1,64 @@
-# Handoff — nexus-init OS build fix + CI hygiene
+# Handoff — TASK-0062 Phase 6 GPU-Only Architecture
 
-Date: 2026-06-01
+Date: 2026-06-02
 
 ## Status
 
-`just ci-network` (dhcp + quic-required + os2vm) — ALL GREEN ✅
-`just test-all` — GREEN except SMP=2 timeout (pre-existing) ⚠️
+Host tests: ✅ 74/74 (gpud 20 + windowd 44 + selftest-client 10)
+QEMU proof: ⬜ pending (needs GTK display; guest emits all markers up to `SELFTEST: ui v3 effect ok`)
+
+## Architecture: windowd sole display owner
+
+```
+windowd → vmo_create → gpud (ATTACH_BACKING + SET_SCANOUT)
+   ↑                         │
+   │ OP_UPDATE_VISIBLE_STATE  │ virtio-gpu
+   │                         ▼
+ inputd ← hidrawd/touchd    QEMU GTK (dev only)
+```
+
+fbdevd and ramfb are removed from the OS graph entirely.
 
 ## What was done
 
-### Root cause
-`nexus-init` crate had an incomplete RFC-0061 refactoring: items were moved from `os_payload.rs` to `bootstrap/` but imports, visibility, and `extern crate alloc` were never updated. This caused 680 compilation errors when building for RISC-V, making the entire OS build fail. Previous CI runs succeeded only because of stale cached artifacts.
+- gpud: startup scanout/splash removed; pure driver now
+- windowd: always self-bootstraps; removed OP_SEND_COMPOSED_FRAME_VMO handler
+- init-lite: fbdevd removed from default_candidates
+- selftest observer: routes to windowd instead of fbdevd
+- Markers: qemu-test.sh, bringup.toml, ui.toml all updated
+- Tests: 16 spec-validation tests for virtio-gpu protocol constants
+- Cleanup: splash.rs deleted
 
-### Fixes applied
-1. Added `extern crate alloc;` to `lib.rs` (required for `no_std`)
-2. Added `[[bin]] required-features = ["std-server"]` to `Cargo.toml`
-3. Added `pub(crate) use` re-exports in `os_payload.rs` for items moved to `bootstrap/`
-4. Made private items in `os_payload.rs` and `bootstrap/helpers.rs` `pub(crate)`
-5. Fixed gpud unused variable warnings (`|e|` → `|_e|`)
-6. Fixed gpud dead_code warnings (`#[allow(dead_code)]`)
-7. Fixed windowd unused imports in `backdrop.rs`
-8. Updated proof-manifest: `fbdevd: ready` marker now `phase=bringup` (was `end` with `visible-bootstrap` restriction)
+## Key files changed
 
-### Files changed
 | File | Change |
 |------|--------|
-| `source/init/nexus-init/Cargo.toml` | Added `[[bin]]` with `required-features = ["std-server"]` |
-| `source/init/nexus-init/src/lib.rs` | Added `extern crate alloc;` |
-| `source/init/nexus-init/src/os_payload.rs` | Re-exports + pub(crate) visibility |
-| `source/init/nexus-init/src/bootstrap/helpers.rs` | pub(crate) visibility, missing imports |
-| `source/drivers/gpud/src/backend.rs` | Unused variables + dead_code |
-| `source/services/windowd/src/compositor/backdrop.rs` | Unused imports |
-| `source/apps/selftest-client/proof-manifest/markers/ui.toml` | fbdevd:ready phase change |
-| `.cursor/current_state.md` | Updated |
-| `CHANGELOG.md` | Updated |
-
-## Remaining issue
-
-**SMP=2 timeout**: `just test-os smp` (SMP=2) times out at 190s. System boots and reaches `dsoftbusd: ready` but never hits `SELFTEST: end` — hangs in FPS idle loop. SMP=1 (dhcp profile) works correctly. This is likely a pre-existing display pipeline race condition, unrelated to today's fixes. Debug hints:
-- Check if windowd/gpud have SMP-related races (REC-0059 display pipeline)
-- Run with longer timeout: `RUN_TIMEOUT=300s SMP=2 RUN_UNTIL_MARKER=1 just test-os smp`
+| `source/drivers/gpud/src/service.rs` | Startup: remove create_resource/set_scanout/splash; only probe + ready |
+| `source/drivers/gpud/src/lib.rs` | Remove splash module |
+| `source/drivers/gpud/src/splash.rs` | DELETED |
+| `source/drivers/gpud/tests/protocol_tests.rs` | 16 new spec-validation tests |
+| `source/services/windowd/src/compositor/mod.rs` | Always self-bootstrap; remove OP_SEND_COMPOSED_FRAME_VMO |
+| `source/apps/init-lite/build.rs` | Remove fbdevd from default_candidates |
+| `source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs` | route_with_retry("windowd") |
+| `source/apps/selftest-client/tests/boot_cfg_runtime.rs` | Test expects windowd |
+| `scripts/qemu-test.sh` | Remove fbdevd/ramfb markers; add GPU markers |
+| `source/apps/selftest-client/proof-manifest/markers/bringup.toml` | Remove fbdevd entries |
+| `source/apps/selftest-client/proof-manifest/markers/ui.toml` | Update arch comment + marker names |
 
 ## Next step
 
 ```bash
-# Investigate SMP=2 timeout
-RUN_TIMEOUT=300s SMP=2 RUN_UNTIL_MARKER=1 just test-os smp
+# Primary verification (needs display)
+just test-os visible-bootstrap
 
-# If blocked, verify with dep-gate
-just dep-gate
+# Interactive verification
+just start
+```
+
+Expected marker sequence:
+```
+gpud: virtio-gpu probed → gpud: ready
+windowd: backend=gpu → windowd: compose ready
+windowd: backend=visible → windowd: present visible ok
+SELFTEST: ui visible present ok → SELFTEST: ui v3 effect ok
 ```

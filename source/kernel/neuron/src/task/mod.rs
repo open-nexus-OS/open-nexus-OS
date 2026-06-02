@@ -31,7 +31,12 @@ pub use crate::types::Pid;
 /// Lifecycle state of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
+    /// Task is enqueued and schedulable.
     Running,
+    /// Task has not yet been enqueued — waiting for parent to call `resume`.
+    /// Transitions to `Running` on the first scheduler enqueue.
+    Suspended,
+    /// Task has exited and can be reaped via `wait`.
     Zombie,
 }
 
@@ -50,6 +55,15 @@ pub enum WakeOutcome {
     TaskNotBlocked,
     Woken,
     WokenNoopSelftest,
+    EnqueueRejected,
+}
+
+#[must_use = "resume outcomes must be handled explicitly"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeOutcome {
+    TaskNotFound,
+    NotSuspended,
+    Resumed,
     EnqueueRejected,
 }
 
@@ -763,7 +777,7 @@ impl TaskTable {
         let task = Task {
             pid,
             parent: Some(parent),
-            state: TaskState::Running,
+            state: TaskState::Suspended,
             exit_code: None,
             frame,
             caps: child_caps,
@@ -789,17 +803,46 @@ impl TaskTable {
             parent_task.children.push(pid);
         }
 
-        if matches!(scheduler.enqueue(pid, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
-            if let Some(parent_task) = self.tasks.get_mut(parent_index) {
-                parent_task.children.retain(|child_pid| *child_pid != pid);
+        // Only enqueue if the task is not suspended (parent will resume later).
+        let suspended = self.tasks.last().map_or(false, |t| t.state == TaskState::Suspended);
+        if !suspended {
+            if matches!(scheduler.enqueue(pid, QosClass::Normal), EnqueueOutcome::Rejected(_)) {
+                if let Some(parent_task) = self.tasks.get_mut(parent_index) {
+                    parent_task.children.retain(|child_pid| *child_pid != pid);
+                }
+                let _ = address_spaces.detach(child_as, pid);
+                let _ = address_spaces.destroy(child_as);
+                self.tasks.pop();
+                return Err(SpawnError::RunQueueFull);
             }
-            let _ = address_spaces.detach(child_as, pid);
-            let _ = address_spaces.destroy(child_as);
-            self.tasks.pop();
-            return Err(SpawnError::RunQueueFull);
         }
 
         Ok(pid)
+    }
+
+    /// Transitions a suspended task to Running and enqueues it.
+    /// Idempotent: if already Running, returns NotSuspended.
+    #[must_use]
+    pub fn resume_task(
+        &mut self,
+        pid: Pid,
+        scheduler: &mut Scheduler,
+    ) -> ResumeOutcome {
+        let idx = pid.as_index();
+        let Some(task) = self.tasks.get_mut(idx) else {
+            return ResumeOutcome::TaskNotFound;
+        };
+        if task.state != TaskState::Suspended {
+            return ResumeOutcome::NotSuspended;
+        }
+        task.state = TaskState::Running;
+        match scheduler.enqueue(pid, task.qos) {
+            crate::sched::EnqueueOutcome::Enqueued => ResumeOutcome::Resumed,
+            crate::sched::EnqueueOutcome::Rejected(_) => {
+                task.state = TaskState::Suspended;
+                ResumeOutcome::EnqueueRejected
+            }
+        }
     }
 
     /// Duplicates a capability from `parent` into `child` with a rights subset.

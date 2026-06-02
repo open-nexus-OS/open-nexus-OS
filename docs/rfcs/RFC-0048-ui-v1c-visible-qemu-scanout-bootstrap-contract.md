@@ -1,9 +1,9 @@
 # RFC-0048: UI v1c visible QEMU scanout bootstrap contract seed
 
-- Status: Done
+- Status: Superseded (by RFC-0059 Phase 6 — GPU-only architecture, fbdevd/ramfb removed)
 - Owners: @ui @runtime
 - Created: 2026-04-29
-- Last Updated: 2026-04-29
+- Last Updated: 2026-06-02
 - Links:
   - Tasks: `tasks/TASK-0055B-ui-v1c-visible-qemu-scanout-bootstrap.md` (execution + proof SSOT)
   - Related RFCs: `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`, `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md`, `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md`

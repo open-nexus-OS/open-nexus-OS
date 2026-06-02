@@ -1,7 +1,7 @@
 # ADR-0028: windowd surface/present and visible bootstrap architecture
 
 ## Status
-Accepted
+Accepted (amended 2026-06-02: GPU-only architecture per RFC-0059 Phase 6)
 
 ## Context
 The UI stack now has a closed headless baseline (`TASK-0055` / `RFC-0047`), a closed visible bootstrap follow-up (`TASK-0055B` / `RFC-0048`), a closed visible SystemUI first-frame slice (`TASK-0055C` / `RFC-0049`), a closed v2a present/input slice (`TASK-0056` / `RFC-0050`), and a closed deterministic visible-input slice (`TASK-0056B` / `RFC-0051`). We need one clear architecture authority for `windowd` module boundaries, marker honesty, and follow-up scope handoff.
@@ -43,7 +43,7 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 
 7. **Visible input remains deterministic until the input pipeline lands**
    - `TASK-0056B` extends the same `windowd` authority path with deterministic cursor, hover, focus, and click-visible affordances.
-   - `visible-bootstrap` may write multiple bounded `windowd`-composed proof frames to `ramfb` (cursor start, hover/cursor move, final focus/click), but must not claim live host input.
+   - `visible-bootstrap` may write multiple bounded `windowd`-composed proof frames to the GPU scanout VMO (cursor start, hover/cursor move, final focus/click), but must not claim live host input.
    - Live QEMU pointer/keyboard input is owned by `TASK-0252`/`TASK-0253`; those services feed `windowd` but do not own hit-test, hover, focus, or click success.
 
 8. **Capability/security boundary remains explicit**
@@ -51,15 +51,14 @@ Adopt a dedicated `windowd` architecture contract with these rules:
    - Invalid mode/format/rights/state requests fail closed and require negative proof coverage.
 
 9. **Live display output is service-gated**
-   - The live chain is `hidrawd -> inputd -> windowd -> fbdevd -> ramfb`.
+   - The live chain is `hidrawd -> inputd -> windowd -> gpud (virtio-gpu)`.
    - `selftest-client` remains observer-only and may only emit display/input proof markers after polling service-owned `VisibleState`.
    - A missing stable marker in `visible-bootstrap` is treated as a missing host/service proof for the first broken hop.
    - Current fast-closure matrix: `docs/testing/display-output-hardening-matrix.md`.
 
 10. **TASK-0057 grows `windowd` into Minimal DisplayServer v0**
    - `windowd` is now a standalone os-lite service, not only an in-process library.
-   - `fbdevd` owns framebuffer allocation and `ramfb` setup, then transfers a cloned
-     framebuffer VMO capability to `windowd` for composition.
+   - `windowd` creates its own framebuffer VMO and hands it off to `gpud` for scanout.
    - `windowd` owns JPEG-sourced wallpaper, the Mocu SVG cursor,
      Inter-rendered text/icon proof targets, focus/hit-test state, and
      composed-frame writes.
@@ -78,10 +77,10 @@ Adopt a dedicated `windowd` architecture contract with these rules:
 - `TASK-0252` has now landed the host-first input core (`hid`, `touch`, `keymaps`, `key-repeat`,
   `pointer-accel`) plus `tests/input_v1_0_host/` as the canonical host proof package.
 - `TASK-0253` / `RFC-0053` / `RFC-0054` are now review-closed for the service-owned
-  live chain: `virtio-input -> hidrawd -> inputd -> windowd -> fbdevd -> ramfb`,
+  live chain: `virtio-input -> hidrawd -> inputd -> windowd -> gpud`,
   with `selftest-client` kept observer-only.
 - `TASK-0057` has lifted the visible asset slice into a Minimal DisplayServer v0:
-  `inputd -> windowd -> fbdevd -> ramfb` is the authoritative live chain, and
+  `inputd -> windowd -> gpud` is the authoritative live chain, and
   `visible-bootstrap` now gates on v2b asset evidence rather than the older wheel
   marker alone.
 - The OS v2b text and cursor assets come from checked-in resource submodules:
@@ -113,7 +112,7 @@ Adopt a dedicated `windowd` architecture contract with these rules:
   - `TASK-0056` can regress into fake input/present success if marker proofs are accepted without the `ui_v2a_host` behavior assertions.
   - `TASK-0056B` can regress into fake visible input if cursor/hover/focus/click markers are emitted without `windowd`-composed frame evidence or if deterministic input is described as live host input.
   - `TASK-0057` can regress into fake asset success if `selftest-client` emits the
-    v2b summary without observing `windowd` and `fbdevd` service-owned asset state.
+    v2b summary without observing `windowd` and `gpud` service-owned asset state.
 
 ## Links
 - `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md`

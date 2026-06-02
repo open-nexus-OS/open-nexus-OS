@@ -22,7 +22,7 @@
 //!   - Paint-only fast-path: `paint_only` flag skips non-paint boxes and backdrop blur
 //!   - Zero-copy: `shadow_scratch` + `blur_row_buf` pre-allocated once
 //!   - SDF integration: `fill_sdf_circle_row`, `fill_sdf_rounded_rect_row`
-//!   - IPC: `KernelServer` receive loop for `OP_GET_VISIBLE_STATE`, `OP_SEND_COMPOSED_FRAME_VMO`, `OP_UPDATE_VISIBLE_STATE`
+//!   - IPC: `KernelServer` receive loop for `OP_GET_VISIBLE_STATE`, `OP_UPDATE_VISIBLE_STATE`
 //!
 //! DEPENDENCIES:
 //!   - nexus-layout, nexus-layout-types: layout computation
@@ -78,10 +78,12 @@ use core::fmt::Write as _;
 
 use input_live_protocol::{
     decode_update_visible_state, encode_status, encode_visible_state_frame, frame_has_op,
-    VisibleState, OP_GET_VISIBLE_STATE, OP_SEND_COMPOSED_FRAME_VMO, OP_UPDATE_VISIBLE_STATE,
+    VisibleState, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE,
     STATUS_MALFORMED, STATUS_OK, STATUS_UNSUPPORTED,
 };
 use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
+#[cfg(nexus_env = "os")]
+use nexus_abi::vmo_create;
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
@@ -184,6 +186,19 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             return Err("windowd: init fail display-server");
         }
     };
+
+    // GPU-only architecture: windowd is the sole display owner.
+    // It always creates its own framebuffer VMO — no fbdevd, no ramfb,
+    // no handoff from another service. gpud provides scanout on demand.
+    #[cfg(nexus_env = "os")]
+    {
+        let _ = debug_println("windowd: backend=gpu");
+        let byte_len: usize = 1280 * 800 * 4;
+        if let Ok(fb_vmo) = vmo_create(byte_len) {
+            runtime.register_framebuffer_vmo(fb_vmo);
+        }
+    }
+
     let mut recv_frame = [0u8; 512];
     loop {
         let mut visible_updates_since_flush = 0usize;
@@ -198,18 +213,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         } else {
                             let _ = server.send(&response, Wait::Blocking);
                         }
-                    } else if frame_has_op(&frame, OP_SEND_COMPOSED_FRAME_VMO) {
-                        let status = if let Some(cap) = moved_cap.take() {
-                            let status = runtime.register_framebuffer(cap.slot());
-                            if status != STATUS_OK {
-                                cap.close();
-                            }
-                            status
-                        } else {
-                            STATUS_MALFORMED
-                        };
-                        let response = encode_status(OP_SEND_COMPOSED_FRAME_VMO, status);
-                        let _ = server.send(&response, Wait::Blocking);
                     } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
                         let status = match decode_update_visible_state(&frame) {
                             Some(state) => runtime.apply_input_state(state),
@@ -251,6 +254,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Err(err) = runtime.flush_pending_damage() {
             let _ = debug_println(flush_error_label(err));
         }
+        // Process deferred first-frame write (heavy: ~200 vmo_write syscalls).
+        // This runs AFTER the IPC response was sent, so the caller doesn't time out.
+        let _ = runtime.process_deferred_framebuffer_write();
         runtime.tick(nsec().unwrap_or(0));
         let _ = yield_();
     }

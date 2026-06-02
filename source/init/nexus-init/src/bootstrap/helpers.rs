@@ -108,13 +108,10 @@ static GUARD_STR_PROBE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = 48;
-pub(crate) const FW_CFG_MMIO_CAP_SLOT: u32 = 49;
 pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = 50;
 // QEMU `virt` virtio-mmio layout (per-device windows).
 pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
 pub(crate) const VIRTIO_MMIO_STRIDE: usize = 0x1000;
-pub(crate) const FW_CFG_MMIO_BASE: usize = 0x1010_0000;
-pub(crate) const FW_CFG_MMIO_LEN: usize = 0x1000;
 
 pub(crate) fn virtio_mmio_window(slot: usize) -> (usize, usize) {
     (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)

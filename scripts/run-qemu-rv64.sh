@@ -149,7 +149,18 @@ require_or_build() {
     echo "[skip-build] $label: $artifact" >&2
     return 0
   fi
+
+  # Run cargo build. Compiler errors go to stderr (visible to user).
+  # Capture exit code for hypothesis diagnostics (H4).
   (cd "$ROOT" && "$@")
+  local build_rc=$?
+
+  if [[ $build_rc -ne 0 ]]; then
+    debug_log "H4" "scripts/run-qemu-rv64.sh:build-errors" "cargo build failure for $label" \
+      "{\"label\":\"$label\",\"exit_code\":$build_rc,\"artifact\":\"$artifact\",\"note\":\"see terminal stderr for compiler details\"}"
+  fi
+
+  return $build_rc
 }
 
 join_by() {
@@ -427,7 +438,7 @@ prepare_service_payloads() {
     local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
     if [[ -z "${!stack_var:-}" ]]; then
       case "$svc" in
-        hidrawd|touchd|inputd|fbdevd)
+        hidrawd|touchd|inputd)
           # TASK-0253 proof services run bounded init-only payload entries.
           set_env_var "$stack_var" "1"
           ;;
@@ -957,11 +968,12 @@ COMMON_ARGS=(
 if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
   load_systemui_input_profile
   RESOLVED_QEMU_DISPLAY_BACKEND=$(resolve_qemu_display_backend)
-  # virtio-gpu as primary display (controls GTK window size via SET_SCANOUT).
-  # ramfb as secondary console for the early boot splash path.
-  # Production-grade: once gpud takes over, the GTK window resizes to 1280x800.
+  # Production-grade GPU-only path: virtio-gpu as the sole display device.
+  # gpud renders the boot splash and calls SET_SCANOUT immediately, so the
+  # GTK window shows the splash within ~300ms of boot. windowd later sends
+  # composited frames via OP_SET_FRAMEBUFFER_VMO which overwrites the splash.
   COMMON_ARGS+=( -display "$RESOLVED_QEMU_DISPLAY_BACKEND" -serial mon:stdio )
-  COMMON_ARGS+=( -device virtio-gpu-device,max_outputs=1 -device ramfb )
+  COMMON_ARGS+=( -device virtio-gpu-device,max_outputs=1 )
   QEMU_GPU_DEVICE_PLACED=1
   if [[ "$NEXUS_PROFILE_INPUT_KBD" == "1" ]]; then
     COMMON_ARGS+=( -device virtio-keyboard-device )

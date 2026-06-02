@@ -1,22 +1,101 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: TASK-0055 headless UI/windowd proof markers.
+# CONTEXT: TASK-0062 GPU-only display proof markers (Phase 6).
 # OWNERS: @ui @runtime
-# STATUS: Done
-# API_STABILITY: Stable literals once TASK-0055 closes
+# STATUS: In Progress (GPU-only migration)
+# API_STABILITY: Stable literals once TASK-0062 Phase 6 closes
+#
+# Architecture: GPU-only path. windowd is the sole display owner — it creates the
+# framebuffer VMO and sends it to gpud via OP_SET_FRAMEBUFFER_VMO. gpud provides
+# scanout (ATTACH_BACKING + SET_SCANOUT) on demand. No fbdevd, no ramfb, no
+# handoff from another service — one owner, one path.
 
 [marker."windowd: ready (w=1280, h=800, hz=120)"]
 phase = "end"
-proves = "windowd initialized the fixed visible desktop profile used by current closure proofs"
+proves = "windowd initialized the fixed visible desktop profile"
 
-[marker."windowd: systemui loaded (profile=desktop)"]
+[marker."windowd: backend=gpu"]
+phase = "bringup"
+proves = "windowd is the sole display owner — creates framebuffer VMO, hands off to gpud for scanout"
+
+[marker."display: mode 1280x800 argb8888"]
 phase = "end"
-proves = "windowd installed the deterministic base SystemUI/headless layer state"
+proves = "GPU-only display path accepted exactly the fixed 1280x800 BGRA8888 virtio-gpu mode"
+
+[marker."windowd: compose ready"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd completed first-frame composition into gpud scanout VMO"
+
+[marker."windowd: backend=visible"]
+phase = "end"
+proves = "windowd selected the visible backend for the GPU present path"
 
 [marker."windowd: present ok (seq=1 dmg=1)"]
 phase = "end"
 proves = "windowd composed damaged surface state and produced a minimal present acknowledgement"
+
+[marker."windowd: present visible ok"]
+phase = "end"
+proves = "windowd composed the visible frame into gpud scanout VMO"
+
+[marker."windowd: present scheduler on"]
+phase = "end"
+proves = "windowd v2a present scheduler path was activated"
+
+[marker."display: first scanout ok"]
+phase = "end"
+proves = "observer-only selftest saw first-scanout readiness after windowd visible-present evidence"
+
+[marker."systemui: first frame visible"]
+phase = "end"
+proves = "TOML-backed SystemUI desktop shell frame was the visible-present source"
+
+[marker."SELFTEST: ui v2 present ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed the v2 present state in GPU path"
+
+[marker."SELFTEST: ui visible present ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "observer-only selftest completed service-owned visible present path in GPU-only mode"
+
+[marker."windowd: cursor svg loaded"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "Mocu SVG cursor was rasterized and available for composition"
+
+[marker."windowd: wallpaper visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "wallpaper source was loaded and visible in composed frame"
+
+[marker."windowd: text target visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "text proof target was rendered in composed frame"
+
+[marker."windowd: icon target visible"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "icon proof target was rendered in composed frame"
+
+[marker."windowd: effects on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "shadow/blur/glass effects were activated in compositor"
+
+[marker."windowd: effect blur ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "backdrop blur effect rendered correctly"
+
+[marker."SELFTEST: ui v3 effect ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed effects-path evidence in GPU path"
 
 [marker."launcher: first frame ok"]
 phase = "end"
@@ -30,119 +109,140 @@ proves = "selftest observed the launcher present state"
 phase = "end"
 proves = "selftest observed a committed resized surface and present state"
 
-[marker."display: bootstrap on"]
+[marker."windowd: input on"]
 phase = "end"
-proves = "visible QEMU scanout bootstrap path was selected by the boot-mode knob"
+proves = "windowd v2a input routing path was activated"
 
-[marker."display: mode 1280x800 argb8888"]
+[marker."windowd: focus -> 1"]
 phase = "end"
-proves = "visible bootstrap accepted exactly the fixed 1280x800 ARGB8888 ramfb mode"
+proves = "windowd updated focus to the deterministic launcher surface after a routed click"
 
-[marker."fbdevd: ready"]
-phase = "bringup"
-proves = "fbdevd completed service init, framebuffer allocation, and windowd registration"
-
-[marker."fbdevd: map ok"]
+[marker."windowd: input visible on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "fbdevd acquired a valid framebuffer mapping before ramfb configuration"
+proves = "input-visible flag set after first live input batch delivery"
 
-[marker."fbdevd: ramfb configured"]
+[marker."windowd: full-window color visible"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "fbdevd configured the QEMU ramfb target before the observer accepted first-scanout evidence"
+proves = "full-window compositor fill color is visible in the composed frame"
 
-[marker."fbdevd: flush ok"]
+[marker."windowd: cursor move visible"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "fbdevd completed at least one real framebuffer flush before visible-present closure"
+proves = "cursor position change was reflected in the composed visible frame"
 
-[marker."windowd: backend=visible"]
+[marker."windowd: hover visible"]
 phase = "end"
-proves = "windowd selected the visible backend for the TASK-0055C present path"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hover affordance was visible on the routed interactive target"
 
-[marker."windowd: present visible ok"]
+[marker."windowd: focus visible"]
 phase = "end"
-proves = "windowd composed the visible frame and visible-present evidence exists after the guest-side ramfb target is writable"
+emit_when = { profile = "visible-bootstrap" }
+proves = "focus affordance was visible on the focused proof panel"
 
-[marker."display: first scanout ok"]
+[marker."windowd: keyboard visible"]
 phase = "end"
-proves = "observer-only selftest saw first-scanout readiness only after windowd visible-present evidence and fbdevd scanout ownership"
+emit_when = { profile = "visible-bootstrap" }
+proves = "keyboard interaction affordance was visible"
 
-[marker."systemui: first frame visible"]
+[marker."windowd: wheel visible"]
 phase = "end"
-proves = "the TOML-backed SystemUI desktop shell frame was the visible-present source"
+emit_when = { profile = "visible-bootstrap" }
+proves = "wheel interaction indicator was visible"
 
-[marker."SELFTEST: display bootstrap guest ok"]
+[marker."launcher: click ok"]
 phase = "end"
-proves = "legacy TASK-0055B guest-side ramfb bootstrap marker; not emitted by the TASK-0055C visible SystemUI ladder"
+proves = "launcher reported click event on the routed cursor <-> interactive-panel path"
 
-[marker."SELFTEST: ui visible present ok"]
+[marker."launcher: click visible ok"]
 phase = "end"
-proves = "observer-only selftest completed the service-owned visible present path with deterministic SystemUI first-frame evidence"
+emit_when = { profile = "visible-bootstrap" }
+proves = "launcher click proof was confirmed as visible in the composed frame"
+
+[marker."SELFTEST: ui v2 input ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed v2 input evidence"
+
+[marker."SELFTEST: ui visible input ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed visible-input proof evidence"
+
+[marker."SELFTEST: ui visible wheel ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed wheel interaction evidence"
+
+[marker."SELFTEST: ui v2b assets ok"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "selftest observed v2b asset evidence (cursor, wallpaper, text, icon visible)"
 
 [marker."hidrawd: ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the bounded hidrawd ingest adapter was initialized before live-input proofs"
+proves = "the bounded hidrawd ingest adapter was initialized"
 
 [marker."hidrawd: device kbd"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the deterministic keyboard source for the visible proof was registered"
+proves = "the deterministic keyboard source was registered"
 
 [marker."hidrawd: device mouse"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the deterministic mouse source for the visible proof was registered"
+proves = "the deterministic mouse source was registered"
 
 [marker."hidrawd: virtio-input mmio ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "hidrawd opened a real virtio-input MMIO owner path before any live-input closure marker"
+proves = "hidrawd opened a real virtio-input MMIO owner path"
 
 [marker."hidrawd: virtio-input keyboard ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "hidrawd classified at least one real virtio-input device as a keyboard owner path"
+proves = "hidrawd classified at least one real virtio-input device as keyboard"
 
 [marker."hidrawd: virtio-input pointer ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "hidrawd classified at least one real virtio-input device as a pointer owner path"
+proves = "hidrawd classified at least one real virtio-input device as pointer"
 
 [marker."hidrawd: virtio-input raw event seen"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the real virtio-input device delivered non-empty raw events before normalization or routing claims"
+proves = "real virtio-input device delivered non-empty raw events"
 
 [marker."hidrawd: ingress adapter ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "hidrawd normalized real raw input into the bounded HID batch contract before inputd routing claims"
+proves = "hidrawd normalized real raw input into bounded HID batch contract"
 
 [marker."touchd: ready"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the bounded touch ingest adapter was initialized before touch proof vectors"
+proves = "bounded touch ingest adapter was initialized"
 
 [marker."inputd: ready"]
 phase = "end"
-proves = "the bounded inputd merge/config/route core was initialized for the normal service set, while visible-bootstrap later proves the live routed scene"
+proves = "bounded inputd merge/config/route core was initialized"
 
 [marker."inputd: keymap=de"]
 phase = "end"
-proves = "the canonical inputd startup path selected the deterministic de keymap configuration before later visible proofs exercise it live"
+proves = "canonical inputd startup path selected deterministic de keymap"
 
 [marker."inputd: repeat start code=4"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "repeat scheduling started from a real key press for the canonical A-key proof vector"
+proves = "repeat scheduling started from a real key press"
 
 [marker."inputd: dispatch windowd cursor=(36,28)"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "inputd drove the existing windowd pointer authority to the deterministic visible cursor target"
+proves = "inputd drove windowd pointer authority to deterministic cursor target"
 
 [marker."inputd: live pointer route on"]
 phase = "end"
@@ -157,238 +257,64 @@ proves = "inputd routed a real normalized keyboard batch into windowd-visible st
 [marker."systemui: imed show"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the bounded IME/SystemUI show hook fired only after verified text-focus transition"
+proves = "bounded IME/SystemUI show hook fired after verified text-focus transition"
 
 [marker."systemui: imed hide"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "the bounded IME/SystemUI hide hook fired only after verified focus exit"
+proves = "bounded IME/SystemUI hide hook fired after verified focus exit"
 
 [marker."SELFTEST: input keymap de ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed the deterministic de keymap resolution through inputd"
+proves = "selftest observed deterministic de keymap resolution through inputd"
 
 [marker."SELFTEST: input cursor ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed the real hidrawd/inputd/windowd cursor and click-visible path"
+proves = "selftest observed real hidrawd/inputd/windowd cursor path"
 
 [marker."SELFTEST: input touch ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed the bounded touchd/inputd normalized touch sequence"
+proves = "selftest observed bounded touchd/inputd normalized touch sequence"
 
 [marker."SELFTEST: input repeat ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed deterministic repeat scheduling through the inputd path"
-
-[marker."windowd: present scheduler on"]
-phase = "end"
-proves = "windowd v2a present scheduler path was activated by real frame-indexed present state"
-
-[marker."windowd: input on"]
-phase = "end"
-proves = "windowd v2a input routing path was activated by real pointer/focus/keyboard delivery state"
-
-[marker."windowd: focus -> 1"]
-phase = "end"
-proves = "windowd updated focus to the deterministic launcher surface after a routed click"
-
-[marker."launcher: click ok"]
-phase = "end"
-proves = "launcher observed a routed click and updated its double-buffered demo state"
-
-[marker."SELFTEST: ui v2 present ok"]
-phase = "end"
-proves = "selftest observed windowd v2a scheduler evidence after a real present tick"
-
-[marker."SELFTEST: ui v2 input ok"]
-phase = "end"
-proves = "selftest observed windowd v2a focus and input delivery evidence"
-
-[marker."windowd: input visible on"]
-phase = "end"
-proves = "windowd visible-input path was activated after routed pointer/focus/click state changed"
-
-[marker."windowd: full-window color visible"]
-phase = "end"
-proves = "windowd rendered a full-window colored visible-input proof scene, not a partial placeholder surface"
-
-[marker."windowd: cursor move visible"]
-phase = "end"
-proves = "windowd rendered deterministic cursor pixels after a routed pointer move"
-
-[marker."windowd: hover visible"]
-phase = "end"
-proves = "windowd rendered deterministic hover affordance after routed pointer hit-test state changed"
-
-[marker."windowd: focus visible"]
-phase = "end"
-proves = "windowd rendered deterministic focus affordance after click-driven focus transfer"
-
-[marker."launcher: click visible ok"]
-phase = "end"
-proves = "bottom-left proof square visibly changed state after a routed click delivery"
-
-[marker."windowd: keyboard visible"]
-phase = "end"
-proves = "right-side proof square visibly changed state after routed keyboard delivery"
-
-[marker."SELFTEST: ui visible input ok"]
-phase = "end"
-proves = "selftest observed full-window, cursor, hover, focus, click, and keyboard-visible evidence from the real upstream gate chain without owning ingest or routing"
-
-[marker."windowd: wheel visible"]
-phase = "end"
-proves = "windowd rendered a deterministic transient wheel indicator after routed scroll delivery"
-
-[marker."SELFTEST: ui visible wheel ok"]
-phase = "end"
-proves = "selftest observed the full visible-input chain including a routed wheel indicator before concluding the proof lane"
-
-[marker."windowd: interactive scene ready"]
-phase = "end"
-proves = "interactive start reached a visible scene-ready state; this is a debug breadcrumb, not a deterministic proof completion marker"
-
-[marker."windowd: interactive click target ready"]
-phase = "end"
-proves = "interactive start rendered the left click target for manual debugging; this is not a routed-click proof"
-
-[marker."windowd: interactive keyboard target ready"]
-phase = "end"
-proves = "interactive start rendered the right keyboard target for manual debugging; this is not a routed-keyboard proof"
-
-[marker."windowd: interactive full markers on"]
-phase = "end"
-proves = "interactive start selected the richer breadcrumb ladder used by `just start`, not the deterministic proof ladder"
-
-[marker."layout: engine on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd rendered the visible proof panel from the layout-engine result instead of hardcoded proof geometry"
-
-[marker."text: wrapping on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd used the width-dependent text layout path for the visible proof panel text"
-
-[marker."windowd: cursor svg loaded"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd loaded and rasterized the Mocu SVG cursor asset into a visible surface"
-
-[marker."windowd: wallpaper visible"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd composed the JPEG-sourced wallpaper background into the DisplayServer root scene"
-
-[marker."windowd: text target visible"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd composed the deterministic v2b text proof target into the DisplayServer scene"
-
-[marker."windowd: icon target visible"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd composed the deterministic SVG-sourced icon proof target into the DisplayServer scene"
-
-[marker."SELFTEST: ui v2b assets ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed the UI v2b asset pipeline (cursor + icons + fonts) loaded and visible"
-
-[marker."uiruntime: on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd activated the animation runtime after a routed visible hover/click state change"
-
-[marker."uianim: timeline on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "the animation engine created a bounded ease-in-out keyframe track for the sidebar proof layer"
-
-[marker."windowd: implicit transitions on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd converted visible input state changes into implicit animation tracks"
-
-[marker."uiruntime: batch commit ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd validated and committed a bounded NexusGfx command buffer for animated scene updates"
-
-[marker."windowd: live transition ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd rendered at least one intermediate animated frame after SceneUpdate application"
-
-[marker."uianim: spring converge ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "the animation engine reached its terminal state without an unbounded active-animation tail"
-
-[marker."SELFTEST: ui v5 transition ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "visible-bootstrap observed the GPU-gated animated glass sidebar transition after gpud and windowd animation markers"
+proves = "selftest observed deterministic repeat scheduling through inputd"
 
 [marker."windowd: clipping on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "windowd enabled clipped proof-panel composition before text/filter interactions"
+proves = "windowd enabled clipped proof-panel composition"
 
 [marker."windowd: scroll on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "windowd enabled the live scroll interaction path for the visible panel lane"
+proves = "windowd applied deterministic scroll translation to proof-panel"
 
-[marker."windowd: live scroll ok"]
+[marker."windowd: font rasterized"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "windowd observed a real bounded scroll mutation and emitted a deterministic success breadcrumb"
+proves = "windowd rasterized the Inter font for the proof-panel text target"
 
-[marker."windowd: text input on"]
+[marker."windowd: text wrapping on"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "windowd applied visible text-input updates in the proof panel"
-
-[marker."windowd: filter list ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd updated the proof filter list deterministically after text-input changes"
-
-[marker."windowd: effects on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd enabled effects rendering in the visible proof lane"
-
-[marker."windowd: effect blur ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "windowd rendered the blur effect path without degrading the visible proof lane"
+proves = "windowd completed text-shaping/wrapping for supported textual proof targets"
 
 [marker."SELFTEST: ui v3 scroll ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed real scroll-path evidence in the v3 lane"
+proves = "selftest observed deterministic v3 scroll-target evidence in visible lane"
 
 [marker."SELFTEST: ui v3 ime ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed deterministic IME/text-input path evidence in the v3 lane"
-
-[marker."SELFTEST: ui v3 effect ok"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed effects-path evidence in the v3 lane"
+proves = "selftest observed deterministic IME/text-input path evidence"
 
 [marker."SELFTEST: ui v3 filter ok"]
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
-proves = "selftest observed deterministic v3 filter-update evidence in the visible lane"
-[marker."fbdevd: cursor overlay on"]
-phase = "end"
-emit_when = { profile = "visible-bootstrap" }
-proves = "fbdevd blended the cursor bitmap at least once during live framebuffer writes"
+proves = "selftest observed deterministic v3 filter-update evidence"

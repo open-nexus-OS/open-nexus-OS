@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Indirectly exercised by `fbdevd` host tests and QEMU traces.
+//! TEST_COVERAGE: Indirectly exercised by `windowd` host tests and QEMU traces.
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use alloc::{format, string::String};

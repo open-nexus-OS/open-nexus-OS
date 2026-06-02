@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Narrow display handoff objects used by `fbdevd` so scanout stays service-owned.
+//! CONTEXT: Narrow display handoff objects used by `gpud` so scanout is driver-owned.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Covered via `fbdevd` host tests and visible-bootstrap QEMU proofs.
+//! TEST_COVERAGE: Covered via `windowd` host tests and visible-bootstrap QEMU proofs.
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use input_live_protocol::VisibleState;

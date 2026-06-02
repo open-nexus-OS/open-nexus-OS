@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Telemetry observer — polls windowd/fbdevd for display/compose metrics.
+//! CONTEXT: Telemetry observer — polls windowd for display/compose metrics.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal

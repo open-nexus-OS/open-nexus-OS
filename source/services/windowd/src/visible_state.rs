@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: Exercised through `fbdevd` host tests and visible-bootstrap QEMU proofs.
+//! TEST_COVERAGE: Exercised through `windowd` host tests and visible-bootstrap QEMU proofs.
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 use alloc::vec;

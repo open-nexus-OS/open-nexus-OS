@@ -599,6 +599,8 @@ fn encode_error(err: SysError) -> usize {
         SysError::Wait(wait) => wait_errno(&wait),
         SysError::TaskExit => errno(EINVAL),
         SysError::Reschedule => errno(EAGAIN),
+        SysError::InvalidTarget => errno(ESRCH),
+        SysError::RunQueueFull => errno(ENOSPC),
     }
 }
 

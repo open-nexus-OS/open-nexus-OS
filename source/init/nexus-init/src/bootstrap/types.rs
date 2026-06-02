@@ -44,8 +44,6 @@ pub(crate) struct CtrlChannel {
     pub window_recv_slot: Option<u32>,
     pub input_send_slot: Option<u32>,
     pub input_recv_slot: Option<u32>,
-    pub fbdev_send_slot: Option<u32>,
-    pub fbdev_recv_slot: Option<u32>,
     pub gpud_send_slot: Option<u32>,
     pub gpud_recv_slot: Option<u32>,
     pub net_send_slot: Option<u32>,

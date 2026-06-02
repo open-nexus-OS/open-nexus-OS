@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Integration chain tests — hop-by-hop contract verification for inputd → windowd → fbdevd.
+//! CONTEXT: Integration chain tests — hop-by-hop contract verification for inputd → windowd → gpud.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Stable
@@ -9,7 +9,7 @@
 //!
 //! TEST SCOPE:
 //!   - inputd → windowd hop: VisibleState wire update → windowd internal state → composed frame
-//!   - windowd → fbdevd hop: compose → PresentAck evidence (host smoke)
+//!   - windowd → gpud hop: compose → PresentAck evidence (host smoke)
 //!
 //! These tests close the gap identified in the TASK-0059 wrap-up audit:
 //! host tests existed as black-box smoke, but explicit per-hop contract assertions
@@ -73,31 +73,31 @@ mod tests {
         assert!(!state.pixels.is_empty(), "composed frame has pixel data");
     }
 
-    /// ─── Hop 2: windowd → fbdevd ────────────────────────────────────────
+    /// ─── Hop 2: windowd → gpud ────────────────────────────────────────
     ///
     /// Contract: After windowd composes a frame, it must produce a
-    /// PresentAck with valid damage rects and sequence number that fbdevd
-    /// can use to gate scanout.
+    /// PresentAck with valid damage rects and sequence number that gpud
+    /// can use to gate scanout via OP_SET_FRAMEBUFFER_VMO.
     #[test]
-    fn test_windowd_to_fbdevd_hop_present_ack_contract() {
+    fn test_windowd_to_gpud_hop_present_ack_contract() {
         // --- Owner state: windowd composes bootstrap frame ---
         let evidence = windowd::bootstrap_display_handoff().expect("bootstrap display handoff");
 
-        // --- Downstream evidence for fbdevd ---
+        // --- Downstream evidence for gpud scanout ---
         assert!(evidence.mode.width > 0, "mode width valid");
         assert!(evidence.mode.height > 0, "mode height valid");
         assert!(evidence.damage_rects > 0, "bootstrap handoff produces damage rects");
         assert!(evidence.backend_visible, "backend visible flag set");
         assert!(evidence.systemui_first_frame_visible, "systemui first frame visible");
 
-        // fbdevd gates on: materialized frame dimensions
+        // gpud gates on: materialized frame dimensions
         let frame = evidence.materialize_frame().expect("materialize composed frame");
         assert_eq!(frame.width, evidence.mode.width, "composed frame matches mode width");
         assert_eq!(frame.height, evidence.mode.height, "composed frame matches mode height");
         assert_eq!(frame.stride, evidence.mode.width * 4, "stride = width * 4 (BGRA8888)");
         assert!(!frame.pixels.is_empty(), "composed frame has pixel data");
 
-        // fbdevd gates on: first present seq via marker postflight
+        // gpud gates on: first present seq via marker postflight
         let err = windowd::marker_postflight_ready(None)
             .expect_err("no present → MarkerBeforePresentState");
         assert_eq!(

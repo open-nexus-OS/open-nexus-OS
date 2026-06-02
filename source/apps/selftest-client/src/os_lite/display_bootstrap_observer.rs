@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: Observer-only visible display bootstrap checks for the service-owned
-//!   `windowd -> fbdevd -> ramfb` path.
+//!   `windowd -> gpud (virtio-gpu)` GPU-only path.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
@@ -115,7 +115,7 @@ impl BootstrapFailure {
     #[must_use]
     fn log_label(self) -> &'static str {
         match self {
-            Self::DisplayServiceEvidence => "bootstrap: failed fbdevd-evidence",
+            Self::DisplayServiceEvidence => "bootstrap: failed display-evidence",
             Self::VisibleInputEvidence => "bootstrap: failed visible-input-evidence",
             Self::InteractiveSceneEvidence => "bootstrap: failed interactive-scene-evidence",
         }
@@ -129,7 +129,7 @@ pub(crate) fn interactive_live_tick() -> Option<VisibleState> {
 fn fetch_live_visible_state() -> Option<VisibleState> {
     const VISIBLE_STATE_RPC_TIMEOUT_MS: u64 = 50;
     let wait = Wait::Timeout(Duration::from_millis(VISIBLE_STATE_RPC_TIMEOUT_MS));
-    let client = route_with_retry("fbdevd").ok()?;
+    let client = route_with_retry("windowd").ok()?;
     let reply = cached_reply_client().ok()?;
     let (reply_send_slot, _) = reply.slots();
     let reply_send_clone = cap_clone(reply_send_slot).ok()?;

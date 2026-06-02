@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-06-02
+
+#### TASK-0062 Phase 6: GPU-only display architecture — windowd sole owner
+
+- **Architecture**: Removed fbdevd/ramfb from OS graph. windowd is sole display owner,
+  gpud is pure GPU driver. Follows OHOS/Fuchsia/Android pattern: one compositor,
+  one GPU driver, zero-copy VMO handoff via `OP_SET_FRAMEBUFFER_VMO`. No fbdevd,
+  no ramfb, no handoff from another service.
+
+- **gpud**: `service_main_loop` now only probes device and becomes IPC-ready.
+  No startup `create_resource`/`set_scanout`/splash. `OP_SET_FRAMEBUFFER_VMO`
+  now emits `gpud: scanout ok` / `gpud: cursor on` / `gpud: display ready` on
+  successful scanout. Splash module (`splash.rs`) deleted.
+
+- **windowd**: Always creates own framebuffer VMO (`vmo_create`). Removed
+  `OP_SEND_COMPOSED_FRAME_VMO` handler (fbdevd VMO handoff path). Removed
+  `KernelClient` import from compositor main loop.
+
+- **init-lite**: `fbdevd` removed from `build.rs` default_candidates.
+
+- **selftest observer**: Routes to `windowd` instead of `fbdevd` for display
+  evidence (`route_with_retry("windowd")`).
+
+- **Markers**: `qemu-test.sh` expected sequence updated for GPU-only path.
+  `bringup.toml` fbdevd entries removed. `ui.toml` architecture comment
+  and marker names updated.
+
+- **Tests**: 16 new spec-validation tests in `gpud/tests/protocol_tests.rs`
+  covering format constants, command types, response types, MMIO offsets,
+  and wire-format struct sizes.
+
+- **Cleanup**: Unused imports removed from gpud and windowd. Deleted
+  `source/drivers/gpud/src/splash.rs`.
+
 ### Fixed - 2026-06-01
 
 #### nexus-init OS build regression (RFC-0061 incomplete refactoring)

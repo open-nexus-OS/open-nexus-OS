@@ -58,8 +58,6 @@ pub enum ServiceId {
     Windowd = 12,
     /// Input routing daemon.
     Inputd = 13,
-    /// Framebuffer device daemon.
-    Fbdevd = 14,
     /// GPU driver daemon.
     Gpud = 15,
     /// Network stack daemon.
@@ -95,7 +93,6 @@ impl ServiceId {
             b"timed" => Some(Self::Timed),
             b"windowd" => Some(Self::Windowd),
             b"inputd" => Some(Self::Inputd),
-            b"fbdevd" => Some(Self::Fbdevd),
             b"gpud" => Some(Self::Gpud),
             b"netstackd" => Some(Self::Netstackd),
             b"metricsd" => Some(Self::Metricsd),
@@ -124,7 +121,6 @@ impl ServiceId {
             Self::Timed => "timed",
             Self::Windowd => "windowd",
             Self::Inputd => "inputd",
-            Self::Fbdevd => "fbdevd",
             Self::Gpud => "gpud",
             Self::Netstackd => "netstackd",
             Self::Metricsd => "metricsd",
@@ -249,7 +245,6 @@ mod tests {
         for id in &[
             ServiceId::Vfsd,
             ServiceId::Windowd,
-            ServiceId::Fbdevd,
             ServiceId::Gpud,
             ServiceId::Samgrd,
         ] {
@@ -270,9 +265,9 @@ mod tests {
         let send = CapSlot::new(0x30, Rights::SEND);
         let recv = CapSlot::new(0x31, Rights::RECV);
 
-        table.add_route(ServiceId::Fbdevd, ServiceId::Windowd, send, recv);
+        table.add_route(ServiceId::Gpud, ServiceId::Windowd, send, recv);
 
-        let route = table.lookup(ServiceId::Fbdevd, ServiceId::Windowd);
+        let route = table.lookup(ServiceId::Gpud, ServiceId::Windowd);
         assert!(route.is_some());
         assert_eq!(route.unwrap().send.slot, 0x30);
         assert_eq!(route.unwrap().recv.slot, 0x31);
@@ -281,20 +276,20 @@ mod tests {
     #[test]
     fn lookup_missing_route_returns_none() {
         let table = RouteTable::new();
-        assert!(table.lookup(ServiceId::Fbdevd, ServiceId::Gpud).is_none());
+        assert!(table.lookup(ServiceId::Gpud, ServiceId::Gpud).is_none());
     }
 
     #[test]
     fn lookup_by_name() {
         let mut table = RouteTable::new();
         table.add_route(
-            ServiceId::Fbdevd,
+            ServiceId::Gpud,
             ServiceId::Windowd,
             CapSlot::new(0x30, Rights::SEND),
             CapSlot::new(0x31, Rights::RECV),
         );
 
-        let route = table.lookup_by_name(b"fbdevd", b"windowd").expect("route should exist");
+        let route = table.lookup_by_name(b"gpud", b"windowd").expect("route should exist");
         assert_eq!(route.send.slot, 0x30);
         assert_eq!(route.recv.slot, 0x31);
     }
@@ -303,20 +298,20 @@ mod tests {
     fn overwrite_route() {
         let mut table = RouteTable::new();
         table.add_route(
-            ServiceId::Fbdevd,
+            ServiceId::Gpud,
             ServiceId::Windowd,
             CapSlot::new(0x30, Rights::SEND),
             CapSlot::new(0x31, Rights::RECV),
         );
         table.add_route(
-            ServiceId::Fbdevd,
+            ServiceId::Gpud,
             ServiceId::Windowd,
             CapSlot::new(0x40, Rights::SEND),
             CapSlot::new(0x41, Rights::RECV),
         );
 
         let route =
-            table.lookup(ServiceId::Fbdevd, ServiceId::Windowd).expect("route should exist");
+            table.lookup(ServiceId::Gpud, ServiceId::Windowd).expect("route should exist");
         assert_eq!(route.send.slot, 0x40);
     }
 
@@ -324,20 +319,20 @@ mod tests {
     fn routes_from_scoped() {
         let mut table = RouteTable::new();
         table.add_route(
-            ServiceId::Fbdevd,
+            ServiceId::Gpud,
             ServiceId::Windowd,
             CapSlot::new(0x30, Rights::SEND),
             CapSlot::new(0x31, Rights::RECV),
         );
         table.add_route(
             ServiceId::Windowd,
-            ServiceId::Fbdevd,
+            ServiceId::Gpud,
             CapSlot::new(0x40, Rights::SEND),
             CapSlot::new(0x41, Rights::RECV),
         );
 
-        let from_fbdevd: Vec<_> = table.routes_from(ServiceId::Fbdevd).collect();
-        assert_eq!(from_fbdevd.len(), 1);
-        assert_eq!(from_fbdevd[0].0, ServiceId::Windowd);
+        let from_gpud: Vec<_> = table.routes_from(ServiceId::Gpud).collect();
+        assert_eq!(from_gpud.len(), 1);
+        assert_eq!(from_gpud[0].0, ServiceId::Windowd);
     }
 }

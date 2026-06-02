@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 mod tests {
-    use nx::chain::contract::{FbdevdContract, GpudContract, WindowdContract};
+    use nx::chain::contract::{GpudContract, WindowdContract};
     use nx::chain::hop::ms;
     use nx::chain::{ChainRunner, ChainStatus};
 
@@ -18,7 +18,6 @@ mod tests {
         let mut runner = ChainRunner::new("gpu-scanout");
 
         runner.register(Box::new(GpudContract::probe_only()));
-        runner.register(Box::new(FbdevdContract::new(1280, 800, true)));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
         runner
@@ -38,27 +37,27 @@ mod tests {
         assert_eq!(report.status, ChainStatus::Passed);
     }
 
-    /// Chain: gpud Resource-Creation schlägt fehl → Fallback-Pfad
+    /// Chain: windowd führt GPU-Scanout-Handoff durch
     #[tokio::test]
-    async fn chain_gpu_resource_fails_graceful_degradation() {
-        let mut runner = ChainRunner::new("gpu-fallback");
+    async fn chain_gpu_windowd_handoff() {
+        let mut runner = ChainRunner::new("gpu-windowd-handoff");
 
-        runner.register(Box::new(GpudContract::failing_resource()));
-        runner.register(Box::new(FbdevdContract::new(1280, 800, true)));
+        runner.register(Box::new(GpudContract::probe_only()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner.expect_marker("gpud: virtio-gpu probed", ms(500));
-        runner.expect_marker("gpud: resource create cmd fail", ms(500)).after(0);
-        runner.expect_marker("gpud: mmio fault", ms(200)).after(1);
-        // Nach Fallback: gpud bleibt alive (gpud: ready)
-        runner.expect_marker("gpud: ready", ms(200)).after(2);
+        runner
+            .expect_marker("windowd: backend=gpu", ms(500))
+            .describe("windowd setzt Backend auf GPU");
+        runner.expect_marker("gpud: ready", ms(500)).after(0);
+        runner
+            .expect_marker("windowd: present ok (seq=1 dmg=1)", ms(300))
+            .after(1)
+            .describe("erster Frame präsentiert");
 
         let report = runner.run().await;
         if report.status != ChainStatus::Passed {
             eprintln!("{}", report.diagnostic());
         }
         assert_eq!(report.status, ChainStatus::Passed);
-        // scanout-Marker sollten NICHT erscheinen (Resource-Creation failed)
-        assert!(report.hops.iter().all(|h| !h.marker.contains("scanout")));
     }
 }

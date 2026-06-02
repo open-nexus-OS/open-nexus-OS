@@ -199,10 +199,10 @@ fn test_reject_observer_display_authority() {
         .unwrap_or_else(|err| panic!("read {}: {err}", display_path.display()));
 
     assert!(
-        display.contains("route_with_retry(\"fbdevd\")")
+        display.contains("route_with_retry(\"windowd\")")
             && display.contains("fetch_live_visible_state")
             && display.contains("interactive_live_tick"),
-        "observer-only bootstrap must read service-owned visible state from fbdevd"
+        "observer-only bootstrap must read service-owned visible state from windowd"
     );
     assert!(
         !display.contains("vmo_write(")

@@ -33,17 +33,19 @@ pub struct VirtioGpuBackend {
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-struct ResourceRecord {
-    id: ResourceId,
-    width: u32,
-    height: u32,
-    format: PixelFormat,
+pub(crate) struct ResourceRecord {
+    pub(crate) id: ResourceId,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) format: PixelFormat,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
-    backing_va: usize,
+    pub(crate) backing_va: usize,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
-    backing_pa: u64,
+    pub(crate) backing_pa: u64,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
-    backing_len: usize,
+    pub(crate) backing_len: usize,
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_vmo: u32,
 }
 
 impl VirtioGpuBackend {
@@ -133,6 +135,7 @@ impl VirtioGpuBackend {
             backing_va: 0,
             backing_pa: info.base,
             backing_len: (width * height * 4) as usize,
+            backing_vmo: 0, // external VMO from windowd, not owned by gpud
         });
         Ok(())
     }
@@ -146,7 +149,15 @@ impl VirtioGpuBackend {
         }
     }
 
-    fn find_resource(&self, res: ResourceId) -> Option<ResourceRecord> {
+    /// Clone the backing VMO of a resource so another service (windowd)
+    /// can write composed frames into the scanout framebuffer.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn clone_scanout_vmo(&self, res: ResourceId) -> Option<u32> {
+        let record = self.find_resource(res)?;
+        nexus_abi::cap_clone(record.backing_vmo).ok()
+    }
+
+    pub(crate) fn find_resource(&self, res: ResourceId) -> Option<ResourceRecord> {
         self.resources.iter().copied().find(|record| record.id == res)
     }
 }
@@ -185,7 +196,7 @@ impl GfxBackend for VirtioGpuBackend {
         let id = ResourceId(self.next_resource_id);
         self.next_resource_id += 1;
         #[cfg(all(feature = "os-lite", target_os = "none"))]
-        let (backing_va, backing_pa, backing_len) =
+        let (backing_va, backing_pa, backing_len, backing_vmo) =
             self.create_resource_os(id, w, h, fmt, _byte_len)?;
         self.resources.push(ResourceRecord {
             id,
@@ -198,6 +209,8 @@ impl GfxBackend for VirtioGpuBackend {
             backing_pa,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             backing_len,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            backing_vmo,
         });
         Ok(id)
     }
@@ -372,7 +385,7 @@ impl VirtioGpuBackend {
         h: u32,
         fmt: PixelFormat,
         byte_len: usize,
-    ) -> Result<(usize, u64, usize), GfxError> {
+    ) -> Result<(usize, u64, usize, u32), GfxError> {
         let resource_index = self.resources.len();
         let backing_len = align_page(byte_len);
         let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
@@ -399,10 +412,22 @@ impl VirtioGpuBackend {
             GfxError::MmioFault
         })?;
 
+        let gpu_format = Self::to_gpu_format(fmt);
+        // Debug: emit format and resource_id values
+        match gpu_format {
+            1 => { let _ = nexus_abi::debug_println("gpud: dbg fmt=B8G8R8A8"); }
+            67 => { let _ = nexus_abi::debug_println("gpud: dbg fmt=R8G8B8A8"); }
+            _ => { let _ = nexus_abi::debug_println("gpud: dbg fmt=UNKNOWN"); }
+        }
+        match id.0 {
+            0 => { let _ = nexus_abi::debug_println("gpud: dbg rid=0"); }
+            1 => { let _ = nexus_abi::debug_println("gpud: dbg rid=1"); }
+            _ => { let _ = nexus_abi::debug_println("gpud: dbg rid=OTHER"); }
+        }
         let create = protocol::VirtioGpuResourceCreate2d {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
             resource_id: id.0,
-            format: Self::to_gpu_format(fmt),
+            format: gpu_format,
             width: w,
             height: h,
         };
@@ -423,7 +448,7 @@ impl VirtioGpuBackend {
             e
         })?;
         let _ = nexus_abi::debug_println(GPUD_RESOURCE_CREATED);
-        Ok((backing_va, info.base, backing_len))
+        Ok((backing_va, info.base, backing_len, backing_vmo))
     }
 
     fn transfer_to_host_os(&mut self, record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
@@ -618,6 +643,16 @@ impl CtrlQueue {
                 };
                 if hdr.type_ == protocol::VIRTIO_GPU_RESP_OK_NODATA {
                     return Ok(());
+                }
+                // Debug: classify the error response from QEMU
+                match hdr.type_ {
+                    0x1200 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC"); }
+                    0x1201 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY"); }
+                    0x1202 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_SCANOUT_ID"); }
+                    0x1203 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_RESOURCE_ID"); }
+                    0x1204 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_CONTEXT_ID"); }
+                    0x1205 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER"); }
+                    _ => { let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN"); }
                 }
                 return Err(GfxError::CommandRejected);
             }

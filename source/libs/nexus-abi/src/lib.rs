@@ -1895,6 +1895,23 @@ pub fn spawn(
     }
 }
 
+/// Resumes a suspended task (enqueues into scheduler). Only callable by the parent.
+/// Returns `Ok(())` on success, `Err(InvalidArgument)` if the task is not suspended.
+#[cfg(nexus_env = "os")]
+pub fn task_resume(pid: Pid) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_RESUME: usize = 32;
+        let raw = unsafe { ecall1(SYSCALL_TASK_RESUME, pid as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = pid;
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Returns the last spawn failure reason for the current task (RFC-0013).
 #[cfg(nexus_env = "os")]
 pub fn spawn_last_error() -> SysResult<SpawnFailReason> {

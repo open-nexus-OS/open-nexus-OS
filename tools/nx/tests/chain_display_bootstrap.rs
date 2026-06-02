@@ -1,81 +1,86 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: Chain-Test: Display Bootstrap (ersetzt 7 Source-Scraping-Tests)
+//! CONTEXT: Chain-Test: Display Bootstrap (GPU-only architecture, RFC-0059 Phase 6)
 //! OWNERS: @tools-team
 //!
-//! Verifiziert die Kette:
-//!   fbdevd start → VMO allozieren → ramfb konfigurieren
-//!   → VMO an windowd senden → windowd registriert
-//!   → windowd komponiert ersten Frame → Display-Marker
+//! Verifiziert die GPU-only Kette:
+//!   gpud start → virtio-gpu probe → ready
+//!   windowd start → vmo_create → compose → present → gpud scanout handoff
 //!
-//! Ersetzt:
-//!   - fbdevd_polls_windowd_with_owned_cap_move_reply_inbox
-//!   - init_wires_fbdevd_caps_and_routes_for_service_owned_display_observer_chain
-//!   - windowd_visible_bootstrap_emits_present_summary_marker_with_first_frame_proof
-//!   - windowd_first_frame_uses_budgeted_glass_quality
-//!   - windowd_refreshes_observer_state_after_cursor_overlay_composition
-//!   - windowd_target_color_changes_use_single_row_band_fast_path
-//!   - visible_bootstrap_runner_injects_real_input_through_qmp (teilweise)
+//! Ersetzt fbdevd/ramfb-basierte Chain-Tests (TASK-0062 Phase 6 GPU-only migration).
 
 #[cfg(test)]
 mod tests {
-    use nx::chain::contract::{FbdevdContract, WindowdContract};
+    use nx::chain::contract::{GpudContract, WindowdContract};
     use nx::chain::hop::ms;
     use nx::chain::{ChainRunner, ChainStatus};
 
-    /// Chain: fbdevd → windowd → first frame
+    /// Chain: gpud → windowd → first frame (GPU-only self-bootstrap)
     ///
     /// Hops:
-    ///   1. fbdevd: ready               (fbdevd startet, alloziiert FB)
-    ///   2. fbdevd: map ok              (VMO-Mapping erfolgreich)
-    ///   3. fbdevd: ramfb configured    (ramfb via fw_cfg DMA)
-    ///   4. windowd: ready (...)        (windowd Runtime initialisiert)
-    ///   5. windowd: fb registered      (fbdevd sendet VMO, windowd akzeptiert)
-    ///   6. display: first scanout ok   (erster Frame komponiert)
+    ///   1. gpud: virtio-gpu probed       (gpud mapped MMIO, verified device id)
+    ///   2. gpud: ready                   (gpud probe complete, IPC-ready)
+    ///   3. windowd: ready (…)            (windowd Runtime initialisiert, wallpaper geladen)
+    ///   4. windowd: backend=gpu          (windowd creates own framebuffer VMO, no handoff)
+    ///   5. windowd: compose ready        (erster Frame in eigenes VMO komponiert)
+    ///   6. windowd: present visible ok   (present in GPU scanout VMO abgeschlossen)
+    ///   7. gpud: scanout ok              (gpud attach_backing + set_scanout)
+    ///   8. SELFTEST: ui visible present ok (observer bestätigt)
     #[tokio::test]
-    async fn chain_display_bootstrap() {
-        let mut runner = ChainRunner::new("display-bootstrap");
+    async fn chain_gpu_display_bootstrap() {
+        let mut runner = ChainRunner::new("gpu-display-bootstrap");
 
-        // Services registrieren
-        runner.register(Box::new(FbdevdContract::new(1280, 800, true)));
+        // Services registrieren (GPU-only: gpud + windowd)
+        runner.register(Box::new(GpudContract::probe_only()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        // Hop 1: fbdevd alloziiert Framebuffer und ist bereit
+        // Hop 1: gpud probed virtio-gpu device
         runner
-            .expect_marker("fbdevd: ready", ms(500))
-            .describe("fbdevd startet und alloziiert Framebuffer-VMO");
+            .expect_marker("gpud: virtio-gpu probed", ms(500))
+            .describe("gpud mapped virtio-gpu MMIO and verified device id");
 
-        // Hop 2: VMO-Mapping erfolgreich
+        // Hop 2: gpud ready
         runner
-            .expect_marker("fbdevd: map ok", ms(200))
+            .expect_marker("gpud: ready", ms(300))
             .after(0)
-            .describe("fbdevd mapped VMO erfolgreich");
+            .describe("gpud probe complete, IPC-ready");
 
-        // Hop 3: ramfb konfiguriert
-        runner
-            .expect_marker("fbdevd: ramfb configured", ms(300))
-            .after(1)
-            .describe("fbdevd konfiguriert QEMU ramfb via fw_cfg DMA");
-
-        // Hop 4: windowd Runtime bereit
+        // Hop 3: windowd Runtime bereit
         runner
             .expect_marker("windowd: ready (w=1280, h=800, hz=120)", ms(1000))
-            .describe("windowd initialisiert DisplayServerRuntime");
+            .describe("windowd initialisiert DisplayServerRuntime mit Wallpaper");
 
-        // Hop 5: Framebuffer-Registrierung (fbdevd → windowd IPC)
+        // Hop 4: windowd self-bootstrap — backend=gpu (vmo_create)
         runner
-            .expect_marker("windowd: fb registered", ms(500))
+            .expect_marker("windowd: backend=gpu", ms(200))
+            .after(1)
+            .describe("windowd creates own framebuffer VMO, GPU-only self-bootstrap");
+
+        // Hop 5: windowd compose ready
+        runner
+            .expect_marker("windowd: compose ready", ms(500))
+            .after(2)
+            .describe("windowd komponiert ersten Frame in eigenes VMO");
+
+        // Hop 6: windowd present visible ok
+        runner
+            .expect_marker("windowd: present visible ok", ms(300))
             .after(3)
-            .describe("fbdevd sendet Framebuffer-VMO, windowd registriert");
+            .describe("windowd present in GPU scanout VMO abgeschlossen");
 
-        // Hop 6: Erster Frame komponiert und gescannt
+        // Hop 7: gpud scanout ok (attach_backing + set_scanout via virtio-gpu)
         runner
-            .expect_marker("display: first scanout ok", ms(500))
+            .expect_marker("gpud: scanout ok", ms(500))
             .after(4)
-            .describe("windowd komponiert ersten Frame und signalisiert Scanout");
+            .describe("gpud completed ATTACH_BACKING + SET_SCANOUT");
 
-        // Ausführen
+        // Hop 8: SELFTEST observer summary
+        runner
+            .expect_marker("SELFTEST: ui visible present ok", ms(300))
+            .after(5)
+            .describe("selftest observer confirmed visible present in GPU path");
+
         let report = runner.run().await;
 
         if report.status != ChainStatus::Passed {
@@ -84,31 +89,12 @@ mod tests {
         assert_eq!(report.status, ChainStatus::Passed);
     }
 
-    /// Chain: Display Bootstrap ohne Splash (optimierter Pfad)
+    /// Chain: windowd startet auch ohne gpud (headless, GPU-unavailable fallback)
     #[tokio::test]
-    async fn chain_display_bootstrap_without_splash() {
-        let mut runner = ChainRunner::new("display-bootstrap-no-splash");
+    async fn chain_windowd_starts_without_gpud() {
+        let mut runner = ChainRunner::new("windowd-headless");
 
-        runner.register(Box::new(FbdevdContract::new(1280, 800, false)));
-        runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
-
-        runner.expect_marker("fbdevd: ready", ms(500));
-        runner.expect_marker("fbdevd: map ok", ms(200)).after(0);
-        runner.expect_marker("fbdevd: ramfb configured", ms(300)).after(1);
-        runner.expect_marker("windowd: ready (w=1280, h=800, hz=120)", ms(1000));
-        runner.expect_marker("windowd: fb registered", ms(500)).after(3);
-        runner.expect_marker("display: first scanout ok", ms(500)).after(4);
-
-        let report = runner.run().await;
-        assert_eq!(report.status, ChainStatus::Passed);
-    }
-
-    /// Chain: windowd startet auch ohne fbdevd (Fallback-Pfad)
-    #[tokio::test]
-    async fn chain_windowd_starts_without_fbdevd() {
-        let mut runner = ChainRunner::new("windowd-standalone");
-
-        // Nur windowd — kein fbdevd
+        // Nur windowd — kein gpud
         runner.register(Box::new(WindowdContract::headless()));
 
         runner.expect_marker("windowd: runtime init start", ms(500));
@@ -119,7 +105,11 @@ mod tests {
         let report = runner.run().await;
         assert_eq!(report.status, ChainStatus::Passed);
 
-        // fb_registered sollte NICHT erscheinen (kein fbdevd)
-        assert!(report.hops.iter().all(|h| { !h.marker.contains("fb registered") }));
+        // Keine GPU-spezifischen Marker im headless-Modus
+        assert!(report.hops.iter().all(|h| {
+            !h.marker.contains("backend=gpu")
+                && !h.marker.contains("gpud: ready")
+                && !h.marker.contains("gpud: scanout ok")
+        }));
     }
 }

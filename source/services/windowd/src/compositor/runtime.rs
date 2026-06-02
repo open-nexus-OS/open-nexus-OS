@@ -243,6 +243,10 @@ pub(crate) struct DisplayServerRuntime {
     animated_scene: AnimatedSceneState,
     animation_proof: AnimationProofState,
     gpud_client: Option<KernelClient>,
+    /// Set when register_framebuffer_vmo creates the framebuffer VMO but
+    /// defers the expensive first-frame write. The IPC loop processes this
+    /// after sending the response.
+    framebuffer_pending_first_write: bool,
 }
 
 #[derive(Default)]
@@ -383,6 +387,7 @@ impl DisplayServerRuntime {
             animated_scene: AnimatedSceneState::new(),
             animation_proof: AnimationProofState::default(),
             gpud_client: None,
+            framebuffer_pending_first_write: false,
         })
     }
 
@@ -432,16 +437,37 @@ impl DisplayServerRuntime {
         self.glass_layer.valid = false;
     }
 
-    pub(crate) fn register_framebuffer(&mut self, handle: Handle) -> u8 {
+    /// Phase 1 of framebuffer registration: store the VMO handle and set
+    /// display-ready flags. Returns immediately so the IPC response
+    /// is not blocked by the expensive first-frame write.
+    ///
+    /// Phase 2 (write_current_frame + marker emissions) happens deferred
+    /// via `process_deferred_framebuffer_write()`.
+    pub(crate) fn register_framebuffer_vmo(&mut self, handle: Handle) {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
         self.refresh_observer_state();
 
         // Notify gpud: send the framebuffer VMO for zero-copy GPU scanout.
-        // If gpud is not available, the CPU path (ramfb) remains active.
         self.try_handoff_framebuffer_to_gpud(handle);
 
+        self.framebuffer_pending_first_write = true;
+    }
+
+    /// Phase 2 of framebuffer registration: write the first composed frame
+    /// and emit all bootstrap markers. Called from the IPC loop after the
+    /// VMO-ack response has been sent.
+    pub(crate) fn process_deferred_framebuffer_write(&mut self) -> u8 {
+        if !self.framebuffer_pending_first_write {
+            return STATUS_OK;
+        }
+        // Retry gpud handoff until it succeeds (route may not be wired yet
+        // when windowd starts before init-lite finishes IPC wiring).
+        if let Some(handle) = self.framebuffer {
+            self.try_handoff_framebuffer_to_gpud(handle);
+        }
         if self.write_current_frame().is_err() {
+            self.framebuffer_pending_first_write = false;
             return STATUS_MALFORMED;
         }
         if self.active_proof_layout().is_some() {
@@ -463,6 +489,7 @@ impl DisplayServerRuntime {
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         self.emit_asset_markers();
         self.emit_v3b_markers();
+        self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
 
@@ -831,15 +858,19 @@ impl DisplayServerRuntime {
     }
 
     /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
-    /// Falls back silently if gpud is not reachable — the CPU ramfb path stays active.
+    /// Retries silently if gpud is not reachable — the handoff is retried on each tick.
     fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) {
-        let Ok(clone) = nexus_abi::cap_clone(fb_handle) else {
-            return;
-        };
         if self.gpud_client.is_none() {
             self.gpud_client = KernelClient::new_for("gpud").ok();
+            if self.gpud_client.is_none() {
+                // gpud route not yet wired — retry on next tick
+                return;
+            }
         }
         let Some(client) = self.gpud_client.as_ref() else {
+            return;
+        };
+        let Ok(clone) = nexus_abi::cap_clone(fb_handle) else {
             return;
         };
         let request = [GPU_SET_FRAMEBUFFER_VMO_OP];

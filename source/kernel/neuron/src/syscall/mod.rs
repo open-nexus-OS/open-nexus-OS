@@ -15,7 +15,7 @@ use core::fmt;
 use crate::{cap, ipc, mm, task};
 
 /// Maximum number of syscalls supported by this increment.
-const MAX_SYSCALL: usize = 32;
+const MAX_SYSCALL: usize = 64;
 
 /// Result type used by syscall handlers.
 pub type SyscallResult<T> = Result<T, Error>;
@@ -91,6 +91,8 @@ pub const SYSCALL_MMIO_MAP: usize = 27;
 pub const SYSCALL_CAP_QUERY: usize = 28;
 /// Creates a DeviceMmio capability in the caller's cap table (privileged; init-only).
 pub const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
+/// Resume a suspended task (enqueue into scheduler). Privileged.
+pub const SYSCALL_TASK_RESUME: usize = 32;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).
@@ -124,6 +126,10 @@ pub enum Error {
     /// wrong address space. Instead, handlers return `Reschedule` and the kernel performs the
     /// switch on trap exit; the same syscall is retried when the task runs again.
     Reschedule,
+    /// Task resume: target PID not found or not suspended.
+    InvalidTarget,
+    /// Task resume: scheduler run queue is full.
+    RunQueueFull,
 }
 
 impl From<cap::CapError> for Error {

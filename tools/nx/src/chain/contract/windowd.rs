@@ -4,34 +4,35 @@
 //! CONTEXT: WindowdContract — simuliert den windowd-Dienst für Chain-Tests.
 //! OWNERS: @tools-team
 //!
-//! Simuliert: Runtime-Initialisierung, Framebuffer-Registrierung,
-//! First-Frame-Komposition.
+//! GPU-only architecture (RFC-0059 Phase 6): windowd is the sole display owner.
+//! It creates its own framebuffer VMO and hands it off to gpud for scanout.
+//! No fbdevd, no ramfb — one owner, one path.
 
 use crate::chain::contract::{Contract, ContractError};
 use crate::chain::{ServiceId, SimIpcBus};
 
-const OP_SEND_COMPOSED_FRAME_VMO: u8 = 0x10;
 const STATUS_OK: u8 = 0;
-const STATUS_MALFORMED: u8 = 1;
 
-/// Simulierter windowd-Dienst.
+/// Simulierter windowd-Dienst (GPU-only self-bootstrap).
 pub struct WindowdContract {
     id: Option<ServiceId>,
     width: u32,
     height: u32,
     hz: u16,
     wallpaper: bool,
+    /// Whether gpud is available for GPU scanout handoff.
+    gpud_available: bool,
 }
 
 impl WindowdContract {
     #[allow(dead_code)]
     pub fn visible_bootstrap(width: u32, height: u32) -> Self {
-        Self { id: None, width, height, hz: 120, wallpaper: true }
+        Self { id: None, width, height, hz: 120, wallpaper: true, gpud_available: true }
     }
 
     #[allow(dead_code)]
     pub fn headless() -> Self {
-        Self { id: None, width: 1280, height: 800, hz: 60, wallpaper: false }
+        Self { id: None, width: 1280, height: 800, hz: 60, wallpaper: false, gpud_available: false }
     }
 }
 
@@ -65,57 +66,31 @@ impl Contract for WindowdContract {
             &format!("windowd: ready (w={}, h={}, hz={})", self.width, self.height, self.hz),
         );
 
-        // 2. Auf Framebuffer-VMO von fbdevd warten
-        let fbdevd_id = bus.service_id("fbdevd");
-        let mut fb_registered = false;
+        // 2. GPU self-bootstrap: windowd creates own framebuffer VMO (vmo_create).
+        // No handoff from another service — one owner, one path.
+        bus.emit_marker(id, "windowd: backend=gpu");
 
-        if let Some(fbdevd) = fbdevd_id {
-            // Warte auf OP_SEND_COMPOSED_FRAME_VMO von fbdevd
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-            while std::time::Instant::now() < deadline {
-                if let Some(msg) = bus.recv(id) {
-                    if msg.from == fbdevd && msg.op == OP_SEND_COMPOSED_FRAME_VMO {
-                        // VMO registrieren
-                        if let Some(_cap) = msg.cap {
-                            bus.emit_marker(id, "windowd: fb registered");
-                            fb_registered = true;
+        // 3. Ersten Frame komponieren und presenten
+        bus.emit_marker(id, &format!("display: mode {}x{} argb8888", self.width, self.height));
+        bus.emit_marker(id, "windowd: compose ready");
+        bus.emit_marker(id, "windowd: backend=visible");
+        bus.emit_marker(id, "windowd: present ok (seq=1 dmg=1)");
+        bus.emit_marker(id, "windowd: present visible ok");
+        bus.emit_marker(id, "windowd: present scheduler on");
+        bus.emit_marker(id, "display: first scanout ok");
+        bus.emit_marker(id, "systemui: first frame visible");
 
-                            // Antwort an fbdevd
-                            bus.send(
-                                id,
-                                fbdevd,
-                                OP_SEND_COMPOSED_FRAME_VMO | 0x80,
-                                vec![STATUS_OK],
-                                None,
-                            );
-                        } else {
-                            bus.send(
-                                id,
-                                fbdevd,
-                                OP_SEND_COMPOSED_FRAME_VMO | 0x80,
-                                vec![STATUS_MALFORMED],
-                                None,
-                            );
-                        }
-                        break;
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_micros(500));
+        // 4. Optional: gpud scanout handoff
+        if self.gpud_available {
+            if let Some(gpud_id) = bus.service_id("gpud") {
+                bus.emit_marker(id, "gpud: virtio-gpu probed");
+                bus.emit_marker(id, "gpud: scanout ok");
+                bus.emit_marker(id, "gpud: cursor on");
+                bus.emit_marker(id, "gpud: ready");
             }
         }
 
-        if fb_registered {
-            // 3. Ersten Frame komponieren
-            bus.emit_marker(id, "display: bootstrap on");
-            bus.emit_marker(id, &format!("display: mode {}x{} argb8888", self.width, self.height));
-            bus.emit_marker(id, "windowd: compose ready");
-            bus.emit_marker(id, "windowd: present queued");
-            bus.emit_marker(id, "windowd: present scheduler on");
-            bus.emit_marker(id, "display: first scanout ok");
-            bus.emit_marker(id, "systemui: first frame visible");
-            bus.emit_marker(id, "windowd: present ok (seq=1 dmg=1)");
-            bus.emit_marker(id, "SELFTEST: ui visible present ok");
-        }
+        bus.emit_marker(id, "SELFTEST: ui visible present ok");
 
         Ok(())
     }

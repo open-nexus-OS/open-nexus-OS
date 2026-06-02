@@ -1291,12 +1291,14 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         }
         h
     };
-    if let Some(t) = sys_ctx.tasks.task_mut(Pid::from_raw(init_pid as u32)) {
+    // Init-lite must run immediately (it's the OS entry point, not a service).
+    let init_pid_typed = Pid::from_raw(init_pid as u32);
+    if let Some(t) = sys_ctx.tasks.task_mut(init_pid_typed) {
         t.set_service_id(init_lite_id);
     }
+    let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
 
     // Verify init task state
-    let init_pid_typed = Pid::from_raw(init_pid as u32);
     if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
         use core::fmt::Write as _;
         let mut uart = crate::uart::raw_writer();

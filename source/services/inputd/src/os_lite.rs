@@ -44,7 +44,16 @@ const WINDOWD_FALLBACK_RECV_SLOT: u32 = 6;
 const ROUTE_BIND_RETRIES: usize = 256;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
-    let mut runtime = LiveRouteRuntime::new()?;
+    // Caps are pre-granted by init before resume — no yield needed.
+
+    let mut runtime = match LiveRouteRuntime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            let _ = debug_println(e);
+            let _ = debug_println("inputd: init fail runtime");
+            return Err(e);
+        }
+    };
     let server = match bind_server() {
         Ok(server) => server,
         Err(err) => {

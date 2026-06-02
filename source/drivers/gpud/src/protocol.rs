@@ -27,21 +27,24 @@ pub const VIRTIO_MMIO_QUEUE_DEVICE_HIGH: usize = 0x0a4;
 /// virtio MMIO magic value ("virt").
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x74726976;
 
-/// virtio-gpu command types.
-pub const VIRTIO_GPU_CMD_CREATE_RESOURCE_2D: u32 = 0x0102;
+/// virtio-gpu command types (per virtio-gpu spec §5.7.6.3).
+pub const VIRTIO_GPU_CMD_CREATE_RESOURCE_2D: u32 = 0x0101;
+pub const VIRTIO_GPU_CMD_RESOURCE_UNREF: u32 = 0x0102;
+pub const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x0103;
+pub const VIRTIO_GPU_CMD_RESOURCE_FLUSH: u32 = 0x0104;
+pub const VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0105;
 pub const VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING: u32 = 0x0106;
-pub const VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0108;
-pub const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x010a;
-pub const VIRTIO_GPU_CMD_UPDATE_CURSOR: u32 = 0x0301;
-pub const VIRTIO_GPU_CMD_MOVE_CURSOR: u32 = 0x0302;
+pub const VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING: u32 = 0x0107;
+pub const VIRTIO_GPU_CMD_UPDATE_CURSOR: u32 = 0x0300;
+pub const VIRTIO_GPU_CMD_MOVE_CURSOR: u32 = 0x0301;
 pub const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
 pub const VIRTIO_GPU_RESP_ERR_UNSPEC: u32 = 0x1200;
 
-/// virtio-gpu pixel format constants.
-pub const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 0x0100;
-pub const VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM: u32 = 0x0101;
+/// virtio-gpu pixel format constants (per virtio-gpu spec §5.7.6.1).
+pub const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 1;
+pub const VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM: u32 = 67;
 
-/// virtio-gpu control header (8 * 4 = 32 bytes).
+/// virtio-gpu control header (24 bytes: 4+4+8+4+4).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct VirtioGpuCtrlHdr {

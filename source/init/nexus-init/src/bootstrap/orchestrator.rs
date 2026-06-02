@@ -168,8 +168,6 @@ where
                     window_recv_slot: None,
                     input_send_slot: None,
                     input_recv_slot: None,
-                    fbdev_send_slot: None,
-                    fbdev_recv_slot: None,
                     gpud_send_slot: None,
                     gpud_recv_slot: None,
                     net_send_slot: None,
@@ -234,6 +232,26 @@ where
     debug_write_str("init: ready");
     debug_write_byte(b'\n');
     debug_write_bytes(b"!init-lite ready\n");
+    // Resume all spawned services now so policyd can handle MMIO policy
+    // checks during the grant phase. IPC wiring happens after grants.
+    for chan in &ctrl_channels {
+        match nexus_abi::task_resume(chan.pid) {
+            Ok(()) => {}
+            Err(e) => {
+                debug_write_bytes(b"init: resume fail pid=0x");
+                debug_write_hex(chan.pid as usize);
+                debug_write_str(" svc=");
+                debug_write_str(chan.svc_name);
+                debug_write_str(" err=0x");
+                debug_write_hex(e as usize);
+                debug_write_byte(b'\n');
+            }
+        }
+    }
+    // Yield once so resumed services can bind their servers before init
+    // starts sending IPC (grants need policyd, routes need samgrd, etc.).
+    let _ = nexus_abi::yield_();
+
     // Second pass: create request endpoints owned by the target service PID and distribute caps.
     fn find_pid(ctrls: &[CtrlChannel], name: &str) -> Option<u32> {
         ctrls.iter().find(|c| c.svc_name == name).map(|c| c.pid)
@@ -256,7 +274,6 @@ where
     let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
     let windowd_pid = find_pid(&ctrl_channels, "windowd").ok_or(InitError::MissingElf)?;
     let inputd_pid = find_pid(&ctrl_channels, "inputd").ok_or(InitError::MissingElf)?;
-    let fbdevd_pid = find_pid(&ctrl_channels, "fbdevd").ok_or(InitError::MissingElf)?;
     let gpud_pid = find_pid(&ctrl_channels, "gpud").ok_or(InitError::MissingElf)?;
     let logd_pid = find_pid(&ctrl_channels, "logd");
     let metricsd_pid = find_pid(&ctrl_channels, "metricsd");
@@ -366,13 +383,9 @@ where
         .map_err(InitError::Abi)?;
     let input_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, hidrawd_pid, 8)
         .map_err(InitError::Abi)?;
-    let fbdev_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, fbdevd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let fbdev_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
 
     // Priority-wire display services early (right after their endpoints exist)
-    // so fbdevd gets scheduled by the existing yield after MMIO grants.
+    // so they get scheduled by the existing yield after MMIO grants.
 
     let gpud_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, gpud_pid, 8)
         .map_err(InitError::Abi)?;
@@ -516,26 +529,12 @@ where
         }
     }
 
-    // Priority-wire fbdevd + windowd + inputd using clones.
+    // Priority-wire windowd + inputd using clones.
     {
-        let fbdev_req_clone = nexus_abi::cap_clone(fbdev_req).map_err(InitError::Abi)?;
-        let fbdev_rsp_clone = nexus_abi::cap_clone(fbdev_rsp).map_err(InitError::Abi)?;
         let window_req_clone = nexus_abi::cap_clone(window_req).map_err(InitError::Abi)?;
         let window_rsp_clone = nexus_abi::cap_clone(window_rsp).map_err(InitError::Abi)?;
         let input_req_clone = nexus_abi::cap_clone(input_req).map_err(InitError::Abi)?;
         let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
-        if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "fbdevd") {
-            let pid = chan.pid;
-            chan.fbdev_recv_slot = Some(
-                nexus_abi::cap_transfer(pid, fbdev_req_clone, Rights::RECV)
-                    .map_err(InitError::Abi)?,
-            );
-            chan.fbdev_send_slot = Some(
-                nexus_abi::cap_transfer(pid, fbdev_rsp_clone, Rights::SEND)
-                    .map_err(InitError::Abi)?,
-            );
-            debug_write_bytes(b"init: fbdevd priority-wired\n");
-        }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
             let pid = chan.pid;
             chan.window_recv_slot = Some(
@@ -655,68 +654,6 @@ where
         net_slot,
         DEVICE_MMIO_CAP_SLOT,
     )?;
-    let fwcfg_deadline = match nexus_abi::nsec() {
-        Ok(now) => now.saturating_add(1_000_000_000),
-        Err(_) => 0,
-    };
-    loop {
-        match grant_mmio_cap(
-            selftest_pid,
-            "selftest-client",
-            "device.mmio.fwcfg",
-            FW_CFG_MMIO_BASE,
-            FW_CFG_MMIO_LEN,
-            pol_ctl_route_req,
-            pol_ctl_route_rsp,
-            FW_CFG_MMIO_CAP_SLOT,
-        )? {
-            Some(true) => break,
-            Some(false) => return Err(InitError::Map("fw_cfg mmio policy denied")),
-            None => {
-                let now = match nexus_abi::nsec() {
-                    Ok(value) => value,
-                    Err(_) => 0,
-                };
-                if now >= fwcfg_deadline {
-                    return Err(InitError::Map("fw_cfg mmio policy timeout"));
-                }
-                let _ = nexus_abi::yield_();
-            }
-        }
-    }
-    // Grant fw_cfg to fbdevd for ramfb configuration.
-    {
-        let (mmio_base, mmio_len) = (FW_CFG_MMIO_BASE, FW_CFG_MMIO_LEN);
-        let deadline = match nexus_abi::nsec() {
-            Ok(now) => now.saturating_add(1_000_000_000),
-            Err(_) => 0,
-        };
-        loop {
-            match grant_mmio_cap(
-                fbdevd_pid,
-                "fbdevd",
-                "device.mmio.fwcfg",
-                mmio_base,
-                mmio_len,
-                pol_ctl_route_req,
-                pol_ctl_route_rsp,
-                FW_CFG_MMIO_CAP_SLOT,
-            )? {
-                Some(true) => break,
-                Some(false) => return Err(InitError::Map("fbdevd fw_cfg mmio policy denied")),
-                None => {
-                    let now = match nexus_abi::nsec() {
-                        Ok(v) => v,
-                        Err(_) => 0,
-                    };
-                    if now >= deadline {
-                        return Err(InitError::Map("fbdevd fw_cfg mmio policy timeout"));
-                    }
-                    let _ = nexus_abi::yield_();
-                }
-            }
-        }
-    }
 
     for (idx, input_slot) in input_slots.iter().copied().enumerate() {
         if let Some(input_slot) = input_slot {
@@ -781,8 +718,8 @@ where
         }
     }
 
-    // Yield so fbdevd (priority-wired, fw_cfg granted) can configure ramfb
-    // and write the boot splash BEFORE the full wiring loop runs.
+    // Services are suspended; they will be resumed atomically at the end
+    // after all MMIO and IPC wiring is complete.
     let _ = nexus_abi::yield_();
 
     for chan in &mut ctrl_channels {
@@ -1533,6 +1470,20 @@ where
             "inputd" => {
                 if chan.input_send_slot.is_some() && chan.input_recv_slot.is_some() {
                     debug_write_bytes(b"init: inputd already priority-wired, skip\n");
+                    // Still need windowd route for visible-state push.
+                    let window_send_slot =
+                        try_transfer(pid, window_req, Rights::SEND, "inputd->windowd", "SEND");
+                    let window_recv_slot =
+                        try_transfer(pid, window_rsp, Rights::RECV, "inputd->windowd", "RECV");
+                    if let (Some(window_send), Some(window_recv)) = (window_send_slot, window_recv_slot) {
+                        chan.window_send_slot = Some(window_send);
+                        chan.window_recv_slot = Some(window_recv);
+                        debug_write_bytes(b"init: inputd windowd slots send=0x");
+                        debug_write_hex(window_send as usize);
+                        debug_write_bytes(b" recv=0x");
+                        debug_write_hex(window_recv as usize);
+                        debug_write_byte(b'\n');
+                    }
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, input_req, Rights::RECV)
@@ -1553,44 +1504,6 @@ where
                 debug_write_hex(send_slot as usize);
                 debug_write_byte(b'\n');
                 debug_write_bytes(b"init: inputd windowd slots send=0x");
-                debug_write_hex(window_send_slot as usize);
-                debug_write_bytes(b" recv=0x");
-                debug_write_hex(window_recv_slot as usize);
-                debug_write_byte(b'\n');
-            }
-            "fbdevd" => {
-                if chan.fbdev_send_slot.is_some() && chan.fbdev_recv_slot.is_some() {
-                    debug_write_bytes(b"init: fbdevd already priority-wired, skip\n");
-                    continue;
-                }
-                let recv_slot = nexus_abi::cap_transfer(pid, fbdev_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, fbdev_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.fbdev_send_slot = Some(send_slot);
-                chan.fbdev_recv_slot = Some(recv_slot);
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-                let window_send_slot = nexus_abi::cap_transfer(pid, window_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                let window_recv_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                chan.window_send_slot = Some(window_send_slot);
-                chan.window_recv_slot = Some(window_recv_slot);
-                debug_write_bytes(b"init: fbdevd slots recv=0x");
-                debug_write_hex(recv_slot as usize);
-                debug_write_bytes(b" send=0x");
-                debug_write_hex(send_slot as usize);
-                debug_write_byte(b'\n');
-                debug_write_bytes(b"init: fbdevd windowd slots send=0x");
                 debug_write_hex(window_send_slot as usize);
                 debug_write_bytes(b" recv=0x");
                 debug_write_hex(window_recv_slot as usize);
@@ -1801,16 +1714,6 @@ where
                 chan.input_send_slot = Some(send_slot);
                 chan.input_recv_slot = Some(reply_recv_slot);
                 debug_write_bytes(b"init: selftest inputd slots send=0x");
-                debug_write_hex(send_slot as usize);
-                debug_write_bytes(b" recv=0x");
-                debug_write_hex(reply_recv_slot as usize);
-                debug_write_byte(b'\n');
-
-                let send_slot = nexus_abi::cap_transfer(pid, fbdev_req, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.fbdev_send_slot = Some(send_slot);
-                chan.fbdev_recv_slot = Some(reply_recv_slot);
-                debug_write_bytes(b"init: selftest fbdevd slots send=0x");
                 debug_write_hex(send_slot as usize);
                 debug_write_bytes(b" recv=0x");
                 debug_write_hex(reply_recv_slot as usize);

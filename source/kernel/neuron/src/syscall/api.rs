@@ -503,7 +503,7 @@ use super::{
     SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEVICE_CAP_CREATE,
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
-    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_VMO_CREATE,
+    SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_VMO_CREATE,
     SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
@@ -607,6 +607,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IPC_ENDPOINT_CREATE_FOR, sys_ipc_endpoint_create_for);
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
+    table.register(SYSCALL_TASK_RESUME, sys_task_resume);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
@@ -2016,7 +2017,6 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             info_guard_va: None,
         });
     }
-
     Ok(pid.as_index())
 }
 
@@ -2391,7 +2391,24 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         }
     };
 
+    // Kernel-spawned tasks (selftest, init-lite) must run immediately.
+    // Userspace-spawned services stay suspended until the parent resumes them.
+    if typed.as_handle.map_or(true, |h| h.to_raw() == 0) {
+        let _ = ctx.tasks.resume_task(pid, ctx.scheduler);
+    }
+
     Ok(pid.as_index())
+}
+
+fn sys_task_resume(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let pid_raw = args.get(0) as u32;
+    let pid = task::Pid::from_raw(pid_raw);
+    match ctx.tasks.resume_task(pid, ctx.scheduler) {
+        task::ResumeOutcome::Resumed => Ok(0),
+        task::ResumeOutcome::TaskNotFound => Err(Error::InvalidTarget),
+        task::ResumeOutcome::NotSuspended => Err(Error::InvalidTarget),
+        task::ResumeOutcome::EnqueueRejected => Err(Error::RunQueueFull),
+    }
 }
 
 fn sys_cap_transfer(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {

@@ -83,7 +83,6 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "gpud",
         "windowd",
         "inputd",
-        "fbdevd",
         "selftest-client",
     ];
 

@@ -3,11 +3,11 @@
 
 # Display Output Service Chain
 
-The live visible-output path is service-owned:
+The live visible-output path is service-owned (GPU-only architecture, RFC-0059 Phase 6):
 
-`hidrawd -> inputd -> windowd -> fbdevd -> ramfb`
+`hidrawd -> inputd -> windowd -> gpud (virtio-gpu)`
 
-`selftest-client` is only an out-of-band observer. It polls `fbdevd` for
+`selftest-client` is only an out-of-band observer. It polls `windowd` for
 `VisibleState` and emits proof markers only after the service state already
 contains the required evidence.
 
@@ -37,33 +37,44 @@ contains the required evidence.
   - **Effects** (`nexus-effects`): `blur_1d` used for backdrop + shadow blur in
     compositor; separable blur, 9-slice shadow, dual-kawase blur available.
 
-  Writes composed rows into the framebuffer VMO registered by `fbdevd`.
-- `fbdevd` owns framebuffer capability use, `ramfb` setup, final scanout
-  ownership, and visible-state replies. It does not own scene composition or a
-  second cursor truth.
+  Writes composed rows into its own framebuffer VMO (created via `vmo_create`) and
+  hands it off to `gpud` for zero-copy GPU scanout via `OP_SET_FRAMEBUFFER_VMO`.
+- `gpud` is a pure driver: probes virtio-gpu MMIO, accepts a framebuffer VMO from
+  `windowd`, performs `ATTACH_BACKING` + `SET_SCANOUT`, and provides hardware cursor
+  support. It does not own scene composition or a second cursor truth.
 - `init-lite` owns capability routing and endpoint rights.
 
-## Minimal Userspace Reactor
+## GPU-only Display Architecture (RFC-0059 Phase 6)
 
-Long-lived display/input work runs in service-owned userspace reactors, not in
-the kernel and not in `selftest-client`.
+The display path follows the OHOS/Fuchsia/Android pattern — one owner, one path:
 
-For the live display path, `fbdevd` drives a small budgeted scanout observer tick:
+```
+windowd (sole display owner)
+  │
+  ├── vmo_create(1280×800×4)
+  ├── compose frames
+  ├── OP_SET_FRAMEBUFFER_VMO → gpud
+  └── OP_UPDATE_VISIBLE_STATE ← inputd
+        │
+        ▼
+┌──────────────────┐
+│  gpud (driver)    │
+│  probe virtio-gpu │
+│  ATTACH_BACKING   │
+│  SET_SCANOUT      │
+│  move_cursor      │
+└──────────────────┘
+```
 
-- drain bounded service requests,
-- register its framebuffer VMO with `windowd` by `CAP_MOVE`,
-- sample composed `VisibleState` through a short bounded `windowd` RPC,
-- update scanout/telemetry from service-owned evidence,
-- yield cooperatively.
+No fbdevd, no ramfb, no handoff from another service — `windowd` creates its
+own framebuffer VMO and `gpud` provides scanout on demand.
 
-The reactor must not let a slow upstream poll block a display refresh for a full
-frame budget. If `windowd` does not answer quickly, `fbdevd` keeps ownership of
-the last observed state and tries again on the next tick.
+## Input Fast-Path
 
 Cursor-only movement is the latency-sensitive case. `inputd` forwards bounded
-visible-input updates to `windowd`, `windowd` recomposes only the damaged rows
-of the Mocu SVG cursor over the root scene, and `fbdevd` only reports the
-dirty-row/flush evidence it observes.
+visible-input updates to `windowd` via `OP_UPDATE_VISIBLE_STATE`, `windowd`
+recomposes only the damaged rows of the Mocu SVG cursor over the root scene,
+and the compositor produces a minimal present acknowledgement.
 
 The coordinate contract follows normal screen-space direction:
 

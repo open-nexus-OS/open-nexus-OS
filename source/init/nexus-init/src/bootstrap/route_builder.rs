@@ -124,14 +124,6 @@ pub(crate) fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
                 CapSlot::new(r, Rights::RECV),
             );
         }
-        if let (Some(s), Some(r)) = (chan.fbdev_send_slot, chan.fbdev_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Fbdevd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
         if let (Some(s), Some(r)) = (chan.gpud_send_slot, chan.gpud_recv_slot) {
             table.add_route(
                 from,
@@ -192,7 +184,6 @@ pub(crate) fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &Rou
         ServiceId::Timed,
         ServiceId::Windowd,
         ServiceId::Inputd,
-        ServiceId::Fbdevd,
         ServiceId::Gpud,
         ServiceId::Netstackd,
         ServiceId::Metricsd,

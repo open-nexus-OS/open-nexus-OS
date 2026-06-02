@@ -35,9 +35,9 @@ const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
 const INPUT_MMIO_VAS: [usize; 3] = [0x2003_0000, 0x2003_1000, 0x2003_2000];
 const INPUT_QUEUE_VAS: [usize; 3] = [0x2004_0000, 0x2005_0000, 0x2006_0000];
 const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
-const EMPTY_DEVICE_REPROBE_YIELDS: usize = 1024;
 
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
+    // Caps are pre-granted by init before resume — no yield needed.
     let mut service = HidrawdService::new();
     let mut missing_slots_logged = [false; INPUT_CAP_SLOTS.len()];
     let mut live_devices = open_live_devices(&mut missing_slots_logged);
@@ -48,16 +48,12 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut send_ok_emitted = false;
     let mut send_fail_emitted = false;
     let mut chain = HidrawChainTelemetry::new();
-    let mut reprobe_budget = 0usize;
 
     loop {
+        // Caps are guaranteed after initial yield — reprobe is only needed
+        // if a device was hot-unplugged (rare). Simple bounded retry.
         if live_devices.is_empty() {
-            if reprobe_budget == 0 {
-                live_devices = open_live_devices(&mut missing_slots_logged);
-                reprobe_budget = EMPTY_DEVICE_REPROBE_YIELDS;
-            } else {
-                reprobe_budget = reprobe_budget.saturating_sub(1);
-            }
+            live_devices = open_live_devices(&mut missing_slots_logged);
         }
         if client.is_none() {
             client = route_inputd_blocking();
@@ -69,7 +65,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             }
             chain.route_rebinds = chain.route_rebinds.saturating_add(1);
         }
-        if !ready_emitted && !live_devices.is_empty() && client.is_some() {
+        if !ready_emitted && !live_devices.is_empty() {
             debug_println("hidrawd: ready")?;
             debug_println("hidrawd: os service payload ready")?;
             ready_emitted = true;
