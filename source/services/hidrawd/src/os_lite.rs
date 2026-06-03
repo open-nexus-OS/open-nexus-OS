@@ -43,6 +43,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut live_devices = open_live_devices(&mut missing_slots_logged);
     let mut client = route_inputd_blocking();
     let mut ready_emitted = false;
+    let mut payload_ready_emitted = false;
     let mut raw_gate_emitted = false;
     let mut normalized_gate_emitted = false;
     let mut send_ok_emitted = false;
@@ -50,6 +51,10 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut chain = HidrawChainTelemetry::new();
 
     loop {
+        if !payload_ready_emitted {
+            debug_println("hidrawd: os service payload ready")?;
+            payload_ready_emitted = true;
+        }
         // Caps are guaranteed after initial yield — reprobe is only needed
         // if a device was hot-unplugged (rare). Simple bounded retry.
         if live_devices.is_empty() {
@@ -67,7 +72,6 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         }
         if !ready_emitted && !live_devices.is_empty() {
             debug_println("hidrawd: ready")?;
-            debug_println("hidrawd: os service payload ready")?;
             ready_emitted = true;
         }
         if live_devices.is_empty() {

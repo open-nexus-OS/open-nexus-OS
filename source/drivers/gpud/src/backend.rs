@@ -27,6 +27,7 @@ pub struct VirtioGpuBackend {
     next_resource_id: u32,
     probed: bool,
     resources: alloc::vec::Vec<ResourceRecord>,
+    scanout_resource: Option<ResourceId>,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
 }
@@ -57,6 +58,7 @@ impl VirtioGpuBackend {
             next_resource_id: 1,
             probed: false,
             resources: alloc::vec::Vec::new(),
+            scanout_resource: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
         }
@@ -70,6 +72,24 @@ impl VirtioGpuBackend {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         self.probe_os()?;
         self.probed = true;
+
+        // Query available displays. Without this, QEMU may not report
+        // scanout dimensions correctly.
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        {
+            let info_cmd = protocol::VirtioGpuCtrlHdr {
+                type_: protocol::VIRTIO_GPU_CMD_GET_DISPLAY_INFO,
+                flags: 0,
+                fence_id: 0,
+                ctx_id: 0,
+                _padding: 0,
+            };
+            // GET_DISPLAY_INFO has no additional payload beyond the header.
+            if self.ctrlq.is_some() {
+                let _ = self.ctrl_submit_struct(&info_cmd);
+            }
+        }
+
         Ok(())
     }
 
@@ -90,8 +110,17 @@ impl VirtioGpuBackend {
             return Err(GfxError::DeviceNotFound);
         }
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-        nexus_abi::cap_query(vmo_slot, &mut info).map_err(|_| GfxError::MmioFault)?;
-        if info.kind_tag != 1 || info.len < (width as u64 * height as u64 * 4) {
+        nexus_abi::cap_query(vmo_slot, &mut info).map_err(|e| {
+            let _ = nexus_abi::debug_println("gpud: ERROR cap_query failed");
+            let _ = e;
+            GfxError::MmioFault
+        })?;
+        if info.kind_tag != 1 {
+            let _ = nexus_abi::debug_println("gpud: ERROR attach: kind_tag != VMO");
+            return Err(GfxError::InvalidArgument);
+        }
+        if info.len < (width as u64 * height as u64 * 4) {
+            let _ = nexus_abi::debug_println("gpud: ERROR attach: VMO too small");
             return Err(GfxError::InvalidArgument);
         }
         let id = ResourceId(self.next_resource_id);
@@ -118,7 +147,9 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_pair(&attach, &entry).map_err(|_| GfxError::CommandRejected)?;
 
-        // Set as primary scanout — QEMU GTK window resizes to match.
+        // Activate the scanout first, then commit the initial framebuffer contents.
+        // This matches the visible-bootstrap contract more closely: QEMU first learns
+        // the target mode/scanout, then receives the content transfer + flush.
         let scanout = protocol::VirtioGpuSetScanout {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_SET_SCANOUT),
             r: protocol::VirtioGpuRect { x: 0, y: 0, width, height },
@@ -126,8 +157,11 @@ impl VirtioGpuBackend {
             resource_id: id.0,
         };
         self.ctrl_submit_struct(&scanout).map_err(|_| GfxError::CommandRejected)?;
+        let _ = nexus_abi::debug_println("gpud: set_scanout ok");
+        let _ = nexus_abi::debug_println("gpud: scanout ok");
+        let _ = nexus_abi::debug_println("gpud: scanout 1280x800 bgra8888");
 
-        self.resources.push(ResourceRecord {
+        let record = ResourceRecord {
             id,
             width,
             height,
@@ -136,8 +170,46 @@ impl VirtioGpuBackend {
             backing_pa: info.base,
             backing_len: (width * height * 4) as usize,
             backing_vmo: 0, // external VMO from windowd, not owned by gpud
-        });
+        };
+
+        self.transfer_to_host_os(record, Rect { x: 0, y: 0, width, height })
+            .map_err(|e| {
+                let _ = nexus_abi::debug_println("gpud: ERROR transfer_to_host for initial frame failed");
+                e
+            })?;
+        let _ = nexus_abi::debug_println("gpud: transfer_to_host ok");
+
+        let flush = protocol::VirtioGpuResourceFlush {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_FLUSH),
+            r: protocol::VirtioGpuRect { x: 0, y: 0, width, height },
+            resource_id: id.0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&flush).map_err(|_| {
+            let _ = nexus_abi::debug_println("gpud: ERROR resource flush failed");
+            GfxError::CommandRejected
+        })?;
+        let _ = nexus_abi::debug_println("gpud: resource flush ok");
+
+        self.resources.push(record);
+        self.scanout_resource = Some(id);
         Ok(())
+    }
+
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
+        let scanout = self.scanout_resource.ok_or(GfxError::InvalidArgument)?;
+        let record = self.find_resource(scanout).ok_or(GfxError::InvalidArgument)?;
+        validate_rect(record, rect)?;
+        self.transfer_to_host_os(record, rect)?;
+        self.flush_rect_os(record, rect)?;
+        Ok(())
+    }
+
+    #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+    pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
+        let scanout = self.scanout_resource.ok_or(GfxError::InvalidArgument)?;
+        self.transfer_to_host(scanout, rect)
     }
 
     /// Convert PixelFormat to virtio-gpu format constant.
@@ -464,6 +536,17 @@ impl VirtioGpuBackend {
     }
 
     fn transfer_to_host_os(&mut self, record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
+        let bytes_per_pixel = 4u64;
+        let row_stride = u64::from(record.width)
+            .checked_mul(bytes_per_pixel)
+            .ok_or(GfxError::ResourceExhausted)?;
+        let row_offset = u64::from(rect.y)
+            .checked_mul(row_stride)
+            .ok_or(GfxError::ResourceExhausted)?;
+        let col_offset = u64::from(rect.x)
+            .checked_mul(bytes_per_pixel)
+            .ok_or(GfxError::ResourceExhausted)?;
+        let offset = row_offset.checked_add(col_offset).ok_or(GfxError::ResourceExhausted)?;
         let cmd = protocol::VirtioGpuTransferToHost2d {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D),
             r: protocol::VirtioGpuRect {
@@ -472,7 +555,22 @@ impl VirtioGpuBackend {
                 width: rect.width,
                 height: rect.height,
             },
-            offset: 0,
+            offset,
+            resource_id: record.id.0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&cmd)
+    }
+
+    fn flush_rect_os(&mut self, record: ResourceRecord, rect: Rect) -> Result<(), GfxError> {
+        let cmd = protocol::VirtioGpuResourceFlush {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_FLUSH),
+            r: protocol::VirtioGpuRect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+            },
             resource_id: record.id.0,
             _padding: 0,
         };

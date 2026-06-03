@@ -20,15 +20,21 @@ RUN_ID = os.environ.get("RUN_ID", "visible-bootstrap-qmp")
 DEFAULT_UART_LOG_PATH = Path(os.environ.get("UART_LOG", str(LOG_DIR / "uart.log")))
 DEFAULT_WAIT_MARKER = "windowd: present visible ok"
 DEFAULT_WAIT_TIMEOUT_S = 60.0
+DEFAULT_POINTER_ROUTE_MARKER = "windowd: cursor move visible"
+DEFAULT_CLICK_READY_MARKER = "launcher: click visible ok"
+DEFAULT_POST_MOVE_TIMEOUT_S = 10.0
+DEFAULT_POST_CLICK_TIMEOUT_S = 10.0
 QEMU_ABS_MAX = 32767
 VISIBLE_ROUTE_WIDTH = 64
 VISIBLE_ROUTE_HEIGHT = 48
 VISIBLE_DISPLAY_WIDTH = 1280
 VISIBLE_DISPLAY_HEIGHT = 800
-HOVER_TARGET_ROUTE_X = 58
-HOVER_TARGET_ROUTE_Y = 3
-CURSOR_START_ROUTE_X = 54
-CURSOR_START_ROUTE_Y = 6
+# Keep these coordinates aligned with `inputd::visible_contract`.
+# The hover proof target lives inside the left square near the lower-left area.
+HOVER_TARGET_ROUTE_X = 5
+HOVER_TARGET_ROUTE_Y = 37
+CURSOR_START_ROUTE_X = 24
+CURSOR_START_ROUTE_Y = 12
 REL_STEP_LIMIT = 256
 POST_PRESENT_SETTLE_S = 0.10
 POINTER_DOWN_HOLD_S = 0.25
@@ -203,6 +209,18 @@ def main() -> int:
     wait_timeout_s = float(
         os.environ.get("QEMU_INPUT_INJECT_WAIT_TIMEOUT_S", str(DEFAULT_WAIT_TIMEOUT_S))
     )
+    pointer_route_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_POINTER_ROUTE_MARKER", DEFAULT_POINTER_ROUTE_MARKER
+    )
+    click_ready_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_CLICK_READY_MARKER", DEFAULT_CLICK_READY_MARKER
+    )
+    post_move_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_POST_MOVE_TIMEOUT_S", str(DEFAULT_POST_MOVE_TIMEOUT_S))
+    )
+    post_click_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_POST_CLICK_TIMEOUT_S", str(DEFAULT_POST_CLICK_TIMEOUT_S))
+    )
     proof_prefers_single_pointer_source = (
         session_mode == "proof" and touch_enabled and mouse_enabled
     )
@@ -326,6 +344,18 @@ def main() -> int:
         # endregion agent log
         time.sleep(POST_PRESENT_SETTLE_S)
         if effective_mouse_enabled or effective_touch_enabled:
+            wait_for_uart_marker(uart_log_path, pointer_route_marker, post_move_timeout_s)
+            append_debug_log(
+                "H4",
+                "tools/qmp_visible_input_inject.py:150",
+                "pointer route marker reached",
+                {
+                    "uart_log_path": str(uart_log_path),
+                    "pointer_route_marker": pointer_route_marker,
+                    "post_move_timeout_s": post_move_timeout_s,
+                },
+            )
+        if effective_mouse_enabled or effective_touch_enabled:
             send_input_events(
                 sock,
                 [{"type": "btn", "data": {"down": True, "button": "left"}}],
@@ -333,6 +363,17 @@ def main() -> int:
                 device="video0",
             )
             time.sleep(POINTER_DOWN_HOLD_S)
+            wait_for_uart_marker(uart_log_path, click_ready_marker, post_click_timeout_s)
+            append_debug_log(
+                "H4",
+                "tools/qmp_visible_input_inject.py:168",
+                "click ready marker reached",
+                {
+                    "uart_log_path": str(uart_log_path),
+                    "click_ready_marker": click_ready_marker,
+                    "post_click_timeout_s": post_click_timeout_s,
+                },
+            )
         if keyboard_enabled:
             send_input_events(
                 sock,

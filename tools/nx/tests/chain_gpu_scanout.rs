@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: Chain-Test: GPU-Scanout-Pfad
+//! CONTEXT: Chain-Test: GPU-Display bootstrap path
 //! OWNERS: @tools-team
 //!
-//! Verifiziert: gpud probe → resource create → scanout → windowd FB handoff
+//! Verifies: gpud probe → windowd compositor → first frame
 
 #[cfg(test)]
 mod tests {
@@ -12,7 +12,7 @@ mod tests {
     use nx::chain::hop::ms;
     use nx::chain::{ChainRunner, ChainStatus};
 
-    /// Chain: gpud startet und setzt Scanout (Erfolgspfad)
+    /// Chain: gpud probes and windowd composes first frame
     #[tokio::test]
     async fn chain_gpu_scanout_success() {
         let mut runner = ChainRunner::new("gpu-scanout");
@@ -24,11 +24,15 @@ mod tests {
             .expect_marker("gpud: virtio-gpu probed", ms(500))
             .describe("gpud probed virtio-gpu MMIO device");
         runner
-            .expect_marker("gpud: scanout 1280x800 bgra8888", ms(500))
-            .after(0)
-            .describe("gpud setzt 1280x800 Scanout");
-        runner.expect_marker("gpud: display ready (w=1280, h=800)", ms(500)).after(1);
-        runner.expect_marker("gpud: ready", ms(200)).after(2);
+            .expect_marker("gpud: ready", ms(200))
+            .after(0);
+        runner
+            .expect_marker("windowd: ready (w=1280, h=800, hz=120)", ms(1000))
+            .describe("windowd runtime ready");
+        runner
+            .expect_marker("display: first scanout ok", ms(500))
+            .after(1)
+            .describe("first frame scanout confirmed");
 
         let report = runner.run().await;
         if report.status != ChainStatus::Passed {
@@ -37,7 +41,7 @@ mod tests {
         assert_eq!(report.status, ChainStatus::Passed);
     }
 
-    /// Chain: windowd führt GPU-Scanout-Handoff durch
+    /// Chain: windowd GPU handoff path
     #[tokio::test]
     async fn chain_gpu_windowd_handoff() {
         let mut runner = ChainRunner::new("gpu-windowd-handoff");
@@ -47,12 +51,14 @@ mod tests {
 
         runner
             .expect_marker("windowd: backend=gpu", ms(500))
-            .describe("windowd setzt Backend auf GPU");
-        runner.expect_marker("gpud: ready", ms(500)).after(0);
+            .describe("windowd creates framebuffer VMO");
         runner
-            .expect_marker("windowd: present ok (seq=1 dmg=1)", ms(300))
+            .expect_marker("windowd: backend=visible", ms(200))
+            .after(0);
+        runner
+            .expect_marker("SELFTEST: ui v2 present ok", ms(300))
             .after(1)
-            .describe("erster Frame präsentiert");
+            .describe("observer confirms present");
 
         let report = runner.run().await;
         if report.status != ChainStatus::Passed {

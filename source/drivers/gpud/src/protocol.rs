@@ -28,6 +28,7 @@ pub const VIRTIO_MMIO_QUEUE_DEVICE_HIGH: usize = 0x0a4;
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x74726976;
 
 /// virtio-gpu command types (per virtio-gpu spec §5.7.6.3).
+pub const VIRTIO_GPU_CMD_GET_DISPLAY_INFO: u32 = 0x0100;
 pub const VIRTIO_GPU_CMD_CREATE_RESOURCE_2D: u32 = 0x0101;
 pub const VIRTIO_GPU_CMD_RESOURCE_UNREF: u32 = 0x0102;
 pub const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x0103;
@@ -134,4 +135,14 @@ pub struct VirtioGpuCursorPosData {
     pub x: u32,
     pub y: u32,
     pub _padding: u32,
+}
+
+/// RESOURCE_FLUSH command.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtioGpuResourceFlush {
+    pub hdr: VirtioGpuCtrlHdr,
+    pub r: VirtioGpuRect,
+    pub resource_id: u32,
+    pub _padding: u64,
 }

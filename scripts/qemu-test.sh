@@ -304,6 +304,7 @@ declare -A PHASE_END_MARKER=(
   ["policy"]="SELFTEST: policy malformed ok"
   ["logd"]="SELFTEST: log query ok"
   ["vfs"]="SELFTEST: vfs ebadf ok"
+  ["end"]="SELFTEST: end"
 )
 
 declare -a INPUT_STARTUP_MARKERS=(
@@ -1168,7 +1169,10 @@ if [[ "$missing" -ne 0 ]]; then
   failed_phase="unknown"
   # Map missing marker position to the earliest phase whose end marker would include it.
   for phase in "${PHASES[@]}"; do
-    end_marker="${PHASE_END_MARKER[$phase]}"
+    end_marker="${PHASE_END_MARKER[$phase]:-}"
+    if [[ -z "$end_marker" ]]; then
+      continue
+    fi
     end_idx=$(find_marker_index "$end_marker" "${expected_sequence[@]}" || true)
     if [[ -n "$end_idx" && "$missing_pos" -le "$end_idx" ]]; then
       failed_phase="$phase"
@@ -1476,20 +1480,23 @@ if grep -aFq "SELFTEST: ui resize ok" "$UART_LOG" && ! grep -aFq "SELFTEST: ui l
 fi
 
 # TASK-0055B visible-bootstrap fake-green guard: the guest marker summarizes a
-# configured GPU scanout and must not appear without mode/present prerequisites.
-if grep -aFq "SELFTEST: display bootstrap guest ok" "$UART_LOG"; then
+# configured GPU scanout and must not appear without mode/present/handoff prerequisites.
+# Only enforced for GPU-capable profiles (headless has no virtio-gpu device).
+if [[ "${PROFILE:-full}" != "headless" && "${PROFILE:-full}" != "smp" && "${PROFILE:-full}" != "dhcp" && "${PROFILE:-full}" != "dhcp-strict" && "${PROFILE:-full}" != "quic-required" && "${PROFILE:-full}" != "os2vm" && "${PROFILE:-full}" != "supply-chain" ]]; then
+if grep -aFq "SELFTEST: ui v2 present ok" "$UART_LOG"; then
   for m in \
     "display: bootstrap on" \
     "display: mode 1280x800 argb8888" \
     "windowd: present ok (seq=1 dmg=1)" \
-    "display: first scanout ok"; do
+    "windowd: fb handoff to gpud ok" \
+    "gpud: scanout ok"; do
     if ! grep -aFq "$m" "$UART_LOG"; then
-      echo "[error] first_failed_phase=end missing_marker='$m'" >&2
-      echo "[error] Display visible marker appeared before required scanout proof: $m" >&2
-      print_uart_excerpt "${PHASE_START_MARKER[end]}" "SELFTEST: sandbox deny ok"
+      echo "[error] CONTRACT VIOLATION: ui v2 present ok without '$m'" >&2
+      echo "[error] GPU chain contract broken — display markers are false positives" >&2
       exit 1
     fi
   done
+fi
 fi
 
 # TASK-0055C visible-present fake-green guard: the UI visible marker summarizes

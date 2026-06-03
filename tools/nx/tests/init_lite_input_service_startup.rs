@@ -28,13 +28,13 @@ fn input_services_are_default_init_lite_candidates() {
 #[test]
 fn input_services_are_in_default_qemu_payload_list() {
     let qemu_test = read_repo_file("scripts/qemu-test.sh");
-    let run_qemu = read_repo_file("scripts/run-qemu-rv64.sh");
+    let build_sh = read_repo_file("scripts/build.sh");
     // Phase 4b: auto-discovery via scripts/discover-services.sh and cargo metadata.
     // The Makefile no longer hardcodes service lists; services declare themselves
     // via [package.metadata.nexus-service] in their Cargo.toml.
     for service in INPUT_SERVICES {
         assert_service_list_contains(&qemu_test, service, "scripts/qemu-test.sh");
-        assert_service_list_contains(&run_qemu, service, "scripts/run-qemu-rv64.sh");
+        assert_service_list_contains(&build_sh, service, "scripts/build.sh");
         // Verify the service has nexus-service metadata (auto-discovered)
         let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
         assert!(
@@ -52,15 +52,15 @@ fn input_services_are_in_default_qemu_payload_list() {
         "`scripts/qemu-test.sh` must keep a focused input-startup proof ladder for real service payload readiness"
     );
     assert!(
-        run_qemu.contains("hidrawd|touchd|inputd"),
-        "`scripts/run-qemu-rv64.sh` must keep bounded stack support for explicit input service lists"
+        build_sh.contains("hidrawd|touchd|inputd"),
+        "`scripts/build.sh` must keep bounded stack support for explicit input service lists"
     );
 }
 
 #[test]
 fn input_services_use_bounded_os_stack_pages() {
     // Phase 4b: stack_pages is declared in Cargo.toml metadata,
-    // resolved by scripts/discover-services.sh --env-vars.
+    // by scripts/discover-services.sh and resolved via INIT_LITE_SERVICE_*_STACK_PAGES.
     for service in INPUT_SERVICES {
         let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
         assert!(

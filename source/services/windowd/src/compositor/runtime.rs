@@ -60,6 +60,10 @@ use nexus_layout_types::FxPx;
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
+const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
+const GPUD_STATUS_OK: u8 = 0;
+const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
+const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const HOVER_LAYER_ID: LayerId = LayerId(1);
 const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
 const SIDEBAR_WIDTH: u32 = 320;
@@ -68,6 +72,37 @@ const GLASS_BUTTON_W: u32 = 156;
 const GLASS_BUTTON_H: u32 = 56;
 const GLASS_BUTTON_TOP: u32 = 24;
 const GLASS_BUTTON_RIGHT: u32 = 24;
+
+fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
+    let label = match err {
+        nexus_ipc::IpcError::WouldBlock => "would-block",
+        nexus_ipc::IpcError::Timeout => "timeout",
+        nexus_ipc::IpcError::Disconnected => "disconnected",
+        nexus_ipc::IpcError::NoSpace => "no-space",
+        nexus_ipc::IpcError::Unsupported => "unsupported",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint) => "kernel-no-endpoint",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::QueueFull) => "kernel-queue-full",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::QueueEmpty) => "kernel-queue-empty",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied) => {
+            "kernel-permission-denied"
+        }
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::TimedOut) => "kernel-timeout",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSpace) => "kernel-no-space",
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::Unsupported) => "kernel-unsupported",
+        _ => "other",
+    };
+    let _ = debug_println(&alloc::format!("{prefix} {label}"));
+}
+
+fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
+    let mut frame = [0u8; 17];
+    frame[0] = GPU_PRESENT_DAMAGE_OP;
+    frame[1..5].copy_from_slice(&rect.x.to_le_bytes());
+    frame[5..9].copy_from_slice(&rect.y.to_le_bytes());
+    frame[9..13].copy_from_slice(&rect.width.to_le_bytes());
+    frame[13..17].copy_from_slice(&rect.height.to_le_bytes());
+    frame
+}
 
 #[derive(Clone, Copy)]
 struct AnimatedSceneState {
@@ -447,10 +482,6 @@ impl DisplayServerRuntime {
         self.framebuffer = Some(handle);
         self.state.display_scanout_ready = true;
         self.refresh_observer_state();
-
-        // Notify gpud: send the framebuffer VMO for zero-copy GPU scanout.
-        self.try_handoff_framebuffer_to_gpud(handle);
-
         self.framebuffer_pending_first_write = true;
     }
 
@@ -461,34 +492,39 @@ impl DisplayServerRuntime {
         if !self.framebuffer_pending_first_write {
             return STATUS_OK;
         }
-        // Retry gpud handoff until it succeeds (route may not be wired yet
-        // when windowd starts before init-lite finishes IPC wiring).
-        if let Some(handle) = self.framebuffer {
-            self.try_handoff_framebuffer_to_gpud(handle);
-        }
         if self.write_current_frame().is_err() {
             self.framebuffer_pending_first_write = false;
             return STATUS_MALFORMED;
         }
+        // The first visible handoff must happen after the composed frame is in
+        // the shared VMO; otherwise gpud transfers an empty/stale buffer.
+        let handoff_ok =
+            self.framebuffer.map(|handle| self.try_handoff_framebuffer_to_gpud(handle)).unwrap_or(false);
         if self.active_proof_layout().is_some() {
             let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
             let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
         }
+        // Bootstrap markers — always emitted (compositor started).
         let _ = debug_println(DISPLAY_BOOTSTRAP_MARKER);
         let _ = debug_println(DISPLAY_MODE_MARKER);
         let _ = debug_println(VISIBLE_BACKEND_MARKER);
         let _ = debug_println(COMPOSE_READY_MARKER);
         let _ = debug_println(PRESENT_QUEUED_MARKER);
-        let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
-        self.input_markers_emitted.scheduler = true;
-        let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
-        self.input_markers_emitted.v2_present = true;
-        let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
-        let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
-        let _ = debug_println(PRESENT_VISIBLE_MARKER);
-        let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
-        self.emit_asset_markers();
-        self.emit_v3b_markers();
+        // GPU-dependent markers — only when handoff succeeded.
+        if handoff_ok {
+            let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
+            self.input_markers_emitted.scheduler = true;
+            let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
+            self.input_markers_emitted.v2_present = true;
+            let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
+            let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+            let _ = debug_println(PRESENT_VISIBLE_MARKER);
+            let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+            self.emit_asset_markers();
+            self.emit_v3b_markers();
+        } else {
+            let _ = debug_println("windowd: ERROR no gpu scanout");
+        }
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
@@ -608,8 +644,19 @@ impl DisplayServerRuntime {
             cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
         if pointer_only_change && self.saved_cursor_rect.is_some() {
             if self.update_cursor_fast_path().is_ok() {
-                self.emit_input_markers();
-                return STATUS_OK;
+                let present_ok = self
+                    .merged_cursor_damage_rect(
+                        old_cursor_x,
+                        old_cursor_y,
+                        self.state.cursor_x,
+                        self.state.cursor_y,
+                    )
+                    .map(|rect| self.present_damage_to_gpud(rect))
+                    .unwrap_or(true);
+                if present_ok {
+                    self.emit_input_markers();
+                    return STATUS_OK;
+                }
             }
         }
         self.paint_only_damage =
@@ -857,25 +904,126 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
-    /// Retries silently if gpud is not reachable — the handoff is retried on each tick.
-    fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) {
-        if self.gpud_client.is_none() {
-            self.gpud_client = KernelClient::new_for("gpud").ok();
-            if self.gpud_client.is_none() {
-                // gpud route not yet wired — retry on next tick
-                return;
+    fn ensure_gpud_client(&mut self) -> bool {
+        if self.gpud_client.is_some() {
+            return true;
+        }
+        if let Ok(client) =
+            KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
+        {
+            self.gpud_client = Some(client);
+            return true;
+        }
+        false
+    }
+
+    fn send_gpud_status_request(&mut self, frame: &[u8]) -> Result<(), WindowdError> {
+        if !self.ensure_gpud_client() {
+            return Err(WindowdError::InvalidDamage);
+        }
+        let send_result = {
+            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
+            client.send(frame, Wait::Blocking)
+        };
+        if let Err(err) = send_result {
+            log_gpud_ipc_error("windowd: gpud request send failed", err);
+            self.gpud_client = None;
+            return Err(WindowdError::InvalidDamage);
+        }
+        let recv_result = {
+            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
+            client.recv(Wait::Blocking)
+        };
+        match recv_result {
+            Ok(reply) if reply.first().copied() == Some(GPUD_STATUS_OK) => Ok(()),
+            Ok(reply) => {
+                if let Some(status) = reply.first().copied() {
+                    let _ =
+                        debug_println(&alloc::format!("windowd: gpud request bad-status=0x{status:02x}"));
+                } else {
+                    let _ = debug_println("windowd: gpud request bad-status=empty");
+                }
+                self.gpud_client = None;
+                Err(WindowdError::InvalidDamage)
+            }
+            Err(err) => {
+                log_gpud_ipc_error("windowd: gpud request recv failed", err);
+                self.gpud_client = None;
+                Err(WindowdError::InvalidDamage)
             }
         }
-        let Some(client) = self.gpud_client.as_ref() else {
-            return;
+    }
+
+    fn present_damage_to_gpud(&mut self, rect: DamageRect) -> bool {
+        let frame = encode_gpud_damage_frame(rect);
+        if self.send_gpud_status_request(&frame).is_ok() {
+            return true;
+        }
+        let _ = debug_println("windowd: gpud present damage failed");
+        false
+    }
+
+    /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
+    /// Returns true only after gpud accepted the VMO handoff.
+    fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) -> bool {
+        if !self.ensure_gpud_client() {
+            return false;
+        }
+
+        // Clone the VMO capability for gpud. Retry if cap table is full.
+        let clone = loop {
+            match nexus_abi::cap_clone(fb_handle) {
+                Ok(c) => break c,
+                Err(_) => {
+                    let _ = nexus_abi::yield_();
+                }
+            }
         };
-        let Ok(clone) = nexus_abi::cap_clone(fb_handle) else {
-            return;
-        };
+
+        // Send VMO with blocking wait — kernel guarantees delivery before return.
         let request = [GPU_SET_FRAMEBUFFER_VMO_OP];
-        if client.send_with_cap_move_wait(&request, clone, Wait::NonBlocking).is_ok() {
-            let _ = debug_println("windowd: fb handoff to gpud ok");
+        let send_result = {
+            let Some(client) = self.gpud_client.as_ref() else {
+                return false;
+            };
+            client.send_with_cap_move_wait(&request, clone, Wait::Blocking)
+        };
+        let recv_result = if send_result.is_ok() {
+            let Some(client) = self.gpud_client.as_ref() else {
+                return false;
+            };
+            client.recv(Wait::Blocking)
+        } else {
+            Err(nexus_ipc::IpcError::Disconnected)
+        };
+        match (send_result, recv_result) {
+            (Ok(()), Ok(reply)) if reply.first().copied() == Some(GPUD_STATUS_OK) => {
+                let _ = debug_println("windowd: fb handoff to gpud ok");
+                true
+            }
+            (Ok(()), Ok(reply)) => {
+                if let Some(status) = reply.first().copied() {
+                    let _ = debug_println(&alloc::format!(
+                        "windowd: fb handoff to gpud bad-status=0x{status:02x}"
+                    ));
+                } else {
+                    let _ = debug_println("windowd: fb handoff to gpud bad-status=empty");
+                }
+                self.gpud_client = None;
+                false
+            }
+            (Err(e), _) => {
+                let _ = debug_println("windowd: fb handoff to gpud send-failed");
+                log_gpud_ipc_error("windowd: fb handoff to gpud send-failed detail", e);
+                self.gpud_client = None;
+                false
+            }
+            (Ok(()), Err(e)) => {
+                let _ = debug_println("windowd: fb handoff to gpud recv-failed");
+                log_gpud_ipc_error("windowd: fb handoff to gpud recv-failed detail", e);
+                self.gpud_client = None;
+                false
+            }
         }
     }
 
@@ -918,13 +1066,7 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let frame = [GPU_ANIMATION_SUBMIT_OP];
-        if self.gpud_client.is_none() {
-            self.gpud_client = KernelClient::new_for("gpud").ok();
-        }
-        let Some(client) = self.gpud_client.as_ref() else {
-            return Err(WindowdError::InvalidDamage);
-        };
-        client.send(&frame, Wait::NonBlocking).map_err(|_| WindowdError::InvalidDamage)
+        self.send_gpud_status_request(&frame)
     }
 
     fn sidebar_damage_rect(&self) -> DamageRect {
@@ -1282,13 +1424,13 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    fn queue_cursor_damage(
-        &mut self,
+    fn merged_cursor_damage_rect(
+        &self,
         old_cursor_x: i32,
         old_cursor_y: i32,
         new_cursor_x: i32,
         new_cursor_y: i32,
-    ) {
+    ) -> Option<DamageRect> {
         let old_rect = cursor_damage_rect(
             old_cursor_x,
             old_cursor_y,
@@ -1306,9 +1448,23 @@ impl DisplayServerRuntime {
             self.mode.height,
         );
         match (old_rect, new_rect) {
-            (Some(old_rect), Some(new_rect)) => self.queue_dirty_rect(old_rect.merge(new_rect)),
-            (Some(rect), None) | (None, Some(rect)) => self.queue_dirty_rect(rect),
-            (None, None) => {}
+            (Some(old_rect), Some(new_rect)) => Some(old_rect.merge(new_rect)),
+            (Some(rect), None) | (None, Some(rect)) => Some(rect),
+            (None, None) => None,
+        }
+    }
+
+    fn queue_cursor_damage(
+        &mut self,
+        old_cursor_x: i32,
+        old_cursor_y: i32,
+        new_cursor_x: i32,
+        new_cursor_y: i32,
+    ) {
+        if let Some(rect) =
+            self.merged_cursor_damage_rect(old_cursor_x, old_cursor_y, new_cursor_x, new_cursor_y)
+        {
+            self.queue_dirty_rect(rect);
         }
     }
 
@@ -1332,6 +1488,7 @@ impl DisplayServerRuntime {
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
         let mut wrote_any = false;
+        let mut gpud_present_ok = true;
         let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut rect_count = 0usize;
 
@@ -1348,12 +1505,20 @@ impl DisplayServerRuntime {
         rect_count = premerge_damage_rects(&mut rects, rect_count);
         for rect in rects.iter().copied().take(rect_count) {
             self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
+            gpud_present_ok &= self.present_damage_to_gpud(rect);
             wrote_any = true;
         }
 
         self.tile_map.clear();
         if wrote_any {
-            let _ = self.write_cursor_overlay();
+            self.write_cursor_overlay()?;
+            if let Some(cursor_rect) = self.saved_cursor_rect {
+                gpud_present_ok &= self.present_damage_to_gpud(cursor_rect);
+            }
+            if !gpud_present_ok {
+                self.paint_only_damage = false;
+                return Err(WindowdError::InvalidDamage);
+            }
             self.emit_input_markers();
             self.paint_only_damage = false;
         }

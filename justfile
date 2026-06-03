@@ -149,8 +149,12 @@ ci-os-full:
 ci-os-headless:
     just test-os headless
 
-ci-os-display-gpu:
-    just test-os display-gpu
+ci-os-display-gpu-pci:
+    GPU_MODE=pci just test-os display-gpu
+
+# full visible UI test with PCI GPU (requires GTK display)
+test-os-visible-pci:
+    GPU_MODE=pci just test-os visible-bootstrap
 
 ci-os-smp:
     SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-300s} just test-os smp

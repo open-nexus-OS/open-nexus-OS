@@ -121,12 +121,36 @@ require_or_build() {
     echo "[skip-build] $label: $artifact" >&2
     return 0
   fi
-  (cd "$ROOT" && "$@")
+
+  # Capture stderr for diagnostics while also showing it to the user.
+  # Use a tmp file in TMPDIR (already created by prepare_build_tmpdir)
+  # to avoid mktemp races.
+  local stderr_file="$TMPDIR/build-$$-${label//[^a-zA-Z0-9]/-}.stderr"
+  (cd "$ROOT" && "$@" 2> >(tee "$stderr_file" >&2))
   local build_rc=$?
+
+  # Extract error[E…] and warning[…] lines (bounded to 15 each for log size).
   if [[ $build_rc -ne 0 ]]; then
+    local err_lines err_json
+    err_lines=$(grep -E '^error(\[[A-Z][0-9]+\])?' "$stderr_file" 2>/dev/null | head -15 | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
+    err_json="\"${err_lines:-}\""
     debug_log "H4" "scripts/build.sh:build-errors" "cargo build failure for $label" \
-      "{\"label\":\"$label\",\"exit_code\":$build_rc,\"artifact\":\"$artifact\",\"note\":\"see terminal stderr for compiler details\"}"
+      "{\"label\":\"$label\",\"exit_code\":$build_rc,\"artifact\":\"$artifact\",\"errors\":[$err_json]}"
   fi
+
+  local warn_count
+  warn_count=$(grep -cE '^warning' "$stderr_file" 2>/dev/null || echo 0)
+  warn_count=${warn_count//[^0-9]/}
+  [[ -z "$warn_count" ]] && warn_count=0
+  if [[ "$warn_count" -gt 0 ]]; then
+    local warn_lines warn_json
+    warn_lines=$(grep -E '^warning' "$stderr_file" 2>/dev/null | head -15 | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
+    warn_json="\"${warn_lines:-}\""
+    debug_log "H4b" "scripts/build.sh:build-warnings" "cargo build warnings for $label" \
+      "{\"label\":\"$label\",\"count\":$warn_count,\"warnings\":[$warn_json]}"
+  fi
+
+  rm -f "$stderr_file"
   return $build_rc
 }
 
@@ -187,13 +211,14 @@ prepare_service_payloads() {
 # build_kernel_and_init — build kernel + init-lite (with embedded service ELFs)
 # ---------------------------------------------------------------------------
 build_kernel_and_init() {
+  # Build init-lite FIRST — the kernel needs EMBED_INIT_ELF to point at it.
+  require_or_build "$INIT_ELF" "init-lite" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release
+
   local -a kernel_args=(build -p neuron-boot --target "$TARGET" --release)
   if [[ -n "${NEURON_BOOT_FEATURES:-}" ]]; then
     kernel_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
   require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- env EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${kernel_args[@]}"
-
-  require_or_build "$INIT_ELF" "init-lite" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release
 }
 
 # ---------------------------------------------------------------------------
@@ -203,7 +228,27 @@ build_all() {
   prepare_build_tmpdir
   prepare_service_payloads
   build_kernel_and_init
-  echo "[info] Build complete" >&2
+  # Post-build artifact verification
+  if [[ ! -f "$KERNEL_ELF" ]]; then
+    echo "[error] build.sh: kernel ELF not produced: $KERNEL_ELF" >&2
+    exit 1
+  fi
+  if [[ ! -f "$INIT_ELF" ]]; then
+    echo "[error] build.sh: init-lite ELF not produced: $INIT_ELF" >&2
+    exit 1
+  fi
+  local ksize isize
+  ksize=$(wc -c <"$KERNEL_ELF" 2>/dev/null || echo 0)
+  isize=$(wc -c <"$INIT_ELF" 2>/dev/null || echo 0)
+  if [[ "$ksize" -lt 200000 ]]; then
+    echo "[error] build.sh: kernel is too small (${ksize} bytes) — is EMBED_INIT_ELF set?" >&2
+    exit 1
+  fi
+  if [[ "$isize" -lt 100000 ]]; then
+    echo "[error] build.sh: init-lite is too small (${isize} bytes) — are services embedded?" >&2
+    exit 1
+  fi
+  echo "[info] Build complete (kernel=${ksize}B, init=${isize}B)" >&2
 }
 
 # If executed directly, run the full build.

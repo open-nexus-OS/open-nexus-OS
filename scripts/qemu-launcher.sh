@@ -27,6 +27,7 @@
 #   QEMU_BLK_IMG            – QEMU block image path
 #   QEMU_INPUT_AUTOINJECT   – when "1", enable QMP for visible input injection
 #   QEMU_QMP_SOCKET         – QMP unix socket path
+#   QEMU_PROOF_POINTER_SOURCE – mouse | tablet | keyboard | mixed
 #   QEMU_ICOUNT_ARGS        – icount args (default: 1,sleep=on)
 #   QEMU_NO_ICOUNT          – when "1", disable icount
 #   QEMU_FORCE_LEGACY       – when "1", force legacy virtio-mmio
@@ -45,6 +46,13 @@ TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 # --- Build (unless skipped) ---
 NEXUS_SKIP_BUILD=${NEXUS_SKIP_BUILD:-0}
 if [[ "$NEXUS_SKIP_BUILD" != "1" ]]; then
+  # Initialise LOG_DIR and HYPOTHESIS_LOG BEFORE the build so that
+  # build.sh can log H4 (build-error) entries.
+  LOG_DIR=${LOG_DIR:-$ROOT/build/logs/manual--$(date +%Y-%m-%dT%H-%M-%S)}
+  mkdir -p "$LOG_DIR"
+  HYPOTHESIS_LOG=${HYPOTHESIS_LOG:-$LOG_DIR/hypothesis.json}
+  RUN_ID=${RUN_ID:-"build-$(date +%s)-$$"}
+  export LOG_DIR HYPOTHESIS_LOG RUN_ID
   source "$ROOT/scripts/build.sh"
   build_all
 fi
@@ -64,6 +72,9 @@ QEMU_MARKER_LEVEL=${QEMU_MARKER_LEVEL:-proof}
 NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP:-0}
 QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}
 QEMU_QMP_SOCKET=${QEMU_QMP_SOCKET:-$ROOT/build/qemu.qmp}
+QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-mouse}
+QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280}
+QEMU_GPU_YRES=${QEMU_GPU_YRES:-800}
 QEMU_ICOUNT_ARGS=${QEMU_ICOUNT_ARGS:-"1,sleep=on"}
 QEMU_NO_ICOUNT=${QEMU_NO_ICOUNT:-0}
 QEMU_FORCE_LEGACY=${QEMU_FORCE_LEGACY:-0}
@@ -80,7 +91,7 @@ QEMU_NETDEV=${QEMU_NETDEV:--netdev user,id=n0}
 QEMU_NETDEV_DEVICE=${QEMU_NETDEV_DEVICE:--device virtio-net-device,netdev=n0}
 QEMU_RNG_OBJECT=${QEMU_RNG_OBJECT:--object rng-random,id=rng0,filename=/dev/urandom}
 QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
-QEMU_GPU_DEVICE=${QEMU_GPU_DEVICE:--device virtio-gpu-device}
+GPU_MODE=${GPU_MODE:-mmio}
 QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/blk.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
@@ -133,7 +144,15 @@ cleanup_qmp() {
   rm -f "$QEMU_QMP_SOCKET"
 }
 
-trap 'cleanup_qmp; cleanup_blk_lock' EXIT
+cleanup_input_injector() {
+  if [[ -n "${INPUT_INJECT_PID:-}" ]]; then
+    kill "$INPUT_INJECT_PID" >/dev/null 2>&1 || true
+    wait "$INPUT_INJECT_PID" >/dev/null 2>&1 || true
+    INPUT_INJECT_PID=""
+  fi
+}
+
+trap 'cleanup_input_injector; cleanup_qmp; cleanup_blk_lock' EXIT
 
 # --- trim log tail ---
 trim_log() {
@@ -150,18 +169,49 @@ trim_log() {
 # --- Build QEMU command ---
 build_qemu_args() {
   local -a args=()
+  local -a input_args=()
   args+=(-machine virt,aclint=on -cpu max -m 265M -smp "${SMP:-1}" -bios default)
   args+=(-kernel "$KERNEL_BIN")
 
   # Display mode
   if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
     local display_backend="$QEMU_DISPLAY_BACKEND"
-    [[ "$display_backend" == "gtk" ]] && display_backend="gtk,show-menubar=off"
+    [[ "$display_backend" == "gtk" ]] && display_backend="gtk,show-menubar=off,zoom-to-fit=off"
     args+=(-display "$display_backend" -serial mon:stdio)
-    args+=(-device virtio-gpu-device,max_outputs=1)
+    if [[ "$GPU_MODE" == "pci" ]]; then
+      # PCIe virtio-gpu connects correctly to the QEMU display backend.
+      # Bus auto-assignment works on riscv64 virt machine's built-in PCIe.
+      args+=(-device "virtio-gpu-pci,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
+    else
+      args+=(-device "virtio-gpu-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
+    fi
+    # Visible bootstrap needs deterministic virtio-input MMIO devices so
+    # hidrawd can own the real input-driver hop under the selected proof mode.
+    input_args+=(-device virtio-keyboard-device)
+    case "$QEMU_PROOF_POINTER_SOURCE" in
+      mouse|"")
+        input_args+=(-device virtio-mouse-device)
+        ;;
+      tablet)
+        input_args+=(-device virtio-tablet-device)
+        ;;
+      keyboard)
+        ;;
+      mixed)
+        input_args+=(-device virtio-mouse-device -device virtio-tablet-device)
+        ;;
+      *)
+        echo "[error] Unknown QEMU_PROOF_POINTER_SOURCE='$QEMU_PROOF_POINTER_SOURCE' (supported: mouse tablet keyboard mixed)" >&2
+        exit 1
+        ;;
+    esac
   else
     args+=(-nographic -serial mon:stdio)
-    args+=(${QEMU_GPU_DEVICE})
+    if [[ "$GPU_MODE" == "pci" ]]; then
+      args+=(-device "virtio-gpu-pci,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
+    else
+      args+=(-device "virtio-gpu-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
+    fi
   fi
 
   # QMP for visible input injection
@@ -194,8 +244,52 @@ build_qemu_args() {
   args+=(${QEMU_NETDEV} ${QEMU_NETDEV_DEVICE})
   args+=(${QEMU_RNG_OBJECT} ${QEMU_RNG_DEVICE})
   args+=(${QEMU_BLK_DRIVE} ${QEMU_BLK_DEVICE})
+  args+=("${input_args[@]}")
 
   printf '%s\n' "${args[@]}"
+}
+
+start_visible_input_injector() {
+  if [[ "$QEMU_INPUT_AUTOINJECT" != "1" ]]; then
+    return 0
+  fi
+
+  local profile_mouse=0
+  local profile_touch=0
+  local profile_kbd=1
+  case "$QEMU_PROOF_POINTER_SOURCE" in
+    mouse|"")
+      profile_mouse=1
+      profile_touch=0
+      ;;
+    tablet)
+      profile_mouse=0
+      profile_touch=1
+      ;;
+    keyboard)
+      profile_mouse=0
+      profile_touch=0
+      ;;
+    mixed)
+      profile_mouse=1
+      profile_touch=1
+      ;;
+    *)
+      echo "[error] Unknown QEMU_PROOF_POINTER_SOURCE='$QEMU_PROOF_POINTER_SOURCE' for injector" >&2
+      exit 1
+      ;;
+  esac
+
+  QEMU_UART_LOG_PATH="$UART_LOG" \
+  NEXUS_PROFILE_INPUT_MOUSE="$profile_mouse" \
+  NEXUS_PROFILE_INPUT_TOUCH="$profile_touch" \
+  NEXUS_PROFILE_INPUT_KBD="$profile_kbd" \
+  QEMU_SESSION_MODE="$QEMU_SESSION_MODE" \
+  LOG_DIR="$LOG_DIR" \
+  HYPOTHESIS_LOG="$HYPOTHESIS_LOG" \
+  RUN_ID="$RUN_ID" \
+  python3 "$ROOT/tools/qmp_visible_input_inject.py" "$QEMU_QMP_SOCKET" >>"$QEMU_LOG" 2>&1 &
+  INPUT_INJECT_PID=$!
 }
 
 # --- Monitor UART for early exit ---
@@ -255,13 +349,14 @@ debug_log "H14" "scripts/qemu-launcher.sh:host-resources-pre" "host resource sna
 
 # Hypothesis: resolved config
 debug_log "H1" "scripts/qemu-launcher.sh:resolved-config" "resolved qemu config before launch" \
-  "{\"display_bootstrap\":\"$NEXUS_DISPLAY_BOOTSTRAP\",\"display_backend\":\"$QEMU_DISPLAY_BACKEND\",\"smp\":\"${SMP:-1}\",\"timeout\":\"$RUN_TIMEOUT\"}"
+  "{\"display_bootstrap\":\"$NEXUS_DISPLAY_BOOTSTRAP\",\"display_backend\":\"$QEMU_DISPLAY_BACKEND\",\"gpu_xres\":\"$QEMU_GPU_XRES\",\"gpu_yres\":\"$QEMU_GPU_YRES\",\"pointer_source\":\"$QEMU_PROOF_POINTER_SOURCE\",\"smp\":\"${SMP:-1}\",\"timeout\":\"$RUN_TIMEOUT\"}"
 
 # Build QEMU args
 mapfile -t QEMU_ARGS < <(build_qemu_args)
 echo "[info] QEMU args: ${QEMU_ARGS[*]}" >&2
 
 # Launch QEMU
+start_visible_input_injector
 if [[ "$RUN_TIMEOUT" == "0" ]]; then
   stdbuf -oL -eL qemu-system-riscv64 "${QEMU_ARGS[@]}" > >(monitor_uart_stream | tee "$UART_LOG") 2>"$QEMU_LOG"
   qemu_status=$?
