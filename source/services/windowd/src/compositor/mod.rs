@@ -78,12 +78,12 @@ use core::fmt::Write as _;
 
 use input_live_protocol::{
     decode_update_visible_state, encode_status, encode_visible_state_frame, frame_has_op,
-    VisibleState, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE,
-    STATUS_MALFORMED, STATUS_OK, STATUS_UNSUPPORTED,
+    VisibleState, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_OK,
+    STATUS_UNSUPPORTED,
 };
-use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
+use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;

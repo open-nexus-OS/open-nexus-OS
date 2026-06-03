@@ -415,14 +415,26 @@ impl VirtioGpuBackend {
         let gpu_format = Self::to_gpu_format(fmt);
         // Debug: emit format and resource_id values
         match gpu_format {
-            1 => { let _ = nexus_abi::debug_println("gpud: dbg fmt=B8G8R8A8"); }
-            67 => { let _ = nexus_abi::debug_println("gpud: dbg fmt=R8G8B8A8"); }
-            _ => { let _ = nexus_abi::debug_println("gpud: dbg fmt=UNKNOWN"); }
+            1 => {
+                let _ = nexus_abi::debug_println("gpud: dbg fmt=B8G8R8A8");
+            }
+            67 => {
+                let _ = nexus_abi::debug_println("gpud: dbg fmt=R8G8B8A8");
+            }
+            _ => {
+                let _ = nexus_abi::debug_println("gpud: dbg fmt=UNKNOWN");
+            }
         }
         match id.0 {
-            0 => { let _ = nexus_abi::debug_println("gpud: dbg rid=0"); }
-            1 => { let _ = nexus_abi::debug_println("gpud: dbg rid=1"); }
-            _ => { let _ = nexus_abi::debug_println("gpud: dbg rid=OTHER"); }
+            0 => {
+                let _ = nexus_abi::debug_println("gpud: dbg rid=0");
+            }
+            1 => {
+                let _ = nexus_abi::debug_println("gpud: dbg rid=1");
+            }
+            _ => {
+                let _ = nexus_abi::debug_println("gpud: dbg rid=OTHER");
+            }
         }
         let create = protocol::VirtioGpuResourceCreate2d {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
@@ -646,13 +658,27 @@ impl CtrlQueue {
                 }
                 // Debug: classify the error response from QEMU
                 match hdr.type_ {
-                    0x1200 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC"); }
-                    0x1201 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY"); }
-                    0x1202 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_SCANOUT_ID"); }
-                    0x1203 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_RESOURCE_ID"); }
-                    0x1204 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_CONTEXT_ID"); }
-                    0x1205 => { let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER"); }
-                    _ => { let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN"); }
+                    0x1200 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC");
+                    }
+                    0x1201 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY");
+                    }
+                    0x1202 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_SCANOUT_ID");
+                    }
+                    0x1203 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_RESOURCE_ID");
+                    }
+                    0x1204 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_CONTEXT_ID");
+                    }
+                    0x1205 => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER");
+                    }
+                    _ => {
+                        let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN");
+                    }
                 }
                 return Err(GfxError::CommandRejected);
             }

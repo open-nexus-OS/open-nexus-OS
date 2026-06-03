@@ -823,11 +823,7 @@ impl TaskTable {
     /// Transitions a suspended task to Running and enqueues it.
     /// Idempotent: if already Running, returns NotSuspended.
     #[must_use]
-    pub fn resume_task(
-        &mut self,
-        pid: Pid,
-        scheduler: &mut Scheduler,
-    ) -> ResumeOutcome {
+    pub fn resume_task(&mut self, pid: Pid, scheduler: &mut Scheduler) -> ResumeOutcome {
         let idx = pid.as_index();
         let Some(task) = self.tasks.get_mut(idx) else {
             return ResumeOutcome::TaskNotFound;

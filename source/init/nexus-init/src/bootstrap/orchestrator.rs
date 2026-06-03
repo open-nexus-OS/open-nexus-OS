@@ -1475,7 +1475,9 @@ where
                         try_transfer(pid, window_req, Rights::SEND, "inputd->windowd", "SEND");
                     let window_recv_slot =
                         try_transfer(pid, window_rsp, Rights::RECV, "inputd->windowd", "RECV");
-                    if let (Some(window_send), Some(window_recv)) = (window_send_slot, window_recv_slot) {
+                    if let (Some(window_send), Some(window_recv)) =
+                        (window_send_slot, window_recv_slot)
+                    {
                         chan.window_send_slot = Some(window_send);
                         chan.window_recv_slot = Some(window_recv);
                         debug_write_bytes(b"init: inputd windowd slots send=0x");

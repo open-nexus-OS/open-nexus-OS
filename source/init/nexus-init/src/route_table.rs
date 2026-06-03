@@ -242,12 +242,7 @@ mod tests {
 
     #[test]
     fn service_id_roundtrip() {
-        for id in &[
-            ServiceId::Vfsd,
-            ServiceId::Windowd,
-            ServiceId::Gpud,
-            ServiceId::Samgrd,
-        ] {
+        for id in &[ServiceId::Vfsd, ServiceId::Windowd, ServiceId::Gpud, ServiceId::Samgrd] {
             let name = id.name();
             let parsed = ServiceId::from_name(name.as_bytes());
             assert_eq!(parsed, Some(*id), "roundtrip failed for {name}");
@@ -310,8 +305,7 @@ mod tests {
             CapSlot::new(0x41, Rights::RECV),
         );
 
-        let route =
-            table.lookup(ServiceId::Gpud, ServiceId::Windowd).expect("route should exist");
+        let route = table.lookup(ServiceId::Gpud, ServiceId::Windowd).expect("route should exist");
         assert_eq!(route.send.slot, 0x40);
     }
 

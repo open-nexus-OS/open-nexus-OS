@@ -149,10 +149,7 @@ fn service_requests(
     }
 }
 
-fn handle_frame(
-    backend: &mut VirtioGpuBackend,
-    frame: &[u8],
-) -> u8 {
+fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
     let Some(op) = frame.first().copied() else {
         return STATUS_MALFORMED;
     };

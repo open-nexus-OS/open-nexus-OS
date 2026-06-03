@@ -11,8 +11,6 @@
 use crate::chain::contract::{Contract, ContractError};
 use crate::chain::{ServiceId, SimIpcBus};
 
-const STATUS_OK: u8 = 0;
-
 /// Simulierter windowd-Dienst (GPU-only self-bootstrap).
 pub struct WindowdContract {
     id: Option<ServiceId>,
@@ -82,7 +80,7 @@ impl Contract for WindowdContract {
 
         // 4. Optional: gpud scanout handoff
         if self.gpud_available {
-            if let Some(gpud_id) = bus.service_id("gpud") {
+            if let Some(_gpud_id) = bus.service_id("gpud") {
                 bus.emit_marker(id, "gpud: virtio-gpu probed");
                 bus.emit_marker(id, "gpud: scanout ok");
                 bus.emit_marker(id, "gpud: cursor on");
