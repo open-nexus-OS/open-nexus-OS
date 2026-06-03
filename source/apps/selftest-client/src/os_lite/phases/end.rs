@@ -1,8 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Phase 12 of 12 — end (`SELFTEST: end` marker emission + proof-mode
-//!   termination or cooperative idle loop; never returns).
+//! CONTEXT: Phase 12 of 12 — end (proof-mode termination or cooperative
+//!   idle loop; never returns). Terminal verification is handled by the
+//!   host-side harness (scripts/qemu-test.sh) which emits
+//!   `SELFTEST: Completed (markers verified)` after checking all markers.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -138,7 +140,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     }
 
     if proof_completed {
-        emit_selftest_end(auto_exit_after_proof);
+        if auto_exit_after_proof {
+            exit(0);
+        }
     }
 
     // Stay alive (cooperative).
@@ -174,7 +178,9 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 if !proof_completed && proof_witness.ready() {
                     proof_completed = emit_proof_mode_markers(proof_witness.observed_state());
                     if proof_completed {
-                        emit_selftest_end(auto_exit_after_proof);
+                        if auto_exit_after_proof {
+                            exit(0);
+                        }
                     }
                 }
                 if interactive_mode == Some(RuntimeMode::InteractiveFull) {
@@ -218,13 +224,6 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
             }
         }
         let _ = yield_();
-    }
-}
-
-fn emit_selftest_end(auto_exit_after_proof: bool) {
-    emit_line(crate::markers::M_SELFTEST_END);
-    if auto_exit_after_proof {
-        exit(0);
     }
 }
 

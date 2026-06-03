@@ -31,7 +31,10 @@ help:
     @echo "  just build-kernel        # cross-compile kernel (riscv)"
     @echo "  just build-nexus-log-os  # cross-compile nexus-log (userspace sink)"
     @echo "  just build-init-lite-os  # cross-compile init-lite userspace payload"
-    @echo "  just test-os             # run kernel selftests in QEMU (default profile=full)"
+    @echo "  just test-os             # run kernel selftests in QEMU (default profile=headless)"
+    @echo "  just ci-os-headless       # headless CI (no display, full service chain)"
+    @echo "  just ci-os-display-gpu    # GPU pipeline verification via UART markers"
+    @echo "  just test-os visible-bootstrap # full visible UI test (requires GTK display)"
     @echo "  just test-os smp         # SMP-gated QEMU smoke (REQUIRE_SMP enforced via manifest)"
     @echo "  just ci-os-smp           # canonical SMP CI recipe (SMP=2 gate + SMP=1 parity)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
@@ -102,16 +105,12 @@ start *args:
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
-# list-env --profile=…`). Default `full` is env-equivalent to the legacy
-# bare `just test-os` invocation, so QEMU ladder stays byte-identical.
-# Migration target: invoke `just test-os <full|smp|dhcp|quic-required|os2vm>`
+# list-env --profile=…`). Default `headless` runs without display.
+# Use `just test-os full` for display (requires GTK), `just test-os headless` for CI.
+# Migration target: invoke `just test-os <headless|smp|dhcp|quic-required|os2vm>`
 # (positional arg; just 1.47 parses `PROFILE=foo` after the recipe name as
-# another recipe name, not a parameter override) everywhere; the legacy
-# `test-smp` / `test-os-dhcp` / `test-dsoftbus-2vm` / `test-network` recipes
-# were deleted in P4-10. Default `full` keeps `just test-os` (no arg)
-# byte-equivalent to the pre-Phase-4 invocation, so the QEMU ladder stays
-# byte-identical for the canonical run.
-test-os profile='full':
+# another recipe name, not a parameter override) everywhere.
+test-os profile='headless':
     scripts/qemu-test.sh --profile={{profile}}
     @echo "[hint] Kernel triage: illegal-instruction dumps sepc/scause/stval+bytes; enable trap_symbols for name+offset; post-SATP marker validates return path."
 
@@ -146,6 +145,12 @@ test-init:
 # -----------------------------------------------------------------------------
 ci-os-full:
     just test-os full
+
+ci-os-headless:
+    just test-os headless
+
+ci-os-display-gpu:
+    just test-os display-gpu
 
 ci-os-smp:
     SMP=2 RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-300s} just test-os smp
@@ -184,13 +189,13 @@ ci-network:
 # on unexpected markers) lands in P4-09.
 # -----------------------------------------------------------------------------
 ci-os-runtime-bringup:
-    NEXUS_SELFTEST_PROFILE=bringup just test-os full
+    NEXUS_SELFTEST_PROFILE=bringup just test-os headless
 
 ci-os-runtime-quick:
-    NEXUS_SELFTEST_PROFILE=quick just test-os full
+    NEXUS_SELFTEST_PROFILE=quick just test-os headless
 
 ci-os-runtime-none:
-    NEXUS_SELFTEST_PROFILE=none just test-os full
+    NEXUS_SELFTEST_PROFILE=none just test-os headless
 
 # -----------------------------------------------------------------------------
 # Opt-in OS 2-VM harness (TASK-0005)

@@ -12,9 +12,6 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
-[marker."SELFTEST: end"]
-phase = "end"
-
 [marker."dbg: phase end skipped"]
 phase = "end"
 

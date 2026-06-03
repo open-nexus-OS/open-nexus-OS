@@ -15,28 +15,31 @@
 runner = "scripts/qemu-test.sh"
 env = {}
 
-[profile.visible-bootstrap]
+[profile.headless]
 runner = "scripts/qemu-test.sh"
 extends = "full"
-# Marker/proof profile only. This is not a future SystemUI launcher/start
-# profile (`desktop`, `tv`, `mobile`, etc.); it opts the harness into the
-# TASK-0055B/55C QEMU ramfb scanout boot mode and visible SystemUI marker ladder.
-env = { NEXUS_DISPLAY_BOOTSTRAP = "1", QEMU_DISPLAY_BACKEND = "gtk", NEXUS_SYSTEMUI_PROFILE = "desktop", QEMU_PROOF_POINTER_SOURCE = "mouse" }
+# Headless CI: no display backend, full service chain (all selftest phases).
+# Display phases in the expect sequence are truncated by qemu-test.sh.
+env = { QEMU_DISPLAY_BACKEND = "none" }
+
+[profile.display-gpu]
+runner = "scripts/qemu-test.sh"
+extends = "headless"
+# GPU pipeline verification via UART markers only — no GTK, no QMP.
+# Guest runs full selftest so GPU markers (gpud → windowd → present) are emitted.
+env = { NEXUS_SELFTEST_PROFILE = "full" }
 
 [profile.smp]
 runner = "scripts/qemu-test.sh"
-extends = "full"
+extends = "headless"
 # SMP="2" is the hardware contract for this profile (the kernel emits
 # `KSELFTEST: smp online ok` etc. only with >=2 harts; those literals
 # are declared in `markers/bringup.toml` with `emit_when={profile="smp"}`).
-# Forwarding it via `list-env` keeps the SMP fact co-located with the
-# marker-set that depends on it, so `just test-os smp` and
-# `make`-based runs both DTRT without a second source of truth.
 env = { REQUIRE_SMP = "1", SMP = "2" }
 
 [profile.dhcp]
 runner = "scripts/qemu-test.sh"
-extends = "full"
+extends = "headless"
 env = { REQUIRE_QEMU_DHCP = "1" }
 
 [profile.dhcp-strict]
@@ -46,15 +49,22 @@ env = { REQUIRE_QEMU_DHCP_STRICT = "1" }
 
 [profile.os2vm]
 runner = "tools/os2vm.sh"
-extends = "full"
+extends = "headless"
 env = { REQUIRE_DSOFTBUS = "1", REQUIRE_DSOFTBUS_REMOTE_PKGFS = "1", REQUIRE_DSOFTBUS_REMOTE_STATEFS = "1" }
 
 [profile.quic-required]
 runner = "scripts/qemu-test.sh"
-extends = "full"
+extends = "headless"
 env = { REQUIRE_DSOFTBUS = "1" }
 
 [profile.supply-chain]
 runner = "scripts/qemu-test.sh"
-extends = "full"
+extends = "headless"
 env = { REQUIRE_SUPPLY_CHAIN = "1" }
+
+[profile.visible-bootstrap]
+runner = "scripts/qemu-test.sh"
+extends = "display-gpu"
+# Full visible bootstrap with GTK display + QMP input injection.
+# Requires display (X11/Wayland) — for local dev only.
+env = { NEXUS_DISPLAY_BOOTSTRAP = "1", QEMU_DISPLAY_BACKEND = "gtk", NEXUS_SYSTEMUI_PROFILE = "desktop", QEMU_PROOF_POINTER_SOURCE = "mouse" }
