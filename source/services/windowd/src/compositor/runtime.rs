@@ -10,6 +10,7 @@
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
 use super::blur::checked_stride;
+use super::backdrop::{blur_backdrop_segment, saturate_bgra_segment};
 use super::cache::{
     BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
 };
@@ -23,6 +24,8 @@ use super::filter::{
     filter_list_viewport_height, refill_filtered_words,
 };
 use super::scene::{copy_cursor_background_row, copy_scene_row};
+use super::primitives::draw_line_segment_row;
+use super::sdf::{fill_sdf_rounded_rect_row, stroke_sdf_rounded_rect_row};
 use super::source::build_scale_lut;
 use super::surface::proof_box_rect;
 use super::tile_map::TileMap;
@@ -36,7 +39,7 @@ use super::{
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
     SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
-    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE,
+    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, DARK_GLASS_SATURATION_PERCENT,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -56,7 +59,7 @@ use nexus_effects::ShadowArena;
 use nexus_gfx::{CommandBuffer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
-use nexus_layout_types::FxPx;
+use nexus_layout_types::{FxPx, PathPoint};
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
@@ -64,14 +67,25 @@ const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
 const GPUD_STATUS_OK: u8 = 0;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
+const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 const HOVER_LAYER_ID: LayerId = LayerId(1);
 const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
 const SIDEBAR_WIDTH: u32 = 320;
 const SIDEBAR_ANIMATION_NS: u64 = 420_000_000;
+const SIDEBAR_MARGIN_TOP: u32 = 18;
+const SIDEBAR_MARGIN_BOTTOM: u32 = 18;
+const SIDEBAR_RADIUS: u32 = 24;
 const GLASS_BUTTON_W: u32 = 156;
 const GLASS_BUTTON_H: u32 = 56;
 const GLASS_BUTTON_TOP: u32 = 24;
 const GLASS_BUTTON_RIGHT: u32 = 24;
+const GLASS_BUTTON_RADIUS: u32 = 18;
+const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
+const VISIBLE_ROUTE_WIDTH: u32 = 64;
+const VISIBLE_ROUTE_HEIGHT: u32 = 48;
+const CLOSE_TARGET_ROUTE_X: u32 = 52;
+const CLOSE_TARGET_ROUTE_Y: u32 = 18;
+const LUCIDE_ICON_SIZE: u32 = 24;
 
 fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
     let label = match err {
@@ -104,6 +118,43 @@ fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
     frame
 }
 
+fn encode_gpud_attach_frame(handoff_id: u32) -> [u8; 5] {
+    let mut frame = [0u8; 5];
+    frame[0] = GPU_SET_FRAMEBUFFER_VMO_OP;
+    frame[1..5].copy_from_slice(&handoff_id.to_le_bytes());
+    frame
+}
+
+fn encode_gpud_damage_handoff_frame(rect: DamageRect, handoff_id: u32) -> [u8; 21] {
+    let mut frame = [0u8; 21];
+    frame[0] = GPU_PRESENT_DAMAGE_OP;
+    frame[1..5].copy_from_slice(&rect.x.to_le_bytes());
+    frame[5..9].copy_from_slice(&rect.y.to_le_bytes());
+    frame[9..13].copy_from_slice(&rect.width.to_le_bytes());
+    frame[13..17].copy_from_slice(&rect.height.to_le_bytes());
+    frame[17..21].copy_from_slice(&handoff_id.to_le_bytes());
+    frame
+}
+
+fn decode_gpud_handoff_id(reply: &[u8]) -> Option<u32> {
+    if reply.len() < 5 {
+        return None;
+    }
+    Some(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
+}
+
+enum HandoffStepResult {
+    Progress,
+    Pending,
+    Fatal,
+}
+
+enum HandoffAckResult {
+    Acked,
+    Pending,
+    Fatal,
+}
+
 #[derive(Clone, Copy)]
 struct AnimatedSceneState {
     hover_opacity: f32,
@@ -125,16 +176,25 @@ fn draw_animation_proof_overlay_row(
 ) {
     let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
-    draw_glass_rect_row(
+    let button_rect =
+        ProofBoxRect { x: button_x, y: GLASS_BUTTON_TOP, width: GLASS_BUTTON_W, height: GLASS_BUTTON_H };
+    draw_floating_glass_rect_row(
         row,
         y,
-        button_x,
-        GLASS_BUTTON_TOP,
-        GLASS_BUTTON_W,
-        GLASS_BUTTON_H,
+        button_rect,
+        GLASS_BUTTON_RADIUS,
         [235, 245, 255, button_alpha],
-        true,
+        [255, 255, 255, 84],
+        14,
+        8,
+        6,
+        32,
     );
+    let menu_icon_x = button_rect.x.saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_y =
+        button_rect.y.saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_alpha = (152.0 + 92.0 * scene.hover_opacity).clamp(120.0, 244.0) as u8;
+    draw_lucide_menu_icon_row(row, y, menu_icon_x, menu_icon_y, LUCIDE_ICON_SIZE, [255, 255, 255, menu_icon_alpha]);
 
     let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
     let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
@@ -142,44 +202,178 @@ fn draw_animation_proof_overlay_row(
     if sidebar_alpha == 0 {
         return;
     }
-    draw_glass_rect_row(
+    let sidebar_height = mode
+        .height
+        .saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM))
+        .max(1);
+    let sidebar_rect = ProofBoxRect {
+        x: sidebar_x,
+        y: SIDEBAR_MARGIN_TOP,
+        width: SIDEBAR_WIDTH,
+        height: sidebar_height,
+    };
+    draw_floating_glass_rect_row(
         row,
         y,
-        sidebar_x,
-        0,
-        SIDEBAR_WIDTH,
-        mode.height,
+        sidebar_rect,
+        SIDEBAR_RADIUS,
         [220, 236, 255, sidebar_alpha],
-        true,
+        [255, 255, 255, 72],
+        20,
+        10,
+        8,
+        34,
+    );
+
+    let close_mid_x = route_cell_midpoint(CLOSE_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, mode.width);
+    let close_mid_y = route_cell_midpoint(CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, mode.height);
+    let sidebar_end_x = sidebar_rect.x.saturating_add(sidebar_rect.width);
+    let sidebar_end_y = sidebar_rect.y.saturating_add(sidebar_rect.height);
+    let close_icon_x = close_mid_x
+        .saturating_sub(LUCIDE_ICON_SIZE / 2)
+        .clamp(
+            sidebar_rect.x.saturating_add(14),
+            sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14),
+        );
+    let close_icon_y = close_mid_y.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
+        sidebar_rect.y.saturating_add(14),
+        sidebar_end_y.saturating_sub(LUCIDE_ICON_SIZE + 14),
+    );
+    draw_lucide_x_icon_row(
+        row,
+        y,
+        close_icon_x,
+        close_icon_y,
+        LUCIDE_ICON_SIZE,
+        [255, 255, 255, sidebar_alpha.saturating_add(40)],
     );
 }
 
-fn draw_glass_rect_row(
+fn draw_floating_glass_rect_row(
+    row: &mut [u8],
+    y: u32,
+    rect: ProofBoxRect,
+    radius: u32,
+    tint: [u8; 4],
+    border: [u8; 4],
+    blur_radius: u32,
+    shadow_dx: u32,
+    shadow_dy: u32,
+    shadow_alpha: u8,
+) {
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    let rect_end_y = rect.y.saturating_add(rect.height);
+    if y >= rect.y.saturating_add(shadow_dy) && y < rect_end_y.saturating_add(shadow_dy) {
+        blend_span(row, rect.x.saturating_add(shadow_dx), rect.width, [0, 0, 0, shadow_alpha]);
+    }
+    if y < rect.y || y >= rect_end_y {
+        return;
+    }
+    let start_x = rect.x.min((row.len() / 4) as u32);
+    let end_x = rect.x.saturating_add(rect.width).min((row.len() / 4) as u32);
+    if end_x > start_x {
+        let seg_len = (end_x - start_x) as usize * 4;
+        if seg_len <= GLASS_OVERLAY_MAX_BYTES {
+            let mut blur_scratch = [0u8; GLASS_OVERLAY_MAX_BYTES];
+            let _ = blur_backdrop_segment(
+                row,
+                start_x,
+                end_x,
+                blur_radius,
+                &mut blur_scratch[..seg_len],
+            );
+        }
+        saturate_bgra_segment(row, start_x, end_x, DARK_GLASS_SATURATION_PERCENT + 8);
+    }
+    let _ = fill_sdf_rounded_rect_row(y, row, rect, radius, tint);
+    let _ = stroke_sdf_rounded_rect_row(y, row, rect, radius, 1, border);
+}
+
+fn draw_lucide_menu_icon_row(
     row: &mut [u8],
     y: u32,
     x: u32,
     top: u32,
-    width: u32,
-    height: u32,
+    size: u32,
     color: [u8; 4],
-    shadow: bool,
 ) {
-    if y < top || y >= top.saturating_add(height) {
-        if shadow && y >= top.saturating_add(8) && y < top.saturating_add(height + 18) {
-            blend_span(row, x.saturating_add(10), width, [0, 0, 0, 34]);
-        }
-        return;
-    }
-    if shadow && y >= top.saturating_add(6) {
-        blend_span(row, x.saturating_add(8), width, [0, 0, 0, 28]);
-    }
-    blend_span(row, x, width, color);
-    if y == top || y == top.saturating_add(height).saturating_sub(1) {
-        blend_span(row, x, width, [255, 255, 255, 90]);
-    } else {
-        blend_pixel(row, x, [255, 255, 255, 72]);
-        blend_pixel(row, x.saturating_add(width).saturating_sub(1), [255, 255, 255, 48]);
-    }
+    let _ = draw_line_segment_row(
+        y,
+        row,
+        x,
+        top,
+        size,
+        size,
+        PathPoint::new(160, 220),
+        PathPoint::new(840, 220),
+        color,
+    );
+    let _ = draw_line_segment_row(
+        y,
+        row,
+        x,
+        top,
+        size,
+        size,
+        PathPoint::new(160, 500),
+        PathPoint::new(840, 500),
+        color,
+    );
+    let _ = draw_line_segment_row(
+        y,
+        row,
+        x,
+        top,
+        size,
+        size,
+        PathPoint::new(160, 780),
+        PathPoint::new(840, 780),
+        color,
+    );
+}
+
+fn draw_lucide_x_icon_row(
+    row: &mut [u8],
+    y: u32,
+    x: u32,
+    top: u32,
+    size: u32,
+    color: [u8; 4],
+) {
+    let _ = draw_line_segment_row(
+        y,
+        row,
+        x,
+        top,
+        size,
+        size,
+        PathPoint::new(220, 220),
+        PathPoint::new(780, 780),
+        color,
+    );
+    let _ = draw_line_segment_row(
+        y,
+        row,
+        x,
+        top,
+        size,
+        size,
+        PathPoint::new(780, 220),
+        PathPoint::new(220, 780),
+        color,
+    );
+}
+
+fn route_cell_midpoint(route_coord: u32, route_extent: u32, display_extent: u32) -> u32 {
+    let start = route_coord.saturating_mul(display_extent) / route_extent.max(1);
+    let end = (route_coord.saturating_add(1))
+        .saturating_mul(display_extent)
+        .saturating_add(route_extent.saturating_sub(1))
+        / route_extent.max(1);
+    let end = end.max(start.saturating_add(1));
+    (start.saturating_add(end).saturating_sub(1)) / 2
 }
 
 fn blend_span(row: &mut [u8], x: u32, width: u32, color: [u8; 4]) {
@@ -282,6 +476,13 @@ pub(crate) struct DisplayServerRuntime {
     /// defers the expensive first-frame write. The IPC loop processes this
     /// after sending the response.
     framebuffer_pending_first_write: bool,
+    first_handoff_id: u32,
+    first_handoff_deadline_ns: u64,
+    first_handoff_frame_written: bool,
+    first_handoff_bootstrap_markers_emitted: bool,
+    first_handoff_attach_sent: bool,
+    first_handoff_attach_acked: bool,
+    first_handoff_present_sent: bool,
 }
 
 #[derive(Default)]
@@ -349,7 +550,7 @@ impl DisplayServerRuntime {
         };
         let initial_state = VisibleState {
             backend_visible: true,
-            systemui_first_frame_visible: true,
+            systemui_first_frame_visible: false,
             scene_ready: true,
             full_window_visible: true,
             click_target_visible: true,
@@ -423,6 +624,13 @@ impl DisplayServerRuntime {
             animation_proof: AnimationProofState::default(),
             gpud_client: None,
             framebuffer_pending_first_write: false,
+            first_handoff_id: 0,
+            first_handoff_deadline_ns: 0,
+            first_handoff_frame_written: false,
+            first_handoff_bootstrap_markers_emitted: false,
+            first_handoff_attach_sent: false,
+            first_handoff_attach_acked: false,
+            first_handoff_present_sent: false,
         })
     }
 
@@ -443,6 +651,7 @@ impl DisplayServerRuntime {
         self.observer_state.input_visible_on |= self.state.input_visible_on;
         self.observer_state.cursor_move_visible |= self.state.cursor_move_visible;
         self.observer_state.hover_visible |= self.state.hover_visible;
+        self.observer_state.sidebar_open_visible |= self.state.sidebar_open_visible;
         self.observer_state.focus_visible |= self.state.focus_visible;
         self.observer_state.launcher_click_visible |= self.state.launcher_click_visible;
         self.observer_state.keyboard_visible |= self.state.keyboard_visible;
@@ -480,9 +689,15 @@ impl DisplayServerRuntime {
     /// via `process_deferred_framebuffer_write()`.
     pub(crate) fn register_framebuffer_vmo(&mut self, handle: Handle) {
         self.framebuffer = Some(handle);
-        self.state.display_scanout_ready = true;
-        self.refresh_observer_state();
         self.framebuffer_pending_first_write = true;
+        let next = self.first_handoff_id.wrapping_add(1);
+        self.first_handoff_id = if next == 0 { 1 } else { next };
+        self.first_handoff_deadline_ns = nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
+        self.first_handoff_frame_written = false;
+        self.first_handoff_bootstrap_markers_emitted = false;
+        self.first_handoff_attach_sent = false;
+        self.first_handoff_attach_acked = false;
+        self.first_handoff_present_sent = false;
     }
 
     /// Phase 2 of framebuffer registration: write the first composed frame
@@ -492,41 +707,273 @@ impl DisplayServerRuntime {
         if !self.framebuffer_pending_first_write {
             return STATUS_OK;
         }
-        if self.write_current_frame().is_err() {
+        if self.first_handoff_deadline_ns != 0 {
+            let now = nsec().unwrap_or(0);
+            if now >= self.first_handoff_deadline_ns {
+                let _ = debug_println("windowd: ERROR first-frame handoff timeout");
+                self.framebuffer_pending_first_write = false;
+                return STATUS_MALFORMED;
+            }
+        }
+        let Some(handle) = self.framebuffer else {
+            let _ = debug_println("windowd: ERROR framebuffer missing during handoff");
             self.framebuffer_pending_first_write = false;
             return STATUS_MALFORMED;
+        };
+
+        if !self.first_handoff_frame_written {
+            if let Err(err) = self.write_current_frame() {
+                let _ =
+                    debug_println(&alloc::format!("windowd: ERROR first-frame write failed err={:?}", err));
+                self.framebuffer_pending_first_write = false;
+                return STATUS_MALFORMED;
+            }
+            self.first_handoff_frame_written = true;
         }
-        // The first visible handoff must happen after the composed frame is in
-        // the shared VMO; otherwise gpud transfers an empty/stale buffer.
-        let handoff_ok =
-            self.framebuffer.map(|handle| self.try_handoff_framebuffer_to_gpud(handle)).unwrap_or(false);
-        if self.active_proof_layout().is_some() {
-            let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
-            let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
+
+        if !self.first_handoff_bootstrap_markers_emitted {
+            if self.active_proof_layout().is_some() {
+                let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
+                let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
+            }
+            let _ = debug_println(DISPLAY_BOOTSTRAP_MARKER);
+            let _ = debug_println(DISPLAY_MODE_MARKER);
+            let _ = debug_println(VISIBLE_BACKEND_MARKER);
+            let _ = debug_println(COMPOSE_READY_MARKER);
+            let _ = debug_println(PRESENT_QUEUED_MARKER);
+            self.first_handoff_bootstrap_markers_emitted = true;
         }
-        // Bootstrap markers — always emitted (compositor started).
-        let _ = debug_println(DISPLAY_BOOTSTRAP_MARKER);
-        let _ = debug_println(DISPLAY_MODE_MARKER);
-        let _ = debug_println(VISIBLE_BACKEND_MARKER);
-        let _ = debug_println(COMPOSE_READY_MARKER);
-        let _ = debug_println(PRESENT_QUEUED_MARKER);
-        // GPU-dependent markers — only when handoff succeeded.
-        if handoff_ok {
-            let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
-            self.input_markers_emitted.scheduler = true;
-            let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
-            self.input_markers_emitted.v2_present = true;
-            let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
-            let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
-            let _ = debug_println(PRESENT_VISIBLE_MARKER);
-            let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
-            self.emit_asset_markers();
-            self.emit_v3b_markers();
-        } else {
-            let _ = debug_println("windowd: ERROR no gpu scanout");
+
+        if !self.first_handoff_attach_sent {
+            match self.send_first_handoff_attach(handle, self.first_handoff_id) {
+                HandoffStepResult::Progress => {
+                    let _ = debug_println("windowd: handoff attach sent");
+                    self.first_handoff_attach_sent = true;
+                }
+                HandoffStepResult::Pending => return STATUS_OK,
+                HandoffStepResult::Fatal => {
+                    self.framebuffer_pending_first_write = false;
+                    return STATUS_MALFORMED;
+                }
+            }
         }
+
+        if !self.first_handoff_attach_acked {
+            match self.poll_first_handoff_ack(self.first_handoff_id) {
+                HandoffAckResult::Acked => {
+                    let _ = debug_println("windowd: handoff attach ack");
+                    self.first_handoff_attach_acked = true;
+                }
+                HandoffAckResult::Pending => return STATUS_OK,
+                HandoffAckResult::Fatal => {
+                    self.framebuffer_pending_first_write = false;
+                    return STATUS_MALFORMED;
+                }
+            }
+        }
+
+        let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        if !self.first_handoff_present_sent {
+            match self.send_first_handoff_present(full, self.first_handoff_id) {
+                HandoffStepResult::Progress => {
+                    let _ = debug_println("windowd: handoff present sent");
+                    self.first_handoff_present_sent = true;
+                }
+                HandoffStepResult::Pending => return STATUS_OK,
+                HandoffStepResult::Fatal => {
+                    self.framebuffer_pending_first_write = false;
+                    return STATUS_MALFORMED;
+                }
+            }
+        }
+        match self.poll_first_handoff_ack(self.first_handoff_id) {
+            HandoffAckResult::Acked => {
+                let _ = debug_println("windowd: handoff present ack");
+            }
+            HandoffAckResult::Pending => return STATUS_OK,
+            HandoffAckResult::Fatal => {
+                self.framebuffer_pending_first_write = false;
+                return STATUS_MALFORMED;
+            }
+        }
+
+        self.state.display_scanout_ready = true;
+        self.state.systemui_first_frame_visible = true;
+        self.refresh_observer_state();
+        let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
+        self.input_markers_emitted.scheduler = true;
+        let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
+        self.input_markers_emitted.v2_present = true;
+        let _ = debug_println(DISPLAY_FIRST_SCANOUT_MARKER);
+        let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
+        let _ = debug_println(PRESENT_VISIBLE_MARKER);
+        let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+        self.emit_asset_markers();
+        self.emit_v3b_markers();
         self.framebuffer_pending_first_write = false;
         STATUS_OK
+    }
+
+    fn send_first_handoff_attach(&mut self, fb_handle: Handle, handoff_id: u32) -> HandoffStepResult {
+        if !self.ensure_gpud_client() {
+            return HandoffStepResult::Pending;
+        }
+        let clone = match nexus_abi::cap_clone(fb_handle) {
+            Ok(cap) => cap,
+            Err(_) => {
+                let _ = debug_println("windowd: handoff cap-clone pending");
+                return HandoffStepResult::Pending;
+            }
+        };
+        let frame = encode_gpud_attach_frame(handoff_id);
+        let send_result = {
+            let Some(client) = self.gpud_client.as_ref() else {
+                let _ = nexus_abi::cap_close(clone);
+                return HandoffStepResult::Pending;
+            };
+            client.send_with_cap_move_wait(&frame, clone, Wait::NonBlocking)
+        };
+        match send_result {
+            Ok(()) => HandoffStepResult::Progress,
+            Err(nexus_ipc::IpcError::WouldBlock)
+            | Err(nexus_ipc::IpcError::Timeout)
+            | Err(nexus_ipc::IpcError::NoSpace) => {
+                let _ = nexus_abi::cap_close(clone);
+                HandoffStepResult::Pending
+            }
+            Err(err) => {
+                let _ = nexus_abi::cap_close(clone);
+                log_gpud_ipc_error("windowd: handoff attach send failed", err);
+                self.gpud_client = None;
+                HandoffStepResult::Fatal
+            }
+        }
+    }
+
+    fn send_first_handoff_present(&mut self, rect: DamageRect, handoff_id: u32) -> HandoffStepResult {
+        if !self.ensure_gpud_client() {
+            return HandoffStepResult::Pending;
+        }
+        let frame = encode_gpud_damage_handoff_frame(rect, handoff_id);
+        let send_result = {
+            let Some(client) = self.gpud_client.as_ref() else {
+                return HandoffStepResult::Pending;
+            };
+            client.send(&frame, Wait::NonBlocking)
+        };
+        match send_result {
+            Ok(()) => HandoffStepResult::Progress,
+            Err(nexus_ipc::IpcError::WouldBlock)
+            | Err(nexus_ipc::IpcError::Timeout)
+            | Err(nexus_ipc::IpcError::NoSpace) => HandoffStepResult::Pending,
+            Err(err) => {
+                log_gpud_ipc_error("windowd: handoff present send failed", err);
+                self.gpud_client = None;
+                HandoffStepResult::Fatal
+            }
+        }
+    }
+
+    fn poll_first_handoff_ack(&mut self, expected_handoff_id: u32) -> HandoffAckResult {
+        if !self.ensure_gpud_client() {
+            return HandoffAckResult::Pending;
+        }
+        let recv_result = {
+            let Some(client) = self.gpud_client.as_ref() else {
+                return HandoffAckResult::Pending;
+            };
+            client.recv(Wait::NonBlocking)
+        };
+        match recv_result {
+            Ok(reply) => {
+                if reply.first().copied() != Some(GPUD_STATUS_OK) {
+                    if let Some(status) = reply.first().copied() {
+                        let _ = debug_println(&alloc::format!(
+                            "windowd: handoff ack bad-status=0x{status:02x}"
+                        ));
+                    } else {
+                        let _ = debug_println("windowd: handoff ack bad-status=empty");
+                    }
+                    self.gpud_client = None;
+                    return HandoffAckResult::Fatal;
+                }
+                let ack_handoff_id = decode_gpud_handoff_id(&reply).unwrap_or(expected_handoff_id);
+                if ack_handoff_id != expected_handoff_id {
+                    let _ = debug_println(&alloc::format!(
+                        "windowd: handoff ack mismatch expected={} got={}",
+                        expected_handoff_id, ack_handoff_id
+                    ));
+                    return HandoffAckResult::Pending;
+                }
+                HandoffAckResult::Acked
+            }
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                HandoffAckResult::Pending
+            }
+            Err(err) => {
+                log_gpud_ipc_error("windowd: handoff ack recv failed", err);
+                self.gpud_client = None;
+                HandoffAckResult::Fatal
+            }
+        }
+    }
+
+    fn write_fast_bootstrap_frame(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let row_len = self.mode.stride as usize;
+        let width = self.mode.width as usize;
+        let height = self.mode.height as usize;
+        if row_len < width.saturating_mul(4) {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+
+        let win_w = 820usize;
+        let win_h = 460usize;
+        let win_x = (width.saturating_sub(win_w)) / 2;
+        let win_y = (height.saturating_sub(win_h)) / 2;
+        let title_h = 56usize;
+
+        let bg = [18u8, 18u8, 18u8, 255u8];
+        let panel = [42u8, 46u8, 54u8, 255u8];
+        let bar = [64u8, 74u8, 92u8, 255u8];
+        let border = [84u8, 106u8, 144u8, 255u8];
+
+        let mut band_start = 0usize;
+        while band_start < height {
+            let band_end = (band_start + ROW_WRITE_CHUNK).min(height);
+            let band_rows = band_end - band_start;
+            let band_bytes = band_rows * row_len;
+            let band = &mut self.band_scratch[..band_bytes];
+            band.fill(0);
+            for row_idx in 0..band_rows {
+                let y = band_start + row_idx;
+                let row = &mut band[row_idx * row_len..(row_idx + 1) * row_len];
+                for px in row[..width * 4].chunks_exact_mut(4) {
+                    px.copy_from_slice(&bg);
+                }
+                if y >= win_y && y < win_y + win_h {
+                    let in_border_y = y == win_y || y + 1 == win_y + win_h;
+                    for x in win_x..(win_x + win_w) {
+                        let idx = x * 4;
+                        let in_border_x = x == win_x || x + 1 == win_x + win_w;
+                        let color = if in_border_x || in_border_y {
+                            border
+                        } else if y < win_y + title_h {
+                            bar
+                        } else {
+                            panel
+                        };
+                        row[idx..idx + 4].copy_from_slice(&color);
+                    }
+                }
+            }
+            vmo_write(handle, band_start * row_len, band)
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        Ok(())
     }
 
     pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
@@ -548,6 +995,7 @@ impl DisplayServerRuntime {
         self.state.cursor_move_visible |=
             upstream.cursor_move_visible || upstream.pointer_route_live;
         self.state.hover_visible = upstream.hover_visible;
+        self.state.sidebar_open_visible = upstream.sidebar_open_visible || upstream.hover_visible;
         self.state.focus_visible |= upstream.focus_visible;
         self.state.launcher_click_visible = upstream.launcher_click_visible;
         self.state.keyboard_visible |= upstream.keyboard_visible || upstream.keyboard_route_live;
@@ -572,6 +1020,7 @@ impl DisplayServerRuntime {
         let text_changed = old_state.text_input() != self.state.text_input();
         let filter_changed = old_filter_idx != self.active_filter_idx;
         let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
+            || old_state.sidebar_open_visible != self.state.sidebar_open_visible
             || old_state.launcher_click_visible != self.state.launcher_click_visible
             || old_state.keyboard_visible != self.state.keyboard_visible;
 
@@ -603,8 +1052,20 @@ impl DisplayServerRuntime {
                     to,
                     spring,
                 );
-                let sidebar_from = if old_state.hover_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
-                let sidebar_to = if self.state.hover_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+            }
+            // Sidebar open/close uses a dedicated state so close actions are not
+            // coupled to hover leave.
+            if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+                let sidebar_from = if old_state.sidebar_open_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
+                let sidebar_to = if self.state.sidebar_open_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
                 self.animation_driver.keyframe_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
@@ -617,7 +1078,7 @@ impl DisplayServerRuntime {
                     AnimProp::Opacity,
                     alloc::vec![
                         (0.0, self.animated_scene.sidebar_opacity),
-                        (1.0, if self.state.hover_visible { 1.0 } else { 0.0 }),
+                        (1.0, if self.state.sidebar_open_visible { 1.0 } else { 0.0 }),
                     ],
                     SIDEBAR_ANIMATION_NS,
                     Easing::EaseInOut,
@@ -639,6 +1100,14 @@ impl DisplayServerRuntime {
                 let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
                 self.animation_driver.spring_to(LayerId(3), AnimProp::Opacity, from, to, spring);
             }
+        }
+        if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+            let _ = debug_println(if self.state.sidebar_open_visible {
+                SIDEBAR_OPEN_MARKER
+            } else {
+                SIDEBAR_CLOSE_MARKER
+            });
+            self.queue_dirty_rect(self.sidebar_damage_rect());
         }
         let pointer_only_change =
             cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
@@ -908,9 +1377,14 @@ impl DisplayServerRuntime {
         if self.gpud_client.is_some() {
             return true;
         }
-        if let Ok(client) =
-            KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
+        if let Ok(client) = KernelClient::new_for("gpud") {
+            let _ = debug_println("windowd: gpud route connected");
+            self.gpud_client = Some(client);
+            return true;
+        }
+        if let Ok(client) = KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
         {
+            let _ = debug_println("windowd: gpud route fallback slots");
             self.gpud_client = Some(client);
             return true;
         }
@@ -970,13 +1444,12 @@ impl DisplayServerRuntime {
             return false;
         }
 
-        // Clone the VMO capability for gpud. Retry if cap table is full.
-        let clone = loop {
-            match nexus_abi::cap_clone(fb_handle) {
-                Ok(c) => break c,
-                Err(_) => {
-                    let _ = nexus_abi::yield_();
-                }
+        // Single-shot clone: bootstrap is fail-fast by design.
+        let clone = match nexus_abi::cap_clone(fb_handle) {
+            Ok(c) => c,
+            Err(_) => {
+                let _ = debug_println("windowd: fb handoff to gpud cap-clone failed");
+                return false;
             }
         };
 

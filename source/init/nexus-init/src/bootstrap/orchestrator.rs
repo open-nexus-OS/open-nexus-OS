@@ -235,6 +235,11 @@ where
     // Resume all spawned services now so policyd can handle MMIO policy
     // checks during the grant phase. IPC wiring happens after grants.
     for chan in &ctrl_channels {
+        // Display chain is resumed after grants + route wiring so it can
+        // initialize without startup probe/handoff races.
+        if matches!(chan.svc_name, "gpud" | "windowd" | "inputd") {
+            continue;
+        }
         match nexus_abi::task_resume(chan.pid) {
             Ok(()) => {}
             Err(e) => {
@@ -1759,6 +1764,26 @@ where
                 chan.timed_recv_slot = Some(recv_slot);
             }
             _ => {}
+        }
+    }
+
+    // Resume display-chain services after MMIO grants and route wiring.
+    for service_name in ["gpud", "windowd", "inputd"] {
+        if let Some(chan) = ctrl_channels.iter().find(|c| c.svc_name == service_name) {
+            match nexus_abi::task_resume(chan.pid) {
+                Ok(()) => {
+                    debug_write_bytes(b"init: deferred resume ");
+                    debug_write_str(service_name);
+                    debug_write_byte(b'\n');
+                }
+                Err(e) => {
+                    debug_write_bytes(b"init: deferred resume fail svc=");
+                    debug_write_str(service_name);
+                    debug_write_bytes(b" err=0x");
+                    debug_write_hex(e as usize);
+                    debug_write_byte(b'\n');
+                }
+            }
         }
     }
 

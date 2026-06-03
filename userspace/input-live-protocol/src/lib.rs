@@ -46,7 +46,7 @@ pub const EVENT_KIND_BTN: u8 = 4;
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
-const STATE_LEN: usize = 57;
+const STATE_LEN: usize = 58;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 pub const MAX_TEXT_INPUT_BYTES: usize = 24;
 
@@ -84,6 +84,7 @@ pub struct VisibleState {
     pub input_visible_on: bool,
     pub cursor_move_visible: bool,
     pub hover_visible: bool,
+    pub sidebar_open_visible: bool,
     pub focus_visible: bool,
     pub launcher_click_visible: bool,
     pub keyboard_visible: bool,
@@ -298,7 +299,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[2] = VERSION;
     out[3] = op;
     out[4..8].copy_from_slice(&(STATE_LEN as u32).to_le_bytes());
-    out[8..25].copy_from_slice(&[
+    out[8..26].copy_from_slice(&[
         u8::from(state.virtio_raw_seen),
         u8::from(state.hid_normalized_seen),
         u8::from(state.backend_visible),
@@ -311,23 +312,24 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
         u8::from(state.input_visible_on),
         u8::from(state.cursor_move_visible),
         u8::from(state.hover_visible),
+        u8::from(state.sidebar_open_visible),
         u8::from(state.focus_visible),
         u8::from(state.launcher_click_visible),
         u8::from(state.keyboard_visible),
         u8::from(state.pointer_route_live),
         u8::from(state.keyboard_route_live),
     ]);
-    out[25..29].copy_from_slice(&state.cursor_x.to_le_bytes());
-    out[29..33].copy_from_slice(&state.cursor_y.to_le_bytes());
-    out[33] = u8::from(state.wheel_up_visible);
-    out[34] = u8::from(state.wheel_down_visible);
-    out[35] = u8::from(state.cursor_svg_visible);
-    out[36] = u8::from(state.text_target_visible);
-    out[37] = u8::from(state.icon_target_visible);
-    out[38] = u8::from(state.wallpaper_visible);
-    out[39] = u8::from(state.cursor_overlay_visible);
-    out[40] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
-    out[41..41 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
+    out[26..30].copy_from_slice(&state.cursor_x.to_le_bytes());
+    out[30..34].copy_from_slice(&state.cursor_y.to_le_bytes());
+    out[34] = u8::from(state.wheel_up_visible);
+    out[35] = u8::from(state.wheel_down_visible);
+    out[36] = u8::from(state.cursor_svg_visible);
+    out[37] = u8::from(state.text_target_visible);
+    out[38] = u8::from(state.icon_target_visible);
+    out[39] = u8::from(state.wallpaper_visible);
+    out[40] = u8::from(state.cursor_overlay_visible);
+    out[41] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
+    out[42..42 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
     out
 }
 
@@ -369,24 +371,25 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         input_visible_on: frame[17] != 0,
         cursor_move_visible: frame[18] != 0,
         hover_visible: frame[19] != 0,
-        focus_visible: frame[20] != 0,
-        launcher_click_visible: frame[21] != 0,
-        keyboard_visible: frame[22] != 0,
-        pointer_route_live: frame[23] != 0,
-        keyboard_route_live: frame[24] != 0,
-        cursor_x: i32::from_le_bytes([frame[25], frame[26], frame[27], frame[28]]),
-        cursor_y: i32::from_le_bytes([frame[29], frame[30], frame[31], frame[32]]),
-        wheel_up_visible: frame[33] != 0,
-        wheel_down_visible: frame[34] != 0,
-        cursor_svg_visible: frame[35] != 0,
-        text_target_visible: frame[36] != 0,
-        icon_target_visible: frame[37] != 0,
-        wallpaper_visible: frame[38] != 0,
-        cursor_overlay_visible: frame[39] != 0,
-        text_input_len: frame[40].min(MAX_TEXT_INPUT_BYTES as u8),
+        sidebar_open_visible: frame[20] != 0,
+        focus_visible: frame[21] != 0,
+        launcher_click_visible: frame[22] != 0,
+        keyboard_visible: frame[23] != 0,
+        pointer_route_live: frame[24] != 0,
+        keyboard_route_live: frame[25] != 0,
+        cursor_x: i32::from_le_bytes([frame[26], frame[27], frame[28], frame[29]]),
+        cursor_y: i32::from_le_bytes([frame[30], frame[31], frame[32], frame[33]]),
+        wheel_up_visible: frame[34] != 0,
+        wheel_down_visible: frame[35] != 0,
+        cursor_svg_visible: frame[36] != 0,
+        text_target_visible: frame[37] != 0,
+        icon_target_visible: frame[38] != 0,
+        wallpaper_visible: frame[39] != 0,
+        cursor_overlay_visible: frame[40] != 0,
+        text_input_len: frame[41].min(MAX_TEXT_INPUT_BYTES as u8),
         text_input_bytes: {
             let mut bytes = [0u8; MAX_TEXT_INPUT_BYTES];
-            bytes.copy_from_slice(&frame[41..41 + MAX_TEXT_INPUT_BYTES]);
+            bytes.copy_from_slice(&frame[42..42 + MAX_TEXT_INPUT_BYTES]);
             bytes
         },
     })
@@ -458,6 +461,7 @@ mod tests {
             input_visible_on: true,
             cursor_move_visible: true,
             hover_visible: true,
+            sidebar_open_visible: true,
             focus_visible: true,
             launcher_click_visible: true,
             keyboard_visible: false,

@@ -19,6 +19,11 @@ proves = "windowd initialized the fixed visible desktop profile"
 phase = "bringup"
 proves = "windowd is the sole display owner — creates framebuffer VMO, hands off to gpud for scanout"
 
+[marker."display: bootstrap on"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "windowd emitted bootstrap display evidence only after the first composed frame and gpud handoff attempt"
+
 [marker."display: mode 1280x800 argb8888"]
 phase = "end"
 proves = "GPU-only display path accepted exactly the fixed 1280x800 BGRA8888 virtio-gpu mode"
@@ -46,7 +51,7 @@ proves = "windowd v2a present scheduler path was activated"
 
 [marker."display: first scanout ok"]
 phase = "end"
-proves = "observer-only selftest saw first-scanout readiness after windowd visible-present evidence"
+proves = "windowd observed successful first gpud scanout handoff for the composed visible frame"
 
 [marker."systemui: first frame visible"]
 phase = "end"
@@ -136,6 +141,16 @@ proves = "cursor position change was reflected in the composed visible frame"
 phase = "end"
 emit_when = { profile = "visible-bootstrap" }
 proves = "hover affordance was visible on the routed interactive target"
+
+[marker."windowd: sidebar open"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "hover/open target triggered the animated sidebar open state"
+
+[marker."windowd: sidebar close"]
+phase = "end"
+emit_when = { profile = "visible-bootstrap" }
+proves = "close target toggled the animated sidebar back to closed state"
 
 [marker."windowd: focus visible"]
 phase = "end"

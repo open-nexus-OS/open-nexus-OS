@@ -23,6 +23,8 @@ pub const VISIBLE_INPUT_RIGHT_SQUARE_Y: u32 = 18;
 pub const VISIBLE_INPUT_SQUARE_SIZE: u32 = 8;
 const VISIBLE_INPUT_HOVER_TARGET_WIDTH: u32 = 6;
 const VISIBLE_INPUT_HOVER_TARGET_HEIGHT: u32 = 5;
+const VISIBLE_INPUT_CLOSE_TARGET_WIDTH: u32 = 8;
+const VISIBLE_INPUT_CLOSE_TARGET_HEIGHT: u32 = 8;
 
 pub const LIVE_POINTER_THRESHOLD: i32 = 1;
 pub const LIVE_POINTER_NUMERATOR: i32 = 1;
@@ -31,6 +33,11 @@ pub const LIVE_POINTER_MAX_OUTPUT: i32 = 256;
 
 #[must_use]
 pub fn visible_hover_target_contains(x: i32, y: i32) -> bool {
+    visible_sidebar_open_target_contains(x, y)
+}
+
+#[must_use]
+pub fn visible_sidebar_open_target_contains(x: i32, y: i32) -> bool {
     let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
         return false;
     };
@@ -41,6 +48,21 @@ pub fn visible_hover_target_contains(x: i32, y: i32) -> bool {
         VISIBLE_INPUT_LEFT_SQUARE_Y,
         VISIBLE_INPUT_HOVER_TARGET_WIDTH,
         VISIBLE_INPUT_HOVER_TARGET_HEIGHT,
+    )
+}
+
+#[must_use]
+pub fn visible_sidebar_close_target_contains(x: i32, y: i32) -> bool {
+    let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+        return false;
+    };
+    rect_contains(
+        x,
+        y,
+        VISIBLE_INPUT_RIGHT_SQUARE_X,
+        VISIBLE_INPUT_RIGHT_SQUARE_Y,
+        VISIBLE_INPUT_CLOSE_TARGET_WIDTH,
+        VISIBLE_INPUT_CLOSE_TARGET_HEIGHT,
     )
 }
 
@@ -65,4 +87,31 @@ pub fn visible_display_start_position() -> Result<PointerPosition, PointerStateE
 
 const fn rect_contains(x: u32, y: u32, rx: u32, ry: u32, width: u32, height: u32) -> bool {
     x >= rx && y >= ry && x < rx + width && y < ry + height
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        visible_sidebar_close_target_contains, visible_sidebar_open_target_contains,
+        VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_RIGHT_SQUARE_X,
+        VISIBLE_INPUT_RIGHT_SQUARE_Y,
+    };
+
+    #[test]
+    fn sidebar_open_target_hits_left_hot_region() {
+        assert!(visible_sidebar_open_target_contains(
+            VISIBLE_INPUT_LEFT_SQUARE_X as i32,
+            VISIBLE_INPUT_LEFT_SQUARE_Y as i32
+        ));
+        assert!(!visible_sidebar_open_target_contains(0, 0));
+    }
+
+    #[test]
+    fn sidebar_close_target_hits_right_square() {
+        assert!(visible_sidebar_close_target_contains(
+            VISIBLE_INPUT_RIGHT_SQUARE_X as i32,
+            VISIBLE_INPUT_RIGHT_SQUARE_Y as i32
+        ));
+        assert!(!visible_sidebar_close_target_contains(0, 0));
+    }
 }

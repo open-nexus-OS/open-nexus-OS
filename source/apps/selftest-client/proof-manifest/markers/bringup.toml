@@ -129,7 +129,7 @@ proves = "gpud mapped the policy-granted virtio-gpu MMIO window and verified the
 
 [marker."gpud: scanout ok"]
 phase = "bringup"
-proves = "gpud completed CREATE_RESOURCE_2D, ATTACH_BACKING, TRANSFER_TO_HOST_2D, and SET_SCANOUT through the virtio-gpu control queue"
+proves = "gpud completed an early static scanout setup through the real virtio-gpu control queue"
 
 [marker."gpud: cursor on"]
 phase = "bringup"
@@ -137,7 +137,7 @@ proves = "gpud completed a bounded virtio-gpu cursor command after the device qu
 
 [marker."gpud: ready"]
 phase = "bringup"
-proves = "gpud only reached service readiness after the real virtio-gpu probe and scanout/cursor proof commands completed"
+proves = "gpud reached service readiness after probe and optional bootstrap scanout, with IPC route bound for windowd handoff"
 
 [marker."init: start windowd"]
 phase = "bringup"

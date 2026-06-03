@@ -194,13 +194,20 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     {
         let _ = debug_println("windowd: backend=gpu");
         let byte_len: usize = 1280 * 800 * 4;
-        if let Ok(fb_vmo) = vmo_create(byte_len) {
-            runtime.register_framebuffer_vmo(fb_vmo);
+        if let Ok(handle) = vmo_create(byte_len) {
+            let _ = debug_println("windowd: fb vmo create ok");
+            runtime.register_framebuffer_vmo(handle);
+            // Prioritize first-frame compose/handoff before IPC traffic can starve it.
+            let _ = runtime.process_deferred_framebuffer_write();
+        } else {
+            let _ = debug_println("windowd: ERROR fb vmo create failed");
         }
     }
 
     let mut recv_frame = [0u8; 512];
     loop {
+        // Keep first-frame handoff deterministic even under sustained inbox load.
+        let _ = runtime.process_deferred_framebuffer_write();
         let mut visible_updates_since_flush = 0usize;
         for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
@@ -254,9 +261,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Err(err) = runtime.flush_pending_damage() {
             let _ = debug_println(flush_error_label(err));
         }
-        // Process deferred first-frame write (heavy: ~200 vmo_write syscalls).
-        // This runs AFTER the IPC response was sent, so the caller doesn't time out.
-        let _ = runtime.process_deferred_framebuffer_write();
         runtime.tick(nsec().unwrap_or(0));
         let _ = yield_();
     }

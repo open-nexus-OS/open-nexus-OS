@@ -24,11 +24,12 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
     decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, visible_hover_target_contains, InputDispatch, InputdConfig,
-    InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT,
-    LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X,
-    VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH,
-    VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
+    visible_display_start_position, visible_sidebar_close_target_contains,
+    visible_sidebar_open_target_contains, InputDispatch, InputdConfig, InputdService,
+    WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
+    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
+    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
+    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
 };
 
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
@@ -465,6 +466,7 @@ impl LiveRouteRuntime {
         let pointer_held = self.input.primary_pointer_held();
         let keyboard_held = self.input.held_non_modifier_key_count() > 0;
         let previous_hover_visible = self.visible_state.hover_visible;
+        let previous_sidebar_open_visible = self.visible_state.sidebar_open_visible;
         let previous_focus_visible = self.visible_state.focus_visible;
         self.visible_state.cursor_x = display_pointer.x;
         self.visible_state.cursor_y = display_pointer.y;
@@ -506,8 +508,17 @@ impl LiveRouteRuntime {
             self.note_wheel_indicator(pointer_wheel_delta, now_ns);
         }
         if self.visible_state.pointer_route_live {
-            self.visible_state.hover_visible =
-                visible_hover_target_contains(route_pointer.x, route_pointer.y);
+            let sidebar_open_target =
+                visible_sidebar_open_target_contains(route_pointer.x, route_pointer.y);
+            let sidebar_close_target =
+                visible_sidebar_close_target_contains(route_pointer.x, route_pointer.y);
+            self.visible_state.hover_visible = sidebar_open_target;
+            if sidebar_open_target {
+                self.visible_state.sidebar_open_visible = true;
+            }
+            if pointer_down_dispatched && sidebar_close_target {
+                self.visible_state.sidebar_open_visible = false;
+            }
             self.visible_state.launcher_click_visible = pointer_held;
         }
         if keyboard_dispatched {
@@ -531,10 +542,13 @@ impl LiveRouteRuntime {
             Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
         );
         let hover_changed = previous_hover_visible != self.visible_state.hover_visible;
+        let sidebar_changed =
+            previous_sidebar_open_visible != self.visible_state.sidebar_open_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
+            || sidebar_changed
             || focus_changed
             || (pointer_move_seen && (hover_changed || absolute_pointer_source));
         self.push_visible_state_to_windowd(now_ns, immediate_push);

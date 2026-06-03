@@ -113,8 +113,17 @@ debug_log() {
 # --- objcopy kernel ELF to binary ---
 prepare_kernel_bin() {
   if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
-    local objcopy
-    objcopy=$(find ~/.rustup/toolchains -name llvm-objcopy -type f 2>/dev/null | head -1)
+    local objcopy=""
+    local candidate
+    for candidate in \
+      "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-objcopy \
+      "$HOME"/.rustup/toolchains/*/bin/llvm-objcopy
+    do
+      if [[ -x "$candidate" ]]; then
+        objcopy="$candidate"
+        break
+      fi
+    done
     if [[ -z "$objcopy" ]]; then
       echo "[error] llvm-objcopy not found. Install: rustup component add llvm-tools-preview" >&2
       exit 1

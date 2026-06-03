@@ -92,15 +92,15 @@ build-kernel-lib:
 qemu *args:
     # ensure the binary is built before launching
     just build-kernel
-    RUN_TIMEOUT=${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER="${RUN_UNTIL_MARKER:-SELFTEST: dsoftbus ping ok}" scripts/run-qemu-rv64.sh {{args}}
-    @echo "[hint] Default stop marker is 'SELFTEST: dsoftbus ping ok'. Set RUN_UNTIL_MARKER=1 for full readiness ladder or QEMU_TRACE=1 for tracing."
+    RUN_TIMEOUT=${RUN_TIMEOUT:-90s} RUN_UNTIL_MARKER="${RUN_UNTIL_MARKER:-1}" scripts/qemu-launcher.sh {{args}}
+    @echo "[hint] Default stop mode is RUN_UNTIL_MARKER=1 (init+grace). Set RUN_TIMEOUT=0 for endless interactive run or QEMU_TRACE=1 for tracing."
 
 start *args:
     # self-contained interactive path: build first, then keep the same guest
     # alive with the richer breadcrumb ladder. Default to the host build path so
     # interactive starts do not rebuild the dev container or compile cargo-udeps.
     make MODE=${NEXUS_START_BUILD_MODE:-host} build
-    NEXUS_SKIP_BUILD=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=bringup QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-touch} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/run-qemu-rv64.sh {{args}}
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
     @echo "[hint] just start builds first via MODE=${NEXUS_START_BUILD_MODE:-host}; set NEXUS_START_BUILD_MODE=container for container parity."
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that

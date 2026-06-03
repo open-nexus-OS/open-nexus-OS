@@ -34,6 +34,7 @@ impl ProofVisibleInputWitness {
         self.observed_state.input_visible_on |= state.input_visible_on;
         self.observed_state.cursor_move_visible |= state.cursor_move_visible;
         self.observed_state.hover_visible |= state.hover_visible;
+        self.observed_state.sidebar_open_visible |= state.sidebar_open_visible;
         self.observed_state.focus_visible |= state.focus_visible;
         self.observed_state.launcher_click_visible |= state.launcher_click_visible;
         self.observed_state.keyboard_visible |= state.keyboard_visible;

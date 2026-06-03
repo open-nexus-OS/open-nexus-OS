@@ -20,10 +20,18 @@ RUN_ID = os.environ.get("RUN_ID", "visible-bootstrap-qmp")
 DEFAULT_UART_LOG_PATH = Path(os.environ.get("UART_LOG", str(LOG_DIR / "uart.log")))
 DEFAULT_WAIT_MARKER = "windowd: present visible ok"
 DEFAULT_WAIT_TIMEOUT_S = 60.0
+DEFAULT_HID_READY_MARKER = "hidrawd: ready"
+DEFAULT_INPUT_READY_MARKER = "inputd: ready"
+DEFAULT_READY_TIMEOUT_S = 30.0
 DEFAULT_POINTER_ROUTE_MARKER = "windowd: cursor move visible"
 DEFAULT_CLICK_READY_MARKER = "launcher: click visible ok"
+DEFAULT_KEYBOARD_ROUTE_MARKER = "inputd: live keyboard route on"
+DEFAULT_SIDEBAR_OPEN_MARKER = "windowd: sidebar open"
+DEFAULT_SIDEBAR_CLOSE_MARKER = "windowd: sidebar close"
 DEFAULT_POST_MOVE_TIMEOUT_S = 10.0
 DEFAULT_POST_CLICK_TIMEOUT_S = 10.0
+DEFAULT_KEYBOARD_TIMEOUT_S = 4.0
+DEFAULT_SIDEBAR_TIMEOUT_S = 10.0
 QEMU_ABS_MAX = 32767
 VISIBLE_ROUTE_WIDTH = 64
 VISIBLE_ROUTE_HEIGHT = 48
@@ -31,8 +39,10 @@ VISIBLE_DISPLAY_WIDTH = 1280
 VISIBLE_DISPLAY_HEIGHT = 800
 # Keep these coordinates aligned with `inputd::visible_contract`.
 # The hover proof target lives inside the left square near the lower-left area.
-HOVER_TARGET_ROUTE_X = 5
-HOVER_TARGET_ROUTE_Y = 37
+HOVER_TARGET_ROUTE_X = 7
+HOVER_TARGET_ROUTE_Y = 38
+CLOSE_TARGET_ROUTE_X = 56
+CLOSE_TARGET_ROUTE_Y = 22
 CURSOR_START_ROUTE_X = 24
 CURSOR_START_ROUTE_Y = 12
 REL_STEP_LIMIT = 256
@@ -41,6 +51,7 @@ POINTER_DOWN_HOLD_S = 0.25
 KEY_DOWN_HOLD_S = 0.25
 POINTER_RELEASE_SETTLE_S = 0.05
 WHEEL_PULSE_SETTLE_S = 0.20
+SIDEBAR_SETTLE_S = 0.35
 
 
 def recv_json(sock: socket.socket) -> dict:
@@ -209,11 +220,35 @@ def main() -> int:
     wait_timeout_s = float(
         os.environ.get("QEMU_INPUT_INJECT_WAIT_TIMEOUT_S", str(DEFAULT_WAIT_TIMEOUT_S))
     )
+    hid_ready_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_HID_READY_MARKER", DEFAULT_HID_READY_MARKER
+    )
+    input_ready_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_INPUT_READY_MARKER", DEFAULT_INPUT_READY_MARKER
+    )
+    ready_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_READY_TIMEOUT_S", str(DEFAULT_READY_TIMEOUT_S))
+    )
     pointer_route_marker = os.environ.get(
         "QEMU_INPUT_INJECT_POINTER_ROUTE_MARKER", DEFAULT_POINTER_ROUTE_MARKER
     )
     click_ready_marker = os.environ.get(
         "QEMU_INPUT_INJECT_CLICK_READY_MARKER", DEFAULT_CLICK_READY_MARKER
+    )
+    keyboard_route_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_KEYBOARD_ROUTE_MARKER", DEFAULT_KEYBOARD_ROUTE_MARKER
+    )
+    keyboard_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_KEYBOARD_TIMEOUT_S", str(DEFAULT_KEYBOARD_TIMEOUT_S))
+    )
+    sidebar_open_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_SIDEBAR_OPEN_MARKER", DEFAULT_SIDEBAR_OPEN_MARKER
+    )
+    sidebar_close_marker = os.environ.get(
+        "QEMU_INPUT_INJECT_SIDEBAR_CLOSE_MARKER", DEFAULT_SIDEBAR_CLOSE_MARKER
+    )
+    sidebar_timeout_s = float(
+        os.environ.get("QEMU_INPUT_INJECT_SIDEBAR_TIMEOUT_S", str(DEFAULT_SIDEBAR_TIMEOUT_S))
     )
     post_move_timeout_s = float(
         os.environ.get("QEMU_INPUT_INJECT_POST_MOVE_TIMEOUT_S", str(DEFAULT_POST_MOVE_TIMEOUT_S))
@@ -251,11 +286,18 @@ def main() -> int:
         # endregion agent log
 
         wait_for_uart_marker(uart_log_path, wait_marker, wait_timeout_s)
+        wait_for_uart_marker(uart_log_path, hid_ready_marker, ready_timeout_s)
+        wait_for_uart_marker(uart_log_path, input_ready_marker, ready_timeout_s)
         append_debug_log(
             "H4",
             "tools/qmp_visible_input_inject.py:122",
             "guest visible-present marker reached",
-            {"uart_log_path": str(uart_log_path), "wait_marker": wait_marker},
+            {
+                "uart_log_path": str(uart_log_path),
+                "wait_marker": wait_marker,
+                "hid_ready_marker": hid_ready_marker,
+                "input_ready_marker": input_ready_marker,
+            },
         )
         time.sleep(POST_PRESENT_SETTLE_S)
 
@@ -267,6 +309,12 @@ def main() -> int:
         )
         target_display_y = route_cell_midpoint(
             HOVER_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
+        )
+        close_display_x = route_cell_midpoint(
+            CLOSE_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
+        )
+        close_display_y = route_cell_midpoint(
+            CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
         )
         start_display_x = route_cell_midpoint(
             CURSOR_START_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
@@ -297,7 +345,6 @@ def main() -> int:
                         {"type": "rel", "data": {"axis": "y", "value": rel_y}},
                     ],
                     console=None,
-                    device="video0",
                 )
                 time.sleep(0.05)
         if effective_touch_enabled:
@@ -314,7 +361,6 @@ def main() -> int:
                     },
                 ],
                 console=None,
-                device="video0",
             )
         # region agent log
         append_debug_log(
@@ -322,7 +368,7 @@ def main() -> int:
             "tools/qmp_visible_input_inject.py:126",
             "pointer injection sent",
             {
-                "device": "video0",
+                "device": "auto",
                 "touch_enabled": touch_enabled,
                 "mouse_enabled": mouse_enabled,
                 "effective_touch_enabled": effective_touch_enabled,
@@ -331,8 +377,10 @@ def main() -> int:
                 "session_mode": session_mode,
                 "proof_prefers_single_pointer_source": proof_prefers_single_pointer_source,
                 "route_target": [HOVER_TARGET_ROUTE_X, HOVER_TARGET_ROUTE_Y],
+                "route_close_target": [CLOSE_TARGET_ROUTE_X, CLOSE_TARGET_ROUTE_Y],
                 "display_start": [start_display_x, start_display_y],
                 "display_target": [target_display_x, target_display_y],
+                "display_close_target": [close_display_x, close_display_y],
                 "rel_steps": list(zip(rel_x_steps, rel_y_steps, strict=False)),
                 "qemu_abs_target": [
                     qemu_abs_value(target_display_x, VISIBLE_DISPLAY_WIDTH),
@@ -355,65 +403,156 @@ def main() -> int:
                     "post_move_timeout_s": post_move_timeout_s,
                 },
             )
+            try:
+                wait_for_uart_marker(uart_log_path, sidebar_open_marker, sidebar_timeout_s)
+            except RuntimeError as exc:
+                append_debug_log(
+                    "H4",
+                    "tools/qmp_visible_input_inject.py:155",
+                    "sidebar open marker missing; continuing injection",
+                    {"marker": sidebar_open_marker, "error": str(exc)},
+                )
+            time.sleep(SIDEBAR_SETTLE_S)
         if effective_mouse_enabled or effective_touch_enabled:
             send_input_events(
                 sock,
                 [{"type": "btn", "data": {"down": True, "button": "left"}}],
                 console=None,
-                device="video0",
             )
             time.sleep(POINTER_DOWN_HOLD_S)
-            wait_for_uart_marker(uart_log_path, click_ready_marker, post_click_timeout_s)
-            append_debug_log(
-                "H4",
-                "tools/qmp_visible_input_inject.py:168",
-                "click ready marker reached",
-                {
-                    "uart_log_path": str(uart_log_path),
-                    "click_ready_marker": click_ready_marker,
-                    "post_click_timeout_s": post_click_timeout_s,
-                },
-            )
-        if keyboard_enabled:
-            send_input_events(
-                sock,
-                [
+            try:
+                wait_for_uart_marker(uart_log_path, click_ready_marker, post_click_timeout_s)
+                append_debug_log(
+                    "H4",
+                    "tools/qmp_visible_input_inject.py:168",
+                    "click ready marker reached",
                     {
-                        "type": "key",
-                        "data": {"down": True, "key": {"type": "qcode", "data": "a"}},
+                        "uart_log_path": str(uart_log_path),
+                        "click_ready_marker": click_ready_marker,
+                        "post_click_timeout_s": post_click_timeout_s,
                     },
-                ],
-            )
-            time.sleep(KEY_DOWN_HOLD_S)
-            send_input_events(
-                sock,
-                [
-                    {
-                        "type": "key",
-                        "data": {"down": False, "key": {"type": "qcode", "data": "a"}},
-                    },
-                ],
-            )
-        if effective_mouse_enabled or effective_touch_enabled:
+                )
+            except RuntimeError as exc:
+                append_debug_log(
+                    "H4",
+                    "tools/qmp_visible_input_inject.py:173",
+                    "click marker missing; continuing injection",
+                    {"marker": click_ready_marker, "error": str(exc)},
+                )
             time.sleep(POINTER_RELEASE_SETTLE_S)
             send_input_events(
                 sock,
                 [{"type": "btn", "data": {"down": False, "button": "left"}}],
                 console=None,
-                device="video0",
             )
+            time.sleep(SIDEBAR_SETTLE_S)
+            # Deterministic close path: route to explicit close target and click.
+            if effective_mouse_enabled:
+                close_rel_x_steps = bounded_rel_steps(close_display_x - target_display_x)
+                close_rel_y_steps = bounded_rel_steps(close_display_y - target_display_y)
+                for idx in range(max(len(close_rel_x_steps), len(close_rel_y_steps))):
+                    rel_x = close_rel_x_steps[idx] if idx < len(close_rel_x_steps) else 0
+                    rel_y = close_rel_y_steps[idx] if idx < len(close_rel_y_steps) else 0
+                    if rel_x == 0 and rel_y == 0:
+                        continue
+                    send_input_events(
+                        sock,
+                        [
+                            {"type": "rel", "data": {"axis": "x", "value": rel_x}},
+                            {"type": "rel", "data": {"axis": "y", "value": rel_y}},
+                        ],
+                        console=None,
+                    )
+                    time.sleep(0.05)
+            if effective_touch_enabled:
+                send_input_events(
+                    sock,
+                    [
+                        {
+                            "type": "abs",
+                            "data": {"axis": "x", "value": qemu_abs_value(close_display_x, VISIBLE_DISPLAY_WIDTH)},
+                        },
+                        {
+                            "type": "abs",
+                            "data": {"axis": "y", "value": qemu_abs_value(close_display_y, VISIBLE_DISPLAY_HEIGHT)},
+                        },
+                    ],
+                    console=None,
+                )
+            # Give inputd one tick to apply the close-target pointer move
+            # before the close click/down event is dispatched.
+            time.sleep(POST_PRESENT_SETTLE_S)
+            send_input_events(
+                sock,
+                [{"type": "btn", "data": {"down": True, "button": "left"}}],
+                console=None,
+            )
+            time.sleep(POINTER_DOWN_HOLD_S)
+            send_input_events(
+                sock,
+                [{"type": "btn", "data": {"down": False, "button": "left"}}],
+                console=None,
+            )
+            try:
+                wait_for_uart_marker(uart_log_path, sidebar_close_marker, sidebar_timeout_s)
+            except RuntimeError as exc:
+                append_debug_log(
+                    "H4",
+                    "tools/qmp_visible_input_inject.py:194",
+                    "sidebar close marker missing; continuing injection",
+                    {"marker": sidebar_close_marker, "error": str(exc)},
+                )
+            time.sleep(SIDEBAR_SETTLE_S)
+        if keyboard_enabled:
+            keyboard_route_seen = False
+            for key_name in ("a", "ret"):
+                send_input_events(
+                    sock,
+                    [
+                        {
+                            "type": "key",
+                            "data": {"down": True, "key": {"type": "qcode", "data": key_name}},
+                        },
+                    ],
+                )
+                time.sleep(KEY_DOWN_HOLD_S)
+                send_input_events(
+                    sock,
+                    [
+                        {
+                            "type": "key",
+                            "data": {"down": False, "key": {"type": "qcode", "data": key_name}},
+                        },
+                    ],
+                )
+                try:
+                    wait_for_uart_marker(
+                        uart_log_path, keyboard_route_marker, keyboard_timeout_s
+                    )
+                    keyboard_route_seen = True
+                    break
+                except RuntimeError:
+                    continue
+            if not keyboard_route_seen:
+                append_debug_log(
+                    "H4",
+                    "tools/qmp_visible_input_inject.py:187",
+                    "keyboard route marker missing after key injections",
+                    {
+                        "marker": keyboard_route_marker,
+                        "keyboard_timeout_s": keyboard_timeout_s,
+                    },
+                )
         if effective_mouse_enabled:
             send_input_events(
                 sock,
                 [{"type": "btn", "data": {"down": True, "button": "wheel-up"}}],
                 console=None,
-                device="video0",
             )
             send_input_events(
                 sock,
                 [{"type": "btn", "data": {"down": False, "button": "wheel-up"}}],
                 console=None,
-                device="video0",
             )
             append_debug_log(
                 "H4",

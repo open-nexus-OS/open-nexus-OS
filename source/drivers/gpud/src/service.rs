@@ -16,7 +16,7 @@ use nexus_gfx::backend::types::Rect;
 use crate::backend::VirtioGpuBackend;
 use crate::markers::{
     GPUD_CURSOR_ON, GPUD_DISPLAY_READY, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY,
-    GPUD_VIRTIO_GPU_PROBED,
+    GPUD_SCANOUT_MODE, GPUD_SCANOUT_OK, GPUD_VIRTIO_GPU_PROBED,
 };
 
 pub const ROUTE_NAME: &str = "gpud";
@@ -31,14 +31,27 @@ pub const STATUS_DEVICE_ERROR: u8 = 2;
 const GPU_MMIO_CAP_SLOT: u32 = 48;
 const GPU_MMIO_VA: usize = 0x2020_0000;
 const GPU_MMIO_LEN: usize = 0x1000;
-const GPUD_RECV_SLOT: u32 = 6;
-const GPUD_SEND_SLOT: u32 = 7;
+const GPUD_RECV_SLOT: u32 = 3;
+const GPUD_SEND_SLOT: u32 = 4;
 /// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
-    let backend = open_backend_blocking()?;
+    let mut backend = open_backend_once()?;
+    if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
+        let _ = debug_println(GPUD_SCANOUT_OK);
+        let _ = debug_println(GPUD_SCANOUT_MODE);
+    } else if backend
+        .attach_bootstrap_solid_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT, [0, 0, 0, 255])
+        .is_ok()
+    {
+        let _ = debug_println("gpud: bootstrap text unavailable, fallback solid");
+        let _ = debug_println(GPUD_SCANOUT_OK);
+        let _ = debug_println(GPUD_SCANOUT_MODE);
+    } else {
+        let _ = debug_println("gpud: bootstrap scanout skipped");
+    }
 
     // GPU-only architecture: gpud is a pure driver, not a display owner.
     // It probes the device and becomes IPC-ready. The scanout is set only
@@ -49,29 +62,6 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let server = bind_server()?;
     debug_println(GPUD_READY)?;
     service_requests(server, backend)
-}
-
-fn open_backend_blocking() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
-    const MAX_RETRIES: u32 = 64;
-    let mut attempt: u32 = 0;
-    loop {
-        match open_backend_once() {
-            Ok(backend) => return Ok(backend),
-            Err(AbiError::InvalidArgument) => {
-                attempt += 1;
-                if attempt > MAX_RETRIES {
-                    let _ = debug_println("gpud: mmio fatal timeout");
-                    return Err(AbiError::InvalidArgument);
-                }
-                // Emit diagnostic every 8 retries so the UART shows progress.
-                if attempt & 7 == 0 {
-                    let _ = debug_println("gpud: mmio retry");
-                }
-                let _ = yield_();
-            }
-            Err(err) => return Err(err),
-        }
-    }
 }
 
 fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
@@ -98,8 +88,12 @@ fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
 }
 
 fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
-    KernelServer::new_with_slots(GPUD_RECV_SLOT, GPUD_SEND_SLOT)
-        .map_err(|_| nexus_abi::AbiError::InvalidArgument)
+    if let Ok(server) = KernelServer::new_for(ROUTE_NAME) {
+        let _ = debug_println("gpud: route connected");
+        return Ok(server);
+    }
+    let _ = debug_println("gpud: route fallback slots");
+    KernelServer::new_with_slots(GPUD_RECV_SLOT, GPUD_SEND_SLOT).map_err(|_| nexus_abi::AbiError::InvalidArgument)
 }
 
 fn service_requests(
@@ -107,6 +101,7 @@ fn service_requests(
     mut backend: VirtioGpuBackend,
 ) -> Result<(), nexus_abi::AbiError> {
     let mut recv_frame = [0u8; 128];
+    let mut active_handoff_id: u32 = 0;
     loop {
         match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
@@ -118,39 +113,59 @@ fn service_requests(
                         continue;
                     }
                 };
-                let status = match op {
+                let (status, response_handoff_id) = match op {
                     OP_SET_FRAMEBUFFER_VMO => {
                         let _ = debug_println("gpud: recv OP_SET_FRAMEBUFFER_VMO");
+                        let handoff_id = decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
                         match moved_cap.take() {
-                        Some(cap) => match backend.attach_external_framebuffer(
-                            cap.slot(),
-                            DISPLAY_WIDTH,
-                            DISPLAY_HEIGHT,
-                        ) {
-                            Ok(()) => {
-                                let _ = backend.move_cursor(0, 0);
-                                let _ = debug_println(GPUD_CURSOR_ON);
-                                let _ = debug_println(GPUD_DISPLAY_READY);
-                                STATUS_OK
+                            Some(cap) => match backend.attach_external_framebuffer(
+                                cap.slot(),
+                                DISPLAY_WIDTH,
+                                DISPLAY_HEIGHT,
+                            ) {
+                                Ok(()) => {
+                                    active_handoff_id = handoff_id;
+                                    let _ = backend.move_cursor(0, 0);
+                                    let _ = debug_println("gpud: handoff attach ack");
+                                    let _ = debug_println(GPUD_CURSOR_ON);
+                                    let _ = debug_println(GPUD_DISPLAY_READY);
+                                    (STATUS_OK, Some(active_handoff_id))
+                                }
+                                Err(e) => {
+                                    let _ = debug_println("gpud: ERROR attach framebuffer failed");
+                                    let _ =
+                                        debug_println("gpud: ERROR attach framebuffer resource create failed");
+                                    let _ = e;
+                                    (STATUS_DEVICE_ERROR, Some(handoff_id))
+                                }
+                            },
+                            None => {
+                                let _ = debug_println("gpud: ERROR no cap in VMO message");
+                                (STATUS_MALFORMED, Some(handoff_id))
                             }
-                            Err(e) => {
-                                let _ = debug_println("gpud: ERROR attach framebuffer failed");
-                                let _ = debug_println("gpud: ERROR attach framebuffer resource create failed");
-                                let _ = e;
-                                STATUS_DEVICE_ERROR
-                            }
-                        },
-                        None => {
-                            let _ = debug_println("gpud: ERROR no cap in VMO message");
-                            STATUS_MALFORMED
                         }
+                    }
+                    OP_PRESENT_DAMAGE => {
+                        let handoff_id =
+                            decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
+                        let status = handle_present_damage(&mut backend, frame);
+                        if status == STATUS_OK {
+                            active_handoff_id = handoff_id;
                         }
-                    },
-                    _ => handle_frame(&mut backend, frame),
+                        (status, Some(handoff_id))
+                    }
+                    _ => (handle_frame(&mut backend, frame), None),
                 };
-                let response = [status];
                 drop(moved_cap);
-                let _ = server.send(&response, Wait::Blocking);
+                if let Some(handoff_id) = response_handoff_id {
+                    let mut response = [0u8; 5];
+                    response[0] = status;
+                    response[1..5].copy_from_slice(&handoff_id.to_le_bytes());
+                    let _ = server.send(&response, Wait::Blocking);
+                } else {
+                    let response = [status];
+                    let _ = server.send(&response, Wait::Blocking);
+                }
             }
             Err(nexus_ipc::IpcError::WouldBlock)
             | Err(nexus_ipc::IpcError::Timeout)
@@ -161,6 +176,34 @@ fn service_requests(
             Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
         }
     }
+}
+
+fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
+    if frame.len() < 5 {
+        return None;
+    }
+    Some(u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]))
+}
+
+fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
+    if frame.len() < 21 {
+        return None;
+    }
+    Some(u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]))
+}
+
+fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
+    if frame.len() < 17 {
+        return STATUS_MALFORMED;
+    }
+    let x = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+    let y = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+    let width = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
+    let height = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
+    if backend.present_scanout_damage(Rect { x, y, width, height }).is_err() {
+        return STATUS_DEVICE_ERROR;
+    }
+    STATUS_OK
 }
 
 fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
@@ -186,19 +229,7 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             }
             STATUS_OK
         }
-        OP_PRESENT_DAMAGE => {
-            if frame.len() < 17 {
-                return STATUS_MALFORMED;
-            }
-            let x = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
-            let y = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            let width = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
-            let height = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
-            if backend.present_scanout_damage(Rect { x, y, width, height }).is_err() {
-                return STATUS_DEVICE_ERROR;
-            }
-            STATUS_OK
-        }
+        OP_PRESENT_DAMAGE => handle_present_damage(backend, frame),
         _ => STATUS_MALFORMED,
     }
 }
