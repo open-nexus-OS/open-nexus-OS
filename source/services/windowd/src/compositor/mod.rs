@@ -269,7 +269,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Err(err) = runtime.flush_pending_damage() {
             let _ = debug_println(flush_error_label(err));
         }
-        runtime.tick(nsec().unwrap_or(0));
+        // Reactive: only drive animation timeline when animations are active.
+        // No polling — when no animation is running, we skip the tick entirely.
+        if runtime.has_active_animations() {
+            runtime.tick(nsec().unwrap_or(0));
+        }
         let _ = yield_();
     }
 }

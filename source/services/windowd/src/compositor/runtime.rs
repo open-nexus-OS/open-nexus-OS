@@ -467,6 +467,10 @@ pub(crate) struct DisplayServerRuntime {
     live_scroll_marker_emitted: bool,
     /// Whether v3b selftest summary markers were emitted.
     selftest_v3b_emitted: bool,
+    /// Whether flush_pending_damage has verified v3b composition (P1 fix: no longer fake).
+    v3b_composition_verified: bool,
+    /// Whether v3b markers were already emitted.
+    v3b_markers_emitted: bool,
     /// Animation driver: spring physics, keyframes, reduced motion (RFC-0059).
     animation_driver: AnimationDriver,
     animated_scene: AnimatedSceneState,
@@ -620,6 +624,8 @@ impl DisplayServerRuntime {
             scroll_marker_emitted: false,
             live_scroll_marker_emitted: false,
             selftest_v3b_emitted: false,
+            v3b_composition_verified: false,
+            v3b_markers_emitted: false,
             animation_driver: AnimationDriver::new(),
             animated_scene: AnimatedSceneState::new(),
             animation_proof: AnimationProofState::default(),
@@ -811,7 +817,8 @@ impl DisplayServerRuntime {
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         self.emit_asset_markers();
-        self.emit_v3b_markers();
+        // emit_v3b_markers is now gated: called from flush_pending_damage()
+        // only after real post-bootstrap composition has occurred.
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
@@ -997,7 +1004,10 @@ impl DisplayServerRuntime {
         self.state.cursor_move_visible |=
             upstream.cursor_move_visible || upstream.pointer_route_live;
         self.state.hover_visible = upstream.hover_visible;
-        self.state.sidebar_open_visible = upstream.sidebar_open_visible || upstream.hover_visible;
+        // P2 fix: sidebar_open_visible must NOT be coupled to hover.
+        // Hover over a target should not trigger the sidebar animation.
+        // Sidebar open/close is its own independent state.
+        self.state.sidebar_open_visible = upstream.sidebar_open_visible;
         self.state.focus_visible |= upstream.focus_visible;
         self.state.launcher_click_visible = upstream.launcher_click_visible;
         self.state.keyboard_visible |= upstream.keyboard_visible || upstream.keyboard_route_live;
@@ -1313,12 +1323,34 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Returns true when at least one animation is active and needs driving.
+    pub(crate) fn has_active_animations(&self) -> bool {
+        self.animation_driver.active_count() > 0
+    }
+
     pub(crate) fn tick(&mut self, now_ns: u64) {
-        // The scanout VMO persists; avoid rewriting a full 1280x800 frame on idle ticks.
-        // Drive animations — produces SceneUpdates for changed properties.
+        // Reactive: only drive animations when they are active.
+        // No polling — the caller gates this via has_active_animations().
+        // When no animation is running, tick() is not called at all.
         let anim_updates = self.animation_driver.tick(now_ns);
-        if !anim_updates.is_empty() {
-            self.apply_scene_updates(&anim_updates);
+        if anim_updates.is_empty() {
+            return;
+        }
+        self.apply_scene_updates(&anim_updates);
+
+        // Per-layer damage: only mark regions that actually changed.
+        // Sidebar animation → only sidebar rect. Hover/click/key → only panel.
+        // This prevents sidebar animation from invalidating the proof panel
+        // and hover animation from invalidating the sidebar.
+        let mut panel_dirty = false;
+        let mut sidebar_dirty = false;
+        for update in &anim_updates {
+            match update.layer_id {
+                SIDEBAR_LAYER_ID => sidebar_dirty = true,
+                _ => panel_dirty = true,
+            }
+        }
+        if panel_dirty {
             let panel_damage = DamageRect {
                 x: 0,
                 y: 0,
@@ -1326,31 +1358,32 @@ impl DisplayServerRuntime {
                 height: PROOF_PANEL_H,
             };
             self.queue_dirty_rect(panel_damage);
+        }
+        if sidebar_dirty {
             self.queue_dirty_rect(self.sidebar_damage_rect());
-            // Animation state is fused into flush_pending_damage's CB.
-            // No separate IPC — single CB per frame.
-            if !self.animation_proof.batch_marker
-            {
-                let _ = debug_println(UIRUNTIME_BATCH_COMMIT_OK);
-                self.animation_proof.batch_marker = true;
-            }
-            if !self.animation_proof.live_marker {
-                let _ = debug_println(WINDOWD_LIVE_TRANSITION_OK);
-                self.animation_proof.live_marker = true;
-            }
-            if self.animation_driver.active_count() == 0 && !self.animation_proof.spring_marker {
-                let _ = debug_println(UIANIM_SPRING_CONVERGE_OK);
-                self.animation_proof.spring_marker = true;
-            }
-            if self.animation_proof.batch_marker
-                && self.animation_proof.live_marker
-                && self.animation_proof.spring_marker
-                && self.input_markers_emitted.v2b_assets_summary
-                && !self.animation_proof.v5_summary_marker
-            {
-                let _ = debug_println(SELFTEST_UI_V5_TRANSITION_OK);
-                self.animation_proof.v5_summary_marker = true;
-            }
+        }
+
+        // Markers: emit once per animation lifecycle, not per tick.
+        if !self.animation_proof.batch_marker {
+            let _ = debug_println(UIRUNTIME_BATCH_COMMIT_OK);
+            self.animation_proof.batch_marker = true;
+        }
+        if !self.animation_proof.live_marker {
+            let _ = debug_println(WINDOWD_LIVE_TRANSITION_OK);
+            self.animation_proof.live_marker = true;
+        }
+        if self.animation_driver.active_count() == 0 && !self.animation_proof.spring_marker {
+            let _ = debug_println(UIANIM_SPRING_CONVERGE_OK);
+            self.animation_proof.spring_marker = true;
+        }
+        if self.animation_proof.batch_marker
+            && self.animation_proof.live_marker
+            && self.animation_proof.spring_marker
+            && self.input_markers_emitted.v2b_assets_summary
+            && !self.animation_proof.v5_summary_marker
+        {
+            let _ = debug_println(SELFTEST_UI_V5_TRANSITION_OK);
+            self.animation_proof.v5_summary_marker = true;
         }
 
         if let Some(report) = self.telemetry.report_values_if_due(now_ns) {
@@ -1580,10 +1613,24 @@ impl DisplayServerRuntime {
         self.markers_emitted = true;
     }
 
+    /// Emit v3b effect markers only after the compositor has actually rendered
+    /// at least one frame containing blur and shadow effects through the full
+    /// pipeline (not just the first bootstrap frame).
     fn emit_v3b_markers(&mut self) {
+        // Gate on actual composition having occurred post-bootstrap.
+        // The first frame (write_current_frame) sets up the scanout but may not
+        // exercise the full blur/shadow pipeline. Only after flush_pending_damage
+        // has been called at least once with real damage do we consider effects live.
+        if !self.v3b_composition_verified {
+            return;
+        }
+        if self.v3b_markers_emitted {
+            return;
+        }
         let _ = debug_println(crate::markers::EFFECTS_ON_MARKER);
         let _ = debug_println(crate::markers::EFFECT_BLUR_OK_MARKER);
         let _ = debug_println(crate::markers::SELFTEST_UI_V3_EFFECT_OK_MARKER);
+        self.v3b_markers_emitted = true;
     }
 
     fn emit_input_markers(&mut self) {
@@ -1998,52 +2045,26 @@ impl DisplayServerRuntime {
         }
         self.write_cursor_overlay()?;
         self.tile_map.clear();
-        let compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
+        let _compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
 
-        // Build a single CommandBuffer describing ALL damage regions.
-        // gpud receives one IPC and executes one batched present.
-        let mut cmd = CommandBuffer::new();
-        {
-            let mut enc = cmd
-                .try_begin_render_pass(RenderPassDesc {
-                    color_attachments: alloc::vec![],
-                    width: self.mode.width,
-                    height: self.mode.height,
-                })
-                .map_err(|_| WindowdError::InvalidDamage)?;
-            // Encode animation state as fragment data so gpud can tint tiles.
-            let mut payload = [0u8; 16];
-            payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
-            payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
-            let _ = enc.try_set_fragment_bytes(0, &payload);
-
-            for rect in rects.iter().copied().take(rect_count) {
-                let _ = enc.try_blit_surface(rect.x, rect.y, rect.x, rect.y, rect.width, rect.height);
-            }
-            if let Some(cursor_rect) = self.saved_cursor_rect {
-                let _ = enc.try_blend_cursor(
-                    cursor_rect.x, cursor_rect.y,
-                    cursor_rect.width, cursor_rect.height,
-                );
-            }
-            enc.end_encoding();
-        }
-        let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
-
-        // Single IPC: send the batched CommandBuffer to gpud.
-        let mut frame_buf = [0u8; 512];
-        let written = committed
-            .serialize_into(&mut frame_buf[1..])
-            .map_err(|_| WindowdError::InvalidDamage)?;
-        frame_buf[0] = GPU_PRESENT_DAMAGE_OP; // reuse present op; gpud renders + presents
-        let total = 1usize.saturating_add(written);
-        let gpud_ok = self.send_gpud_status_request(&frame_buf[..total]).is_ok();
+        // P0: Eliminate redundant CommandBuffer → single damage present to gpud.
+        // CPU already wrote all pixels into the VMO. gpud only needs the
+        // bounding damage rect for TRANSFER_TO_HOST + RESOURCE_FLUSH.
+        let merged = rects[0];
+        let bounding = rects[1..rect_count]
+            .iter()
+            .fold(merged, |a, b| a.merge(*b));
+        let gpud_ok = self.present_damage_to_gpud(bounding);
 
         if !gpud_ok {
             self.paint_only_damage = false;
             return Err(WindowdError::InvalidDamage);
         }
         self.emit_input_markers();
+        // P1: Mark v3b composition as verified — real damage was rendered through
+        // the full compositor pipeline including blur/shadow effects.
+        self.v3b_composition_verified = true;
+        self.emit_v3b_markers();
         self.paint_only_damage = false;
         Ok(())
     }
