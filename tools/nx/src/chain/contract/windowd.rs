@@ -39,6 +39,10 @@ impl Contract for WindowdContract {
         "windowd"
     }
 
+    fn set_service_id(&mut self, id: ServiceId) {
+        self.id = Some(id);
+    }
+
     fn run(&mut self, bus: &mut SimIpcBus) -> Result<(), ContractError> {
         let id = self
             .id

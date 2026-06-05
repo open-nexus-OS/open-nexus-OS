@@ -127,7 +127,10 @@ pub(crate) const FILTER_INPUT_FONT_H: u32 = 7;
 pub(crate) const FILTER_INPUT_FONT_SCALE: u32 = 2;
 pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 =
     (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
+#[cfg(nexus_env = "os")]
 pub(crate) const ROW_WRITE_CHUNK: usize = 4;
+#[cfg(not(nexus_env = "os"))]
+pub(crate) const ROW_WRITE_CHUNK: usize = 32;
 pub(crate) const IPC_BATCH_LIMIT: usize = 8;
 pub(crate) const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
 pub(crate) const BACKDROP_CACHE_ENTRIES: usize = 4;
@@ -137,6 +140,9 @@ pub(crate) const COMBINED_PANEL_WIDTH: usize = (crate::proof_panel_spec::PANEL_W
     + crate::proof_panel_spec::FILTER_PANEL_WIDTH)
     as usize;
 pub(crate) const COMBINED_PANEL_HEIGHT: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
+#[cfg(nexus_env = "os")]
+pub(crate) const GLASS_LAYER_SCALE: u32 = 8;
+#[cfg(not(nexus_env = "os"))]
 pub(crate) const GLASS_LAYER_SCALE: u32 = 4;
 pub(crate) const GLASS_LAYER_MAX_WIDTH: usize =
     COMBINED_PANEL_WIDTH.div_ceil(GLASS_LAYER_SCALE as usize);
@@ -160,6 +166,9 @@ pub(crate) const TILES_X: usize = 20; // 1280 / 64
 pub(crate) const TILES_Y: usize = 13; // 800 / 64 rounded up
 pub(crate) const TILE_COUNT: usize = TILES_X * TILES_Y;
 pub(crate) const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
+#[cfg(nexus_env = "os")]
+pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 8 * 1024;
+#[cfg(not(nexus_env = "os"))]
 pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 16 * 1024;
 pub(crate) const COL_SCRATCH_SIZE: usize = WINDOWD_SHADOW_ARENA_SIZE;
 pub(crate) const SHADOW_BOX_CACHE_ENTRIES: usize = 8;

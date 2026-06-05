@@ -11,6 +11,8 @@ enum ActiveAnimation {
     Keyframe { layer: LayerId, prop: AnimProp, track: KeyframeTrack },
 }
 
+const MAX_ACTIVE_ANIMATIONS: usize = 2;
+
 pub struct AnimationDriver {
     start: u64,
     last_tick: u64,
@@ -20,21 +22,48 @@ pub struct AnimationDriver {
 
 impl AnimationDriver {
     pub fn new() -> Self {
-        Self { start: 0, last_tick: 0, animations: Vec::new(), reduced_motion: false }
+        Self {
+            start: 0,
+            last_tick: 0,
+            animations: Vec::new(),
+            reduced_motion: false,
+        }
     }
 
     pub fn tick(&mut self, now_ns: u64) -> Vec<SceneUpdate> {
+        let mut updates = Vec::with_capacity(self.animations.len());
+        let _ = self.tick_emit(now_ns, |update| updates.push(update));
+        updates
+    }
+
+    /// Allocation-free tick path for constrained runtimes.
+    /// Writes at most `out.len()` updates and returns the number written.
+    pub fn tick_into(&mut self, now_ns: u64, out: &mut [SceneUpdate]) -> usize {
+        let mut written = 0usize;
+        let _ = self.tick_emit(now_ns, |update| {
+            if written < out.len() {
+                out[written] = update;
+                written += 1;
+            }
+        });
+        written
+    }
+
+    fn tick_emit<F>(&mut self, now_ns: u64, mut emit: F) -> usize
+    where
+        F: FnMut(SceneUpdate),
+    {
         if self.start == 0 {
             self.start = now_ns;
         }
         let dt = now_ns.saturating_sub(self.last_tick);
         self.last_tick = now_ns;
         if dt == 0 {
-            return Vec::new();
+            return 0;
         }
 
         let effective_dt = if self.reduced_motion { dt.min(100_000_000) } else { dt };
-        let mut updates = Vec::new();
+        let mut emitted = 0usize;
         let mut i = 0;
         while i < self.animations.len() {
             let done = match &mut self.animations[i] {
@@ -42,12 +71,13 @@ impl AnimationDriver {
                     let old = sim.position();
                     let new = sim.step(effective_dt);
                     if (new - old).abs() > 0.0001 {
-                        updates.push(SceneUpdate {
+                        emit(SceneUpdate {
                             layer_id: *layer,
                             property: *prop,
                             value: new,
                             progress: if sim.done() { 1.0 } else { 0.0 },
                         });
+                        emitted = emitted.saturating_add(1);
                     }
                     sim.done()
                 }
@@ -55,12 +85,13 @@ impl AnimationDriver {
                     let old = track.value();
                     let new = track.step(effective_dt);
                     if (new - old).abs() > 0.0001 {
-                        updates.push(SceneUpdate {
+                        emit(SceneUpdate {
                             layer_id: *layer,
                             property: *prop,
                             value: new,
                             progress: if track.done() { 1.0 } else { 0.0 },
                         });
+                        emitted = emitted.saturating_add(1);
                     }
                     track.done()
                 }
@@ -71,7 +102,7 @@ impl AnimationDriver {
                 i += 1;
             }
         }
-        updates
+        emitted
     }
 
     pub fn spring_to(
@@ -88,7 +119,7 @@ impl AnimationDriver {
         } else {
             config
         };
-        self.animations.push(ActiveAnimation::Spring {
+        self.push_animation(ActiveAnimation::Spring {
             layer,
             prop,
             sim: SpringSim::new(from, target, cfg),
@@ -105,7 +136,7 @@ impl AnimationDriver {
     ) {
         self.cancel(layer, prop);
         let dur = if self.reduced_motion { duration_ns.min(100_000_000) } else { duration_ns };
-        self.animations.push(ActiveAnimation::Keyframe {
+        self.push_animation(ActiveAnimation::Keyframe {
             layer,
             prop,
             track: KeyframeTrack::new(keyframes, dur, easing),
@@ -127,6 +158,15 @@ impl AnimationDriver {
     }
     pub fn active_count(&self) -> usize {
         self.animations.len()
+    }
+
+    fn push_animation(&mut self, animation: ActiveAnimation) {
+        if self.animations.len() >= MAX_ACTIVE_ANIMATIONS {
+            // Keep runtime deterministic and allocation-bounded on os-lite:
+            // evict oldest active animation instead of growing the Vec.
+            self.animations.swap_remove(0);
+        }
+        self.animations.push(animation);
     }
 }
 

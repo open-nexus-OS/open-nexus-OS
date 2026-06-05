@@ -479,29 +479,78 @@ def main() -> int:
                     ],
                     console=None,
                 )
-            # Give inputd one tick to apply the close-target pointer move
-            # before the close click/down event is dispatched.
-            time.sleep(POST_PRESENT_SETTLE_S)
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": True, "button": "left"}}],
-                console=None,
+            # Give inputd a couple of ticks to apply the close-target move.
+            time.sleep(max(POST_PRESENT_SETTLE_S, 0.20))
+            sidebar_closed = False
+            close_attempts = (
+                (close_display_x, close_display_y),
+                (max(0, close_display_x - 8), close_display_y),
+                (min(VISIBLE_DISPLAY_WIDTH - 1, close_display_x + 8), close_display_y),
             )
-            time.sleep(POINTER_DOWN_HOLD_S)
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": False, "button": "left"}}],
-                console=None,
-            )
-            try:
-                wait_for_uart_marker(uart_log_path, sidebar_close_marker, sidebar_timeout_s)
-            except RuntimeError as exc:
-                append_debug_log(
-                    "H4",
-                    "tools/qmp_visible_input_inject.py:194",
-                    "sidebar close marker missing; continuing injection",
-                    {"marker": sidebar_close_marker, "error": str(exc)},
+            for attempt_idx, (attempt_x, attempt_y) in enumerate(close_attempts):
+                if effective_touch_enabled:
+                    send_input_events(
+                        sock,
+                        [
+                            {
+                                "type": "abs",
+                                "data": {
+                                    "axis": "x",
+                                    "value": qemu_abs_value(
+                                        attempt_x, VISIBLE_DISPLAY_WIDTH
+                                    ),
+                                },
+                            },
+                            {
+                                "type": "abs",
+                                "data": {
+                                    "axis": "y",
+                                    "value": qemu_abs_value(
+                                        attempt_y, VISIBLE_DISPLAY_HEIGHT
+                                    ),
+                                },
+                            },
+                        ],
+                        console=None,
+                    )
+                    time.sleep(POST_PRESENT_SETTLE_S)
+                send_input_events(
+                    sock,
+                    [{"type": "btn", "data": {"down": True, "button": "left"}}],
+                    console=None,
                 )
+                time.sleep(POINTER_DOWN_HOLD_S)
+                send_input_events(
+                    sock,
+                    [{"type": "btn", "data": {"down": False, "button": "left"}}],
+                    console=None,
+                )
+                try:
+                    wait_for_uart_marker(uart_log_path, sidebar_close_marker, 1.5)
+                    sidebar_closed = True
+                    append_debug_log(
+                        "H4",
+                        "tools/qmp_visible_input_inject.py:194",
+                        "sidebar close marker reached",
+                        {
+                            "marker": sidebar_close_marker,
+                            "attempt": attempt_idx + 1,
+                            "display_target": [attempt_x, attempt_y],
+                        },
+                    )
+                    break
+                except RuntimeError:
+                    continue
+            if not sidebar_closed:
+                try:
+                    wait_for_uart_marker(uart_log_path, sidebar_close_marker, sidebar_timeout_s)
+                except RuntimeError as exc:
+                    append_debug_log(
+                        "H4",
+                        "tools/qmp_visible_input_inject.py:194",
+                        "sidebar close marker missing; continuing injection",
+                        {"marker": sidebar_close_marker, "error": str(exc)},
+                    )
             time.sleep(SIDEBAR_SETTLE_S)
         if keyboard_enabled:
             keyboard_route_seen = False

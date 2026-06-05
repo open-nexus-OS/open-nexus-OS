@@ -16,6 +16,8 @@ use super::{
     LAYER_CACHE_MAX_LAYER_BYTES, PATH_CACHE_MAX_PIXELS, SHADOW_BOX_CACHE_ENTRIES,
 };
 
+const LAYER_CACHE_MAX_ENTRIES: usize = 4;
+
 /// Per-box shadow cache entry: stores arena offset for pre-rendered full-box shadow.
 /// Zero heap allocation — fixed-size array, linear-probe lookup.
 #[derive(Clone, Copy)]
@@ -148,9 +150,15 @@ impl Layer {
 }
 
 /// Simple layer cache: retains pre-rendered pixel data per layer.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct LayerCache {
     pub(crate) layers: Vec<Layer>,
+}
+
+impl Default for LayerCache {
+    fn default() -> Self {
+        Self { layers: Vec::new() }
+    }
 }
 
 impl LayerCache {
@@ -167,6 +175,11 @@ impl LayerCache {
     pub(crate) fn insert(&mut self, layer: Layer) {
         if let Some(existing) = self.layers.iter_mut().find(|l| l.id == layer.id) {
             *existing = layer;
+            return;
+        }
+        if self.layers.len() >= LAYER_CACHE_MAX_ENTRIES {
+            // Cache is best-effort; when full, skip inserting a new entry
+            // instead of growing the backing Vec and risking runtime OOM.
             return;
         }
         self.layers.push(layer);

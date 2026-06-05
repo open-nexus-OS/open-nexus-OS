@@ -13,6 +13,12 @@
 use alloc::vec::Vec;
 
 /// Maximum number of frame samples retained in the ring buffer.
+///
+/// OS-lite runs on a tighter heap budget; keep enough history for
+/// percentile gating while avoiding startup OOM in display services.
+#[cfg(nexus_env = "os")]
+pub const MAX_FRAME_SAMPLES: usize = 1;
+#[cfg(not(nexus_env = "os"))]
 pub const MAX_FRAME_SAMPLES: usize = 256;
 
 /// A single frame's timing record.
@@ -71,7 +77,7 @@ impl PipelineTimer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            samples: Vec::with_capacity(MAX_FRAME_SAMPLES),
+            samples: Vec::new(),
             cursor: 0,
             frame_count: 0,
             current: FrameSample::default(),

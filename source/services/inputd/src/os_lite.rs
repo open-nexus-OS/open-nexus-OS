@@ -516,7 +516,12 @@ impl LiveRouteRuntime {
             if sidebar_open_target {
                 self.visible_state.sidebar_open_visible = true;
             }
-            if pointer_down_dispatched && sidebar_close_target {
+            // Close robustly on explicit close-target hits and on any click that is
+            // outside the open hotspot while the sidebar is currently open.
+            if pointer_down_dispatched
+                && (sidebar_close_target
+                    || (self.visible_state.sidebar_open_visible && !sidebar_open_target))
+            {
                 self.visible_state.sidebar_open_visible = false;
             }
             self.visible_state.launcher_click_visible = pointer_held;

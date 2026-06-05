@@ -3,12 +3,13 @@
 - Status: In Progress
 - Owners: @ui @runtime
 - Created: 2026-05-22
-- Last Updated: 2026-06-05 (Phase 6a-6c: GPU-first rendering pipeline, async fence, single-IPC frame submission)
+- Last Updated: 2026-06-05 (Phase 6c-7 closure criteria hardened: deterministic pacing + measurable smoothness gates)
 - Links:
   - Tasks: `tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)
   - Depends on: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
   - Gfx architecture: `docs/architecture/nexusgfx-command-and-pass-model.md`, `docs/architecture/nexusgfx-resource-model.md`, `docs/architecture/nexusgfx-tile-aware-design.md`
   - Gfx track: `tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`
+  - Performance target matrix: `docs/dev/perf/PLATFORM-CLASS-UI-PERFORMANCE-OPTIMIZATIONS-QEMU-MATRIX.md`
 
 ## Status at a Glance
 
@@ -51,7 +52,7 @@ TASK-0059 delivered a CPU compositor. TASK-0062 adds animation + a GPU command p
 
 ## Architecture (Phase 6c target)
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │ windowd (Producer — window management + input)                │
 │                                                              │
@@ -142,6 +143,91 @@ gpud: `Wait::NonBlocking` → `Wait::Blocking`. No polling, no busy-wait. Kernel
 - IPC latency per frame (must be constant, independent of damage-rect count)
 - Zero heap growth across consecutive frames
 
+## Normative Phase Closure (6c -> 7)
+
+This section is normative. A phase is complete only when all "required proofs" pass and no "fail condition" is true.
+
+### Cross-track dependency (mandatory for Phase 7)
+
+Phase 7 closure depends on the kernel timer capability package defined in
+`docs/dev/perf/KERNEL-TIMER-CAPABILITY-ANALYSIS.md` (Phase 2, estimated 6-8 engineer-days).
+This dependency is not optional because pacing closure requires timer + present completion.
+
+### Phase 6c closure
+
+#### Required implementation state
+- `VirtioGpuBackend::submit()` executes command semantics (no no-op submit path).
+- `windowd` frame path sends one committed command stream per frame.
+- Per-frame `vmo_write()` CPU compositing path is removed from the primary render path.
+
+#### Required proofs
+- Host tests prove command execution semantics for all phase-6c command tags.
+- QEMU proof shows one-command-stream submit path (`windowd` submit marker + `gpud` render marker).
+- End-to-end frame result is visible (scanout marker ladder green).
+
+#### Fail conditions (phase remains open)
+- `submit()` validates but does not execute render commands.
+- Frame path still depends on CPU row-compositing as primary renderer.
+- Command stream is split into per-damage IPCs in steady-state rendering.
+
+### Phase 6d closure
+
+#### Required implementation state
+- Fence lifecycle is asynchronous (`submitted -> pending -> signaled`) and not permanently pre-signaled.
+- At least double-buffer pipeline with bounded in-flight frames (target: max 2).
+- Completion correlation exists (`present_id`/sequence equivalent).
+
+#### Required proofs
+- Host tests assert fence wait/signal ordering and timeout behavior.
+- QEMU proof asserts no deadlock under delayed completion and preserves forward progress.
+- Backpressure behavior is deterministic (bounded queue/in-flight counters).
+
+#### Fail conditions
+- Fence is always signaled immediately regardless of render progress.
+- Unlimited in-flight growth or unbounded retries under load.
+- Completion events cannot be correlated to submitted frames.
+
+### Phase 6e closure
+
+#### Required implementation state
+- Fixed-point math path is active in backend hot loops (blend/SDF/blur critical sections).
+- Optimization path is architecture-aware and deterministic.
+- Quality degradation policy is explicit and bounded for overload cases.
+
+#### Required proofs
+- Host parity tests: fixed-point output remains within bounded tolerance vs reference path.
+- Microbench confirms improvement in targeted hot loops.
+- No new unbounded allocation in frame hot path.
+
+#### Fail conditions
+- Optimization only exists in docs/comments without active execution path.
+- Determinism regresses between runs with same input.
+- Performance gains rely on nondeterministic shortcuts.
+
+### Phase 7 closure
+
+#### Required implementation state
+- Golden image suite covers blur, shadow, rounded geometry, text, cursor composition.
+- Regression gates enforce p50/p95/p99 budgets per test profile.
+- Memory stability gate enforces no unbounded heap growth across long runs.
+- Kernel timer capability is integrated as the primary frame-tick source for paced rendering.
+- Present completion feedback path is integrated and correlated (`present_id`/sequence equivalent).
+- Final frame pacing uses timer + present completion closure (not timer-only and not completion-blind).
+- Kernel timer package dependency (6-8d scope) is complete and integrated.
+
+#### Required proofs
+- Golden tests pass on host pipeline and OS pipeline comparator path.
+- QEMU profiles report stable marker ladders and pass defined pacing budgets.
+- Performance artifacts are archived and comparable across runs.
+
+#### Fail conditions
+- "Looks smoother" without passing budget gates.
+- Marker-only success without image/metric assertions.
+- Improvements that pass only in one ad-hoc environment and fail standard profiles.
+- Phase-7 closure claimed without kernel timer capability in the active pacing path.
+- Phase-7 closure claimed without present completion correlation in the active pacing path.
+- Phase-7 closure claimed while kernel timer dependency package is still open.
+
 ## Command vocabulary (Phase 6c)
 
 | Tag | Command | Payload | Purpose |
@@ -160,7 +246,7 @@ All multi-byte fields are little-endian. All sizes validated before execution.
 
 The framebuffer VMO follows the cap transfer protocol:
 
-```
+```text
 1. windowd: vmo_create(1280*800*4) → fb_handle
 2. windowd: cap_clone(fb_handle) → clone                   // create sendable copy
 3. windowd: client.send_with_cap_move_wait(&[opcode], clone, Wait::Blocking)
@@ -233,9 +319,22 @@ RUN_UNTIL_MARKER=1 just test-os
 - Host: zero heap growth across 1000 consecutive frames
 - QEMU: no missing markers, no timeout
 
+### Profile-class performance targets (Phase 7)
+
+These targets avoid vendor naming and define platform-class smoothness in measurable terms.
+
+| Profile class | Target |
+|---|---|
+| Lightweight interaction | p95 frame interval <= 16.7 ms, p99 <= 22 ms |
+| Blur/glass medium load | p95 <= 20 ms, no sustained sawtooth pacing |
+| Heavy transition burst | bounded degrade allowed, but no multi-second stalls |
+| Input latency under load | no persistent input starvation while animation is active |
+
+Passing requires metric evidence, not marker-only evidence.
+
 ## Open questions
 
-- Vsync source: poll `nsec()` sufficient for v1; timer/alarm capability for Phase 7
+- Timer profile tuning: final interval/deadline policy and fallback thresholds per display profile
 - Double-buffer cap handoff: does kernel support returning a cap to sender? → investigate
 - Reduced-motion config propagation: `set_reduced_motion(bool)` in Phase 0 is sufficient
 - Shader binary format: SPIR-V or custom IR? → defer to CAND-GFX-002
@@ -253,4 +352,4 @@ RUN_UNTIL_MARKER=1 just test-os
 - [ ] Phase 6c: GPU-first rendering pipeline — new commands, backend rasterizer, single-IPC frame
 - [ ] Phase 6d: Async Fence + double-buffer pipelining
 - [ ] Phase 6e: RISC-V fixed-point rendering in backend
-- [ ] Phase 7: Golden tests + perf regression gates
+- [ ] Phase 7: Golden tests + perf regression gates + timer/present pacing closure

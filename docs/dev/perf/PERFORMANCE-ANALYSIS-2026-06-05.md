@@ -21,7 +21,7 @@ fps: windowd compose_hz=0 present_hz=0 coalesced=0 dropped=0
 - QEMU `-icount` not active → real wall-clock time
 - Single RISC-V hart (SMP=0)
 
-For comparison, OHOS/Fuchsia targets: 12–16ms per frame (60 FPS) on comparable virtio-gpu QEMU configs.
+For comparison, platform-class UI targets on comparable virtio-gpu QEMU setups are typically in the 12–16ms/frame range for 60 FPS class interaction.
 
 ---
 

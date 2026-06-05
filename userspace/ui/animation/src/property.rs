@@ -13,12 +13,24 @@ pub enum AnimProp {
     BlurRadius,
 }
 
+impl Default for AnimProp {
+    fn default() -> Self {
+        Self::Opacity
+    }
+}
+
 /// Identifies a compositor layer for animation targeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LayerId(pub u64);
 
+impl Default for LayerId {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 /// Output of one animation tick: a changed property value for a specific layer.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SceneUpdate {
     pub layer_id: LayerId,
     pub property: AnimProp,

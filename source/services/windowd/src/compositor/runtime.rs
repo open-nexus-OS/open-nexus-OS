@@ -51,7 +51,7 @@ use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
 use alloc::vec::Vec;
-use animation::{AnimProp, AnimationDriver, Easing, LayerId, SceneUpdate};
+use animation::{AnimProp, AnimationDriver, LayerId, SceneUpdate};
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
@@ -71,7 +71,6 @@ const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 const HOVER_LAYER_ID: LayerId = LayerId(1);
 const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
 const SIDEBAR_WIDTH: u32 = 320;
-const SIDEBAR_ANIMATION_NS: u64 = 420_000_000;
 const SIDEBAR_MARGIN_TOP: u32 = 18;
 const SIDEBAR_MARGIN_BOTTOM: u32 = 18;
 const SIDEBAR_RADIUS: u32 = 24;
@@ -81,6 +80,7 @@ const GLASS_BUTTON_TOP: u32 = 24;
 const GLASS_BUTTON_RIGHT: u32 = 24;
 const GLASS_BUTTON_RADIUS: u32 = 18;
 const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
+const ANIMATION_UPDATE_CAP: usize = 8;
 const VISIBLE_ROUTE_WIDTH: u32 = 64;
 const VISIBLE_ROUTE_HEIGHT: u32 = 48;
 const CLOSE_TARGET_ROUTE_X: u32 = 52;
@@ -582,6 +582,33 @@ impl DisplayServerRuntime {
                 )
             });
         let _ = debug_println(RUNTIME_INIT_OK);
+        let _ = debug_println("dbg: windowd init self-build start");
+        let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
+        let _ = debug_println("dbg: windowd init band-scratch ok");
+        let shadow_scratch = alloc::vec![0u8; mode.stride as usize];
+        let _ = debug_println("dbg: windowd init shadow-scratch ok");
+        let blur_row_buf = alloc::vec![0u8; mode.stride as usize];
+        let _ = debug_println("dbg: windowd init blur-row ok");
+        let cursor_bg_saved = alloc::vec![0u8; CURSOR_BG_MAX_BYTES];
+        let _ = debug_println("dbg: windowd init cursor-bg ok");
+        let layer_cache = LayerCache::default();
+        let _ = debug_println("dbg: windowd init layer-cache ok");
+        let shadow_arena_buf = alloc::vec![0u8; WINDOWD_SHADOW_ARENA_SIZE];
+        let _ = debug_println("dbg: windowd init shadow-arena ok");
+        let col_scratch = alloc::vec![0u8; COL_SCRATCH_SIZE];
+        let _ = debug_println("dbg: windowd init col-scratch ok");
+        let backdrop_cache = core::array::from_fn(|_| BackdropCacheEntry::new());
+        let _ = debug_println("dbg: windowd init backdrop-cache ok");
+        let glass_layer = GlassLayerCache::new();
+        let _ = debug_println("dbg: windowd init glass-layer ok");
+        let glass_scratch = alloc::vec![0u8; GLASS_LAYER_MAX_BYTES];
+        let _ = debug_println("dbg: windowd init glass-scratch ok");
+        let path_cache = core::array::from_fn(|_| PathCacheEntry::new());
+        let _ = debug_println("dbg: windowd init path-cache ok");
+        let animation_driver = AnimationDriver::new();
+        let _ = debug_println("dbg: windowd init animation-driver ok");
+        let pipeline_timer = PipelineTimer::new();
+        let _ = debug_println("dbg: windowd init pipeline-timer ok");
         Ok(Self {
             mode,
             source_frame,
@@ -591,22 +618,22 @@ impl DisplayServerRuntime {
             cursor_width,
             cursor_height,
             framebuffer: None,
-            band_scratch: alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK],
-            shadow_scratch: alloc::vec![0u8; mode.stride as usize],
-            blur_row_buf: alloc::vec![0u8; mode.stride as usize],
-            cursor_bg_saved: alloc::vec![0u8; CURSOR_BG_MAX_BYTES],
+            band_scratch,
+            shadow_scratch,
+            blur_row_buf,
+            cursor_bg_saved,
             saved_cursor_rect: None,
             state: initial_state,
             observer_state: initial_state,
             markers_emitted: false,
             input_markers_emitted: InputMarkerState::default(),
             input_state_debug_emitted: false,
-            pending_damage_rects: Vec::with_capacity(4),
+            pending_damage_rects: Vec::new(),
             tile_map: TileMap::new(),
-            layer_cache: LayerCache::default(),
-            shadow_arena_buf: alloc::vec![0u8; WINDOWD_SHADOW_ARENA_SIZE],
+            layer_cache,
+            shadow_arena_buf,
             shadow_arena_used: 0,
-            col_scratch: alloc::vec![0u8; COL_SCRATCH_SIZE],
+            col_scratch,
             shadow_box_cache: [ShadowBoxCacheEntry::empty(); SHADOW_BOX_CACHE_ENTRIES],
             pending_damage_rect: None,
             paint_only_damage: false,
@@ -614,10 +641,10 @@ impl DisplayServerRuntime {
             proof_layout_index,
             filtered_words,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
-            backdrop_cache: core::array::from_fn(|_| BackdropCacheEntry::new()),
-            glass_layer: GlassLayerCache::new(),
-            glass_scratch: alloc::vec![0u8; GLASS_LAYER_MAX_BYTES],
-            path_cache: core::array::from_fn(|_| PathCacheEntry::new()),
+            backdrop_cache,
+            glass_layer,
+            glass_scratch,
+            path_cache,
             active_filter_idx: 0,
             filter_cycle: 0,
             clipping_marker_emitted: false,
@@ -626,11 +653,11 @@ impl DisplayServerRuntime {
             selftest_v3b_emitted: false,
             v3b_composition_verified: false,
             v3b_markers_emitted: false,
-            animation_driver: AnimationDriver::new(),
+            animation_driver,
             animated_scene: AnimatedSceneState::new(),
             animation_proof: AnimationProofState::default(),
             gpud_client: None,
-            pipeline_timer: PipelineTimer::new(),
+            pipeline_timer,
             framebuffer_pending_first_write: false,
             first_handoff_id: 0,
             first_handoff_deadline_ns: 0,
@@ -817,8 +844,9 @@ impl DisplayServerRuntime {
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         self.emit_asset_markers();
-        // emit_v3b_markers is now gated: called from flush_pending_damage()
-        // only after real post-bootstrap composition has occurred.
+        // First frame IS a real composition — the full proof surface with
+        // blur/shadow effects is rendered. emit_v3b_markers() fires once here.
+        self.emit_v3b_markers();
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
@@ -1078,22 +1106,19 @@ impl DisplayServerRuntime {
                 } else {
                     SIDEBAR_WIDTH as f32
                 };
-                self.animation_driver.keyframe_to(
+                self.animation_driver.spring_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
-                    alloc::vec![(0.0, sidebar_from), (1.0, sidebar_to)],
-                    SIDEBAR_ANIMATION_NS,
-                    Easing::EaseInOut,
+                    sidebar_from,
+                    sidebar_to,
+                    spring,
                 );
-                self.animation_driver.keyframe_to(
+                self.animation_driver.spring_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::Opacity,
-                    alloc::vec![
-                        (0.0, self.animated_scene.sidebar_opacity),
-                        (1.0, if self.state.sidebar_open_visible { 1.0 } else { 0.0 }),
-                    ],
-                    SIDEBAR_ANIMATION_NS,
-                    Easing::EaseInOut,
+                    self.animated_scene.sidebar_opacity,
+                    if self.state.sidebar_open_visible { 1.0 } else { 0.0 },
+                    spring,
                 );
                 if !self.animation_proof.timeline_marker {
                     let _ = debug_println(UIANIM_TIMELINE_ON);
@@ -1332,11 +1357,13 @@ impl DisplayServerRuntime {
         // Reactive: only drive animations when they are active.
         // No polling — the caller gates this via has_active_animations().
         // When no animation is running, tick() is not called at all.
-        let anim_updates = self.animation_driver.tick(now_ns);
-        if anim_updates.is_empty() {
+        let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
+        let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);
+        if update_count == 0 {
             return;
         }
-        self.apply_scene_updates(&anim_updates);
+        let updates = &anim_updates[..update_count];
+        self.apply_scene_updates(updates);
 
         // Per-layer damage: only mark regions that actually changed.
         // Sidebar animation → only sidebar rect. Hover/click/key → only panel.
@@ -1344,7 +1371,7 @@ impl DisplayServerRuntime {
         // and hover animation from invalidating the sidebar.
         let mut panel_dirty = false;
         let mut sidebar_dirty = false;
-        for update in &anim_updates {
+        for update in updates {
             match update.layer_id {
                 SIDEBAR_LAYER_ID => sidebar_dirty = true,
                 _ => panel_dirty = true,
@@ -1427,6 +1454,34 @@ impl DisplayServerRuntime {
         false
     }
 
+    /// Fire-and-forget present to gpud. Pixel data is already in the VMO;
+    /// gpud picks up the damage rect on its next recv iteration.
+    /// Non-blocking: windowd continues processing input immediately.
+    fn send_gpud_present(&mut self, frame: &[u8]) -> bool {
+        if !self.ensure_gpud_client() {
+            return false;
+        }
+        let send_result = {
+            let Some(client) = self.gpud_client.as_ref() else { return false; };
+            client.send(frame, Wait::NonBlocking)
+        };
+        match send_result {
+            Ok(()) => true,
+            Err(nexus_ipc::IpcError::WouldBlock)
+            | Err(nexus_ipc::IpcError::NoSpace) => {
+                // gpud queue full — damage accumulates, next present will cover it
+                true
+            }
+            Err(err) => {
+                log_gpud_ipc_error("windowd: gpud present send failed", err);
+                self.gpud_client = None;
+                false
+            }
+        }
+    }
+
+    /// Blocking status request (used only for handoff/bootstrap where
+    /// we must confirm gpud accepted the framebuffer VMO).
     fn send_gpud_status_request(&mut self, frame: &[u8]) -> Result<(), WindowdError> {
         if !self.ensure_gpud_client() {
             return Err(WindowdError::InvalidDamage);
@@ -1464,12 +1519,15 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Non-blocking: sends damage rect to gpud and returns immediately.
+    /// Pixel data is already written to the VMO by CPU compositing.
+    /// gpud processes the damage asynchronously — windowd continues its loop.
     fn present_damage_to_gpud(&mut self, rect: DamageRect) -> bool {
         let frame = encode_gpud_damage_frame(rect);
-        if self.send_gpud_status_request(&frame).is_ok() {
+        if self.send_gpud_present(&frame) {
             return true;
         }
-        let _ = debug_println("windowd: gpud present damage failed");
+        let _ = debug_println("windowd: gpud present damage failed (non-blocking, will retry)");
         false
     }
 
@@ -2064,7 +2122,6 @@ impl DisplayServerRuntime {
         // P1: Mark v3b composition as verified — real damage was rendered through
         // the full compositor pipeline including blur/shadow effects.
         self.v3b_composition_verified = true;
-        self.emit_v3b_markers();
         self.paint_only_damage = false;
         Ok(())
     }
