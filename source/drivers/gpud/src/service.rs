@@ -12,6 +12,7 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::Rect;
+use nexus_gfx::command::buffer::CommittedBuffer;
 
 use crate::backend::VirtioGpuBackend;
 use crate::markers::{
@@ -100,10 +101,12 @@ fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
 ) -> Result<(), nexus_abi::AbiError> {
-    let mut recv_frame = [0u8; 128];
+    let mut recv_frame = [0u8; 512];
     let mut active_handoff_id: u32 = 0;
     loop {
-        match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
+        // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
+        // or animation submit). No polling, no busy-wait. The kernel wakes us on message arrival.
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
                 let op = match frame.first().copied() {
@@ -146,9 +149,22 @@ fn service_requests(
                         }
                     }
                     OP_PRESENT_DAMAGE => {
+                        // Phase 6c: carries a serialized CommittedBuffer with batched
+                        // BlitSurface commands describing all damage regions.
                         let handoff_id =
                             decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
-                        let status = handle_present_damage(&mut backend, frame);
+                        let status = if frame.len() > 1 {
+                            match CommittedBuffer::deserialize_from(&frame[1..]) {
+                                Ok((cb, _)) => {
+                                    let damage_rect = damage_rect_from_cb(&cb);
+                                    let _ = backend.submit(cb);
+                                    present_scanout_damage(&mut backend, damage_rect)
+                                }
+                                Err(_) => handle_present_damage(&mut backend, frame),
+                            }
+                        } else {
+                            handle_present_damage(&mut backend, frame)
+                        };
                         if status == STATUS_OK {
                             active_handoff_id = handoff_id;
                         }
@@ -168,9 +184,13 @@ fn service_requests(
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::Timeout)
-            | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint))
+            | Err(nexus_ipc::IpcError::Timeout) => {
+                // WouldBlock/Timeout are unexpected in Blocking mode; yield and retry.
+                let _ = yield_();
+            }
+            Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint))
             | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) => {
+                // Route disappeared — yield and wait for re-registration.
                 let _ = yield_();
             }
             Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
@@ -192,6 +212,39 @@ fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]))
 }
 
+/// Extract the bounding box of all BlitSurface commands in the CB.
+/// Falls back to full display damage if no blit command is present.
+fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
+    let mut min_x = DISPLAY_WIDTH;
+    let mut min_y = DISPLAY_HEIGHT;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+    let mut found = false;
+    for cmd in cb.commands() {
+        if let nexus_gfx::command::buffer::Command::BlitSurface { dst_x, dst_y, width, height, .. } = cmd {
+            let ex = dst_x.saturating_add(*width);
+            let ey = dst_y.saturating_add(*height);
+            min_x = min_x.min(*dst_x);
+            min_y = min_y.min(*dst_y);
+            max_x = max_x.max(ex);
+            max_y = max_y.max(ey);
+            found = true;
+        }
+    }
+    if found {
+        Rect { x: min_x, y: min_y, width: max_x.saturating_sub(min_x).max(1), height: max_y.saturating_sub(min_y).max(1) }
+    } else {
+        Rect { x: 0, y: 0, width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT }
+    }
+}
+
+fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
+    if backend.present_scanout_damage(rect).is_err() {
+        return STATUS_DEVICE_ERROR;
+    }
+    STATUS_OK
+}
+
 fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
     if frame.len() < 17 {
         return STATUS_MALFORMED;
@@ -200,10 +253,7 @@ fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
     let y = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
     let width = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
     let height = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
-    if backend.present_scanout_damage(Rect { x, y, width, height }).is_err() {
-        return STATUS_DEVICE_ERROR;
-    }
-    STATUS_OK
+    present_scanout_damage(backend, Rect { x, y, width, height })
 }
 
 fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
@@ -212,11 +262,18 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
     };
     match op {
         OP_SUBMIT_ANIMATION_FRAME => {
-            // Animation frames are validated GPU command buffers.
-            // The scanout framebuffer is managed separately via
-            // OP_SET_FRAMEBUFFER_VMO (zero-copy VMO from windowd).
-            let _ = backend;
-            STATUS_OK
+            // Animation frames carry a serialized CommittedBuffer after the opcode.
+            // Deserialize and submit to the GPU backend for execution.
+            if frame.len() <= 1 {
+                return STATUS_MALFORMED;
+            }
+            match CommittedBuffer::deserialize_from(&frame[1..]) {
+                Ok((cmd, _consumed)) => {
+                    let _ = backend.submit(cmd);
+                    STATUS_OK
+                }
+                Err(_) => STATUS_MALFORMED,
+            }
         }
         OP_MOVE_CURSOR => {
             if frame.len() < 9 {

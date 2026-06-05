@@ -1,160 +1,219 @@
-# RFC-0059: UI v5a Production-Grade Animation Runtime + NexusGfx SDK Minimal + GPU Driver
+# RFC-0059: Deterministic Animation Runtime + NexusGfx 2D Pipeline + GPU Driver Contract
 
 - Status: In Progress
 - Owners: @ui @runtime
 - Created: 2026-05-22
-- Last Updated: 2026-05-29 (Phase 5-6 added: NexusGfx SDK module structure, zero-copy VMO backing)
+- Last Updated: 2026-06-05 (Phase 6a-6c: GPU-first rendering pipeline, async fence, single-IPC frame submission)
 - Links:
   - Tasks: `tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md` (execution + proof)
   - Depends on: `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md`
-  - Gfx architecture: `docs/architecture/nexusgfx-command-and-pass-model.md`, `docs/architecture/nexusgfx-resource-model.md`
+  - Gfx architecture: `docs/architecture/nexusgfx-command-and-pass-model.md`, `docs/architecture/nexusgfx-resource-model.md`, `docs/architecture/nexusgfx-tile-aware-design.md`
   - Gfx track: `tasks/TRACK-NEXUSGFX-SDK.md`, Driver track: `tasks/TRACK-DRIVERS-ACCELERATORS.md`
 
 ## Status at a Glance
 
 - Phase 0 (Animation Engine): ✅
-- Phase 1 (NexusGfx SDK minimal): ✅
-- Phase 2 (GPU Backend Trait + CPU Mock): ✅
-- Phase 3 (gpud + virtio-gpu MMIO): ✅ (1280×800 display resource, set_scanout ok, no crash)
-- Phase 4 (Integration + Proof Gates): ✅ (windowd wired, initial compose works, wallpaer fallback)
-- Phase 5 (NexusGfx module structure): ✅ (Metal-like 10-module tree, 40+ skeleton files, zero-copy-ready)
-- Phase 6 (Real GPU pipeline + VMO-backed resources): 🟡 (zero-copy VMO handoff windowd→gpud plumbed, virtio-gpu primary display, QEMU window resize pending test)
+- Phase 1 (NexusGfx SDK — types, CommandBuffer, Queue, Fence): ✅
+- Phase 2 (GfxBackend trait + CpuMockBackend): ✅
+- Phase 3 (gpud + virtio-gpu MMIO): ✅
+- Phase 4 (windowd integration + animation proof): ✅
+- Phase 5 (NexusGfx module structure): ✅
+- Phase 6a (CommandBuffer serialization + IPC wire format): ✅
+- Phase 6b (Reactive gpud IPC loop — Wait::Blocking): ✅
+- Phase 6c (GPU-first rendering pipeline — single CB per frame): 🟡 in progress
+- Phase 6d (Async Fence + double-buffer pipelining): ⬜
+- Phase 6e (RISC-V fixed-point rendering in backend): ⬜
+- Phase 7 (Golden tests + perf regression gates): ⬜
 
 ## Scope boundaries
 
-- **This RFC owns**: Animation engine, NexusGfx SDK minimal, GPU backend trait, gpud service, RISC-V optimizations, frame-budget discipline, reduced-motion
-- **This RFC does NOT own**: Full 3D NexusGfx, real GPU drivers, kernel MMIO policy, WM/scene transitions (TASK-0064), theme tokens (TASK-0063)
+- **This RFC owns**: Animation engine, NexusGfx 2D pipeline, GPU backend trait, gpud service, RISC-V optimizations, frame-budget discipline, reduced-motion, single-IPC frame submission
+- **This RFC does NOT own**: Full 3D pipeline, real GPU shader backends, kernel MMIO policy, declarative scene graph (TASK-0073), DSL (TASK-0075), WM/scene transitions (TASK-0064)
 
 ## Context
 
-TASK-0059 delivered a production-grade CPU compositor (`compositor/` — 18 files). The compositor is "immediate": no animation timeline, no GPU offload. To reach OHOS/Fuchsia-level animation quality on RISC-V without a GPU, we need three layers built together.
+TASK-0059 delivered a CPU compositor. TASK-0062 adds animation + a GPU command path. The initial Phase 4 integration kept the CPU compositor as the primary rendering path, with the GPU path as a parallel metadata submission that did not produce pixels. Phase 6a-6c replaces the dual-path architecture with a single GPU-first pipeline: windowd builds one CommandBuffer per frame, sends it via one IPC to gpud, and gpud renders the complete frame.
 
-### Production-grade framing
+### Design targets
 
-| Property | OHOS/Fuchsia | Our target |
-|---|---|---|
-| Animation API | Declarative (Spring) | Declarative (Spring RK4) |
-| Physics | Platform spring | Fixed-timestep RK4 (deterministic) |
-| Frame budget | 8.3ms @ 120Hz GPU | 8.3ms @ 120Hz CPU (bounded tiles) |
-| Quality degradation | Automatic GPU | Explicit (GlassQuality → Low → Opaque) |
-| Reduced motion | System flag | `configd` flag, first-class |
-| GPU offload | Full compositor | Cursor + blit + scanout flip |
-| CPU reference | Not required | Required (CpuMockBackend golden) |
-| Determinism | Not guaranteed | Guaranteed (fixed-timestep, explicit dt) |
-| Heap during animation | Yes (GPU allocs) | Zero (all pre-allocated) |
+| Property | Target |
+|---|---|
+| Animation API | Declarative (Spring RK4, deterministic) |
+| Physics | Fixed-timestep RK4, explicit dt |
+| Frame budget | 8.3 ms @ 120 Hz (CPU backend with bounded tiles) |
+| Quality degradation | Explicit (GlassQuality → Low → Opaque) |
+| Reduced motion | System flag, first-class |
+| Rendering path | GPU-first: single CommandBuffer per frame → gpud |
+| CPU reference | CpuMockBackend golden output == VirtioGpuBackend output |
+| Determinism | Guaranteed (fixed-timestep, explicit dt, stable rasterization) |
+| Heap during animation | Zero (all buffers pre-allocated) |
+| IPC per frame | One (CommittedBuffer, not per damage-rect) |
 
-## Goals
-
-1. Animation Engine: Timeline, Spring (RK4), Keyframe, SceneUpdate, ReducedMotion
-2. NexusGfx SDK minimal: Device, Queue, CommandBuffer, RenderEncoder, Buffer, Fence
-3. GPU Backend Trait: GfxBackend + CpuMockBackend (golden) + VirtioGpuBackend
-4. gpud Service: MMIO virtio-gpu, hardware cursor, scanout flip
-5. RISC-V Optimizations: fixed-point sd_circle, (a*b*257)>>16, +zbb
-6. Modular: every crate `src/` + `tests/`, no monoliths
-
-## Non-Goals
-
-Full 3D, real GPU drivers, kernel MMIO policy, WM/scene transitions, theme tokens.
-
-## Constraints
-
-- Deterministic spring physics (fixed-timestep RK4, explicit dt)
-- No heap growth during animation (pre-allocated buffers)
-- Bounded resources (max 16 animations, 1024 commands)
-- Reduced motion first-class
-- CPU reference == GPU output for same input
-- No stubs claiming success
-
-## Proposed design
-
-### Full architecture
+## Architecture (Phase 6c target)
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  windowd/compositor/runtime.rs                           │
-│  DisplayServerRuntime::tick(now_ns)                      │
-│  animation_driver.tick(now_ns) → Vec<SceneUpdate>        │
-│  Foundation: compositor/ (18 files, TASK-0059 baseline)  │
-└──────────────────────┬───────────────────────────────────┘
-                       │ SceneUpdate { layer, property, value, progress }
+┌──────────────────────────────────────────────────────────────┐
+│ windowd (Producer — window management + input)                │
+│                                                              │
+│  recv(Wait::Blocking) → apply_input_state()                  │
+│  tick(now_ns) → animation_driver.tick() → SceneUpdates       │
+│  build_frame_commands() → CommandBuffer                      │
+│    ├─ BlitSurface (wallpaper)                                │
+│    ├─ FillSdfRoundedRect (panels, sidebar)                   │
+│    ├─ BlurBackdrop (glass effects)                           │
+│    ├─ DrawText (labels)                                      │
+│    └─ BlendCursor (pointer)                                  │
+│  commit() → CommittedBuffer                                  │
+│  IPC[single CB] → gpud                                       │
+│  NO vmo_write(), NO CPU rendering in windowd                 │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ cap-gated IPC (single message per frame)
                        ▼
-┌──────────────────────────────────────────────────────────┐
-│  Animation Engine  (userspace/ui/animation)         ← NEW│
-│  Timeline  Spring(RK4)  Keyframe  Easing               │
-│  SceneUpdate  ReducedMotion                             │
-└──────────────────────┬───────────────────────────────────┘
-                       │
-        ┌──────────────┴──────────────┐
-        │ CPU Path (exists)           │ GPU Path (new)
-        ▼                             ▼
-┌──────────────────┐    ┌──────────────────────────────────┐
-│ write_rows()     │    │  NexusGfx SDK (userspace/   ← NEW│
-│ vmo_write        │    │  nexus-gfx)                      │
-│                  │    │  Device Queue CommandBuffer       │
-│ RISC-V optim.:   │    │  RenderEncoder Buffer Fence       │
-│ • fixed_sdf.rs   │    └──────────────┬───────────────────┘
-│ • (a*b*257)>>16  │                   │ commit()
-│ • +zbb feature   │                   ▼
-└──────────────────┘    ┌──────────────────────────────────┐
-                        │  GPU Backend Trait          ← NEW│
-                        │  (userspace/gfx-backend)         │
-                        │  GfxBackend::submit(cmd) → Fence │
-                        └──────────────┬───────────────────┘
-                                       │
-                  ┌────────────────────┴────────────────────┐
-                  ▼                                         ▼
-        ┌──────────────────┐                  ┌──────────────────────┐
-        │ CpuMockBackend   │                  │ VirtioGpuBackend     │
-        │ (host, golden)   │                  │ (source/drivers/gpud)│
-        │ CPU Vec<u8> exec │                  │ MMIO virtio-gpu      │
-        └──────────────────┘                  │ • Hardware Cursor    │
-                                              │ • Scanout Flip       │
-                                              └──────────┬───────────┘
-                                                         │
-                                                ┌────────┴────────────┐
-                                                │ Real GPU (future)    │
-                                                │ same GfxBackend trait│
-                                                └─────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ gpud (Consumer — rendering + scanout)                        │
+│                                                              │
+│  recv(Wait::Blocking) → CommittedBuffer::deserialize()       │
+│  backend.submit(cb) → Fence                                  │
+│    ├─ CpuMockBackend (host): SW rasterizer with SIMD         │
+│    └─ VirtioGpuBackend (OS): CPU rendering in gpud space     │
+│  Writes directly into VMO (ATTACH_BACKING zero-copy)         │
+│  TRANSFER_TO_HOST_2D + RESOURCE_FLUSH (once per frame)       │
+│  fence.signal() → windowd can build next frame               │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Crate structure
+### Key architectural properties
+
+1. **Single owner, single path.** windowd produces commands; gpud consumes and renders. No dual CPU/GPU path.
+2. **Zero-copy VMO.** windowd creates the framebuffer VMO and hands it to gpud via cap transfer. gpud maps it with ATTACH_BACKING. All rendering happens directly in GPU-visible memory.
+3. **Reactive IPC.** gpud blocks on recv. windowd blocks on recv (with future timer for animation ticks). No polling, no busy-wait.
+4. **Async pipeline.** Fence separates submission from completion. windowd builds frame N+1 while gpud renders frame N.
+5. **CPU backend golden.** CpuMockBackend produces bit-identical output to VirtioGpuBackend for the same CommandBuffer input.
+
+## Phases
+
+### Phase 0 — Animation Engine (`userspace/ui/animation`) ✅
+Timeline, Spring RK4, Keyframe, Easing, SceneUpdate, ReducedMotion.
+
+### Phase 1 — NexusGfx SDK Core (`userspace/nexus-gfx`) ✅
+Device, Queue, CommandBuffer, RenderCommandEncoder, CommittedBuffer, Fence, GfxError, TileRect, RenderPassDesc.
+
+### Phase 2 — GfxBackend Trait + CpuMockBackend ✅
+GfxBackend trait (submit, create_resource, transfer_to_host, set_scanout, move_cursor). CpuMockBackend as deterministic CPU reference.
+
+### Phase 3 — gpud Service + virtio-gpu MMIO ✅
+MMIO probe, virtqueue setup, resource creation, ATTACH_BACKING, SET_SCANOUT, TRANSFER_TO_HOST_2D, RESOURCE_FLUSH, hardware cursor.
+
+### Phase 4 — windowd Integration + Animation Proof ✅
+AnimationDriver in DisplayServerRuntime, implicit transitions on paint flag changes, sidebar spring animation, QEMU proof markers.
+
+### Phase 5 — NexusGfx Module Structure ✅
+10-module tree under `userspace/nexus-gfx/src/`: core, resource, command, pipeline, shader, backend, sync, transfer, perf, cache.
+
+### Phase 6a — CommandBuffer Wire Format ✅
+Binary serialization/deserialization for CommittedBuffer. Compact LE encoding: command_count (u16) + per-command tag + payload. Round-trip tests.
+
+### Phase 6b — Reactive gpud IPC ✅
+gpud: `Wait::NonBlocking` → `Wait::Blocking`. No polling, no busy-wait. Kernel wakes gpud on message arrival.
+
+### Phase 6c — GPU-first Rendering Pipeline (this phase)
+- New Command types: `BlitSurface`, `FillSdfRoundedRect`, `BlurBackdrop`, `DrawText` (bitmap), `BlendCursor`
+- CpuMockBackend implements all commands as a real software rasterizer
+- windowd `flush_pending_damage()` replaced by `build_frame_commands()` + single IPC
+- gpud receives full CommittedBuffer, renders, presents once per frame
+- No per-damage-rect IPC, no `vmo_write()` from windowd, no CPU compositing in windowd
+- Binary format extended with new command tags (2-6)
+
+### Phase 6d — Async Fence + Double-Buffer Pipelining
+- `Fence` with `wait()` and `signal()` — no longer always-signaled
+- Two framebuffer VMOs (ping-pong): windowd builds into one while gpud renders the other
+- Cap-based ownership transfer: windowd sends VMO cap with CommandBuffer, gpud returns it on fence signal
+
+### Phase 6e — RISC-V Fixed-Point Rendering
+- Port `fixed_sdf.rs` fixed-point algorithms into CpuMockBackend/VirtioGpuBackend
+- `(a*b*257)>>16` blend operations
+- `+zbb` target-feature for bit-manipulation acceleration
+- Loop unrolling for `blur_backdrop` horizontal pass
+
+### Phase 7 — Golden Tests + Perf Regression Gates
+- Pixel-golden comparison: CpuMockBackend output == VirtioGpuBackend output
+- Frame-time histogram (p50, p95, p99) from host perf traces
+- Blur cost as function of radius × area
+- IPC latency per frame (must be constant, independent of damage-rect count)
+- Zero heap growth across consecutive frames
+
+## Command vocabulary (Phase 6c)
+
+| Tag | Command | Payload | Purpose |
+|-----|---------|---------|---------|
+| 0 | `SetFragmentBytes` | offset(u16) + len(u16) + data | Shader uniform parameters |
+| 1 | `DrawTiles` | count(u16) + [x(u32)+y(u32)+w(u32)+h(u32)]* | Solid-color tile fill |
+| 2 | `BlitSurface` | src_x(u32)+src_y(u32)+dst_x(u32)+dst_y(u32)+w(u32)+h(u32) | Copy from source surface |
+| 3 | `FillSdfRoundedRect` | x(u32)+y(u32)+w(u32)+h(u32)+radius(u32)+rgba(u32) | SDF rounded rectangle fill |
+| 4 | `BlurBackdrop` | x(u32)+y(u32)+w(u32)+h(u32)+radius(u32)+sat(u32) | Box blur + saturation |
+| 5 | `DrawText` | x(u32)+y(u32)+scale(u32)+rgba(u32)+len(u16)+utf8 | Bitmap text rendering |
+| 6 | `BlendCursor` | x(u32)+y(u32)+w(u32)+h(u32) | Alpha-blend cursor bitmap |
+
+All multi-byte fields are little-endian. All sizes validated before execution.
+
+## Zero-copy IPC design
+
+The framebuffer VMO follows the cap transfer protocol:
 
 ```
-userspace/ui/animation/    userspace/nexus-gfx/    userspace/gfx-backend/    source/drivers/gpud/
+1. windowd: vmo_create(1280*800*4) → fb_handle
+2. windowd: cap_clone(fb_handle) → clone                   // create sendable copy
+3. windowd: client.send_with_cap_move_wait(&[opcode], clone, Wait::Blocking)
+4. kernel:   transfers cap ownership windowd → gpud          // zero-copy: same physical pages
+5. gpud:     recv → moved_cap.take() → cap_query(slot) → phys_addr
+6. gpud:     ATTACH_BACKING(resource_id, phys_addr, len)    // GPU can now access VMO
+7. gpud:     SET_SCANOUT(resource_id, width, height)
+8. gpud:     renders directly into VMO pages (CPU or GPU backend)
+9. gpud:     TRANSFER_TO_HOST_2D + RESOURCE_FLUSH (once per frame)
 ```
 
-Each: `src/` (modules), `tests/` (integration), `Cargo.toml`. No file >500 lines.
+On real GPU hardware (future): step 9 is replaced by a cache flush or is unnecessary if the GPU has coherent access to system memory.
 
-### RISC-V optimizations (inline)
+## Rust idioms and safety
 
-| File | Change | Gain |
+- `TileRect`, `FenceId`, `ResourceId` are `Copy` newtypes over `u32`/`u64`
+- `CommittedBuffer` is `Send` (no shared ownership, transfers between threads/processes)
+- `Fence` uses `#[must_use]` — ignoring a fence is a logic error
+- `GfxBackend::submit` takes ownership of `CommittedBuffer` (move semantics)
+- All rendering functions return `Result<(), GfxError>` — no panics in backend code
+- `CpuMockBackend` owns its framebuffer `Vec<u8>` — clear ownership, no shared mutable state
+
+## RISC-V specific optimizations
+
+| Technique | Where | Rationale |
 |---|---|---|
-| `fixed_sdf.rs` | `circle_sd()` fixed-point | 5–10× |
-| `primitives.rs` | `(a*b*257)>>16` vs `/255` | 3–5× |
-| `.cargo/config.toml` | `+zbb` feature | 10–20% |
-| `primitives.rs` | Loop unroll `blend_overlay_row` | 2–4× |
-
-## Security considerations
-
-- **Threat model**: Malicious GPU commands, confused deputy windowd→gpud, MMIO OOB
-- **Mitigations**: gpud validates command sizes, windowd IPC sender-id gated, Resource IDs opaque, MMIO bounds-checked
-- **Open risks**: virtio-gpu trusted (QEMU); real GPU needs own RFC
+| Fixed-point SDF | `FillSdfRoundedRect` in backend | Avoids float→int conversion in inner loops |
+| `(a*b*257)>>16` | Alpha blending in backend | Replaces `/255` with shift, 3-5× faster |
+| `+zbb` target-feature | `.cargo/config.toml` | Enables `andn`, `orn`, `maxu`, `minu` for bit ops |
+| Loop unroll ×4 | `BlurBackdrop` horizontal pass | Reduces branch overhead in box-blur sliding window |
+| Tile-local scratch | `CpuMockBackend` internal buffers | Avoids heap allocation per tile; reuses pre-allocated scratch |
 
 ## Failure model
 
-- DeviceNotFound → `gpud: no device`, clean exit
-- CommandRejected → discard, log, no partial execution
-- ResourceExhausted → LRU evict, retry; fail → Unsupported → CPU path
-- Unsupported → explicit CPU fallback, marker emitted
-- MmioFault → `gpud: mmio fault`, exit, restartable
-- No silent fallback. CPU path always available.
+- `DeviceNotFound` → `gpud: no device`, clean exit
+- `CommandRejected` → discard, log, no partial execution
+- `ResourceExhausted` → bounded retry; fail → `Unsupported` → marker emitted
+- `InvalidArgument` → malformed command, reject whole buffer, log diagnostic
+- `MmioFault` → `gpud: mmio fault`, exit, restartable
+- No silent fallback. CPU backend is the golden reference, not a degradation path.
 
 ## Proof strategy
 
 ### Host
 ```bash
-cargo test -p animation -p nexus-gfx -p gfx-backend -p gpud
+cargo test -p nexus-gfx -p gpud -p windowd -p animation
 ```
+
+### Host golden tests (Phase 7)
+```bash
+cargo test -p nexus-gfx --test golden_tests
+```
+Verifies: CpuMockBackend output matches reference frames for known CommandBuffer inputs.
 
 ### QEMU
 ```bash
@@ -162,59 +221,36 @@ RUN_UNTIL_MARKER=1 just test-os
 ```
 
 ### Markers
-`gpud: ready` `gpud: cursor on` `uiruntime: on` `uianim: timeline on`
-`windowd: implicit transitions on` `SELFTEST: ui v5 transition ok` `SELFTEST: gpu cursor move ok`
+`gpud: ready` `gpud: cursor on` `gpud: scanout ok`
+`uiruntime: on` `uianim: timeline on` `uianim: spring converge ok`
+`windowd: implicit transitions on` `windowd: live transition ok`
+`windowd: cb submit ok` `gpud: cb render ok`
+`SELFTEST: ui v5 transition ok` `SELFTEST: gpu cursor move ok`
 
-### Goldens
-CpuMockBackend output == reference write_rows() for same SceneUpdate. Spring steps identical host vs QEMU.
-
-## Alternatives considered
-
-- Direct virtio-gpu (no SDK) → rejected: couples to one GPU
-- Vulkan SDK v1 → rejected: too large; Metal-like sufficient
-- Wait for real GPU → rejected: virtio-gpu gives cursor/scanout now
-- Separate animation thread → rejected: single-threaded microkernel
-- Float-based springs → rejected: non-deterministic across platforms
-
-## Phase 5-6: NexusGfx SDK Full Module Structure (2026-05-29)
-
-Phase 5 established the Metal-like module tree under `userspace/nexus-gfx/src/`:
-
-```
-core/       — device, queue, fence, error, types (moved from flat src/)
-resource/   — buffer, image, sampler, heap, descriptor
-command/    — buffer (was command_buffer), render_encoder, compute_encoder, blit_encoder, pass, validation
-pipeline/   — render, compute, vertex, cache
-shader/     — module, function, library, reflection
-backend/    — traits, cpu_mock (re-exports from gfx-backend)
-sync/       — timeline, event, barrier
-transfer/   — vmo, dma, layout
-perf/       — counters, trace, budget
-cache/      — texture_atlas, render_target, descriptor_set
-```
-
-40+ skeleton files with CONTEXT headers. Existing code moved into new structure.
-Backward-compatible re-exports from `lib.rs`. All imports updated in gfx-backend, gpud.
-
-Phase 6 target: real GPU pipeline with VMO-backed Buffer/Image (zero-copy),
-ShaderModule (SPIR-V), RenderPipeline (blend+raster), TimelineFence (async completion).
-Aligns with TRACK-NEXUSGFX-SDK.md CAND-GFX-000 through CAND-GFX-030.
+### Perf gates (Phase 7)
+- Host: frame compositing < 8.3 ms (p95)
+- Host: IPC serialization + deserialization < 100 µs
+- Host: zero heap growth across 1000 consecutive frames
+- QEMU: no missing markers, no timeout
 
 ## Open questions
 
-- virtio-gpu MMIO address on RISC-V virt? → @runtime, before Phase 3
-- Vsync: poll nsec() or real interrupt? → polling sufficient v1
-- Reduced-motion config propagation? → `set_reduced_motion(bool)` in Phase 0
+- Vsync source: poll `nsec()` sufficient for v1; timer/alarm capability for Phase 7
+- Double-buffer cap handoff: does kernel support returning a cap to sender? → investigate
+- Reduced-motion config propagation: `set_reduced_motion(bool)` in Phase 0 is sufficient
+- Shader binary format: SPIR-V or custom IR? → defer to CAND-GFX-002
 
 ## Implementation Checklist
 
 - [x] Phase 0: Animation Engine — `cargo test -p animation`
-- [x] Phase 1: NexusGfx SDK — `cargo test -p nexus-gfx`
-- [x] Phase 2: GPU Backend — `cargo test -p gfx-backend`
-- [x] Phase 3: gpud + virtio-gpu — QEMU `gpud: virtio-gpu probed` + `gpud: scanout 1280x800 bgra8888`
-- [x] Phase 4: windowd integration — `windowd: full-window color visible`, `SELFTEST: end`, wallpaper fallback
-- [x] RISC-V optimizations applied
-- [x] All crates `src/` + `tests/`, no monoliths
-- [x] Phase 5: NexusGfx module structure — 10-module tree, 40+ skeleton files, Metal-like layout
-- [x] Phase 6: GPU display pipeline — zero-copy VMO handoff windowd→gpud, virtio-gpu primary display, QEMU window resize
-- [ ] Phase 6b: ShaderModule (SPIR-V), RenderPipeline (blend+raster), TimelineFence (async completion)
+- [x] Phase 1: NexusGfx SDK Core — `cargo test -p nexus-gfx`
+- [x] Phase 2: GfxBackend + CpuMockBackend
+- [x] Phase 3: gpud + virtio-gpu — QEMU markers
+- [x] Phase 4: windowd integration — animation proof markers
+- [x] Phase 5: NexusGfx module structure — 10-module tree
+- [x] Phase 6a: CommandBuffer wire format — serialize/deserialize + round-trip tests
+- [x] Phase 6b: Reactive gpud IPC — Wait::Blocking
+- [ ] Phase 6c: GPU-first rendering pipeline — new commands, backend rasterizer, single-IPC frame
+- [ ] Phase 6d: Async Fence + double-buffer pipelining
+- [ ] Phase 6e: RISC-V fixed-point rendering in backend
+- [ ] Phase 7: Golden tests + perf regression gates

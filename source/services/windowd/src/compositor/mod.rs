@@ -205,6 +205,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 
     let mut recv_frame = [0u8; 512];
+    // ARCHITECTURE NOTE: The intended design is fully reactive:
+    //   server.recv(Wait::Blocking) → on input → tick animations
+    //   Timer/alarm capability → tick animation frames at display refresh rate
+    //
+    // CURRENT WORKAROUND: Without kernel timer/alarm support, we use
+    // NonBlocking receive + yield_() to keep animation frames advancing.
+    // This will be replaced with a proper timer-based VSync source
+    // (TRACK-DRIVERS-ACCELERATORS, CAND-DRV-005 display timing).
     loop {
         // Keep first-frame handoff deterministic even under sustained inbox load.
         let _ = runtime.process_deferred_framebuffer_write();

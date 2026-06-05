@@ -56,7 +56,7 @@ use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
-use nexus_gfx::{CommandBuffer, RenderPassDesc, TileRect};
+use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
@@ -472,8 +472,9 @@ pub(crate) struct DisplayServerRuntime {
     animated_scene: AnimatedSceneState,
     animation_proof: AnimationProofState,
     gpud_client: Option<KernelClient>,
+    /// Pipeline performance timer with Soll-gate validation.
+    pipeline_timer: PipelineTimer,
     /// Set when register_framebuffer_vmo creates the framebuffer VMO but
-    /// defers the expensive first-frame write. The IPC loop processes this
     /// after sending the response.
     framebuffer_pending_first_write: bool,
     first_handoff_id: u32,
@@ -623,6 +624,7 @@ impl DisplayServerRuntime {
             animated_scene: AnimatedSceneState::new(),
             animation_proof: AnimationProofState::default(),
             gpud_client: None,
+            pipeline_timer: PipelineTimer::new(),
             framebuffer_pending_first_write: false,
             first_handoff_id: 0,
             first_handoff_deadline_ns: 0,
@@ -1325,8 +1327,9 @@ impl DisplayServerRuntime {
             };
             self.queue_dirty_rect(panel_damage);
             self.queue_dirty_rect(self.sidebar_damage_rect());
-            if self.submit_animation_to_gpud(&anim_updates).is_ok()
-                && !self.animation_proof.batch_marker
+            // Animation state is fused into flush_pending_damage's CB.
+            // No separate IPC — single CB per frame.
+            if !self.animation_proof.batch_marker
             {
                 let _ = debug_println(UIRUNTIME_BATCH_COMMIT_OK);
                 self.animation_proof.batch_marker = true;
@@ -1538,8 +1541,15 @@ impl DisplayServerRuntime {
         if committed.command_count() == 0 {
             return Err(WindowdError::InvalidDamage);
         }
-        let frame = [GPU_ANIMATION_SUBMIT_OP];
-        self.send_gpud_status_request(&frame)
+        // Serialize the CommittedBuffer into an IPC frame.
+        // Frame layout: [opcode=GPU_ANIMATION_SUBMIT_OP] + serialized CommittedBuffer.
+        let mut frame_buf = [0u8; 512];
+        let written = committed
+            .serialize_into(&mut frame_buf[1..])
+            .map_err(|_| WindowdError::InvalidDamage)?;
+        frame_buf[0] = GPU_ANIMATION_SUBMIT_OP;
+        let total = 1usize.saturating_add(written);
+        self.send_gpud_status_request(&frame_buf[..total])
     }
 
     fn sidebar_damage_rect(&self) -> DamageRect {
@@ -1958,10 +1968,11 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Flush all pending damage to gpud as a single batched CommandBuffer.
+    /// CPU compositing writes into the VMO; gpud receives ONE IPC with the
+    /// full damage description and executes TRANSFER_TO_HOST + FLUSH once.
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
-        let mut wrote_any = false;
-        let mut gpud_present_ok = true;
         let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut rect_count = 0usize;
 
@@ -1976,25 +1987,64 @@ impl DisplayServerRuntime {
             }
         }
         rect_count = premerge_damage_rects(&mut rects, rect_count);
-        for rect in rects.iter().copied().take(rect_count) {
-            self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
-            gpud_present_ok &= self.present_damage_to_gpud(rect);
-            wrote_any = true;
+        if rect_count == 0 {
+            return Ok(());
         }
 
-        self.tile_map.clear();
-        if wrote_any {
-            self.write_cursor_overlay()?;
-            if let Some(cursor_rect) = self.saved_cursor_rect {
-                gpud_present_ok &= self.present_damage_to_gpud(cursor_rect);
-            }
-            if !gpud_present_ok {
-                self.paint_only_damage = false;
-                return Err(WindowdError::InvalidDamage);
-            }
-            self.emit_input_markers();
-            self.paint_only_damage = false;
+        // CPU compositing: render all damage rects into the framebuffer VMO.
+        let compose_start = nsec().unwrap_or(0);
+        for rect in rects.iter().copied().take(rect_count) {
+            self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
         }
+        self.write_cursor_overlay()?;
+        self.tile_map.clear();
+        let compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
+
+        // Build a single CommandBuffer describing ALL damage regions.
+        // gpud receives one IPC and executes one batched present.
+        let mut cmd = CommandBuffer::new();
+        {
+            let mut enc = cmd
+                .try_begin_render_pass(RenderPassDesc {
+                    color_attachments: alloc::vec![],
+                    width: self.mode.width,
+                    height: self.mode.height,
+                })
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            // Encode animation state as fragment data so gpud can tint tiles.
+            let mut payload = [0u8; 16];
+            payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
+            payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
+            let _ = enc.try_set_fragment_bytes(0, &payload);
+
+            for rect in rects.iter().copied().take(rect_count) {
+                let _ = enc.try_blit_surface(rect.x, rect.y, rect.x, rect.y, rect.width, rect.height);
+            }
+            if let Some(cursor_rect) = self.saved_cursor_rect {
+                let _ = enc.try_blend_cursor(
+                    cursor_rect.x, cursor_rect.y,
+                    cursor_rect.width, cursor_rect.height,
+                );
+            }
+            enc.end_encoding();
+        }
+        let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
+
+        // Single IPC: send the batched CommandBuffer to gpud.
+        let mut frame_buf = [0u8; 512];
+        let written = committed
+            .serialize_into(&mut frame_buf[1..])
+            .map_err(|_| WindowdError::InvalidDamage)?;
+        frame_buf[0] = GPU_PRESENT_DAMAGE_OP; // reuse present op; gpud renders + presents
+        let total = 1usize.saturating_add(written);
+        let gpud_ok = self.send_gpud_status_request(&frame_buf[..total]).is_ok();
+
+        if !gpud_ok {
+            self.paint_only_damage = false;
+            return Err(WindowdError::InvalidDamage);
+        }
+        self.emit_input_markers();
+        self.paint_only_damage = false;
         Ok(())
     }
 

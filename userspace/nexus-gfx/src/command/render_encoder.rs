@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::command::buffer::{Command, CommandBuffer};
+use crate::command::buffer::{Command, CommandBuffer, RgbaColor};
 use crate::core::error::GfxError;
 use crate::core::types::TileRect;
 
@@ -17,36 +17,79 @@ impl<'a> RenderCommandEncoder<'a> {
         Self { cmd, active: true }
     }
 
-    /// Set fragment shader uniform data at a byte offset.
-    /// The data is copied into the command buffer.
-    #[allow(clippy::expect_used)]
+    // ── Fragment data ────────────────────────────────────────
+
     pub fn set_fragment_bytes(&mut self, offset: usize, data: &[u8]) {
         self.try_set_fragment_bytes(offset, data).expect("invalid fragment bytes");
     }
 
     pub fn try_set_fragment_bytes(&mut self, offset: usize, data: &[u8]) -> Result<(), GfxError> {
-        if !self.active {
-            return Err(GfxError::CommandRejected);
-        }
+        if !self.active { return Err(GfxError::CommandRejected); }
         self.cmd.push_command(Command::SetFragmentBytes { offset, data: data.to_vec() })
     }
 
-    /// Queue a draw of the given tiles.
-    #[allow(clippy::expect_used)]
+    // ── Tiles ─────────────────────────────────────────────────
+
     pub fn draw_tiles(&mut self, tiles: &[TileRect]) {
         self.try_draw_tiles(tiles).expect("invalid tile draw");
     }
 
     pub fn try_draw_tiles(&mut self, tiles: &[TileRect]) -> Result<(), GfxError> {
-        if !self.active {
-            return Err(GfxError::CommandRejected);
-        }
+        if !self.active { return Err(GfxError::CommandRejected); }
         self.cmd.push_command(Command::DrawTiles { tiles: tiles.to_vec() })
     }
 
-    /// End encoding. The encoder is consumed.
+    // ── Blit ──────────────────────────────────────────────────
+
+    /// Copy a rectangle from the source surface to the framebuffer.
+    pub fn blit_surface(&mut self, src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, width: u32, height: u32) {
+        self.try_blit_surface(src_x, src_y, dst_x, dst_y, width, height).expect("invalid blit");
+    }
+
+    pub fn try_blit_surface(&mut self, src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, width: u32, height: u32) -> Result<(), GfxError> {
+        if !self.active { return Err(GfxError::CommandRejected); }
+        self.cmd.push_command(Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height })
+    }
+
+    // ── SDF rounded rect ──────────────────────────────────────
+
+    /// Fill an SDF rounded rectangle with a solid color.
+    pub fn fill_sdf_rounded_rect(&mut self, rect: TileRect, radius: u32, color: RgbaColor) {
+        self.try_fill_sdf_rounded_rect(rect, radius, color).expect("invalid SDF fill");
+    }
+
+    pub fn try_fill_sdf_rounded_rect(&mut self, rect: TileRect, radius: u32, color: RgbaColor) -> Result<(), GfxError> {
+        if !self.active { return Err(GfxError::CommandRejected); }
+        self.cmd.push_command(Command::FillSdfRoundedRect { rect, radius, color })
+    }
+
+    // ── Backdrop blur ─────────────────────────────────────────
+
+    /// Apply box blur + saturation to a framebuffer region.
+    pub fn blur_backdrop(&mut self, rect: TileRect, radius: u32, saturation_percent: u32) {
+        self.try_blur_backdrop(rect, radius, saturation_percent).expect("invalid blur");
+    }
+
+    pub fn try_blur_backdrop(&mut self, rect: TileRect, radius: u32, saturation_percent: u32) -> Result<(), GfxError> {
+        if !self.active { return Err(GfxError::CommandRejected); }
+        self.cmd.push_command(Command::BlurBackdrop { rect, radius, saturation_percent })
+    }
+
+    // ── Cursor ────────────────────────────────────────────────
+
+    /// Blend the cursor bitmap onto the framebuffer.
+    pub fn blend_cursor(&mut self, x: u32, y: u32, width: u32, height: u32) {
+        self.try_blend_cursor(x, y, width, height).expect("invalid cursor blend");
+    }
+
+    pub fn try_blend_cursor(&mut self, x: u32, y: u32, width: u32, height: u32) -> Result<(), GfxError> {
+        if !self.active { return Err(GfxError::CommandRejected); }
+        self.cmd.push_command(Command::BlendCursor { x, y, width, height })
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────
+
     pub fn end_encoding(self) {
-        // drop impl marks inactive
         let _ = self;
     }
 }

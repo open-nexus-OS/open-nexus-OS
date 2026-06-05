@@ -62,7 +62,8 @@ pub use core::fence::Fence;
 pub use core::queue::Queue;
 pub use core::types::{BufferUsage, PixelFormat, RenderPassDesc, ResourceId, TileRect};
 
-pub use command::buffer::{CommandBuffer, CommittedBuffer};
+pub use command::buffer::{CommandBuffer, CommittedBuffer, RgbaColor};
 pub use command::render_encoder::RenderCommandEncoder;
 
+pub use perf::timer::PipelineTimer;
 pub use resource::buffer::Buffer;

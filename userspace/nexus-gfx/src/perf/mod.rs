@@ -8,4 +8,5 @@
 
 pub mod budget;
 pub mod counters;
+pub mod timer;
 pub mod trace;
