@@ -38,6 +38,7 @@ const GPUD_SEND_SLOT: u32 = 4;
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
+const RESOURCE_HEIGHT: u32 = 1600; // double-height VMO: wallpaper bottom + display top
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut backend = open_backend_once()?;
     if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
@@ -124,7 +125,7 @@ fn service_requests(
                             Some(cap) => match backend.attach_external_framebuffer(
                                 cap.slot(),
                                 DISPLAY_WIDTH,
-                                DISPLAY_HEIGHT,
+                                RESOURCE_HEIGHT,
                             ) {
                                 Ok(()) => {
                                     active_handoff_id = handoff_id;

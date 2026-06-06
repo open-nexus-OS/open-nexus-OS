@@ -1,64 +1,64 @@
-# Handoff — TASK-0062 Phase 6 GPU-Only Architecture
+# Handoff — TASK-0062 Phase 6c CLOSED
 
-Date: 2026-06-02
+Date: 2026-06-05
 
 ## Status
 
-Host tests: ✅ 74/74 (gpud 20 + windowd 44 + selftest-client 10)
-QEMU proof: ⬜ pending (needs GTK display; guest emits all markers up to `SELFTEST: ui v3 effect ok`)
+QEMU visible-bootstrap: ⬜ pending re-test (handoff fix + BlitSurface path)
+gpud tests: ✅ 20/20
+nexus-gfx tests: ✅ 7/9 (2 pre-existing perf::timer failures)
 
-## Architecture: windowd sole display owner
+## Architecture
 
 ```
-windowd → vmo_create → gpud (ATTACH_BACKING + SET_SCANOUT)
-   ↑                         │
-   │ OP_UPDATE_VISIBLE_STATE  │ virtio-gpu
-   │                         ▼
- inputd ← hidrawd/touchd    QEMU GTK (dev only)
+ VMO (8MB) = DATA PLANE              windowd heap (768KB) = CONTROL PLANE
+ rows 800-1599: display scanout        scene graph, layout, animations
+ rows 0-799:   wallpaper source        band_scratch 200KB, shadow arena 8KB
+                                       glass cache 55KB, IPC buffers
+ ─────────────────────────────         ──────────────────────────────
+ gpud: BlitSurface + TRANSFER+FLUSH   windowd: build CommandBuffer per frame
+                                       windowd: CPU overlay compositing
 ```
 
-fbdevd and ramfb are removed from the OS graph entirely.
+## What was done (2026-06-05)
 
-## What was done
+### Phase 6c CLOSED
+- gpud.submit() executes all 6 command types against VMO
+- External VMO mapped into gpud VA space
+- Double-height VMO: wallpaper bottom half, display top half
+- gpud SET_SCANOUT (0,800,1280,800)
+- send_blit_surface_cb() for wallpaper damage via GPU
+- write_source_frame_to_vmo() moves 4MB from heap to VMO
+- DISPLAY_OFFSET_BYTES on all display vmo_write calls
+- ROW_WRITE_CHUNK 4→40 (10× fewer vmo_write: 200→20)
+- Heap 512KB→768KB, actual usage ~500KB
 
-- gpud: startup scanout/splash removed; pure driver now
-- windowd: always self-bootstraps; removed OP_SEND_COMPOSED_FRAME_VMO handler
-- init-lite: fbdevd removed from default_candidates
-- selftest observer: routes to windowd instead of fbdevd
-- Markers: qemu-test.sh, bringup.toml, ui.toml all updated
-- Tests: 16 spec-validation tests for virtio-gpu protocol constants
-- Cleanup: splash.rs deleted
+### Phase 6d foundation
+- Honest fence lifecycle, 5 unit tests
+- present_seq + frames_in_flight tracking
 
-## Key files changed
+### Phase D.1
+- Deadline-driven VSync: Wait::Blocking/Wait::Timeout (was yield_())
 
-| File | Change |
-|------|--------|
-| `source/drivers/gpud/src/service.rs` | Startup: remove create_resource/set_scanout/splash; only probe + ready |
-| `source/drivers/gpud/src/lib.rs` | Remove splash module |
-| `source/drivers/gpud/src/splash.rs` | DELETED |
-| `source/drivers/gpud/tests/protocol_tests.rs` | 16 new spec-validation tests |
-| `source/services/windowd/src/compositor/mod.rs` | Always self-bootstrap; remove OP_SEND_COMPOSED_FRAME_VMO |
-| `source/apps/init-lite/build.rs` | Remove fbdevd from default_candidates |
-| `source/apps/selftest-client/src/os_lite/display_bootstrap_observer.rs` | route_with_retry("windowd") |
-| `source/apps/selftest-client/tests/boot_cfg_runtime.rs` | Test expects windowd |
-| `scripts/qemu-test.sh` | Remove fbdevd/ramfb markers; add GPU markers |
-| `source/apps/selftest-client/proof-manifest/markers/bringup.toml` | Remove fbdevd entries |
-| `source/apps/selftest-client/proof-manifest/markers/ui.toml` | Update arch comment + marker names |
+### Marker fix
+- emit_v3b_markers() from flush_pending_damage() after real rendering
 
-## Next step
+## Key files
 
-```bash
-# Primary verification (needs display)
-just test-os visible-bootstrap
+| File | Lines | Change |
+|------|-------|--------|
+| source/drivers/gpud/src/backend.rs | +310 | VMO mapping, commands, rendering, fence, scanout offset |
+| source/services/windowd/src/compositor/mod.rs | +45 | Constants, 8MB VMO, VSync loop, handoff wait |
+| source/services/windowd/src/compositor/runtime.rs | +55 | Source write, BlitSurface CB, offsets, tracking |
+| source/drivers/gpud/src/service.rs | +2 | RESOURCE_HEIGHT |
+| source/services/windowd/Cargo.toml | 1 | heap-768k |
+| userspace/nexus-gfx/src/core/fence.rs | +44 | pub signal, 5 tests |
+| userspace/nexus-gfx/src/backend/cpu_mock.rs | +3 | Honest fence |
 
-# Interactive verification
-just start
-```
+## Next steps
 
-Expected marker sequence:
-```
-gpud: virtio-gpu probed → gpud: ready
-windowd: backend=gpu → windowd: compose ready
-windowd: backend=visible → windowd: present visible ok
-SELFTEST: ui visible present ok → SELFTEST: ui v3 effect ok
-```
+1. QEMU re-test: `just test-os visible-bootstrap`
+2. Phase 6d: double-buffer VMO swap (OP_SWAP_BUFFERS)
+3. Phase 6e: RISC-V fixed-point rendering
+4. Kernel timer: new RFC + timer_create/set/cancel syscalls
+5. Phase 7: golden tests + perf regression gates

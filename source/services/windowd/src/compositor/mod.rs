@@ -4,12 +4,16 @@
 //! CONTEXT: OS-lite display server main loop for `windowd` — retained-mode compositor with
 //! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
 //! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,
-//! and paint-only fast-path. Part of TASK-0055/0056/0058/0059.
+//! paint-only fast-path, and GPU-first rendering pipeline (Phase 6c).
+//! OHOS-style control/data plane separation: windowd heap = control plane,
+//! shared 8MB VMO = data plane (wallpaper bottom half, display top half).
+//! gpud executes BlitSurface/FillSdfRoundedRect/BlurBackdrop/DrawTiles commands.
+//! Part of TASK-0055/0056/0058/0059/0062.
 //!
 //! OWNERS: @ui
-//! STATUS: Functional (Phases 1–6a: TileMap, LayerCache, library blur, cursor bg, paint-only)
+//! STATUS: Phase 6c closed (2026-06-05) — GPU wallpaper path, double-height VMO,
+//!   deadline-driven VSync, honest fences, 10× vmo_write reduction
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 31 tests (windowd unit) + 9 tests (headless) + 3 tests (tile_map unit)
 //!
 //! ARCHITECTURE:
 //!   - Two-pass renderer: `compute_shadow_row` (shadow, zero-allocation),
@@ -83,7 +87,7 @@ use input_live_protocol::{
 };
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
-use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
+use nexus_abi::{debug_println, nsec, vmo_write, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
@@ -114,6 +118,15 @@ use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
 pub(crate) const ROUTE_NAME: &str = "windowd";
+// Phase 6c: OHOS-style control-plane / data-plane separation.
+// Data plane: all pixel data lives in shared VMOs, rendered by gpud.
+//   VMO layout (8MB, 1280x1600):
+//     rows   0.. 799 -> wallpaper source  (offset 0)
+//     rows 800..1599 -> display scanout    (offset 4,096,000)
+pub(crate) const DISPLAY_WIDTH: u32 = 1280;
+pub(crate) const DISPLAY_HEIGHT: u32 = 800;
+pub(crate) const RESOURCE_HEIGHT: u32 = 1600;
+pub(crate) const DISPLAY_OFFSET_BYTES: usize = 4_096_000;
 pub(crate) const PROOF_PANEL_X: u32 = 56;
 pub(crate) const PROOF_PANEL_Y: u32 = 440;
 pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
@@ -128,7 +141,7 @@ pub(crate) const FILTER_INPUT_FONT_SCALE: u32 = 2;
 pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 =
     (FILTER_INPUT_FONT_W + 1) * FILTER_INPUT_FONT_SCALE;
 #[cfg(nexus_env = "os")]
-pub(crate) const ROW_WRITE_CHUNK: usize = 4;
+pub(crate) const ROW_WRITE_CHUNK: usize = 40;
 #[cfg(not(nexus_env = "os"))]
 pub(crate) const ROW_WRITE_CHUNK: usize = 32;
 pub(crate) const IPC_BATCH_LIMIT: usize = 8;
@@ -202,11 +215,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     #[cfg(nexus_env = "os")]
     {
         let _ = debug_println("windowd: backend=gpu");
-        let byte_len: usize = 1280 * 800 * 4;
+        let byte_len: usize = (DISPLAY_WIDTH as usize) * (RESOURCE_HEIGHT as usize) * 4;
         if let Ok(handle) = vmo_create(byte_len) {
             let _ = debug_println("windowd: fb vmo create ok");
             runtime.register_framebuffer_vmo(handle);
-            // Prioritize first-frame compose/handoff before IPC traffic can starve it.
+            // Write source frame (wallpaper) to VMO bottom half once.
+            // Control-plane -> data-plane: 4MB moves from heap to shared VMO.
+            let _ = runtime.write_source_frame_to_vmo();
             let _ = runtime.process_deferred_framebuffer_write();
         } else {
             let _ = debug_println("windowd: ERROR fb vmo create failed");
@@ -214,16 +229,12 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     }
 
     let mut recv_frame = [0u8; 512];
-    // ARCHITECTURE NOTE: The intended design is fully reactive:
-    //   server.recv(Wait::Blocking) → on input → tick animations
-    //   Timer/alarm capability → tick animation frames at display refresh rate
-    //
-    // CURRENT WORKAROUND: Without kernel timer/alarm support, we use
-    // NonBlocking receive + yield_() to keep animation frames advancing.
-    // This will be replaced with a proper timer-based VSync source
-    // (TRACK-DRIVERS-ACCELERATORS, CAND-DRV-005 display timing).
+    // Phase D.1: Keep the NonBlocking batch for responsive message handling,
+    // but replace the bottom yield_() with a kernel deadline-driven wait.
+    //   - Idle:     Wait::Blocking           → zero CPU, wakes on input only
+    //   - Active:   Wait::Timeout(interval)  → wakes on input or animation tick
+    const REFRESH_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
     loop {
-        // Keep first-frame handoff deterministic even under sustained inbox load.
         let _ = runtime.process_deferred_framebuffer_write();
         let mut visible_updates_since_flush = 0usize;
         for _ in 0..IPC_BATCH_LIMIT {
@@ -278,12 +289,51 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Err(err) = runtime.flush_pending_damage() {
             let _ = debug_println(flush_error_label(err));
         }
-        // Reactive: only drive animation timeline when animations are active.
-        // No polling — when no animation is running, we skip the tick entirely.
         if runtime.has_active_animations() {
             runtime.tick(nsec().unwrap_or(0));
         }
-        let _ = yield_();
+        // Phase D.1: deadline-driven sleep instead of busy yield_().
+        // Drains one message that arrived during processing, or blocks
+        // until the next message / animation tick interval.
+        let wait = if runtime.is_handoff_pending() {
+            Wait::NonBlocking
+        } else if runtime.has_active_animations() {
+            Wait::Timeout(core::time::Duration::from_nanos(REFRESH_INTERVAL_NS))
+        } else {
+            Wait::Blocking
+        };
+        match server.recv_request_with_meta_into(wait, &mut recv_frame) {
+            Ok((frame_len, _sid, mut moved_cap)) => {
+                let frame = &recv_frame[..frame_len];
+                if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
+                    let response = encode_visible_state_frame(runtime.visible_state());
+                    if let Some(reply) = moved_cap.take() {
+                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+                    } else {
+                        let _ = server.send(&response, Wait::Blocking);
+                    }
+                } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
+                    let status = match decode_update_visible_state(&frame) {
+                        Some(state) => runtime.apply_input_state(state),
+                        None => STATUS_MALFORMED,
+                    };
+                    if let Some(reply) = moved_cap.take() {
+                        let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
+                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+                    }
+                } else {
+                    let op = frame.get(3).copied().unwrap_or(0);
+                    let response = encode_status(op, STATUS_UNSUPPORTED);
+                    if let Some(reply) = moved_cap.take() {
+                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+                    } else {
+                        let _ = server.send(&response, Wait::Blocking);
+                    }
+                }
+            }
+            Err(IpcError::Timeout) => {} // animation tick interval expired
+            Err(_) => {}
+        }
     }
 }
 

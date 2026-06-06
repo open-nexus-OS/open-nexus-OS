@@ -39,7 +39,51 @@ impl Fence {
     }
 
     /// Mark the fence as signaled. Called by the backend after work completion.
-    pub(crate) fn signal(&mut self) {
+    pub fn signal(&mut self) {
         self.signaled = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsignaled_not_signaled() {
+        let f = Fence::new_unsignaled();
+        assert!(!f.signaled());
+        assert!(!f.wait(0));
+    }
+
+    #[test]
+    fn signaled_is_signaled() {
+        let f = Fence::new_signaled();
+        assert!(f.signaled());
+        assert!(f.wait(0));
+    }
+
+    #[test]
+    fn signal_transitions() {
+        let mut f = Fence::new_unsignaled();
+        assert!(!f.signaled());
+        f.signal();
+        assert!(f.signaled());
+    }
+
+    #[test]
+    fn signal_idempotent() {
+        let mut f = Fence::new_unsignaled();
+        f.signal();
+        f.signal();
+        assert!(f.signaled());
+    }
+
+    #[test]
+    fn copy_preserves_state() {
+        let mut f = Fence::new_unsignaled();
+        f.signal();
+        let copy = f;
+        assert!(copy.signaled());
+        assert!(f.signaled());
     }
 }

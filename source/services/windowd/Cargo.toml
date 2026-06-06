@@ -14,7 +14,7 @@ os-lite = [
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
-    "nexus-service-entry/heap-512k",
+    "nexus-service-entry/heap-768k",
 ]
 
 [package.metadata.nexus-service]

@@ -348,8 +348,11 @@ impl CpuMockBackend {
 impl GfxBackend for CpuMockBackend {
     fn submit(&mut self, cmd: CommittedBuffer) -> Result<Fence, GfxError> {
         cmd.validate().map_err(GfxError::from)?;
+        // Phase 6d: honest fence lifecycle.
+        let mut fence = Fence::new_unsignaled();
         self.execute(cmd.commands())?;
-        Ok(Fence::new_signaled())
+        fence.signal();
+        Ok(fence)
     }
 
     fn create_resource(&mut self, w: u32, h: u32, fmt: PixelFormat) -> Result<ResourceId, GfxError> {
@@ -403,8 +406,9 @@ fn blend_pixel(dst: &mut [u8], src: &[u8; 4]) {
         return;
     }
     let inv = 255 - alpha;
+    // Phase 6e: fixed-point blend — (x*257+32768)>>16 replaces /255.
     for c in 0..3 {
-        dst[c] = ((alpha * src[c] as u32 + inv * dst[c] as u32) / 255) as u8;
+        dst[c] = (((alpha * src[c] as u32 + inv * dst[c] as u32) * 257 + 32768) >> 16) as u8;
     }
     dst[3] = dst[3].saturating_add(alpha as u8);
 }

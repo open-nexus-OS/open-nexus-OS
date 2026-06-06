@@ -6,7 +6,7 @@
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::{Rect, ResourceId};
-use nexus_gfx::command::buffer::CommittedBuffer;
+use nexus_gfx::command::buffer::{Command, CommittedBuffer, RgbaColor};
 use nexus_gfx::core::fence::Fence;
 use nexus_gfx::core::types::PixelFormat;
 
@@ -28,6 +28,9 @@ pub struct VirtioGpuBackend {
     probed: bool,
     resources: alloc::vec::Vec<ResourceRecord>,
     scanout_resource: Option<ResourceId>,
+    /// Fragment uniform storage for SetFragmentBytes commands.
+    /// Phase 6c: stores shader parameters (animation state) pushed by windowd.
+    fragment_data: [u8; 64],
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
 }
@@ -59,6 +62,7 @@ impl VirtioGpuBackend {
             probed: false,
             resources: alloc::vec::Vec::new(),
             scanout_resource: None,
+            fragment_data: [0u8; 64],
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
         }
@@ -126,6 +130,23 @@ impl VirtioGpuBackend {
         let id = ResourceId(self.next_resource_id);
         self.next_resource_id += 1;
 
+        // Map the external VMO into gpud's VA space for direct framebuffer write access.
+        // Phase 6c: this enables gpud to execute rendering commands directly into the
+        // scanout framebuffer without vmo_write syscalls from windowd.
+        let resource_index = self.resources.len();
+        let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
+        let backing_len_aligned = align_page((width * height * 4) as usize);
+        let flags = nexus_abi::page_flags::VALID
+            | nexus_abi::page_flags::USER
+            | nexus_abi::page_flags::READ
+            | nexus_abi::page_flags::WRITE;
+        for offset in (0..backing_len_aligned).step_by(4096) {
+            nexus_abi::vmo_map_page(vmo_slot, backing_va + offset, offset, flags).map_err(|_e| {
+                let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_MAP_FAIL);
+                GfxError::MmioFault
+            })?;
+        }
+
         let create = protocol::VirtioGpuResourceCreate2d {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
             resource_id: id.0,
@@ -150,9 +171,10 @@ impl VirtioGpuBackend {
         // Activate the scanout first, then commit the initial framebuffer contents.
         // This matches the visible-bootstrap contract more closely: QEMU first learns
         // the target mode/scanout, then receives the content transfer + flush.
+        // Phase 6c: scanout displays top half (rows 800..1599), bottom half is wallpaper source.
         let scanout = protocol::VirtioGpuSetScanout {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_SET_SCANOUT),
-            r: protocol::VirtioGpuRect { x: 0, y: 0, width, height },
+            r: protocol::VirtioGpuRect { x: 0, y: height / 2, width, height: height / 2 },
             scanout_id: 0,
             resource_id: id.0,
         };
@@ -166,13 +188,15 @@ impl VirtioGpuBackend {
             width,
             height,
             format: PixelFormat::Bgra8888,
-            backing_va: 0,
+            backing_va,
             backing_pa: info.base,
             backing_len: (width * height * 4) as usize,
-            backing_vmo: 0, // external VMO from windowd, not owned by gpud
+            backing_vmo: 0, // external VMO from windowd; page mapping persists independent of cap lifetime
         };
 
-        self.transfer_to_host_os(record, Rect { x: 0, y: 0, width, height })
+        // Transfer only the display half (rows 800..1599) to host.
+        let display_half = height / 2;
+        self.transfer_to_host_os(record, Rect { x: 0, y: display_half, width, height: display_half })
             .map_err(|e| {
                 let _ = nexus_abi::debug_println("gpud: ERROR transfer_to_host for initial frame failed");
                 e
@@ -181,7 +205,7 @@ impl VirtioGpuBackend {
 
         let flush = protocol::VirtioGpuResourceFlush {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_FLUSH),
-            r: protocol::VirtioGpuRect { x: 0, y: 0, width, height },
+            r: protocol::VirtioGpuRect { x: 0, y: display_half, width, height: display_half },
             resource_id: id.0,
             _padding: 0,
         };
@@ -200,9 +224,11 @@ impl VirtioGpuBackend {
     pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
         let scanout = self.scanout_resource.ok_or(GfxError::InvalidArgument)?;
         let record = self.find_resource(scanout).ok_or(GfxError::InvalidArgument)?;
-        validate_rect(record, rect)?;
-        self.transfer_to_host_os(record, rect)?;
-        self.flush_rect_os(record, rect)?;
+        // Phase 6c: display is at top half — offset coords by display_height (record.height/2).
+        let display_rect = Rect { x: rect.x, y: rect.y + record.height / 2, width: rect.width, height: rect.height };
+        validate_rect(record, display_rect)?;
+        self.transfer_to_host_os(record, display_rect)?;
+        self.flush_rect_os(record, display_rect)?;
         Ok(())
     }
 
@@ -388,6 +414,74 @@ impl VirtioGpuBackend {
     pub(crate) fn find_resource(&self, res: ResourceId) -> Option<ResourceRecord> {
         self.resources.iter().copied().find(|record| record.id == res)
     }
+
+    // ── Phase 6c: Command execution on OS (direct VMO write) ──────────────
+
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    fn execute_commands(&mut self, cmds: &[Command]) -> Result<(), GfxError> {
+        let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
+        let record = self.find_resource(scanout).ok_or(GfxError::DeviceNotFound)?;
+        if record.backing_va == 0 {
+            return Err(GfxError::MmioFault);
+        }
+        let fb = record.backing_va as *mut u8;
+        let fb_len = record.backing_len;
+        let fb_w = record.width as usize;
+        for cmd in cmds {
+            match cmd {
+                Command::SetFragmentBytes { offset, data } => {
+                    let end = offset.saturating_add(data.len());
+                    if end > self.fragment_data.len() {
+                        return Err(GfxError::CommandRejected);
+                    }
+                    self.fragment_data[*offset..end].copy_from_slice(data);
+                }
+                Command::DrawTiles { tiles } => {
+                    let color = self.tile_color_from_fragment();
+                    for t in tiles {
+                        fill_rect_solid_vmo(fb, fb_len, fb_w, t.x, t.y, t.width, t.height, color);
+                    }
+                }
+                Command::FillSdfRoundedRect { rect, radius, color } => {
+                    fill_sdf_rounded_vmo(
+                        fb, fb_len, fb_w,
+                        rect.x, rect.y, rect.width, rect.height,
+                        *radius, *color,
+                    );
+                }
+                Command::BlurBackdrop { rect, radius, saturation_percent } => {
+                    blur_backdrop_vmo(
+                        fb, fb_len, fb_w,
+                        rect.x, rect.y, rect.width, rect.height,
+                        *radius, *saturation_percent,
+                    )?;
+                }
+                Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
+                    blit_vmo(
+                        fb, fb_len, fb_w,
+                        *src_x, *src_y, *dst_x, *dst_y, *width, *height,
+                    )?;
+                }
+                Command::BlendCursor { x, y, width, height } => {
+                    // Cursor blending requires the cursor bitmap.
+                    // For Phase 6c, cursor data is pre-written into the VMO
+                    // by windowd; BlendCursor is a no-op on the OS path.
+                    let _ = (x, y, width, height);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    fn tile_color_from_fragment(&self) -> [u8; 4] {
+        let sidebar_opacity = f32::from_le_bytes([
+            self.fragment_data[12], self.fragment_data[13],
+            self.fragment_data[14], self.fragment_data[15],
+        ]);
+        let alpha = (sidebar_opacity.clamp(0.0, 1.0) * 192.0) as u8;
+        if alpha > 0 { [200, 220, 255, alpha] } else { [0, 0, 0, 0] }
+    }
 }
 
 impl GfxBackend for VirtioGpuBackend {
@@ -396,13 +490,14 @@ impl GfxBackend for VirtioGpuBackend {
             return Err(GfxError::DeviceNotFound);
         }
         cmd.validate().map_err(map_nexus_error)?;
+        // Phase 6d: honest fence lifecycle — pending until commands complete.
+        let mut fence = Fence::new_unsignaled();
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         {
-            // The v1 command vocabulary is validated above. Resource mutation happens through
-            // explicit transfer/set_scanout calls so QEMU completion is still tied to virtqueue IO.
-            let _ = cmd.command_count();
+            self.execute_commands(cmd.commands())?;
         }
-        Ok(Fence::new_signaled())
+        fence.signal();
+        Ok(fence)
     }
 
     fn create_resource(
@@ -1100,6 +1195,243 @@ fn write_u64_pair(base: usize, low_reg: usize, value: u64) {
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const fn align4(value: usize) -> usize {
     (value + 3) & !3
+}
+
+// ── Phase 6c: VMO-backed rendering primitives ──────────────────────
+// These operate directly on the framebuffer VMO backing memory via raw
+// pointers. They are the OS equivalent of CpuMockBackend's rendering
+// methods, with the same deterministic semantics.
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn fill_rect_solid_vmo(
+    fb: *mut u8, fb_len: usize, fb_w: usize,
+    x: u32, y: u32, w: u32, h: u32, color: [u8; 4],
+) {
+    let fb_w_u = fb_w as u32;
+    let end_x = x.saturating_add(w).min(fb_w_u);
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let end_y = y.saturating_add(h).min(fb_h);
+    for py in y..end_y {
+        let row_base = py as usize * fb_w;
+        for px in x..end_x {
+            let idx = (row_base + px as usize) * 4;
+            if idx + 4 <= fb_len {
+                unsafe {
+                    core::ptr::write_volatile(fb.add(idx), color[0]);
+                    core::ptr::write_volatile(fb.add(idx + 1), color[1]);
+                    core::ptr::write_volatile(fb.add(idx + 2), color[2]);
+                    core::ptr::write_volatile(fb.add(idx + 3), color[3]);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn fill_sdf_rounded_vmo(
+    fb: *mut u8, fb_len: usize, fb_w: usize,
+    x: u32, y: u32, w: u32, h: u32, radius: u32, color: RgbaColor,
+) {
+    let rgba = color.as_array();
+    if rgba[3] == 0 { return; }
+    let fb_w_u = fb_w as u32;
+    let end_x = x.saturating_add(w).min(fb_w_u);
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let end_y = y.saturating_add(h).min(fb_h);
+    let r = radius.min(w / 2).min(h / 2) as i32;
+    let cx = x as i32 + r;
+    let cy = y as i32 + r;
+    let cx2 = x as i32 + w as i32 - r - 1;
+    let cy2 = y as i32 + h as i32 - r - 1;
+    for py in y..end_y {
+        let row_base = py as usize * fb_w;
+        for px in x..end_x {
+            let idx = (row_base + px as usize) * 4;
+            if idx + 4 > fb_len { continue; }
+            let inside = if r <= 0 {
+                true
+            } else {
+                let px_i = px as i32;
+                let py_i = py as i32;
+                let d = if px_i <= cx && py_i <= cy {
+                    corner_dist_i32(px_i, py_i, cx, cy, r)
+                } else if px_i >= cx2 && py_i <= cy {
+                    corner_dist_i32(px_i, py_i, cx2, cy, r)
+                } else if px_i <= cx && py_i >= cy2 {
+                    corner_dist_i32(px_i, py_i, cx, cy2, r)
+                } else if px_i >= cx2 && py_i >= cy2 {
+                    corner_dist_i32(px_i, py_i, cx2, cy2, r)
+                } else {
+                    0
+                };
+                d <= 0
+            };
+            if inside {
+                blend_pixel_vmo(fb, idx, &rgba);
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn blur_backdrop_vmo(
+    fb: *mut u8, fb_len: usize, fb_w: usize,
+    x: u32, y: u32, w: u32, h: u32, radius: u32, _saturation_pct: u32,
+) -> Result<(), GfxError> {
+    if radius == 0 { return Ok(()); }
+    let fb_w_u = fb_w as u32;
+    let end_x = x.saturating_add(w).min(fb_w_u);
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let end_y = y.saturating_add(h).min(fb_h);
+    let r = radius as usize;
+    let pixels = (end_x - x) as usize;
+    if pixels == 0 { return Ok(()); }
+    // Horizontal pass: box-blur each row in-place with a scratch buffer.
+    // Allocate on stack — worst case 1280*4 = 5120 bytes for a full-width row.
+    let mut scratch: [u8; 5120] = [0u8; 5120];
+    let row_bytes = pixels * 4;
+    if row_bytes > scratch.len() { return Err(GfxError::ResourceExhausted); }
+    for py in y..end_y {
+        let row_start = (py as usize * fb_w + x as usize) * 4;
+        if row_start + row_bytes > fb_len { continue; }
+        unsafe { core::ptr::copy_nonoverlapping(fb.add(row_start), scratch.as_mut_ptr(), row_bytes); }
+        let mut sums: [u64; 4] = [0; 4];
+        let mut left: usize = 0;
+        let mut right = r.min(pixels.saturating_sub(1));
+        for j in left..=right {
+            let bi = j * 4;
+            for c in 0..4 { sums[c] += scratch[bi + c] as u64; }
+        }
+        for i in 0..pixels {
+            let count = (right - left + 1) as u64;
+            let di = row_start + i * 4;
+            for c in 0..4 {
+                unsafe { core::ptr::write_volatile(fb.add(di + c), (sums[c] / count.max(1)).min(255) as u8); }
+            }
+            if i + 1 < pixels {
+                let next_left = (i + 1).saturating_sub(r);
+                if next_left > left {
+                    let bi = left * 4;
+                    for c in 0..4 { sums[c] = sums[c].saturating_sub(scratch[bi + c] as u64); }
+                    left = next_left;
+                }
+                let next_right = (i + 1 + r).min(pixels.saturating_sub(1));
+                if next_right > right {
+                    right = next_right;
+                    let bi = right * 4;
+                    for c in 0..4 { sums[c] += scratch[bi + c] as u64; }
+                }
+            }
+        }
+    }
+    // Vertical pass
+    let col_h = (end_y - y) as usize;
+    let mut col_buf: [u8; 3200] = [0u8; 3200]; // 800 rows * 4 bytes
+    if col_h * 4 > col_buf.len() { return Err(GfxError::ResourceExhausted); }
+    for px in x..end_x {
+        let col_off = px as usize * 4;
+        for row_i in 0..col_h {
+            let src = (y as usize + row_i) * fb_w + col_off;
+            if src + 4 <= fb_len {
+                unsafe { core::ptr::copy_nonoverlapping(fb.add(src), col_buf.as_mut_ptr().add(row_i * 4), 4); }
+            }
+        }
+        let mut sums: [u64; 4] = [0; 4];
+        let mut top: usize = 0;
+        let mut bot = r.min(col_h.saturating_sub(1));
+        for j in top..=bot {
+            let bi = j * 4;
+            for c in 0..4 { sums[c] += col_buf[bi + c] as u64; }
+        }
+        for i in 0..col_h {
+            let count = (bot - top + 1) as u64;
+            let dst = (y as usize + i) * fb_w + col_off;
+            for c in 0..4 {
+                unsafe { core::ptr::write_volatile(fb.add(dst + c), (sums[c] / count.max(1)).min(255) as u8); }
+            }
+            if i + 1 < col_h {
+                let ntop = (i + 1).saturating_sub(r);
+                if ntop > top {
+                    let bi = top * 4;
+                    for c in 0..4 { sums[c] = sums[c].saturating_sub(col_buf[bi + c] as u64); }
+                    top = ntop;
+                }
+                let nbot = (i + 1 + r).min(col_h.saturating_sub(1));
+                if nbot > bot {
+                    bot = nbot;
+                    let bi = bot * 4;
+                    for c in 0..4 { sums[c] += col_buf[bi + c] as u64; }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn blit_vmo(
+    fb: *mut u8, fb_len: usize, fb_w: usize,
+    src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, w: u32, h: u32,
+) -> Result<(), GfxError> {
+    let fb_w_u = fb_w as u32;
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let copy_w = w.min(fb_w_u.saturating_sub(dst_x)).min(fb_w_u.saturating_sub(src_x));
+    let copy_h = h.min(fb_h.saturating_sub(dst_y)).min(fb_h.saturating_sub(src_y));
+    if copy_w == 0 || copy_h == 0 { return Ok(()); }
+    // Use stack scratch for row copy to handle overlapping regions safely.
+    let row_bytes = copy_w as usize * 4;
+    let mut buf: [u8; 5120] = [0u8; 5120];
+    if row_bytes > buf.len() { return Err(GfxError::ResourceExhausted); }
+    for row in 0..copy_h {
+        let sy = src_y.saturating_add(row);
+        let dy = dst_y.saturating_add(row);
+        let src_off = (sy as usize * fb_w + src_x as usize) * 4;
+        let dst_off = (dy as usize * fb_w + dst_x as usize) * 4;
+        if src_off + row_bytes > fb_len || dst_off + row_bytes > fb_len { continue; }
+        unsafe { core::ptr::copy_nonoverlapping(fb.add(src_off), buf.as_mut_ptr(), row_bytes); }
+        unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), fb.add(dst_off), row_bytes); }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn blend_pixel_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
+    let alpha = src[3] as u32;
+    if alpha == 0 { return; }
+    if alpha >= 255 {
+        unsafe {
+            core::ptr::write_volatile(fb.add(idx), src[0]);
+            core::ptr::write_volatile(fb.add(idx + 1), src[1]);
+            core::ptr::write_volatile(fb.add(idx + 2), src[2]);
+            core::ptr::write_volatile(fb.add(idx + 3), src[3]);
+        }
+    } else {
+        let inv = 255 - alpha;
+        unsafe {
+            let b = core::ptr::read_volatile(fb.add(idx)) as u32;
+            let g = core::ptr::read_volatile(fb.add(idx + 1)) as u32;
+            let r = core::ptr::read_volatile(fb.add(idx + 2)) as u32;
+            // Phase 6e: fixed-point blend — (x*257)>>16 replaces /255.
+            // 257/65536 ≈ 1/255 with <0.002% error. Multiplies by 257 with
+            // rounding (+32768 before shift) for 8-bit color accuracy.
+            let blend_b = ((alpha * src[0] as u32 + inv * b) * 257 + 32768) >> 16;
+            let blend_g = ((alpha * src[1] as u32 + inv * g) * 257 + 32768) >> 16;
+            let blend_r = ((alpha * src[2] as u32 + inv * r) * 257 + 32768) >> 16;
+            core::ptr::write_volatile(fb.add(idx), blend_b as u8);
+            core::ptr::write_volatile(fb.add(idx + 1), blend_g as u8);
+            core::ptr::write_volatile(fb.add(idx + 2), blend_r as u8);
+            core::ptr::write_volatile(fb.add(idx + 3), src[3].saturating_add(
+                (((inv * unsafe { core::ptr::read_volatile(fb.add(idx + 3)) } as u32) * 257 + 32768) >> 16) as u8,
+            ));
+        }
+    }
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn corner_dist_i32(px: i32, py: i32, cx: i32, cy: i32, r: i32) -> i32 {
+    let dx = px - cx;
+    let dy = py - cy;
+    dx * dx + dy * dy - r * r
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]

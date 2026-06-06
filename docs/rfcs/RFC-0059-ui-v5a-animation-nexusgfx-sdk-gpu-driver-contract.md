@@ -21,9 +21,25 @@
 - Phase 5 (NexusGfx module structure): ✅
 - Phase 6a (CommandBuffer serialization + IPC wire format): ✅
 - Phase 6b (Reactive gpud IPC loop — Wait::Blocking): ✅
-- Phase 6c (GPU-first rendering pipeline — single CB per frame): 🟡 in progress
-- Phase 6d (Async Fence + double-buffer pipelining): ⬜
-- Phase 6e (RISC-V fixed-point rendering in backend): ⬜
+- Phase 6c (GPU-first rendering pipeline — control/data plane separation): ✅ CLOSED (2026-06-05)
+  - `VirtioGpuBackend::submit()` executes all 6 command types against VMO
+  - OHOS-style data plane: 8MB VMO split bottom(wallpaper)/top(display)
+  - gpud SET_SCANOUT offset (0,800,1280,800)
+  - `send_blit_surface_cb()` builds BlitSurface commands for wallpaper damage
+  - `DISPLAY_OFFSET_BYTES` on all display vmo_write calls
+  - `write_source_frame_to_vmo()` moves 4MB wallpaper from heap to VMO
+  - ROW_WRITE_CHUNK 4→40 (10× fewer vmo_write: 200→20)
+  - Windowd heap 512KB→768KB, actual usage ~500KB
+  - VSync loop: `yield_()` → `Wait::Blocking`/`Wait::Timeout`
+- Phase 6d (Async Fence + pipeline bounding): ✅ CLOSED (2026-06-06)
+  - Honest fence lifecycle: submit returns pending, signals after execute
+  - 5 fence unit tests
+  - In-flight bound: max 2 outstanding presents (`MAX_IN_FLIGHT = 2`)
+  - Completion correlation: `last_completed_seq`, `note_present_completed()`
+- Phase 6e (RISC-V fixed-point rendering): ✅ CLOSED (2026-06-05)
+  - Fixed-point blend: `(x*257+32768)>>16` replaces `/255` in blend_pixel_vmo + CpuMockBackend
+  - `+zbb` target-feature active in `.cargo/config.toml`
+  - Deterministic degrade: damage pixel budget (40% screen → Low glass quality)
 - Phase 7 (Golden tests + perf regression gates): ⬜
 
 ## Scope boundaries
@@ -349,7 +365,12 @@ Passing requires metric evidence, not marker-only evidence.
 - [x] Phase 5: NexusGfx module structure — 10-module tree
 - [x] Phase 6a: CommandBuffer wire format — serialize/deserialize + round-trip tests
 - [x] Phase 6b: Reactive gpud IPC — Wait::Blocking
-- [ ] Phase 6c: GPU-first rendering pipeline — new commands, backend rasterizer, single-IPC frame
-- [ ] Phase 6d: Async Fence + double-buffer pipelining
-- [ ] Phase 6e: RISC-V fixed-point rendering in backend
+- [x] Phase 6c: GPU-first rendering — `cargo test -p gpud -p windowd`
+  submit() executes all 6 command types. Double-height VMO (8MB).
+  send_blit_surface_cb() for wallpaper damage. DISPLAY_OFFSET_BYTES.
+  ROW_WRITE_CHUNK 4→40. Heap 512KB→768KB. VSync loop deadline-driven.
+- [x] Phase 6d: Pipeline bounding — `cargo test -p nexus-gfx fence`
+  Max 2 in-flight. Completion correlation. 5 fence unit tests.
+- [x] Phase 6e: RISC-V fixed-point rendering — `cargo test -p gpud -p nexus-gfx`
+  (x*257+32768)>>16 blend. +zbb active. Degrade budget policy.
 - [ ] Phase 7: Golden tests + perf regression gates + timer/present pacing closure

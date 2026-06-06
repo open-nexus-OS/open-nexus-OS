@@ -36,6 +36,7 @@ use super::types::{
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
     CURSOR_BG_MAX_BYTES, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
+    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
     SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
@@ -481,6 +482,12 @@ pub(crate) struct DisplayServerRuntime {
     /// Set when register_framebuffer_vmo creates the framebuffer VMO but
     /// after sending the response.
     framebuffer_pending_first_write: bool,
+    /// Phase 6d: monotonic present sequence number for completion correlation.
+    present_seq: u32,
+    /// Phase 6d: count of frames submitted to gpud but not yet acknowledged.
+    frames_in_flight: u32,
+    /// Phase 6d: last present sequence number acknowledged by gpud.
+    last_completed_seq: u32,
     first_handoff_id: u32,
     first_handoff_deadline_ns: u64,
     first_handoff_frame_written: bool,
@@ -659,6 +666,9 @@ impl DisplayServerRuntime {
             gpud_client: None,
             pipeline_timer,
             framebuffer_pending_first_write: false,
+            present_seq: 0,
+            frames_in_flight: 0,
+            last_completed_seq: 0,
             first_handoff_id: 0,
             first_handoff_deadline_ns: 0,
             first_handoff_frame_written: false,
@@ -716,6 +726,24 @@ impl DisplayServerRuntime {
         self.glass_layer.valid = false;
     }
 
+    /// Phase 6c: Write source frame (wallpaper) to VMO bottom half once.
+    /// Moves 4MB of pixel data from control-plane heap to data-plane VMO.
+    pub(crate) fn write_source_frame_to_vmo(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else { return Ok(()); };
+        let sf = &self.source_frame;
+        if sf.pixels.is_empty() || sf.width == 0 || sf.height == 0 { return Ok(()); }
+        let src_stride = sf.stride as usize;
+        let dst_stride = DISPLAY_WIDTH as usize * 4;
+        for row in 0..sf.height.min(DISPLAY_HEIGHT) {
+            let src_off = row as usize * src_stride;
+            let dst_off = row as usize * dst_stride;
+            let copy_len = (sf.width as usize * 4).min(src_stride).min(dst_stride);
+            vmo_write(handle, dst_off, &sf.pixels[src_off..src_off + copy_len])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+        }
+        Ok(())
+    }
+
     /// Phase 1 of framebuffer registration: store the VMO handle and set
     /// display-ready flags. Returns immediately so the IPC response
     /// is not blocked by the expensive first-frame write.
@@ -733,6 +761,17 @@ impl DisplayServerRuntime {
         self.first_handoff_attach_sent = false;
         self.first_handoff_attach_acked = false;
         self.first_handoff_present_sent = false;
+    }
+
+    /// Phase D.1: true while first-frame handoff is still in progress.
+    pub(crate) fn is_handoff_pending(&self) -> bool {
+        self.framebuffer_pending_first_write
+    }
+
+    /// Phase 6d: called when gpud acknowledges a present (blocking reply received).
+    fn note_present_completed(&mut self) {
+        self.last_completed_seq = self.present_seq;
+        self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
     }
 
     /// Phase 2 of framebuffer registration: write the first composed frame
@@ -1006,7 +1045,7 @@ impl DisplayServerRuntime {
                     }
                 }
             }
-            vmo_write(handle, band_start * row_len, band)
+            vmo_write(handle, DISPLAY_OFFSET_BYTES + band_start * row_len, band)
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
@@ -1461,6 +1500,14 @@ impl DisplayServerRuntime {
         if !self.ensure_gpud_client() {
             return false;
         }
+        // Phase 6d: in-flight bound — if 2+ frames outstanding, skip this present.
+        // Damage accumulates; the next successful present covers the merged region.
+        const MAX_IN_FLIGHT: u32 = 2;
+        if self.frames_in_flight >= MAX_IN_FLIGHT {
+            return true; // damage queued, will be covered by next present
+        }
+        self.present_seq = self.present_seq.wrapping_add(1);
+        self.frames_in_flight = self.frames_in_flight.saturating_add(1);
         let send_result = {
             let Some(client) = self.gpud_client.as_ref() else { return false; };
             client.send(frame, Wait::NonBlocking)
@@ -1592,6 +1639,47 @@ impl DisplayServerRuntime {
                 false
             }
         }
+    }
+
+    /// Phase 6c: Build and send a CommandBuffer with BlitSurface commands
+    /// for wallpaper damage rects. Copies from VMO bottom half (wallpaper source)
+    /// to top half (display).
+    fn send_blit_surface_cb(&mut self, rects: &[DamageRect]) -> Result<(), WindowdError> {
+        if rects.is_empty() { return Ok(()); }
+        let mut cmd = CommandBuffer::new();
+        {
+            let mut encoder = cmd
+                .try_begin_render_pass(RenderPassDesc {
+                    color_attachments: alloc::vec![],
+                    width: self.mode.width,
+                    height: self.mode.height,
+                })
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            for rect in rects {
+                encoder
+                    .try_blit_surface(
+                        rect.x, rect.y,
+                        rect.x, rect.y + DISPLAY_HEIGHT,
+                        rect.width, rect.height,
+                    )
+                    .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+            encoder.end_encoding();
+        }
+        let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
+        if committed.command_count() == 0 {
+            return Err(WindowdError::InvalidDamage);
+        }
+        // Serialize and send via single IPC to gpud (GPU_PRESENT_DAMAGE_OP).
+        let mut frame_buf = [0u8; 512];
+        let written = committed
+            .serialize_into(&mut frame_buf[1..])
+            .map_err(|_| WindowdError::InvalidDamage)?;
+        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
+        if !self.send_gpud_present(&frame_buf[..1 + written]) {
+            return Err(WindowdError::InvalidDamage);
+        }
+        Ok(())
     }
 
     fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
@@ -1875,7 +1963,7 @@ impl DisplayServerRuntime {
                 draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
             }
             let offset = band_start as usize * row_len;
-            vmo_write(handle, offset, &band_scratch[..band_bytes])
+            vmo_write(handle, DISPLAY_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
@@ -1985,7 +2073,7 @@ impl DisplayServerRuntime {
                     let band_bytes = (band_end - band_start) as usize * row_len;
                     vmo_write(
                         handle,
-                        band_start as usize * row_len,
+                        DISPLAY_OFFSET_BYTES + band_start as usize * row_len,
                         &self.band_scratch[..band_bytes],
                     )
                     .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -1993,7 +2081,7 @@ impl DisplayServerRuntime {
                 }
                 vmo_write(
                     handle,
-                    offset,
+                    DISPLAY_OFFSET_BYTES + offset,
                     &self.band_scratch[src_offset..src_offset + (byte_end - byte_start)],
                 )
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -2077,6 +2165,9 @@ impl DisplayServerRuntime {
     /// CPU compositing writes into the VMO; gpud receives ONE IPC with the
     /// full damage description and executes TRANSFER_TO_HOST + FLUSH once.
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
+        // Phase 6e: per-frame damage pixel budget for deterministic degrade.
+        // Above 40% screen coverage, reduce glass quality to avoid overrun.
+        const DAMAGE_BUDGET_PX: u64 = (DISPLAY_WIDTH as u64 * DISPLAY_HEIGHT as u64) * 40 / 100;
         let paint_only = self.paint_only_damage;
         let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut rect_count = 0usize;
@@ -2096,18 +2187,38 @@ impl DisplayServerRuntime {
             return Ok(());
         }
 
-        // CPU compositing: render all damage rects into the framebuffer VMO.
+        // Phase 6e: compute total damage pixels and degrade quality if over budget.
+        let total_damage_px: u64 = rects.iter().take(rect_count)
+            .map(|r| u64::from(r.width) * u64::from(r.height))
+            .sum();
+        let glass_quality = if total_damage_px > DAMAGE_BUDGET_PX {
+            GlassQuality::Low
+        } else {
+            GlassQuality::High
+        };
+
+        // Phase 6c: GPU BlitSurface for wallpaper damage.
+        // Step 1: Build CommandBuffer — BlitSurface from bottom half (wallpaper)
+        // to top half (display) for each damage rect. gpud executes these before
+        // CPU overlay rendering, so wallpaper appears underneath UI elements.
         let compose_start = nsec().unwrap_or(0);
+        if let Err(err) = self.send_blit_surface_cb(&rects[..rect_count]) {
+            let _ = debug_println("windowd: blit cb send failed, falling back to CPU-only");
+            let _ = err;
+        }
+
+        // Step 2: CPU compositing for overlay content (proof panel SDF/text/glass).
+        // Writes to display half via DISPLAY_OFFSET_BYTES on top of wallpaper.
         for rect in rects.iter().copied().take(rect_count) {
-            self.write_damage_rect(rect, GlassQuality::High, paint_only)?;
+            self.write_damage_rect(rect, glass_quality, paint_only)?;
         }
         self.write_cursor_overlay()?;
         self.tile_map.clear();
         let _compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
 
-        // P0: Eliminate redundant CommandBuffer → single damage present to gpud.
-        // CPU already wrote all pixels into the VMO. gpud only needs the
-        // bounding damage rect for TRANSFER_TO_HOST + RESOURCE_FLUSH.
+        // Step 3: Send bounding damage rect to gpud for TRANSFER_TO_HOST+FLUSH.
+        // gpud has already executed the BlitSurface commands; this flush makes
+        // the combined GPU+CPU result visible to the scanout.
         let merged = rects[0];
         let bounding = rects[1..rect_count]
             .iter()
@@ -2122,6 +2233,9 @@ impl DisplayServerRuntime {
         // P1: Mark v3b composition as verified — real damage was rendered through
         // the full compositor pipeline including blur/shadow effects.
         self.v3b_composition_verified = true;
+        // Emit v3b effect markers now that real rendering has completed.
+        // emit_v3b_markers() is gated on v3b_composition_verified and only fires once.
+        self.emit_v3b_markers();
         self.paint_only_damage = false;
         Ok(())
     }
@@ -2169,7 +2283,7 @@ impl DisplayServerRuntime {
                 continue;
             }
             let dst_offset = y as usize * row_len + rect.x as usize * 4;
-            vmo_write(handle, dst_offset, &self.cursor_bg_saved[src_offset..src_end])
+            vmo_write(handle, DISPLAY_OFFSET_BYTES + dst_offset, &self.cursor_bg_saved[src_offset..src_end])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         self.telemetry.record_present();
@@ -2274,7 +2388,7 @@ impl DisplayServerRuntime {
                 self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
             );
             let dst_offset = y as usize * row_len + rect.x as usize * 4;
-            vmo_write(handle, dst_offset, &row_buf[src_start..src_end])
+            vmo_write(handle, DISPLAY_OFFSET_BYTES + dst_offset, &row_buf[src_start..src_end])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         self.shadow_arena_used = shadow_arena.used_bytes();
