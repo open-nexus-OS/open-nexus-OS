@@ -93,6 +93,12 @@ pub const SYSCALL_CAP_QUERY: usize = 28;
 pub const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
 /// Resume a suspended task (enqueue into scheduler). Privileged.
 pub const SYSCALL_TASK_RESUME: usize = 32;
+/// Creates a kernel timer object and returns a timer capability slot.
+pub const SYSCALL_TIMER_CREATE: usize = 33;
+/// Arms a timer capability with an absolute monotonic deadline.
+pub const SYSCALL_TIMER_SET: usize = 34;
+/// Cancels a previously armed timer capability.
+pub const SYSCALL_TIMER_CANCEL: usize = 35;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

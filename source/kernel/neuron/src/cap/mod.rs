@@ -45,6 +45,10 @@ pub enum CapabilityKind {
     DeviceMmio { base: usize, len: usize },
     /// Interrupt binding.
     Irq(u32),
+    /// Kernel timer capability bound to a per-hart timer table entry.
+    ///
+    /// The payload is the kernel-local `TimerId` (opaque to userspace).
+    Timer(u32),
     /// Scheduler affinity control (TASK-0042): holder may set CPU affinity for other tasks.
     ///
     /// Rationale: Only privileged services (e.g., execd, policyd) should be able to set

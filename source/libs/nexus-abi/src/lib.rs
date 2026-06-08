@@ -1788,6 +1788,57 @@ pub fn nsec() -> SysResult<u64> {
     }
 }
 
+/// Creates a kernel timer capability bound to `notify_ep_cap`.
+///
+/// `notify_ep_cap` must reference an endpoint capability in the caller's cap table.
+/// `interval_ns` configures periodic mode when non-zero (0 = one-shot).
+#[cfg(nexus_env = "os")]
+pub fn timer_create(notify_ep_cap: Cap, interval_ns: u64) -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TIMER_CREATE: usize = 33;
+        let raw = unsafe { ecall2(SYSCALL_TIMER_CREATE, notify_ep_cap as usize, interval_ns as usize) };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (notify_ep_cap, interval_ns);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Arms a timer capability with an absolute monotonic `deadline_ns`.
+#[cfg(nexus_env = "os")]
+pub fn timer_set(timer_cap: Cap, deadline_ns: u64) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TIMER_SET: usize = 34;
+        let raw = unsafe { ecall2(SYSCALL_TIMER_SET, timer_cap as usize, deadline_ns as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (timer_cap, deadline_ns);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Disarms a previously armed timer capability.
+#[cfg(nexus_env = "os")]
+pub fn timer_cancel(timer_cap: Cap) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TIMER_CANCEL: usize = 35;
+        let raw = unsafe { ecall1(SYSCALL_TIMER_CANCEL, timer_cap as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = timer_cap;
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Returns the current task PID.
 #[cfg(nexus_env = "os")]
 pub fn pid() -> SysResult<u32> {

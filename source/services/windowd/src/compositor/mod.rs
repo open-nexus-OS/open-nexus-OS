@@ -40,7 +40,6 @@
 mod backdrop;
 mod blur;
 mod cache;
-mod cursor;
 mod damage;
 mod filter;
 mod font;
@@ -60,7 +59,6 @@ mod types;
 use backdrop::*;
 use blur::*;
 use cache::*;
-use cursor::*;
 use damage::*;
 use filter::*;
 use font::bitmap_font_5x7;
@@ -186,8 +184,19 @@ pub(crate) const WINDOWD_SHADOW_ARENA_SIZE: usize = 16 * 1024;
 pub(crate) const COL_SCRATCH_SIZE: usize = WINDOWD_SHADOW_ARENA_SIZE;
 pub(crate) const SHADOW_BOX_CACHE_ENTRIES: usize = 8;
 pub(crate) const SHADOW_CACHE_MAX_DOWNSCALE: u8 = 16;
-pub(crate) const CURSOR_BG_MAX_BYTES: usize = 32 * 32 * 4;
 pub(crate) const DARK_GLASS_SATURATION_PERCENT: u32 = 140;
+#[cfg(nexus_env = "os")]
+const OP_TIMER_FIRED: u8 = 0x30;
+
+#[cfg(nexus_env = "os")]
+fn decode_timer_fired_now_ns(frame: &[u8]) -> Option<u64> {
+    if frame.len() < 29 || frame[0] != OP_TIMER_FIRED {
+        return None;
+    }
+    Some(u64::from_le_bytes([
+        frame[21], frame[22], frame[23], frame[24], frame[25], frame[26], frame[27], frame[28],
+    ]))
+}
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     let server = match KernelServer::new_for(ROUTE_NAME) {
@@ -234,13 +243,65 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     //   - Idle:     Wait::Blocking           → zero CPU, wakes on input only
     //   - Active:   Wait::Timeout(interval)  → wakes on input or animation tick
     const REFRESH_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
+    #[cfg(nexus_env = "os")]
+    let (timer_notify_slot, _) = server.slots();
+    #[cfg(nexus_env = "os")]
+    let mut animation_timer_cap: Option<u32> = None;
+    #[cfg(nexus_env = "os")]
+    let mut animation_timer_armed = false;
+    #[cfg(nexus_env = "os")]
+    let mut animation_timer_log_emitted = false;
     loop {
+        runtime.drain_gpud_replies();
         let _ = runtime.process_deferred_framebuffer_write();
+        #[cfg(nexus_env = "os")]
+        {
+            let has_active_animations = runtime.has_active_animations();
+            if has_active_animations && !animation_timer_armed {
+                if animation_timer_cap.is_none() {
+                    match nexus_abi::timer_create(timer_notify_slot, REFRESH_INTERVAL_NS) {
+                        Ok(cap) => animation_timer_cap = Some(cap),
+                        Err(_) => {
+                            if !animation_timer_log_emitted {
+                                let _ = debug_println("windowd: animation timer create failed");
+                                animation_timer_log_emitted = true;
+                            }
+                        }
+                    }
+                }
+                if let Some(timer_cap) = animation_timer_cap {
+                    if let Ok(now) = nsec() {
+                        let deadline = now.saturating_add(REFRESH_INTERVAL_NS);
+                        match nexus_abi::timer_set(timer_cap, deadline) {
+                            Ok(()) => animation_timer_armed = true,
+                            Err(_) => {
+                                if !animation_timer_log_emitted {
+                                    let _ = debug_println("windowd: animation timer arm failed");
+                                    animation_timer_log_emitted = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if !has_active_animations && animation_timer_armed {
+                if let Some(timer_cap) = animation_timer_cap {
+                    let _ = nexus_abi::timer_cancel(timer_cap);
+                }
+                animation_timer_armed = false;
+            }
+        }
         let mut visible_updates_since_flush = 0usize;
         for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
                 Ok((frame_len, _sid, mut moved_cap)) => {
                     let frame = &recv_frame[..frame_len];
+                    #[cfg(nexus_env = "os")]
+                    if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                        if runtime.has_active_animations() {
+                            runtime.tick(now_ns);
+                        }
+                        continue;
+                    }
                     if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
                         let response = encode_visible_state_frame(runtime.visible_state());
                         if let Some(reply) = moved_cap.take() {
@@ -289,14 +350,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Err(err) = runtime.flush_pending_damage() {
             let _ = debug_println(flush_error_label(err));
         }
-        if runtime.has_active_animations() {
-            runtime.tick(nsec().unwrap_or(0));
-        }
         // Phase D.1: deadline-driven sleep instead of busy yield_().
         // Drains one message that arrived during processing, or blocks
         // until the next message / animation tick interval.
         let wait = if runtime.is_handoff_pending() {
             Wait::NonBlocking
+        } else if cfg!(nexus_env = "os") {
+            Wait::Blocking
         } else if runtime.has_active_animations() {
             Wait::Timeout(core::time::Duration::from_nanos(REFRESH_INTERVAL_NS))
         } else {
@@ -305,6 +365,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
+                #[cfg(nexus_env = "os")]
+                if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                    if runtime.has_active_animations() {
+                        runtime.tick(now_ns);
+                    }
+                    continue;
+                }
                 if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
                     let response = encode_visible_state_frame(runtime.visible_state());
                     if let Some(reply) = moved_cap.take() {
@@ -331,7 +398,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     }
                 }
             }
-            Err(IpcError::Timeout) => {} // animation tick interval expired
+            Err(IpcError::Timeout) => {} // host-mode animation tick interval expired
             Err(_) => {}
         }
     }

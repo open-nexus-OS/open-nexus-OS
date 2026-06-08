@@ -69,6 +69,23 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "display: first scanout ok");
         bus.emit_marker(id, "systemui: first frame visible");
         bus.emit_marker(id, "SELFTEST: ui v2 present ok");
+        bus.emit_marker(id, "SELFTEST: ui visible present ok");
+        bus.emit_marker(id, "windowd: input visible on");
+        bus.emit_marker(id, "windowd: cursor move visible");
+        bus.emit_marker(id, "windowd: hover visible");
+        bus.emit_marker(id, "windowd: focus visible");
+        bus.emit_marker(id, "launcher: click visible ok");
+        bus.emit_marker(id, "windowd: keyboard visible");
+        bus.emit_marker(id, "windowd: wheel visible");
+        bus.emit_marker(id, "SELFTEST: ui visible input ok");
+        bus.emit_marker(id, "SELFTEST: ui visible wheel ok");
+        bus.emit_marker(id, "uiruntime: on");
+        bus.emit_marker(id, "windowd: implicit transitions on");
+        bus.emit_marker(id, "uianim: timeline on");
+        bus.emit_marker(id, "uiruntime: batch commit ok");
+        bus.emit_marker(id, "windowd: live transition ok");
+        bus.emit_marker(id, "uianim: spring converge ok");
+        bus.emit_marker(id, "SELFTEST: ui v5 transition ok");
 
         // 4. Optional: gpud scanout handoff
         if self.gpud_available {

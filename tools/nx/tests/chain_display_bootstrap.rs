@@ -32,6 +32,10 @@ mod tests {
 ///  11. display: first scanout ok     (scanout confirmed)
 ///  12. systemui: first frame visible
 ///  13. SELFTEST: ui v2 present ok    (observer confirms)
+///  14. SELFTEST: ui visible present ok
+///  15. SELFTEST: ui visible input ok
+///  16. SELFTEST: ui visible wheel ok
+///  17. SELFTEST: ui v5 transition ok
 #[tokio::test]
 async fn chain_gpu_display_bootstrap() {
     let mut runner = ChainRunner::new("gpu-display-bootstrap");
@@ -89,6 +93,22 @@ async fn chain_gpu_display_bootstrap() {
         .expect_marker("SELFTEST: ui v2 present ok", ms(300))
         .after(9)
         .describe("observer confirms visible present");
+    runner
+        .expect_marker("SELFTEST: ui visible present ok", ms(300))
+        .after(12)
+        .describe("visible present summary");
+    runner
+        .expect_marker("SELFTEST: ui visible input ok", ms(300))
+        .after(13)
+        .describe("visible input summary");
+    runner
+        .expect_marker("SELFTEST: ui visible wheel ok", ms(300))
+        .after(14)
+        .describe("visible wheel summary");
+    runner
+        .expect_marker("SELFTEST: ui v5 transition ok", ms(300))
+        .after(15)
+        .describe("animation transition summary");
 
     let report = runner.run().await;
     if report.status != ChainStatus::Passed {

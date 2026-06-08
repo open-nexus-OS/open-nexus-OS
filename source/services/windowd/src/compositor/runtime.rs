@@ -14,20 +14,16 @@ use super::backdrop::{blur_backdrop_segment, saturate_bgra_segment};
 use super::cache::{
     BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
 };
-use super::cursor::blend_cursor_row;
-use super::damage::{
-    cursor_damage_rect, damage_rects_intersect, flush_error_label, inflate_effect_rect,
-};
+use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
 use super::filter::{
     build_live_proof_layouts, filter_layout_variant_index, filter_list_content_height,
     filter_list_viewport_height, refill_filtered_words,
 };
-use super::scene::{copy_cursor_background_row, copy_scene_row};
+use super::scene::copy_scene_row;
 use super::primitives::draw_line_segment_row;
 use super::sdf::{fill_sdf_rounded_rect_row, stroke_sdf_rounded_rect_row};
 use super::source::build_scale_lut;
-use super::surface::proof_box_rect;
 use super::tile_map::TileMap;
 use super::types::{
     FixedDebugLine, ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip,
@@ -35,7 +31,7 @@ use super::types::{
 };
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
-    CURSOR_BG_MAX_BYTES, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
+    GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
@@ -416,7 +412,6 @@ pub(crate) struct DisplayServerRuntime {
     source_frame: SourceFrame,
     source_x_lut: Vec<u32>,
     source_y_lut: Vec<u32>,
-    cursor_bitmap: Option<alloc::vec::Vec<u8>>,
     cursor_width: u32,
     cursor_height: u32,
     framebuffer: Option<Handle>,
@@ -425,9 +420,6 @@ pub(crate) struct DisplayServerRuntime {
     shadow_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
     blur_row_buf: Vec<u8>,
-    /// Saved background pixels under the cursor for the dedicated cursor fast path.
-    cursor_bg_saved: Vec<u8>,
-    saved_cursor_rect: Option<DamageRect>,
     state: VisibleState,
     observer_state: VisibleState,
     markers_emitted: bool,
@@ -556,9 +548,9 @@ impl DisplayServerRuntime {
         let source_x_lut = build_scale_lut(mode.width, source_width)?;
         let source_y_lut = build_scale_lut(mode.height, source_height)?;
         let cursor = crate::render_assets::render_cursor_surface(CallerCtx::system());
-        let (cursor_bitmap, cursor_width, cursor_height) = match cursor {
-            Some(cursor) => (Some(cursor.pixels), cursor.width, cursor.height),
-            None => (None, 0, 0),
+        let (cursor_width, cursor_height) = match cursor {
+            Some(cursor) => (cursor.width, cursor.height),
+            None => (0, 0),
         };
         let initial_state = VisibleState {
             backend_visible: true,
@@ -596,8 +588,6 @@ impl DisplayServerRuntime {
         let _ = debug_println("dbg: windowd init shadow-scratch ok");
         let blur_row_buf = alloc::vec![0u8; mode.stride as usize];
         let _ = debug_println("dbg: windowd init blur-row ok");
-        let cursor_bg_saved = alloc::vec![0u8; CURSOR_BG_MAX_BYTES];
-        let _ = debug_println("dbg: windowd init cursor-bg ok");
         let layer_cache = LayerCache::default();
         let _ = debug_println("dbg: windowd init layer-cache ok");
         let shadow_arena_buf = alloc::vec![0u8; WINDOWD_SHADOW_ARENA_SIZE];
@@ -621,15 +611,12 @@ impl DisplayServerRuntime {
             source_frame,
             source_x_lut,
             source_y_lut,
-            cursor_bitmap,
             cursor_width,
             cursor_height,
             framebuffer: None,
             band_scratch,
             shadow_scratch,
             blur_row_buf,
-            cursor_bg_saved,
-            saved_cursor_rect: None,
             state: initial_state,
             observer_state: initial_state,
             markers_emitted: false,
@@ -1185,25 +1172,6 @@ impl DisplayServerRuntime {
             });
             self.queue_dirty_rect(self.sidebar_damage_rect());
         }
-        let pointer_only_change =
-            cursor_changed && !paint_flags_changed && !text_changed && !filter_changed;
-        if pointer_only_change && self.saved_cursor_rect.is_some() {
-            if self.update_cursor_fast_path().is_ok() {
-                let present_ok = self
-                    .merged_cursor_damage_rect(
-                        old_cursor_x,
-                        old_cursor_y,
-                        self.state.cursor_x,
-                        self.state.cursor_y,
-                    )
-                    .map(|rect| self.present_damage_to_gpud(rect))
-                    .unwrap_or(true);
-                if present_ok {
-                    self.emit_input_markers();
-                    return STATUS_OK;
-                }
-            }
-        }
         self.paint_only_damage =
             paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
         self.queue_cursor_damage(
@@ -1500,29 +1468,75 @@ impl DisplayServerRuntime {
         if !self.ensure_gpud_client() {
             return false;
         }
+        // Drain completed present replies first so queue pressure and in-flight accounting
+        // stay bounded during sustained cursor/input traffic.
+        self.drain_gpud_replies();
         // Phase 6d: in-flight bound — if 2+ frames outstanding, skip this present.
         // Damage accumulates; the next successful present covers the merged region.
         const MAX_IN_FLIGHT: u32 = 2;
         if self.frames_in_flight >= MAX_IN_FLIGHT {
-            return true; // damage queued, will be covered by next present
+            return false;
         }
-        self.present_seq = self.present_seq.wrapping_add(1);
-        self.frames_in_flight = self.frames_in_flight.saturating_add(1);
         let send_result = {
             let Some(client) = self.gpud_client.as_ref() else { return false; };
             client.send(frame, Wait::NonBlocking)
         };
         match send_result {
-            Ok(()) => true,
+            Ok(()) => {
+                self.present_seq = self.present_seq.wrapping_add(1);
+                self.frames_in_flight = self.frames_in_flight.saturating_add(1);
+                true
+            }
             Err(nexus_ipc::IpcError::WouldBlock)
             | Err(nexus_ipc::IpcError::NoSpace) => {
-                // gpud queue full — damage accumulates, next present will cover it
-                true
+                // gpud queue is currently full; caller keeps damage pending for retry.
+                false
             }
             Err(err) => {
                 log_gpud_ipc_error("windowd: gpud present send failed", err);
                 self.gpud_client = None;
                 false
+            }
+        }
+    }
+
+    /// Drain non-blocking gpud status replies for OP_PRESENT_DAMAGE so gpud cannot
+    /// block on a full reply queue and freeze visible updates.
+    pub(crate) fn drain_gpud_replies(&mut self) {
+        if self.framebuffer_pending_first_write || self.gpud_client.is_none() {
+            return;
+        }
+        loop {
+            let recv_result = {
+                let Some(client) = self.gpud_client.as_ref() else {
+                    return;
+                };
+                client.recv(Wait::NonBlocking)
+            };
+            match recv_result {
+                Ok(reply) => {
+                    if reply.first().copied() == Some(GPUD_STATUS_OK) {
+                        self.note_present_completed();
+                    } else {
+                        if let Some(status) = reply.first().copied() {
+                            let _ = debug_println(&alloc::format!(
+                                "windowd: gpud present bad-status=0x{status:02x}"
+                            ));
+                        } else {
+                            let _ = debug_println("windowd: gpud present bad-status=empty");
+                        }
+                        self.gpud_client = None;
+                        return;
+                    }
+                }
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                    return;
+                }
+                Err(err) => {
+                    log_gpud_ipc_error("windowd: gpud present recv failed", err);
+                    self.gpud_client = None;
+                    return;
+                }
             }
         }
     }
@@ -1641,11 +1655,18 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Phase 6c: Build and send a CommandBuffer with BlitSurface commands
-    /// for wallpaper damage rects. Copies from VMO bottom half (wallpaper source)
-    /// to top half (display).
-    fn send_blit_surface_cb(&mut self, rects: &[DamageRect]) -> Result<(), WindowdError> {
-        if rects.is_empty() { return Ok(()); }
+    /// Submit GPU cursor composition so cursor stays out of the CPU hot path.
+    fn submit_cursor_to_gpud(&mut self) -> Result<(), WindowdError> {
+        let Some(rect) = cursor_damage_rect(
+            self.state.cursor_x,
+            self.state.cursor_y,
+            self.cursor_width,
+            self.cursor_height,
+            self.mode.width,
+            self.mode.height,
+        ) else {
+            return Ok(());
+        };
         let mut cmd = CommandBuffer::new();
         {
             let mut encoder = cmd
@@ -1655,31 +1676,21 @@ impl DisplayServerRuntime {
                     height: self.mode.height,
                 })
                 .map_err(|_| WindowdError::InvalidDamage)?;
-            for rect in rects {
-                encoder
-                    .try_blit_surface(
-                        rect.x, rect.y,
-                        rect.x, rect.y + DISPLAY_HEIGHT,
-                        rect.width, rect.height,
-                    )
-                    .map_err(|_| WindowdError::InvalidDamage)?;
-            }
+            encoder
+                .try_blend_cursor(rect.x, rect.y, rect.width, rect.height)
+                .map_err(|_| WindowdError::InvalidDamage)?;
             encoder.end_encoding();
         }
         let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
         if committed.command_count() == 0 {
             return Err(WindowdError::InvalidDamage);
         }
-        // Serialize and send via single IPC to gpud (GPU_PRESENT_DAMAGE_OP).
         let mut frame_buf = [0u8; 512];
         let written = committed
             .serialize_into(&mut frame_buf[1..])
             .map_err(|_| WindowdError::InvalidDamage)?;
-        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
-        if !self.send_gpud_present(&frame_buf[..1 + written]) {
-            return Err(WindowdError::InvalidDamage);
-        }
-        Ok(())
+        frame_buf[0] = GPU_ANIMATION_SUBMIT_OP;
+        self.send_gpud_status_request(&frame_buf[..1 + written])
     }
 
     fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
@@ -1867,8 +1878,7 @@ impl DisplayServerRuntime {
             width: self.mode.width,
             height: self.mode.height,
         });
-        self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)?;
-        self.write_cursor_overlay()
+        self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)
     }
 
     fn write_rows(
@@ -1897,11 +1907,6 @@ impl DisplayServerRuntime {
         let state = self.state;
         let filter_text = state.text_input();
         let filtered_words = self.filtered_words.as_slice();
-        let cursor_bitmap = self.cursor_bitmap.as_deref();
-        let cursor_width = self.cursor_width;
-        let cursor_height = self.cursor_height;
-        let cursor_x = self.state.cursor_x;
-        let cursor_y = self.state.cursor_y;
         let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
@@ -1945,11 +1950,6 @@ impl DisplayServerRuntime {
                     proof_layout_index,
                     filter_text,
                     filtered_words,
-                    cursor_bitmap,
-                    cursor_width,
-                    cursor_height,
-                    cursor_x,
-                    cursor_y,
                     y,
                     render_clip,
                     glass_quality,
@@ -2010,11 +2010,6 @@ impl DisplayServerRuntime {
         let state = self.state;
         let filter_text = state.text_input();
         let filtered_words = self.filtered_words.as_slice();
-        let cursor_bitmap = self.cursor_bitmap.as_deref();
-        let cursor_width = self.cursor_width;
-        let cursor_height = self.cursor_height;
-        let cursor_x = self.state.cursor_x;
-        let cursor_y = self.state.cursor_y;
         let animated_scene = self.animated_scene;
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
@@ -2049,11 +2044,6 @@ impl DisplayServerRuntime {
                     proof_layout_index,
                     filter_text,
                     filtered_words,
-                    cursor_bitmap,
-                    cursor_width,
-                    cursor_height,
-                    cursor_x,
-                    cursor_y,
                     y,
                     render_clip,
                     glass_quality,
@@ -2197,28 +2187,20 @@ impl DisplayServerRuntime {
             GlassQuality::High
         };
 
-        // Phase 6c: GPU BlitSurface for wallpaper damage.
-        // Step 1: Build CommandBuffer — BlitSurface from bottom half (wallpaper)
-        // to top half (display) for each damage rect. gpud executes these before
-        // CPU overlay rendering, so wallpaper appears underneath UI elements.
         let compose_start = nsec().unwrap_or(0);
-        if let Err(err) = self.send_blit_surface_cb(&rects[..rect_count]) {
-            let _ = debug_println("windowd: blit cb send failed, falling back to CPU-only");
-            let _ = err;
-        }
-
-        // Step 2: CPU compositing for overlay content (proof panel SDF/text/glass).
-        // Writes to display half via DISPLAY_OFFSET_BYTES on top of wallpaper.
+        // CPU compositing writes the base scene (without cursor) into DISPLAY_OFFSET_BYTES.
+        // Cursor is composited by gpud as a separate command immediately before present.
         for rect in rects.iter().copied().take(rect_count) {
             self.write_damage_rect(rect, glass_quality, paint_only)?;
         }
-        self.write_cursor_overlay()?;
+        if self.state.cursor_svg_visible {
+            self.submit_cursor_to_gpud()?;
+        }
         self.tile_map.clear();
         let _compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
 
-        // Step 3: Send bounding damage rect to gpud for TRANSFER_TO_HOST+FLUSH.
-        // gpud has already executed the BlitSurface commands; this flush makes
-        // the combined GPU+CPU result visible to the scanout.
+        // Send bounding damage rect to gpud for TRANSFER_TO_HOST+FLUSH so the
+        // composed base scene plus GPU cursor become visible on scanout.
         let merged = rects[0];
         let bounding = rects[1..rect_count]
             .iter()
@@ -2226,6 +2208,8 @@ impl DisplayServerRuntime {
         let gpud_ok = self.present_damage_to_gpud(bounding);
 
         if !gpud_ok {
+            // Keep damage live for retry on the next loop iteration/input event.
+            self.queue_dirty_rect(bounding);
             self.paint_only_damage = false;
             return Err(WindowdError::InvalidDamage);
         }
@@ -2242,164 +2226,5 @@ impl DisplayServerRuntime {
 
     pub(crate) fn has_pending_damage(&self) -> bool {
         !self.pending_damage_rects.is_empty() || self.pending_damage_rect.is_some()
-    }
-
-    fn update_cursor_fast_path(&mut self) -> Result<(), WindowdError> {
-        self.restore_cursor_bg()?;
-        self.write_cursor_overlay()?;
-        self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
-        self.refresh_observer_state();
-        Ok(())
-    }
-
-    fn cursor_rect_intersects_effect_region(&self, rect: DamageRect) -> bool {
-        let Some(layout) = self.active_proof_layout() else {
-            return false;
-        };
-        layout.boxes.iter().any(|layout_box| {
-            if layout_box.id != Some("combined_panels") {
-                return false;
-            }
-            let Some(panel_rect) = proof_box_rect(layout_box) else {
-                return false;
-            };
-            damage_rects_intersect(rect, inflate_effect_rect(panel_rect, self.mode))
-        })
-    }
-
-    fn restore_cursor_bg(&mut self) -> Result<(), WindowdError> {
-        let Some(handle) = self.framebuffer else {
-            return Ok(());
-        };
-        let Some(rect) = self.saved_cursor_rect.take() else {
-            return Ok(());
-        };
-        let row_len = self.mode.stride as usize;
-        let byte_len = rect.width as usize * 4;
-        for (row_idx, y) in (rect.y..rect.end_y().min(self.mode.height)).enumerate() {
-            let src_offset = row_idx.saturating_mul(byte_len);
-            let src_end = src_offset.saturating_add(byte_len);
-            if src_end > self.cursor_bg_saved.len() {
-                continue;
-            }
-            let dst_offset = y as usize * row_len + rect.x as usize * 4;
-            vmo_write(handle, DISPLAY_OFFSET_BYTES + dst_offset, &self.cursor_bg_saved[src_offset..src_end])
-                .map_err(|_| WindowdError::BufferLengthMismatch)?;
-        }
-        self.telemetry.record_present();
-        Ok(())
-    }
-
-    fn write_cursor_overlay(&mut self) -> Result<(), WindowdError> {
-        let render_start_ns = nsec().unwrap_or(0);
-        let Some(handle) = self.framebuffer else {
-            return Ok(());
-        };
-        let Some(cursor_bitmap) = self.cursor_bitmap.as_deref() else {
-            self.saved_cursor_rect = None;
-            return Ok(());
-        };
-        let Some(rect) = cursor_damage_rect(
-            self.state.cursor_x,
-            self.state.cursor_y,
-            self.cursor_width,
-            self.cursor_height,
-            self.mode.width,
-            self.mode.height,
-        ) else {
-            self.saved_cursor_rect = None;
-            return Ok(());
-        };
-
-        let row_len = self.mode.stride as usize;
-        let byte_len = rect.width as usize * 4;
-        if byte_len == 0
-            || byte_len.saturating_mul(rect.height as usize) > self.cursor_bg_saved.len()
-        {
-            self.saved_cursor_rect = None;
-            return Ok(());
-        }
-        let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
-        let proof_layout_index = self.proof_layout_index.as_ref();
-        let source_frame = &self.source_frame;
-        let source_x_lut = self.source_x_lut.as_slice();
-        let source_y_lut = self.source_y_lut.as_slice();
-        let mode = self.mode;
-        let state = self.state;
-        let filter_text = state.text_input();
-        let filtered_words = self.filtered_words.as_slice();
-        let blur_row_buf = &mut self.blur_row_buf[..row_len];
-        let backdrop_cache = &mut self.backdrop_cache;
-        let glass_layer = &mut self.glass_layer;
-        let glass_scratch = &mut self.glass_scratch;
-        let path_cache = &mut self.path_cache;
-        let shadow_scratch = &mut self.shadow_scratch[..row_len];
-        let mut shadow_arena =
-            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
-        let render_clip = RenderClip::new(rect.x, rect.end_x(), self.mode.width);
-
-        for (row_idx, y) in (rect.y..rect.end_y().min(self.mode.height)).enumerate() {
-            let dest_start = row_idx * byte_len;
-            let dest_end = dest_start + byte_len;
-            if dest_end > self.cursor_bg_saved.len() {
-                break;
-            }
-            let row_buf = &mut self.band_scratch[..row_len];
-            copy_cursor_background_row(
-                blur_row_buf,
-                backdrop_cache,
-                glass_layer,
-                glass_scratch,
-                path_cache,
-                source_frame,
-                source_x_lut,
-                source_y_lut,
-                mode,
-                state,
-                proof_layout,
-                proof_layout_index,
-                filter_text,
-                filtered_words,
-                y,
-                render_clip,
-                row_buf,
-                &mut self.layer_cache,
-                shadow_scratch,
-                &mut shadow_arena,
-                &mut self.col_scratch,
-                &mut self.shadow_box_cache,
-            )?;
-            let src_start = rect.x as usize * 4;
-            let src_end = src_start + byte_len;
-            if src_end > row_buf.len() {
-                break;
-            }
-            self.cursor_bg_saved[dest_start..dest_end]
-                .copy_from_slice(&row_buf[src_start..src_end]);
-            blend_cursor_row(
-                row_buf,
-                y,
-                cursor_bitmap,
-                self.cursor_width,
-                self.cursor_height,
-                self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X,
-                self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y,
-            );
-            let dst_offset = y as usize * row_len + rect.x as usize * 4;
-            vmo_write(handle, DISPLAY_OFFSET_BYTES + dst_offset, &row_buf[src_start..src_end])
-                .map_err(|_| WindowdError::BufferLengthMismatch)?;
-        }
-        self.shadow_arena_used = shadow_arena.used_bytes();
-        self.saved_cursor_rect = Some(rect);
-        self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
-        self.refresh_observer_state();
-        self.telemetry.record_compose_timed(
-            u64::from(rect.width).saturating_mul(u64::from(rect.height)),
-            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
-        );
-        self.telemetry.record_present();
-        Ok(())
     }
 }

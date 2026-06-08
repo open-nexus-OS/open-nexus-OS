@@ -207,6 +207,7 @@ struct KernelHandles {
     router: NonNull<ipc::Router>,
     spaces: NonNull<AddressSpaceManager>,
     timer: *const dyn Timer,
+    hart_timers: NonNull<crate::timer::HartTimers>,
 }
 unsafe impl Send for KernelHandles {}
 unsafe impl Sync for KernelHandles {}
@@ -242,6 +243,7 @@ pub fn install_runtime(
     router: &mut ipc::Router,
     spaces: &mut AddressSpaceManager,
     timer: &'static dyn Timer,
+    hart_timers: &mut crate::timer::HartTimers,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
     let install_cpu = crate::smp::cpu_current_id();
@@ -257,6 +259,7 @@ pub fn install_runtime(
             router: NonNull::from(router),
             spaces: NonNull::from(spaces),
             timer: timer as *const dyn Timer,
+            hart_timers: NonNull::from(hart_timers),
         },
         syscalls: syscalls_ptr,
     };
@@ -833,6 +836,48 @@ pub unsafe fn disable_timer_interrupts() {
 
 // Intentionally no non-OS stub to avoid dead_code in host builds
 
+pub(crate) const OP_TIMER_FIRED: u8 = 0x30;
+
+pub(crate) fn process_expired_timers(
+    timer: &dyn Timer,
+    hart_timers: &mut crate::timer::HartTimers,
+    router: &mut ipc::Router,
+    tasks: &mut task::TaskTable,
+    scheduler: &mut Scheduler,
+) {
+    let now = timer.now();
+    for (timer_id, state) in hart_timers.pop_expired(now) {
+        let mut payload = [0u8; 29];
+        payload[0] = OP_TIMER_FIRED;
+        payload[1..5].copy_from_slice(&timer_id.0.to_le_bytes());
+        payload[5..9].copy_from_slice(&(state.seq.wrapping_add(1)).to_le_bytes());
+        payload[9..13].copy_from_slice(&state.missed.to_le_bytes());
+        payload[13..21].copy_from_slice(&state.deadline_ns.to_le_bytes());
+        payload[21..29].copy_from_slice(&now.to_le_bytes());
+        let header = ipc::header::MessageHeader::new(
+            0,
+            state.notify_ep,
+            OP_TIMER_FIRED as u16,
+            0,
+            payload.len() as u32,
+        );
+        let msg = ipc::Message::new(header, alloc::vec::Vec::from(payload), None);
+        if router.send(state.notify_ep, msg).is_ok() {
+            if let Ok(Some(waiter)) = router.pop_recv_waiter(state.notify_ep) {
+                let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);
+            }
+        }
+    }
+
+    if let Some(next_deadline) = hart_timers.earliest_deadline() {
+        timer.set_wakeup(next_deadline);
+    } else {
+        // Keep a bounded heartbeat armed while no timers are active.
+        let fallback_ns = now.saturating_add(DEFAULT_TICK_CYCLES.saturating_mul(100));
+        timer.set_wakeup(fallback_ns);
+    }
+}
+
 // ——— Rust trap handler called from assembly ———
 
 #[no_mangle]
@@ -865,10 +910,26 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             return;
         }
         if code == S_TIMER_INT {
-            #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
-            {
-                let next = riscv::register::time::read() as u64 + DEFAULT_TICK_CYCLES;
-                sbi::set_timer(next);
+            if let Ok(kernel_handles) = runtime_kernel_handles() {
+                let timer = unsafe {
+                    // SAFETY: runtime installation stores a valid static timer pointer.
+                    &*kernel_handles.timer
+                };
+                let mut hart_timers_ptr = kernel_handles.hart_timers;
+                let hart_timers = unsafe { hart_timers_ptr.as_mut() };
+                let mut router_ptr = kernel_handles.router;
+                let router = unsafe { router_ptr.as_mut() };
+                let mut tasks_ptr = kernel_handles.tasks;
+                let tasks = unsafe { tasks_ptr.as_mut() };
+                let mut scheduler_ptr = kernel_handles.scheduler;
+                let scheduler = unsafe { scheduler_ptr.as_mut() };
+                process_expired_timers(timer, hart_timers, router, tasks, scheduler);
+            } else {
+                #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+                {
+                    let next = riscv::register::time::read() as u64 + DEFAULT_TICK_CYCLES;
+                    sbi::set_timer(next);
+                }
             }
         }
         return;
@@ -1030,6 +1091,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let router = unsafe { router_ptr.as_mut() };
         let mut spaces_ptr = kernel_handles.spaces;
         let spaces = unsafe { spaces_ptr.as_mut() };
+        let mut hart_timers_ptr = kernel_handles.hart_timers;
+        let hart_timers = unsafe { hart_timers_ptr.as_mut() };
 
         let current_pid = tasks.current_pid();
         let domain_id = tasks
@@ -1048,7 +1111,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         };
         #[allow(unused_variables)]
         let old_pid = tasks.current_pid();
-        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, timer);
+        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, timer, hart_timers);
         handle_ecall(frame, table, &mut ctx);
 
         let current_pid = ctx.tasks.current_pid();

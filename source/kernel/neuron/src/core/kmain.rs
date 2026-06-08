@@ -42,6 +42,9 @@ struct KernelState {
     kernel_as: AsHandle,
     #[allow(dead_code)]
     syscalls: SyscallTable,
+    #[cfg(target_os = "none")]
+    #[allow(dead_code)]
+    hart_timers: crate::timer::HartTimers,
 }
 
 static mut KERNEL_STATE: MaybeUninit<KernelState> = MaybeUninit::uninit();
@@ -162,7 +165,7 @@ impl KernelState {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls }
+        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls, hart_timers: crate::timer::HartTimers::new() }
     }
 
     #[allow(dead_code)]
@@ -388,6 +391,7 @@ unsafe fn context_switch_with_activate(
             &mut kernel.ipc,
             &mut kernel.address_spaces,
             timer,
+            &mut kernel.hart_timers,
             &kernel.syscalls,
         );
     }
@@ -504,6 +508,7 @@ pub fn kmain() -> ! {
         &mut kernel.ipc,
         &mut kernel.address_spaces,
         timer,
+        &mut kernel.hart_timers,
         &kernel.syscalls,
     );
     kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
@@ -556,6 +561,7 @@ pub fn kmain() -> ! {
             address_spaces: &mut kernel.address_spaces,
             tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
+            hart_timers: &mut kernel.hart_timers,
         };
         // Gate: validate target PC and dump RA/SP before entering selftest
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]

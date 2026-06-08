@@ -40,8 +40,6 @@ const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
 const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
 const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
-const WINDOWD_FALLBACK_SEND_SLOT: u32 = 5;
-const WINDOWD_FALLBACK_RECV_SLOT: u32 = 6;
 const ROUTE_BIND_RETRIES: usize = 256;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
@@ -610,14 +608,13 @@ impl LiveRouteRuntime {
             return;
         }
         if self.windowd_client.is_none() {
-            self.windowd_client = KernelClient::new_for("windowd").ok().or_else(|| {
-                if !self.windowd_route_fallback_emitted {
-                    let _ = debug_println("inputd: windowd route fallback");
-                    self.windowd_route_fallback_emitted = true;
-                }
-                KernelClient::new_with_slots(WINDOWD_FALLBACK_SEND_SLOT, WINDOWD_FALLBACK_RECV_SLOT)
-                    .ok()
-            });
+            self.windowd_client = KernelClient::new_for("windowd").ok();
+            if self.windowd_client.is_none() && !self.windowd_route_fallback_emitted {
+                // Keep route ownership explicit: do not silently fall back to static slots.
+                // A failed route query is retried on the next push attempt.
+                let _ = debug_println("inputd: windowd route unavailable");
+                self.windowd_route_fallback_emitted = true;
+            }
         }
         let Some(client) = &self.windowd_client else {
             return;
@@ -631,6 +628,11 @@ impl LiveRouteRuntime {
                     let _ = debug_println("inputd: windowd visible-state pushed");
                     self.windowd_push_ok_emitted = true;
                 }
+            }
+            Err(nexus_ipc::IpcError::WouldBlock)
+            | Err(nexus_ipc::IpcError::Timeout)
+            | Err(nexus_ipc::IpcError::NoSpace) => {
+                // Backpressure only: keep route/client and retry next tick.
             }
             Err(_) => {
                 if !self.windowd_push_fail_emitted {

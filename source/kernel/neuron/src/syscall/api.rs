@@ -504,6 +504,7 @@ use super::{
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
     SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
+    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET,
     SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
@@ -514,6 +515,7 @@ pub struct Context<'a> {
     pub router: &'a mut ipc::Router,
     pub address_spaces: &'a mut AddressSpaceManager,
     pub timer: &'a dyn Timer,
+    pub hart_timers: &'a mut crate::timer::HartTimers,
     pub last_message: Option<ipc::Message>,
 }
 
@@ -525,8 +527,9 @@ impl<'a> Context<'a> {
         router: &'a mut ipc::Router,
         address_spaces: &'a mut AddressSpaceManager,
         timer: &'a dyn Timer,
+        hart_timers: &'a mut crate::timer::HartTimers,
     ) -> Self {
-        Self { scheduler, tasks, router, address_spaces, timer, last_message: None }
+        Self { scheduler, tasks, router, address_spaces, timer, hart_timers, last_message: None }
     }
 
     /// Returns the last received message header for inspection.
@@ -608,6 +611,9 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_GETPID, sys_getpid);
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
     table.register(SYSCALL_TASK_RESUME, sys_task_resume);
+    table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
+    table.register(SYSCALL_TIMER_SET, sys_timer_set);
+    table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
@@ -630,6 +636,73 @@ pub fn install_handlers(table: &mut SyscallTable) {
 
 fn sys_getpid(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(ctx.tasks.current_pid().as_index())
+}
+
+#[inline]
+fn map_timer_error(err: crate::timer::TimerError) -> Error {
+    match err {
+        crate::timer::TimerError::ResourceExhausted => Error::Capability(CapError::NoSpace),
+        crate::timer::TimerError::InvalidHandle => Error::Capability(CapError::InvalidSlot),
+        crate::timer::TimerError::AlreadyArmed => {
+            Error::Capability(CapError::PermissionDenied)
+        }
+    }
+}
+
+#[inline]
+fn timer_id_from_cap(ctx: &mut Context<'_>, slot: usize) -> Result<crate::timer::TimerId, Error> {
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    if !cap.rights.contains(Rights::MANAGE) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    match cap.kind {
+        CapabilityKind::Timer(id) => {
+            let timer_id = crate::timer::TimerId(id);
+            if !ctx.hart_timers.owned_by(timer_id, ctx.tasks.current_pid().as_raw()) {
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+            Ok(timer_id)
+        }
+        _ => Err(Error::Capability(CapError::InvalidSlot)),
+    }
+}
+
+fn sys_timer_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let notify_slot = args.get(0);
+    let interval_ns = args.get(1) as u64;
+    let notify_cap = ctx.tasks.current_caps_mut().get(notify_slot)?;
+    let notify_ep = match notify_cap.kind {
+        CapabilityKind::Endpoint(id) => id,
+        _ => return Err(Error::Capability(CapError::InvalidSlot)),
+    };
+    let timer_id = ctx
+        .hart_timers
+        .alloc(ctx.tasks.current_pid().as_raw(), notify_ep, interval_ns)
+        .map_err(map_timer_error)?;
+    let timer_cap = Capability { kind: CapabilityKind::Timer(timer_id.0), rights: Rights::MANAGE };
+    match ctx.tasks.current_caps_mut().allocate(timer_cap) {
+        Ok(slot) => Ok(slot),
+        Err(err) => {
+            let _ = ctx.hart_timers.free(timer_id);
+            Err(Error::Capability(err))
+        }
+    }
+}
+
+fn sys_timer_set(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let deadline_ns = args.get(1) as u64;
+    let timer_id = timer_id_from_cap(ctx, slot)?;
+    ctx.hart_timers.arm(timer_id, deadline_ns).map_err(map_timer_error)?;
+    ctx.timer.set_wakeup(deadline_ns);
+    Ok(0)
+}
+
+fn sys_timer_cancel(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let timer_id = timer_id_from_cap(ctx, slot)?;
+    ctx.hart_timers.disarm(timer_id).map_err(map_timer_error)?;
+    Ok(0)
 }
 
 fn service_id_from_name(name: &[u8]) -> u64 {
@@ -822,7 +895,10 @@ fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     // Local drop only: remove the capability slot from the caller.
     //
     // Global endpoint close is handled by `sys_ipc_endpoint_close` (requires `Rights::MANAGE`).
-    let _ = ctx.tasks.current_caps_mut().take(slot)?;
+    let cap = ctx.tasks.current_caps_mut().take(slot)?;
+    if let CapabilityKind::Timer(id) = cap.kind {
+        let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
+    }
     Ok(0)
 }
 

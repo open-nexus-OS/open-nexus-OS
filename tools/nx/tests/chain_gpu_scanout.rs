@@ -59,6 +59,18 @@ mod tests {
             .expect_marker("SELFTEST: ui v2 present ok", ms(300))
             .after(1)
             .describe("observer confirms present");
+        runner
+            .expect_marker("SELFTEST: ui visible input ok", ms(300))
+            .after(2)
+            .describe("observer confirms visible input path");
+        runner
+            .expect_marker("windowd: live transition ok", ms(300))
+            .after(3)
+            .describe("animation transition is live");
+        runner
+            .expect_marker("SELFTEST: ui v5 transition ok", ms(300))
+            .after(4)
+            .describe("observer confirms animation summary");
 
         let report = runner.run().await;
         if report.status != ChainStatus::Passed {

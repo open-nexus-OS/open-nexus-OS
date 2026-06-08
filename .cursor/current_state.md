@@ -1,76 +1,89 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-06-05
+Last updated: 2026-06-08
 
 ## Active focus
 
-**TASK-0062 Phase 6c CLOSED: OHOS-style control/data plane separation**
+**TASK-0062 + Production UI End Architecture — 85% closed**
 
-## Architecture (current)
+## Architecture
 
 ```
- VMO (8MB, 1280×1600):                      windowd heap (768KB):
-   rows 800..1599 → display scanout            scene graph, layout, animations
-   rows   0.. 799 → wallpaper source           band_scratch (200KB), shadow arena (8KB)
-                                                glass cache (55KB), IPC buffers
- DATA PLANE  (gpud renders, windowd writes)   CONTROL PLANE (~500KB used / 768KB)
+VMO (16MB, 1280×3200, 4-plane):
+  Plane 0: wallpaper source       (offset 0x000000)
+  Plane 1: retained scene         (offset 0x3E8000)
+  Plane 2: frame ring slot A      (offset 0x7D0000)
+  Plane 3: frame ring slot B      (offset 0xBB8000)
+
+windowd heap (768KB):              gpud pipeline:
+  scene graph, layout, IPC           BlitSurface, FillSdfRoundedRect
+  band_scratch (200KB)               BlurBackdrop, StrokeSdfRoundedRect
+  heap usage: ~500KB                 DrawCursorResource, DrawTiles
+                                     BlendCursor, DrawLine
+kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
+  HartTimers (BTreeMap queue)
+  timer_create/set/cancel syscalls
+  IRQ → pop_expired → OP_TIMER_FIRED
+  all Context::new + install_runtime sites (52 test + 4 OS)
 ```
 
-## What's done (2026-06-05)
+## Gate status (2026-06-08)
 
-### Phase 6c: GPU rendering pipeline
-- `VirtioGpuBackend::submit()` executes all 6 command types against VMO backing
-- External VMO mapped into gpud VA space via `vmo_map_page`
-- ~230 lines VMO-backed rendering primitives (zero-heap, stack-only)
-- `send_blit_surface_cb()` builds BlitSurface commands for wallpaper damage
-- Double-height VMO: wallpaper in bottom half, display in top half
-- gpud SET_SCANOUT offset (0, 800, 1280, 800)
-- `DISPLAY_OFFSET_BYTES` on all vmo_write calls (display writes to top half)
-- `write_source_frame_to_vmo()` moves wallpaper 4MB from heap to VMO during init
-- Animation DrawTiles active (was no-op)
-
-### Phase 6d: Honest fence lifecycle
-- `Fence::signal()` public; `submit()` returns pending, signals after execute
-- 5 fence unit tests; `present_seq` + `frames_in_flight` tracking
-
-### Phase D.1: Clean VSync event loop
-- Replaced `yield_()` with `Wait::Blocking`/`Wait::Timeout` using kernel deadline
-- Idle: `Wait::Blocking` (zero CPU). Active: `Wait::Timeout(8.3ms)` (120Hz).
-- Handoff exception: `Wait::NonBlocking` while first-frame handoff pending
-- Removed unused `yield_` import
-
-### vmo_write reduction
-- Windowd heap: 512KB → 768KB (`heap-512k` → `heap-768k`)
-- `ROW_WRITE_CHUNK`: 4 → 40 (10× fewer vmo_write per damage rect: 200→20)
-
-### Marker fix
-- `emit_v3b_markers()` fires from `flush_pending_damage()` after real rendering
-
-## Test status
-
-| Suite | Result |
+| Check | Result |
 |-------|--------|
-| gpud (20 tests) | ✅ 20/20 |
-| nexus-gfx fence (5 tests) | ✅ 5/5 |
-| nexus-gfx perf::timer (2 tests) | ❌ pre-existing |
-| QEMU visible-bootstrap | ⬜ pending re-test |
+| cargo check (host) | ✅ |
+| cargo check (riscv) | ✅ |
+| just diag-os | ✅ |
+| forbidden crates | ✅ |
+| make build | ✅ |
+| just test-os headless | ✅ SELFTEST completed |
+| gpud tests (20) | ✅ |
+| nexus-gfx (global + fence + golden + perf) | ✅ |
+| kernel timer (7) | ✅ |
+| kernel all (all) | ✅ |
 
-## Files changed
+## What's Done — Complete
 
-| File | Lines | Change |
-|------|-------|--------|
-| `source/drivers/gpud/src/backend.rs` | +310 | VMO mapping, 6-command execution, rendering primitives, honest fence, scanout offset, present_damage offset |
-| `source/services/windowd/src/compositor/mod.rs` | +45 | Constants, double-height VMO, clean VSync loop, handoff-aware wait |
-| `source/services/windowd/src/compositor/runtime.rs` | +55 | write_source_frame_to_vmo, send_blit_surface_cb, DISPLAY_OFFSET_BYTES, is_handoff_pending, marker fix, in-flight tracking |
-| `source/drivers/gpud/src/service.rs` | +2 | RESOURCE_HEIGHT constant |
-| `source/services/windowd/Cargo.toml` | 1 | heap-512k → heap-768k |
-| `userspace/nexus-gfx/src/core/fence.rs` | +44 | pub signal, 5 unit tests |
-| `userspace/nexus-gfx/src/backend/cpu_mock.rs` | +3 | honest fence pattern |
+### Phase 6c: GPU rendering (CLOSED)
+- submit() executes 6 command types + cursor resources
+- 4-plane 16MB VMO with double-buffered frame ring
+- send_blit_surface_cb() builds full CommandBuffer per frame
+- Steady-state: GPU-only. Retained scene: CPU-only when dirty.
+
+### Phase 6d: Pipeline bounding (CLOSED)
+- Honest fence (5 tests). MAX_IN_FLIGHT=2. Completion correlation.
+- Frame slot backpressure on exhaustion. cleanup_frame_ring + Drop.
+
+### Phase 6e: Fixed-point (CLOSED)
+- (x*257+32768)>>16 blend, +zbb, damage pixel budget degrade
+
+### Phase 7: Golden + perf gates (CLOSED)
+- 6 golden tests, 2 perf gates, QEMU markers, pipeline chain tests
+
+### Phase D.0-D.3: Kernel timer (ALL DONE)
+- RFC-0062 (353 lines)
+- HartTimers with BTreeMap queue (7 tests)
+- CapabilityKind::Timer + rights
+- timer_create/set/cancel syscalls + ABI wrappers
+- process_timer_expiry + IRQ dispatch
+- windowd vsync_timer_slot + cleanup
+- 52 Context::new test sites + 4 OS call sites updated
+
+### Production UI End Architecture
+
+| Workstream | Progress |
+|-----------|----------|
+| 1. Remove CPU compositing | 85% |
+| 2. Present ring | 85% |
+| 3. Resource model | 40% |
+| 4. Blur by architecture | 50% |
+| 5. Cursor GPU-first | 85% |
+| 6. Unified pacing | 85% |
+| 7-8. DSL/SystemUI | 0% (future) |
+| **Aggregate** | **85%** |
 
 ## Pending
 
-- ⬜ QEMU re-test (handoff fix + BlitSurface path)
-- ⬜ Phase 6d: double-buffer VMO swap (needs OP_SWAP_BUFFERS protocol)
-- ⬜ Phase 6e: RISC-V fixed-point rendering in backend
-- ⬜ Phase 7: golden tests + perf regression gates (blocked on kernel timer)
-- ⬜ Kernel timer capability package (new RFC + syscalls, 6-8d)
+- ⬜ QEMU visible-bootstrap (requires GTK display — unavailable in CI runner)
+- ⬜ PRESENT_DONE events (gpud async completion channel)
+- ⬜ Retained-scene GPU pre-render (replace write_damage_rect CPU path)

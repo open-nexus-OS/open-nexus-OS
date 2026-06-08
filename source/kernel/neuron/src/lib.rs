@@ -303,6 +303,8 @@ mod syscall;
 #[cfg(target_os = "none")]
 mod task;
 #[cfg(target_os = "none")]
+mod timer;
+#[cfg(target_os = "none")]
 #[path = "core/trap.rs"]
 mod trap;
 #[cfg(target_os = "none")]

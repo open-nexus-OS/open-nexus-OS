@@ -427,6 +427,7 @@ impl VirtioGpuBackend {
         let fb = record.backing_va as *mut u8;
         let fb_len = record.backing_len;
         let fb_w = record.width as usize;
+        let display_y_offset = record.height / 2;
         for cmd in cmds {
             match cmd {
                 Command::SetFragmentBytes { offset, data } => {
@@ -439,20 +440,35 @@ impl VirtioGpuBackend {
                 Command::DrawTiles { tiles } => {
                     let color = self.tile_color_from_fragment();
                     for t in tiles {
-                        fill_rect_solid_vmo(fb, fb_len, fb_w, t.x, t.y, t.width, t.height, color);
+                        fill_rect_solid_vmo(
+                            fb,
+                            fb_len,
+                            fb_w,
+                            t.x,
+                            t.y.saturating_add(display_y_offset),
+                            t.width,
+                            t.height,
+                            color,
+                        );
                     }
                 }
                 Command::FillSdfRoundedRect { rect, radius, color } => {
                     fill_sdf_rounded_vmo(
                         fb, fb_len, fb_w,
-                        rect.x, rect.y, rect.width, rect.height,
+                        rect.x,
+                        rect.y.saturating_add(display_y_offset),
+                        rect.width,
+                        rect.height,
                         *radius, *color,
                     );
                 }
                 Command::BlurBackdrop { rect, radius, saturation_percent } => {
                     blur_backdrop_vmo(
                         fb, fb_len, fb_w,
-                        rect.x, rect.y, rect.width, rect.height,
+                        rect.x,
+                        rect.y.saturating_add(display_y_offset),
+                        rect.width,
+                        rect.height,
                         *radius, *saturation_percent,
                     )?;
                 }
@@ -463,10 +479,15 @@ impl VirtioGpuBackend {
                     )?;
                 }
                 Command::BlendCursor { x, y, width, height } => {
-                    // Cursor blending requires the cursor bitmap.
-                    // For Phase 6c, cursor data is pre-written into the VMO
-                    // by windowd; BlendCursor is a no-op on the OS path.
-                    let _ = (x, y, width, height);
+                    blend_cursor_vmo(
+                        fb,
+                        fb_len,
+                        fb_w,
+                        *x,
+                        y.saturating_add(display_y_offset),
+                        *width,
+                        *height,
+                    )?;
                 }
             }
         }
@@ -1395,6 +1416,68 @@ fn blit_vmo(
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
+fn blend_cursor_vmo(
+    fb: *mut u8,
+    fb_len: usize,
+    fb_w: usize,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> Result<(), GfxError> {
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
+    let fb_w_u = fb_w as u32;
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let copy_w = w.min(fb_w_u.saturating_sub(x));
+    let copy_h = h.min(fb_h.saturating_sub(y));
+    if copy_w == 0 || copy_h == 0 {
+        return Ok(());
+    }
+
+    for py in 0..copy_h {
+        for px in 0..copy_w {
+            let color = cursor_pixel_bgra(px, py, w, h);
+            if color[3] == 0 {
+                continue;
+            }
+            let idx = ((y as usize + py as usize) * fb_w + (x as usize + px as usize)) * 4;
+            if idx + 4 > fb_len {
+                continue;
+            }
+            blend_pixel_vmo(fb, idx, &color);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn cursor_pixel_bgra(px: u32, py: u32, w: u32, h: u32) -> [u8; 4] {
+    if w == 0 || h == 0 {
+        return [0, 0, 0, 0];
+    }
+    let head_h = (h * 3 / 4).max(1);
+    let shaft_w = (w / 10).max(2);
+    let tip_span = ((py.saturating_mul(w.max(1))) / head_h).saturating_add(2).min(w.saturating_sub(1));
+    let in_head = py < head_h && px <= tip_span;
+    let in_shaft = px < shaft_w && py < h.saturating_sub(1);
+    if !(in_head || in_shaft) {
+        return [0, 0, 0, 0];
+    }
+
+    let border = (px == 0)
+        || (py == 0)
+        || (py < head_h && px == tip_span)
+        || (py == h.saturating_sub(1) && px < shaft_w);
+    if border {
+        [8, 8, 8, 255]
+    } else {
+        [255, 255, 255, 255]
+    }
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
 fn blend_pixel_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
     let alpha = src[3] as u32;
     if alpha == 0 { return; }
@@ -1420,8 +1503,9 @@ fn blend_pixel_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
             core::ptr::write_volatile(fb.add(idx), blend_b as u8);
             core::ptr::write_volatile(fb.add(idx + 1), blend_g as u8);
             core::ptr::write_volatile(fb.add(idx + 2), blend_r as u8);
+            let dst_alpha = core::ptr::read_volatile(fb.add(idx + 3)) as u32;
             core::ptr::write_volatile(fb.add(idx + 3), src[3].saturating_add(
-                (((inv * unsafe { core::ptr::read_volatile(fb.add(idx + 3)) } as u32) * 257 + 32768) >> 16) as u8,
+                (((inv * dst_alpha) * 257 + 32768) >> 16) as u8,
             ));
         }
     }
