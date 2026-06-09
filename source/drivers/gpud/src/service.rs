@@ -10,9 +10,10 @@
 use nexus_abi::{debug_println, mmio_map, yield_, AbiError};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
+use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::Rect;
-use nexus_gfx::command::buffer::CommittedBuffer;
+use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use crate::backend::VirtioGpuBackend;
 use crate::markers::{
@@ -25,6 +26,7 @@ pub const OP_SUBMIT_ANIMATION_FRAME: u8 = 1;
 pub const OP_MOVE_CURSOR: u8 = 2;
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
+pub const OP_UPLOAD_CURSOR: u8 = 5;
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_DEVICE_ERROR: u8 = 2;
@@ -38,7 +40,7 @@ const GPUD_SEND_SLOT: u32 = 4;
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
-const RESOURCE_HEIGHT: u32 = 1600; // double-height VMO: wallpaper bottom + display top
+const RESOURCE_HEIGHT: u32 = 3200; // 4-plane VMO: wallpaper / retained-scene / slot-A / slot-B
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut backend = open_backend_once()?;
     if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
@@ -102,7 +104,7 @@ fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
 ) -> Result<(), nexus_abi::AbiError> {
-    let mut recv_frame = [0u8; 512];
+    let mut recv_frame = [0u8; 2048];
     let mut active_handoff_id: u32 = 0;
     loop {
         // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
@@ -161,7 +163,15 @@ fn service_requests(
                                     let _ = backend.submit(cb);
                                     present_scanout_damage(&mut backend, damage_rect)
                                 }
-                                Err(_) => handle_present_damage(&mut backend, frame),
+                                Err(_) => {
+                                    // Only fall back to legacy damage-rect format when the
+                                    // frame is exactly 17 bytes (opcode + 16-byte rect).
+                                    if frame.len() == 17 {
+                                        handle_present_damage(&mut backend, frame)
+                                    } else {
+                                        STATUS_MALFORMED
+                                    }
+                                }
                             }
                         } else {
                             handle_present_damage(&mut backend, frame)
@@ -170,6 +180,25 @@ fn service_requests(
                             active_handoff_id = handoff_id;
                         }
                         (status, Some(handoff_id))
+                    }
+                    OP_UPLOAD_CURSOR => {
+                        let _ = debug_println("gpud: recv OP_UPLOAD_CURSOR");
+                        if frame.len() < 9 {
+                            (STATUS_MALFORMED, None)
+                        } else {
+                            let w = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+                            let h = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+                            let bgra = &frame[9..];
+                            // Store as a software sprite for BlendCursor (no hardware
+                            // cursor resource → avoids the QEMU UPDATE_CURSOR quirk).
+                            match backend.store_cursor_sprite(bgra, w, h) {
+                                Ok(()) => {
+                                    let _ = debug_println("gpud: cursor uploaded");
+                                    (STATUS_OK, None)
+                                }
+                                Err(_) => (STATUS_DEVICE_ERROR, None),
+                            }
+                        }
                     }
                     _ => (handle_frame(&mut backend, frame), None),
                 };
@@ -213,8 +242,7 @@ fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]))
 }
 
-/// Extract the bounding box of all BlitSurface commands in the CB.
-/// Falls back to full display damage if no blit command is present.
+/// Extract bounding damage rect from ALL command types.
 fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
     let mut min_x = DISPLAY_WIDTH;
     let mut min_y = DISPLAY_HEIGHT;
@@ -222,15 +250,20 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
     let mut max_y = 0u32;
     let mut found = false;
     for cmd in cb.commands() {
-        if let nexus_gfx::command::buffer::Command::BlitSurface { dst_x, dst_y, width, height, .. } = cmd {
-            let ex = dst_x.saturating_add(*width);
-            let ey = dst_y.saturating_add(*height);
-            min_x = min_x.min(*dst_x);
-            min_y = min_y.min(*dst_y);
-            max_x = max_x.max(ex);
-            max_y = max_y.max(ey);
-            found = true;
-        }
+        let (x, y, w, h) = match cmd {
+            Command::BlitSurface { dst_x, dst_y, width, height, .. } => (*dst_x, *dst_y, *width, *height),
+            Command::FillSdfRoundedRect { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
+            Command::BlurBackdrop { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
+            Command::BlendCursor { x, y, width, height } => (*x, *y, *width, *height),
+            _ => continue,
+        };
+        let ex = x.saturating_add(w);
+        let ey = y.saturating_add(h);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(ex);
+        max_y = max_y.max(ey);
+        found = true;
     }
     if found {
         Rect { x: min_x, y: min_y, width: max_x.saturating_sub(min_x).max(1), height: max_y.saturating_sub(min_y).max(1) }
@@ -240,10 +273,22 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
 }
 
 fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
-    if backend.present_scanout_damage(rect).is_err() {
-        return STATUS_DEVICE_ERROR;
+    match backend.present_scanout_damage(rect) {
+        Ok(()) => STATUS_OK,
+        Err(e) => {
+            let _ = debug_println("gpud: present scanout damage FAIL");
+            match e {
+                GfxError::InvalidArgument => {
+                    let _ = debug_println("gpud: scanout InvalidArgument (no scanout resource?)");
+                }
+                GfxError::ResourceExhausted => {
+                    let _ = debug_println("gpud: scanout ResourceExhausted");
+                }
+                _ => {}
+            }
+            STATUS_DEVICE_ERROR
+        }
     }
-    STATUS_OK
 }
 
 fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
@@ -282,7 +327,7 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             }
             let x = i32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let y = i32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            if backend.move_cursor(x, y).is_err() {
+            if backend.move_hw_cursor(x as u32, y as u32).is_err() {
                 return STATUS_DEVICE_ERROR;
             }
             STATUS_OK

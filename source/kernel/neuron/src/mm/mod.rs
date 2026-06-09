@@ -19,7 +19,7 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 /// The live interactive UI lane needs enough headroom for the full ramfb-sized
 /// framebuffer VMO after normal service bring-up has already allocated virtio,
 /// exec, metadata, and proof buffers.
-pub const USER_VMO_ARENA_LEN: usize = 32 * 1024 * 1024;
+pub const USER_VMO_ARENA_LEN: usize = 64 * 1024 * 1024; // 64MB — headroom for 16MB framebuffer VMO
 /// Base address of the kernel-managed user VMO arena.
 pub const USER_VMO_ARENA_BASE: usize = 0x8180_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.

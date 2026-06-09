@@ -137,6 +137,18 @@ pub struct VirtioGpuCursorPosData {
     pub _padding: u32,
 }
 
+/// UPDATE_CURSOR command — sets the cursor image resource and hotspot.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtioGpuUpdateCursor {
+    pub hdr: VirtioGpuCtrlHdr,
+    pub pos: VirtioGpuCursorPosData,
+    pub resource_id: u32,
+    pub hot_x: u32,
+    pub hot_y: u32,
+    pub _padding: u32,
+}
+
 /// RESOURCE_FLUSH command.
 #[repr(C)]
 #[derive(Clone, Copy)]

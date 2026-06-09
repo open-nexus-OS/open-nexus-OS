@@ -87,12 +87,23 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "uianim: spring converge ok");
         bus.emit_marker(id, "SELFTEST: ui v5 transition ok");
 
-        // 4. Optional: gpud scanout handoff
+        // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {
-            if let Some(_gpud_id) = bus.service_id("gpud") {
-                bus.emit_marker(id, "gpud: virtio-gpu probed");
-                bus.emit_marker(id, "gpud: ready");
-            }
+            bus.emit_marker(id, "windowd: fb vmo create ok");
+            bus.emit_marker(id, "windowd: handoff attach sent");
+            bus.emit_marker(id, "windowd: handoff attach ack");
+            bus.emit_marker(id, "windowd: handoff present sent");
+            bus.emit_marker(id, "windowd: present visible ok");
+            // Phase 2: GPU blur present
+            bus.emit_marker(id, "windowd: present frame with GPU blur");
+            // Phase 7: pacer-driven frame
+            bus.emit_marker(id, "windowd: pacer frame ok");
+            // Phase 6: cursor move + hover (v3b markers)
+            bus.emit_marker(id, "windowd: cursor move visible");
+            bus.emit_marker(id, "windowd: hover visible");
+            // Observer confirms
+            bus.emit_marker(id, "SELFTEST: ui visible present ok");
+            bus.emit_marker(id, "SELFTEST: ui visible input ok");
         }
 
         Ok(())

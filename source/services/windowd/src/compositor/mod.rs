@@ -6,7 +6,7 @@
 //! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,
 //! paint-only fast-path, and GPU-first rendering pipeline (Phase 6c).
 //! OHOS-style control/data plane separation: windowd heap = control plane,
-//! shared 8MB VMO = data plane (wallpaper bottom half, display top half).
+//! shared 16MB VMO = data plane (4-plane: wallpaper / retained-scene / slot-A / slot-B).
 //! gpud executes BlitSurface/FillSdfRoundedRect/BlurBackdrop/DrawTiles commands.
 //! Part of TASK-0055/0056/0058/0059/0062.
 //!
@@ -118,13 +118,23 @@ use crate::telemetry::WindowdDisplayTelemetryReport;
 pub(crate) const ROUTE_NAME: &str = "windowd";
 // Phase 6c: OHOS-style control-plane / data-plane separation.
 // Data plane: all pixel data lives in shared VMOs, rendered by gpud.
-//   VMO layout (8MB, 1280x1600):
-//     rows   0.. 799 -> wallpaper source  (offset 0)
-//     rows 800..1599 -> display scanout    (offset 4,096,000)
+//   VMO layout (16MB, 1280x3200, 4-plane):
+//     Plane 0: rows    0.. 799 — wallpaper source  (offset 0x000000)
+//     Plane 1: rows  800..1599 — retained scene    (offset 0x3E8000)
+//     Plane 2: rows 1600..2399 — frame ring slot A  (offset 0x7D0000)
+//     Plane 3: rows 2400..3199 — frame ring slot B  (offset 0xBB8000)
 pub(crate) const DISPLAY_WIDTH: u32 = 1280;
 pub(crate) const DISPLAY_HEIGHT: u32 = 800;
-pub(crate) const RESOURCE_HEIGHT: u32 = 1600;
-pub(crate) const DISPLAY_OFFSET_BYTES: usize = 4_096_000;
+pub(crate) const RESOURCE_HEIGHT: u32 = 3200;
+pub(crate) const DISPLAY_OFFSET_BYTES: usize = 8_192_000; // Plane 2 / slot A
+pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = 12_288_000;
+/// Plane 1 — retained scene. The CPU compositor renders the full cursor-free
+/// scene (wallpaper + panels + text + glass) here. gpud blits damage regions
+/// from this plane to the display plane per frame and overlays the cursor.
+pub(crate) const RETAINED_OFFSET_BYTES: usize = 4_096_000; // Plane 1 (0x3E8000)
+/// Row offset of the retained plane within the VMO (RETAINED_OFFSET_BYTES / row_bytes).
+/// 4_096_000 / (1280*4) = 800. Used as the BlitSurface source row base.
+pub(crate) const RETAINED_ROW_OFFSET: u32 = 800;
 pub(crate) const PROOF_PANEL_X: u32 = 56;
 pub(crate) const PROOF_PANEL_Y: u32 = 440;
 pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
@@ -228,8 +238,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         if let Ok(handle) = vmo_create(byte_len) {
             let _ = debug_println("windowd: fb vmo create ok");
             runtime.register_framebuffer_vmo(handle);
-            // Write source frame (wallpaper) to VMO bottom half once.
-            // Control-plane -> data-plane: 4MB moves from heap to shared VMO.
+            // Write source frame (wallpaper) to VMO Plane 0 once.
+            // Control-plane -> data-plane: 4MB wallpaper moves from heap to shared VMO.
             let _ = runtime.write_source_frame_to_vmo();
             let _ = runtime.process_deferred_framebuffer_write();
         } else {
@@ -242,52 +252,60 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     // but replace the bottom yield_() with a kernel deadline-driven wait.
     //   - Idle:     Wait::Blocking           → zero CPU, wakes on input only
     //   - Active:   Wait::Timeout(interval)  → wakes on input or animation tick
-    const REFRESH_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
     #[cfg(nexus_env = "os")]
-    let (timer_notify_slot, _) = server.slots();
+    let (pacer_notify_slot, _) = server.slots();
     #[cfg(nexus_env = "os")]
-    let mut animation_timer_cap: Option<u32> = None;
+    let mut pacer_timer_cap: Option<u32> = None;
     #[cfg(nexus_env = "os")]
-    let mut animation_timer_armed = false;
+    let mut pacer_timer_armed = false;
     #[cfg(nexus_env = "os")]
-    let mut animation_timer_log_emitted = false;
+    let mut pacer_timer_log_emitted = false;
+    // Phase 7: unified pacing timer drives frame submission at display refresh rate.
+    const PACER_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
     loop {
         runtime.drain_gpud_replies();
         let _ = runtime.process_deferred_framebuffer_write();
         #[cfg(nexus_env = "os")]
         {
-            let has_active_animations = runtime.has_active_animations();
-            if has_active_animations && !animation_timer_armed {
-                if animation_timer_cap.is_none() {
-                    match nexus_abi::timer_create(timer_notify_slot, REFRESH_INTERVAL_NS) {
-                        Ok(cap) => animation_timer_cap = Some(cap),
+            // Reactive pacing: arm the 120Hz timer ONLY while an animation is
+            // running. Cursor moves, hover, clicks and other input arrive as IPC
+            // messages that wake the blocking recv below and are flushed directly —
+            // they don't need the pacer. When idle (no animation), the timer stays
+            // disarmed and windowd blocks on IPC: zero wakes, zero polling. This is
+            // what eliminates the per-frame busy loop.
+            //
+            // Also keep the pacer alive while damage is still pending: gpud's ack
+            // replies arrive on the gpud client, not the server, so a backpressured
+            // flush needs a timer wake to retry. Once damage clears and no animation
+            // runs, the pacer disarms and windowd goes fully idle.
+            let handoff_done = !runtime.is_handoff_pending();
+            let needs_pacing = runtime.has_active_animations() || runtime.has_pending_damage();
+            if handoff_done && !pacer_timer_armed && needs_pacing {
+                if pacer_timer_cap.is_none() {
+                    match nexus_abi::timer_create(pacer_notify_slot, PACER_INTERVAL_NS) {
+                        Ok(cap) => pacer_timer_cap = Some(cap),
                         Err(_) => {
-                            if !animation_timer_log_emitted {
-                                let _ = debug_println("windowd: animation timer create failed");
-                                animation_timer_log_emitted = true;
+                            if !pacer_timer_log_emitted {
+                                let _ = debug_println("windowd: pacer timer create failed");
+                                pacer_timer_log_emitted = true;
                             }
                         }
                     }
                 }
-                if let Some(timer_cap) = animation_timer_cap {
+                if let Some(timer_cap) = pacer_timer_cap {
                     if let Ok(now) = nsec() {
-                        let deadline = now.saturating_add(REFRESH_INTERVAL_NS);
+                        let deadline = now.saturating_add(PACER_INTERVAL_NS);
                         match nexus_abi::timer_set(timer_cap, deadline) {
-                            Ok(()) => animation_timer_armed = true,
+                            Ok(()) => pacer_timer_armed = true,
                             Err(_) => {
-                                if !animation_timer_log_emitted {
-                                    let _ = debug_println("windowd: animation timer arm failed");
-                                    animation_timer_log_emitted = true;
+                                if !pacer_timer_log_emitted {
+                                    let _ = debug_println("windowd: pacer timer arm failed");
+                                    pacer_timer_log_emitted = true;
                                 }
                             }
                         }
                     }
                 }
-            } else if !has_active_animations && animation_timer_armed {
-                if let Some(timer_cap) = animation_timer_cap {
-                    let _ = nexus_abi::timer_cancel(timer_cap);
-                }
-                animation_timer_armed = false;
             }
         }
         let mut visible_updates_since_flush = 0usize;
@@ -297,8 +315,16 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     let frame = &recv_frame[..frame_len];
                     #[cfg(nexus_env = "os")]
                     if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                        // Phase 7: Pacing tick — drive animation update AND frame flush.
+                        pacer_timer_armed = false;
                         if runtime.has_active_animations() {
                             runtime.tick(now_ns);
+                        }
+                        // Submit frame if pending damage and a ring slot is free.
+                        if runtime.has_pending_damage()
+                            && runtime.frames_in_flight() < runtime::DisplayServerRuntime::max_in_flight()
+                        {
+                            let _ = runtime.flush_pending_damage();
                         }
                         continue;
                     }
@@ -347,8 +373,12 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Err(_) => {}
             }
         }
-        if let Err(err) = runtime.flush_pending_damage() {
-            let _ = debug_println(flush_error_label(err));
+        // Phase 4: skip present while handoff is pending — the VMO must arrive
+        // at gpud before any present-damage frames.
+        if !runtime.is_handoff_pending() {
+            if let Err(err) = runtime.flush_pending_damage() {
+                let _ = debug_println(flush_error_label(err));
+            }
         }
         // Phase D.1: deadline-driven sleep instead of busy yield_().
         // Drains one message that arrived during processing, or blocks
@@ -358,7 +388,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         } else if cfg!(nexus_env = "os") {
             Wait::Blocking
         } else if runtime.has_active_animations() {
-            Wait::Timeout(core::time::Duration::from_nanos(REFRESH_INTERVAL_NS))
+            Wait::Timeout(core::time::Duration::from_nanos(PACER_INTERVAL_NS))
         } else {
             Wait::Blocking
         };

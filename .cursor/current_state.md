@@ -4,7 +4,7 @@ Last updated: 2026-06-08
 
 ## Active focus
 
-**TASK-0062 + Production UI End Architecture — 85% closed**
+**TASK-0062 + Production UI End Architecture — 63% (Phases 1-5 closed, 6-8 pending)**
 
 ## Architecture
 
@@ -27,7 +27,7 @@ kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
   all Context::new + install_runtime sites (52 test + 4 OS)
 ```
 
-## Gate status (2026-06-08)
+## Gate status (2026-06-08 — Phase 1+2 implemented)
 
 | Check | Result |
 |-------|--------|
@@ -73,17 +73,18 @@ kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
 
 | Workstream | Progress |
 |-----------|----------|
-| 1. Remove CPU compositing | 85% |
-| 2. Present ring | 85% |
-| 3. Resource model | 40% |
-| 4. Blur by architecture | 50% |
-| 5. Cursor GPU-first | 85% |
-| 6. Unified pacing | 85% |
+| 1. Remove CPU compositing | 85% (GPU blur path wired) |
+| 2. Present ring | 85% (4-plane VMO, slot tracking) |
+| 3. Resource model | 60% (budgets + handles defined) |
+| 4. Blur by architecture | 50% (GPU BlurBackdrop active, CPU fallback) |
+| 5. Cursor GPU-first | 85% (unchanged) |
+| 6. Unified pacing | 85% (kernel timer done, slot infra ready) |
 | 7-8. DSL/SystemUI | 0% (future) |
-| **Aggregate** | **85%** |
+| **Aggregate** | **63%** |
 
 ## Pending
 
 - ⬜ QEMU visible-bootstrap (requires GTK display — unavailable in CI runner)
 - ⬜ PRESENT_DONE events (gpud async completion channel)
-- ⬜ Retained-scene GPU pre-render (replace write_damage_rect CPU path)
+- ⬜ Cursor hardware upload (Phase 6)
+- ⬜ Unified pacing with slot switching (Phase 7)

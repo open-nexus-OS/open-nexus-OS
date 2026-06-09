@@ -7,12 +7,15 @@
 #![allow(clippy::unwrap_used)]
 
 mod gpud;
+mod inputd;
 mod windowd;
 
 use crate::chain::ServiceId;
 
 #[allow(unused_imports)]
 pub use gpud::GpudContract;
+#[allow(unused_imports)]
+pub use inputd::InputdContract;
 #[allow(unused_imports)]
 pub use windowd::WindowdContract;
 

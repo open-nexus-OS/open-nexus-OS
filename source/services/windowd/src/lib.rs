@@ -33,6 +33,12 @@ mod markers;
 mod proof_panel_spec;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
+#[cfg(any(test, target_os = "none"))]
+mod scene_graph;
+#[cfg(any(test, target_os = "none"))]
+mod resource_pool;
+#[cfg(any(test, target_os = "none"))]
+mod systemui_shell;
 mod server;
 mod smoke;
 mod telemetry;

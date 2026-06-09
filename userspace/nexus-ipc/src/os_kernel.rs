@@ -397,8 +397,12 @@ impl KernelServer {
     /// Creates a server bound to a named service target.
     pub fn new_for(service: &str) -> Result<Self> {
         // Routing reply is (send_slot, recv_slot) from the caller's perspective.
-        let (send_slot, recv_slot) = query_route(service, Wait::Timeout(ROUTE_QUERY_TIMEOUT))?;
-        Self::new_with_slots(recv_slot, send_slot)
+        match query_route(service, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
+            Ok((send_slot, recv_slot)) => Self::new_with_slots(recv_slot, send_slot),
+            Err(err) => {
+                Err(err)
+            }
+        }
     }
 
     /// Returns the raw capability slots backing this server (recv_slot, send_slot).

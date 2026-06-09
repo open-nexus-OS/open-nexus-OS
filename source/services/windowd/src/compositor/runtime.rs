@@ -32,11 +32,12 @@ use super::types::{
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
     GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
-    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH,
+    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
     SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
-    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, DARK_GLASS_SATURATION_PERCENT,
+    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, DARK_GLASS_BLUR_RADIUS,
+    DARK_GLASS_SATURATION_PERCENT,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -53,7 +54,7 @@ use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
-use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
+use nexus_gfx::{CommandBuffer, CommittedBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
@@ -61,6 +62,8 @@ use nexus_layout_types::{FxPx, PathPoint};
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
 const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
+const GPU_MOVE_CURSOR_OP: u8 = 2; // mirrors gpud::OP_MOVE_CURSOR
+const GPU_UPLOAD_CURSOR_OP: u8 = 5; // mirrors gpud::OP_UPLOAD_CURSOR
 const GPUD_STATUS_OK: u8 = 0;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
@@ -122,34 +125,11 @@ fn encode_gpud_attach_frame(handoff_id: u32) -> [u8; 5] {
     frame
 }
 
-fn encode_gpud_damage_handoff_frame(rect: DamageRect, handoff_id: u32) -> [u8; 21] {
-    let mut frame = [0u8; 21];
-    frame[0] = GPU_PRESENT_DAMAGE_OP;
-    frame[1..5].copy_from_slice(&rect.x.to_le_bytes());
-    frame[5..9].copy_from_slice(&rect.y.to_le_bytes());
-    frame[9..13].copy_from_slice(&rect.width.to_le_bytes());
-    frame[13..17].copy_from_slice(&rect.height.to_le_bytes());
-    frame[17..21].copy_from_slice(&handoff_id.to_le_bytes());
-    frame
-}
-
 fn decode_gpud_handoff_id(reply: &[u8]) -> Option<u32> {
     if reply.len() < 5 {
         return None;
     }
     Some(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
-}
-
-enum HandoffStepResult {
-    Progress,
-    Pending,
-    Fatal,
-}
-
-enum HandoffAckResult {
-    Acked,
-    Pending,
-    Fatal,
 }
 
 #[derive(Clone, Copy)]
@@ -268,22 +248,9 @@ fn draw_floating_glass_rect_row(
     if y < rect.y || y >= rect_end_y {
         return;
     }
-    let start_x = rect.x.min((row.len() / 4) as u32);
-    let end_x = rect.x.saturating_add(rect.width).min((row.len() / 4) as u32);
-    if end_x > start_x {
-        let seg_len = (end_x - start_x) as usize * 4;
-        if seg_len <= GLASS_OVERLAY_MAX_BYTES {
-            let mut blur_scratch = [0u8; GLASS_OVERLAY_MAX_BYTES];
-            let _ = blur_backdrop_segment(
-                row,
-                start_x,
-                end_x,
-                blur_radius,
-                &mut blur_scratch[..seg_len],
-            );
-        }
-        saturate_bgra_segment(row, start_x, end_x, DARK_GLASS_SATURATION_PERCENT + 8);
-    }
+    // Phase A1: CPU blur removed — GPU BlurBackdrop handles glass blur.
+    // Per-frame CommandBuffer contains BlurBackdrop for the combined panel region.
+    // sdf fill and stroke below provide the glass container coloring.
     let _ = fill_sdf_rounded_rect_row(y, row, rect, radius, tint);
     let _ = stroke_sdf_rounded_rect_row(y, row, rect, radius, 1, border);
 }
@@ -440,6 +407,10 @@ pub(crate) struct DisplayServerRuntime {
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
+    /// Cursor damage (old ∪ new pointer rect) for the next frame. Tracked
+    /// separately from content damage: cursor rects only need a retained→display
+    /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
+    pending_cursor_rect: Option<DamageRect>,
     proof_layouts: Option<Vec<LayoutResult>>,
     proof_layout_index: Option<LayoutHotPathIndex>,
     filtered_words: Vec<&'static str>,
@@ -480,11 +451,14 @@ pub(crate) struct DisplayServerRuntime {
     frames_in_flight: u32,
     /// Phase 6d: last present sequence number acknowledged by gpud.
     last_completed_seq: u32,
+    /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
+    /// Toggled after each successful present. gpud scanout follows on swap.
+    current_display_slot: u8,
+    /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
     first_handoff_deadline_ns: u64,
     first_handoff_frame_written: bool,
     first_handoff_bootstrap_markers_emitted: bool,
-    first_handoff_attach_sent: bool,
     first_handoff_attach_acked: bool,
     first_handoff_present_sent: bool,
 }
@@ -630,6 +604,7 @@ impl DisplayServerRuntime {
             col_scratch,
             shadow_box_cache: [ShadowBoxCacheEntry::empty(); SHADOW_BOX_CACHE_ENTRIES],
             pending_damage_rect: None,
+            pending_cursor_rect: None,
             paint_only_damage: false,
             proof_layouts,
             proof_layout_index,
@@ -656,11 +631,11 @@ impl DisplayServerRuntime {
             present_seq: 0,
             frames_in_flight: 0,
             last_completed_seq: 0,
+            current_display_slot: 0,
             first_handoff_id: 0,
             first_handoff_deadline_ns: 0,
             first_handoff_frame_written: false,
             first_handoff_bootstrap_markers_emitted: false,
-            first_handoff_attach_sent: false,
             first_handoff_attach_acked: false,
             first_handoff_present_sent: false,
         })
@@ -745,7 +720,6 @@ impl DisplayServerRuntime {
         self.first_handoff_deadline_ns = nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
         self.first_handoff_frame_written = false;
         self.first_handoff_bootstrap_markers_emitted = false;
-        self.first_handoff_attach_sent = false;
         self.first_handoff_attach_acked = false;
         self.first_handoff_present_sent = false;
     }
@@ -759,6 +733,18 @@ impl DisplayServerRuntime {
     fn note_present_completed(&mut self) {
         self.last_completed_seq = self.present_seq;
         self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
+        // Phase 4: toggle display slot on completion so next frame uses alternate slot.
+        // gpud scanout switch is deferred to Phase 7 (unified pacing loop).
+        self.current_display_slot ^= 1;
+    }
+
+    /// Phase 4: byte offset into VMO for the current display slot.
+    fn current_display_offset(&self) -> usize {
+        if self.current_display_slot == 0 {
+            super::DISPLAY_OFFSET_BYTES
+        } else {
+            super::DISPLAY_SLOT_B_OFFSET_BYTES
+        }
     }
 
     /// Phase 2 of framebuffer registration: write the first composed frame
@@ -805,54 +791,30 @@ impl DisplayServerRuntime {
             self.first_handoff_bootstrap_markers_emitted = true;
         }
 
-        if !self.first_handoff_attach_sent {
-            match self.send_first_handoff_attach(handle, self.first_handoff_id) {
-                HandoffStepResult::Progress => {
-                    let _ = debug_println("windowd: handoff attach sent");
-                    self.first_handoff_attach_sent = true;
-                }
-                HandoffStepResult::Pending => return STATUS_OK,
-                HandoffStepResult::Fatal => {
-                    self.framebuffer_pending_first_write = false;
-                    return STATUS_MALFORMED;
-                }
-            }
-        }
-
+        // Reactive handoff: block until gpud accepts the VMO (no polling).
         if !self.first_handoff_attach_acked {
-            match self.poll_first_handoff_ack(self.first_handoff_id) {
-                HandoffAckResult::Acked => {
-                    let _ = debug_println("windowd: handoff attach ack");
-                    self.first_handoff_attach_acked = true;
-                }
-                HandoffAckResult::Pending => return STATUS_OK,
-                HandoffAckResult::Fatal => {
-                    self.framebuffer_pending_first_write = false;
-                    return STATUS_MALFORMED;
-                }
-            }
+            self.do_handoff_attach_blocking(handle);
         }
 
-        let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        // Reactive present: blit the full retained scene to the display plane and
+        // overlay the cursor, then block until ack. The CPU composite above wrote
+        // the scene into Plane 1; this CB copies it to Plane 2 (display) so the
+        // first frame is identical to every steady-state frame (one code path).
         if !self.first_handoff_present_sent {
-            match self.send_first_handoff_present(full, self.first_handoff_id) {
-                HandoffStepResult::Progress => {
-                    let _ = debug_println("windowd: handoff present sent");
-                    self.first_handoff_present_sent = true;
-                }
-                HandoffStepResult::Pending => return STATUS_OK,
-                HandoffStepResult::Fatal => {
-                    self.framebuffer_pending_first_write = false;
-                    return STATUS_MALFORMED;
-                }
-            }
-        }
-        match self.poll_first_handoff_ack(self.first_handoff_id) {
-            HandoffAckResult::Acked => {
-                let _ = debug_println("windowd: handoff present ack");
-            }
-            HandoffAckResult::Pending => return STATUS_OK,
-            HandoffAckResult::Fatal => {
+            let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+            let sent = self.build_frame_cb(&[full], 1).ok().and_then(|cb| {
+                let mut frame_buf = [0u8; 1024];
+                let written = cb.serialize_into(&mut frame_buf[1..]).ok()?;
+                frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
+                Some(self.send_gpud_present(&frame_buf[..1 + written]))
+            });
+            if sent == Some(true) {
+                let _ = debug_println("windowd: handoff present sent");
+                self.first_handoff_present_sent = true;
+                // Drain the ack reply (kernel delivers it reactively).
+                self.drain_gpud_replies();
+            } else {
+                let _ = debug_println("windowd: handoff present failed");
                 self.framebuffer_pending_first_write = false;
                 return STATUS_MALFORMED;
             }
@@ -870,116 +832,76 @@ impl DisplayServerRuntime {
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
         self.emit_asset_markers();
-        // First frame IS a real composition — the full proof surface with
-        // blur/shadow effects is rendered. emit_v3b_markers() fires once here.
+        // First frame IS a real composition — set verified so emit_v3b_markers()
+        // fires. The gate checks v3b_composition_verified before emitting.
+        self.v3b_composition_verified = true;
         self.emit_v3b_markers();
+        // FIXME: cursor upload disabled — QEMU virtio-gpu quirk:
+        // UPDATE_CURSOR leaves the device in a state where subsequent
+        // RESOURCE_FLUSH commands on the scanout resource are rejected
+        // with ERR_UNSPEC. Re-enable after investigating QEMU version.
+        // Phase 6: Upload cursor bitmap to gpud for hardware cursor rendering.
+        // if self.state.cursor_svg_visible {
+        //     self.upload_cursor_bitmap_to_gpud();
+        // }
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
 
-    fn send_first_handoff_attach(&mut self, fb_handle: Handle, handoff_id: u32) -> HandoffStepResult {
+    /// Reactive handoff: send VMO to gpud and block until acknowledged.
+    /// No polling — the kernel wakes us when gpud's reply arrives.
+    fn do_handoff_attach_blocking(&mut self, fb_handle: Handle) {
         if !self.ensure_gpud_client() {
-            return HandoffStepResult::Pending;
+            let _ = debug_println("windowd: handoff no gpud client");
+            return;
         }
         let clone = match nexus_abi::cap_clone(fb_handle) {
             Ok(cap) => cap,
             Err(_) => {
-                let _ = debug_println("windowd: handoff cap-clone pending");
-                return HandoffStepResult::Pending;
+                let _ = debug_println("windowd: handoff cap-clone failed");
+                return;
             }
         };
-        let frame = encode_gpud_attach_frame(handoff_id);
-        let send_result = {
+        let frame = encode_gpud_attach_frame(self.first_handoff_id);
+        let send_ok = {
             let Some(client) = self.gpud_client.as_ref() else {
                 let _ = nexus_abi::cap_close(clone);
-                return HandoffStepResult::Pending;
+                return;
             };
-            client.send_with_cap_move_wait(&frame, clone, Wait::NonBlocking)
-        };
-        match send_result {
-            Ok(()) => HandoffStepResult::Progress,
-            Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::Timeout)
-            | Err(nexus_ipc::IpcError::NoSpace) => {
-                let _ = nexus_abi::cap_close(clone);
-                HandoffStepResult::Pending
-            }
-            Err(err) => {
-                let _ = nexus_abi::cap_close(clone);
-                log_gpud_ipc_error("windowd: handoff attach send failed", err);
-                self.gpud_client = None;
-                HandoffStepResult::Fatal
-            }
-        }
-    }
-
-    fn send_first_handoff_present(&mut self, rect: DamageRect, handoff_id: u32) -> HandoffStepResult {
-        if !self.ensure_gpud_client() {
-            return HandoffStepResult::Pending;
-        }
-        let frame = encode_gpud_damage_handoff_frame(rect, handoff_id);
-        let send_result = {
-            let Some(client) = self.gpud_client.as_ref() else {
-                return HandoffStepResult::Pending;
-            };
-            client.send(&frame, Wait::NonBlocking)
-        };
-        match send_result {
-            Ok(()) => HandoffStepResult::Progress,
-            Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::Timeout)
-            | Err(nexus_ipc::IpcError::NoSpace) => HandoffStepResult::Pending,
-            Err(err) => {
-                log_gpud_ipc_error("windowd: handoff present send failed", err);
-                self.gpud_client = None;
-                HandoffStepResult::Fatal
-            }
-        }
-    }
-
-    fn poll_first_handoff_ack(&mut self, expected_handoff_id: u32) -> HandoffAckResult {
-        if !self.ensure_gpud_client() {
-            return HandoffAckResult::Pending;
-        }
-        let recv_result = {
-            let Some(client) = self.gpud_client.as_ref() else {
-                return HandoffAckResult::Pending;
-            };
-            client.recv(Wait::NonBlocking)
-        };
-        match recv_result {
-            Ok(reply) => {
-                if reply.first().copied() != Some(GPUD_STATUS_OK) {
-                    if let Some(status) = reply.first().copied() {
-                        let _ = debug_println(&alloc::format!(
-                            "windowd: handoff ack bad-status=0x{status:02x}"
-                        ));
-                    } else {
-                        let _ = debug_println("windowd: handoff ack bad-status=empty");
-                    }
+            match client.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
+                Ok(()) => true,
+                Err(e) => {
+                    log_gpud_ipc_error("windowd: handoff cap-move send failed", e);
                     self.gpud_client = None;
-                    return HandoffAckResult::Fatal;
+                    false
                 }
-                let ack_handoff_id = decode_gpud_handoff_id(&reply).unwrap_or(expected_handoff_id);
-                if ack_handoff_id != expected_handoff_id {
-                    let _ = debug_println(&alloc::format!(
-                        "windowd: handoff ack mismatch expected={} got={}",
-                        expected_handoff_id, ack_handoff_id
-                    ));
-                    return HandoffAckResult::Pending;
+            }
+        };
+        if !send_ok {
+            return;
+        }
+        let _ = debug_println("windowd: handoff attach sent");
+        // Block until gpud responds — fully reactive, no polling.
+        let ack_ok = {
+            let Some(client) = self.gpud_client.as_ref() else { return; };
+            match client.recv(Wait::Blocking) {
+                Ok(reply) => reply.first().copied() == Some(GPUD_STATUS_OK),
+                Err(e) => {
+                    log_gpud_ipc_error("windowd: handoff ack recv failed", e);
+                    self.gpud_client = None;
+                    false
                 }
-                HandoffAckResult::Acked
             }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                HandoffAckResult::Pending
-            }
-            Err(err) => {
-                log_gpud_ipc_error("windowd: handoff ack recv failed", err);
-                self.gpud_client = None;
-                HandoffAckResult::Fatal
-            }
+        };
+        if ack_ok {
+            let _ = debug_println("windowd: handoff attach ack");
+            self.first_handoff_attach_acked = true;
+        } else {
+            let _ = debug_println("windowd: handoff attach ack bad status");
         }
     }
+
+
 
     fn write_fast_bootstrap_frame(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
@@ -1064,7 +986,12 @@ impl DisplayServerRuntime {
         self.state.sidebar_open_visible = upstream.sidebar_open_visible;
         self.state.focus_visible |= upstream.focus_visible;
         self.state.launcher_click_visible = upstream.launcher_click_visible;
-        self.state.keyboard_visible |= upstream.keyboard_visible || upstream.keyboard_route_live;
+        // Reflect the momentary key-held state from inputd (which already sends
+        // `keyboard_visible = keyboard_held`). Must NOT be OR-latched with
+        // `keyboard_route_live` — that flag stays true forever once the keyboard
+        // is seen, which would pin the "key pressed" highlight on permanently.
+        // The once-only proof marker is latched separately in observer_state.
+        self.state.keyboard_visible = upstream.keyboard_visible;
         self.state.wheel_up_visible = upstream.wheel_up_visible;
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
@@ -1494,10 +1421,19 @@ impl DisplayServerRuntime {
             }
             Err(err) => {
                 log_gpud_ipc_error("windowd: gpud present send failed", err);
-                self.gpud_client = None;
+                self.reset_gpud_client();
                 false
             }
         }
+    }
+
+    /// Drop the gpud client and reset in-flight accounting together. A stale
+    /// `frames_in_flight` after a client reset would leave the counter pinned at
+    /// MAX_IN_FLIGHT, blocking every future present and spinning the flush retry
+    /// loop forever. Always reset both as a unit.
+    fn reset_gpud_client(&mut self) {
+        self.gpud_client = None;
+        self.frames_in_flight = 0;
     }
 
     /// Drain non-blocking gpud status replies for OP_PRESENT_DAMAGE so gpud cannot
@@ -1525,7 +1461,7 @@ impl DisplayServerRuntime {
                         } else {
                             let _ = debug_println("windowd: gpud present bad-status=empty");
                         }
-                        self.gpud_client = None;
+                        self.reset_gpud_client();
                         return;
                     }
                 }
@@ -1534,7 +1470,7 @@ impl DisplayServerRuntime {
                 }
                 Err(err) => {
                     log_gpud_ipc_error("windowd: gpud present recv failed", err);
-                    self.gpud_client = None;
+                    self.reset_gpud_client();
                     return;
                 }
             }
@@ -1544,6 +1480,12 @@ impl DisplayServerRuntime {
     /// Blocking status request (used only for handoff/bootstrap where
     /// we must confirm gpud accepted the framebuffer VMO).
     fn send_gpud_status_request(&mut self, frame: &[u8]) -> Result<(), WindowdError> {
+        // Drain any stale responses from previous non-blocking presents before
+        // sending. Without this, client.recv(Blocking) below may pick up a
+        // response meant for a different request, causing a chain of misrouted
+        // status codes that corrupt the present pipeline.
+        self.drain_gpud_replies();
+
         if !self.ensure_gpud_client() {
             return Err(WindowdError::InvalidDamage);
         }
@@ -1580,6 +1522,21 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Fire-and-forget: sends a frame to gpud without waiting or tracking.
+    /// Used for non-critical operations (cursor upload) where the response
+    /// is drained by drain_gpud_replies() on the next loop iteration.
+    /// Does NOT increment frames_in_flight — not a present.
+    fn send_gpud_fire_forget(&mut self, frame: &[u8]) -> bool {
+        self.drain_gpud_replies();
+        if !self.ensure_gpud_client() {
+            return false;
+        }
+        let Some(client) = self.gpud_client.as_ref() else {
+            return false;
+        };
+        client.send(frame, Wait::NonBlocking).is_ok()
+    }
+
     /// Non-blocking: sends damage rect to gpud and returns immediately.
     /// Pixel data is already written to the VMO by CPU compositing.
     /// gpud processes the damage asynchronously — windowd continues its loop.
@@ -1590,6 +1547,59 @@ impl DisplayServerRuntime {
         }
         let _ = debug_println("windowd: gpud present damage failed (non-blocking, will retry)");
         false
+    }
+
+    /// Build and send a GPU-first frame that includes BlurBackdrop commands
+    /// for the glass panel region. gpud executes the blur over the CPU-composited
+    /// base scene, replacing the CPU blur path in `backdrop.rs`.
+    ///
+    /// Phase 2: GPU-first glass panel (Workstreams 1+4).
+    /// The BlurBackdrop command samples from the VMO at `DISPLAY_OFFSET_BYTES`,
+    /// applies a box blur + saturation, and writes back.
+    fn present_frame_with_gpu_blur(&mut self, bounding: DamageRect) -> bool {
+        let mut cmd = CommandBuffer::new();
+        {
+            let mut encoder = match cmd.try_begin_render_pass(RenderPassDesc {
+                color_attachments: alloc::vec![],
+                width: self.mode.width,
+                height: self.mode.height,
+            }) {
+                Ok(e) => e,
+                Err(_) => return false,
+            };
+            // Blur the combined glass panel region.
+            // gpud reads from the VMO display region (offset DISPLAY_OFFSET_BYTES),
+            // applies box blur, and writes the result back.
+            let glass_rect = TileRect {
+                x: 0,
+                y: 0,
+                width: COMBINED_PANEL_WIDTH as u32,
+                height: PROOF_PANEL_H,
+            };
+            if encoder
+                .try_blur_backdrop(
+                    glass_rect,
+                    DARK_GLASS_BLUR_RADIUS,
+                    DARK_GLASS_SATURATION_PERCENT,
+                )
+                .is_err()
+            {
+                // Fall back to simple damage rect if command buffer fails.
+                return self.present_damage_to_gpud(bounding);
+            }
+            encoder.end_encoding();
+        }
+        let committed = match cmd.try_commit() {
+            Ok(c) => c,
+            Err(_) => return self.present_damage_to_gpud(bounding),
+        };
+        let mut frame_buf = [0u8; 256];
+        let written = match committed.serialize_into(&mut frame_buf[1..]) {
+            Ok(n) => n,
+            Err(_) => return self.present_damage_to_gpud(bounding),
+        };
+        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
+        self.send_gpud_present(&frame_buf[..1 + written])
     }
 
     /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
@@ -1655,42 +1665,39 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Phase 6: Reactive upload — send cursor bitmap and block until gpud acks.
+    fn upload_cursor_bitmap_to_gpud(&mut self) {
+        if !self.ensure_gpud_client() { return; }
+        let bitmap = crate::assets::CURSOR_LEFT_PTR_BGRA;
+        let w = crate::assets::CURSOR_LEFT_PTR_WIDTH;
+        let h = crate::assets::CURSOR_LEFT_PTR_HEIGHT;
+        let mut frame = [0u8; 256];
+        frame[0] = GPU_UPLOAD_CURSOR_OP;
+        frame[1..5].copy_from_slice(&w.to_le_bytes());
+        frame[5..9].copy_from_slice(&h.to_le_bytes());
+        let bgra_len = (w as usize * h as usize * 4).min(247);
+        frame[9..9 + bgra_len].copy_from_slice(&bitmap[..bgra_len]);
+        // Fire-and-forget: cursor upload is not critical-path. If it fails,
+        // hardware cursor won't work but system continues. Response handled
+        // by drain_gpud_replies() on next loop iteration.
+        self.send_gpud_fire_forget(&frame[..9 + bgra_len]);
+        let _ = debug_println("windowd: cursor bitmap uploaded");
+    }
+
     /// Submit GPU cursor composition so cursor stays out of the CPU hot path.
     fn submit_cursor_to_gpud(&mut self) -> Result<(), WindowdError> {
-        let Some(rect) = cursor_damage_rect(
-            self.state.cursor_x,
-            self.state.cursor_y,
-            self.cursor_width,
-            self.cursor_height,
-            self.mode.width,
-            self.mode.height,
-        ) else {
-            return Ok(());
-        };
-        let mut cmd = CommandBuffer::new();
-        {
-            let mut encoder = cmd
-                .try_begin_render_pass(RenderPassDesc {
-                    color_attachments: alloc::vec![],
-                    width: self.mode.width,
-                    height: self.mode.height,
-                })
-                .map_err(|_| WindowdError::InvalidDamage)?;
-            encoder
-                .try_blend_cursor(rect.x, rect.y, rect.width, rect.height)
-                .map_err(|_| WindowdError::InvalidDamage)?;
-            encoder.end_encoding();
-        }
-        let committed = cmd.try_commit().map_err(|_| WindowdError::InvalidDamage)?;
-        if committed.command_count() == 0 {
+        // Phase 6: Hardware cursor — send position via OP_MOVE_CURSOR.
+        // Pointer-accel/pointer-state compute position on CPU (fast path preserved).
+        let x = self.state.cursor_x.max(0) as u32;
+        let y = self.state.cursor_y.max(0) as u32;
+        if x >= self.mode.width || y >= self.mode.height {
             return Err(WindowdError::InvalidDamage);
         }
-        let mut frame_buf = [0u8; 512];
-        let written = committed
-            .serialize_into(&mut frame_buf[1..])
-            .map_err(|_| WindowdError::InvalidDamage)?;
-        frame_buf[0] = GPU_ANIMATION_SUBMIT_OP;
-        self.send_gpud_status_request(&frame_buf[..1 + written])
+        let mut frame = [0u8; 9];
+        frame[0] = GPU_MOVE_CURSOR_OP;
+        frame[1..5].copy_from_slice(&x.to_le_bytes());
+        frame[5..9].copy_from_slice(&y.to_le_bytes());
+        self.send_gpud_status_request(&frame)
     }
 
     fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
@@ -1791,6 +1798,12 @@ impl DisplayServerRuntime {
     }
 
     fn emit_input_markers(&mut self) {
+        // Phase A1 diagnostic: log cursor state to trace why marker doesn't fire.
+        if self.state.cursor_move_visible {
+            let _ = debug_println("windowd: cursor_move_visible=true");
+        } else {
+            let _ = debug_println("windowd: cursor_move_visible=false");
+        }
         if self.state.input_visible_on && !self.input_markers_emitted.input {
             let _ = debug_println(INPUT_ON_MARKER);
             let _ = debug_println(INPUT_VISIBLE_ON_MARKER);
@@ -1963,7 +1976,10 @@ impl DisplayServerRuntime {
                 draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
             }
             let offset = band_start as usize * row_len;
-            vmo_write(handle, DISPLAY_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
+            // CPU computes, GPU draws: the CPU compositor renders the cursor-free
+            // scene into the retained plane (Plane 1). gpud blits it to the display
+            // plane and overlays the cursor. CPU never touches the display plane.
+            vmo_write(handle, RETAINED_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
@@ -2063,7 +2079,7 @@ impl DisplayServerRuntime {
                     let band_bytes = (band_end - band_start) as usize * row_len;
                     vmo_write(
                         handle,
-                        DISPLAY_OFFSET_BYTES + band_start as usize * row_len,
+                        RETAINED_OFFSET_BYTES + band_start as usize * row_len,
                         &self.band_scratch[..band_bytes],
                     )
                     .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -2071,7 +2087,7 @@ impl DisplayServerRuntime {
                 }
                 vmo_write(
                     handle,
-                    DISPLAY_OFFSET_BYTES + offset,
+                    RETAINED_OFFSET_BYTES + offset,
                     &self.band_scratch[src_offset..src_offset + (byte_end - byte_start)],
                 )
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -2130,7 +2146,14 @@ impl DisplayServerRuntime {
         if let Some(rect) =
             self.merged_cursor_damage_rect(old_cursor_x, old_cursor_y, new_cursor_x, new_cursor_y)
         {
-            self.queue_dirty_rect(rect);
+            // Cursor-only damage: no CPU recomposite. Merge into the dedicated
+            // cursor track so flush blits it from the (cursor-free) retained plane
+            // and overlays the pointer — pure GPU, no panel/text re-render.
+            self.tile_map.mark_rect(rect);
+            self.pending_cursor_rect = Some(match self.pending_cursor_rect {
+                Some(existing) => existing.merge(rect),
+                None => rect,
+            });
         }
     }
 
@@ -2151,80 +2174,157 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Flush all pending damage to gpud as a single batched CommandBuffer.
-    /// CPU compositing writes into the VMO; gpud receives ONE IPC with the
-    /// full damage description and executes TRANSFER_TO_HOST + FLUSH once.
-    pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
-        // Phase 6e: per-frame damage pixel budget for deterministic degrade.
-        // Above 40% screen coverage, reduce glass quality to avoid overrun.
-        const DAMAGE_BUDGET_PX: u64 = (DISPLAY_WIDTH as u64 * DISPLAY_HEIGHT as u64) * 40 / 100;
-        let paint_only = self.paint_only_damage;
-        let mut rects = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
-        let mut rect_count = 0usize;
+    /// Build the per-frame GPU CommandBuffer (Fuchsia/OHOS retained-surface model).
+    ///
+    /// CPU computes, GPU draws. The CPU compositor has already rendered the
+    /// cursor-free scene (wallpaper + panels + text + glass) into the retained
+    /// plane (Plane 1). This CB does only GPU work:
+    ///   1. For each damage rect, blit that region Plane 1 (retained) → Plane 2
+    ///      (display). This restores clean background (erasing the old cursor,
+    ///      which never exists in Plane 1) and applies any content updates that
+    ///      were just composited into Plane 1.
+    ///   2. BlendCursor draws the pointer last, as a dedicated overlay layer, so
+    ///      it always sits on top. The cursor is never baked into any plane.
+    ///
+    /// A pure cursor move therefore costs one small blit + one cursor blend —
+    /// no CPU pixels, no full-screen work. Blur is baked into Plane 1 by the CPU
+    /// and only recomputed when panel content changes, so it is off the hot path.
+    fn build_frame_cb(
+        &self,
+        rects: &[DamageRect],
+        rect_count: usize,
+    ) -> Result<CommittedBuffer, WindowdError> {
+        let mut cb = CommandBuffer::new();
+        {
+            let mut encoder = cb
+                .try_begin_render_pass(RenderPassDesc {
+                    color_attachments: alloc::vec![],
+                    width: self.mode.width,
+                    height: self.mode.height,
+                })
+                .map_err(|_| WindowdError::InvalidDamage)?;
 
+            // Blit each damage region from the retained plane to the display plane.
+            // src_y is absolute (retained plane base + rect.y); dst is screen-relative
+            // — gpud adds the display-plane offset to dst_y. Keeping dst screen-relative
+            // means the damage bounding box stays in-screen for validate_rect.
+            for rect in rects.iter().copied().take(rect_count) {
+                encoder
+                    .try_blit_surface(
+                        rect.x,
+                        rect.y + RETAINED_ROW_OFFSET,
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                    )
+                    .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // Cursor overlay: composited last so it always renders on top, as its
+            // own layer (never baked into a plane). Software fast path avoids the
+            // QEMU virtio-gpu quirk where UPDATE_CURSOR corrupts RESOURCE_FLUSH.
+            if self.cursor_width > 0 && self.cursor_height > 0 {
+                let cx = (self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
+                let cy = (self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
+                if cx < self.mode.width && cy < self.mode.height {
+                    let _ = encoder.try_blend_cursor(cx, cy, self.cursor_width, self.cursor_height);
+                }
+            }
+
+            encoder.end_encoding();
+        }
+        cb.try_commit().map_err(|_| WindowdError::InvalidDamage)
+    }
+
+    /// Flush pending damage to gpud as one batched CommandBuffer.
+    ///
+    /// Retained-surface model: content damage is recomposited (CPU) into the
+    /// retained plane (Plane 1) first; then a single CB blits every damage region
+    /// (content + cursor) from Plane 1 to the display plane (Plane 2) and overlays
+    /// the cursor. Cursor-only frames skip the CPU recomposite entirely.
+    pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
+        let paint_only = self.paint_only_damage;
+
+        // 1. Collect content damage (panels/text/animation — needs CPU recomposite).
+        let mut content = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
+        let mut content_count = 0usize;
         if let Some(rect) = self.pending_damage_rect.take() {
-            rects[rect_count] = rect;
-            rect_count += 1;
+            content[content_count] = rect;
+            content_count += 1;
         }
         while let Some(rect) = self.pending_damage_rects.pop() {
-            if rect_count < rects.len() {
-                rects[rect_count] = rect;
-                rect_count += 1;
+            if content_count < content.len() {
+                content[content_count] = rect;
+                content_count += 1;
             }
         }
-        rect_count = premerge_damage_rects(&mut rects, rect_count);
-        if rect_count == 0 {
+        content_count = premerge_damage_rects(&mut content, content_count);
+
+        let cursor_rect = self.pending_cursor_rect.take();
+        if content_count == 0 && cursor_rect.is_none() {
             return Ok(());
         }
 
-        // Phase 6e: compute total damage pixels and degrade quality if over budget.
-        let total_damage_px: u64 = rects.iter().take(rect_count)
-            .map(|r| u64::from(r.width) * u64::from(r.height))
-            .sum();
-        let glass_quality = if total_damage_px > DAMAGE_BUDGET_PX {
-            GlassQuality::Low
-        } else {
-            GlassQuality::High
-        };
-
-        let compose_start = nsec().unwrap_or(0);
-        // CPU compositing writes the base scene (without cursor) into DISPLAY_OFFSET_BYTES.
-        // Cursor is composited by gpud as a separate command immediately before present.
-        for rect in rects.iter().copied().take(rect_count) {
+        // 2. Recomposite changed content into the retained plane (CPU computes).
+        //    Cursor rects are NOT recomposited — Plane 1 is already cursor-free.
+        let glass_quality = select_glass_quality(PROOF_PANEL_H);
+        for rect in content.iter().copied().take(content_count) {
             self.write_damage_rect(rect, glass_quality, paint_only)?;
         }
-        if self.state.cursor_svg_visible {
-            self.submit_cursor_to_gpud()?;
+
+        // 3. Build the blit list: every content rect + the cursor rect.
+        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 6];
+        let mut blit_count = 0usize;
+        for rect in content.iter().copied().take(content_count) {
+            blits[blit_count] = rect;
+            blit_count += 1;
         }
+        if let Some(rect) = cursor_rect {
+            blits[blit_count] = rect;
+            blit_count += 1;
+        }
+
+        // 4. One CB blits retained→display for each region + overlays the cursor.
+        let cb = self.build_frame_cb(&blits, blit_count)?;
         self.tile_map.clear();
-        let _compose_ns = nsec().unwrap_or(0).saturating_sub(compose_start);
-
-        // Send bounding damage rect to gpud for TRANSFER_TO_HOST+FLUSH so the
-        // composed base scene plus GPU cursor become visible on scanout.
-        let merged = rects[0];
-        let bounding = rects[1..rect_count]
-            .iter()
-            .fold(merged, |a, b| a.merge(*b));
-        let gpud_ok = self.present_damage_to_gpud(bounding);
-
+        let mut frame_buf = [0u8; 1024];
+        let written = cb
+            .serialize_into(&mut frame_buf[1..])
+            .map_err(|_| WindowdError::InvalidDamage)?;
+        frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
+        let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {
-            // Keep damage live for retry on the next loop iteration/input event.
-            self.queue_dirty_rect(bounding);
+            // Requeue so the next pacer tick retries. Content as content, cursor
+            // as cursor — preserving the cheap cursor-only path.
+            for rect in content.iter().copied().take(content_count) {
+                self.queue_dirty_rect(rect);
+            }
+            if let Some(rect) = cursor_rect {
+                self.pending_cursor_rect = Some(match self.pending_cursor_rect {
+                    Some(existing) => existing.merge(rect),
+                    None => rect,
+                });
+            }
             self.paint_only_damage = false;
             return Err(WindowdError::InvalidDamage);
         }
         self.emit_input_markers();
-        // P1: Mark v3b composition as verified — real damage was rendered through
-        // the full compositor pipeline including blur/shadow effects.
         self.v3b_composition_verified = true;
-        // Emit v3b effect markers now that real rendering has completed.
-        // emit_v3b_markers() is gated on v3b_composition_verified and only fires once.
         self.emit_v3b_markers();
         self.paint_only_damage = false;
         Ok(())
     }
 
     pub(crate) fn has_pending_damage(&self) -> bool {
-        !self.pending_damage_rects.is_empty() || self.pending_damage_rect.is_some()
+        !self.pending_damage_rects.is_empty()
+            || self.pending_damage_rect.is_some()
+            || self.pending_cursor_rect.is_some()
     }
+
+    /// Phase 7: maximum in-flight frames before backpressure.
+    pub(crate) const fn max_in_flight() -> u32 { 2 }
+
+    /// Phase 7: current frames in flight to gpud (exposed for pacing).
+    pub(crate) fn frames_in_flight(&self) -> u32 { self.frames_in_flight }
 }

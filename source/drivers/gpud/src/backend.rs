@@ -31,6 +31,12 @@ pub struct VirtioGpuBackend {
     /// Fragment uniform storage for SetFragmentBytes commands.
     /// Phase 6c: stores shader parameters (animation state) pushed by windowd.
     fragment_data: [u8; 64],
+    /// Software cursor sprite: the real Mocu SVG cursor (premultiplied BGRA),
+    /// uploaded once by windowd. BlendCursor composites this onto the display
+    /// plane each frame. Empty until uploaded → procedural arrow fallback.
+    cursor_sprite: alloc::vec::Vec<u8>,
+    cursor_sprite_w: u32,
+    cursor_sprite_h: u32,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
 }
@@ -63,6 +69,9 @@ impl VirtioGpuBackend {
             resources: alloc::vec::Vec::new(),
             scanout_resource: None,
             fragment_data: [0u8; 64],
+            cursor_sprite: alloc::vec::Vec::new(),
+            cursor_sprite_w: 0,
+            cursor_sprite_h: 0,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
         }
@@ -171,10 +180,10 @@ impl VirtioGpuBackend {
         // Activate the scanout first, then commit the initial framebuffer contents.
         // This matches the visible-bootstrap contract more closely: QEMU first learns
         // the target mode/scanout, then receives the content transfer + flush.
-        // Phase 6c: scanout displays top half (rows 800..1599), bottom half is wallpaper source.
+        // Phase 3: scanout displays frame ring slot A (rows 1600..2399) in 4-plane VMO.
         let scanout = protocol::VirtioGpuSetScanout {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_SET_SCANOUT),
-            r: protocol::VirtioGpuRect { x: 0, y: height / 2, width, height: height / 2 },
+            r: protocol::VirtioGpuRect { x: 0, y: height / 2, width, height: height / 4 },
             scanout_id: 0,
             resource_id: id.0,
         };
@@ -222,13 +231,25 @@ impl VirtioGpuBackend {
 
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
-        let scanout = self.scanout_resource.ok_or(GfxError::InvalidArgument)?;
+        let scanout = self.scanout_resource.ok_or_else(|| {
+            let _ = nexus_abi::debug_println("gpud: backend present_scanout_damage: no scanout_resource");
+            GfxError::InvalidArgument
+        })?;
         let record = self.find_resource(scanout).ok_or(GfxError::InvalidArgument)?;
         // Phase 6c: display is at top half — offset coords by display_height (record.height/2).
         let display_rect = Rect { x: rect.x, y: rect.y + record.height / 2, width: rect.width, height: rect.height };
-        validate_rect(record, display_rect)?;
-        self.transfer_to_host_os(record, display_rect)?;
-        self.flush_rect_os(record, display_rect)?;
+        validate_rect(record, display_rect).map_err(|_| {
+            let _ = nexus_abi::debug_println("gpud: backend validate_rect FAIL");
+            GfxError::InvalidArgument
+        })?;
+        self.transfer_to_host_os(record, display_rect).map_err(|e| {
+            let _ = nexus_abi::debug_println("gpud: backend transfer_to_host_os FAIL");
+            e
+        })?;
+        self.flush_rect_os(record, display_rect).map_err(|e| {
+            let _ = nexus_abi::debug_println("gpud: backend flush_rect_os FAIL");
+            e
+        })?;
         Ok(())
     }
 
@@ -473,9 +494,15 @@ impl VirtioGpuBackend {
                     )?;
                 }
                 Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
+                    // Retained-surface composite: src_y is an absolute VMO row
+                    // (windowd points it at the retained plane, rows 800..1599).
+                    // dst_y is screen-relative; add display_y_offset so the copy
+                    // lands in the display plane (Plane 2, rows 1600..2399).
                     blit_vmo(
                         fb, fb_len, fb_w,
-                        *src_x, *src_y, *dst_x, *dst_y, *width, *height,
+                        *src_x, *src_y,
+                        *dst_x, dst_y.saturating_add(display_y_offset),
+                        *width, *height,
                     )?;
                 }
                 Command::BlendCursor { x, y, width, height } => {
@@ -487,11 +514,78 @@ impl VirtioGpuBackend {
                         y.saturating_add(display_y_offset),
                         *width,
                         *height,
+                        &self.cursor_sprite,
+                        self.cursor_sprite_w,
+                        self.cursor_sprite_h,
                     )?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Store the software cursor sprite (premultiplied BGRA) for BlendCursor.
+    /// No hardware cursor resource, no UPDATE_CURSOR — avoids the QEMU virtio-gpu
+    /// quirk. The sprite is composited into the display plane each frame.
+    pub fn store_cursor_sprite(&mut self, bgra: &[u8], width: u32, height: u32) -> Result<(), GfxError> {
+        let needed = (width as usize).saturating_mul(height as usize).saturating_mul(4);
+        if needed == 0 || bgra.len() < needed {
+            return Err(GfxError::InvalidArgument);
+        }
+        self.cursor_sprite.clear();
+        self.cursor_sprite.extend_from_slice(&bgra[..needed]);
+        self.cursor_sprite_w = width;
+        self.cursor_sprite_h = height;
+        Ok(())
+    }
+
+    /// Phase 6: Upload cursor bitmap as a hardware cursor resource.
+    /// Creates a small resource, uploads the bitmap, and calls UPDATE_CURSOR.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn upload_cursor(&mut self, bgra: &[u8], width: u32, height: u32, hot_x: u32, hot_y: u32) -> Result<(), GfxError> {
+        if bgra.len() < (width * height * 4) as usize {
+            return Err(GfxError::InvalidArgument);
+        }
+        // Create cursor resource
+        let rid = self.create_resource(width, height, PixelFormat::Bgra8888)?;
+        let record = self.find_resource(rid).ok_or(GfxError::InvalidArgument)?;
+        // Upload bitmap via TRANSFER_TO_HOST_2D
+        let full = Rect { x: 0, y: 0, width, height };
+        self.transfer_to_host_os(record, full)?;
+        // Copy bitmap into the resource's backing memory
+        unsafe {
+            let dst = core::slice::from_raw_parts_mut(
+                record.backing_va as *mut u8,
+                (width * height * 4) as usize,
+            );
+            dst.copy_from_slice(&bgra[..(width * height * 4) as usize]);
+        }
+        // Call UPDATE_CURSOR
+        let cmd = protocol::VirtioGpuUpdateCursor {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_UPDATE_CURSOR),
+            pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x: 0, y: 0, _padding: 0 },
+            resource_id: rid.0,
+            hot_x,
+            hot_y,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&cmd)?;
+        Ok(())
+    }
+
+    /// Phase 6: Move the hardware cursor to a new position.
+    /// Uses the cursor resource uploaded via upload_cursor().
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn move_hw_cursor(&mut self, x: u32, y: u32) -> Result<(), GfxError> {
+        let cmd = protocol::VirtioGpuCursorPos {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_MOVE_CURSOR),
+            pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x, y, _padding: 0 },
+            resource_id: 1, // use resource id 1 (cursor resource)
+            hot_x: 0,
+            hot_y: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&cmd)
     }
 
     #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -1141,10 +1235,20 @@ impl CtrlQueue {
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, CTRL_QUEUE_INDEX);
+        // Log command type: first[8..12] = virtio-gpu cmd type u32le
+        if first.len() >= 16 {
+            let cmd_type = u32::from_le_bytes([first[0], first[1], first[2], first[3]]);
+            let _ = nexus_abi::debug_println(
+                &alloc::format!("gpud: submitting cmd=0x{:04x}", cmd_type));
+        }
         self.wait_complete()
     }
 
     fn wait_complete(&mut self) -> Result<(), GfxError> {
+        self.wait_complete_labeled("ctrl")
+    }
+
+    fn wait_complete_labeled(&mut self, label: &str) -> Result<(), GfxError> {
         let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
         let deadline = start.saturating_add(500_000_000);
         loop {
@@ -1161,6 +1265,8 @@ impl CtrlQueue {
                 match hdr.type_ {
                     0x1200 => {
                         let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC");
+                        // Log which command was rejected
+                        let _ = nexus_abi::debug_println(label);
                     }
                     0x1201 => {
                         let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY");
@@ -1416,6 +1522,7 @@ fn blit_vmo(
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
+#[allow(clippy::too_many_arguments)]
 fn blend_cursor_vmo(
     fb: *mut u8,
     fb_len: usize,
@@ -1424,6 +1531,9 @@ fn blend_cursor_vmo(
     y: u32,
     w: u32,
     h: u32,
+    sprite: &[u8],
+    sprite_w: u32,
+    sprite_h: u32,
 ) -> Result<(), GfxError> {
     if w == 0 || h == 0 {
         return Ok(());
@@ -1436,44 +1546,100 @@ fn blend_cursor_vmo(
         return Ok(());
     }
 
+    // Prefer the real uploaded cursor sprite (premultiplied BGRA from the Mocu
+    // SVG). Fall back to the procedural arrow only until the sprite is uploaded.
+    let use_sprite = !sprite.is_empty()
+        && sprite_w > 0
+        && sprite_h > 0
+        && sprite.len() >= (sprite_w as usize * sprite_h as usize * 4);
+
     for py in 0..copy_h {
         for px in 0..copy_w {
-            let color = cursor_pixel_bgra(px, py, w, h);
-            if color[3] == 0 {
-                continue;
-            }
             let idx = ((y as usize + py as usize) * fb_w + (x as usize + px as usize)) * 4;
             if idx + 4 > fb_len {
                 continue;
             }
-            blend_pixel_vmo(fb, idx, &color);
+            if use_sprite {
+                if px >= sprite_w || py >= sprite_h {
+                    continue;
+                }
+                let s = (py as usize * sprite_w as usize + px as usize) * 4;
+                let a = sprite[s + 3];
+                if a == 0 {
+                    continue;
+                }
+                // Source is premultiplied: out = src + dst*(255-a)/255.
+                blend_premultiplied_vmo(fb, idx, &[sprite[s], sprite[s + 1], sprite[s + 2], a]);
+            } else {
+                let color = cursor_pixel_bgra(px, py, w, h);
+                if color[3] == 0 {
+                    continue;
+                }
+                blend_pixel_vmo(fb, idx, &color);
+            }
         }
     }
     Ok(())
 }
 
+/// Composite a premultiplied-alpha BGRA pixel over the destination:
+/// out_channel = src_channel + dst_channel * (255 - alpha) / 255.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-fn cursor_pixel_bgra(px: u32, py: u32, w: u32, h: u32) -> [u8; 4] {
-    if w == 0 || h == 0 {
-        return [0, 0, 0, 0];
+fn blend_premultiplied_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
+    let inv = 255u32 - src[3] as u32;
+    unsafe {
+        let b = core::ptr::read_volatile(fb.add(idx)) as u32;
+        let g = core::ptr::read_volatile(fb.add(idx + 1)) as u32;
+        let r = core::ptr::read_volatile(fb.add(idx + 2)) as u32;
+        // (x*257)>>16 ≈ x/255 with rounding (+32768), matching blend_pixel_vmo.
+        let out_b = src[0] as u32 + ((inv * b * 257 + 32768) >> 16);
+        let out_g = src[1] as u32 + ((inv * g * 257 + 32768) >> 16);
+        let out_r = src[2] as u32 + ((inv * r * 257 + 32768) >> 16);
+        core::ptr::write_volatile(fb.add(idx), out_b.min(255) as u8);
+        core::ptr::write_volatile(fb.add(idx + 1), out_g.min(255) as u8);
+        core::ptr::write_volatile(fb.add(idx + 2), out_r.min(255) as u8);
+        core::ptr::write_volatile(fb.add(idx + 3), 255);
     }
-    let head_h = (h * 3 / 4).max(1);
-    let shaft_w = (w / 10).max(2);
-    let tip_span = ((py.saturating_mul(w.max(1))) / head_h).saturating_add(2).min(w.saturating_sub(1));
-    let in_head = py < head_h && px <= tip_span;
-    let in_shaft = px < shaft_w && py < h.saturating_sub(1);
-    if !(in_head || in_shaft) {
-        return [0, 0, 0, 0];
-    }
+}
 
-    let border = (px == 0)
-        || (py == 0)
-        || (py < head_h && px == tip_span)
-        || (py == h.saturating_sub(1) && px < shaft_w);
-    if border {
-        [8, 8, 8, 255]
-    } else {
-        [255, 255, 255, 255]
+/// Classic left-pointer arrow sprite, 12×19, tip at (0,0).
+/// `B` = dark border, `W` = white fill, space = transparent. This is a fixed
+/// crisp shape so the cursor reads as a normal pointer regardless of the 32×32
+/// footprint windowd reserves — the opaque arrow occupies only the top-left.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const CURSOR_ARROW: [&[u8; 12]; 19] = [
+    b"B           ",
+    b"BB          ",
+    b"BWB         ",
+    b"BWWB        ",
+    b"BWWWB       ",
+    b"BWWWWB      ",
+    b"BWWWWWB     ",
+    b"BWWWWWWB    ",
+    b"BWWWWWWWB   ",
+    b"BWWWWWWWWB  ",
+    b"BWWWWWBBBBB ",
+    b"BWWBWWB     ",
+    b"BWB BWWB    ",
+    b"BB  BWWB    ",
+    b"B    BWWB   ",
+    b"     BWWB   ",
+    b"      BWWB  ",
+    b"      BWWB  ",
+    b"       BB   ",
+];
+
+/// Sample the arrow sprite at (px, py). Pixels outside the 12×19 shape (or in a
+/// space cell) are fully transparent, so the cursor never fills its whole box.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn cursor_pixel_bgra(px: u32, py: u32, _w: u32, _h: u32) -> [u8; 4] {
+    if py >= CURSOR_ARROW.len() as u32 || px >= 12 {
+        return [0, 0, 0, 0];
+    }
+    match CURSOR_ARROW[py as usize][px as usize] {
+        b'B' => [40, 40, 40, 255],     // soft dark border
+        b'W' => [255, 255, 255, 255],  // white fill
+        _ => [0, 0, 0, 0],             // transparent
     }
 }
 

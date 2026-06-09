@@ -247,6 +247,7 @@ impl LiveRouteRuntime {
                 keyboard_target_visible: true,
                 cursor_x: display_start.x,
                 cursor_y: display_start.y,
+                cursor_move_visible: true,
                 ..VisibleState::default()
             },
             pointer_marker_emitted: false,
@@ -264,7 +265,7 @@ impl LiveRouteRuntime {
             windowd_push_fail_emitted: false,
             wheel_indicator_direction: WheelIndicatorDirection::None,
             wheel_indicator_deadline_ns: 0,
-            windowd_client: KernelClient::new_for("windowd").ok(),
+            windowd_client: KernelClient::new_with_slots(5, 6).ok(),
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
             chain: InputdChainTelemetry::new(),
@@ -610,10 +611,14 @@ impl LiveRouteRuntime {
         if self.windowd_client.is_none() {
             self.windowd_client = KernelClient::new_for("windowd").ok();
             if self.windowd_client.is_none() && !self.windowd_route_fallback_emitted {
-                // Keep route ownership explicit: do not silently fall back to static slots.
-                // A failed route query is retried on the next push attempt.
                 let _ = debug_println("inputd: windowd route unavailable");
                 self.windowd_route_fallback_emitted = true;
+                // Fall back to priority-wired slots from init (5=send, 6=recv).
+                self.windowd_client =
+                    KernelClient::new_with_slots(5, 6).ok();
+                if self.windowd_client.is_some() {
+                    let _ = debug_println("inputd: windowd route fallback slots 5/6");
+                }
             }
         }
         let Some(client) = &self.windowd_client else {

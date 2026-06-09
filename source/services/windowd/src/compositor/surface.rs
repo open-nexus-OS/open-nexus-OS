@@ -223,35 +223,13 @@ fn draw_layout_box_row(
         Some(f) => f.as_u8() as u32,
         None => 255,
     };
-    let want_backdrop = opacity_alpha < 255 && layout_box.visual.background.is_some();
     let cache_static_layer = cache_key.is_some()
         && paint_role.is_none()
-        && !want_backdrop
+        && opacity_alpha >= 255
         && static_layer_has_cacheable_paint(layout_box)
         && layout_box.visual.shadow.is_none()
         && layout_box.id.is_some_and(static_layer_cacheable_id);
-    if want_backdrop {
-        let row_pixels = (row.len() / 4) as u32;
-        let start = rect.x.max(0);
-        let end = (rect.x + rect.width).min(row_pixels);
-        if glass_quality == GlassQuality::Opaque {
-            // Deterministic degrade: skip blur entirely under wide dirty spans and let the
-            // translucent fill below become the only panel treatment for this frame.
-        } else if rect.width as usize <= BACKDROP_CACHE_MAX_WIDTH {
-            apply_backdrop_cache_row(
-                row,
-                y,
-                start,
-                end,
-                glass_quality,
-                backdrop_cache,
-                backdrop_scratch,
-            )?;
-        } else {
-            blur_backdrop_segment(row, start, end, glass_quality.blur_radius(), backdrop_scratch)?;
-            saturate_bgra_segment(row, start, end, DARK_GLASS_SATURATION_PERCENT);
-        }
-    }
+    // Phase A1: CPU blur removed — GPU BlurBackdrop handles all glass effects.
 
     let get_effective_bgra = |layout_box: &nexus_layout::LayoutBox| -> Option<[u8; 4]> {
         let bg = proof_box_background(layout_box, state, paint_role)?;
