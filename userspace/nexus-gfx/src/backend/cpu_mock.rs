@@ -107,7 +107,14 @@ impl CpuMockBackend {
                     self.fill_sdf_rounded(rect.x, rect.y, rect.width, rect.height, *radius, *color);
                 }
                 Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                    self.blur_backdrop(rect.x, rect.y, rect.width, rect.height, *radius, *saturation_percent)?;
+                    self.blur_backdrop(
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        *radius,
+                        *saturation_percent,
+                    )?;
                 }
                 Command::BlendCursor { x, y, width, height } => {
                     self.blend_cursor(*x, *y, *width, *height);
@@ -124,11 +131,17 @@ impl CpuMockBackend {
 
     fn tile_color_from_fragment(&self) -> [u8; 4] {
         let sidebar_opacity = f32::from_le_bytes([
-            self.fragment_data[12], self.fragment_data[13],
-            self.fragment_data[14], self.fragment_data[15],
+            self.fragment_data[12],
+            self.fragment_data[13],
+            self.fragment_data[14],
+            self.fragment_data[15],
         ]);
         let alpha = (sidebar_opacity.clamp(0.0, 1.0) * 192.0) as u8;
-        if alpha > 0 { [200, 220, 255, alpha] } else { [0, 0, 0, 0] }
+        if alpha > 0 {
+            [200, 220, 255, alpha]
+        } else {
+            [0, 0, 0, 0]
+        }
     }
 
     fn fill_rect_solid(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
@@ -162,7 +175,8 @@ impl CpuMockBackend {
             let dst_off = dst_y as usize * dst_stride + dx as usize * 4;
             let copy_len = (w as usize * 4).min(self.framebuffer.len().saturating_sub(dst_off));
             let src_end = src_off.saturating_add(copy_len);
-            if src_end <= self.source_surface.len() && dst_off + copy_len <= self.framebuffer.len() {
+            if src_end <= self.source_surface.len() && dst_off + copy_len <= self.framebuffer.len()
+            {
                 self.framebuffer[dst_off..dst_off + copy_len]
                     .copy_from_slice(&self.source_surface[src_off..src_end]);
             }
@@ -172,7 +186,9 @@ impl CpuMockBackend {
 
     fn fill_sdf_rounded(&mut self, x: u32, y: u32, w: u32, h: u32, radius: u32, color: RgbaColor) {
         let rgba = color.as_array();
-        if rgba[3] == 0 { return; }
+        if rgba[3] == 0 {
+            return;
+        }
         let fw = self.width as usize;
         let end_x = x.saturating_add(w).min(self.width);
         let end_y = y.saturating_add(h).min(self.height);
@@ -185,7 +201,9 @@ impl CpuMockBackend {
             let row = py as usize * fw;
             for px in x..end_x {
                 let i = (row + px as usize) * 4;
-                if i + 4 > self.framebuffer.len() { continue; }
+                if i + 4 > self.framebuffer.len() {
+                    continue;
+                }
                 let inside = if r <= 0 {
                     true
                 } else {
@@ -211,7 +229,15 @@ impl CpuMockBackend {
         }
     }
 
-    fn blur_backdrop(&mut self, x: u32, y: u32, w: u32, h: u32, radius: u32, saturation_pct: u32) -> Result<(), GfxError> {
+    fn blur_backdrop(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+        saturation_pct: u32,
+    ) -> Result<(), GfxError> {
         if radius == 0 {
             return Ok(());
         }
@@ -226,7 +252,9 @@ impl CpuMockBackend {
             let _row_off = py as usize * fw;
             let row_len = (end_x - x) as usize * 4;
             let row_start = x as usize * 4;
-            if row_start + row_len > self.framebuffer.len() { continue; }
+            if row_start + row_len > self.framebuffer.len() {
+                continue;
+            }
             scratch[..row_len].copy_from_slice(&self.framebuffer[row_start..row_start + row_len]);
 
             let pixels = row_len / 4;
@@ -235,26 +263,32 @@ impl CpuMockBackend {
             let mut right = r.min(pixels.saturating_sub(1));
             for j in left..=right {
                 let bi = j * 4;
-                for c in 0..4 { sums[c] += scratch[bi + c] as u64; }
+                for c in 0..4 {
+                    sums[c] += scratch[bi + c] as u64;
+                }
             }
             for i in 0..pixels {
                 let count = (right - left + 1) as u64;
                 let di = row_start + i * 4;
-                for c in 0..4 {
-                    self.framebuffer[di + c] = (sums[c] / count.max(1)).min(255) as u8;
+                for (c, &sum) in sums.iter().enumerate() {
+                    self.framebuffer[di + c] = (sum / count.max(1)).min(255) as u8;
                 }
                 if i + 1 < pixels {
                     let next_left = (i + 1).saturating_sub(r);
                     if next_left > left {
                         let bi = left * 4;
-                        for c in 0..4 { sums[c] = sums[c].saturating_sub(scratch[bi + c] as u64); }
+                        for c in 0..4 {
+                            sums[c] = sums[c].saturating_sub(scratch[bi + c] as u64);
+                        }
                         left = next_left;
                     }
                     let next_right = (i + 1 + r).min(pixels.saturating_sub(1));
                     if next_right > right {
                         right = next_right;
                         let bi = right * 4;
-                        for c in 0..4 { sums[c] += scratch[bi + c] as u64; }
+                        for c in 0..4 {
+                            sums[c] += scratch[bi + c] as u64;
+                        }
                     }
                 }
             }
@@ -267,34 +301,39 @@ impl CpuMockBackend {
             let col_h = (end_y - y) as usize;
             for row_i in 0..col_h {
                 let src = (y as usize + row_i) * fw + col_off;
-                col_buf[row_i * 4..row_i * 4 + 4]
-                    .copy_from_slice(&self.framebuffer[src..src + 4]);
+                col_buf[row_i * 4..row_i * 4 + 4].copy_from_slice(&self.framebuffer[src..src + 4]);
             }
             let mut sums = [0u64; 4];
             let mut top = 0usize;
             let mut bot = r.min(col_h.saturating_sub(1));
             for j in top..=bot {
                 let bi = j * 4;
-                for c in 0..4 { sums[c] += col_buf[bi + c] as u64; }
+                for c in 0..4 {
+                    sums[c] += col_buf[bi + c] as u64;
+                }
             }
             for i in 0..col_h {
                 let count = (bot - top + 1) as u64;
                 let dst = (y as usize + i) * fw + col_off;
-                for c in 0..4 {
-                    self.framebuffer[dst + c] = (sums[c] / count.max(1)).min(255) as u8;
+                for (c, &sum) in sums.iter().enumerate() {
+                    self.framebuffer[dst + c] = (sum / count.max(1)).min(255) as u8;
                 }
                 if i + 1 < col_h {
                     let next_top = (i + 1).saturating_sub(r);
                     if next_top > top {
                         let bi = top * 4;
-                        for c in 0..4 { sums[c] = sums[c].saturating_sub(col_buf[bi + c] as u64); }
+                        for c in 0..4 {
+                            sums[c] = sums[c].saturating_sub(col_buf[bi + c] as u64);
+                        }
                         top = next_top;
                     }
                     let next_bot = (i + 1 + r).min(col_h.saturating_sub(1));
                     if next_bot > bot {
                         bot = next_bot;
                         let bi = bot * 4;
-                        for c in 0..4 { sums[c] += col_buf[bi + c] as u64; }
+                        for c in 0..4 {
+                            sums[c] += col_buf[bi + c] as u64;
+                        }
                     }
                 }
             }
@@ -307,14 +346,18 @@ impl CpuMockBackend {
                 let row_off = py as usize * fw + x as usize * 4;
                 let row_len = (end_x - x) as usize * 4;
                 for off in (row_off..row_off + row_len).step_by(4) {
-                    if off + 4 > self.framebuffer.len() { continue; }
+                    if off + 4 > self.framebuffer.len() {
+                        continue;
+                    }
                     let b = self.framebuffer[off] as f32;
                     let g = self.framebuffer[off + 1] as f32;
                     let r = self.framebuffer[off + 2] as f32;
                     let gray = 0.299 * r + 0.587 * g + 0.114 * b;
                     self.framebuffer[off] = (gray + (b - gray) * factor).clamp(0.0, 255.0) as u8;
-                    self.framebuffer[off + 1] = (gray + (g - gray) * factor).clamp(0.0, 255.0) as u8;
-                    self.framebuffer[off + 2] = (gray + (r - gray) * factor).clamp(0.0, 255.0) as u8;
+                    self.framebuffer[off + 1] =
+                        (gray + (g - gray) * factor).clamp(0.0, 255.0) as u8;
+                    self.framebuffer[off + 2] =
+                        (gray + (r - gray) * factor).clamp(0.0, 255.0) as u8;
                 }
             }
         }
@@ -322,24 +365,37 @@ impl CpuMockBackend {
     }
 
     fn blend_cursor(&mut self, x: u32, y: u32, w: u32, h: u32) {
-        if self.cursor_bitmap.is_empty() { return; }
+        if self.cursor_bitmap.is_empty() {
+            return;
+        }
         let fw = self.width as usize;
         for row in 0..h {
             let dst_y = y.saturating_add(row);
-            if dst_y >= self.height { break; }
+            if dst_y >= self.height {
+                break;
+            }
             for col in 0..w {
                 let dst_x = x.saturating_add(col);
-                if dst_x >= self.width { break; }
+                if dst_x >= self.width {
+                    break;
+                }
                 let src_i = (row as usize * self.cursor_width as usize + col as usize) * 4;
-                if src_i + 4 > self.cursor_bitmap.len() { continue; }
+                if src_i + 4 > self.cursor_bitmap.len() {
+                    continue;
+                }
                 let alpha = self.cursor_bitmap[src_i + 3] as u16;
-                if alpha == 0 { continue; }
+                if alpha == 0 {
+                    continue;
+                }
                 let dst_i = (dst_y as usize * fw + dst_x as usize) * 4;
-                if dst_i + 4 > self.framebuffer.len() { continue; }
+                if dst_i + 4 > self.framebuffer.len() {
+                    continue;
+                }
                 let inv = 255u16.saturating_sub(alpha);
                 for c in 0..3 {
                     self.framebuffer[dst_i + c] = ((alpha * self.cursor_bitmap[src_i + c] as u16
-                        + inv * self.framebuffer[dst_i + c] as u16) / 255) as u8;
+                        + inv * self.framebuffer[dst_i + c] as u16)
+                        / 255) as u8;
                 }
             }
         }
@@ -358,12 +414,21 @@ impl GfxBackend for CpuMockBackend {
         Ok(fence)
     }
 
-    fn create_resource(&mut self, w: u32, h: u32, fmt: PixelFormat) -> Result<ResourceId, GfxError> {
-        if w == 0 || h == 0 { return Err(GfxError::InvalidArgument); }
+    fn create_resource(
+        &mut self,
+        w: u32,
+        h: u32,
+        fmt: PixelFormat,
+    ) -> Result<ResourceId, GfxError> {
+        if w == 0 || h == 0 {
+            return Err(GfxError::InvalidArgument);
+        }
         let id = ResourceId(self.next_id);
         self.next_id += 1;
         self.resources.push(CpuResource {
-            width: w, height: h, format: fmt,
+            width: w,
+            height: h,
+            format: fmt,
             data: vec![0u8; w as usize * h as usize * 4],
         });
         Ok(id)
@@ -375,7 +440,8 @@ impl GfxBackend for CpuMockBackend {
         };
         let end_x = rect.x.checked_add(rect.width).ok_or(GfxError::InvalidArgument)?;
         let end_y = rect.y.checked_add(rect.height).ok_or(GfxError::InvalidArgument)?;
-        if rect.width == 0 || rect.height == 0 || end_x > resource.width || end_y > resource.height {
+        if rect.width == 0 || rect.height == 0 || end_x > resource.width || end_y > resource.height
+        {
             return Err(GfxError::InvalidArgument);
         }
         Ok(())
@@ -403,7 +469,9 @@ fn corner_dist(px: i32, py: i32, cx: i32, cy: i32, r: i32) -> i32 {
 
 fn blend_pixel(dst: &mut [u8], src: &[u8; 4]) {
     let alpha = src[3] as u32;
-    if alpha == 0 { return; }
+    if alpha == 0 {
+        return;
+    }
     if alpha == 255 {
         dst.copy_from_slice(src);
         return;

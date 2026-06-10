@@ -40,7 +40,6 @@ pub enum TimerError {
     AlreadyArmed,
 }
 
-
 /// Timer state — stored in the per-hart timer table.
 #[derive(Debug, Clone)]
 pub struct TimerState {
@@ -77,7 +76,12 @@ impl HartTimers {
     }
 
     /// Allocate a new timer slot. Returns the timer ID.
-    pub fn alloc(&mut self, owner_pid: u32, notify_ep: u32, interval_ns: u64) -> Result<TimerId, TimerError> {
+    pub fn alloc(
+        &mut self,
+        owner_pid: u32,
+        notify_ep: u32,
+        interval_ns: u64,
+    ) -> Result<TimerId, TimerError> {
         if self.table.len() >= MAX_TIMERS {
             return Err(TimerError::ResourceExhausted);
         }
@@ -90,15 +94,18 @@ impl HartTimers {
             }
             id = self.next_id;
         }
-        self.table.insert(id, TimerState {
-            owner_pid,
-            notify_ep,
-            deadline_ns: 0,
-            interval_ns,
-            seq: 0,
-            missed: 0,
-            armed: false,
-        });
+        self.table.insert(
+            id,
+            TimerState {
+                owner_pid,
+                notify_ep,
+                deadline_ns: 0,
+                interval_ns,
+                seq: 0,
+                missed: 0,
+                armed: false,
+            },
+        );
         Ok(TimerId(id))
     }
 

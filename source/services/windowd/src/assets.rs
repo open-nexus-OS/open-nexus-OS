@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod generated {
+    #![allow(dead_code)]
     include!(concat!(env!("OUT_DIR"), "/windowd_generated_assets.rs"));
 }
 
@@ -36,7 +37,9 @@ pub const PROOF_HOVER: Rgba8 = rgba8(generated::PROOF_HOVER_RGBA);
 pub const PROOF_CLICK: Rgba8 = rgba8(generated::PROOF_CLICK_RGBA);
 pub const PROOF_SCROLL: Rgba8 = rgba8(generated::PROOF_SCROLL_RGBA);
 pub const PROOF_KEYBOARD: Rgba8 = rgba8(generated::PROOF_KEYBOARD_RGBA);
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const GLASS_TINT: Rgba8 = rgba8(generated::GLASS_TINT_RGBA);
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const GLASS_EDGE: Rgba8 = rgba8(generated::GLASS_EDGE_RGBA);
 
 pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {

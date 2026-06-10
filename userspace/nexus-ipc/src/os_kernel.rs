@@ -414,9 +414,7 @@ impl KernelServer {
         // Routing reply is (send_slot, recv_slot) from the caller's perspective.
         match query_route(service, Wait::Timeout(ROUTE_QUERY_TIMEOUT)) {
             Ok((send_slot, recv_slot)) => Self::new_with_slots(recv_slot, send_slot),
-            Err(err) => {
-                Err(err)
-            }
+            Err(err) => Err(err),
         }
     }
 

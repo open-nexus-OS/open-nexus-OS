@@ -1,9 +1,9 @@
 ---
 title: TASK-0062 UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract
-status: In Progress
+status: Done
 owner: @ui @runtime
 created: 2025-12-23
-updated: 2026-06-05 (Phase 6c-7 closure criteria hardened, measurable smoothness gates)
+updated: 2026-06-10 (TASK-0062 closed; RFC-0059 Complete; all phases proven; CHANGELOG synced)
 depends-on: [TASK-0059]
 follow-up-tasks: [TASK-0063, TASK-0064]
 links:

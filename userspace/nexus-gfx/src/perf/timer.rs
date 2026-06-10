@@ -22,7 +22,7 @@ pub const MAX_FRAME_SAMPLES: usize = 1;
 pub const MAX_FRAME_SAMPLES: usize = 256;
 
 /// A single frame's timing record.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct FrameSample {
     /// Total frame wall time (compose + IPC + present).
     pub total_ns: u64,
@@ -36,12 +36,6 @@ pub struct FrameSample {
     pub damage_rects: u16,
     /// Total pixels transferred in this frame (damage area × 4).
     pub transfer_bytes: u64,
-}
-
-impl Default for FrameSample {
-    fn default() -> Self {
-        Self { total_ns: 0, compose_ns: 0, ipc_ns: 0, present_ns: 0, damage_rects: 0, transfer_bytes: 0 }
-    }
 }
 
 /// Soll-gate definition — a hard performance requirement.
@@ -199,7 +193,7 @@ mod tests {
     fn timer_records_frame_samples() {
         let mut t = PipelineTimer::new();
         t.begin_frame(0);
-        t.begin_stage(100);
+        t.begin_stage(100_000);
         t.end_compose(1_000_000, 2, 500_000);
         t.begin_stage(1_000_000);
         t.end_ipc(1_050_000);
@@ -220,12 +214,12 @@ mod tests {
         let mut t = PipelineTimer::new();
         t.begin_frame(0);
         t.begin_stage(0);
-        t.end_compose(10_000_000, 1, 100); // exceeds 6ms compose gate
-        t.begin_stage(10_000_000);
-        t.end_ipc(10_000_000);
-        t.begin_stage(10_000_000);
-        t.end_present(10_000_000);
-        t.end_frame(10_000_000);
+        t.end_compose(7_000_000, 1, 100); // exceeds 6ms compose gate, stays under 8.33ms total
+        t.begin_stage(7_000_000);
+        t.end_ipc(7_000_000);
+        t.begin_stage(7_000_000);
+        t.end_present(7_000_000);
+        t.end_frame(7_000_000);
 
         let violation = t.validate_gates();
         assert!(violation.is_some());

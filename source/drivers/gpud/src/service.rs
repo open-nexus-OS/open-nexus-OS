@@ -97,7 +97,8 @@ fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
         return Ok(server);
     }
     let _ = debug_println("gpud: route fallback slots");
-    KernelServer::new_with_slots(GPUD_RECV_SLOT, GPUD_SEND_SLOT).map_err(|_| nexus_abi::AbiError::InvalidArgument)
+    KernelServer::new_with_slots(GPUD_RECV_SLOT, GPUD_SEND_SLOT)
+        .map_err(|_| nexus_abi::AbiError::InvalidArgument)
 }
 
 fn service_requests(
@@ -129,7 +130,8 @@ fn service_requests(
                 let (status, response_handoff_id) = match op {
                     OP_SET_FRAMEBUFFER_VMO => {
                         let _ = debug_println("gpud: recv OP_SET_FRAMEBUFFER_VMO");
-                        let handoff_id = decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
+                        let handoff_id =
+                            decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
                         match moved_cap.take() {
                             Some(cap) => match backend.attach_external_framebuffer(
                                 cap.slot(),
@@ -146,8 +148,9 @@ fn service_requests(
                                 }
                                 Err(e) => {
                                     let _ = debug_println("gpud: ERROR attach framebuffer failed");
-                                    let _ =
-                                        debug_println("gpud: ERROR attach framebuffer resource create failed");
+                                    let _ = debug_println(
+                                        "gpud: ERROR attach framebuffer resource create failed",
+                                    );
                                     let _ = e;
                                     (STATUS_DEVICE_ERROR, Some(handoff_id))
                                 }
@@ -221,8 +224,7 @@ fn service_requests(
                     let _ = server.send(&response, Wait::Blocking);
                 }
             }
-            Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::Timeout) => {
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 // WouldBlock/Timeout are unexpected in Blocking mode; yield and retry.
                 let _ = yield_();
             }
@@ -259,7 +261,9 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
     let mut found = false;
     for cmd in cb.commands() {
         let (x, y, w, h) = match cmd {
-            Command::BlitSurface { dst_x, dst_y, width, height, .. } => (*dst_x, *dst_y, *width, *height),
+            Command::BlitSurface { dst_x, dst_y, width, height, .. } => {
+                (*dst_x, *dst_y, *width, *height)
+            }
             Command::FillSdfRoundedRect { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
             Command::BlurBackdrop { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
             Command::BlendCursor { x, y, width, height } => (*x, *y, *width, *height),
@@ -274,7 +278,12 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
         found = true;
     }
     if found {
-        Rect { x: min_x, y: min_y, width: max_x.saturating_sub(min_x).max(1), height: max_y.saturating_sub(min_y).max(1) }
+        Rect {
+            x: min_x,
+            y: min_y,
+            width: max_x.saturating_sub(min_x).max(1),
+            height: max_y.saturating_sub(min_y).max(1),
+        }
     } else {
         Rect { x: 0, y: 0, width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT }
     }

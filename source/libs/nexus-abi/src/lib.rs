@@ -1797,7 +1797,8 @@ pub fn timer_create(notify_ep_cap: Cap, interval_ns: u64) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_TIMER_CREATE: usize = 33;
-        let raw = unsafe { ecall2(SYSCALL_TIMER_CREATE, notify_ep_cap as usize, interval_ns as usize) };
+        let raw =
+            unsafe { ecall2(SYSCALL_TIMER_CREATE, notify_ep_cap as usize, interval_ns as usize) };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

@@ -73,12 +73,6 @@ fn fxpx_hash_value(v: nexus_layout_types::FxPx) -> u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SceneNodeId(pub u64);
 
-impl SceneNodeId {
-    pub(crate) const fn new(id: u64) -> Self {
-        Self(id)
-    }
-}
-
 impl From<LayerId> for SceneNodeId {
     fn from(lid: LayerId) -> Self {
         Self(lid.0)
@@ -135,28 +129,11 @@ impl InvalidationClass {
 #[derive(Debug, Clone)]
 pub(crate) enum RenderPrimitive {
     /// Filled rounded rectangle
-    Rect {
-        width: u32,
-        height: u32,
-        radius: u32,
-        color: Rgba8,
-    },
+    Rect { width: u32, height: u32, radius: u32, color: Rgba8 },
     /// Stroked rounded rectangle border
-    StrokeRect {
-        width: u32,
-        height: u32,
-        radius: u32,
-        stroke_width: u32,
-        color: Rgba8,
-    },
+    StrokeRect { width: u32, height: u32, radius: u32, stroke_width: u32, color: Rgba8 },
     /// Blit from a retained surface (atlas tile, backdrop snapshot, glyph cache)
-    Surface {
-        surface_handle: u32,
-        src_x: u32,
-        src_y: u32,
-        width: u32,
-        height: u32,
-    },
+    Surface { surface_handle: u32, src_x: u32, src_y: u32, width: u32, height: u32 },
     /// Bitmap text run (pre-shaped, pre-rasterized — text shaping is upstream)
     Text {
         /// Content string (borrowed from static assets or entry pool)
@@ -166,19 +143,11 @@ pub(crate) enum RenderPrimitive {
     },
     /// Backdrop blur filter — samples from a retained backdrop snapshot,
     /// not from live scanout memory
-    BackdropFilter {
-        blur_radius: u32,
-        saturation_percent: u32,
-    },
+    BackdropFilter { blur_radius: u32, saturation_percent: u32 },
     /// Group container — children rendered into this group with optional shadow
-    Group {
-        shadow: Option<BoxShadow>,
-    },
+    Group { shadow: Option<BoxShadow> },
     /// Hardware or composited cursor
-    Cursor {
-        hotspot_x: i32,
-        hotspot_y: i32,
-    },
+    Cursor { hotspot_x: i32, hotspot_y: i32 },
 }
 
 impl RenderPrimitive {
@@ -306,7 +275,7 @@ impl SceneNode {
             let h = hash_u32(h, fxpx_hash_value(clip.y));
             let h = hash_u32(h, fxpx_hash_value(clip.width));
             hash_u32(h, fxpx_hash_value(clip.height))
-       } else {
+        } else {
             h
         };
         if let Some(ref prim) = self.primitive {
@@ -363,11 +332,7 @@ impl SceneGraph {
         while self.nodes.len() <= idx {
             self.nodes.push(None);
         }
-        debug_assert!(
-            self.nodes[idx].is_none(),
-            "SceneGraph: duplicate node id {}",
-            node.id.0
-        );
+        debug_assert!(self.nodes[idx].is_none(), "SceneGraph: duplicate node id {}", node.id.0);
 
         // If no parent, add to roots
         if node.parent.is_none() {
@@ -395,11 +360,8 @@ impl SceneGraph {
         }
 
         // Recursively remove children first
-        let children: Vec<SceneNodeId> = self
-            .nodes[idx]
-            .as_ref()
-            .map(|n| n.children.clone())
-            .unwrap_or_default();
+        let children: Vec<SceneNodeId> =
+            self.nodes[idx].as_ref().map(|n| n.children.clone()).unwrap_or_default();
         for child_id in children {
             self.remove(child_id);
         }
@@ -453,14 +415,6 @@ impl SceneGraph {
         }
     }
 
-    /// Set node visibility. Marks `PaintOnly`.
-    pub(crate) fn set_visible(&mut self, id: SceneNodeId, visible: bool) {
-        if let Some(node) = self.find_mut(id) {
-            node.visible = visible;
-            node.invalidation = node.invalidation.merge(InvalidationClass::PaintOnly);
-        }
-    }
-
     /// Replace the node's render primitive. Marks `PaintOnly`.
     pub(crate) fn set_primitive(&mut self, id: SceneNodeId, prim: RenderPrimitive) {
         if let Some(node) = self.find_mut(id) {
@@ -482,22 +436,19 @@ impl SceneGraph {
             AnimProp::TranslateX => {
                 if let Some(node) = self.find_mut(id) {
                     node.x = update.value as i32;
-                    node.invalidation =
-                        node.invalidation.merge(InvalidationClass::PlaceOnly);
+                    node.invalidation = node.invalidation.merge(InvalidationClass::PlaceOnly);
                 }
             }
             AnimProp::TranslateY => {
                 if let Some(node) = self.find_mut(id) {
                     node.y = update.value as i32;
-                    node.invalidation =
-                        node.invalidation.merge(InvalidationClass::PlaceOnly);
+                    node.invalidation = node.invalidation.merge(InvalidationClass::PlaceOnly);
                 }
             }
             // ScaleX/Y, ShadowRadius, BlurRadius — deferred to future passes.
             _ => {
                 if let Some(node) = self.find_mut(id) {
-                    node.invalidation =
-                        node.invalidation.merge(InvalidationClass::PaintOnly);
+                    node.invalidation = node.invalidation.merge(InvalidationClass::PaintOnly);
                 }
             }
         }
@@ -598,10 +549,8 @@ impl SceneGraph {
 
     /// Mark all nodes clean (call after frame submission).
     pub(crate) fn mark_all_clean(&mut self) {
-        for slot in &mut self.nodes {
-            if let Some(node) = slot {
-                node.invalidation = InvalidationClass::Clean;
-            }
+        for node in self.nodes.iter_mut().flatten() {
+            node.invalidation = InvalidationClass::Clean;
         }
     }
 
@@ -625,12 +574,7 @@ mod tests {
     }
 
     fn rect_prim(w: u32, h: u32) -> RenderPrimitive {
-        RenderPrimitive::Rect {
-            width: w,
-            height: h,
-            radius: 4,
-            color: Rgba8::new(255, 0, 0, 255),
-        }
+        RenderPrimitive::Rect { width: w, height: h, radius: 4, color: Rgba8::new(255, 0, 0, 255) }
     }
 
     fn make_node(graph: &mut SceneGraph, parent: Option<SceneNodeId>) -> SceneNodeId {
@@ -854,10 +798,20 @@ mod tests {
     fn render_primitive_tag_uniqueness() {
         // Each variant must have a unique tag
         let tags: Vec<u64> = vec![
-            RenderPrimitive::Rect { width: 0, height: 0, radius: 0, color: Rgba8::new(0, 0, 0, 0) }.tag(),
-            RenderPrimitive::StrokeRect { width: 0, height: 0, radius: 0, stroke_width: 0, color: Rgba8::new(0, 0, 0, 0) }.tag(),
-            RenderPrimitive::Surface { surface_handle: 0, src_x: 0, src_y: 0, width: 0, height: 0 }.tag(),
-            RenderPrimitive::Text { content: "", font_scale: 0, color: Rgba8::new(0, 0, 0, 0) }.tag(),
+            RenderPrimitive::Rect { width: 0, height: 0, radius: 0, color: Rgba8::new(0, 0, 0, 0) }
+                .tag(),
+            RenderPrimitive::StrokeRect {
+                width: 0,
+                height: 0,
+                radius: 0,
+                stroke_width: 0,
+                color: Rgba8::new(0, 0, 0, 0),
+            }
+            .tag(),
+            RenderPrimitive::Surface { surface_handle: 0, src_x: 0, src_y: 0, width: 0, height: 0 }
+                .tag(),
+            RenderPrimitive::Text { content: "", font_scale: 0, color: Rgba8::new(0, 0, 0, 0) }
+                .tag(),
             RenderPrimitive::BackdropFilter { blur_radius: 0, saturation_percent: 0 }.tag(),
             RenderPrimitive::Group { shadow: None }.tag(),
             RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 }.tag(),

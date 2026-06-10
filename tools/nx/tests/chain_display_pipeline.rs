@@ -50,10 +50,7 @@ mod tests {
         runner
             .expect_marker("gpud: virtio-gpu probed", ms(500))
             .describe("H0: gpud probed virtio-gpu MMIO device");
-        runner
-            .expect_marker("gpud: ready", ms(300))
-            .after(0)
-            .describe("H1: gpud IPC-ready");
+        runner.expect_marker("gpud: ready", ms(300)).after(0).describe("H1: gpud IPC-ready");
 
         // --- windowd init ---
         runner
@@ -133,21 +130,13 @@ mod tests {
         runner.register(Box::new(GpudContract::with_handoff()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner
-            .expect_marker("gpud: ready", ms(500))
-            .describe("gpud ready");
-        runner
-            .expect_marker("windowd: fb vmo create ok", ms(500))
-            .after(0)
-            .describe("VMO created");
+        runner.expect_marker("gpud: ready", ms(500)).describe("gpud ready");
+        runner.expect_marker("windowd: fb vmo create ok", ms(500)).after(0).describe("VMO created");
         runner
             .expect_marker("windowd: handoff attach sent", ms(300))
             .after(1)
             .describe("handoff sent");
-        runner
-            .expect_marker("gpud: handoff attach ack", ms(500))
-            .after(2)
-            .describe("gpud ack");
+        runner.expect_marker("gpud: handoff attach ack", ms(500)).after(2).describe("gpud ack");
         runner
             .expect_marker("windowd: handoff attach ack", ms(300))
             .after(3)
@@ -177,8 +166,7 @@ mod tests {
         runner.register(Box::new(GpudContract::with_handoff_and_cursor()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner
-            .expect_marker("gpud: ready", ms(500));
+        runner.expect_marker("gpud: ready", ms(500));
         runner
             .expect_marker("windowd: handoff attach ack", ms(1000))
             .after(0)
@@ -215,8 +203,7 @@ mod tests {
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
         runner.register(Box::new(InputdContract::with_cursor_moves()));
 
-        runner
-            .expect_marker("gpud: ready", ms(500));
+        runner.expect_marker("gpud: ready", ms(500));
         runner
             .expect_marker("windowd: present visible ok", ms(1500))
             .after(0)

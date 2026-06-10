@@ -34,13 +34,13 @@ mod proof_panel_spec;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
 #[cfg(any(test, target_os = "none"))]
-mod scene_graph;
-#[cfg(any(test, target_os = "none"))]
 mod resource_pool;
 #[cfg(any(test, target_os = "none"))]
-mod systemui_shell;
+mod scene_graph;
 mod server;
 mod smoke;
+#[cfg(any(test, target_os = "none"))]
+mod systemui_shell;
 mod telemetry;
 mod visible_state;
 
@@ -138,8 +138,8 @@ pub use markers::{
 };
 pub use proof_panel_spec::{
     filter_words, ProofTextSpec, ALL_TEXT_SPECS, FILTER_WORDS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG,
-    TOKEN_CARD_BORDER, TOKEN_CLICK, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG, TOKEN_KEYBOARD,
-    TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_SCROLL,
+    TOKEN_CARD_BORDER, TOKEN_CLICK, TOKEN_GLASS_EDGE, TOKEN_GLASS_TINT, TOKEN_HOVER, TOKEN_ICON_BG,
+    TOKEN_ICON_FG, TOKEN_KEYBOARD, TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_SCROLL,
 };
 pub use server::{
     BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PointerPosition, PresentAck,

@@ -111,8 +111,8 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0056C | UI v2a: present/input perf latency + coalescing + no-damage-skip + idle-cheap | 2026-05-11 |
 | ✅ TASK-0057 | UI v2b: Minimal DisplayServer v0 — Mocu cursor, JPEG wallpaper, Inter text, input targets | 2026-05-15 |
 | ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
-| ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
-| ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
+| ✅ TASK-0059 | UI v3b: clip + scroll + backdrop effects + shadow pipeline + IME + MSDF/SDF rendering | 2026-06-05 |
+| ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | 2026-06-10 |
 
 ---
 

@@ -13,13 +13,11 @@ pub struct Fence {
 
 impl Fence {
     /// Create an already-signaled fence (for synchronous backends).
-    #[must_use]
     pub const fn new_signaled() -> Self {
         Self { signaled: true }
     }
 
     /// Create an unsignaled fence. The backend must call `signal()` when work completes.
-    #[must_use]
     pub const fn new_unsignaled() -> Self {
         Self { signaled: false }
     }

@@ -20,6 +20,7 @@ use nexus_layout_types::Rect;
 /// Device display configuration backed by a device manifest or policy recipe.
 /// No desktop-only defaults — every field comes from the manifest.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) struct DeviceProfile {
     /// Display width in pixels.
     pub display_width: u32,
@@ -77,6 +78,7 @@ pub(crate) enum ShellMode {
 
 /// Primary display orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum Orientation {
     Landscape,
     Portrait,
@@ -86,6 +88,7 @@ pub(crate) enum Orientation {
 
 /// Adaptive size class for responsive layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum SizeClass {
     /// Compact: phone portrait, small windows.
     Compact,
@@ -104,6 +107,7 @@ pub(crate) enum SizeClass {
 /// Owns one retained scene graph. All UI frontends mount into this graph.
 /// The bootstrap shell, launcher, quick settings, app windows, and future
 /// DSL pages all share this single root — no duplicate hierarchies.
+#[allow(dead_code)]
 pub(crate) struct SystemUiShell {
     /// The retained scene graph.
     pub graph: SceneGraph,
@@ -197,10 +201,7 @@ impl SystemUiShell {
             visible: true,
             opacity: 1.0,
             clip: None,
-            primitive: Some(RenderPrimitive::Cursor {
-                hotspot_x: 0,
-                hotspot_y: 0,
-            }),
+            primitive: Some(RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 }),
             subtree_hash: 0,
             invalidation: InvalidationClass::MeasureAndPlace,
         };
@@ -222,9 +223,7 @@ impl SystemUiShell {
             visible: true,
             opacity: 1.0,
             clip: None,
-            primitive: Some(RenderPrimitive::Group {
-                shadow: None,
-            }),
+            primitive: Some(RenderPrimitive::Group { shadow: None }),
             subtree_hash: 0,
             invalidation: InvalidationClass::MeasureAndPlace,
         };

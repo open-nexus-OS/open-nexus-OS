@@ -5,14 +5,20 @@
 //! OWNERS: @ui @runtime
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_gfx::{CommandBuffer, CommittedBuffer, GfxError, Queue, RenderPassDesc, RgbaColor, TileRect};
+use nexus_gfx::{
+    CommandBuffer, CommittedBuffer, GfxError, Queue, RenderPassDesc, RgbaColor, TileRect,
+};
 
 /// Record a representative GPU-first scene CB (the windowd present frame:
 /// blit + glass blur/fill + cursor). Clears first so the buffer is reusable.
 fn record_scene(cb: &mut CommandBuffer) {
     cb.clear();
     let mut enc = cb
-        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 1280, height: 800 })
+        .try_begin_render_pass(RenderPassDesc {
+            color_attachments: vec![],
+            width: 1280,
+            height: 800,
+        })
         .unwrap();
     enc.try_blit_surface(0, 800, 0, 0, 1280, 64).unwrap();
     let btn = TileRect { x: 1100, y: 24, width: 156, height: 56 };

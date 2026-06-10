@@ -24,7 +24,7 @@ pub const VISIBLE_INPUT_LEFT_SQUARE_Y: u32 = 1;
 pub const VISIBLE_INPUT_RIGHT_SQUARE_X: u32 = 52;
 pub const VISIBLE_INPUT_RIGHT_SQUARE_Y: u32 = 18;
 pub const VISIBLE_INPUT_SQUARE_SIZE: u32 = 8;
-const VISIBLE_INPUT_HOVER_TARGET_WIDTH: u32 = 8;  // covers route x=55..62
+const VISIBLE_INPUT_HOVER_TARGET_WIDTH: u32 = 8; // covers route x=55..62
 const VISIBLE_INPUT_HOVER_TARGET_HEIGHT: u32 = 4; // covers route y=1..4
 const VISIBLE_INPUT_CLOSE_TARGET_WIDTH: u32 = 8;
 const VISIBLE_INPUT_CLOSE_TARGET_HEIGHT: u32 = 8;
@@ -66,7 +66,14 @@ pub fn visible_panel_hover_target_contains(x: i32, y: i32) -> bool {
     let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
         return false;
     };
-    rect_contains(x, y, PANEL_HOVER_TARGET_X, PANEL_HOVER_TARGET_Y, PANEL_HOVER_TARGET_WIDTH, PANEL_HOVER_TARGET_HEIGHT)
+    rect_contains(
+        x,
+        y,
+        PANEL_HOVER_TARGET_X,
+        PANEL_HOVER_TARGET_Y,
+        PANEL_HOVER_TARGET_WIDTH,
+        PANEL_HOVER_TARGET_HEIGHT,
+    )
 }
 
 #[must_use]

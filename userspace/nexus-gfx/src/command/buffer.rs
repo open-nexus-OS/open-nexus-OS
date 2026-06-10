@@ -307,26 +307,59 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 pos = ser_tiles(buf, pos, TAG_DRAW_TILES, tiles)?;
             }
             Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
-                pos = ser_blit(buf, pos, TAG_BLIT_SURFACE, *src_x, *src_y, *dst_x, *dst_y, *width, *height)?;
+                pos = ser_blit(
+                    buf,
+                    pos,
+                    TAG_BLIT_SURFACE,
+                    *src_x,
+                    *src_y,
+                    *dst_x,
+                    *dst_y,
+                    *width,
+                    *height,
+                )?;
             }
             Command::FillSdfRoundedRect { rect, radius, color } => {
                 pos = ser_sdf_rect(buf, pos, TAG_FILL_SDF_ROUNDED_RECT, rect, *radius, *color)?;
             }
             Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                pos = ser_sdf_rect(buf, pos, TAG_BLUR_BACKDROP, rect, *radius, RgbaColor::from_u32(*saturation_percent))?;
+                pos = ser_sdf_rect(
+                    buf,
+                    pos,
+                    TAG_BLUR_BACKDROP,
+                    rect,
+                    *radius,
+                    RgbaColor::from_u32(*saturation_percent),
+                )?;
             }
             Command::BlendCursor { x, y, width, height } => {
                 pos = ser_cursor(buf, pos, TAG_BLEND_CURSOR, *x, *y, *width, *height)?;
             }
             Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
-                pos = ser_blit(buf, pos, TAG_BLIT_ABSOLUTE, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
+                pos = ser_blit(
+                    buf,
+                    pos,
+                    TAG_BLIT_ABSOLUTE,
+                    *src_x,
+                    *src_y_abs,
+                    *dst_x,
+                    *dst_y_abs,
+                    *width,
+                    *height,
+                )?;
             }
         }
     }
     Ok(pos)
 }
 
-fn ser_tag_data(buf: &mut [u8], pos: usize, tag: u8, offset: usize, data: &[u8]) -> Result<usize, GfxError> {
+fn ser_tag_data(
+    buf: &mut [u8],
+    pos: usize,
+    tag: u8,
+    offset: usize,
+    data: &[u8],
+) -> Result<usize, GfxError> {
     let off = u16::try_from(offset).map_err(|_| GfxError::InvalidArgument)?;
     let len = u16::try_from(data.len()).map_err(|_| GfxError::InvalidArgument)?;
     let needed = pos + 5 + data.len();
@@ -363,7 +396,17 @@ fn ser_tiles(buf: &mut [u8], pos: usize, tag: u8, tiles: &[TileRect]) -> Result<
     Ok(p)
 }
 
-fn ser_blit(buf: &mut [u8], pos: usize, tag: u8, sx: u32, sy: u32, dx: u32, dy: u32, w: u32, h: u32) -> Result<usize, GfxError> {
+fn ser_blit(
+    buf: &mut [u8],
+    pos: usize,
+    tag: u8,
+    sx: u32,
+    sy: u32,
+    dx: u32,
+    dy: u32,
+    w: u32,
+    h: u32,
+) -> Result<usize, GfxError> {
     let needed = pos + 25;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
@@ -378,7 +421,14 @@ fn ser_blit(buf: &mut [u8], pos: usize, tag: u8, sx: u32, sy: u32, dx: u32, dy: 
     Ok(pos + 25)
 }
 
-fn ser_sdf_rect(buf: &mut [u8], pos: usize, tag: u8, rect: &TileRect, radius: u32, color_or_sat: RgbaColor) -> Result<usize, GfxError> {
+fn ser_sdf_rect(
+    buf: &mut [u8],
+    pos: usize,
+    tag: u8,
+    rect: &TileRect,
+    radius: u32,
+    color_or_sat: RgbaColor,
+) -> Result<usize, GfxError> {
     let needed = pos + 25;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
@@ -393,7 +443,15 @@ fn ser_sdf_rect(buf: &mut [u8], pos: usize, tag: u8, rect: &TileRect, radius: u3
     Ok(pos + 25)
 }
 
-fn ser_cursor(buf: &mut [u8], pos: usize, tag: u8, x: u32, y: u32, w: u32, h: u32) -> Result<usize, GfxError> {
+fn ser_cursor(
+    buf: &mut [u8],
+    pos: usize,
+    tag: u8,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> Result<usize, GfxError> {
     let needed = pos + 17;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
@@ -449,28 +507,49 @@ fn deser_blit(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
     if buf.len() < pos + 24 {
         return Err(GfxError::InvalidArgument);
     }
-    Ok((Command::BlitSurface {
-        src_x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
-        src_y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
-        dst_x: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
-        dst_y: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
-        width: u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]),
-        height: u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]),
-    }, pos + 24))
+    Ok((
+        Command::BlitSurface {
+            src_x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
+            src_y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
+            dst_x: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
+            dst_y: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
+            width: u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]),
+            height: u32::from_le_bytes([
+                buf[pos + 20],
+                buf[pos + 21],
+                buf[pos + 22],
+                buf[pos + 23],
+            ]),
+        },
+        pos + 24,
+    ))
 }
 
 fn deser_blit_absolute(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
     if buf.len() < pos + 24 {
         return Err(GfxError::InvalidArgument);
     }
-    Ok((Command::BlitAbsolute {
-        src_x:     u32::from_le_bytes([buf[pos],      buf[pos + 1],  buf[pos + 2],  buf[pos + 3]]),
-        src_y_abs: u32::from_le_bytes([buf[pos + 4],  buf[pos + 5],  buf[pos + 6],  buf[pos + 7]]),
-        dst_x:     u32::from_le_bytes([buf[pos + 8],  buf[pos + 9],  buf[pos + 10], buf[pos + 11]]),
-        dst_y_abs: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
-        width:     u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]),
-        height:    u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]),
-    }, pos + 24))
+    Ok((
+        Command::BlitAbsolute {
+            src_x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
+            src_y_abs: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
+            dst_x: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
+            dst_y_abs: u32::from_le_bytes([
+                buf[pos + 12],
+                buf[pos + 13],
+                buf[pos + 14],
+                buf[pos + 15],
+            ]),
+            width: u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]),
+            height: u32::from_le_bytes([
+                buf[pos + 20],
+                buf[pos + 21],
+                buf[pos + 22],
+                buf[pos + 23],
+            ]),
+        },
+        pos + 24,
+    ))
 }
 
 fn deser_sdf_rect(buf: &[u8], pos: usize, is_blur: bool) -> Result<(Command, usize), GfxError> {
@@ -497,12 +576,20 @@ fn deser_cursor(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
     if buf.len() < pos + 16 {
         return Err(GfxError::InvalidArgument);
     }
-    Ok((Command::BlendCursor {
-        x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
-        y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
-        width: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
-        height: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
-    }, pos + 16))
+    Ok((
+        Command::BlendCursor {
+            x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
+            y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
+            width: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
+            height: u32::from_le_bytes([
+                buf[pos + 12],
+                buf[pos + 13],
+                buf[pos + 14],
+                buf[pos + 15],
+            ]),
+        },
+        pos + 16,
+    ))
 }
 
 // ── Validation ───────────────────────────────────────────────────
@@ -540,17 +627,14 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
             }
             Ok(())
         }
-        Command::DrawTiles { tiles } => {
-            validate_tile_list(tiles, render_extent)
-        }
+        Command::DrawTiles { tiles } => validate_tile_list(tiles, render_extent),
         Command::BlitSurface { width, height, .. } => {
             if *width == 0 || *height == 0 {
                 return Err(GfxError::InvalidArgument);
             }
             Ok(())
         }
-        Command::FillSdfRoundedRect { rect, .. }
-        | Command::BlurBackdrop { rect, .. } => {
+        Command::FillSdfRoundedRect { rect, .. } | Command::BlurBackdrop { rect, .. } => {
             validate_tile(*rect, render_extent)
         }
         Command::BlendCursor { width, height, .. } => {
@@ -568,7 +652,10 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
     }
 }
 
-fn validate_tile_list(tiles: &[TileRect], render_extent: Option<(u32, u32)>) -> Result<(), GfxError> {
+fn validate_tile_list(
+    tiles: &[TileRect],
+    render_extent: Option<(u32, u32)>,
+) -> Result<(), GfxError> {
     if tiles.is_empty() || tiles.len() > MAX_TILE_RECTS {
         return Err(GfxError::InvalidArgument);
     }

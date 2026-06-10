@@ -21,8 +21,7 @@ mod tests {
         runner.register(Box::new(GpudContract::with_handoff()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner
-            .expect_marker("gpud: ready", ms(500));
+        runner.expect_marker("gpud: ready", ms(500));
         runner
             .expect_marker("windowd: handoff attach ack", ms(1000))
             .after(0)
@@ -49,8 +48,7 @@ mod tests {
         runner.register(Box::new(GpudContract::with_handoff_and_cursor()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner
-            .expect_marker("gpud: ready", ms(500));
+        runner.expect_marker("gpud: ready", ms(500));
         runner
             .expect_marker("windowd: ready (w=1280, h=800, hz=120)", ms(1000))
             .after(0)

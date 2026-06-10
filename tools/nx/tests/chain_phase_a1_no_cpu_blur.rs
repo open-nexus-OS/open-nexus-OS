@@ -31,13 +31,8 @@ mod tests {
         runner.register(Box::new(GpudContract::with_handoff_and_cursor()));
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
-        runner
-            .expect_marker("gpud: virtio-gpu probed", ms(500))
-            .describe("H0: gpud probe");
-        runner
-            .expect_marker("gpud: ready", ms(300))
-            .after(0)
-            .describe("H1: gpud ready");
+        runner.expect_marker("gpud: virtio-gpu probed", ms(500)).describe("H0: gpud probe");
+        runner.expect_marker("gpud: ready", ms(300)).after(0).describe("H1: gpud ready");
         runner
             .expect_marker("windowd: handoff attach ack", ms(1000))
             .after(1)

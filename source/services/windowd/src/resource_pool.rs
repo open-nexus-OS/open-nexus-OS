@@ -44,6 +44,10 @@ pub(crate) const PLANE_SLOT_B_BYTES: usize = 4_096_000; // 1280×800×4
 /// Maximum total bytes allocated to retained surfaces at any time.
 /// Surfaces above this budget trigger LRU eviction.
 pub(crate) const SURFACE_POOL_BUDGET: usize = 2_097_152; // 2 MB
+const _: () = assert!(
+    SURFACE_POOL_BUDGET >= 512 * 512 * 4,
+    "SURFACE_POOL_BUDGET too small for one 512×512 surface"
+);
 
 /// Maximum bytes for backdrop snapshots (frozen-glass inputs).
 /// One snapshot per effect region; evicted on invalidation.
@@ -128,10 +132,8 @@ mod tests {
 
     #[test]
     fn total_vmo_matches_4_plane_sum() {
-        let total = PLANE_WALLPAPER_BYTES
-            + PLANE_RETAINED_BYTES
-            + PLANE_SLOT_A_BYTES
-            + PLANE_SLOT_B_BYTES;
+        let total =
+            PLANE_WALLPAPER_BYTES + PLANE_RETAINED_BYTES + PLANE_SLOT_A_BYTES + PLANE_SLOT_B_BYTES;
         assert_eq!(total, VMO_TOTAL_BYTES);
         assert_eq!(VMO_TOTAL_BYTES, 16_384_000);
     }
@@ -139,24 +141,9 @@ mod tests {
     #[test]
     fn plane_offsets_are_contiguous() {
         assert_eq!(PLANE_WALLPAPER_OFFSET, 0);
-        assert_eq!(
-            PLANE_RETAINED_OFFSET,
-            PLANE_WALLPAPER_OFFSET + PLANE_WALLPAPER_BYTES
-        );
-        assert_eq!(
-            PLANE_SLOT_A_OFFSET,
-            PLANE_RETAINED_OFFSET + PLANE_RETAINED_BYTES
-        );
-        assert_eq!(
-            PLANE_SLOT_B_OFFSET,
-            PLANE_SLOT_A_OFFSET + PLANE_SLOT_A_BYTES
-        );
-    }
-
-    #[test]
-    fn surface_pool_budget_exceeds_minimum() {
-        // At least enough for one 512×512 retained surface.
-        assert!(SURFACE_POOL_BUDGET >= 512 * 512 * 4);
+        assert_eq!(PLANE_RETAINED_OFFSET, PLANE_WALLPAPER_OFFSET + PLANE_WALLPAPER_BYTES);
+        assert_eq!(PLANE_SLOT_A_OFFSET, PLANE_RETAINED_OFFSET + PLANE_RETAINED_BYTES);
+        assert_eq!(PLANE_SLOT_B_OFFSET, PLANE_SLOT_A_OFFSET + PLANE_SLOT_A_BYTES);
     }
 
     #[test]

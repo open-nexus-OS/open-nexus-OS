@@ -165,7 +165,16 @@ impl KernelState {
         #[cfg(feature = "debug_uart")]
         log_debug!(target: "kmain", "KS: after VirtMachine::new");
 
-        Self { hal, scheduler, tasks, ipc: router, address_spaces, kernel_as, syscalls, hart_timers: crate::timer::HartTimers::new() }
+        Self {
+            hal,
+            scheduler,
+            tasks,
+            ipc: router,
+            address_spaces,
+            kernel_as,
+            syscalls,
+            hart_timers: crate::timer::HartTimers::new(),
+        }
     }
 
     #[allow(dead_code)]

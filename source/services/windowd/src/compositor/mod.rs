@@ -275,14 +275,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut pacer_timer_log_emitted = false;
     // Phase 7: unified pacing timer drives frame submission at display refresh rate.
     const PACER_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
-    // Cooperative animation pacing. The kernel supervisor-timer IRQ that would
-    // deliver OP_TIMER_FIRED is not enabled (RFC-0062 is draft; `timer_irq` is
-    // off and `enable_timer_interrupts` is never called), so windowd cannot rely
-    // on the kernel timer to wake it for animation frames. Instead, while an
-    // animation is active we poll on the monotonic clock and advance the springs
-    // ourselves at ~120Hz, then go back to blocking on IPC once idle. `tick`
-    // integrates real elapsed time, so the exact poll rate only affects how many
-    // frames we emit, not the animation's duration or final state.
+                                              // Cooperative animation pacing. The kernel supervisor-timer IRQ that would
+                                              // deliver OP_TIMER_FIRED is not enabled (RFC-0062 is draft; `timer_irq` is
+                                              // off and `enable_timer_interrupts` is never called), so windowd cannot rely
+                                              // on the kernel timer to wake it for animation frames. Instead, while an
+                                              // animation is active we poll on the monotonic clock and advance the springs
+                                              // ourselves at ~120Hz, then go back to blocking on IPC once idle. `tick`
+                                              // integrates real elapsed time, so the exact poll rate only affects how many
+                                              // frames we emit, not the animation's duration or final state.
     let mut last_anim_tick_ns: u64 = 0;
     loop {
         runtime.drain_gpud_replies();
@@ -360,7 +360,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         }
                         // Submit frame if pending damage and a ring slot is free.
                         if runtime.has_pending_damage()
-                            && runtime.frames_in_flight() < runtime::DisplayServerRuntime::max_in_flight()
+                            && runtime.frames_in_flight()
+                                < runtime::DisplayServerRuntime::max_in_flight()
                         {
                             let _ = runtime.flush_pending_damage();
                         }
@@ -446,7 +447,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     }
                     // Submit frame if pending damage and a ring slot is free.
                     if runtime.has_pending_damage()
-                        && runtime.frames_in_flight() < runtime::DisplayServerRuntime::max_in_flight()
+                        && runtime.frames_in_flight()
+                            < runtime::DisplayServerRuntime::max_in_flight()
                     {
                         let _ = runtime.flush_pending_damage();
                     }

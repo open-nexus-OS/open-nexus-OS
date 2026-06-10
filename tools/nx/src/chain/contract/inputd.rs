@@ -38,8 +38,7 @@ impl Contract for InputdContract {
     }
 
     fn run(&mut self, bus: &mut SimIpcBus) -> Result<(), ContractError> {
-        let id =
-            self.id.ok_or_else(|| ContractError::new(ServiceId(0), "inputd: id not set"))?;
+        let id = self.id.ok_or_else(|| ContractError::new(ServiceId(0), "inputd: id not set"))?;
 
         bus.emit_marker(id, "inputd: starting");
         // Priority-wired: inputd uses init-assigned slots (5=send, 6=recv),

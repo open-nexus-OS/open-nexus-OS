@@ -507,8 +507,8 @@ use super::{
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
     SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
-    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET,
-    SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE,
+    SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -646,9 +646,7 @@ fn map_timer_error(err: crate::timer::TimerError) -> Error {
     match err {
         crate::timer::TimerError::ResourceExhausted => Error::Capability(CapError::NoSpace),
         crate::timer::TimerError::InvalidHandle => Error::Capability(CapError::InvalidSlot),
-        crate::timer::TimerError::AlreadyArmed => {
-            Error::Capability(CapError::PermissionDenied)
-        }
+        crate::timer::TimerError::AlreadyArmed => Error::Capability(CapError::PermissionDenied),
     }
 }
 

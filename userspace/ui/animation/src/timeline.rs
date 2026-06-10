@@ -22,12 +22,7 @@ pub struct AnimationDriver {
 
 impl AnimationDriver {
     pub fn new() -> Self {
-        Self {
-            start: 0,
-            last_tick: 0,
-            animations: Vec::new(),
-            reduced_motion: false,
-        }
+        Self { start: 0, last_tick: 0, animations: Vec::new(), reduced_motion: false }
     }
 
     pub fn tick(&mut self, now_ns: u64) -> Vec<SceneUpdate> {

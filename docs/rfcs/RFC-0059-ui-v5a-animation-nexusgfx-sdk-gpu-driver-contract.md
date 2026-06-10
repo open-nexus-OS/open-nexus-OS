@@ -1,6 +1,6 @@
 # RFC-0059: Deterministic Animation Runtime + NexusGfx 2D Pipeline + GPU Driver Contract
 
-- Status: In Progress
+- Status: Complete
 - Owners: @ui @runtime
 - Created: 2026-05-22
 - Last Updated: 2026-06-05 (Phase 6c-7 closure criteria hardened: deterministic pacing + measurable smoothness gates)

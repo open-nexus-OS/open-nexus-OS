@@ -23,9 +23,7 @@ mod tests {
         runner
             .expect_marker("gpud: virtio-gpu probed", ms(500))
             .describe("gpud probed virtio-gpu MMIO device");
-        runner
-            .expect_marker("gpud: ready", ms(200))
-            .after(0);
+        runner.expect_marker("gpud: ready", ms(200)).after(0);
         runner
             .expect_marker("windowd: ready (w=1280, h=800, hz=120)", ms(1000))
             .describe("windowd runtime ready");
@@ -52,9 +50,7 @@ mod tests {
         runner
             .expect_marker("windowd: backend=gpu", ms(500))
             .describe("windowd creates framebuffer VMO");
-        runner
-            .expect_marker("windowd: backend=visible", ms(200))
-            .after(0);
+        runner.expect_marker("windowd: backend=visible", ms(200)).after(0);
         runner
             .expect_marker("SELFTEST: ui v2 present ok", ms(300))
             .after(1)

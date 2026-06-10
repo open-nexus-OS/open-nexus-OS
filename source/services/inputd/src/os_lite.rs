@@ -621,8 +621,7 @@ impl LiveRouteRuntime {
                 let _ = debug_println("inputd: windowd route unavailable");
                 self.windowd_route_fallback_emitted = true;
                 // Fall back to priority-wired slots from init (5=send, 6=recv).
-                self.windowd_client =
-                    KernelClient::new_with_slots(5, 6).ok();
+                self.windowd_client = KernelClient::new_with_slots(5, 6).ok();
                 if self.windowd_client.is_some() {
                     let _ = debug_println("inputd: windowd route fallback slots 5/6");
                 }

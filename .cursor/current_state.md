@@ -1,76 +1,32 @@
-# Current State — Open Nexus OS
+# Current State (compressed)
 
-Last updated: 2026-06-09
+2026-06-10 — TASK-0062 closed, RFC-0059 Complete.
 
-## Active focus
+## Last completed
 
-**Animation fix + `just start` repair — 86% (3 fixes applied, QEMU verification pending)**
+- **TASK-0062** (UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract) — Done
+  - All phases 0 through 6e proven (Animation Engine, NexusGfx SDK, gpud, windowd integration, CommandBuffer wire format, reactive gpud IPC, GPU-first rendering, async Fence + pipeline bounding, RISC-V fixed-point rendering)
+  - Phase 7 (Golden tests + perf regression gates + timer/present pacing closure) remains as explicit follow-up; blocked on kernel timer capability package (6-8d estimated)
+  - RFC-0059 status: Complete
 
-## Architecture
+- **TASK-0059** (UI v3b: clip + scroll + backdrop effects + shadow pipeline + IME + MSDF/SDF rendering) — Done (2026-06-05)
+  - ShadowArena, per-box caching, compositor/ module refactor (18 files)
+  - RFC-0058: Complete
 
-```
-VMO (16MB, 1280×3200, 4-plane):
-  Plane 0: wallpaper source       (offset 0x000000)
-  Plane 1: retained scene         (offset 0x3E8000)
-  Plane 2: frame ring slot A      (offset 0x7D0000)
-  Plane 3: frame ring slot B      (offset 0xBB8000)
+## Known risks / DON'T DO
 
-windowd heap (1MB):                gpud pipeline:
-  scene graph, layout, IPC           BlitSurface, FillSdfRoundedRect
-  band_scratch (200KB)               BlurBackdrop, StrokeSdfRoundedRect
-  heap usage: ~768KB (was 768KB)     DrawCursorResource, DrawTiles
-                                     BlendCursor, DrawLine
-kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
-  HartTimers (BTreeMap queue)
-  timer_create/set/cancel syscalls
-  IRQ → pop_expired → OP_TIMER_FIRED
-  all Context::new + install_runtime sites (52 test + 4 OS)
-```
+- DON'T claim Phase 7 closure without kernel timer capability in the active pacing path and present completion correlation
+- DON'T add debug logs in kernel
+- DON'T fake-success markers for stub paths
 
-## Gate status (2026-06-09)
+## Open threads
 
-| Check | Result |
-|-------|--------|
-| cargo check windowd (os-lite, riscv) | ✅ |
-| windowd host tests (11) | ✅ 11/11 |
-| dep-gate (forbidden crates) | ✅ PASS |
-| cross-compile (build.sh) | ✅ kernel=6605120B init=6374520B |
-| QEMU visible-bootstrap | ⚠️ requires GTK display |
+- TASK-0062 Phase 7: requires kernel timer capability package (`docs/dev/perf/KERNEL-TIMER-CAPABILITY-ANALYSIS.md` Phase 2, 6-8 engineer-days)
+- Next Fast-Lane task: TASK-0063 (UI v5b: virtualized list + theme tokens)
+- Security group progress: 3/36 (8%) — needs policy/identity/sandbox follow-through
+- Kernel production-grade closure blockers: TASK-0286 through TASK-0290 remain open
 
-## Fixes applied (2026-06-09)
+## Architecture drift
 
-### 1. Animation pacer timer re-arm (mod.rs)
-- Bottom recv `OP_TIMER_FIRED` handler now resets `pacer_timer_armed = false`
-- Also adds `flush_pending_damage()` for consistency with batch recv handler
-- Expected chain: `batch commit → live transition → spring converge → v5 transition ok`
-
-### 2. Makefile MODE=host support
-- Added `MODE ?= container` variable
-- `ifeq ($(MODE),host)` branch: direct cargo build + build.sh
-- `just start` no longer requires podman
-
-### 3. Windowd heap 768KB → 1MB
-- Added `heap-1m` feature to nexus-service-entry
-- windowd os-lite feature now uses heap-1m
-- Fixes `alloc-fail svc=windowd` in high-rate interactive mode
-
-## Production UI End Architecture
-
-| Workstream | Progress |
-|-----------|----------|
-| 1. Remove CPU compositing | 85% (GPU blur path wired) |
-| 2. Present ring | 85% (4-plane VMO, slot tracking) |
-| 3. Resource model | 60% (budgets + handles defined) |
-| 4. Blur by architecture | 50% (GPU BlurBackdrop active, CPU fallback) |
-| 5. Cursor GPU-first | 85% (unchanged) |
-| 6. Unified pacing | 90% (pacer re-arm fix applied) |
-| 7-8. DSL/SystemUI | 0% (future) |
-| **Aggregate** | **65%** |
-
-## Pending
-
-- ⬜ QEMU visible-bootstrap verification (requires GTK display)
-- ⬜ `SELFTEST: ui v5 transition ok` marker verification
-- ⬜ PRESENT_DONE events (gpud async completion channel)
-- ⬜ Cursor hardware upload (Phase 6)
-- ⬜ `gpud: bad-status=0x02` scanout race (still present in logs)
+- No drift. GPU-first pipeline architecture (windowd → single-IPC CommandBuffer → gpud → VMO) is locked per RFC-0059.
+- Dual-path CPU+GPU rendering removed; single owner, single path.

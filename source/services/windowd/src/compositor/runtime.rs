@@ -9,8 +9,8 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
-use super::blur::checked_stride;
 use super::backdrop::{blur_backdrop_segment, saturate_bgra_segment};
+use super::blur::checked_stride;
 use super::cache::{
     BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
 };
@@ -20,8 +20,8 @@ use super::filter::{
     build_live_proof_layouts, filter_layout_variant_index, filter_list_content_height,
     filter_list_viewport_height, refill_filtered_words,
 };
-use super::scene::copy_scene_row;
 use super::primitives::draw_line_segment_row;
+use super::scene::copy_scene_row;
 use super::sdf::{fill_sdf_rounded_rect_row, stroke_sdf_rounded_rect_row};
 use super::source::build_scale_lut;
 use super::tile_map::TileMap;
@@ -30,16 +30,15 @@ use super::types::{
     SourceFrame,
 };
 use super::{
-    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
-    GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
-    BLUR_CACHE_ROW_OFFSET, BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X,
-    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET, DISPLAY_WIDTH,
-    RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, SIDEBAR_REST_X,
-    LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
-    PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
-    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, DARK_GLASS_BLUR_RADIUS,
-    DARK_GLASS_SATURATION_PERCENT,
+    BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, BLUR_CACHE_ROW_OFFSET,
+    BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
+    DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES,
+    DISPLAY_ROW_OFFSET, DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT,
+    LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES,
+    PATH_CACHE_MAX_PIXELS, PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, RETAINED_OFFSET_BYTES,
+    RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X,
+    SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y, VISIBLE_UPDATE_FLUSH_LIMIT,
+    WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -56,8 +55,8 @@ use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
-use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_gfx::command::buffer::RgbaColor;
+use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
@@ -156,8 +155,12 @@ fn draw_animation_proof_overlay_row(
 ) {
     let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
-    let button_rect =
-        ProofBoxRect { x: button_x, y: GLASS_BUTTON_TOP, width: GLASS_BUTTON_W, height: GLASS_BUTTON_H };
+    let button_rect = ProofBoxRect {
+        x: button_x,
+        y: GLASS_BUTTON_TOP,
+        width: GLASS_BUTTON_W,
+        height: GLASS_BUTTON_H,
+    };
     let gt = crate::assets::GLASS_TINT;
     let ge = crate::assets::GLASS_EDGE;
     draw_floating_glass_rect_row(
@@ -172,11 +175,19 @@ fn draw_animation_proof_overlay_row(
         6,
         32,
     );
-    let menu_icon_x = button_rect.x.saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_x =
+        button_rect.x.saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
     let menu_icon_y =
         button_rect.y.saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
     let menu_icon_alpha = (152.0 + 92.0 * scene.hover_opacity).clamp(120.0, 244.0) as u8;
-    draw_lucide_menu_icon_row(row, y, menu_icon_x, menu_icon_y, LUCIDE_ICON_SIZE, [255, 255, 255, menu_icon_alpha]);
+    draw_lucide_menu_icon_row(
+        row,
+        y,
+        menu_icon_x,
+        menu_icon_y,
+        LUCIDE_ICON_SIZE,
+        [255, 255, 255, menu_icon_alpha],
+    );
 
     let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
     let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
@@ -184,10 +195,8 @@ fn draw_animation_proof_overlay_row(
     if sidebar_alpha == 0 {
         return;
     }
-    let sidebar_height = mode
-        .height
-        .saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM))
-        .max(1);
+    let sidebar_height =
+        mode.height.saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM)).max(1);
     let sidebar_rect = ProofBoxRect {
         x: sidebar_x,
         y: SIDEBAR_MARGIN_TOP,
@@ -213,12 +222,10 @@ fn draw_animation_proof_overlay_row(
     let close_mid_y = route_cell_midpoint(CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, mode.height);
     let sidebar_end_x = sidebar_rect.x.saturating_add(sidebar_rect.width);
     let sidebar_end_y = sidebar_rect.y.saturating_add(sidebar_rect.height);
-    let close_icon_x = close_mid_x
-        .saturating_sub(LUCIDE_ICON_SIZE / 2)
-        .clamp(
-            sidebar_rect.x.saturating_add(14),
-            sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14),
-        );
+    let close_icon_x = close_mid_x.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
+        sidebar_rect.x.saturating_add(14),
+        sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14),
+    );
     let close_icon_y = close_mid_y.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
         sidebar_rect.y.saturating_add(14),
         sidebar_end_y.saturating_sub(LUCIDE_ICON_SIZE + 14),
@@ -262,14 +269,7 @@ fn draw_floating_glass_rect_row(
     let _ = stroke_sdf_rounded_rect_row(y, row, rect, radius, 1, border);
 }
 
-fn draw_lucide_menu_icon_row(
-    row: &mut [u8],
-    y: u32,
-    x: u32,
-    top: u32,
-    size: u32,
-    color: [u8; 4],
-) {
+fn draw_lucide_menu_icon_row(row: &mut [u8], y: u32, x: u32, top: u32, size: u32, color: [u8; 4]) {
     let _ = draw_line_segment_row(
         y,
         row,
@@ -305,14 +305,7 @@ fn draw_lucide_menu_icon_row(
     );
 }
 
-fn draw_lucide_x_icon_row(
-    row: &mut [u8],
-    y: u32,
-    x: u32,
-    top: u32,
-    size: u32,
-    color: [u8; 4],
-) {
+fn draw_lucide_x_icon_row(row: &mut [u8], y: u32, x: u32, top: u32, size: u32, color: [u8; 4]) {
     let _ = draw_line_segment_row(
         y,
         row,
@@ -719,9 +712,13 @@ impl DisplayServerRuntime {
     /// Phase 6c: Write source frame (wallpaper) to VMO bottom half once.
     /// Moves 4MB of pixel data from control-plane heap to data-plane VMO.
     pub(crate) fn write_source_frame_to_vmo(&mut self) -> Result<(), WindowdError> {
-        let Some(handle) = self.framebuffer else { return Ok(()); };
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
         let sf = &self.source_frame;
-        if sf.pixels.is_empty() || sf.width == 0 || sf.height == 0 { return Ok(()); }
+        if sf.pixels.is_empty() || sf.width == 0 || sf.height == 0 {
+            return Ok(());
+        }
         let src_stride = sf.stride as usize;
         let dst_stride = DISPLAY_WIDTH as usize * 4;
         for row in 0..sf.height.min(DISPLAY_HEIGHT) {
@@ -745,7 +742,8 @@ impl DisplayServerRuntime {
         self.framebuffer_pending_first_write = true;
         let next = self.first_handoff_id.wrapping_add(1);
         self.first_handoff_id = if next == 0 { 1 } else { next };
-        self.first_handoff_deadline_ns = nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
+        self.first_handoff_deadline_ns =
+            nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
         self.first_handoff_frame_written = false;
         self.first_handoff_bootstrap_markers_emitted = false;
         self.first_handoff_attach_acked = false;
@@ -798,8 +796,10 @@ impl DisplayServerRuntime {
 
         if !self.first_handoff_frame_written {
             if let Err(err) = self.write_current_frame() {
-                let _ =
-                    debug_println(&alloc::format!("windowd: ERROR first-frame write failed err={:?}", err));
+                let _ = debug_println(&alloc::format!(
+                    "windowd: ERROR first-frame write failed err={:?}",
+                    err
+                ));
                 self.framebuffer_pending_first_write = false;
                 return STATUS_MALFORMED;
             }
@@ -911,7 +911,9 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: handoff attach sent");
         // Block until gpud responds — fully reactive, no polling.
         let ack_ok = {
-            let Some(client) = self.gpud_client.as_ref() else { return; };
+            let Some(client) = self.gpud_client.as_ref() else {
+                return;
+            };
             match client.recv(Wait::Blocking) {
                 Ok(reply) => reply.first().copied() == Some(GPUD_STATUS_OK),
                 Err(e) => {
@@ -928,8 +930,6 @@ impl DisplayServerRuntime {
             let _ = debug_println("windowd: handoff attach ack bad status");
         }
     }
-
-
 
     fn write_fast_bootstrap_frame(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
@@ -1077,16 +1077,10 @@ impl DisplayServerRuntime {
             // Sidebar open/close uses a dedicated state so close actions are not
             // coupled to hover leave.
             if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
-                let sidebar_from = if old_state.sidebar_open_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
-                let sidebar_to = if self.state.sidebar_open_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
+                let sidebar_from =
+                    if old_state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                let sidebar_to =
+                    if self.state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
                 self.animation_driver.spring_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
@@ -1419,7 +1413,8 @@ impl DisplayServerRuntime {
             self.gpud_client = Some(client);
             return true;
         }
-        if let Ok(client) = KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
+        if let Ok(client) =
+            KernelClient::new_with_slots(GPUD_FALLBACK_SEND_SLOT, GPUD_FALLBACK_RECV_SLOT)
         {
             let _ = debug_println("windowd: gpud route fallback slots");
             self.gpud_client = Some(client);
@@ -1445,7 +1440,9 @@ impl DisplayServerRuntime {
             return false;
         }
         let send_result = {
-            let Some(client) = self.gpud_client.as_ref() else { return false; };
+            let Some(client) = self.gpud_client.as_ref() else {
+                return false;
+            };
             client.send(frame, Wait::NonBlocking)
         };
         match send_result {
@@ -1454,8 +1451,7 @@ impl DisplayServerRuntime {
                 self.frames_in_flight = self.frames_in_flight.saturating_add(1);
                 true
             }
-            Err(nexus_ipc::IpcError::WouldBlock)
-            | Err(nexus_ipc::IpcError::NoSpace) => {
+            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::NoSpace) => {
                 // gpud queue is currently full; caller keeps damage pending for retry.
                 false
             }
@@ -1551,8 +1547,9 @@ impl DisplayServerRuntime {
             Ok(reply) if reply.first().copied() == Some(GPUD_STATUS_OK) => Ok(()),
             Ok(reply) => {
                 if let Some(status) = reply.first().copied() {
-                    let _ =
-                        debug_println(&alloc::format!("windowd: gpud request bad-status=0x{status:02x}"));
+                    let _ = debug_println(&alloc::format!(
+                        "windowd: gpud request bad-status=0x{status:02x}"
+                    ));
                 } else {
                     let _ = debug_println("windowd: gpud request bad-status=empty");
                 }
@@ -1615,12 +1612,8 @@ impl DisplayServerRuntime {
             // Blur the combined glass panel region.
             // gpud reads from the VMO display region (offset DISPLAY_OFFSET_BYTES),
             // applies box blur, and writes the result back.
-            let glass_rect = TileRect {
-                x: 0,
-                y: 0,
-                width: COMBINED_PANEL_WIDTH as u32,
-                height: PROOF_PANEL_H,
-            };
+            let glass_rect =
+                TileRect { x: 0, y: 0, width: COMBINED_PANEL_WIDTH as u32, height: PROOF_PANEL_H };
             if encoder
                 .try_blur_backdrop(
                     glass_rect,
@@ -1713,12 +1706,16 @@ impl DisplayServerRuntime {
     /// Upload cursor sprite to gpud for software BlendCursor compositing.
     /// Uses a heap-allocated Vec to avoid stack overflow for the 4KB BGRA payload.
     fn upload_cursor_bitmap_to_gpud(&mut self) {
-        if !self.ensure_gpud_client() { return; }
+        if !self.ensure_gpud_client() {
+            return;
+        }
         let bitmap = crate::assets::CURSOR_LEFT_PTR_BGRA;
         let w = crate::assets::CURSOR_LEFT_PTR_WIDTH;
         let h = crate::assets::CURSOR_LEFT_PTR_HEIGHT;
         let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
-        if bgra_len == 0 || bgra_len > bitmap.len() { return; }
+        if bgra_len == 0 || bgra_len > bitmap.len() {
+            return;
+        }
         // Frame: [opcode(1)] + [width(4)] + [height(4)] + [bgra(bgra_len)]
         let total = 9usize.saturating_add(bgra_len);
         let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
@@ -2295,51 +2292,107 @@ impl DisplayServerRuntime {
             // 2. Glass button — cached blur, skipped when sidebar covers it.
             let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
             let button_blit_w = GLASS_BUTTON_W.min(mode.width.saturating_sub(button_x));
-            let sidebar_x_for_btn = mode.width.saturating_sub(SIDEBAR_WIDTH)
+            let sidebar_x_for_btn = mode
+                .width
+                .saturating_sub(SIDEBAR_WIDTH)
                 .saturating_add(scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32);
             let button_covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= button_x;
             if button_blit_w > 0 && !button_covered {
                 if btn_blur_cache_valid {
                     // Fast path: restore pre-blurred background from Plane 3 cache.
                     let _ = encoder.try_blit_absolute(
-                        BUTTON_BLUR_CACHE_ABS_X, BUTTON_BLUR_CACHE_ABS_ROW,
-                        button_x, DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
-                        button_blit_w, GLASS_BUTTON_H,
+                        BUTTON_BLUR_CACHE_ABS_X,
+                        BUTTON_BLUR_CACHE_ABS_ROW,
+                        button_x,
+                        DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
+                        button_blit_w,
+                        GLASS_BUTTON_H,
                     );
                 } else {
                     // Cache-build path: blit P1, blur in-place, save to Plane 3.
                     let _ = encoder.try_blit_surface(
-                        button_x, GLASS_BUTTON_TOP + RETAINED_ROW_OFFSET,
-                        button_x, GLASS_BUTTON_TOP,
-                        button_blit_w, GLASS_BUTTON_H,
+                        button_x,
+                        GLASS_BUTTON_TOP + RETAINED_ROW_OFFSET,
+                        button_x,
+                        GLASS_BUTTON_TOP,
+                        button_blit_w,
+                        GLASS_BUTTON_H,
                     );
-                    let btn_build_rect = TileRect { x: button_x, y: GLASS_BUTTON_TOP, width: button_blit_w, height: GLASS_BUTTON_H };
-                    let _ = encoder.try_blur_backdrop(btn_build_rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
+                    let btn_build_rect = TileRect {
+                        x: button_x,
+                        y: GLASS_BUTTON_TOP,
+                        width: button_blit_w,
+                        height: GLASS_BUTTON_H,
+                    };
+                    let _ = encoder.try_blur_backdrop(
+                        btn_build_rect,
+                        DARK_GLASS_BLUR_RADIUS,
+                        DARK_GLASS_SATURATION_PERCENT,
+                    );
                     let _ = encoder.try_blit_absolute(
-                        button_x, DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
-                        BUTTON_BLUR_CACHE_ABS_X, BUTTON_BLUR_CACHE_ABS_ROW,
-                        button_blit_w, GLASS_BUTTON_H,
+                        button_x,
+                        DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
+                        BUTTON_BLUR_CACHE_ABS_X,
+                        BUTTON_BLUR_CACHE_ABS_ROW,
+                        button_blit_w,
+                        GLASS_BUTTON_H,
                     );
                     built_button_cache = true;
                 }
-                let btn_rect = TileRect { x: button_x, y: GLASS_BUTTON_TOP, width: button_blit_w, height: GLASS_BUTTON_H };
+                let btn_rect = TileRect {
+                    x: button_x,
+                    y: GLASS_BUTTON_TOP,
+                    width: button_blit_w,
+                    height: GLASS_BUTTON_H,
+                };
                 let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(96.0, 220.0) as u8;
                 let gt = crate::assets::GLASS_TINT;
                 let ge = crate::assets::GLASS_EDGE;
-                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(gt.r, gt.g, gt.b, button_alpha));
-                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(ge.r, ge.g, ge.b, ge.a));
+                let _ = encoder.try_fill_sdf_rounded_rect(
+                    btn_rect,
+                    GLASS_BUTTON_RADIUS,
+                    RgbaColor::new(gt.r, gt.g, gt.b, button_alpha),
+                );
+                let _ = encoder.try_fill_sdf_rounded_rect(
+                    btn_rect,
+                    GLASS_BUTTON_RADIUS,
+                    RgbaColor::new(ge.r, ge.g, ge.b, ge.a),
+                );
                 // Hamburger icon: 3 horizontal bars centered inside the glass button.
                 const MENU_BAR_W: u32 = 18;
                 const MENU_BAR_H: u32 = 3;
                 const MENU_BAR_GAP: u32 = 5;
                 const MENU_TOTAL_H: u32 = 3 * MENU_BAR_H + 2 * MENU_BAR_GAP;
                 let bar_x = button_x.saturating_add(GLASS_BUTTON_W.saturating_sub(MENU_BAR_W) / 2);
-                let bar_y = GLASS_BUTTON_TOP.saturating_add(GLASS_BUTTON_H.saturating_sub(MENU_TOTAL_H) / 2);
+                let bar_y = GLASS_BUTTON_TOP
+                    .saturating_add(GLASS_BUTTON_H.saturating_sub(MENU_TOTAL_H) / 2);
                 let icon_alpha = (160.0 + 80.0 * scene.hover_opacity).clamp(160.0, 240.0) as u8;
                 let bar_color = RgbaColor::new(255, 255, 255, icon_alpha);
-                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y, width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
-                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y + MENU_BAR_H + MENU_BAR_GAP, width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
-                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y + 2 * (MENU_BAR_H + MENU_BAR_GAP), width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
+                let _ = encoder.try_fill_sdf_rounded_rect(
+                    TileRect { x: bar_x, y: bar_y, width: MENU_BAR_W, height: MENU_BAR_H },
+                    1,
+                    bar_color,
+                );
+                let _ = encoder.try_fill_sdf_rounded_rect(
+                    TileRect {
+                        x: bar_x,
+                        y: bar_y + MENU_BAR_H + MENU_BAR_GAP,
+                        width: MENU_BAR_W,
+                        height: MENU_BAR_H,
+                    },
+                    1,
+                    bar_color,
+                );
+                let _ = encoder.try_fill_sdf_rounded_rect(
+                    TileRect {
+                        x: bar_x,
+                        y: bar_y + 2 * (MENU_BAR_H + MENU_BAR_GAP),
+                        width: MENU_BAR_W,
+                        height: MENU_BAR_H,
+                    },
+                    1,
+                    bar_color,
+                );
             }
 
             // 3. Sidebar panel — GPU overlay, only when visible (opacity > 0).
@@ -2354,63 +2407,125 @@ impl DisplayServerRuntime {
                 let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
                 if sidebar_x < mode.width {
                     let sidebar_w = SIDEBAR_WIDTH.min(mode.width.saturating_sub(sidebar_x));
-                    let sidebar_h = mode.height.saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM).max(1);
+                    let sidebar_h = mode
+                        .height
+                        .saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM)
+                        .max(1);
 
                     if !blur_cache_valid {
                         // Cache-build frame (once per sidebar open):
                         // restore full Plane 1 bg at rest position, blur it, save to Plane 3.
                         let _ = encoder.try_blit_surface(
-                            SIDEBAR_REST_X, SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
-                            SIDEBAR_REST_X, SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_WIDTH, sidebar_h,
+                            SIDEBAR_REST_X,
+                            SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
+                            SIDEBAR_REST_X,
+                            SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_WIDTH,
+                            sidebar_h,
                         );
-                        let full_sbr = TileRect { x: SIDEBAR_REST_X, y: SIDEBAR_MARGIN_TOP, width: SIDEBAR_WIDTH, height: sidebar_h };
-                        let _ = encoder.try_blur_backdrop(full_sbr, 20, DARK_GLASS_SATURATION_PERCENT);
+                        let full_sbr = TileRect {
+                            x: SIDEBAR_REST_X,
+                            y: SIDEBAR_MARGIN_TOP,
+                            width: SIDEBAR_WIDTH,
+                            height: sidebar_h,
+                        };
+                        let _ =
+                            encoder.try_blur_backdrop(full_sbr, 20, DARK_GLASS_SATURATION_PERCENT);
                         // Save blurred display pixels to Plane 3 cache.
                         let _ = encoder.try_blit_absolute(
-                            SIDEBAR_REST_X, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_REST_X, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_WIDTH, sidebar_h,
+                            SIDEBAR_REST_X,
+                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_REST_X,
+                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_WIDTH,
+                            sidebar_h,
                         );
                         // Blit the currently-visible strip from cache for this frame.
                         let _ = encoder.try_blit_absolute(
-                            sidebar_x, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_x, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_w, sidebar_h,
+                            sidebar_x,
+                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_x,
+                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_w,
+                            sidebar_h,
                         );
                     } else {
                         // Cache-use frame: blit pre-blurred strip from Plane 3 — no blur.
                         let _ = encoder.try_blit_absolute(
-                            sidebar_x, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_x, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_w, sidebar_h,
+                            sidebar_x,
+                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_x,
+                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_w,
+                            sidebar_h,
                         );
                     }
 
-                    let sbr = TileRect { x: sidebar_x, y: SIDEBAR_MARGIN_TOP, width: sidebar_w, height: sidebar_h };
+                    let sbr = TileRect {
+                        x: sidebar_x,
+                        y: SIDEBAR_MARGIN_TOP,
+                        width: sidebar_w,
+                        height: sidebar_h,
+                    };
                     let sidebar_alpha = (220.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
                     let border_alpha = (180.0 * sidebar_opacity).clamp(0.0, 180.0) as u8;
                     let gt = crate::assets::GLASS_TINT;
                     let ge = crate::assets::GLASS_EDGE;
                     let pb = crate::assets::PROOF_PANEL_BORDER;
                     // Border: fill outer rect with border color, then cover interior with glass fill.
-                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(pb.r, pb.g, pb.b, border_alpha));
+                    let _ = encoder.try_fill_sdf_rounded_rect(
+                        sbr,
+                        SIDEBAR_RADIUS,
+                        RgbaColor::new(pb.r, pb.g, pb.b, border_alpha),
+                    );
                     if sidebar_w > 2 && sidebar_h > 2 {
-                        let sbr_inner = TileRect { x: sbr.x + 1, y: sbr.y + 1, width: sbr.width - 2, height: sbr.height - 2 };
-                        let _ = encoder.try_fill_sdf_rounded_rect(sbr_inner, SIDEBAR_RADIUS.saturating_sub(1), RgbaColor::new(gt.r, gt.g, gt.b, sidebar_alpha));
-                        let _ = encoder.try_fill_sdf_rounded_rect(sbr_inner, SIDEBAR_RADIUS.saturating_sub(1), RgbaColor::new(ge.r, ge.g, ge.b, ge.a));
+                        let sbr_inner = TileRect {
+                            x: sbr.x + 1,
+                            y: sbr.y + 1,
+                            width: sbr.width - 2,
+                            height: sbr.height - 2,
+                        };
+                        let _ = encoder.try_fill_sdf_rounded_rect(
+                            sbr_inner,
+                            SIDEBAR_RADIUS.saturating_sub(1),
+                            RgbaColor::new(gt.r, gt.g, gt.b, sidebar_alpha),
+                        );
+                        let _ = encoder.try_fill_sdf_rounded_rect(
+                            sbr_inner,
+                            SIDEBAR_RADIUS.saturating_sub(1),
+                            RgbaColor::new(ge.r, ge.g, ge.b, ge.a),
+                        );
                     }
                     // Close icon (× approximated as + shape) at top-right of sidebar.
                     const CLOSE_SIZE: u32 = 16;
                     const CLOSE_BAR: u32 = 3;
                     const CLOSE_INSET: u32 = 16;
                     if sidebar_w > CLOSE_SIZE + CLOSE_INSET {
-                        let cx = sidebar_x.saturating_add(sidebar_w.saturating_sub(CLOSE_SIZE + CLOSE_INSET));
+                        let cx = sidebar_x
+                            .saturating_add(sidebar_w.saturating_sub(CLOSE_SIZE + CLOSE_INSET));
                         let cy = SIDEBAR_MARGIN_TOP.saturating_add(CLOSE_INSET);
                         let close_alpha = (200.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
                         let cc = RgbaColor::new(255, 255, 255, close_alpha);
-                        let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx, y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2, width: CLOSE_SIZE, height: CLOSE_BAR }, 1, cc);
-                        let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2, y: cy, width: CLOSE_BAR, height: CLOSE_SIZE }, 1, cc);
+                        let _ = encoder.try_fill_sdf_rounded_rect(
+                            TileRect {
+                                x: cx,
+                                y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2,
+                                width: CLOSE_SIZE,
+                                height: CLOSE_BAR,
+                            },
+                            1,
+                            cc,
+                        );
+                        let _ = encoder.try_fill_sdf_rounded_rect(
+                            TileRect {
+                                x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2,
+                                y: cy,
+                                width: CLOSE_BAR,
+                                height: CLOSE_SIZE,
+                            },
+                            1,
+                            cc,
+                        );
                     }
                 }
             }
@@ -2536,8 +2651,12 @@ impl DisplayServerRuntime {
     }
 
     /// Phase 7: maximum in-flight frames before backpressure.
-    pub(crate) const fn max_in_flight() -> u32 { 2 }
+    pub(crate) const fn max_in_flight() -> u32 {
+        2
+    }
 
     /// Phase 7: current frames in flight to gpud (exposed for pacing).
-    pub(crate) fn frames_in_flight(&self) -> u32 { self.frames_in_flight }
+    pub(crate) fn frames_in_flight(&self) -> u32 {
+        self.frames_in_flight
+    }
 }

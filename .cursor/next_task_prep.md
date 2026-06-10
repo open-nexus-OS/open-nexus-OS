@@ -1,38 +1,22 @@
-# Next Task Prep — TASK-0059
+# Next Task Prep (drift-check)
 
-After TASK-0058: TASK-0059 (UI v3b: clip/scroll/effects + IME stub + filter-box).
+2026-06-10
 
-## Current status
+## Next task: TASK-0063 (UI v5b: virtualized list + theme tokens)
 
-RFC-0058 contract seed: In Progress (complete, implementation pending).
-TASK-0059: In Progress. Depends on TASK-0058 (DONE).
+### Drift risk assessment
 
-## Drift check
+- **No drift detected.** TASK-0062 closed with RFC-0059 locked. TASK-0063 is the next Fast-Lane task in sequence.
+- RFC-0059 (animation/NexusGfx/gpud contract) is Complete; TASK-0063 builds on the GPU-first rendering pipeline established in 0062.
+- TASK-0059 (clip/scroll/effects) is also Done with RFC-0058 Complete; any scroll/IME carry-in is reflected in the task contracts.
 
-- TASK-0059 depends-on TASK-0058 (layout engine) — DONE
-- nexus-layout (Flex/Grid) available for clip rect derivation
-- nexus-layout-types available for TextInputNode type
-- windowd layout_panel.rs available for filter-box layout tree
-- ProofPaintRole system available for allocation-free rendering
+### Pre-flight notes
+
+- TASK-0063 requires: input focus engine, virtual list recycling pool, theme token resolution, windowd/scenegraph integration
 - No kernel changes expected
+- RFC seed may be needed for theme token format (check task header for contract boundaries)
 
-## Filter-box proof element
+### Blockers
 
-Integration test for all three v3b features:
-- Clip: Overflow::Hidden container for scrollable word list
-- Scroll: wheel/drag → viewport, place-only invalidation, scrollbar
-- IME: TextInput node receives keyboard events, cursor blink via effect timer
-- Filter: filter_words(prefix) pure function on 15-word static list
-
-## Implementation plan (per RFC-0058)
-
-- Phase 0: Clip + scroll — scissor clipping, scroll damage math, scrollbar
-- Phase 1: Text input + filter-box — TextInputNode, filter_words(), layout, routing
-- Phase 2: CPU effects — blur/shadow + budgets, cursor blink timer
-- Phase 3: IME stub — focus routing, caret/selection helpers
-- Phase 4: Host tests — tests/ui_v3b_host/
-- Phase 5: OS markers — 12 new markers + postflight
-
-## Immediate follow-up
-
-- TASK-0060B (glass materials — consumes effect primitives)
+- None known
+- TASK-0062 Phase 7 (golden tests, perf regression gates) is deferred but does not block 0063

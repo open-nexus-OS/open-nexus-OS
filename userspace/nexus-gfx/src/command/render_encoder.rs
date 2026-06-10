@@ -24,7 +24,9 @@ impl<'a> RenderCommandEncoder<'a> {
     }
 
     pub fn try_set_fragment_bytes(&mut self, offset: usize, data: &[u8]) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::SetFragmentBytes { offset, data: data.to_vec() })
     }
 
@@ -35,27 +37,64 @@ impl<'a> RenderCommandEncoder<'a> {
     }
 
     pub fn try_draw_tiles(&mut self, tiles: &[TileRect]) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::DrawTiles { tiles: tiles.to_vec() })
     }
 
     // ── Blit ──────────────────────────────────────────────────
 
     /// Copy a rectangle from the source surface to the framebuffer.
-    pub fn blit_surface(&mut self, src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, width: u32, height: u32) {
+    pub fn blit_surface(
+        &mut self,
+        src_x: u32,
+        src_y: u32,
+        dst_x: u32,
+        dst_y: u32,
+        width: u32,
+        height: u32,
+    ) {
         self.try_blit_surface(src_x, src_y, dst_x, dst_y, width, height).expect("invalid blit");
     }
 
-    pub fn try_blit_surface(&mut self, src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, width: u32, height: u32) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+    pub fn try_blit_surface(
+        &mut self,
+        src_x: u32,
+        src_y: u32,
+        dst_x: u32,
+        dst_y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height })
     }
 
     /// Blit between arbitrary absolute VMO rows — no display_y_offset adjustment.
     /// Used to write/read the Plane 3 blur cache.
-    pub fn try_blit_absolute(&mut self, src_x: u32, src_y_abs: u32, dst_x: u32, dst_y_abs: u32, width: u32, height: u32) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
-        self.cmd.push_command(Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height })
+    pub fn try_blit_absolute(
+        &mut self,
+        src_x: u32,
+        src_y_abs: u32,
+        dst_x: u32,
+        dst_y_abs: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::BlitAbsolute {
+            src_x,
+            src_y_abs,
+            dst_x,
+            dst_y_abs,
+            width,
+            height,
+        })
     }
 
     // ── SDF rounded rect ──────────────────────────────────────
@@ -65,8 +104,15 @@ impl<'a> RenderCommandEncoder<'a> {
         self.try_fill_sdf_rounded_rect(rect, radius, color).expect("invalid SDF fill");
     }
 
-    pub fn try_fill_sdf_rounded_rect(&mut self, rect: TileRect, radius: u32, color: RgbaColor) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+    pub fn try_fill_sdf_rounded_rect(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        color: RgbaColor,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::FillSdfRoundedRect { rect, radius, color })
     }
 
@@ -77,8 +123,15 @@ impl<'a> RenderCommandEncoder<'a> {
         self.try_blur_backdrop(rect, radius, saturation_percent).expect("invalid blur");
     }
 
-    pub fn try_blur_backdrop(&mut self, rect: TileRect, radius: u32, saturation_percent: u32) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+    pub fn try_blur_backdrop(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        saturation_percent: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::BlurBackdrop { rect, radius, saturation_percent })
     }
 
@@ -89,8 +142,16 @@ impl<'a> RenderCommandEncoder<'a> {
         self.try_blend_cursor(x, y, width, height).expect("invalid cursor blend");
     }
 
-    pub fn try_blend_cursor(&mut self, x: u32, y: u32, width: u32, height: u32) -> Result<(), GfxError> {
-        if !self.active { return Err(GfxError::CommandRejected); }
+    pub fn try_blend_cursor(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
         self.cmd.push_command(Command::BlendCursor { x, y, width, height })
     }
 

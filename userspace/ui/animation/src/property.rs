@@ -20,14 +20,8 @@ impl Default for AnimProp {
 }
 
 /// Identifies a compositor layer for animation targeting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct LayerId(pub u64);
-
-impl Default for LayerId {
-    fn default() -> Self {
-        Self(0)
-    }
-}
 
 /// Output of one animation tick: a changed property value for a specific layer.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

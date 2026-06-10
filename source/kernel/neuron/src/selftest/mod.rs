@@ -22,12 +22,10 @@
 
 extern crate alloc;
 
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use core::{
-    sync::atomic::{AtomicUsize, Ordering},
-};
 #[cfg(all(feature = "selftest_priv_stack", target_arch = "riscv64", target_os = "none"))]
 use core::ffi::c_void;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 // Import assertion helpers only when used.
@@ -43,9 +41,8 @@ use crate::{
     sched::{EnqueueOutcome, QosClass, Scheduler},
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL,
-        SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE,
-        SYSCALL_WAIT, SYSCALL_YIELD,
+        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
+        SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
     },
     task::TaskTable,
     types::CpuId,
@@ -205,8 +202,14 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         let mut table = SyscallTable::new();
         api::install_handlers(&mut table);
         let timer = ctx.hal.timer();
-        let mut sys_ctx =
-            api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer, &mut ctx.hart_timers);
+        let mut sys_ctx = api::Context::new(
+            ctx.scheduler,
+            ctx.tasks,
+            ctx.router,
+            ctx.address_spaces,
+            timer,
+            &mut ctx.hart_timers,
+        );
 
         let h = table
             .dispatch(SYSCALL_AS_CREATE, &mut sys_ctx, &Args::new([0; 6]))
@@ -479,8 +482,14 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer, &mut ctx.hart_timers);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        &mut ctx.hart_timers,
+    );
     const PROT_READ: usize = 1 << 0;
     const PROT_WRITE: usize = 1 << 1;
     const PROT_EXEC: usize = 1 << 2;
@@ -511,8 +520,14 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer, &mut ctx.hart_timers);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        &mut ctx.hart_timers,
+    );
 
     let entry = child_exit_zero as usize;
     let spawn_args = Args::new([entry, 0, 0, 0, 0, 0]);
@@ -987,13 +1002,14 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         &mut ctx.hart_timers,
     );
 
-    let notify_ep = match sys_ctx.router.create_endpoint(8, Some(sys_ctx.tasks.current_pid().as_raw())) {
-        Ok(id) => id,
-        Err(e) => {
-            log_error!(target: "selftest", "KSELFTEST: timer cap FAIL create_ep={:?}", e);
-            return;
-        }
-    };
+    let notify_ep =
+        match sys_ctx.router.create_endpoint(8, Some(sys_ctx.tasks.current_pid().as_raw())) {
+            Ok(id) => id,
+            Err(e) => {
+                log_error!(target: "selftest", "KSELFTEST: timer cap FAIL create_ep={:?}", e);
+                return;
+            }
+        };
     let notify_cap = Capability {
         kind: CapabilityKind::Endpoint(notify_ep),
         rights: Rights::RECV | Rights::SEND | Rights::MANAGE,
@@ -1065,11 +1081,9 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: timer cap FAIL set_cancel={:?}", e);
         return;
     }
-    if let Err(e) = table.dispatch(
-        SYSCALL_TIMER_CANCEL,
-        &mut sys_ctx,
-        &Args::new([cancel_slot, 0, 0, 0, 0, 0]),
-    ) {
+    if let Err(e) =
+        table.dispatch(SYSCALL_TIMER_CANCEL, &mut sys_ctx, &Args::new([cancel_slot, 0, 0, 0, 0, 0]))
+    {
         log_error!(target: "selftest", "KSELFTEST: timer cap FAIL cancel={:?}", e);
         return;
     }
@@ -1382,8 +1396,14 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     let mut table = SyscallTable::new();
     api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
-    let mut sys_ctx =
-        api::Context::new(ctx.scheduler, ctx.tasks, ctx.router, ctx.address_spaces, timer, &mut ctx.hart_timers);
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        &mut ctx.hart_timers,
+    );
 
     // Load init ELF and get entry point
     let load_result = load_init_elf(&mut sys_ctx);
