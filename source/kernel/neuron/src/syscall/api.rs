@@ -3,6 +3,9 @@
 
 //! CONTEXT: Syscall handlers exposed to the dispatcher
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: install_handlers(table), Context, Args, SysResult
 //! DEPENDS_ON: sched::Scheduler, task::TaskTable, ipc::Router, mm::AddressSpaceManager
 //! INVARIANTS: Stable syscall IDs; Decode→Check→Execute pattern; W^X for user mappings

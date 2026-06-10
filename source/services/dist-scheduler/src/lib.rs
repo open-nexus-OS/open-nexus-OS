@@ -1,9 +1,12 @@
-//! CONTEXT: Distributed scheduler daemon domain library (service API and handlers)
-//! INTENT: Remote ability start/continuation, device listing
-//! IDL (target): startRemoteAbility(device,intent), continueAbility(token), listDevices()
-//! DEPS: dsoftbusd, abilitymgr, samgrd
-//! READINESS: print "dist-scheduler: ready"; register/heartbeat with samgr
-//! TESTS: listDevices empty; startRemoteAbility mock
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Distributed scheduler daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (computes_deadline)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "dist-scheduler coordinates remote tasks. Usage: dist-scheduler [--help] delay_ms"
 }

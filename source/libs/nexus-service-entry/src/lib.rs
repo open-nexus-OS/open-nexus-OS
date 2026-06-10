@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(
     all(nexus_env = "os", target_arch = "riscv64", target_os = "none"),

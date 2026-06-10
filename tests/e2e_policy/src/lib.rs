@@ -1,11 +1,20 @@
-//! CONTEXT: Policy end-to-end test harness library
-//! INTENT: Policy enforcement testing with bundlemgrd/policyd integration
-//! IDL (target): checkCaps(subject,caps), installBundle(name,handle,len), queryCaps(name)
-//! DEPS: policyd, bundlemgrd, samgrd (service integration)
-//! READINESS: Host backend ready; policy directory configured
-//! TESTS: Allow/deny policy checks; bundle capability queries; policy enforcement
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: [Test harness] for policyd/bundlemgrd policy enforcement end-to-end testing
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 test scenario
+//!
+//! TEST_SCOPE:
+//!   - Policy enforcement testing with bundlemgrd/policyd integration
+//!   - Allow/deny policy checks, bundle capability queries, keystore-backed signature verification
+//!
+//! DEPENDENCIES:
+//!   - policyd, bundlemgrd, samgrd (service integration)
+//!
+//! ADR: docs/adr/0014-policy-architecture.md
 
 #![cfg(nexus_env = "host")]
 #![forbid(unsafe_code)]

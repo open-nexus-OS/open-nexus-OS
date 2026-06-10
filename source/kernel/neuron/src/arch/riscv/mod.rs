@@ -3,6 +3,9 @@
 
 //! CONTEXT: RISC-V specific helpers used across the NEURON kernel
 //! OWNERS: @kernel-arch-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: read_pc(), clear_bss(), read_time(), set_timer()
 //! DEPENDS_ON: core arch asm, optional CLINT/SBI
 //! INVARIANTS: Host stubs exist; OS path uses inline asm guarded by cfg

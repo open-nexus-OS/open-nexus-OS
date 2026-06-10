@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Standard (non-lite) vfsd server with Cap'n Proto IDL dispatch, mount table
+//! abstraction, pluggable FsProvider backends, and capability-based file handles with
+//! sandbox enforcement. Supports open, read, close, stat, and mount operations.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 test
+//! ADR: docs/adr/0004-idl-runtime-architecture.md
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

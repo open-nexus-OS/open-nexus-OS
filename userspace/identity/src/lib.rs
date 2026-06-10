@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Device identity and cryptographic signing support
 //! OWNERS: @runtime
 //! STATUS: Functional (host backend), Placeholder (OS backend - provide stubs that will be wired later)

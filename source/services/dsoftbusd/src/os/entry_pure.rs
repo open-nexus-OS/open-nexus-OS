@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Pure entry helpers extracted for host-testable logic checks — cross-VM IP detection, nonce generation, and peer-IP map rebuild/set helpers.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Pure entry helpers extracted for host-testable logic checks.
 
 pub(crate) const QEMU_USERNET_FALLBACK_IP: [u8; 4] = [10, 0, 2, 15];

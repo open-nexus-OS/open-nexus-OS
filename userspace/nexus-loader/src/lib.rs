@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![forbid(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
 //! CONTEXT: ELF64/RISC-V loader library for secure user program execution

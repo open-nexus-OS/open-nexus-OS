@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Pure QUIC-v2 UDP frame encode/decode helpers (host-testable) for dsoftbusd session transport.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! QUIC-v2 UDP frame helpers (pure, host-testable).
 
 pub(crate) const QUIC_FRAME_MAGIC0: u8 = b'Q';

@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Remote packagefs read-only v1 protocol helpers (TASK-0016).
 //! OWNERS: @runtime
 //! STATUS: Experimental

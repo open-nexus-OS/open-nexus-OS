@@ -3,6 +3,9 @@
 
 //! CONTEXT: Syscall dispatcher and error handling
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: SyscallTable, Args, Error, Handler, SYSCALL_* IDs
 //! DEPENDS_ON: cap, ipc, mm, task, syscall::api
 //! INVARIANTS: Fixed MAX_SYSCALL window; stable IDs; decode/check/execute discipline

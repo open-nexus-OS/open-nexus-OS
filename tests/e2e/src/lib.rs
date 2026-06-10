@@ -1,11 +1,20 @@
-//! CONTEXT: End-to-end test harness library
-//! INTENT: Host-side integration test helpers for service roundtrips
-//! IDL (target): call(client,frame), samgrLoopback(), bundleLoopback()
-//! DEPS: nexus-ipc, samgrd, bundlemgrd (service integration)
-//! READINESS: Host backend ready; loopback transport established
-//! TESTS: Service roundtrip; frame send/receive; transport validation
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: [Test harness] for samgrd/bundlemgrd end-to-end testing
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 test scenarios
+//!
+//! TEST_SCOPE:
+//!   - Host-side loopback transport helpers for service IPC roundtrips
+//!   - Frame send/receive and transport validation
+//!
+//! DEPENDENCIES:
+//!   - nexus-ipc, samgrd, bundlemgrd (service integration)
+//!
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 #![forbid(unsafe_code)]
 

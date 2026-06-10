@@ -3,6 +3,9 @@
 
 //! CONTEXT: Kernel-side IPC primitives (endpoints, router)
 //! OWNERS: @kernel-ipc-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: Router (send/recv), Message, EndpointId
 //! DEPENDS_ON: ipc::header::MessageHeader
 //! INVARIANTS: Header.len bounds payload; queue depth respected; no cross-layer deps

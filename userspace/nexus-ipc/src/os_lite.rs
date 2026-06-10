@@ -1,28 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Cooperative mailbox-backed IPC for no_std OS-lite builds
-//!
 //! OWNERS: @runtime
-//!
-//! PUBLIC API:
-//!   - struct LiteClient: Client backed by cooperative mailbox
-//!   - struct LiteServer: Server backed by cooperative mailbox queues
-//!   - set_default_target(): Set default service target for current context
-//!   - LiteClient::new(): Create client targeting current default
-//!   - LiteClient::new_for(): Create client targeting specific service
-//!   - LiteServer::new(): Create server bound to current service name
-//!   - LiteServer::new_named(): Create server bound to specific service
-//!
-//! SECURITY INVARIANTS:
-//!   - No unsafe code in mailbox operations
-//!   - Frame size limits prevent memory exhaustion
-//!   - Queue depth limits prevent unbounded growth
-//!   - Cooperative yielding prevents deadlocks
-//!   - Thread-local storage for service targeting
-//!
-//! ERROR CONDITIONS:
-//!   - IpcError::Unsupported: Frame too large or feature not available
-//!   - IpcError::WouldBlock: Operation would block in non-blocking mode
-//!   - IpcError::Timeout: Operation timed out
-//!   - IpcError::Disconnected: Target service not available
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered by kernel IPC tests and QEMU selftest markers
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 //!
 //! DEPENDENCIES:
 //!   - nexus-sync::SpinLock: Synchronization for mailbox queues

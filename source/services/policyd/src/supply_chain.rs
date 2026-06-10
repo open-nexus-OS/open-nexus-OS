@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Supply-chain sign-policy decision mapping for install authority path
 //! OWNERS: @security @runtime
 //! STATUS: Functional

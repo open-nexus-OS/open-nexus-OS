@@ -3,6 +3,9 @@
 
 //! CONTEXT: Minimal newtypes for safer syscall decoding (debug-friendly, low overhead)
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: VirtAddr, PageLen, SlotIndex, Pid, CapSlot, Asid, HartId, CpuId
 //! DEPENDS_ON: mm::page_table::is_canonical_sv39, PAGE_SIZE
 //! INVARIANTS: Enforce canonical Sv39 addresses; alignment helpers; prevent type confusion

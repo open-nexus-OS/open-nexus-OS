@@ -1,3 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Unit tests for the deterministic layout engine covering empty layouts, text
+//! measurement, column/row flex layout, grid layout, node limits, div-by-zero edge cases,
+//! visual style propagation, and shrink-respecting flex children.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_SCOPE: Layout engine (flex, grid, text, visual styles)
+//! TEST_SCENARIOS: 9 tests (empty, text, col, row, max_nodes, grid, grid_div0,
+//! visual_style_propagated, column_shrink_respects_zero_shrink_children)
+//! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
+
 #[cfg(test)]
 mod tests {
     use crate::engine::LayoutEngine;

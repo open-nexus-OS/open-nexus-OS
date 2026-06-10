@@ -1,3 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Host-first deterministic tests for OS DHCP networking integration logic.
+//! Validates the DHCP state machine (configured/deconfigured/same-lease detection) and
+//! on-wire invariants (source/destination ports, broadcast addresses) using smoltcp.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_SCOPE: DHCP state machine, on-wire DHCP invariants
+//! TEST_SCENARIOS: 5 tests (dhcp_discover_uses_standard_ports_and_broadcast,
+//! dhcp_configured_first_time_emits_update, dhcp_same_config_is_silent,
+//! dhcp_gateway_change_emits_update, dhcp_deconfigured_clears_lease)
+//! ADR: docs/adr/0026-network-address-profiles-and-validation.md
+
 //! Host-first deterministic tests for OS networking integration logic.
 //!
 //! NOTE: These tests intentionally avoid QEMU and MMIO. They validate pure logic that should

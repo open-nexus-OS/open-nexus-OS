@@ -1,9 +1,12 @@
-//! CONTEXT: Identity daemon entrypoint wiring to service logic
-//! INTENT: Device ID, sign/verify API for userland
-//! IDL (target): getDeviceId(), sign(payload), verify(payload, signature, key)
-//! DEPS: keystored (anchors), nexus-idl-runtime (capnp)
-//! READINESS: print "identityd: ready"; register/heartbeat with samgr
-//! TESTS: sign/verify loopback
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Identity daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0006-device-identity-architecture.md
 
 fn main() -> ! {
     identityd::touch_schemas();

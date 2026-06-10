@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: OS-lite backend for the execd (execution daemon) service. Handles process
+//! execution, crash reporting with minidump artifacts, and crash record forwarding to logd
+//! via budgeted IPC. Provides the cooperative service main loop for the lite runtime.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
+
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 extern crate alloc;

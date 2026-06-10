@@ -1,4 +1,12 @@
-//! Handshake helper material for deterministic bring-up.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Test-only Noise-XK handshake key derivation helper for deterministic dsoftbusd bring-up.
+//! OWNERS: @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 /// SECURITY: bring-up test keys, NOT production custody.
 pub(crate) fn derive_test_secret(tag: u8, port: u16) -> [u8; 32] {

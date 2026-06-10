@@ -1,30 +1,11 @@
-//! CONTEXT: Build script for Cap'n Proto IDL code generation
-//!
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Build script for Cap'n Proto IDL code generation – schema compilation and manual fallback
 //! OWNERS: @runtime
-//!
-//! BUILD PROCESS:
-//!   - Scans `tools/nexus-idl/schemas` for all `.capnp` files
-//!   - Invokes Cap'n Proto compiler to generate Rust sources into OUT_DIR
-//!   - Emits proper `rerun-if-changed` hints for Cargo rebuilds
-//!   - Falls back to manual bindings if capnp compiler unavailable
-//!
-//! DEPENDENCIES:
-//!   - capnpc: Cap'n Proto compiler crate
-//!   - std::fs: File system operations
-//!   - std::env: Environment variable access
-//!   - std::path: Path handling
-//!
-//! FEATURES:
-//!   - Automatic schema discovery and compilation
-//!   - Manual fallback for CI environments
-//!   - Proper Cargo integration with rerun hints
-//!   - Error handling with helpful messages
-//!
-//! ERROR CONDITIONS:
-//!   - Schema directory not found: Warning only, build continues
-//!   - Capnp compiler unavailable: Falls back to manual bindings
-//!   - Manual fallback fails: Panic with installation instructions
-//!
+//! STATUS: Functional
+//! API_STABILITY: Internal (build-time only)
+//! TEST_COVERAGE: No tests (build script)
 //! ADR: docs/adr/0004-idl-runtime-architecture.md
 
 use std::{env, ffi::OsStr, fs, io, path::Path, path::PathBuf};

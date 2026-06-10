@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Minimal debug service entry point. On the OS target, it runs a cooperative
+//! loop that periodically emits an alive marker via the debug UART. On the host, it prints
+//! a stub message. Used for bring-up diagnostics and liveness monitoring.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0017-service-architecture.md
+
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_main)]
 

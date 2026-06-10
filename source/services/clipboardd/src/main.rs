@@ -1,10 +1,12 @@
-//! CONTEXT: Clipboard daemon entrypoint wiring to service logic
-//! INTENT: System clipboard management (text/binary), change notifications
-//! IDL (target): set(data,mime), get(), subscribe()
-//! DEPS: systemui/ime (UX integration), policyd (optional access policy)
-//! READINESS: print "clipboardd: ready"; register/heartbeat with samgr
-//! TESTS: loopback set/get roundtrip; subscribe emits change event
-//! Clipboard daemon entry point.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Clipboard daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0008-clipboard-architecture.md
 
 fn main() {
     clipboard::run();

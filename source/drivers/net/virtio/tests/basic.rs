@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Integration tests for the VirtioNetMmio driver API, covering probe, reset,
+//! feature negotiation, queue setup, and notification via a Bus-stub MMIO transport.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_SCOPE: virtio-mmio net driver probe, feature negotiation, queue lifecycle
+//! TEST_SCENARIOS: 1 test (net_status: probe, reset, negotiate, setup-queue, notify)
+//! ADR: docs/adr/0018-driverkit-abi-versioning-and-stability.md
+
 use net_virtio::{
     QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_MODERN,
 };

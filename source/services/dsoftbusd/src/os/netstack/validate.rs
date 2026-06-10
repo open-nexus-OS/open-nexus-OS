@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Pure reply/frame validation helpers for deterministic transport tests — magic-byte, nonce-correlated response matching, and status-frame parsing.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Pure reply/frame validation helpers for deterministic transport tests.
 
 const MAGIC0: u8 = b'N';

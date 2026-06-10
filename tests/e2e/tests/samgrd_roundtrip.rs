@@ -1,11 +1,23 @@
-//! CONTEXT: samgrd deterministic loopback tests
-//! INTENT: Validate register/resolve flows with stable inputs
-//! IDL (target): register(name, endpoint) → resolve(name)
-//! DEPS: samgrd (service integration)
-//! READINESS: Host backend ready; loopback transport established
-//! TESTS: Register/resolve ok, resolve unknown returns not-found
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Integration tests for samgrd service registry
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 2 test functions
+//!
+//! TEST_SCOPE:
+//!   - Validate register/resolve flows with stable inputs via loopback transport
+//!
+//! TEST_SCENARIOS:
+//!   - register_resolve_roundtrip: register a service name and resolve it back
+//!   - resolve_unknown_returns_not_found: verify unknown service resolution returns not-found
+//!
+//! DEPENDENCIES:
+//!   - samgrd (service integration)
+//!
+//! ADR: docs/adr/0003-ipc-runtime-architecture.md
 
 #![cfg(nexus_env = "host")]
 

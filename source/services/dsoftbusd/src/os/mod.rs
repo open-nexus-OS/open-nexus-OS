@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Internal OS-only module boundaries for dsoftbusd refactor slices.
 //! OWNERS: @runtime
 //! STATUS: Experimental

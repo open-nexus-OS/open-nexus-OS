@@ -1,3 +1,17 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Remote end-to-end tests for packagefs across nodes using FakeNet. Validates
+//! pkgfs read roundtrip, negative status codes (not-found, path-traversal, non-packagefs
+//! scheme, oversized), open/close lifecycle, handle limits, and bad-file-descriptor errors.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_SCOPE: Remote packagefs roundtrip and error status codes
+//! TEST_SCENARIOS: 1 test (remote_pkgfs_roundtrip_and_negative_statuses: read, stat errors,
+//! open/close lifecycle, handle limits)
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
+
 #![cfg(nexus_env = "host")]
 
 use nexus_net::fake::FakeNet;

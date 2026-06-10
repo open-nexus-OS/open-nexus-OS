@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Remote proxy gateway loop for authenticated cross-VM streams.
 //! OWNERS: @runtime
 //! STATUS: Experimental

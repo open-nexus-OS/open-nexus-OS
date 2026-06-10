@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: OS-lite packagefs daemon path using bundlemgr authority + pkgimg v2 validation.
 //! OWNERS: @runtime
 //! STATUS: Functional

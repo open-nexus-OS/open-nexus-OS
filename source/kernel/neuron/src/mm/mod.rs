@@ -3,6 +3,9 @@
 
 //! CONTEXT: Virtual memory primitives for Sv39 address spaces
 //! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: address_space::{AddressSpaceManager, AsHandle}, page_table::{PageTable, PageFlags}
 //! DEPENDS_ON: arch::riscv, hal::virt (for logging), core alloc
 //! INVARIANTS: W^X policy; canonical Sv39 ranges; stable PAGE_SIZE

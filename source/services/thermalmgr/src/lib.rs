@@ -1,9 +1,12 @@
-//! CONTEXT: Thermal manager daemon domain library (service API and handlers)
-//! INTENT: Thermal sensing, throttling/hints
-//! IDL (target): subscribe(sensor), setThrottling(level), getTemp(sensor)
-//! DEPS: powermgr (policy coordination)
-//! READINESS: print "thermalmgr: ready"; register/heartbeat with samgr
-//! TESTS: getTemp mock; subscribe emits
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Thermal manager daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (stable_message)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "thermalmgr balances device thermals. Usage: thermalmgr [--help]"
 }

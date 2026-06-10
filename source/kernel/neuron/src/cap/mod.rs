@@ -3,6 +3,9 @@
 
 //! CONTEXT: Capability table implementation (Endpoint, VMO, IRQ) and rights
 //! OWNERS: @kernel-cap-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: CapTable, Capability{Kind,rights}, Rights
 //! DEPENDS_ON: ipc::EndpointId
 //! INVARIANTS: Rights enforced at syscall boundaries; slots validated; no cross-layer leaks

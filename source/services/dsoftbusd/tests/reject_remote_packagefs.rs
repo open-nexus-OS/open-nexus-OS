@@ -1,3 +1,30 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Rejection tests for dsoftbusd remote packagefs gateway — verifies that unauthorized, malformed, and out-of-contract requests are properly rejected.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 tests
+//!
+//! TEST_SCOPE:
+//!   - Unauthenticated request rejection
+//!   - Path traversal detection
+//!   - Non-packagefs scheme rejection
+//!   - Oversized read/path rejection
+//!   - Protocol symbol link verification for host seam
+//!
+//! TEST_SCENARIOS:
+//!   - test_reject_unauthenticated_stream_request(): Unauthenticated STAT is rejected
+//!   - test_reject_path_traversal(): Path traversal (../) in pkg: URI is rejected
+//!   - test_reject_non_packagefs_scheme(): Non-pkg: scheme requests are rejected
+//!   - test_reject_oversize_read_or_path(): Oversized path and read length are rejected
+//!   - test_packagefs_protocol_symbols_are_linked_for_host_seam(): All packagefs protocol symbols are linkable
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/gateway/packagefs_ro.rs (via #[path])
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 #[path = "../src/os/gateway/packagefs_ro.rs"]

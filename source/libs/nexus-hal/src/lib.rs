@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(not(test), no_std)]
 //! CONTEXT: Userland HAL traits (Bus, DmaBuffer, Fence)
 //! OWNERS: @runtime

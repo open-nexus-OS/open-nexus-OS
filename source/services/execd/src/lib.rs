@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![forbid(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
@@ -6,10 +9,11 @@
 )]
 
 //! CONTEXT: execd daemon – payload executor and service spawner
-//! OWNERS: @services-team
-//! PUBLIC API: service_main_loop(), exec helpers
-//! DEPENDS_ON: nexus_ipc, nexus_loader (host), nexus_abi (os-lite stubs)
-//! ADR: docs/adr/0017-service-architecture.md
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 8 unit tests (decode_exec_policy_decision, crash_event_publish, spawn_caps, minidump)
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;

@@ -3,6 +3,9 @@
 
 //! CONTEXT: Sv39 address-space management with ASID allocation
 //! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: AddressSpaceManager (create/get/activate/as_map), AsHandle
 //! DEPENDS_ON: mm::page_table, arch::riscv (satp), hal::virt
 //! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps

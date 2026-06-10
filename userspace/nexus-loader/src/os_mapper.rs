@@ -1,28 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: OS-specific memory mapping implementation for ELF64/RISC-V loader
-//!
 //! OWNERS: @runtime
-//!
-//! PUBLIC API:
-//!   - struct OsMapper: OS-specific segment mapper using kernel VMO/AS APIs
-//!   - struct StackBuilder: Stack creation and population utilities
-//!   - OsMapper::new(): Create mapper with address space and bundle VMO handles
-//!   - StackBuilder::new(): Create stack builder with top address and page count
-//!   - StackBuilder::map_stack(): Map stack into address space
-//!   - StackBuilder::populate(): Populate stack with argv/env data
-//!
-//! SECURITY INVARIANTS:
-//!   - No W+X segments allowed (enforced at mapper level)
-//!   - All segments must be page-aligned (4KB boundary)
-//!   - Stack guard pages prevent buffer overflows
-//!   - VMO operations are bounds-checked
-//!   - No unsafe code in mapping operations
-//!
-//! ERROR CONDITIONS:
-//!   - Error::ProtWx: Segment has both write and execute permissions
-//!   - Error::Align: Segment not page-aligned
-//!   - Error::Truncated: File size mismatch
-//!   - Error::Oob: Segment goes out of bounds
-//!   - Error::Internal: Kernel VMO/AS operation failed
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 integration tests (tests/loader.rs)
+//! ADR: docs/adr/0002-nexus-loader-architecture.md
 //!
 //! DEPENDENCIES:
 //!   - nexus-abi: Kernel VMO and address space syscalls

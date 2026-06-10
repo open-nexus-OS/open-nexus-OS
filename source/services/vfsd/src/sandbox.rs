@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Sandbox path validation, namespace view enforcement, capability-based file
+//! descriptor tokens (CapFdToken) with HMAC integrity, and replay-guarded verification
+//! for the vfsd service. Includes canonical path resolution and traversal rejection.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 tests
+//! ADR: docs/adr/0014-policy-architecture.md
+
 extern crate alloc;
 
 use alloc::string::{String, ToString};

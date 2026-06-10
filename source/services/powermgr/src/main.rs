@@ -1,9 +1,12 @@
-//! CONTEXT: Power manager daemon entrypoint wiring to service logic
-//! INTENT: Power states, wakelocks, sleep policies
-//! IDL (target): acquireWakeLock(tag), releaseWakeLock(tag), setState(s0..s5)
-//! DEPS: batterymgr, thermalmgr
-//! READINESS: print "powermgr: ready"; register/heartbeat with samgr
-//! TESTS: acquire/release wakelock mock
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Power manager daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (lib) + 1 integration test (tests/cli.rs)
+//! ADR: docs/adr/0017-service-architecture.md
 fn main() {
     powermgr::run();
 }

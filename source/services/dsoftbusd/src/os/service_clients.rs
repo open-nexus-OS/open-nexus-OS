@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Cached client-slot helpers for local service IPC.
 //! OWNERS: @runtime
 //! STATUS: Experimental

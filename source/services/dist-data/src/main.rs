@@ -1,9 +1,12 @@
-//! CONTEXT: Distributed data service entrypoint wiring to service logic
-//! INTENT: Distributed KV data (DDS-like), conflict resolution, sync
-//! IDL (target): put(ns,key,val), get(ns,key), watch(ns,prefix), sync(peer)
-//! DEPS: dsoftbusd (transport), policyd (access control)
-//! READINESS: print "dist-data: ready"; register/heartbeat with samgr
-//! TESTS: put/get loopback; watch emits change
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Distributed data service entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (lib) + 1 integration test (tests/cli.rs)
+//! ADR: docs/adr/0017-service-architecture.md
 fn main() {
     dist_data::run();
 }

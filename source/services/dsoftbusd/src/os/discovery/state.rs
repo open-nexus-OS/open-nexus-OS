@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Lightweight deterministic peer-IP map helpers for discovery (set_peer_ip, get_peer_ip) with const port and multicast IP defaults.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Lightweight deterministic peer-IP map helpers.
 
 use alloc::string::String;

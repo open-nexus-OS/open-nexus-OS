@@ -1,3 +1,37 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Protocol-level tests for dsoftbusd remote statefs — parse allow/deny, reject mapping, response shape validation, audit labels, V2 nonce correlation, and frame header helpers.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 8 tests
+//!
+//! TEST_SCOPE:
+//!   - Shared-prefix parse allow for put/get/delete
+//!   - Deterministic reject-reason-to-status mapping
+//!   - Response shape validation (opcode matching)
+//!   - Audit label contract
+//!   - V2 nonce correlation strictness
+//!   - Empty frame rejection
+//!   - Frame header helpers (version gating, fail-closed)
+//!   - Protocol symbol linkage for host seam
+//!
+//! TEST_SCENARIOS:
+//!   - test_remote_statefs_parse_allows_shared_put_get_delete(): All three operations under /state/shared/ parse successfully
+//!   - test_remote_statefs_reject_mapping_is_deterministic(): RejectReason to status code mapping is correct; encode_reject_response shape is valid
+//!   - test_remote_statefs_response_shape_validation(): validate_response_shape accepts correct opcodes and rejects mismatched ones
+//!   - test_remote_statefs_audit_label_contract(): Audit labels for put/delete statuses match expected contract; read is None
+//!   - test_remote_statefs_v2_nonce_correlation_is_strict(): V2 nonce-correlated responses require matching nonce
+//!   - test_remote_statefs_parse_empty_is_bad_request(): Empty frame parses as BadRequest
+//!   - test_remote_statefs_frame_header_helpers_are_fail_closed(): Bad version bytes cause header helpers to return None; V2 nonce extraction works
+//!   - test_remote_statefs_symbols_are_linked_for_host_seam(): All protocol symbols, constants, and parsing helpers are linkable
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/gateway/statefs_rw.rs (via #[path])
+//!   - statefs::protocol
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 #[path = "../src/os/gateway/statefs_rw.rs"]

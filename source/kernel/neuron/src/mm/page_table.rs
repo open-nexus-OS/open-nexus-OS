@@ -3,6 +3,9 @@
 
 //! CONTEXT: Sv39 page-table implementation with lazy allocation of intermediate levels
 //! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: PageTable (new/map/unmap/lookup/verify), PageFlags, MapError, PAGE_SIZE
 //! DEPENDS_ON: bitflags, core alloc (optional static pool behind features)
 //! INVARIANTS: Enforce W^X (`PermissionDenied`), canonical Sv39 ranges, 4096-byte alignment

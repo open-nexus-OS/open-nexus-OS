@@ -1,9 +1,14 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Boot wrapper for the NEURON kernel. Provides a minimal `_start` entry
+//! CONTEXT: Boot wrapper for the NEURON kernel. Provides a minimal `_start` entry
 //! point that performs the early machine setup before handing execution to
 //! the kernel library via `neuron::kmain()`.
+//! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 #![no_std]
 #![no_main]
 

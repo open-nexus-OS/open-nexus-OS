@@ -1,46 +1,11 @@
-//! CONTEXT: Embedded ELF64/RISC-V payload for testing and bootstrap
-//!
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Embedded ELF64/RISC-V payload for testing and bootstrap – demo binary and manifests
 //! OWNERS: @runtime
-//!
-//! PUBLIC API:
-//!   - HELLO_ELF: Embedded RISC-V ELF binary (409 bytes)
-//!   - HELLO_MANIFEST_NXB: Canonical manifest.nxb bytes for the demo bundle (Cap'n Proto)
-//!   - HELLO_MANIFEST_TOML: TOML manifest template (tooling input only)
-//!
-//! EMBEDDED DATA:
-//!   - ELF binary: RISC-V executable that prints "child: hello-elf" and yields
-//!   - NXB manifest: Deterministic Cap'n Proto binary (on-disk contract)
-//!   - TOML manifest: Human-editable input template (not an on-disk contract)
-//!
-//! SECURITY INVARIANTS:
-//!   - No unsafe code in embedded data
-//!   - ELF binary is statically validated
-//!   - Manifest data is properly formatted
-//!   - No external dependencies on binary assets
-//!
-//! ERROR CONDITIONS:
-//!   - Invalid ELF format: Binary will fail to load
-//!   - Malformed manifest: NXB/TOML parsing will fail
-//!   - Size limits: ELF binary is fixed at 409 bytes
-//!
-//! DEPENDENCIES:
-//!   - None (embedded data only)
-//!
-//! FEATURES:
-//!   - Embedded ELF binary for testing
-//!   - NXB manifest for bundle metadata
-//!   - TOML manifest template for selftests
-//!   - No external binary dependencies
-//!
-//! TEST SCENARIOS:
-//!   - test_elf_parsing(): Parse embedded ELF binary
-//!   - test_manifest_validation(): Validate manifest.nxb format
-//!   - test_toml_template(): Validate TOML manifest template
-//!   - test_bundle_creation(): Create bundle from embedded data
-//!   - test_loader_integration(): Load ELF using nexus-loader
-//!   - test_execution(): Execute ELF and verify output
-//!   - test_manifest_roundtrip(): Round-trip manifest serialization
-//!
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: Validated via selftest-client QEMU markers
 //! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 /// Embedded RISC-V ELF payload that prints a marker and yields forever.

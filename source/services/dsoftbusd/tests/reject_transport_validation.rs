@@ -1,3 +1,30 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Rejection tests for dsoftbusd netstack transport validation helpers.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 tests
+//!
+//! TEST_SCOPE:
+//!   - Nonce-mismatch response rejection
+//!   - Unexpected opcode response rejection
+//!   - Malformed frame rejection (zero-length, oversized UDP)
+//!   - Status/nonce extraction correctness
+//!   - Payload length boundary validation
+//!
+//! TEST_SCENARIOS:
+//!   - test_reject_nonce_mismatch_response(): Response with mismatched nonce is rejected
+//!   - test_reject_unexpected_response_opcode(): Response with wrong opcode is rejected
+//!   - test_reject_zero_length_status_ok_read_frame(): Zero-length status-ok read frame is rejected
+//!   - test_reject_oversized_udp_payload(): Oversized (>256 byte) UDP payloads are rejected
+//!   - test_parse_helpers_cover_status_and_nonce_extraction(): Status/nonce extraction helpers behave correctly
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/netstack/validate.rs (via #[path])
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 #[path = "../src/os/netstack/validate.rs"]
 mod validate;
 

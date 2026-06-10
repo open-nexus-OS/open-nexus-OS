@@ -4,6 +4,9 @@
 #![cfg(all(test, target_arch = "riscv64", target_os = "none"))]
 //! CONTEXT: Unit tests for Sv39 page table invariants
 //! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 7 tests
 //! NOTE: Tests only; verify alignment, flags, W^X, overlap, range, lookup
 //!
 //! TEST_SCOPE:

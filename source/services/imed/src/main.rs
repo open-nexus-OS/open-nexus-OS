@@ -1,10 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: IME daemon entrypoint — minimal bootstrap stub for TASK-0059.
-//! INTENT: register with samgr, emit "imed: ready", await focus/text-input IPC.
-//! READINESS: print "imed: ready"; register/heartbeat with samgr (stub).
-//! TESTS: unit tests in lib.rs.
+//! CONTEXT: [daemon] entrypoint – IME daemon bootstrap stub
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Refer to lib.rs unit tests
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 #![forbid(unsafe_code)]

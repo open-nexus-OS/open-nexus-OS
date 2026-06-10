@@ -1,11 +1,24 @@
-//! CONTEXT: bundlemgrd deterministic loopback tests
-//! INTENT: Validate install/query/payload flows with fixed manifests
-//! IDL (target): install(name,handle,len) → query(name) → getPayload(name)
-//! DEPS: bundlemgrd (service integration)
-//! READINESS: Host backend ready; loopback transport established
-//! TESTS: Install/query ok, getPayload ok, invalid signature rejected
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Integration tests for bundlemgrd bundle management
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 test functions
+//!
+//! TEST_SCOPE:
+//!   - Validate install/query/payload flows with fixed manifests via loopback transport
+//!
+//! TEST_SCENARIOS:
+//!   - install_query_roundtrip: verify install fails closed without keystore policy backend
+//!   - install_get_payload_roundtrip: verify payload staging with install denial
+//!   - install_invalid_signature_rejected: verify invalid signature produces InvalidSig error
+//!
+//! DEPENDENCIES:
+//!   - bundlemgrd (service integration)
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 
 #![cfg(nexus_env = "host")]
 

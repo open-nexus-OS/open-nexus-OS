@@ -4,6 +4,9 @@
 #![cfg(test)]
 //! CONTEXT: Property-based tests for capability table
 //! OWNERS: @kernel-cap-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 tests
 //! NOTE: Tests only; no kernel logic. Ensures Rights derivation and slot ops are sound.
 //!
 //! TEST_SCOPE:

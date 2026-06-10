@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Selftest server loop runner for single-VM os_entry path — exercises Noise-XK handshake, QUIC frame exchange, and mux contract self-tests.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Selftest server loop runner for single-VM os_entry path.
 
 use super::quic_frame::{

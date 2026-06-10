@@ -1,10 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
-//! CONTEXT: SAMGR os-lite service loop
-//! INTENT: Provide minimal registry semantics for bring-up and selftests
-//! IDL (target): register(name, endpoint), lookup(name), resolve_status(name)
-//! DEPS: nexus-ipc, nexus-abi
-//! READINESS: emit "samgrd: ready" once service loop is live
-//! TESTS: scripts/qemu-test.sh (selftest markers)
+//! CONTEXT: SAMGR OS-lite service loop – minimal registry semantics for bring-up and selftests
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU selftest markers (scripts/qemu-test.sh)
+//! ADR: docs/adr/0017-service-architecture.md
 
 extern crate alloc;
 

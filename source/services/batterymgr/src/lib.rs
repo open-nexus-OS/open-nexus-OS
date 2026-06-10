@@ -1,9 +1,12 @@
-//! CONTEXT: Battery manager daemon domain library (service API and handlers)
-//! INTENT: Battery status/health/charging policy, low-power signals
-//! IDL (target): getLevel(), getStatus(), subscribe(), setPowerSave(bool)
-//! DEPS: powermgr (policies), notifd (warnings)
-//! READINESS: print "batterymgr: ready"; register/heartbeat with samgr
-//! TESTS: level mock, subscribe event
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Battery manager daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (nominal_output)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "batterymgr tracks charge levels. Usage: batterymgr [--help]"
 }

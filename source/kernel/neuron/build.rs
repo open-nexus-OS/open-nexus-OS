@@ -1,11 +1,15 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// CONTEXT: Kernel build script – emits optional trap symbol table and configures linker/script
-// OWNERS: @kernel-team
-// PUBLIC API: cargo build-script outputs (env/cfg, generated trap_symbols.rs)
-// DEPENDS_ON: env vars NEURON_SYMBOLS_MAP, NEURON_LINKER_SCRIPT, EMBED_INIT_ELF
-// INVARIANTS: No-op in debug; best-effort generation only
+//! CONTEXT: Kernel build script – emits optional trap symbol table and configures linker/script
+//! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! PUBLIC API: cargo build-script outputs (env/cfg, generated trap_symbols.rs)
+//! DEPENDS_ON: env vars NEURON_SYMBOLS_MAP, NEURON_LINKER_SCRIPT, EMBED_INIT_ELF
+//! INVARIANTS: No-op in debug; best-effort generation only
+//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 fn emit_symbol_table() {
     // Only attempt in release builds; keep host/dev simple.

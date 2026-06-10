@@ -1,7 +1,24 @@
-//! CONTEXT: Host end-to-end verification for remote packagefs read-only channel
-//! INTENT: Prove STAT/OPEN/READ/CLOSE success path and reject/status mapping
-//! DEPS: remote_e2e harness (FakeNet + two host nodes + in-memory packagefs backend)
-//! TESTS: roundtrip success, ENOENT/BADF, path/scheme rejects, oversize read reject
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: End-to-end tests for remote packagefs read-only channel
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 test functions
+//!
+//! TEST_SCOPE:
+//!   - Prove STAT/OPEN/READ/CLOSE success path and reject/status mapping via FakeNet
+//!
+//! TEST_SCENARIOS:
+//!   - remote_packagefs_roundtrip_stat_open_read_close: successful roundtrip read of build.prop
+//!   - remote_packagefs_negative_statuses: verify ENOENT, BADF status codes
+//!   - remote_packagefs_rejects_invalid_paths_and_read_bounds: path traversal rejection, scheme validation, oversize read rejection
+//!
+//! DEPENDENCIES:
+//!   - remote_e2e harness (FakeNet + two host nodes + in-memory packagefs backend)
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 #![cfg(nexus_env = "host")]
 
 use nexus_net::fake::FakeNet;

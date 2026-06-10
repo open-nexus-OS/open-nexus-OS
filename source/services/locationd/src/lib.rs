@@ -1,9 +1,12 @@
-//! CONTEXT: Location daemon domain library (service API and handlers)
-//! INTENT: GNSS/network positioning, geofencing, mock
-//! IDL (target): getLast(), subscribe(request), setMock(enabled,loc)
-//! DEPS: policyd (privacy), time-syncd (time)
-//! READINESS: print "locationd: ready"; register/heartbeat with samgr
-//! TESTS: getLast mock; subscribe emits
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Location daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (fix_message)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "locationd fuses sensors for positioning. Usage: locationd [--help]"
 }

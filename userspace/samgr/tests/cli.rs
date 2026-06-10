@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Integration tests for service manager CLI functionality
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -5,19 +8,15 @@
 //! TEST_COVERAGE: 1 integration test
 //!
 //! TEST_SCOPE:
-//!   - CLI command execution
-//!   - Service management operations
-//!   - Error handling and validation
-//!   - Default ready state
+//!   - CLI command execution and service management operations
 //!
 //! TEST_SCENARIOS:
-//!   - test_default_ready(): Test default ready state
+//!   - default_ready(): Test default ready state
 //!
 //! DEPENDENCIES:
 //!   - samgr::execute: CLI execution function
-//!   - In-memory service registry
 //!
-//! ADR: docs/adr/0004-idl-runtime-architecture.md
+//! ADR: docs/adr/0017-service-architecture.md
 
 #[test]
 fn default_ready() {

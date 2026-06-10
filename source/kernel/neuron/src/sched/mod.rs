@@ -3,6 +3,9 @@
 
 //! CONTEXT: Minimal scheduler used during NEURON bring-up
 //! OWNERS: @kernel-sched-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: Scheduler (new/enqueue/try_enqueue/schedule_next), QosClass, TaskId, EnqueueOutcome
 //! DEPENDS_ON: uart (boot logs), determinism (timeslice)
 //! INVARIANTS: Bounded queue capacity + deterministic reject on saturation; timeslice deterministic; RR per QoS

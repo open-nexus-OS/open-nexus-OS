@@ -1,12 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
-//! CONTEXT: Bundlemgrd os-lite service loop
-//! INTENT: Provide minimal bundle manager ops for bring-up and selftests
-//! IDL (target): list, route_status, fetch_image, set_active_slot
-//! DEPS: nexus-ipc, nexus-abi, nexus-log
-//! READINESS: emit "bundlemgrd: ready" once service loop is live
+//! CONTEXT: Bundlemgrd OS-lite service loop – minimal bundle manager ops for bring-up and selftests
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
 //! TEST_COVERAGE: 5 unit tests + QEMU marker-ladder coverage
-//!   - Unit: frame parsing, slot switch, malformed rejects, sender-identity reject
-//!   - QEMU: scripts/qemu-test.sh (selftest markers via proof-manifest)
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 
 extern crate alloc;
 

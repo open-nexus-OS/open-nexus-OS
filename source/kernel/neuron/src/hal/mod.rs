@@ -3,6 +3,9 @@
 
 //! CONTEXT: Hardware abstraction layer traits
 //! OWNERS: @kernel-hal-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: Timer, Uart, IrqCtl, Tlb
 //! DEPENDS_ON: per-machine impls under hal::<machine> (e.g., virt)
 //! INVARIANTS: No allocation in IRQ paths; stable contracts across builds

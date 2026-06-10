@@ -1,3 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Protocol-level tests for dsoftbusd remote packagefs — roundtrip parse, status mappings, encode caps, resolve decode, and handler lifecycle constraints.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 tests
+//!
+//! TEST_SCOPE:
+//!   - STAT / OPEN / READ / CLOSE parse roundtrip
+//!   - Reject-to-status mapping completeness
+//!   - Read response payload caps to PK_MAX_READ_LEN
+//!   - Packagefs resolve response decode (found / missing / malformed)
+//!   - Handler lifecycle constraints (max handles, close tracking)
+//!
+//! TEST_SCENARIOS:
+//!   - test_parse_stat_open_read_close_roundtrip_sanity(): All four request types parse correctly
+//!   - test_status_mappings_cover_all_task_required_statuses(): All reject reasons map to correct status codes; response and encode shapes are correct
+//!   - test_read_rsp_caps_payload_to_protocol_max(): encode_read_rsp caps payload to PK_MAX_READ_LEN
+//!   - test_decode_packagefs_resolve_response_found_and_missing(): Resolve response decode handles found, missing, wrong kind, and oversized
+//!   - test_handler_lifecycle_constraints_model_max_handles_and_close(): Handle limit enforcement and close tracking work correctly
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/gateway/packagefs_ro.rs (via #[path])
+//!   - alloc (BTreeMap, Vec)
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 use alloc::collections::BTreeMap;

@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Single-VM discovery and dual-node bring-up runner — handles announce, discovery polling, Noise-XK initiator/responder handshake, and peer-IP management.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Single-VM discovery + dual-node bring-up runner.
 
 use alloc::string::String;

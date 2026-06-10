@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![forbid(unsafe_code)]
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
@@ -6,10 +9,11 @@
 )]
 
 //! CONTEXT: policyd daemon – capability policy checks via IPC
-//! OWNERS: @services-team
-//! PUBLIC API: service_main_loop(), run_with_transport_ready()
-//! DEPENDS_ON: policy engine, nexus-ipc
-//! ADR: docs/adr/0017-service-architecture.md
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 unit tests (supply_chain) + QEMU marker ladder (os_lite)
+//! ADR: docs/adr/0014-policy-architecture.md
 
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;

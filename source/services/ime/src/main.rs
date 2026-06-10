@@ -1,9 +1,12 @@
-//! CONTEXT: Input method editor (IME) daemon entrypoint wiring to service logic
-//! INTENT: compose/commit text, candidate UI, input focus
-//! IDL (target): attachClient(win), setComposingText(text), commitText(text), show(), hide()
-//! DEPS: systemui/compositor (UI), accessibilityd (a11y)
-//! READINESS: print "ime: ready"; register/heartbeat with samgr
-//! TESTS: compose/commit loopback
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Input method editor daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 integration test (tests/cli.rs)
+//! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 fn main() {
     ime::run();
 }

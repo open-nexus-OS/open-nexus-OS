@@ -8,6 +8,8 @@
 //!
 //! OWNERS: @kernel
 //! STATUS: Draft (RFC-0062 Phase D.2)
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //!
 //! INVARIANTS:
 //! - Drift-free periodic rearm: `next_deadline += interval_ns`, never `now + interval`

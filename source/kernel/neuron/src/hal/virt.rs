@@ -3,6 +3,9 @@
 
 //! CONTEXT: HAL implementation targeting QEMU's `virt` machine
 //! OWNERS: @kernel-hal-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: VirtMachine (timer/uart/tlb/irq), Timer::now/set_wakeup
 //! DEPENDS_ON: arch::riscv, sbi-rt (OS), MMIO UART regs
 //! INVARIANTS: No allocations in IRQ paths; UART writes are best-effort; time = 10MHz ticks

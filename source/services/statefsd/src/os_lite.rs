@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 #![forbid(unsafe_code)]
 

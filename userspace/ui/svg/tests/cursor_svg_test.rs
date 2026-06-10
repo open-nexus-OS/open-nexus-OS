@@ -1,3 +1,16 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: SVG rendering integration tests covering basic shapes (rect, path, circle, line)
+//! and the cursor SVG arrow shape. Validates that render_svg produces non-trivial pixel output.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_SCOPE: SVG renderer basic shape and cursor rendering
+//! TEST_SCENARIOS: 1 test (test_all_svg_render: 5 sub-scenarios — rect, path-rect, circle,
+//! line, cursor arrow)
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+
 #[test]
 fn test_all_svg_render() {
     use nexus_svg::render_svg;

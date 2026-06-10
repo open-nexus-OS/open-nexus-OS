@@ -3,6 +3,9 @@
 
 //! CONTEXT: IPC message header definition (16-byte LE)
 //! OWNERS: @kernel-ipc-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: MessageHeader::new(), to_le_bytes(), from_le_bytes()
 //! DEPENDS_ON: core::convert
 //! INVARIANTS: Exactly 16 bytes; align(4); fields LE-encoded; stable across builds

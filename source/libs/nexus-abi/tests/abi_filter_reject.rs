@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Security-negative tests for ABI syscall filter profile handling.
 //! OWNERS: @runtime @security
 //! STATUS: Experimental

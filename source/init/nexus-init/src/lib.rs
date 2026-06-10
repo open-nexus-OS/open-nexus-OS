@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![deny(clippy::all, missing_docs)]
 #![allow(unexpected_cfgs)]
 // `os-payload` and `os-lite` are used by OS builds. They must remain compatible

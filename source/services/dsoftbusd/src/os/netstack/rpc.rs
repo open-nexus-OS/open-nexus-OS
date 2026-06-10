@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Nonce-correlated netstack RPC over deterministic reply slots, with pending-buffer deduplication and cap-move send semantics.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Nonce-correlated netstack RPC over deterministic reply slots.
 
 use super::validate::{extract_netstack_reply_nonce, response_matches};

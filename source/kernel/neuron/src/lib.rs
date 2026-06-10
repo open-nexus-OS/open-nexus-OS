@@ -3,9 +3,10 @@
 
 //! CONTEXT: NEURON kernel library – module glue and global allocator
 //! OWNERS: @kernel-team
-//! PUBLIC API: early_boot_init(), kmain(), exported types
-//! DEPENDS_ON: linked_list_allocator, sync (debug), arch/hal/mm/ipc/etc.
-//! INVARIANTS: Global allocator lock strategy differs in debug vs release; no_std OS builds
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: host unit tests via cargo test; QEMU SMP smoke proofs
+//! INVARIANTS: Global allocator lock strategy differs in debug vs release; no_std OS builds; capability-governed IPC only
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 // The kernel is only built for `target_os = "none"`. For host builds (`cargo test --workspace`)

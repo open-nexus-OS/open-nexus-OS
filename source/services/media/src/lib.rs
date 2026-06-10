@@ -1,9 +1,12 @@
-//! CONTEXT: Media service domain library (service API and handlers)
-//! INTENT: Media playback/record pipeline, codec routing, volume
-//! IDL (target): createPlayer(), setSource(url/vmo), play(), pause(), setVolume(vol)
-//! DEPS: resmgrd (resources), vfsd/packagefsd (payloads)
-//! READINESS: print "media: ready"; register/heartbeat with samgr
-//! TESTS: createPlayer/setSource mock
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Media service domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (probe_asset)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "media orchestrates playback. Usage: media [--help] [--probe asset]"
 }

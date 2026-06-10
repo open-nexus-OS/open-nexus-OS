@@ -1,3 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: OS-lite backend for the vfsd (virtual filesystem daemon). Provides stat, open,
+//! read, and close operations over kernel IPC, forwarding pkg:/ resolution to packagefsd
+//! for real data and enforcing namespace view constraints.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0017-service-architecture.md
+
 extern crate alloc;
 
 use alloc::collections::BTreeMap;

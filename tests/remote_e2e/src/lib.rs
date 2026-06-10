@@ -1,9 +1,21 @@
-//! CONTEXT: Remote end-to-end test harness library
-//! INTENT: DSoftBus-lite stack testing with service nodes and remote operations
-//! IDL (target): start(port,services), connect(peer), resolve(service), installBundle(name,handle,len)
-//! DEPS: dsoftbus, samgrd, bundlemgrd, identity (service integration)
-//! READINESS: Host backend ready; multiple nodes with service discovery
-//! TESTS: Service discovery, remote resolution, bundle install, authentication
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: [Test harness] for DSoftBus-lite distributed service end-to-end testing
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 4 test scenarios
+//!
+//! TEST_SCOPE:
+//!   - Spin up pairs of service nodes (identityd, samgrd, bundlemgrd, dsoftbusd) in-process
+//!   - Nodes communicate via userspace/dsoftbus host-first transports over FakeNet
+//!   - Includes on-wire discovery announce packets and Noise-authenticated sessions
+//!
+//! DEPENDENCIES:
+//!   - dsoftbus, samgrd, bundlemgrd, identity (service integration)
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Host-only remote end-to-end harness exercising the DSoftBus-lite stack.
 //!
 //! The helpers defined here spin up a pair of service nodes (identityd,

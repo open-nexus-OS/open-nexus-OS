@@ -1,8 +1,11 @@
-//! CONTEXT: Accessibility daemon domain library (service API and handlers)
-//! OWNERS: @services-team
-//! PUBLIC API: service_main_loop(), ReadyNotifier
-//! DEPENDS_ON: nexus_ipc, nexus_idl_runtime (capnp)
-//! INVARIANTS: Stable readiness prints; no cross-service logic
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Accessibility daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (provides_hint)
 //! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "accessibilityd surfaces assistive metadata. Usage: accessibilityd [--help] hint"

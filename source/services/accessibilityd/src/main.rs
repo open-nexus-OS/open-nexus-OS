@@ -1,9 +1,12 @@
-//! CONTEXT: Accessibility daemon entrypoint wiring to service logic
-//! INTENT: Accessibility events, screen reader hooks, global actions
-//! IDL (target): setEnabled(bool), subscribeEvents(mask), injectGesture(seq)
-//! DEPS: systemui/compositor (focus), ime (text)
-//! READINESS: print "accessibilityd: ready"; register/heartbeat with samgr
-//! TESTS: event subscribe/inject gesture roundtrip
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Accessibility daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (lib) + 1 integration test (tests/cli.rs)
+//! ADR: docs/adr/0017-service-architecture.md
 fn main() {
     accessibilityd::run();
 }

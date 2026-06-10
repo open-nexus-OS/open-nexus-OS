@@ -1,5 +1,8 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Ability Manager daemon CLI tests
-//! OWNERS: @services-team
+//! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: 1 CLI test

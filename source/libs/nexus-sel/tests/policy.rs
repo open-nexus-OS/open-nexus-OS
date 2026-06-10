@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Tests for entitlement policy allow/deny lookup
 use nexus_sel::{Policy, PolicyEntry};
 

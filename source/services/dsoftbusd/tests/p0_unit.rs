@@ -1,3 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: P0 (priority-zero) unit tests for dsoftbusd core modules — FSM, discovery state, handshake, typed IDs, entry helpers, and QUIC frames.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 15 tests
+//!
+//! TEST_SCOPE:
+//!   - Session FSM reconnect, phase transitions, epoch tracking
+//!   - Discovery peer-IP insert/update/lookup and const defaults
+//!   - Typed netstack ID roundtrip (UdpSocketId, ListenerId, SessionId)
+//!   - Deterministic test secret derivation (cross-module)
+//!   - Cross-VM IP detection and nonce generation
+//!   - Peer-IP LRU-ordered rebuild
+//!   - QUIC frame encode/decode roundtrip and rejection (bad magic, truncated, oversized)
+//!   - QUIC opcode contract values
+//!
+//! TEST_SCENARIOS:
+//!   - test_begin_reconnect_clears_sid_and_bumps_epoch(): Reconnect clears SID and advances epoch
+//!   - test_set_phase_progression_smoke(): All SessionFsm phase setters work correctly
+//!   - test_set_peer_ip_insert_then_update(): Discovery set_peer_ip inserts and updates
+//!   - test_get_peer_ip_missing_returns_none(): Missing peer lookup returns None; consts are correct
+//!   - test_typed_id_roundtrip_raw(): UdpSocketId/ListenerId/SessionId raw roundtrip
+//!   - test_derive_test_secret_deterministic_and_distinct(): Secret derivation is deterministic and distinct per input
+//!   - test_entry_pure_is_cross_vm_ip(): Cross-VM IP detection is correct
+//!   - test_entry_pure_next_nonce_wraps(): Nonce counter wraps correctly
+//!   - test_entry_pure_rebuild_peer_ips_preserves_lru_order(): Peer IP rebuild preserves LRU order and drops stale entries
+//!   - test_entry_pure_set_get_and_derive_helpers(): Set/get peer IP and cross-module derive helpers
+//!   - test_quic_frame_roundtrip(): QUIC frame encode/decode roundtrip
+//!   - test_reject_quic_frame_bad_magic(): QUIC frame with bad magic byte is rejected
+//!   - test_reject_quic_frame_truncated_payload(): QUIC frame with truncated payload is rejected
+//!   - test_reject_quic_frame_oversized_payload_encode(): Oversized QUIC frame payload is rejected at encode time
+//!   - test_quic_frame_opcode_contract_values(): QUIC opcode constants have correct values
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/discovery/state.rs (via #[path])
+//!   - ../src/os/entry_pure.rs (via #[path])
+//!   - ../src/os/session/fsm.rs (via #[path])
+//!   - ../src/os/session/handshake.rs (via #[path])
+//!   - ../src/os/netstack/ids.rs (via #[path])
+//!   - ../src/os/session/quic_frame.rs (via #[path])
+//!   - nexus_peer_lru
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 #[path = "../src/os/discovery/state.rs"]

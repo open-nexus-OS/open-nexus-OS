@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Pure orchestration step helpers for runner-near tests — announce cadence, discovery polling, identity binding matching, and handshake failure actions.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Pure orchestration step helpers for runner-near tests.
 
 use super::fsm::SessionFsm;

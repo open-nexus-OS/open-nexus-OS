@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Tests for HAL traits: Bus/DmaBuffer/Fence mocks
 //! OWNERS: @runtime
 //! STATUS: Functional

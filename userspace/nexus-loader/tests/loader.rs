@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Integration tests for nexus-loader ELF64/RISC-V loading functionality
 //! OWNERS: @runtime
 //! STATUS: Functional

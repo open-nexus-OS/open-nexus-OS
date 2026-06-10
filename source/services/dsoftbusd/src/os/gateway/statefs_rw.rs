@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Remote statefs read-write v1 protocol guards (TASK-0017).
 //! OWNERS: @runtime
 //! STATUS: Experimental

@@ -1,9 +1,12 @@
-//! CONTEXT: Power manager daemon domain library (service API and handlers)
-//! INTENT: Power states, wakelocks, sleep policies
-//! IDL (target): acquireWakeLock(tag), releaseWakeLock(tag), setState(s0..s5)
-//! DEPS: batterymgr, thermalmgr
-//! READINESS: print "powermgr: ready"; register/heartbeat with samgr
-//! TESTS: acquire/release wakelock mock
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Power manager daemon domain library – service API and CLI handlers
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (default_response)
+//! ADR: docs/adr/0017-service-architecture.md
 pub fn help() -> &'static str {
     "powermgr coordinates power domains. Usage: powermgr [--help]"
 }

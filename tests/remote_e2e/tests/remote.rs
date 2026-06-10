@@ -1,9 +1,23 @@
-//! CONTEXT: Remote end-to-end integration tests (host-first complement to tools/os2vm.sh)
-//! INTENT: Distributed service discovery, remote bundle management, authentication
-//! IDL (target): announce(device_id,services,port), connect(remote), resolve(name), installBundle(name,handle,len)
-//! DEPS: dsoftbusd, samgrd, bundlemgrd (distributed service integration)
-//! READINESS: Multiple nodes started; service discovery active
-//! TESTS: Service discovery, remote resolution, bundle install, authentication failure
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: End-to-end tests for DSoftBus-lite distributed service integration
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 test function
+//!
+//! TEST_SCOPE:
+//!   - Distributed service discovery, remote bundle management, authentication
+//!   - In-process verification using FakeNet with discovery → Noise XK auth → remote proxy
+//!
+//! TEST_SCENARIOS:
+//!   - remote_roundtrip_and_negative_handshake: service discovery, remote resolution, bundle install, authentication failure
+//!
+//! DEPENDENCIES:
+//!   - dsoftbusd, samgrd, bundlemgrd (distributed service integration)
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //!
 //! This test suite exercises the DSoftBus-lite stack (TASK-0005 / RFC-0010) entirely
 //! in-process using FakeNet. It provides fast, deterministic verification of the

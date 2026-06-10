@@ -1,9 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Thermal manager daemon CLI tests
-//! INTENT: Thermal sensing, throttling/hints
-//! IDL (target): subscribe(sensor), setThrottling(level), getTemp(sensor)
-//! DEPS: powermgr (policy coordination)
-//! READINESS: print "thermalmgr: ready"; register/heartbeat with samgr
-//! TESTS: getTemp mock; subscribe emits
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 integration test
+//!
+//! TEST_SCOPE:
+//!   - Thermal manager status reporting via CLI
+//!
+//! TEST_SCENARIOS:
+//!   - stable_state(): Verify thermal manager reports stable state
+//!
+//! DEPENDENCIES:
+//!   - thermalmgr::execute: CLI execution function
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 #[test]
 fn stable_state() {
     assert!(thermalmgr::execute(&[]).contains("stable"));

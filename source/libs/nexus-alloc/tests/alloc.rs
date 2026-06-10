@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Tests for bump allocator alignment and reuse
 //! OWNERS: @runtime
 //! STATUS: Functional

@@ -1,3 +1,12 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Typed newtype wrappers (UdpSocketId, ListenerId, SessionId) for netstack handle identifiers used in dsoftbusd IPC.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: No tests
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 //! Typed wrappers for netstack socket/listener/session handles.
 
 #[repr(transparent)]

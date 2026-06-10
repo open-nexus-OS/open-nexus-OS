@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Small entry/wiring helpers shared by os_entry flow.
 //! OWNERS: @runtime
 //! STATUS: Experimental

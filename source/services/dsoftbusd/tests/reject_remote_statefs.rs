@@ -1,3 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Rejection tests for dsoftbusd remote statefs gateway — verifies that writes outside ACL, oversized values, prefix escapes, unauthenticated requests, and malformed frames are properly rejected.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 6 tests
+//!
+//! TEST_SCOPE:
+//!   - Write-outside-ACL rejection
+//!   - Prefix escape detection
+//!   - Oversized value rejection
+//!   - Unauthenticated request rejection
+//!   - Malformed empty frame rejection
+//!   - Protocol symbol link verification for host seam
+//!
+//! TEST_SCENARIOS:
+//!   - test_reject_statefs_write_outside_acl(): Writes to /state/private/ are rejected
+//!   - test_reject_statefs_prefix_escape(): Path prefix escapes (../) are rejected
+//!   - test_reject_oversize_statefs_write(): Values exceeding RS_MAX_VALUE_LEN are rejected
+//!   - test_reject_unauthenticated_statefs_request(): Unauthenticated requests are rejected
+//!   - test_reject_malformed_empty_frame(): Empty frames are rejected as BadRequest
+//!   - test_statefs_protocol_symbols_are_linked_for_host_seam(): All statefs protocol symbols are linkable
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/gateway/statefs_rw.rs (via #[path])
+//!   - statefs::protocol
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 #[path = "../src/os/gateway/statefs_rw.rs"]

@@ -1,11 +1,28 @@
-//! CONTEXT: logd journal end-to-end integration tests
-//! INTENT: Journal roundtrip, overflow, crash reports, multi-service logging
-//! IDL (target): APPEND → Journal → QUERY → STATS
-//! DEPS: logd (service integration)
-//! READINESS: logd ready; loopback transport established
-//! TESTS: APPEND/QUERY/STATS roundtrip, overflow (drop-oldest), crash events, concurrent appends
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: End-to-end tests for logd journal and crash reporting
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 7 test functions
+//!
+//! TEST_SCOPE:
+//!   - Journal roundtrip, overflow, crash reports, multi-service logging via loopback transport
+//!
+//! TEST_SCENARIOS:
+//!   - logd_append_query_stats_roundtrip: APPEND/QUERY/STATS roundtrip with 5 records
+//!   - logd_overflow_drops_oldest: verify drop-oldest policy on capacity overflow
+//!   - logd_query_pagination_since_nsec: query pagination with since_nsec and max_count
+//!   - logd_crash_report_event: crash event append and query with structured fields
+//!   - logd_multi_service_concurrent_appends: concurrent appends from multiple service threads
+//!   - logd_empty_fields_allowed: append with empty fields
+//!   - logd_bounded_scope_message_fields: verify storage bounds for scope/message/fields
+//!
+//! DEPENDENCIES:
+//!   - logd (service integration)
+//!
+//! ADR: docs/adr/0017-service-architecture.md
 
 #![cfg(nexus_env = "host")]
 

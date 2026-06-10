@@ -1,11 +1,26 @@
-//! CONTEXT: Host-side end-to-end integration tests
-//! INTENT: Service registration/resolution, bundle install/query/payload, signature verification
-//! IDL (target): register(name,endpoint), resolve(name), installBundle(name,handle,len), queryBundle(name), getPayload(name)
-//! DEPS: samgrd, bundlemgrd, keystored (service integration)
-//! READINESS: All services ready; loopback transport established
-//! TESTS: Service roundtrip, bundle lifecycle, signature validation, keystore integration
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: End-to-end tests for samgrd/bundlemgrd/keystored service integration
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 5 test functions
+//!
+//! TEST_SCOPE:
+//!   - Service registration/resolution, bundle install/query/payload, signature verification
+//!
+//! TEST_SCENARIOS:
+//!   - samgr_register_resolve_roundtrip: register and resolve a service name
+//!   - bundle_install_query_roundtrip: verify install fails closed without policy backend
+//!   - bundle_install_get_payload_roundtrip: verify payload staging with install denial
+//!   - bundle_install_invalid_signature: verify invalid signature rejection
+//!   - bundle_install_signed_enforced_via_keystored: verify keystore-backed signature enforcement
+//!
+//! DEPENDENCIES:
+//!   - samgrd, bundlemgrd, keystored (service integration)
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 
 #![cfg(nexus_env = "host")]
 

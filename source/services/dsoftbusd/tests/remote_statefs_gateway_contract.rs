@@ -1,3 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Gateway contract tests for dsoftbusd remote statefs — roundtrip read/write/delete through emulated backend, ACL rejection before backend, and symbol linkage.
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 3 tests
+//!
+//! TEST_SCOPE:
+//!   - RW roundtrip through emulated statefsd with response shape validation
+//!   - ACL rejection before backend dispatch
+//!   - Protocol symbol linkage for host seam
+//!
+//! TEST_SCENARIOS:
+//!   - test_gateway_contract_rw_roundtrip_uses_protocol_shapes(): Put/get/delete cycle through emulated statefsd with response validation and audit labels
+//!   - test_gateway_contract_rejects_outside_acl_before_backend(): Write to /state/private/ is rejected at gateway layer before backend
+//!   - test_gateway_symbols_are_linked_for_host_seam(): All gateway symbols (classify, op/nonce extractors, response shapes) are linkable
+//!
+//! DEPENDENCIES:
+//!   - ../src/os/gateway/statefs_rw.rs (via #[path])
+//!   - statefs::protocol
+//!   - alloc (BTreeMap, String, Vec)
+//!
+//! ADR: docs/adr/0005-dsoftbus-architecture.md
 extern crate alloc;
 
 use alloc::collections::BTreeMap;

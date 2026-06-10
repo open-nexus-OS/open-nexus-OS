@@ -1,11 +1,12 @@
-//! CONTEXT: Policy daemon domain library (service API and handlers)
-//! INTENT: Policy/entitlement/DAC checks, audit
-//! IDL (target): checkPermission(subject,cap), addPolicy(entry), audit(record)
-//! DEPS: keystored/identityd (crypto/IDs)
-//! READINESS: print "policyd: ready"; register/heartbeat with samgr
-//! TESTS: checkPermission loopback; deny/allow paths
-// Copyright 2024 Open Nexus OS Contributors
+// Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Policy daemon std server – host-side service API and handlers
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: Covered by policy engine tests
+//! ADR: docs/adr/0014-policy-architecture.md
 
 //! policyd daemon: loads capability policies and answers allow/deny queries via Cap'n Proto IPC.
 

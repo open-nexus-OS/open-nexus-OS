@@ -1,9 +1,12 @@
-//! CONTEXT: Location daemon entrypoint wiring to service logic
-//! INTENT: GNSS/network location, geofencing, mock location
-//! IDL (target): getLast(), subscribe(request), setMock(enabled,loc)
-//! DEPS: policyd (privacy), time-syncd (clock)
-//! READINESS: print "locationd: ready"; register/heartbeat with samgr
-//! TESTS: subscribe mock location
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Location daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (lib) + 1 integration test (tests/cli.rs)
+//! ADR: docs/adr/0017-service-architecture.md
 fn main() {
     locationd::run();
 }

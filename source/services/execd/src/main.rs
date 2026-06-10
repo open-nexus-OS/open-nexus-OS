@@ -1,6 +1,14 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
-//! CONTEXT: Execd daemon entrypoint wiring default transport to shared service logic
+//! CONTEXT: Execd daemon entrypoint – wires host and OS-lite entrypoints into service loops
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 8 unit tests (lib) + QEMU selftest markers
+//! ADR: docs/adr/0007-executable-payloads-architecture.md
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);

@@ -1,12 +1,14 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
 
-//! CONTEXT: Policy daemon entrypoint wiring to service logic
-//! INTENT: Policy/entitlement/DAC checks, audit
-//! IDL (target): checkPermission(subject,cap), addPolicy(entry), audit(record)
-//! DEPS: keystored/identityd (crypto/IDs)
-//! READINESS: print "policyd: ready"; register/heartbeat with samgr
-//! TESTS: checkPermission loopback; deny/allow paths
-//! Bin wrapper wiring policyd's daemon entry point.
+//! CONTEXT: Policy daemon entrypoint – wires host and OS-lite entrypoints into service loops
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 unit tests (supply_chain) + QEMU marker ladder (os_lite)
+//! ADR: docs/adr/0014-policy-architecture.md
 
 #[cfg(not(any(nexus_env = "host", nexus_env = "os")))]
 compile_error!(

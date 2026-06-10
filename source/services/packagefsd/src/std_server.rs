@@ -1,3 +1,6 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 //! CONTEXT: Host/std packagefs daemon transport + registry + pkgimg v2 mount integration.
 //! OWNERS: @runtime
 //! STATUS: Functional

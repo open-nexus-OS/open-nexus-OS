@@ -3,6 +3,9 @@
 
 //! CONTEXT: UART-friendly selftest assertion helpers
 //! OWNERS: @kernel-team
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: st_assert!, st_expect_eq!, st_expect_err!, report_failure()
 //! DEPENDS_ON: log (UART), alloc
 //! INVARIANTS: Minimal formatting; deterministic output; panic to trigger kernel panic handler

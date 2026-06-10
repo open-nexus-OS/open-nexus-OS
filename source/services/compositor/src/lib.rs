@@ -1,9 +1,12 @@
-//! CONTEXT: Compositor daemon domain library (service API and handlers)
-//! INTENT: Surface/layer composition, VSync, window Z-order
-//! IDL (target): createSurface(token), commit(surface,rects), setLayer(win,z), subscribeVsync()
-//! DEPS: systemui, windowd (if separate)
-//! READINESS: print "compositor: ready"; register/heartbeat with samgr
-//! TESTS: VSync tick; frame checksum stable
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Compositor daemon domain library – surface composition and VSync handlers
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 2 unit tests (help_path, checksum_matches_manual_sum)
+//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
 pub fn help() -> &'static str {
     "compositor composites window surfaces. Usage: compositor [--help]"

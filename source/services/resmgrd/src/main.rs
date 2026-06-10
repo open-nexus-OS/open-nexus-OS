@@ -1,10 +1,12 @@
-//! CONTEXT: Resource manager daemon entrypoint wiring to service logic
-//! INTENT: QoS/quota, CPU set/memory/IO limits
-//! IDL (target): setQos(task,class), setLimit(ns,val), getUsage(task)
-//! DEPS: execd (PIDs), policyd (policy checks)
-//! READINESS: print "resmgrd: ready"; register/heartbeat with samgr
-//! TESTS: setQos mock; getUsage returns 0
-//! Resource manager daemon entry point.
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: Resource manager daemon entrypoint – wires service logic to CLI/OS entry
+//! OWNERS: @runtime
+//! STATUS: Placeholder
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 1 unit test (via userspace/resmgr)
+//! ADR: docs/adr/0015-resource-manager-architecture.md
 
 fn main() {
     resmgr::run();

@@ -1,9 +1,23 @@
-//! CONTEXT: VFS end-to-end integration tests
-//! INTENT: Package filesystem roundtrip through bundlemgrd/vfsd/packagefsd
-//! IDL (target): installBundle(path), stat(path), open(path), read(fh,offset,len)
-//! DEPS: bundlemgrd, vfsd, packagefsd (service integration)
-//! READINESS: All services ready; loopback transport established
-//! TESTS: Install bundle, VFS access, payload read, asset access, error handling
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: End-to-end tests for VFS/packagefs bundle roundtrip
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Stable
+//! TEST_COVERAGE: 1 test function
+//!
+//! TEST_SCOPE:
+//!   - Package filesystem roundtrip through bundlemgrd/vfsd/packagefsd
+//!   - Bundle install, VFS access, payload read, asset access, error handling
+//!
+//! TEST_SCENARIOS:
+//!   - vfs_package_roundtrip: install bundle and verify fail-closed policy when keystore backend is absent
+//!
+//! DEPENDENCIES:
+//!   - bundlemgrd, vfsd, packagefsd (service integration)
+//!
+//! ADR: docs/adr/0009-bundle-manager-architecture.md
 #![cfg(nexus_env = "host")]
 
 use std::io::Cursor;
