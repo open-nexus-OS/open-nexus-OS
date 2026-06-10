@@ -5,7 +5,84 @@
 //! OWNERS: @ui @runtime
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_gfx::{CommandBuffer, CommittedBuffer, GfxError, Queue, RenderPassDesc, TileRect};
+use nexus_gfx::{CommandBuffer, CommittedBuffer, GfxError, Queue, RenderPassDesc, RgbaColor, TileRect};
+
+/// Record a representative GPU-first scene CB (the windowd present frame:
+/// blit + glass blur/fill + cursor). Clears first so the buffer is reusable.
+fn record_scene(cb: &mut CommandBuffer) {
+    cb.clear();
+    let mut enc = cb
+        .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 1280, height: 800 })
+        .unwrap();
+    enc.try_blit_surface(0, 800, 0, 0, 1280, 64).unwrap();
+    let btn = TileRect { x: 1100, y: 24, width: 156, height: 56 };
+    enc.try_blur_backdrop(btn, 8, 120).unwrap();
+    enc.try_fill_sdf_rounded_rect(btn, 18, RgbaColor::new(235, 245, 255, 200)).unwrap();
+    enc.try_fill_sdf_rounded_rect(btn, 18, RgbaColor::new(255, 255, 255, 84)).unwrap();
+    enc.try_blend_cursor(100, 100, 24, 24).unwrap();
+    enc.end_encoding();
+}
+
+/// Regression guard for the `alloc-fail svc=windowd` animation crash: windowd
+/// reuses ONE CommandBuffer per frame (clear + record + serialize_into) because
+/// its bump allocator never frees. After warmup, recording another frame must
+/// not reallocate the command vector — otherwise every animation frame would
+/// leak and exhaust the heap.
+#[test]
+fn command_buffer_reuse_does_not_reallocate() {
+    let mut cb = CommandBuffer::new();
+    let mut wire = [0u8; 2048];
+
+    record_scene(&mut cb);
+    let warm_cap = cb.command_capacity();
+    let first_len = cb.serialize_into(&mut wire).unwrap();
+    assert!(first_len > 0);
+
+    for _ in 0..1000 {
+        record_scene(&mut cb);
+        let n = cb.serialize_into(&mut wire).unwrap();
+        assert_eq!(n, first_len, "deterministic scene must serialize to a stable size");
+        assert_eq!(
+            cb.command_capacity(),
+            warm_cap,
+            "reused CommandBuffer must not grow its allocation per frame"
+        );
+    }
+}
+
+/// Regression guard for the `alloc-fail svc=gpud` crash: gpud reuses ONE
+/// CommittedBuffer per present (`reload_from`) instead of `deserialize_from`,
+/// because it too runs on a non-freeing bump allocator. Re-parsing a frame must
+/// reuse the command vector, not allocate a fresh one each time.
+#[test]
+fn committed_buffer_reload_does_not_reallocate() {
+    // Produce a representative serialized present frame.
+    let mut src = CommandBuffer::new();
+    record_scene(&mut src);
+    let mut wire = [0u8; 2048];
+    let len = src.serialize_into(&mut wire).unwrap();
+
+    let mut scene = CommittedBuffer::with_capacity(32);
+    scene.reload_from(&wire[..len]).unwrap();
+    let warm_cap = scene.command_capacity();
+    let warm_count = scene.command_count();
+    assert!(warm_count > 0);
+
+    for _ in 0..1000 {
+        let consumed = scene.reload_from(&wire[..len]).unwrap();
+        assert_eq!(consumed, len);
+        assert_eq!(scene.command_count(), warm_count);
+        assert_eq!(
+            scene.command_capacity(),
+            warm_cap,
+            "reused CommittedBuffer must not grow its allocation per present"
+        );
+    }
+
+    // And the reused buffer must decode identically to a fresh deserialize.
+    let (fresh, _) = CommittedBuffer::deserialize_from(&wire[..len]).unwrap();
+    assert_eq!(scene, fresh);
+}
 
 #[test]
 fn committed_buffer_is_sealed() {

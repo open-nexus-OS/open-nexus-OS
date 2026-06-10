@@ -1,10 +1,10 @@
 # Current State — Open Nexus OS
 
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 ## Active focus
 
-**TASK-0062 + Production UI End Architecture — 63% (Phases 1-5 closed, 6-8 pending)**
+**Animation fix + `just start` repair — 86% (3 fixes applied, QEMU verification pending)**
 
 ## Architecture
 
@@ -15,10 +15,10 @@ VMO (16MB, 1280×3200, 4-plane):
   Plane 2: frame ring slot A      (offset 0x7D0000)
   Plane 3: frame ring slot B      (offset 0xBB8000)
 
-windowd heap (768KB):              gpud pipeline:
+windowd heap (1MB):                gpud pipeline:
   scene graph, layout, IPC           BlitSurface, FillSdfRoundedRect
   band_scratch (200KB)               BlurBackdrop, StrokeSdfRoundedRect
-  heap usage: ~500KB                 DrawCursorResource, DrawTiles
+  heap usage: ~768KB (was 768KB)     DrawCursorResource, DrawTiles
                                      BlendCursor, DrawLine
 kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
   HartTimers (BTreeMap queue)
@@ -27,49 +27,34 @@ kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
   all Context::new + install_runtime sites (52 test + 4 OS)
 ```
 
-## Gate status (2026-06-08 — Phase 1+2 implemented)
+## Gate status (2026-06-09)
 
 | Check | Result |
 |-------|--------|
-| cargo check (host) | ✅ |
-| cargo check (riscv) | ✅ |
-| just diag-os | ✅ |
-| forbidden crates | ✅ |
-| make build | ✅ |
-| just test-os headless | ✅ SELFTEST completed |
-| gpud tests (20) | ✅ |
-| nexus-gfx (global + fence + golden + perf) | ✅ |
-| kernel timer (7) | ✅ |
-| kernel all (all) | ✅ |
+| cargo check windowd (os-lite, riscv) | ✅ |
+| windowd host tests (11) | ✅ 11/11 |
+| dep-gate (forbidden crates) | ✅ PASS |
+| cross-compile (build.sh) | ✅ kernel=6605120B init=6374520B |
+| QEMU visible-bootstrap | ⚠️ requires GTK display |
 
-## What's Done — Complete
+## Fixes applied (2026-06-09)
 
-### Phase 6c: GPU rendering (CLOSED)
-- submit() executes 6 command types + cursor resources
-- 4-plane 16MB VMO with double-buffered frame ring
-- send_blit_surface_cb() builds full CommandBuffer per frame
-- Steady-state: GPU-only. Retained scene: CPU-only when dirty.
+### 1. Animation pacer timer re-arm (mod.rs)
+- Bottom recv `OP_TIMER_FIRED` handler now resets `pacer_timer_armed = false`
+- Also adds `flush_pending_damage()` for consistency with batch recv handler
+- Expected chain: `batch commit → live transition → spring converge → v5 transition ok`
 
-### Phase 6d: Pipeline bounding (CLOSED)
-- Honest fence (5 tests). MAX_IN_FLIGHT=2. Completion correlation.
-- Frame slot backpressure on exhaustion. cleanup_frame_ring + Drop.
+### 2. Makefile MODE=host support
+- Added `MODE ?= container` variable
+- `ifeq ($(MODE),host)` branch: direct cargo build + build.sh
+- `just start` no longer requires podman
 
-### Phase 6e: Fixed-point (CLOSED)
-- (x*257+32768)>>16 blend, +zbb, damage pixel budget degrade
+### 3. Windowd heap 768KB → 1MB
+- Added `heap-1m` feature to nexus-service-entry
+- windowd os-lite feature now uses heap-1m
+- Fixes `alloc-fail svc=windowd` in high-rate interactive mode
 
-### Phase 7: Golden + perf gates (CLOSED)
-- 6 golden tests, 2 perf gates, QEMU markers, pipeline chain tests
-
-### Phase D.0-D.3: Kernel timer (ALL DONE)
-- RFC-0062 (353 lines)
-- HartTimers with BTreeMap queue (7 tests)
-- CapabilityKind::Timer + rights
-- timer_create/set/cancel syscalls + ABI wrappers
-- process_timer_expiry + IRQ dispatch
-- windowd vsync_timer_slot + cleanup
-- 52 Context::new test sites + 4 OS call sites updated
-
-### Production UI End Architecture
+## Production UI End Architecture
 
 | Workstream | Progress |
 |-----------|----------|
@@ -78,13 +63,14 @@ kernel:                              TRANSFER_TO_HOST + RESOURCE_FLUSH
 | 3. Resource model | 60% (budgets + handles defined) |
 | 4. Blur by architecture | 50% (GPU BlurBackdrop active, CPU fallback) |
 | 5. Cursor GPU-first | 85% (unchanged) |
-| 6. Unified pacing | 85% (kernel timer done, slot infra ready) |
+| 6. Unified pacing | 90% (pacer re-arm fix applied) |
 | 7-8. DSL/SystemUI | 0% (future) |
-| **Aggregate** | **63%** |
+| **Aggregate** | **65%** |
 
 ## Pending
 
-- ⬜ QEMU visible-bootstrap (requires GTK display — unavailable in CI runner)
+- ⬜ QEMU visible-bootstrap verification (requires GTK display)
+- ⬜ `SELFTEST: ui v5 transition ok` marker verification
 - ⬜ PRESENT_DONE events (gpud async completion channel)
 - ⬜ Cursor hardware upload (Phase 6)
-- ⬜ Unified pacing with slot switching (Phase 7)
+- ⬜ `gpud: bad-status=0x02` scanout race (still present in logs)

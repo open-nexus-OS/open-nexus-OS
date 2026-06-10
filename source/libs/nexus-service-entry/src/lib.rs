@@ -78,12 +78,15 @@ pub mod os {
     pub type ServiceResult<E> = core::result::Result<(), E>;
 
     // Bring-up sizing: keep service heaps bounded to avoid exhausting the kernel's early linear map.
-    // Most services stay at 384KiB; heavy proof clients may opt into 512KiB explicitly.
-    #[cfg(feature = "heap-768k")]
+    // Most services stay at 384KiB; heavy proof clients may opt into 512KiB or 768KiB.
+    // windowd needs 1MiB in interactive mode (high-rate input events + GPU command buffers).
+    #[cfg(feature = "heap-1m")]
+    const HEAP_SIZE: usize = 1024 * 1024;
+    #[cfg(all(feature = "heap-768k", not(feature = "heap-1m")))]
     const HEAP_SIZE: usize = 768 * 1024;
-    #[cfg(all(feature = "heap-512k", not(feature = "heap-768k")))]
+    #[cfg(all(feature = "heap-512k", not(any(feature = "heap-768k", feature = "heap-1m"))))]
     const HEAP_SIZE: usize = 512 * 1024;
-    #[cfg(not(any(feature = "heap-512k", feature = "heap-768k")))]
+    #[cfg(not(any(feature = "heap-512k", feature = "heap-768k", feature = "heap-1m")))]
     const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 

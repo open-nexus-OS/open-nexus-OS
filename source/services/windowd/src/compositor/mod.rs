@@ -85,7 +85,7 @@ use input_live_protocol::{
 };
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
-use nexus_abi::{debug_println, nsec, vmo_write, Handle};
+use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
@@ -262,6 +262,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut pacer_timer_log_emitted = false;
     // Phase 7: unified pacing timer drives frame submission at display refresh rate.
     const PACER_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
+    // Cooperative animation pacing. The kernel supervisor-timer IRQ that would
+    // deliver OP_TIMER_FIRED is not enabled (RFC-0062 is draft; `timer_irq` is
+    // off and `enable_timer_interrupts` is never called), so windowd cannot rely
+    // on the kernel timer to wake it for animation frames. Instead, while an
+    // animation is active we poll on the monotonic clock and advance the springs
+    // ourselves at ~120Hz, then go back to blocking on IPC once idle. `tick`
+    // integrates real elapsed time, so the exact poll rate only affects how many
+    // frames we emit, not the animation's duration or final state.
+    let mut last_anim_tick_ns: u64 = 0;
     loop {
         runtime.drain_gpud_replies();
         let _ = runtime.process_deferred_framebuffer_write();
@@ -282,7 +291,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             let needs_pacing = runtime.has_active_animations() || runtime.has_pending_damage();
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {
-                    match nexus_abi::timer_create(pacer_notify_slot, PACER_INTERVAL_NS) {
+                    // One-shot timer (interval_ns = 0): windowd rearms it every tick
+                    // below. A periodic timer (non-zero interval) would auto-rearm in
+                    // the kernel and keep firing at 120Hz forever after the animation
+                    // ends — windowd would never go idle, and each manual timer_set
+                    // would hit AlreadyArmed. One-shot auto-disarms on fire, so when
+                    // pacing stops we simply stop rearming and the service goes fully
+                    // idle (zero wakes), which is the whole point of reactive pacing.
+                    match nexus_abi::timer_create(pacer_notify_slot, 0) {
                         Ok(cap) => pacer_timer_cap = Some(cap),
                         Err(_) => {
                             if !pacer_timer_log_emitted {
@@ -306,6 +322,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         }
                     }
                 }
+            } else if pacer_timer_armed && !needs_pacing {
+                // Pacing no longer needed but a one-shot is still armed (animation
+                // ended mid-interval). Cancel it so the trailing tick never fires and
+                // windowd blocks on IPC until the next real input. Idempotent: the
+                // kernel disarms the timer and no OP_TIMER_FIRED is delivered.
+                if let Some(timer_cap) = pacer_timer_cap {
+                    let _ = nexus_abi::timer_cancel(timer_cap);
+                }
+                pacer_timer_armed = false;
             }
         }
         let mut visible_updates_since_flush = 0usize;
@@ -385,11 +410,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // until the next message / animation tick interval.
         let wait = if runtime.is_handoff_pending() {
             Wait::NonBlocking
-        } else if cfg!(nexus_env = "os") {
-            Wait::Blocking
-        } else if runtime.has_active_animations() {
-            Wait::Timeout(core::time::Duration::from_nanos(PACER_INTERVAL_NS))
+        } else if runtime.has_active_animations() || runtime.has_pending_damage() {
+            // Animation/present in progress: do NOT block. The timer IRQ that
+            // would wake us is disabled, so blocking here freezes the spring
+            // until the next input event. Poll (NonBlocking) and self-pace via
+            // the monotonic clock in the WouldBlock arm below.
+            Wait::NonBlocking
         } else {
+            // Fully idle: block until the next input message. Zero CPU.
             Wait::Blocking
         };
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
@@ -397,8 +425,17 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 let frame = &recv_frame[..frame_len];
                 #[cfg(nexus_env = "os")]
                 if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
+                    // One-shot timer auto-disarms on fire — mark as disarmed so
+                    // the pacing arm block re-arms it for the next tick.
+                    pacer_timer_armed = false;
                     if runtime.has_active_animations() {
                         runtime.tick(now_ns);
+                    }
+                    // Submit frame if pending damage and a ring slot is free.
+                    if runtime.has_pending_damage()
+                        && runtime.frames_in_flight() < runtime::DisplayServerRuntime::max_in_flight()
+                    {
+                        let _ = runtime.flush_pending_damage();
                     }
                     continue;
                 }
@@ -428,7 +465,33 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     }
                 }
             }
-            Err(IpcError::Timeout) => {} // host-mode animation tick interval expired
+            Err(IpcError::Timeout) | Err(IpcError::WouldBlock) => {
+                // No message ready. If an animation is running, this is our
+                // self-paced frame tick: advance the springs on the monotonic
+                // clock (gated to ~120Hz) and present. `tick` integrates real
+                // elapsed time, so this converges correctly regardless of the
+                // exact poll cadence.
+                if runtime.has_active_animations() || runtime.has_pending_damage() {
+                    let now_ns = nsec().unwrap_or(0);
+                    if now_ns.saturating_sub(last_anim_tick_ns) >= PACER_INTERVAL_NS {
+                        last_anim_tick_ns = now_ns;
+                        if runtime.has_active_animations() {
+                            runtime.tick(now_ns);
+                        }
+                        if runtime.has_pending_damage()
+                            && runtime.frames_in_flight()
+                                < runtime::DisplayServerRuntime::max_in_flight()
+                        {
+                            let _ = runtime.flush_pending_damage();
+                        }
+                    }
+                    // Cooperative yield: hand the CPU to gpud (to render the frame
+                    // we just submitted) and inputd (to deliver the next event)
+                    // between polls. Without this, the NonBlocking loop would
+                    // monopolize the single hart and gpud would never run.
+                    let _ = yield_();
+                }
+            }
             Err(_) => {}
         }
     }

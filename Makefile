@@ -1,5 +1,6 @@
 SHELL := /bin/bash
 CONTAINER_TAG ?= open-nexus-os:dev
+MODE ?= container
 NIGHTLY ?= nightly-2025-01-15
 SMP ?= 2
 TARGET_DIR := target
@@ -44,6 +45,13 @@ initial-setup:
 	@echo "==> QEMU modern virtio-mmio patch: run ./tools/qemu/build-modern.sh"
 
 build:
+ifeq ($(MODE),host)
+	@echo "==> host workspace build (MODE=host)"
+	@RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" \
+		cargo build --workspace --exclude neuron --exclude neuron-boot
+	@echo "==> cross-compile OS + kernel (scripts/build.sh)"
+	@./scripts/build.sh
+else
 	@echo "==> Building container image"
 	@podman build --network=host -t $(CONTAINER_TAG) -f podman/Containerfile .
 	@echo "==> Compiling workspace inside container"
@@ -65,6 +73,7 @@ build:
 			RUSTFLAGS="--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\"" cargo build --workspace --exclude neuron --exclude neuron-boot; \
 			echo "==> cross-compile OS + kernel (scripts/build.sh)"; \
 			./scripts/build.sh'
+endif
 
 test:
 	@echo "==> Running host tests inside container"

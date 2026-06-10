@@ -104,8 +104,15 @@ fn service_requests(
     server: KernelServer,
     mut backend: VirtioGpuBackend,
 ) -> Result<(), nexus_abi::AbiError> {
-    let mut recv_frame = [0u8; 2048];
+    // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
+    let mut recv_frame = [0u8; 8192];
     let mut active_handoff_id: u32 = 0;
+    // Persistent present buffer: reused (reload_from) for every frame so gpud
+    // does NOT allocate a fresh Vec<Command> per present. gpud runs on a
+    // non-freeing bump allocator; a per-frame deserialize Vec would leak and
+    // exhaust the 384KB heap after a few hundred animation frames (`alloc-fail
+    // svc=gpud`), which is exactly what crashed the GPU pipeline mid-animation.
+    let mut scene_cb = CommittedBuffer::with_capacity(32);
     loop {
         // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
         // or animation submit). No polling, no busy-wait. The kernel wakes us on message arrival.
@@ -157,10 +164,11 @@ fn service_requests(
                         let handoff_id =
                             decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
                         let status = if frame.len() > 1 {
-                            match CommittedBuffer::deserialize_from(&frame[1..]) {
-                                Ok((cb, _)) => {
-                                    let damage_rect = damage_rect_from_cb(&cb);
-                                    let _ = backend.submit(cb);
+                            // Reuse scene_cb (reload_from) — no per-frame heap alloc.
+                            match scene_cb.reload_from(&frame[1..]) {
+                                Ok(_) => {
+                                    let damage_rect = damage_rect_from_cb(&scene_cb);
+                                    let _ = backend.present_committed(&scene_cb);
                                     present_scanout_damage(&mut backend, damage_rect)
                                 }
                                 Err(_) => {

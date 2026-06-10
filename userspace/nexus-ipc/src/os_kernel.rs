@@ -317,6 +317,21 @@ impl KernelClient {
             .map(|_| ())
             .map_err(|e| map_send_err(e, wait))
     }
+
+    /// Receives a response into a caller-provided buffer, returning the frame length.
+    ///
+    /// Allocation-free counterpart to [`Client::recv`] (which returns a freshly
+    /// allocated `Vec<u8>` per call). Preferred in hot loops on services backed by
+    /// a non-freeing bump allocator — e.g. windowd draining gpud present-acks every
+    /// frame — where a per-call `Vec` would monotonically consume the heap.
+    pub fn recv_into(&self, wait: Wait, out: &mut [u8]) -> Result<usize> {
+        let (flags, deadline_ns) = wait_to_sys(wait)?;
+        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, out, sys_flags, deadline_ns)
+            .map_err(|e| map_recv_err(e, wait))?;
+        Ok(n as usize)
+    }
 }
 
 impl Client for KernelClient {

@@ -120,6 +120,38 @@ impl CommandBuffer {
         self.commands.push(command);
         Ok(())
     }
+
+    /// Backing command-vector capacity. Test/diagnostic hook used to assert that
+    /// frame-to-frame reuse (clear + re-record) performs no reallocation.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn command_capacity(&self) -> usize {
+        self.commands.capacity()
+    }
+
+    /// Clear all recorded commands while retaining the backing allocation.
+    ///
+    /// This is the key to reusing one `CommandBuffer` across frames under a
+    /// non-freeing (bump) allocator: `Vec::clear` keeps capacity, so a buffer
+    /// that has reached steady-state size records subsequent frames without any
+    /// new heap allocation. Resets the render extent so a fresh render pass must
+    /// be opened before recording again.
+    pub fn clear(&mut self) {
+        self.commands.clear();
+        self.render_extent = None;
+    }
+
+    /// Serialize the recorded commands into `buf` without consuming the buffer.
+    ///
+    /// Mirrors [`CommittedBuffer::serialize_into`] but borrows `self`, so a
+    /// reusable `CommandBuffer` can be encoded each frame and then [`clear`]ed
+    /// for the next one — no `commit()`/drop cycle, hence no per-frame alloc.
+    ///
+    /// [`clear`]: CommandBuffer::clear
+    pub fn serialize_into(&self, buf: &mut [u8]) -> Result<usize, GfxError> {
+        validate_commands(&self.commands, self.render_extent)?;
+        serialize_commands(&self.commands, buf)
+    }
 }
 
 impl Default for CommandBuffer {
@@ -162,98 +194,128 @@ impl CommittedBuffer {
         validate_commands(&self.commands, None)
     }
 
+    /// Backing command-vector capacity. Test/diagnostic hook used to assert that
+    /// `reload_from` reuse performs no per-frame reallocation.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn command_capacity(&self) -> usize {
+        self.commands.capacity()
+    }
+
     /// Serialize into a pre-allocated buffer. Returns the number of bytes written.
     pub fn serialize_into(&self, buf: &mut [u8]) -> Result<usize, GfxError> {
-        if self.commands.len() > u16::MAX as usize {
-            return Err(GfxError::ResourceExhausted);
-        }
-        let cmd_count = self.commands.len() as u16;
-        let mut pos = 0usize;
-        if buf.len() < 2 {
-            return Err(GfxError::ResourceExhausted);
-        }
-        buf[0..2].copy_from_slice(&cmd_count.to_le_bytes());
-        pos += 2;
-        for cmd in &self.commands {
-            match cmd {
-                Command::SetFragmentBytes { offset, data } => {
-                    pos = ser_tag_data(buf, pos, TAG_SET_FRAGMENT, *offset, data)?;
-                }
-                Command::DrawTiles { tiles } => {
-                    pos = ser_tiles(buf, pos, TAG_DRAW_TILES, tiles)?;
-                }
-                Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
-                    pos = ser_blit(buf, pos, TAG_BLIT_SURFACE, *src_x, *src_y, *dst_x, *dst_y, *width, *height)?;
-                }
-                Command::FillSdfRoundedRect { rect, radius, color } => {
-                    pos = ser_sdf_rect(buf, pos, TAG_FILL_SDF_ROUNDED_RECT, rect, *radius, *color)?;
-                }
-                Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                    pos = ser_sdf_rect(buf, pos, TAG_BLUR_BACKDROP, rect, *radius, RgbaColor::from_u32(*saturation_percent))?;
-                }
-                Command::BlendCursor { x, y, width, height } => {
-                    pos = ser_cursor(buf, pos, TAG_BLEND_CURSOR, *x, *y, *width, *height)?;
-                }
-            }
-        }
-        Ok(pos)
+        serialize_commands(&self.commands, buf)
+    }
+
+    /// Construct an empty buffer with pre-allocated command capacity.
+    ///
+    /// Pair with [`reload_from`] to parse a frame each iteration without
+    /// reallocating — essential for consumers on a non-freeing bump allocator
+    /// (e.g. gpud deserializing one present frame per vsync).
+    ///
+    /// [`reload_from`]: CommittedBuffer::reload_from
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { commands: Vec::with_capacity(capacity) }
     }
 
     /// Deserialize from a byte slice. Returns the CommittedBuffer and bytes consumed.
     pub fn deserialize_from(buf: &[u8]) -> Result<(Self, usize), GfxError> {
-        if buf.len() < 2 {
-            return Err(GfxError::InvalidArgument);
-        }
-        let cmd_count = u16::from_le_bytes([buf[0], buf[1]]) as usize;
-        let mut pos = 2usize;
         let mut commands = Vec::new();
-        for _ in 0..cmd_count {
-            if buf.len() <= pos {
-                return Err(GfxError::InvalidArgument);
-            }
-            let tag = buf[pos];
-            pos += 1;
-            match tag {
-                TAG_SET_FRAGMENT => {
-                    let (cmd, n) = deser_fragment(buf, pos)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                TAG_DRAW_TILES => {
-                    let (cmd, n) = deser_tiles(buf, pos)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                TAG_BLIT_SURFACE => {
-                    let (cmd, n) = deser_blit(buf, pos)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                TAG_FILL_SDF_ROUNDED_RECT => {
-                    let (cmd, n) = deser_sdf_rect(buf, pos, false)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                TAG_BLUR_BACKDROP => {
-                    let (cmd, n) = deser_sdf_rect(buf, pos, true)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                TAG_BLEND_CURSOR => {
-                    let (cmd, n) = deser_cursor(buf, pos)?;
-                    pos = n;
-                    commands.push(cmd);
-                }
-                _ => return Err(GfxError::InvalidArgument),
-            }
-        }
-        let buf = CommittedBuffer { commands };
-        buf.validate()?;
-        Ok((buf, pos))
+        let consumed = decode_commands_into(buf, &mut commands)?;
+        let cb = CommittedBuffer { commands };
+        cb.validate()?;
+        Ok((cb, consumed))
+    }
+
+    /// Re-parse `buf` into this buffer in place, reusing the existing command
+    /// allocation (`Vec::clear` retains capacity). Returns bytes consumed.
+    ///
+    /// Allocation-free counterpart to [`deserialize_from`] once warmed up: the
+    /// command `Vec` is cleared and refilled rather than freshly allocated, so a
+    /// consumer that holds one `CommittedBuffer` and calls `reload_from` per
+    /// frame performs zero heap allocation in steady state. This is what keeps
+    /// gpud from exhausting its bump heap while presenting animation frames.
+    ///
+    /// [`deserialize_from`]: CommittedBuffer::deserialize_from
+    pub fn reload_from(&mut self, buf: &[u8]) -> Result<usize, GfxError> {
+        let consumed = decode_commands_into(buf, &mut self.commands)?;
+        self.validate()?;
+        Ok(consumed)
     }
 }
 
+/// Parse a serialized command stream into `out`, reusing its capacity.
+/// `out` is cleared first. Shared by [`CommittedBuffer::deserialize_from`] and
+/// [`CommittedBuffer::reload_from`]. Does not validate — callers validate the
+/// assembled buffer (so validation sees the whole command set at once).
+fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, GfxError> {
+    out.clear();
+    if buf.len() < 2 {
+        return Err(GfxError::InvalidArgument);
+    }
+    let cmd_count = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+    let mut pos = 2usize;
+    for _ in 0..cmd_count {
+        if buf.len() <= pos {
+            return Err(GfxError::InvalidArgument);
+        }
+        let tag = buf[pos];
+        pos += 1;
+        let (cmd, n) = match tag {
+            TAG_SET_FRAGMENT => deser_fragment(buf, pos)?,
+            TAG_DRAW_TILES => deser_tiles(buf, pos)?,
+            TAG_BLIT_SURFACE => deser_blit(buf, pos)?,
+            TAG_FILL_SDF_ROUNDED_RECT => deser_sdf_rect(buf, pos, false)?,
+            TAG_BLUR_BACKDROP => deser_sdf_rect(buf, pos, true)?,
+            TAG_BLEND_CURSOR => deser_cursor(buf, pos)?,
+            _ => return Err(GfxError::InvalidArgument),
+        };
+        pos = n;
+        out.push(cmd);
+    }
+    Ok(pos)
+}
+
 // ── Serialization helpers ────────────────────────────────────────
+
+/// Serialize a command slice into `buf`. Shared by [`CommittedBuffer::serialize_into`]
+/// and [`CommandBuffer::serialize_into`] so both wire-encode identically.
+fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, GfxError> {
+    if commands.len() > u16::MAX as usize {
+        return Err(GfxError::ResourceExhausted);
+    }
+    let cmd_count = commands.len() as u16;
+    let mut pos = 0usize;
+    if buf.len() < 2 {
+        return Err(GfxError::ResourceExhausted);
+    }
+    buf[0..2].copy_from_slice(&cmd_count.to_le_bytes());
+    pos += 2;
+    for cmd in commands {
+        match cmd {
+            Command::SetFragmentBytes { offset, data } => {
+                pos = ser_tag_data(buf, pos, TAG_SET_FRAGMENT, *offset, data)?;
+            }
+            Command::DrawTiles { tiles } => {
+                pos = ser_tiles(buf, pos, TAG_DRAW_TILES, tiles)?;
+            }
+            Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
+                pos = ser_blit(buf, pos, TAG_BLIT_SURFACE, *src_x, *src_y, *dst_x, *dst_y, *width, *height)?;
+            }
+            Command::FillSdfRoundedRect { rect, radius, color } => {
+                pos = ser_sdf_rect(buf, pos, TAG_FILL_SDF_ROUNDED_RECT, rect, *radius, *color)?;
+            }
+            Command::BlurBackdrop { rect, radius, saturation_percent } => {
+                pos = ser_sdf_rect(buf, pos, TAG_BLUR_BACKDROP, rect, *radius, RgbaColor::from_u32(*saturation_percent))?;
+            }
+            Command::BlendCursor { x, y, width, height } => {
+                pos = ser_cursor(buf, pos, TAG_BLEND_CURSOR, *x, *y, *width, *height)?;
+            }
+        }
+    }
+    Ok(pos)
+}
 
 fn ser_tag_data(buf: &mut [u8], pos: usize, tag: u8, offset: usize, data: &[u8]) -> Result<usize, GfxError> {
     let off = u16::try_from(offset).map_err(|_| GfxError::InvalidArgument)?;

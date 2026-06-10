@@ -436,6 +436,26 @@ impl VirtioGpuBackend {
         self.resources.iter().copied().find(|record| record.id == res)
     }
 
+    /// Present a borrowed `CommittedBuffer` (validate + execute) without taking
+    /// ownership. Mirrors [`GfxBackend::submit`] but borrows, so the caller can
+    /// hold one reusable buffer and `reload_from` it every frame — avoiding the
+    /// per-frame `Vec<Command>` that `submit(CommittedBuffer)` would require.
+    /// gpud runs on a non-freeing bump allocator, so that per-frame Vec would
+    /// otherwise exhaust the heap and crash mid-animation.
+    pub(crate) fn present_committed(&mut self, cmd: &CommittedBuffer) -> Result<Fence, GfxError> {
+        if !self.probed {
+            return Err(GfxError::DeviceNotFound);
+        }
+        cmd.validate().map_err(map_nexus_error)?;
+        let mut fence = Fence::new_unsignaled();
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        {
+            self.execute_commands(cmd.commands())?;
+        }
+        fence.signal();
+        Ok(fence)
+    }
+
     // ── Phase 6c: Command execution on OS (direct VMO write) ──────────────
 
     #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -1235,11 +1255,23 @@ impl CtrlQueue {
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, CTRL_QUEUE_INDEX);
-        // Log command type: first[8..12] = virtio-gpu cmd type u32le
+        // Log command type: first[0..4] = virtio-gpu cmd type u32le.
+        // Allocation-free: this runs for every GPU command on the per-frame
+        // submit path, and gpud's bump allocator never frees — a `format!` here
+        // would leak a String per command and exhaust the heap mid-animation.
         if first.len() >= 16 {
             let cmd_type = u32::from_le_bytes([first[0], first[1], first[2], first[3]]);
-            let _ = nexus_abi::debug_println(
-                &alloc::format!("gpud: submitting cmd=0x{:04x}", cmd_type));
+            const PREFIX: &[u8] = b"gpud: submitting cmd=0x";
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            let mut line = [0u8; PREFIX.len() + 4];
+            line[..PREFIX.len()].copy_from_slice(PREFIX);
+            for i in 0..4 {
+                let nibble = (cmd_type >> ((3 - i) * 4)) & 0xf;
+                line[PREFIX.len() + i] = HEX[nibble as usize];
+            }
+            if let Ok(s) = core::str::from_utf8(&line) {
+                let _ = nexus_abi::debug_println(s);
+            }
         }
         self.wait_complete()
     }

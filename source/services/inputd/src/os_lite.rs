@@ -24,12 +24,13 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
     decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, visible_sidebar_close_target_contains,
-    visible_sidebar_open_target_contains, InputDispatch, InputdConfig, InputdService,
-    WireBatchReject, LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
-    LIVE_POINTER_THRESHOLD, VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y,
-    VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X,
-    VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
+    visible_display_start_position, visible_panel_hover_target_contains,
+    visible_sidebar_close_target_contains, visible_sidebar_open_target_contains, InputDispatch,
+    InputdConfig, InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR,
+    LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD,
+    VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT,
+    VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y,
+    VISIBLE_INPUT_SQUARE_SIZE,
 };
 
 const VISIBLE_INPUT_SURFACE_X: i32 = 0;
@@ -511,17 +512,23 @@ impl LiveRouteRuntime {
                 visible_sidebar_open_target_contains(route_pointer.x, route_pointer.y);
             let sidebar_close_target =
                 visible_sidebar_close_target_contains(route_pointer.x, route_pointer.y);
-            self.visible_state.hover_visible = sidebar_open_target;
-            if sidebar_open_target {
-                self.visible_state.sidebar_open_visible = true;
-            }
-            // Close robustly on explicit close-target hits and on any click that is
-            // outside the open hotspot while the sidebar is currently open.
-            if pointer_down_dispatched
-                && (sidebar_close_target
-                    || (self.visible_state.sidebar_open_visible && !sidebar_open_target))
-            {
-                self.visible_state.sidebar_open_visible = false;
+            let panel_hover = visible_panel_hover_target_contains(route_pointer.x, route_pointer.y);
+            // Hover only highlights the burger button — it does NOT open the
+            // sidebar. The sidebar is click-driven (toggle), matching the user
+            // model: click the burger to open, click the X (or outside) to close.
+            self.visible_state.hover_visible = panel_hover || sidebar_open_target;
+            if pointer_down_dispatched {
+                if sidebar_close_target {
+                    // Click the X icon → close.
+                    self.visible_state.sidebar_open_visible = false;
+                } else if sidebar_open_target {
+                    // Click the burger button → toggle open/closed.
+                    self.visible_state.sidebar_open_visible =
+                        !self.visible_state.sidebar_open_visible;
+                } else if self.visible_state.sidebar_open_visible {
+                    // Click anywhere else while open → dismiss.
+                    self.visible_state.sidebar_open_visible = false;
+                }
             }
             self.visible_state.launcher_click_visible = pointer_held;
         }

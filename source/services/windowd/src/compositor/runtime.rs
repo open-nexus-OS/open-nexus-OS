@@ -54,7 +54,8 @@ use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
-use nexus_gfx::{CommandBuffer, CommittedBuffer, PipelineTimer, RenderPassDesc, TileRect};
+use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
+use nexus_gfx::command::buffer::RgbaColor;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
@@ -442,6 +443,13 @@ pub(crate) struct DisplayServerRuntime {
     gpud_client: Option<KernelClient>,
     /// Pipeline performance timer with Soll-gate validation.
     pipeline_timer: PipelineTimer,
+    /// Persistent per-frame command buffer. Reused (cleared, not dropped) every
+    /// frame so the GPU-first present path records its ~15 commands without any
+    /// heap allocation. windowd runs on a non-freeing bump allocator, so a fresh
+    /// `CommandBuffer::new()` per frame would leak its `Vec<Command>` regrowth
+    /// (~1.4KB/frame) and exhaust the 1MB heap after ~700 animation
+    /// frames — the cause of the `alloc-fail svc=windowd` crash mid-animation.
+    scene_cb: CommandBuffer,
     /// Set when register_framebuffer_vmo creates the framebuffer VMO but
     /// after sending the response.
     framebuffer_pending_first_write: bool,
@@ -627,6 +635,7 @@ impl DisplayServerRuntime {
             animation_proof: AnimationProofState::default(),
             gpud_client: None,
             pipeline_timer,
+            scene_cb: CommandBuffer::new(),
             framebuffer_pending_first_write: false,
             present_seq: 0,
             frames_in_flight: 0,
@@ -802,12 +811,14 @@ impl DisplayServerRuntime {
         // first frame is identical to every steady-state frame (one code path).
         if !self.first_handoff_present_sent {
             let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
-            let sent = self.build_frame_cb(&[full], 1).ok().and_then(|cb| {
-                let mut frame_buf = [0u8; 1024];
-                let written = cb.serialize_into(&mut frame_buf[1..]).ok()?;
-                frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
-                Some(self.send_gpud_present(&frame_buf[..1 + written]))
-            });
+            let mut frame_buf = [0u8; 2048];
+            let sent = match self.build_scene_cb_into(&[full], 1, &mut frame_buf[1..]) {
+                Ok(written) => {
+                    frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
+                    Some(self.send_gpud_present(&frame_buf[..1 + written]))
+                }
+                Err(_) => None,
+            };
             if sent == Some(true) {
                 let _ = debug_println("windowd: handoff present sent");
                 self.first_handoff_present_sent = true;
@@ -836,14 +847,12 @@ impl DisplayServerRuntime {
         // fires. The gate checks v3b_composition_verified before emitting.
         self.v3b_composition_verified = true;
         self.emit_v3b_markers();
-        // FIXME: cursor upload disabled — QEMU virtio-gpu quirk:
-        // UPDATE_CURSOR leaves the device in a state where subsequent
-        // RESOURCE_FLUSH commands on the scanout resource are rejected
-        // with ERR_UNSPEC. Re-enable after investigating QEMU version.
-        // Phase 6: Upload cursor bitmap to gpud for hardware cursor rendering.
-        // if self.state.cursor_svg_visible {
-        //     self.upload_cursor_bitmap_to_gpud();
-        // }
+        // Upload cursor sprite to gpud for software BlendCursor compositing.
+        // This is a software-side sprite (not a hardware cursor resource), so it
+        // avoids the QEMU virtio-gpu quirk where UPDATE_CURSOR corrupts RESOURCE_FLUSH.
+        if self.state.cursor_svg_visible {
+            self.upload_cursor_bitmap_to_gpud();
+        }
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
@@ -1442,19 +1451,24 @@ impl DisplayServerRuntime {
         if self.framebuffer_pending_first_write || self.gpud_client.is_none() {
             return;
         }
+        // Stack-buffer drain: recv_into avoids the per-call Vec<u8> that
+        // Client::recv allocates — windowd's bump allocator never frees, so a
+        // per-frame reply Vec would slowly exhaust the heap.
+        let mut reply_buf = [0u8; 32];
         loop {
             let recv_result = {
                 let Some(client) = self.gpud_client.as_ref() else {
                     return;
                 };
-                client.recv(Wait::NonBlocking)
+                client.recv_into(Wait::NonBlocking, &mut reply_buf)
             };
             match recv_result {
-                Ok(reply) => {
-                    if reply.first().copied() == Some(GPUD_STATUS_OK) {
+                Ok(n) => {
+                    let status = reply_buf.get(..n).and_then(|r| r.first()).copied();
+                    if status == Some(GPUD_STATUS_OK) {
                         self.note_present_completed();
                     } else {
-                        if let Some(status) = reply.first().copied() {
+                        if let Some(status) = status {
                             let _ = debug_println(&alloc::format!(
                                 "windowd: gpud present bad-status=0x{status:02x}"
                             ));
@@ -1665,22 +1679,23 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Phase 6: Reactive upload — send cursor bitmap and block until gpud acks.
+    /// Upload cursor sprite to gpud for software BlendCursor compositing.
+    /// Uses a heap-allocated Vec to avoid stack overflow for the 4KB BGRA payload.
     fn upload_cursor_bitmap_to_gpud(&mut self) {
         if !self.ensure_gpud_client() { return; }
         let bitmap = crate::assets::CURSOR_LEFT_PTR_BGRA;
         let w = crate::assets::CURSOR_LEFT_PTR_WIDTH;
         let h = crate::assets::CURSOR_LEFT_PTR_HEIGHT;
-        let mut frame = [0u8; 256];
+        let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+        if bgra_len == 0 || bgra_len > bitmap.len() { return; }
+        // Frame: [opcode(1)] + [width(4)] + [height(4)] + [bgra(bgra_len)]
+        let total = 9usize.saturating_add(bgra_len);
+        let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
         frame[0] = GPU_UPLOAD_CURSOR_OP;
         frame[1..5].copy_from_slice(&w.to_le_bytes());
         frame[5..9].copy_from_slice(&h.to_le_bytes());
-        let bgra_len = (w as usize * h as usize * 4).min(247);
-        frame[9..9 + bgra_len].copy_from_slice(&bitmap[..bgra_len]);
-        // Fire-and-forget: cursor upload is not critical-path. If it fails,
-        // hardware cursor won't work but system continues. Response handled
-        // by drain_gpud_replies() on next loop iteration.
-        self.send_gpud_fire_forget(&frame[..9 + bgra_len]);
+        frame[9..total].copy_from_slice(&bitmap[..bgra_len]);
+        self.send_gpud_fire_forget(&frame);
         let _ = debug_println("windowd: cursor bitmap uploaded");
     }
 
@@ -1973,12 +1988,12 @@ impl DisplayServerRuntime {
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
                 )?;
-                draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
+                // GPU overlay (button, sidebar, cursor) is rendered in the CommandBuffer
+                // by build_scene_cb — not in the CPU plane so it can be animated freely.
             }
             let offset = band_start as usize * row_len;
-            // CPU computes, GPU draws: the CPU compositor renders the cursor-free
-            // scene into the retained plane (Plane 1). gpud blits it to the display
-            // plane and overlays the cursor. CPU never touches the display plane.
+            // CPU computes background content (wallpaper + proof panel) into Plane 1.
+            // GPU draws the animated overlay (button, sidebar, cursor) on top each frame.
             vmo_write(handle, RETAINED_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
@@ -2070,7 +2085,7 @@ impl DisplayServerRuntime {
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
                 )?;
-                draw_animation_proof_overlay_row(band_row, y, mode, animated_scene);
+                // GPU overlay is added in build_scene_cb, not here.
             }
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let offset = y as usize * row_len + byte_start;
@@ -2174,40 +2189,52 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Build the per-frame GPU CommandBuffer (Fuchsia/OHOS retained-surface model).
+    /// Build the per-frame GPU CommandBuffer (GPU-first layout-tree model).
     ///
-    /// CPU computes, GPU draws. The CPU compositor has already rendered the
-    /// cursor-free scene (wallpaper + panels + text + glass) into the retained
-    /// plane (Plane 1). This CB does only GPU work:
-    ///   1. For each damage rect, blit that region Plane 1 (retained) → Plane 2
-    ///      (display). This restores clean background (erasing the old cursor,
-    ///      which never exists in Plane 1) and applies any content updates that
-    ///      were just composited into Plane 1.
-    ///   2. BlendCursor draws the pointer last, as a dedicated overlay layer, so
-    ///      it always sits on top. The cursor is never baked into any plane.
+    /// CPU writes background content (wallpaper + proof panel) into Plane 1 only on
+    /// content change. The GPU CB does all visual work per frame:
+    ///   1. Blit each damage region: Plane 1 (retained, cursor-free) → Plane 2 (display).
+    ///   2. Always blit + re-render the glass button (it's an animated overlay layer).
+    ///   3. Blit + render the sidebar panel (GPU blur + rounded rect, animated translate/opacity).
+    ///   4. BlendCursor overlaid last.
     ///
-    /// A pure cursor move therefore costs one small blit + one cursor blend —
-    /// no CPU pixels, no full-screen work. Blur is baked into Plane 1 by the CPU
-    /// and only recomputed when panel content changes, so it is off the hot path.
-    fn build_frame_cb(
-        &self,
+    /// Glass panels use BlurBackdrop (reads from Plane 2 after the blit, so it blurs
+    /// the wallpaper/content behind the panel) + FillSdfRoundedRect (glass tint + border).
+    /// Record the per-frame scene into the reusable `scene_cb` and serialize it
+    /// into `out`. Returns the number of bytes written.
+    ///
+    /// Zero per-frame heap allocation: `scene_cb` is cleared (capacity retained)
+    /// rather than freshly allocated, and serialization borrows it instead of
+    /// consuming it into a `CommittedBuffer`. This is mandatory under windowd's
+    /// non-freeing bump allocator — a per-frame `CommandBuffer::new()` would leak
+    /// its `Vec<Command>` and crash the service mid-animation.
+    fn build_scene_cb_into(
+        &mut self,
         rects: &[DamageRect],
         rect_count: usize,
-    ) -> Result<CommittedBuffer, WindowdError> {
-        let mut cb = CommandBuffer::new();
+        out: &mut [u8],
+    ) -> Result<usize, WindowdError> {
+        // Snapshot all `self` reads needed inside the encoder block so the
+        // mutable borrow of `self.scene_cb` does not conflict with field reads.
+        let mode = self.mode;
+        let scene = self.animated_scene;
+        let cursor_w = self.cursor_width;
+        let cursor_h = self.cursor_height;
+        let cursor_x = self.state.cursor_x;
+        let cursor_y = self.state.cursor_y;
+
+        self.scene_cb.clear();
         {
-            let mut encoder = cb
+            let mut encoder = self
+                .scene_cb
                 .try_begin_render_pass(RenderPassDesc {
                     color_attachments: alloc::vec![],
-                    width: self.mode.width,
-                    height: self.mode.height,
+                    width: mode.width,
+                    height: mode.height,
                 })
                 .map_err(|_| WindowdError::InvalidDamage)?;
 
-            // Blit each damage region from the retained plane to the display plane.
-            // src_y is absolute (retained plane base + rect.y); dst is screen-relative
-            // — gpud adds the display-plane offset to dst_y. Keeping dst screen-relative
-            // means the damage bounding box stays in-screen for validate_rect.
+            // 1. Blit content damage from retained plane → display plane.
             for rect in rects.iter().copied().take(rect_count) {
                 encoder
                     .try_blit_surface(
@@ -2221,20 +2248,85 @@ impl DisplayServerRuntime {
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
-            // Cursor overlay: composited last so it always renders on top, as its
-            // own layer (never baked into a plane). Software fast path avoids the
-            // QEMU virtio-gpu quirk where UPDATE_CURSOR corrupts RESOURCE_FLUSH.
-            if self.cursor_width > 0 && self.cursor_height > 0 {
-                let cx = (self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
-                let cy = (self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
-                if cx < self.mode.width && cy < self.mode.height {
-                    let _ = encoder.try_blend_cursor(cx, cy, self.cursor_width, self.cursor_height);
+            // 2. Glass button — always rendered as GPU overlay.
+            //    Restore clean background from Plane 1, then blur + fill + hamburger icon.
+            let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+            let button_blit_w = GLASS_BUTTON_W.min(mode.width.saturating_sub(button_x));
+            if button_blit_w > 0 {
+                // Blit background behind button from Plane 1 (erases any previous overlay).
+                let _ = encoder.try_blit_surface(
+                    button_x, GLASS_BUTTON_TOP + RETAINED_ROW_OFFSET,
+                    button_x, GLASS_BUTTON_TOP,
+                    button_blit_w, GLASS_BUTTON_H,
+                );
+                let btn_rect = TileRect { x: button_x, y: GLASS_BUTTON_TOP, width: button_blit_w, height: GLASS_BUTTON_H };
+                let _ = encoder.try_blur_backdrop(btn_rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
+                let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(96.0, 220.0) as u8;
+                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(235, 245, 255, button_alpha));
+                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(255, 255, 255, 84));
+                // Hamburger icon: 3 horizontal bars centered inside the glass button.
+                const MENU_BAR_W: u32 = 18;
+                const MENU_BAR_H: u32 = 3;
+                const MENU_BAR_GAP: u32 = 5;
+                const MENU_TOTAL_H: u32 = 3 * MENU_BAR_H + 2 * MENU_BAR_GAP;
+                let bar_x = button_x.saturating_add(GLASS_BUTTON_W.saturating_sub(MENU_BAR_W) / 2);
+                let bar_y = GLASS_BUTTON_TOP.saturating_add(GLASS_BUTTON_H.saturating_sub(MENU_TOTAL_H) / 2);
+                let icon_alpha = (160.0 + 80.0 * scene.hover_opacity).clamp(160.0, 240.0) as u8;
+                let bar_color = RgbaColor::new(255, 255, 255, icon_alpha);
+                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y, width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
+                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y + MENU_BAR_H + MENU_BAR_GAP, width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
+                let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: bar_x, y: bar_y + 2 * (MENU_BAR_H + MENU_BAR_GAP), width: MENU_BAR_W, height: MENU_BAR_H }, 1, bar_color);
+            }
+
+            // 3. Sidebar panel — GPU overlay, only when visible (opacity > 0).
+            let sidebar_opacity = scene.sidebar_opacity;
+            if sidebar_opacity > 0.01 {
+                let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
+                let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
+                if sidebar_x < mode.width {
+                    let sidebar_w = SIDEBAR_WIDTH.min(mode.width.saturating_sub(sidebar_x));
+                    let sidebar_h = mode.height.saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM).max(1);
+                    // Restore clean background from Plane 1 so BlurBackdrop reads wallpaper, not old overlay.
+                    let _ = encoder.try_blit_surface(
+                        sidebar_x, SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
+                        sidebar_x, SIDEBAR_MARGIN_TOP,
+                        sidebar_w, sidebar_h,
+                    );
+                    let sbr = TileRect { x: sidebar_x, y: SIDEBAR_MARGIN_TOP, width: sidebar_w, height: sidebar_h };
+                    let _ = encoder.try_blur_backdrop(sbr, 20, DARK_GLASS_SATURATION_PERCENT);
+                    let sidebar_alpha = (128.0 * sidebar_opacity).clamp(0.0, 192.0) as u8;
+                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(220, 236, 255, sidebar_alpha));
+                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(255, 255, 255, 72));
+                    // Close icon (× approximated as + shape) at top-right of sidebar.
+                    // Drawn after glass fill so it appears above the tint.
+                    const CLOSE_SIZE: u32 = 16;
+                    const CLOSE_BAR: u32 = 3;
+                    const CLOSE_INSET: u32 = 16;
+                    if sidebar_w > CLOSE_SIZE + CLOSE_INSET {
+                        let cx = sidebar_x.saturating_add(sidebar_w.saturating_sub(CLOSE_SIZE + CLOSE_INSET));
+                        let cy = SIDEBAR_MARGIN_TOP.saturating_add(CLOSE_INSET);
+                        let close_alpha = (200.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
+                        let cc = RgbaColor::new(255, 255, 255, close_alpha);
+                        // Horizontal arm
+                        let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx, y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2, width: CLOSE_SIZE, height: CLOSE_BAR }, 1, cc);
+                        // Vertical arm
+                        let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2, y: cy, width: CLOSE_BAR, height: CLOSE_SIZE }, 1, cc);
+                    }
+                }
+            }
+
+            // 4. Cursor — composited last, never baked into any plane.
+            if cursor_w > 0 && cursor_h > 0 {
+                let cx = (cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
+                let cy = (cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
+                if cx < mode.width && cy < mode.height {
+                    let _ = encoder.try_blend_cursor(cx, cy, cursor_w, cursor_h);
                 }
             }
 
             encoder.end_encoding();
         }
-        cb.try_commit().map_err(|_| WindowdError::InvalidDamage)
+        self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
 
     /// Flush pending damage to gpud as one batched CommandBuffer.
@@ -2285,13 +2377,11 @@ impl DisplayServerRuntime {
             blit_count += 1;
         }
 
-        // 4. One CB blits retained→display for each region + overlays the cursor.
-        let cb = self.build_frame_cb(&blits, blit_count)?;
+        // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
+        //    Serialized straight out of the reusable scene_cb (no per-frame alloc).
+        let mut frame_buf = [0u8; 2048];
+        let written = self.build_scene_cb_into(&blits, blit_count, &mut frame_buf[1..])?;
         self.tile_map.clear();
-        let mut frame_buf = [0u8; 1024];
-        let written = cb
-            .serialize_into(&mut frame_buf[1..])
-            .map_err(|_| WindowdError::InvalidDamage)?;
         frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
         let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {

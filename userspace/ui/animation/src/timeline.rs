@@ -11,7 +11,7 @@ enum ActiveAnimation {
     Keyframe { layer: LayerId, prop: AnimProp, track: KeyframeTrack },
 }
 
-const MAX_ACTIVE_ANIMATIONS: usize = 2;
+const MAX_ACTIVE_ANIMATIONS: usize = 6;
 
 pub struct AnimationDriver {
     start: u64,

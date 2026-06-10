@@ -20,27 +20,42 @@ use crate::chain::{ServiceId, SimIpcBus};
 /// Cursor architecture: hardware cursor upload (OP_UPLOAD_CURSOR) is disabled
 /// due to QEMU virtio-gpu quirk (UPDATE_CURSOR corrupts scanout resource).
 /// Cursor is rendered via BlendCursor embedded in every frame CommandBuffer.
+///
+/// IDL: source/drivers/gpud/idl/gpud.capnp
 pub struct GpudContract {
     /// Whether to simulate receiving a windowd handoff VMO.
     pub handoff: bool,
     /// Whether the GPU present pipeline (blur/flush) markers fire.
     /// True for with_handoff_and_cursor(); no-op for probe_only/with_handoff.
     pub gpu_present: bool,
+    /// Number of animation frames to simulate after the initial present.
+    /// Each frame = transfer_to_host + resource_flush marker pair (120Hz pacer).
+    /// 0 = no animation frames (non-animated display path).
+    pub animation_frames: usize,
     id: Option<ServiceId>,
 }
 
 impl GpudContract {
     pub fn probe_only() -> Self {
-        Self { handoff: false, gpu_present: false, id: None }
+        Self { handoff: false, gpu_present: false, animation_frames: 0, id: None }
     }
 
     pub fn with_handoff() -> Self {
-        Self { handoff: true, gpu_present: false, id: None }
+        Self { handoff: true, gpu_present: false, animation_frames: 0, id: None }
     }
 
     /// Software cursor path (BlendCursor embedded in CB, no OP_UPLOAD_CURSOR).
     pub fn with_handoff_and_cursor() -> Self {
-        Self { handoff: true, gpu_present: true, id: None }
+        Self { handoff: true, gpu_present: true, animation_frames: 0, id: None }
+    }
+
+    /// Animation path: emits `n` GPU frame pairs after handoff.
+    /// Models the 120Hz kernel-timer-driven present loop:
+    ///   timer fires → windowd tick() → PresentDamage(CB) → gpud renders
+    ///   → transfer_to_host + resource_flush → present ack → rearm timer.
+    /// `n` should be ≥ 8 to cover the spring settling window (~67ms at 120Hz).
+    pub fn with_animation_frames(n: usize) -> Self {
+        Self { handoff: true, gpu_present: true, animation_frames: n, id: None }
     }
 }
 
@@ -76,6 +91,13 @@ impl Contract for GpudContract {
                 bus.emit_marker(id, "gpud: resource flush ok");
                 // Phase 7: pacer-driven frame ack
                 bus.emit_marker(id, "gpud: present ack");
+                // Animation frames: each pair = one 120Hz timer tick rendering the
+                // animated CB (BlitSurface + BlurBackdrop + FillSdfRoundedRect +
+                // BlendCursor), per gpud.capnp PresentDamage path.
+                for _ in 0..self.animation_frames {
+                    bus.emit_marker(id, "gpud: transfer_to_host ok");
+                    bus.emit_marker(id, "gpud: resource flush ok");
+                }
             }
         }
 
