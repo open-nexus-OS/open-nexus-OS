@@ -539,6 +539,10 @@ impl VirtioGpuBackend {
                         self.cursor_sprite_h,
                     )?;
                 }
+                Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
+                    // Raw VMO blit — no display_y_offset added; caller passes absolute rows.
+                    blit_vmo(fb, fb_len, fb_w, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
+                }
             }
         }
         Ok(())

@@ -112,6 +112,9 @@ impl CpuMockBackend {
                 Command::BlendCursor { x, y, width, height } => {
                     self.blend_cursor(*x, *y, *width, *height);
                 }
+                Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
+                    self.blit(*src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
+                }
             }
         }
         Ok(())

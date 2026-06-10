@@ -51,6 +51,13 @@ impl<'a> RenderCommandEncoder<'a> {
         self.cmd.push_command(Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height })
     }
 
+    /// Blit between arbitrary absolute VMO rows — no display_y_offset adjustment.
+    /// Used to write/read the Plane 3 blur cache.
+    pub fn try_blit_absolute(&mut self, src_x: u32, src_y_abs: u32, dst_x: u32, dst_y_abs: u32, width: u32, height: u32) -> Result<(), GfxError> {
+        if !self.active { return Err(GfxError::CommandRejected); }
+        self.cmd.push_command(Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height })
+    }
+
     // ── SDF rounded rect ──────────────────────────────────────
 
     /// Fill an SDF rounded rectangle with a solid color.

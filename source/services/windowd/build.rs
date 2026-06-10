@@ -15,8 +15,9 @@ mod proof_panel_spec {
 
 use proof_panel_spec::{
     ALL_TEXT_SPECS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG, TOKEN_CARD_BORDER, TOKEN_CARD_LABEL,
-    TOKEN_CLICK, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG, TOKEN_KEYBOARD, TOKEN_PANEL_BG,
-    TOKEN_PANEL_BORDER, TOKEN_PANEL_MUTED, TOKEN_PANEL_SUBTITLE, TOKEN_PANEL_TITLE, TOKEN_SCROLL,
+    TOKEN_CLICK, TOKEN_GLASS_EDGE, TOKEN_GLASS_TINT, TOKEN_HOVER, TOKEN_ICON_BG, TOKEN_ICON_FG,
+    TOKEN_KEYBOARD, TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_PANEL_MUTED, TOKEN_PANEL_SUBTITLE,
+    TOKEN_PANEL_TITLE, TOKEN_SCROLL,
 };
 
 const INTER_FONT: &str = "../../../resources/fonts/inter/docs/font-files/InterVariable.ttf";
@@ -74,6 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     emit_theme_color(&mut generated, "PROOF_CLICK_RGBA", &theme_runtime, TOKEN_CLICK)?;
     emit_theme_color(&mut generated, "PROOF_SCROLL_RGBA", &theme_runtime, TOKEN_SCROLL)?;
     emit_theme_color(&mut generated, "PROOF_KEYBOARD_RGBA", &theme_runtime, TOKEN_KEYBOARD)?;
+    emit_theme_color(&mut generated, "GLASS_TINT_RGBA", &theme_runtime, TOKEN_GLASS_TINT)?;
+    emit_theme_color(&mut generated, "GLASS_EDGE_RGBA", &theme_runtime, TOKEN_GLASS_EDGE)?;
 
     for spec in ALL_TEXT_SPECS {
         let rendered = render_text_asset(

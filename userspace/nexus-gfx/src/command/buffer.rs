@@ -74,6 +74,10 @@ pub enum Command {
     BlurBackdrop { rect: TileRect, radius: u32, saturation_percent: u32 },
     /// Blend the cursor bitmap onto the framebuffer at the given position.
     BlendCursor { x: u32, y: u32, width: u32, height: u32 },
+    /// Blit between arbitrary absolute VMO rows — bypasses the display_y_offset
+    /// adjustment that BlitSurface applies. Used to write/read the Plane 3 blur
+    /// cache: writing cached blur (display→Plane3) and reading it back (Plane3→display).
+    BlitAbsolute { src_x: u32, src_y_abs: u32, dst_x: u32, dst_y_abs: u32, width: u32, height: u32 },
 }
 
 /// A recorded command buffer. Use begin_render_pass() to start a render pass.
@@ -174,6 +178,7 @@ const TAG_BLIT_SURFACE: u8 = 2;
 const TAG_FILL_SDF_ROUNDED_RECT: u8 = 3;
 const TAG_BLUR_BACKDROP: u8 = 4;
 const TAG_BLEND_CURSOR: u8 = 5;
+const TAG_BLIT_ABSOLUTE: u8 = 6;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
 const MAX_SERIALIZED: usize = 2048;
@@ -269,6 +274,7 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
             TAG_FILL_SDF_ROUNDED_RECT => deser_sdf_rect(buf, pos, false)?,
             TAG_BLUR_BACKDROP => deser_sdf_rect(buf, pos, true)?,
             TAG_BLEND_CURSOR => deser_cursor(buf, pos)?,
+            TAG_BLIT_ABSOLUTE => deser_blit_absolute(buf, pos)?,
             _ => return Err(GfxError::InvalidArgument),
         };
         pos = n;
@@ -311,6 +317,9 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
             }
             Command::BlendCursor { x, y, width, height } => {
                 pos = ser_cursor(buf, pos, TAG_BLEND_CURSOR, *x, *y, *width, *height)?;
+            }
+            Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
+                pos = ser_blit(buf, pos, TAG_BLIT_ABSOLUTE, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
             }
         }
     }
@@ -450,6 +459,20 @@ fn deser_blit(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
     }, pos + 24))
 }
 
+fn deser_blit_absolute(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
+    if buf.len() < pos + 24 {
+        return Err(GfxError::InvalidArgument);
+    }
+    Ok((Command::BlitAbsolute {
+        src_x:     u32::from_le_bytes([buf[pos],      buf[pos + 1],  buf[pos + 2],  buf[pos + 3]]),
+        src_y_abs: u32::from_le_bytes([buf[pos + 4],  buf[pos + 5],  buf[pos + 6],  buf[pos + 7]]),
+        dst_x:     u32::from_le_bytes([buf[pos + 8],  buf[pos + 9],  buf[pos + 10], buf[pos + 11]]),
+        dst_y_abs: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
+        width:     u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]),
+        height:    u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]),
+    }, pos + 24))
+}
+
 fn deser_sdf_rect(buf: &[u8], pos: usize, is_blur: bool) -> Result<(Command, usize), GfxError> {
     if buf.len() < pos + 24 {
         return Err(GfxError::InvalidArgument);
@@ -531,6 +554,12 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
             validate_tile(*rect, render_extent)
         }
         Command::BlendCursor { width, height, .. } => {
+            if *width == 0 || *height == 0 {
+                return Err(GfxError::InvalidArgument);
+            }
+            Ok(())
+        }
+        Command::BlitAbsolute { width, height, .. } => {
             if *width == 0 || *height == 0 {
                 return Err(GfxError::InvalidArgument);
             }

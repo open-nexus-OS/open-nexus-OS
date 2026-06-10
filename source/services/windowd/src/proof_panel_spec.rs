@@ -41,6 +41,8 @@ pub const TOKEN_HOVER: &str = "accent";
 pub const TOKEN_CLICK: &str = "success";
 pub const TOKEN_SCROLL: &str = "warning";
 pub const TOKEN_KEYBOARD: &str = "focusRing";
+pub const TOKEN_GLASS_TINT: &str = "glassTint";
+pub const TOKEN_GLASS_EDGE: &str = "glassEdge";
 
 #[derive(Clone, Copy)]
 pub struct ProofTextSpec {

@@ -32,7 +32,9 @@ use super::types::{
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
     GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
-    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
+    BLUR_CACHE_ROW_OFFSET, BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X,
+    DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET, DISPLAY_WIDTH,
+    RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, SIDEBAR_REST_X,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, ROUTE_NAME, ROW_WRITE_CHUNK,
     SHADOW_BOX_CACHE_ENTRIES, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
@@ -156,13 +158,15 @@ fn draw_animation_proof_overlay_row(
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
     let button_rect =
         ProofBoxRect { x: button_x, y: GLASS_BUTTON_TOP, width: GLASS_BUTTON_W, height: GLASS_BUTTON_H };
+    let gt = crate::assets::GLASS_TINT;
+    let ge = crate::assets::GLASS_EDGE;
     draw_floating_glass_rect_row(
         row,
         y,
         button_rect,
         GLASS_BUTTON_RADIUS,
-        [235, 245, 255, button_alpha],
-        [255, 255, 255, 84],
+        [gt.r, gt.g, gt.b, button_alpha],
+        [ge.r, ge.g, ge.b, ge.a],
         14,
         8,
         6,
@@ -176,7 +180,7 @@ fn draw_animation_proof_overlay_row(
 
     let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
     let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
-    let sidebar_alpha = (128.0 * scene.sidebar_opacity).clamp(0.0, 192.0) as u8;
+    let sidebar_alpha = (220.0 * scene.sidebar_opacity).clamp(0.0, 220.0) as u8;
     if sidebar_alpha == 0 {
         return;
     }
@@ -190,13 +194,15 @@ fn draw_animation_proof_overlay_row(
         width: SIDEBAR_WIDTH,
         height: sidebar_height,
     };
+    let gt = crate::assets::GLASS_TINT;
+    let ge = crate::assets::GLASS_EDGE;
     draw_floating_glass_rect_row(
         row,
         y,
         sidebar_rect,
         SIDEBAR_RADIUS,
-        [220, 236, 255, sidebar_alpha],
-        [255, 255, 255, 72],
+        [gt.r, gt.g, gt.b, sidebar_alpha],
+        [ge.r, ge.g, ge.b, ge.a],
         20,
         10,
         8,
@@ -412,6 +418,16 @@ pub(crate) struct DisplayServerRuntime {
     /// separately from content damage: cursor rects only need a retained→display
     /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
     pending_cursor_rect: Option<DamageRect>,
+    /// Animation-driven frame: only GPU CB params changed (translate_x, opacity).
+    /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
+    /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
+    pending_gpu_blit_rect: Option<DamageRect>,
+    /// True when the sidebar blur has been computed and cached in Plane 3 (Slot B).
+    /// Invalidated after the close animation fully completes (opacity < 0.01).
+    sidebar_blur_cache_valid: bool,
+    /// True when the glass button blur is cached in Plane 3 at BUTTON_BLUR_CACHE_ABS_X/ROW.
+    /// Never invalidated: button occupies y=24..80, above the proof panel at y=440.
+    button_blur_cache_valid: bool,
     proof_layouts: Option<Vec<LayoutResult>>,
     proof_layout_index: Option<LayoutHotPathIndex>,
     filtered_words: Vec<&'static str>,
@@ -613,6 +629,9 @@ impl DisplayServerRuntime {
             shadow_box_cache: [ShadowBoxCacheEntry::empty(); SHADOW_BOX_CACHE_ENTRIES],
             pending_damage_rect: None,
             pending_cursor_rect: None,
+            pending_gpu_blit_rect: None,
+            sidebar_blur_cache_valid: false,
+            button_blur_cache_valid: false,
             paint_only_damage: false,
             proof_layouts,
             proof_layout_index,
@@ -1106,7 +1125,9 @@ impl DisplayServerRuntime {
             } else {
                 SIDEBAR_CLOSE_MARKER
             });
-            self.queue_dirty_rect(self.sidebar_damage_rect());
+            // Sidebar is a GPU overlay — no CPU content in P1 changes on open/close.
+            // Cache invalidation is deferred until the close animation fully completes.
+            self.queue_gpu_blit_rect(self.sidebar_damage_rect());
         }
         self.paint_only_damage =
             paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
@@ -1327,10 +1348,14 @@ impl DisplayServerRuntime {
                 width: COMBINED_PANEL_WIDTH as u32,
                 height: PROOF_PANEL_H,
             };
-            self.queue_dirty_rect(panel_damage);
+            // GPU-only: only animated props (hover_opacity) changed. Plane 1 is
+            // current. Display plane needs a refresh blit but no CPU recomposite.
+            self.queue_gpu_blit_rect(panel_damage);
         }
         if sidebar_dirty {
-            self.queue_dirty_rect(self.sidebar_damage_rect());
+            // GPU-only: only translate_x/opacity changed. Plane 1 sidebar content
+            // is unchanged. GPU CB reads current animated state each frame.
+            self.queue_gpu_blit_rect(self.sidebar_damage_rect());
         }
 
         // Markers: emit once per animation lifecycle, not per tick.
@@ -1345,6 +1370,12 @@ impl DisplayServerRuntime {
         if self.animation_driver.active_count() == 0 && !self.animation_proof.spring_marker {
             let _ = debug_println(UIANIM_SPRING_CONVERGE_OK);
             self.animation_proof.spring_marker = true;
+        }
+        // Invalidate sidebar blur cache only after the close animation finishes.
+        // Keeping it valid during slide-out means every closing frame uses the cache
+        // instead of triggering a full re-blur.
+        if !self.state.sidebar_open_visible && self.animated_scene.sidebar_opacity < 0.01 {
+            self.sidebar_blur_cache_valid = false;
         }
         if self.animation_proof.batch_marker
             && self.animation_proof.live_marker
@@ -2189,6 +2220,16 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Queue a GPU-only blit rect for animation frames where only GPU CB params
+    /// (translate_x, opacity) changed. Plane 1 is already current — no CPU
+    /// recomposite. The rect still needs a display-plane refresh from Plane 1.
+    fn queue_gpu_blit_rect(&mut self, rect: DamageRect) {
+        self.pending_gpu_blit_rect = Some(match self.pending_gpu_blit_rect {
+            Some(existing) => existing.merge(rect),
+            None => rect,
+        });
+    }
+
     /// Build the per-frame GPU CommandBuffer (GPU-first layout-tree model).
     ///
     /// CPU writes background content (wallpaper + proof panel) into Plane 1 only on
@@ -2222,6 +2263,9 @@ impl DisplayServerRuntime {
         let cursor_h = self.cursor_height;
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
+        let blur_cache_valid = self.sidebar_blur_cache_valid;
+        let btn_blur_cache_valid = self.button_blur_cache_valid;
+        let mut built_button_cache = false;
 
         self.scene_cb.clear();
         {
@@ -2248,22 +2292,42 @@ impl DisplayServerRuntime {
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
-            // 2. Glass button — always rendered as GPU overlay.
-            //    Restore clean background from Plane 1, then blur + fill + hamburger icon.
+            // 2. Glass button — cached blur, skipped when sidebar covers it.
             let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
             let button_blit_w = GLASS_BUTTON_W.min(mode.width.saturating_sub(button_x));
-            if button_blit_w > 0 {
-                // Blit background behind button from Plane 1 (erases any previous overlay).
-                let _ = encoder.try_blit_surface(
-                    button_x, GLASS_BUTTON_TOP + RETAINED_ROW_OFFSET,
-                    button_x, GLASS_BUTTON_TOP,
-                    button_blit_w, GLASS_BUTTON_H,
-                );
+            let sidebar_x_for_btn = mode.width.saturating_sub(SIDEBAR_WIDTH)
+                .saturating_add(scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32);
+            let button_covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= button_x;
+            if button_blit_w > 0 && !button_covered {
+                if btn_blur_cache_valid {
+                    // Fast path: restore pre-blurred background from Plane 3 cache.
+                    let _ = encoder.try_blit_absolute(
+                        BUTTON_BLUR_CACHE_ABS_X, BUTTON_BLUR_CACHE_ABS_ROW,
+                        button_x, DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
+                        button_blit_w, GLASS_BUTTON_H,
+                    );
+                } else {
+                    // Cache-build path: blit P1, blur in-place, save to Plane 3.
+                    let _ = encoder.try_blit_surface(
+                        button_x, GLASS_BUTTON_TOP + RETAINED_ROW_OFFSET,
+                        button_x, GLASS_BUTTON_TOP,
+                        button_blit_w, GLASS_BUTTON_H,
+                    );
+                    let btn_build_rect = TileRect { x: button_x, y: GLASS_BUTTON_TOP, width: button_blit_w, height: GLASS_BUTTON_H };
+                    let _ = encoder.try_blur_backdrop(btn_build_rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
+                    let _ = encoder.try_blit_absolute(
+                        button_x, DISPLAY_ROW_OFFSET + GLASS_BUTTON_TOP,
+                        BUTTON_BLUR_CACHE_ABS_X, BUTTON_BLUR_CACHE_ABS_ROW,
+                        button_blit_w, GLASS_BUTTON_H,
+                    );
+                    built_button_cache = true;
+                }
                 let btn_rect = TileRect { x: button_x, y: GLASS_BUTTON_TOP, width: button_blit_w, height: GLASS_BUTTON_H };
-                let _ = encoder.try_blur_backdrop(btn_rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
                 let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(96.0, 220.0) as u8;
-                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(235, 245, 255, button_alpha));
-                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(255, 255, 255, 84));
+                let gt = crate::assets::GLASS_TINT;
+                let ge = crate::assets::GLASS_EDGE;
+                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(gt.r, gt.g, gt.b, button_alpha));
+                let _ = encoder.try_fill_sdf_rounded_rect(btn_rect, GLASS_BUTTON_RADIUS, RgbaColor::new(ge.r, ge.g, ge.b, ge.a));
                 // Hamburger icon: 3 horizontal bars centered inside the glass button.
                 const MENU_BAR_W: u32 = 18;
                 const MENU_BAR_H: u32 = 3;
@@ -2279,6 +2343,11 @@ impl DisplayServerRuntime {
             }
 
             // 3. Sidebar panel — GPU overlay, only when visible (opacity > 0).
+            //    Blur caching: compute once per open into Plane 3 (Slot B, rows 2400+),
+            //    then blit from cache each animation frame instead of re-blurring.
+            //    The wallpaper behind the sidebar is static so the blur is identical
+            //    every frame. Cache spans the full 320px at SIDEBAR_REST_X=960 so all
+            //    visible sub-strips during the slide animation are covered.
             let sidebar_opacity = scene.sidebar_opacity;
             if sidebar_opacity > 0.01 {
                 let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
@@ -2286,19 +2355,52 @@ impl DisplayServerRuntime {
                 if sidebar_x < mode.width {
                     let sidebar_w = SIDEBAR_WIDTH.min(mode.width.saturating_sub(sidebar_x));
                     let sidebar_h = mode.height.saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM).max(1);
-                    // Restore clean background from Plane 1 so BlurBackdrop reads wallpaper, not old overlay.
-                    let _ = encoder.try_blit_surface(
-                        sidebar_x, SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
-                        sidebar_x, SIDEBAR_MARGIN_TOP,
-                        sidebar_w, sidebar_h,
-                    );
+
+                    if !blur_cache_valid {
+                        // Cache-build frame (once per sidebar open):
+                        // restore full Plane 1 bg at rest position, blur it, save to Plane 3.
+                        let _ = encoder.try_blit_surface(
+                            SIDEBAR_REST_X, SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
+                            SIDEBAR_REST_X, SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_WIDTH, sidebar_h,
+                        );
+                        let full_sbr = TileRect { x: SIDEBAR_REST_X, y: SIDEBAR_MARGIN_TOP, width: SIDEBAR_WIDTH, height: sidebar_h };
+                        let _ = encoder.try_blur_backdrop(full_sbr, 20, DARK_GLASS_SATURATION_PERCENT);
+                        // Save blurred display pixels to Plane 3 cache.
+                        let _ = encoder.try_blit_absolute(
+                            SIDEBAR_REST_X, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_REST_X, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            SIDEBAR_WIDTH, sidebar_h,
+                        );
+                        // Blit the currently-visible strip from cache for this frame.
+                        let _ = encoder.try_blit_absolute(
+                            sidebar_x, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_x, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_w, sidebar_h,
+                        );
+                    } else {
+                        // Cache-use frame: blit pre-blurred strip from Plane 3 — no blur.
+                        let _ = encoder.try_blit_absolute(
+                            sidebar_x, BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_x, DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_w, sidebar_h,
+                        );
+                    }
+
                     let sbr = TileRect { x: sidebar_x, y: SIDEBAR_MARGIN_TOP, width: sidebar_w, height: sidebar_h };
-                    let _ = encoder.try_blur_backdrop(sbr, 20, DARK_GLASS_SATURATION_PERCENT);
-                    let sidebar_alpha = (128.0 * sidebar_opacity).clamp(0.0, 192.0) as u8;
-                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(220, 236, 255, sidebar_alpha));
-                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(255, 255, 255, 72));
+                    let sidebar_alpha = (220.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
+                    let border_alpha = (180.0 * sidebar_opacity).clamp(0.0, 180.0) as u8;
+                    let gt = crate::assets::GLASS_TINT;
+                    let ge = crate::assets::GLASS_EDGE;
+                    let pb = crate::assets::PROOF_PANEL_BORDER;
+                    // Border: fill outer rect with border color, then cover interior with glass fill.
+                    let _ = encoder.try_fill_sdf_rounded_rect(sbr, SIDEBAR_RADIUS, RgbaColor::new(pb.r, pb.g, pb.b, border_alpha));
+                    if sidebar_w > 2 && sidebar_h > 2 {
+                        let sbr_inner = TileRect { x: sbr.x + 1, y: sbr.y + 1, width: sbr.width - 2, height: sbr.height - 2 };
+                        let _ = encoder.try_fill_sdf_rounded_rect(sbr_inner, SIDEBAR_RADIUS.saturating_sub(1), RgbaColor::new(gt.r, gt.g, gt.b, sidebar_alpha));
+                        let _ = encoder.try_fill_sdf_rounded_rect(sbr_inner, SIDEBAR_RADIUS.saturating_sub(1), RgbaColor::new(ge.r, ge.g, ge.b, ge.a));
+                    }
                     // Close icon (× approximated as + shape) at top-right of sidebar.
-                    // Drawn after glass fill so it appears above the tint.
                     const CLOSE_SIZE: u32 = 16;
                     const CLOSE_BAR: u32 = 3;
                     const CLOSE_INSET: u32 = 16;
@@ -2307,9 +2409,7 @@ impl DisplayServerRuntime {
                         let cy = SIDEBAR_MARGIN_TOP.saturating_add(CLOSE_INSET);
                         let close_alpha = (200.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
                         let cc = RgbaColor::new(255, 255, 255, close_alpha);
-                        // Horizontal arm
                         let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx, y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2, width: CLOSE_SIZE, height: CLOSE_BAR }, 1, cc);
-                        // Vertical arm
                         let _ = encoder.try_fill_sdf_rounded_rect(TileRect { x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2, y: cy, width: CLOSE_BAR, height: CLOSE_SIZE }, 1, cc);
                     }
                 }
@@ -2326,6 +2426,13 @@ impl DisplayServerRuntime {
 
             encoder.end_encoding();
         }
+        // Commit cache-build results so subsequent frames use the caches.
+        if !blur_cache_valid && scene.sidebar_opacity > 0.01 {
+            self.sidebar_blur_cache_valid = true;
+        }
+        if built_button_cache {
+            self.button_blur_cache_valid = true;
+        }
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
 
@@ -2333,12 +2440,14 @@ impl DisplayServerRuntime {
     ///
     /// Retained-surface model: content damage is recomposited (CPU) into the
     /// retained plane (Plane 1) first; then a single CB blits every damage region
-    /// (content + cursor) from Plane 1 to the display plane (Plane 2) and overlays
-    /// the cursor. Cursor-only frames skip the CPU recomposite entirely.
+    /// (content + cursor + gpu-blit) from Plane 1 to the display plane (Plane 2)
+    /// and overlays animated glass and cursor. GPU-blit-only frames (animation ticks
+    /// where only translate_x/opacity changed) skip the CPU recomposite entirely —
+    /// Plane 1 is already current; only the display plane needs refreshing.
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
 
-        // 1. Collect content damage (panels/text/animation — needs CPU recomposite).
+        // 1. Collect content damage (panels/text — needs CPU recomposite of Plane 1).
         let mut content = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut content_count = 0usize;
         if let Some(rect) = self.pending_damage_rect.take() {
@@ -2353,22 +2462,30 @@ impl DisplayServerRuntime {
         }
         content_count = premerge_damage_rects(&mut content, content_count);
 
+        // GPU-blit-only rect from animation ticks (Plane 1 already current).
+        let gpu_blit_rect = self.pending_gpu_blit_rect.take();
         let cursor_rect = self.pending_cursor_rect.take();
-        if content_count == 0 && cursor_rect.is_none() {
+
+        if content_count == 0 && gpu_blit_rect.is_none() && cursor_rect.is_none() {
             return Ok(());
         }
 
-        // 2. Recomposite changed content into the retained plane (CPU computes).
-        //    Cursor rects are NOT recomposited — Plane 1 is already cursor-free.
+        // 2. Recomposite ONLY content damage into Plane 1 (CPU).
+        //    GPU-blit rects and cursor rects skip this — Plane 1 is already current.
         let glass_quality = select_glass_quality(PROOF_PANEL_H);
         for rect in content.iter().copied().take(content_count) {
             self.write_damage_rect(rect, glass_quality, paint_only)?;
         }
 
-        // 3. Build the blit list: every content rect + the cursor rect.
-        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 6];
+        // 3. Blit list: content rects + gpu-blit rect + cursor rect.
+        //    All need a display-plane refresh from Plane 1.
+        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 7];
         let mut blit_count = 0usize;
         for rect in content.iter().copied().take(content_count) {
+            blits[blit_count] = rect;
+            blit_count += 1;
+        }
+        if let Some(rect) = gpu_blit_rect {
             blits[blit_count] = rect;
             blit_count += 1;
         }
@@ -2385,10 +2502,15 @@ impl DisplayServerRuntime {
         frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
         let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {
-            // Requeue so the next pacer tick retries. Content as content, cursor
-            // as cursor — preserving the cheap cursor-only path.
+            // Requeue so the next pacer tick retries.
             for rect in content.iter().copied().take(content_count) {
                 self.queue_dirty_rect(rect);
+            }
+            if let Some(rect) = gpu_blit_rect {
+                self.pending_gpu_blit_rect = Some(match self.pending_gpu_blit_rect {
+                    Some(existing) => existing.merge(rect),
+                    None => rect,
+                });
             }
             if let Some(rect) = cursor_rect {
                 self.pending_cursor_rect = Some(match self.pending_cursor_rect {
@@ -2407,7 +2529,8 @@ impl DisplayServerRuntime {
     }
 
     pub(crate) fn has_pending_damage(&self) -> bool {
-        !self.pending_damage_rects.is_empty()
+        self.pending_gpu_blit_rect.is_some()
+            || !self.pending_damage_rects.is_empty()
             || self.pending_damage_rect.is_some()
             || self.pending_cursor_rect.is_some()
     }

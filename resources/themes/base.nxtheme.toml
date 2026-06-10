@@ -20,6 +20,8 @@ warningFg = "#1a1a2e"
 success = "#22c55e"
 successFg = "#ffffff"
 focusRing = "#3b82f6"
+glassTint = "#f8f9fa"
+glassEdge = "#ffffff54"
 
 [material.surface]
 type = "opaque"

@@ -135,6 +135,19 @@ pub(crate) const RETAINED_OFFSET_BYTES: usize = 4_096_000; // Plane 1 (0x3E8000)
 /// Row offset of the retained plane within the VMO (RETAINED_OFFSET_BYTES / row_bytes).
 /// 4_096_000 / (1280*4) = 800. Used as the BlitSurface source row base.
 pub(crate) const RETAINED_ROW_OFFSET: u32 = 800;
+/// Absolute VMO row where the display plane starts (DISPLAY_OFFSET_BYTES / stride).
+/// 8_192_000 / (1280*4) = 1600. Used as the BlitAbsolute source/dst for blur cache writes.
+pub(crate) const DISPLAY_ROW_OFFSET: u32 = 1600;
+/// Absolute VMO row where Plane 3 (Slot B) starts — repurposed as blur cache.
+/// 12_288_000 / (1280*4) = 2400.
+pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = 2400;
+/// X pixel offset of the sidebar at its resting (fully open) position.
+/// 1280 - 320 = 960. Blur cache is always precomputed for the full 320px at this x.
+pub(crate) const SIDEBAR_REST_X: u32 = 960;
+/// Glass button blur cache in Plane 3 — stored at x=0 (leftmost columns).
+/// Does not conflict with sidebar cache at x=960..1279.
+pub(crate) const BUTTON_BLUR_CACHE_ABS_X: u32 = 0;
+pub(crate) const BUTTON_BLUR_CACHE_ABS_ROW: u32 = BLUR_CACHE_ROW_OFFSET;
 pub(crate) const PROOF_PANEL_X: u32 = 56;
 pub(crate) const PROOF_PANEL_Y: u32 = 440;
 pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;

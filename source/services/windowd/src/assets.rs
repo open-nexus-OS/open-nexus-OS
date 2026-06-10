@@ -36,6 +36,8 @@ pub const PROOF_HOVER: Rgba8 = rgba8(generated::PROOF_HOVER_RGBA);
 pub const PROOF_CLICK: Rgba8 = rgba8(generated::PROOF_CLICK_RGBA);
 pub const PROOF_SCROLL: Rgba8 = rgba8(generated::PROOF_SCROLL_RGBA);
 pub const PROOF_KEYBOARD: Rgba8 = rgba8(generated::PROOF_KEYBOARD_RGBA);
+pub const GLASS_TINT: Rgba8 = rgba8(generated::GLASS_TINT_RGBA);
+pub const GLASS_EDGE: Rgba8 = rgba8(generated::GLASS_EDGE_RGBA);
 
 pub fn proof_text_asset(id: &str) -> Option<ProofTextAsset> {
     let asset = match id {

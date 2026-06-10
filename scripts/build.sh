@@ -129,10 +129,10 @@ require_or_build() {
   (cd "$ROOT" && "$@" 2> >(tee "$stderr_file" >&2))
   local build_rc=$?
 
-  # Extract error[E…] and warning[…] lines (bounded to 15 each for log size).
+  # Extract error[E…] and warning[…] lines into hypothesis log.
   if [[ $build_rc -ne 0 ]]; then
     local err_lines err_json
-    err_lines=$(grep -E '^error(\[[A-Z][0-9]+\])?' "$stderr_file" 2>/dev/null | head -15 | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
+    err_lines=$(grep -E '^error(\[[A-Z][0-9]+\])?' "$stderr_file" 2>/dev/null | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
     err_json="\"${err_lines:-}\""
     debug_log "H4" "scripts/build.sh:build-errors" "cargo build failure for $label" \
       "{\"label\":\"$label\",\"exit_code\":$build_rc,\"artifact\":\"$artifact\",\"errors\":[$err_json]}"
@@ -144,7 +144,7 @@ require_or_build() {
   [[ -z "$warn_count" ]] && warn_count=0
   if [[ "$warn_count" -gt 0 ]]; then
     local warn_lines warn_json
-    warn_lines=$(grep -E '^warning' "$stderr_file" 2>/dev/null | head -15 | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
+    warn_lines=$(grep -E '^warning' "$stderr_file" 2>/dev/null | tr '\n' '|' | sed 's/["\]/\\&/g; s/|$//')
     warn_json="\"${warn_lines:-}\""
     debug_log "H4b" "scripts/build.sh:build-warnings" "cargo build warnings for $label" \
       "{\"label\":\"$label\",\"count\":$warn_count,\"warnings\":[$warn_json]}"
