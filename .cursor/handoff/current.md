@@ -2,36 +2,39 @@
 
 2026-06-12
 
-## Last proven
+## Last completed
 
 - **TASK-0063** (UI v5b: Scene Graph GPU Pipeline + Virtual List + Theme Tokens + Virgl) — **Done**
-  - Phase 0: GPU pipeline hardening — scene graph drives rendering. 5 CPU modules deleted.
-  - Phase 1: Scene graph 31 nodes (proof panel, cards, button, sidebar, chat, cursor). Animation wired.
-  - Phase 2: ThemeRegistry with 2PC switching.
-  - Phase 3: Virgl 3D protocol, context creation, GPU dispatch architecture.
-  - Tests: 88 host tests passing (19 ui_v5b, 7 nexus-virtual-list, 62 windowd)
-  - RFC-0063: Complete
+  - Tests: 88 host tests passing. RFC-0063: Complete.
 
 - **TASK-0062** (UI v5a): Done (2026-06-10), RFC-0059 Complete
 - **TASK-0059** (UI v3b): Done (2026-06-05), RFC-0058 Complete
 
+## Active
+
+- **TASK-0064** (UI v6a: Window Management v1 — Chat-Window + Drag) — **Draft** (rescoped 2026-06-12)
+  - RFC-0064: Draft design seed
+  - Chat wird dragbares Window mit Title-Bar, X-Close, Z-Order
+  - Chat-Button links neben Hamburger-Menu
+  - Non-Goals: kein Multi-Window, kein Resize, keine Transitions
+  - Follow-up: TASK-0064B (Scene Transitions)
+
 ## Next steps
 
-1. TASK-0064 (UI v6a): Window management + scene transitions — next Fast-Lane task
-2. TASK-0275 (UI v5c): Lazy data loading + virtual list paging contract — follow-up
-3. Virgl GPU shader: TGSI/SPIR-V compiler for `submit_virgl_blur()` — deferred (Phase 3 architecture done, currently CPU fallback)
-4. GPU text rendering: `RenderPrimitive::Text` → CB commands — deferred
-5. OS build cleanup: delete restored CPU compositor modules once QEMU bootstrap verified
+1. TASK-0064 Phase 0: Chat-Button + Window/WindowManager structs
+2. TASK-0064 Phase 1: Title-Bar + X-Button + Drag
+3. TASK-0064 Phase 2: Integration + Host-Tests + QEMU-Marker
 
 ## Open risks
 
-- Virgl GPU shader blocked on TGSI compiler — CPU separable gaussian is the current blur path
-- GPU text is no-op — visual output has panels/cards/blur but no text labels
-- Sidebar blur cache (Plane 3) not implemented in scene graph path
+- Virgl GPU shader blocked on TGSI compiler — CPU fallback
+- GPU text is no-op — text labels not visible
+- OS build: CPU compositor modules restored but not deleted
 
 ## Key architecture decisions
 
 - Scene graph is single rendering authority — no CPU compositing fallback
-- Blur dispatch: GPU-first → separable gaussian → box blur chain
-- Animation: scene graph dirty set drives rendering, no damage rect queueing
-- RFC-0063 contracts are locked; future UI work targets the scene graph
+- Window management starts concrete (Chat-Window) rather than abstract (WM layer)
+- Z-Order: Chat-Window > Sidebar > Proof-Panel > Wallpaper
+- Title-Bar only as drag handle (standard OS pattern)
+- Scene transitions (crossfade/slide) deferred to TASK-0064B

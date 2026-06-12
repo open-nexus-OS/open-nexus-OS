@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed - 2026-06-12
 
+#### TASK-0064 (UI v6a): Rescoped — Window Management v1 (Chat-Window + Drag)
+
+- **Scope change**: TASK-0064 von abstraktem WM-Layer (z-order/focus/states + transitions)
+  auf konkretes Chat-Window rescoped. Der Chat wird das erste echte Window.
+- **RFC-0064**: Design seed contract created. Chat-Window mit Title-Bar, Drag, X-Close,
+  Z-Order. Chat-Button links neben Hamburger-Menu.
+- **Deferred**: Scene Transitions (Crossfade/Slide) → TASK-0064B.
+  Multi-Window, Resize, IPC → zukünftige Tasks.
+- **Touched**: TASK-0064 updated, RFC-0064 created, .cursor/ state files updated.
+
 #### TASK-0063 (UI v5b): Scene graph GPU pipeline + virtual list + theme tokens + virgl — Done
 
 - **Scene graph as rendering authority**: `generate_commands_into()` translates
