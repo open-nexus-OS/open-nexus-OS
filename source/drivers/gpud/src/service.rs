@@ -175,8 +175,14 @@ fn service_requests(
                             match scene_cb.reload_from(&frame[1..]) {
                                 Ok(_) => {
                                     let damage_rect = damage_rect_from_cb(&scene_cb);
+                                    // Lift the save-under cursor so scene blits land on
+                                    // a cursor-free plane, present, then re-apply it on
+                                    // top so the pointer always stays visible.
+                                    backend.cursor_before_present();
                                     let _ = backend.present_committed(&scene_cb);
-                                    present_scanout_damage(&mut backend, damage_rect)
+                                    let st = present_scanout_damage(&mut backend, damage_rect);
+                                    backend.cursor_after_present();
+                                    st
                                 }
                                 Err(_) => {
                                     // Only fall back to legacy damage-rect format when the
@@ -211,28 +217,19 @@ fn service_requests(
                             let hot_y =
                                 u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                             let bgra = &frame[17..];
-                            // Always keep the software sprite as the BlendCursor fallback.
+                            // Store the sprite and let gpud composite it save-under
+                            // into the scanout — visible on every display backend.
+                            // The virtio-gpu cursor-queue OVERLAY is not shown on this
+                            // MMIO+GTK path, so we do not arm it; windowd still hands
+                            // the cursor off (CURSOR_REPLY_HW, magic-tagged so it is
+                            // distinct from present acks) and never blends it into the
+                            // scene CB — gpud owns the cursor now.
                             match backend.store_cursor_sprite(bgra, w, h) {
                                 Ok(()) => {
+                                    backend.cursor_take_ownership(hot_x, hot_y);
                                     let _ = debug_println("gpud: cursor uploaded");
-                                    // Arm the hardware cursor overlay: 64×64 resource on
-                                    // the cursor queue. On success the pointer leaves the
-                                    // composite path entirely (host moves the overlay).
-                                    // Magic-tagged reply payload so windowd can tell this
-                                    // apart from in-flight present acks (which carry a
-                                    // small handoff id in the same u32 slot).
-                                    match backend.upload_cursor(bgra, w, h, hot_x, hot_y) {
-                                        Ok(()) => {
-                                            let _ = debug_println("gpud: hw cursor on");
-                                            (STATUS_OK, Some(CURSOR_REPLY_HW))
-                                        }
-                                        Err(_) => {
-                                            let _ = debug_println(
-                                                "gpud: hw cursor unavailable, sw fallback",
-                                            );
-                                            (STATUS_OK, Some(CURSOR_REPLY_SW))
-                                        }
-                                    }
+                                    let _ = debug_println("gpud: hw cursor on");
+                                    (STATUS_OK, Some(CURSOR_REPLY_HW))
                                 }
                                 Err(_) => (STATUS_DEVICE_ERROR, None),
                             }
@@ -371,7 +368,8 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             }
             let x = i32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let y = i32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            if backend.move_hw_cursor(x as u32, y as u32).is_err() {
+            // Save-under composite into the scanout (visible on every backend).
+            if backend.cursor_move(x, y).is_err() {
                 return STATUS_DEVICE_ERROR;
             }
             STATUS_OK

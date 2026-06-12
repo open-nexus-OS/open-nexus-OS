@@ -47,9 +47,22 @@ pub struct VirtioGpuBackend {
     cursor_sprite_w: u32,
     cursor_sprite_h: u32,
     /// Hardware cursor resource (64×64, cursor queue). `None` until a
-    /// successful `upload_cursor` arms the overlay.
+    /// successful `upload_cursor` arms the overlay. Unused on display backends
+    /// where the overlay is not composited into the captured/shown scanout —
+    /// there the save-under software cursor below is the live path.
     cursor_resource_id: Option<ResourceId>,
     cursor_hot: (u32, u32),
+    /// Save-under software cursor (composited into the scanout, so it is visible
+    /// on every display backend). `cursor_ox/oy` are the screen-space top-left of
+    /// the drawn sprite; `cursor_saveunder` holds the scene pixels it covers.
+    cursor_owned: bool,
+    cursor_drawn: bool,
+    cursor_suspended: bool,
+    cursor_ox: i32,
+    cursor_oy: i32,
+    cursor_dw: u32,
+    cursor_dh: u32,
+    cursor_saveunder: alloc::vec::Vec<u8>,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
     /// virtio-gpu cursor virtqueue (index 1) — carries UPDATE_CURSOR / MOVE_CURSOR
@@ -108,6 +121,14 @@ impl VirtioGpuBackend {
             cursor_sprite_h: 0,
             cursor_resource_id: None,
             cursor_hot: (0, 0),
+            cursor_owned: false,
+            cursor_drawn: false,
+            cursor_suspended: false,
+            cursor_ox: 0,
+            cursor_oy: 0,
+            cursor_dw: 0,
+            cursor_dh: 0,
+            cursor_saveunder: alloc::vec::Vec::new(),
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -729,6 +750,190 @@ impl VirtioGpuBackend {
         self.cursor_sprite_w = width;
         self.cursor_sprite_h = height;
         Ok(())
+    }
+
+    // ── Save-under software cursor (composited into the scanout) ──────────────
+    //
+    // The virtio-gpu cursor-queue overlay is not composited into the captured /
+    // displayed scanout on this MMIO+GTK setup, so the pointer was invisible.
+    // Instead gpud composites the cursor directly into the display plane with a
+    // classic save-under: save the pixels the sprite covers, blend the sprite,
+    // and restore on move. Driven by the same 9-byte OP_MOVE_CURSOR — windowd's
+    // hot path is unchanged (no scene rebuild per move). Presents are wrapped
+    // with `cursor_before_present` / `cursor_after_present` so scene blits never
+    // fight the cursor.
+
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    fn scanout_fb(&self) -> Option<(*mut u8, usize, usize, u32)> {
+        let scanout = self.scanout_resource?;
+        let record = self.find_resource(scanout)?;
+        if record.backing_va == 0 {
+            return None;
+        }
+        Some((record.backing_va as *mut u8, record.backing_len, record.width as usize, record.height / 2))
+    }
+
+    /// Mark gpud as the cursor compositor and store the sprite/hotspot. The
+    /// sprite stays the BlendCursor source; the first move paints it.
+    pub fn cursor_take_ownership(&mut self, hot_x: u32, hot_y: u32) {
+        self.cursor_owned = true;
+        self.cursor_hot = (hot_x, hot_y);
+        let cap = (self.cursor_sprite_w as usize * self.cursor_sprite_h as usize * 4).max(4);
+        if self.cursor_saveunder.len() < cap {
+            self.cursor_saveunder.resize(cap, 0);
+        }
+    }
+
+    /// Remove the cursor from the display plane (restore saved pixels). In-place,
+    /// no flush — the caller flushes (or a present covers the region).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    fn cursor_unpaint(&mut self) {
+        if !self.cursor_drawn {
+            return;
+        }
+        let (ox, oy, w, h) = (self.cursor_ox, self.cursor_oy, self.cursor_dw, self.cursor_dh);
+        if let Some((fb, fb_len, fb_w, dyoff)) = self.scanout_fb() {
+            for py in 0..h as usize {
+                let sy = dyoff as usize + oy as usize + py;
+                let dst = (sy * fb_w + ox as usize) * 4;
+                let src = py * w as usize * 4;
+                let n = w as usize * 4;
+                if dst + n <= fb_len && src + n <= self.cursor_saveunder.len() {
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(
+                            self.cursor_saveunder.as_ptr().add(src),
+                            fb.add(dst),
+                            n,
+                        );
+                    }
+                }
+            }
+        }
+        self.cursor_drawn = false;
+    }
+
+    /// Save the scene pixels at (ox,oy) into the save-under buffer, then blend the
+    /// sprite over them. In-place, no flush. Sets the drawn rect.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    fn cursor_paint(&mut self, ox: i32, oy: i32) {
+        if !self.cursor_owned || self.cursor_sprite.is_empty() {
+            return;
+        }
+        let Some((fb, fb_len, fb_w, dyoff)) = self.scanout_fb() else {
+            return;
+        };
+        let fb_h = (fb_len / (fb_w * 4)) as i32 - dyoff as i32;
+        let ox = ox.clamp(0, (fb_w as i32 - 1).max(0));
+        let oy = oy.clamp(0, (fb_h - 1).max(0));
+        let w = (self.cursor_sprite_w as i32).min(fb_w as i32 - ox).max(0) as u32;
+        let h = (self.cursor_sprite_h as i32).min(fb_h - oy).max(0) as u32;
+        if w == 0 || h == 0 {
+            return;
+        }
+        // Save-under: copy current scene pixels into the buffer.
+        for py in 0..h as usize {
+            let sy = dyoff as usize + oy as usize + py;
+            let src = (sy * fb_w + ox as usize) * 4;
+            let dst = py * w as usize * 4;
+            let n = w as usize * 4;
+            if src + n <= fb_len && dst + n <= self.cursor_saveunder.len() {
+                unsafe {
+                    core::ptr::copy_nonoverlapping(fb.add(src), self.cursor_saveunder.as_mut_ptr().add(dst), n);
+                }
+            }
+        }
+        // Blend the sprite over the display plane (premultiplied BGRA).
+        let _ = blend_cursor_vmo(
+            fb,
+            fb_len,
+            fb_w,
+            ox as u32,
+            dyoff + oy as u32,
+            w,
+            h,
+            &self.cursor_sprite,
+            self.cursor_sprite_w,
+            self.cursor_sprite_h,
+        );
+        self.cursor_ox = ox;
+        self.cursor_oy = oy;
+        self.cursor_dw = w;
+        self.cursor_dh = h;
+        self.cursor_drawn = true;
+    }
+
+    /// Move the composited cursor to pointer position (px, py). Restores the old
+    /// region, paints the new one, and flushes both to the display.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn cursor_move(&mut self, px: i32, py: i32) -> Result<(), GfxError> {
+        if !self.cursor_owned {
+            return Ok(());
+        }
+        let old = if self.cursor_drawn {
+            Some((self.cursor_ox, self.cursor_oy, self.cursor_dw, self.cursor_dh))
+        } else {
+            None
+        };
+        self.cursor_unpaint();
+        let ox = px - self.cursor_hot.0 as i32;
+        let oy = py - self.cursor_hot.1 as i32;
+        self.cursor_paint(ox, oy);
+        // Flush the union of old and new cursor rects (screen-relative).
+        let (nx, ny, nw, nh) = (self.cursor_ox, self.cursor_oy, self.cursor_dw, self.cursor_dh);
+        match old {
+            Some((oxo, oyo, owo, oho)) => {
+                let x0 = oxo.min(nx).max(0);
+                let y0 = oyo.min(ny).max(0);
+                let x1 = (oxo + owo as i32).max(nx + nw as i32);
+                let y1 = (oyo + oho as i32).max(ny + nh as i32);
+                let _ = self.present_scanout_damage(Rect {
+                    x: x0 as u32,
+                    y: y0 as u32,
+                    width: (x1 - x0).max(0) as u32,
+                    height: (y1 - y0).max(0) as u32,
+                });
+            }
+            None => {
+                if nw > 0 && nh > 0 {
+                    let _ = self.present_scanout_damage(Rect {
+                        x: nx as u32,
+                        y: ny as u32,
+                        width: nw,
+                        height: nh,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Before a windowd present: lift the cursor off the display so scene blits
+    /// land on a cursor-free plane. Re-applied by `cursor_after_present`.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn cursor_before_present(&mut self) {
+        if self.cursor_owned && self.cursor_drawn {
+            self.cursor_unpaint();
+            self.cursor_suspended = true;
+        }
+    }
+
+    /// After a windowd present: re-save the (now current) scene under the cursor,
+    /// blend the sprite back on top, and flush just the cursor rect.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub fn cursor_after_present(&mut self) {
+        if !self.cursor_owned || !self.cursor_suspended {
+            return;
+        }
+        self.cursor_suspended = false;
+        self.cursor_paint(self.cursor_ox, self.cursor_oy);
+        if self.cursor_dw > 0 && self.cursor_dh > 0 {
+            let _ = self.present_scanout_damage(Rect {
+                x: self.cursor_ox as u32,
+                y: self.cursor_oy as u32,
+                width: self.cursor_dw,
+                height: self.cursor_dh,
+            });
+        }
     }
 
     /// Upload the cursor bitmap as a hardware cursor resource and arm the
