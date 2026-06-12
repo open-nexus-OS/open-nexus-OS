@@ -27,6 +27,10 @@ pub const OP_MOVE_CURSOR: u8 = 2;
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
 pub const OP_UPLOAD_CURSOR: u8 = 5;
+/// Reply payloads for OP_UPLOAD_CURSOR (magic-tagged — distinguishable from
+/// present acks, whose u32 slot carries a small handoff id).
+pub const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
+pub const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_DEVICE_ERROR: u8 = 2;
@@ -194,18 +198,41 @@ fn service_requests(
                     }
                     OP_UPLOAD_CURSOR => {
                         let _ = debug_println("gpud: recv OP_UPLOAD_CURSOR");
-                        if frame.len() < 9 {
+                        // Frame: [op, w(4), h(4), hot_x(4), hot_y(4), bgra]. The reply's
+                        // u32 payload reports the active cursor path: 1 = hardware
+                        // overlay (cursor queue), 0 = software BlendCursor fallback.
+                        if frame.len() < 17 {
                             (STATUS_MALFORMED, None)
                         } else {
                             let w = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
                             let h = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-                            let bgra = &frame[9..];
-                            // Store as a software sprite for BlendCursor (no hardware
-                            // cursor resource → avoids the QEMU UPDATE_CURSOR quirk).
+                            let hot_x =
+                                u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
+                            let hot_y =
+                                u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
+                            let bgra = &frame[17..];
+                            // Always keep the software sprite as the BlendCursor fallback.
                             match backend.store_cursor_sprite(bgra, w, h) {
                                 Ok(()) => {
                                     let _ = debug_println("gpud: cursor uploaded");
-                                    (STATUS_OK, None)
+                                    // Arm the hardware cursor overlay: 64×64 resource on
+                                    // the cursor queue. On success the pointer leaves the
+                                    // composite path entirely (host moves the overlay).
+                                    // Magic-tagged reply payload so windowd can tell this
+                                    // apart from in-flight present acks (which carry a
+                                    // small handoff id in the same u32 slot).
+                                    match backend.upload_cursor(bgra, w, h, hot_x, hot_y) {
+                                        Ok(()) => {
+                                            let _ = debug_println("gpud: hw cursor on");
+                                            (STATUS_OK, Some(CURSOR_REPLY_HW))
+                                        }
+                                        Err(_) => {
+                                            let _ = debug_println(
+                                                "gpud: hw cursor unavailable, sw fallback",
+                                            );
+                                            (STATUS_OK, Some(CURSOR_REPLY_SW))
+                                        }
+                                    }
                                 }
                                 Err(_) => (STATUS_DEVICE_ERROR, None),
                             }

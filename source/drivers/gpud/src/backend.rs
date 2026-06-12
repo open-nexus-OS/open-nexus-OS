@@ -46,6 +46,10 @@ pub struct VirtioGpuBackend {
     cursor_sprite: alloc::vec::Vec<u8>,
     cursor_sprite_w: u32,
     cursor_sprite_h: u32,
+    /// Hardware cursor resource (64×64, cursor queue). `None` until a
+    /// successful `upload_cursor` arms the overlay.
+    cursor_resource_id: Option<ResourceId>,
+    cursor_hot: (u32, u32),
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
     /// virtio-gpu cursor virtqueue (index 1) — carries UPDATE_CURSOR / MOVE_CURSOR
@@ -102,6 +106,8 @@ impl VirtioGpuBackend {
             cursor_sprite: alloc::vec::Vec::new(),
             cursor_sprite_w: 0,
             cursor_sprite_h: 0,
+            cursor_resource_id: None,
+            cursor_hot: (0, 0),
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -725,8 +731,15 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
-    /// Phase 6: Upload cursor bitmap as a hardware cursor resource.
-    /// Creates a small resource, uploads the bitmap, and calls UPDATE_CURSOR.
+    /// Upload the cursor bitmap as a hardware cursor resource and arm the
+    /// cursor-queue overlay (UPDATE_CURSOR).
+    ///
+    /// The virtio-gpu spec requires cursor resources to be exactly 64×64; QEMU
+    /// silently ignores cursor data of any other size (the cursor shows as
+    /// invisible — the historical "UPDATE_CURSOR quirk" was this, combined with
+    /// transferring the resource BEFORE the bitmap was copied into its backing,
+    /// so the host always sampled zeros). The sprite is copied into the top-left
+    /// of a transparent 64×64 resource, transferred, and only then armed.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub fn upload_cursor(
         &mut self,
@@ -736,24 +749,41 @@ impl VirtioGpuBackend {
         hot_x: u32,
         hot_y: u32,
     ) -> Result<(), GfxError> {
+        const CURSOR_DIM: u32 = 64;
+        if width == 0 || height == 0 || width > CURSOR_DIM || height > CURSOR_DIM {
+            return Err(GfxError::InvalidArgument);
+        }
         if bgra.len() < (width * height * 4) as usize {
             return Err(GfxError::InvalidArgument);
         }
-        // Create cursor resource
-        let rid = self.create_resource(width, height, PixelFormat::Bgra8888)?;
+        if self.cursorq.is_none() {
+            return Err(GfxError::DeviceNotFound);
+        }
+        // Reuse the existing cursor resource on re-upload instead of leaking one.
+        let rid = match self.cursor_resource_id {
+            Some(rid) => rid,
+            None => self.create_resource(CURSOR_DIM, CURSOR_DIM, PixelFormat::Bgra8888)?,
+        };
         let record = self.find_resource(rid).ok_or(GfxError::InvalidArgument)?;
-        // Upload bitmap via TRANSFER_TO_HOST_2D
-        let full = Rect { x: 0, y: 0, width, height };
-        self.transfer_to_host_os(record, full)?;
-        // Copy bitmap into the resource's backing memory
+        // 1. Copy the sprite into the top-left of the 64×64 backing. The backing
+        //    was zeroed at create, so the remainder stays fully transparent.
+        let stride = (CURSOR_DIM * 4) as usize;
+        let src_stride = (width * 4) as usize;
         unsafe {
             let dst = core::slice::from_raw_parts_mut(
                 record.backing_va as *mut u8,
-                (width * height * 4) as usize,
+                stride * CURSOR_DIM as usize,
             );
-            dst.copy_from_slice(&bgra[..(width * height * 4) as usize]);
+            for row in 0..height as usize {
+                let s = row * src_stride;
+                let d = row * stride;
+                dst[d..d + src_stride].copy_from_slice(&bgra[s..s + src_stride]);
+            }
         }
-        // Call UPDATE_CURSOR
+        // 2. Transfer guest backing → host resource (must follow the copy).
+        let full = Rect { x: 0, y: 0, width: CURSOR_DIM, height: CURSOR_DIM };
+        self.transfer_to_host_os(record, full)?;
+        // 3. Arm the hardware cursor overlay on the cursor queue.
         let cmd = protocol::VirtioGpuUpdateCursor {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_UPDATE_CURSOR),
             pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x: 0, y: 0, _padding: 0 },
@@ -762,26 +792,32 @@ impl VirtioGpuBackend {
             hot_y,
             _padding: 0,
         };
-        // UPDATE_CURSOR goes on the cursor queue (hardware cursor overlay).
         self.cursor_submit_struct(&cmd)?;
+        self.cursor_resource_id = Some(rid);
+        self.cursor_hot = (hot_x, hot_y);
         Ok(())
     }
 
-    /// Phase 6: Move the hardware cursor to a new position.
-    /// Uses the cursor resource uploaded via upload_cursor().
+    /// Move the hardware cursor overlay. Requires a prior `upload_cursor`.
+    /// Host repositions the overlay — no scanout re-render, no guest composite.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub fn move_hw_cursor(&mut self, x: u32, y: u32) -> Result<(), GfxError> {
+        let rid = self.cursor_resource_id.ok_or(GfxError::DeviceNotFound)?;
+        let (hot_x, hot_y) = self.cursor_hot;
         let cmd = protocol::VirtioGpuCursorPos {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_MOVE_CURSOR),
             pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x, y, _padding: 0 },
-            resource_id: 1, // use resource id 1 (cursor resource)
-            hot_x: 0,
-            hot_y: 0,
+            resource_id: rid.0,
+            hot_x,
+            hot_y,
             _padding: 0,
         };
-        // MOVE_CURSOR on the cursor queue — host repositions the overlay,
-        // no scanout re-render (the GPU pointer hot path).
         self.cursor_submit_struct(&cmd)
+    }
+
+    /// True once the hardware cursor overlay is armed.
+    pub fn hw_cursor_active(&self) -> bool {
+        self.cursor_resource_id.is_some()
     }
 }
 
@@ -2086,12 +2122,13 @@ impl VirtioGpuBackend {
     }
 
     /// Submit a cursor command (UPDATE_CURSOR / MOVE_CURSOR) on the cursor queue.
+    /// Cursor-queue commands carry no response payload (see `submit_no_response`).
     fn cursor_submit_struct<T>(&mut self, cmd: &T) -> Result<(), GfxError> {
         let bytes = unsafe {
             core::slice::from_raw_parts((cmd as *const T).cast::<u8>(), core::mem::size_of::<T>())
         };
         let queue = self.cursorq.as_mut().ok_or(GfxError::DeviceNotFound)?;
-        queue.submit(self.mmio_base, bytes)
+        queue.submit_no_response(self.mmio_base, bytes)
     }
 
     fn ctrl_submit_pair<A, B>(&mut self, a: &A, b: &B) -> Result<(), GfxError> {
@@ -2189,6 +2226,48 @@ impl CtrlQueue {
 
     fn submit(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
         self.submit_two(mmio_base, bytes, &[])
+    }
+
+    /// Submit a command that the device completes WITHOUT writing a response
+    /// payload. The virtio-gpu cursor queue is such a queue: QEMU processes
+    /// UPDATE_CURSOR/MOVE_CURSOR and pushes the used element with len=0 and no
+    /// response header. Posting a response descriptor and demanding
+    /// RESP_OK_NODATA (like `submit`) therefore always "fails" — the historical
+    /// reason the hardware cursor was abandoned. Single read-only descriptor,
+    /// completion = used-ring advance.
+    fn submit_no_response(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
+        if bytes.is_empty() || bytes.len() > 4096 {
+            return Err(GfxError::CommandRejected);
+        }
+        unsafe {
+            core::ptr::write_bytes(self.cmd_va as *mut u8, 0, 4096);
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.cmd_va as *mut u8, bytes.len());
+            core::ptr::write_volatile(
+                self.desc.add(0),
+                VqDesc { addr: self.cmd_pa, len: bytes.len() as u32, flags: 0, next: 0 },
+            );
+            let idx = core::ptr::read_volatile(&(*self.avail).idx);
+            core::ptr::write_volatile(&mut (*self.avail).ring[(idx as usize) % QUEUE_LEN], 0);
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
+        }
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
+        // Wait for the used-ring to advance; do NOT inspect the (absent) response.
+        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
+        let deadline = start.saturating_add(500_000_000);
+        loop {
+            let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
+            if used_idx != self.last_used {
+                self.last_used = used_idx;
+                return Ok(());
+            }
+            let now = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
+            if now > deadline {
+                return Err(GfxError::MmioFault);
+            }
+            let _ = nexus_abi::yield_();
+        }
     }
 
     fn submit_two(

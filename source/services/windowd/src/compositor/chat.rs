@@ -215,6 +215,19 @@ fn draw_text_line_row(
     Ok(())
 }
 
+/// Thumb geometry `(thumb_y, thumb_h)` in screen pixels for a given scroll
+/// offset. Shared by the row renderer and the runtime's scroll-blit damage
+/// computation so the repainted span always matches the drawn thumb.
+pub(crate) fn scrollbar_thumb_span(scroll_y: u32, content_h: u32) -> (u32, u32) {
+    let vp_y = CHAT_PANEL_Y + CHAT_PAD;
+    let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
+    let max_scroll = content_h.saturating_sub(vp_h).max(1);
+    let thumb_h = (vp_h.saturating_mul(vp_h) / content_h.max(1)).clamp(24, vp_h);
+    let travel = vp_h.saturating_sub(thumb_h);
+    let thumb_y = vp_y.saturating_add(scroll_y.min(max_scroll).saturating_mul(travel) / max_scroll);
+    (thumb_y, thumb_h)
+}
+
 fn draw_scrollbar_row(
     y: u32,
     row: &mut [u8],
@@ -230,11 +243,7 @@ fn draw_scrollbar_row(
     if y >= vp_y && y < vp_y.saturating_add(vp_h) {
         fill_row_rect(y, row, track_x, vp_y, CHAT_SCROLLBAR_W, vp_h, SCROLL_TRACK)?;
     }
-    // Thumb: proportional position and size.
-    let max_scroll = content_h.saturating_sub(vp_h).max(1);
-    let thumb_h = (vp_h.saturating_mul(vp_h) / content_h.max(1)).clamp(24, vp_h);
-    let travel = vp_h.saturating_sub(thumb_h);
-    let thumb_y = vp_y.saturating_add(scroll_y.min(max_scroll).saturating_mul(travel) / max_scroll);
+    let (thumb_y, thumb_h) = scrollbar_thumb_span(scroll_y, content_h);
     if y >= thumb_y && y < thumb_y.saturating_add(thumb_h) {
         fill_row_rect(y, row, track_x, thumb_y, CHAT_SCROLLBAR_W, thumb_h, SCROLL_THUMB)?;
     }

@@ -81,6 +81,16 @@ use crate::interaction::{
 };
 const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
 const ANIMATION_UPDATE_CAP: usize = 8;
+/// Chat scroll-blit: width of the GPU-shifted text region (excludes the
+/// scrollbar column at the right, which the CPU repaints — see
+/// `queue_chat_scrollbar_damage`). 342 ends at x=1232, two px left of the track.
+const CHAT_SHIFT_W: u32 = 342;
+/// Plane 3 scratch column for the bounce copy of the shifted region
+/// (x 200..542 — clear of the button blur cache at x<156).
+const CHAT_BOUNCE_SCRATCH_X: u32 = 200;
+/// Plane 3 scratch column for the CPU-rendered exposed strip
+/// (x 576..942 — clear of the sidebar blur cache at x≥960).
+const CHAT_STRIP_SCRATCH_X: u32 = 576;
 
 fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
     let label = match err {
@@ -472,6 +482,19 @@ pub(crate) struct DisplayServerRuntime {
     first_handoff_bootstrap_markers_emitted: bool,
     first_handoff_attach_acked: bool,
     first_handoff_present_sent: bool,
+    /// True when gpud armed the virtio-gpu hardware cursor overlay. Pointer
+    /// moves then ship as a 9-byte OP_MOVE_CURSOR (host repositions the
+    /// overlay) — zero composite, zero blits, zero presents per move.
+    hw_cursor_active: bool,
+    /// One-shot: pre-blur the sidebar backdrop into the Plane 3 cache during
+    /// the first handoff present, so the first open never pays for a blur.
+    precache_blur_pending: bool,
+    /// Cursor over the top-right glass button (highlight only — windowd-internal,
+    /// independent of the proof-panel hover test card in `state.hover_visible`).
+    button_hover: bool,
+    /// Pending chat scroll-blit: vertical delta in pixels to apply as a GPU
+    /// shift of the chat text region within Plane 1 at the next CB build.
+    chat_shift_pending: Option<i32>,
     /// Chat panel (right side): message provider + scroll state + the precomputed
     /// visible window. `chat_visible` is rebuilt only on scroll (not per row), so
     /// the per-scanline renderer never allocates and never walks all 500 messages.
@@ -674,6 +697,10 @@ impl DisplayServerRuntime {
             first_handoff_bootstrap_markers_emitted: false,
             first_handoff_attach_acked: false,
             first_handoff_present_sent: false,
+            hw_cursor_active: false,
+            precache_blur_pending: true,
+            button_hover: false,
+            chat_shift_pending: None,
             chat_provider,
             chat_scroll_y: 0,
             chat_content_h,
@@ -697,7 +724,9 @@ impl DisplayServerRuntime {
         self.observer_state.keyboard_target_visible |= self.state.keyboard_target_visible;
         self.observer_state.input_visible_on |= self.state.input_visible_on;
         self.observer_state.cursor_move_visible |= self.state.cursor_move_visible;
-        self.observer_state.hover_visible |= self.state.hover_visible;
+        // Hover proof: either hover source (test card or glass button) counts —
+        // the automated injection drives the pointer onto the button.
+        self.observer_state.hover_visible |= self.state.hover_visible || self.button_hover;
         self.observer_state.sidebar_open_visible |= self.state.sidebar_open_visible;
         self.observer_state.focus_visible |= self.state.focus_visible;
         self.observer_state.launcher_click_visible |= self.state.launcher_click_visible;
@@ -1041,10 +1070,25 @@ impl DisplayServerRuntime {
         let cursor_y = upstream.cursor_y;
         let mode = self.mode;
 
-        // Hover highlights the glass button only. It never opens the sidebar —
-        // only a click does. (User: "nur der button rechts oben soll die
-        // animation auslösen, nicht der hover test".)
-        self.state.hover_visible = crate::interaction::hover_over_button(mode, cursor_x, cursor_y);
+        // Two independent hover signals, both from real rendered geometry:
+        //  - hover_visible: cursor over the HOVER TEST CARD in the proof panel
+        //    (its border recolors — the actual "hover test"). The card rect
+        //    comes from the live layout index, so hit area == rendered rect.
+        //  - button_hover: cursor over the top-right glass button (highlight
+        //    only; the sidebar animation stays click-driven — user requirement:
+        //    "nur der button rechts oben soll die animation auslösen").
+        let old_button_hover = self.button_hover;
+        self.button_hover = crate::interaction::hover_over_button(mode, cursor_x, cursor_y);
+        self.state.hover_visible = self
+            .active_proof_layout_index()
+            .and_then(|idx| idx.target_rect(TargetDamage::Hover))
+            .map(|r| {
+                cursor_x >= r.x as i32
+                    && cursor_y >= r.y as i32
+                    && (cursor_x as u32) < r.x.saturating_add(r.width)
+                    && (cursor_y as u32) < r.y.saturating_add(r.height)
+            })
+            .unwrap_or(false);
 
         // Raw primary-button level from inputd; a rising edge is a click.
         let primary_down = upstream.launcher_click_visible;
@@ -1086,7 +1130,11 @@ impl DisplayServerRuntime {
             self.refresh_active_proof_hot_path();
         }
         self.refresh_observer_state();
+        let button_hover_changed = old_button_hover != self.button_hover;
         if self.state == old_state && self.active_filter_idx == old_filter_idx {
+            if button_hover_changed {
+                self.note_button_hover_changed();
+            }
             return STATUS_OK;
         }
         // ── Phase 0: Scene graph updates instead of damage rect queueing ──
@@ -1096,15 +1144,6 @@ impl DisplayServerRuntime {
         let key_changed = old_state.keyboard_visible != self.state.keyboard_visible;
         if hover_changed {
             self.shell.set_card_active(0, self.state.hover_visible);
-            // Hover highlights the glass button — present its rect so the
-            // highlight shows even before the spring's first tick.
-            let b = crate::interaction::button_rect(mode.width);
-            self.queue_gpu_blit_rect(DamageRect {
-                x: b.x,
-                y: b.y,
-                width: b.width,
-                height: b.height,
-            });
         }
         if click_changed {
             self.shell
@@ -1113,6 +1152,12 @@ impl DisplayServerRuntime {
         if key_changed {
             self.shell.set_card_active(2, self.state.keyboard_visible);
         }
+        if button_hover_changed {
+            self.note_button_hover_changed();
+        }
+        // CPU repaint of the test cards whose state flags flipped — this is what
+        // recolors the card borders (proof_box_border reads these flags).
+        self.queue_target_damage(old_state, self.state);
         // Sidebar visibility
         if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
             self.shell
@@ -1145,18 +1190,8 @@ impl DisplayServerRuntime {
                 mass: 1.0,
                 initial_velocity: 0.0,
             };
-            // Hover card opacity: 0.0 → 1.0 (or reverse)
-            if old_state.hover_visible != self.state.hover_visible {
-                let from = if old_state.hover_visible { 1.0 } else { 0.0 };
-                let to = if self.state.hover_visible { 1.0 } else { 0.0 };
-                self.animation_driver.spring_to(
-                    HOVER_LAYER_ID,
-                    AnimProp::Opacity,
-                    from,
-                    to,
-                    spring,
-                );
-            }
+            // (The HOVER_LAYER spring is the glass-button highlight and is driven
+            // by `note_button_hover_changed`, not by the hover test card.)
             // Sidebar open/close uses a dedicated state so close actions are not
             // coupled to hover leave.
             if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
@@ -1242,15 +1277,23 @@ impl DisplayServerRuntime {
         }
         self.paint_only_damage =
             paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
-        // Cursor hot path: a cursor-only move queues just the merged old+new
-        // cursor rect — flush blits that region from the retained Plane 1 and
-        // overlays BlendCursor on the GPU. No content recomposite, no re-blur.
-        self.queue_cursor_damage(
-            old_cursor_x,
-            old_cursor_y,
-            self.state.cursor_x,
-            self.state.cursor_y,
-        );
+        // Cursor hot path. Hardware overlay: the move is a 9-byte message to
+        // gpud's cursor queue — the host repositions the overlay, no composite,
+        // no blit, no present. The frame pipeline is not involved at all.
+        // Software fallback: queue the merged old+new cursor rect — flush blits
+        // that region from the retained Plane 1 and overlays BlendCursor.
+        if self.hw_cursor_active {
+            if cursor_changed {
+                self.send_cursor_move_to_gpud();
+            }
+        } else {
+            self.queue_cursor_damage(
+                old_cursor_x,
+                old_cursor_y,
+                self.state.cursor_x,
+                self.state.cursor_y,
+            );
+        }
 
         // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
         if old_state.text_input() != self.state.text_input() {
@@ -1287,6 +1330,31 @@ impl DisplayServerRuntime {
         STATUS_OK
     }
 
+    /// Glass-button hover highlight: spring the button alpha (HOVER_LAYER drives
+    /// `hover_opacity` in the GPU CB) and present the button rect. Independent of
+    /// the proof-panel hover test card.
+    fn note_button_hover_changed(&mut self) {
+        if !self.animation_driver.reduced_motion() {
+            let spring = animation::SpringConfig {
+                stiffness: 200.0,
+                damping: 20.0,
+                mass: 1.0,
+                initial_velocity: 0.0,
+            };
+            let from = self.animated_scene.hover_opacity;
+            let to = if self.button_hover { 1.0 } else { 0.0 };
+            self.animation_driver
+                .spring_to(HOVER_LAYER_ID, AnimProp::Opacity, from, to, spring);
+        }
+        let b = crate::interaction::button_rect(self.mode.width);
+        self.queue_gpu_blit_rect(DamageRect {
+            x: b.x,
+            y: b.y,
+            width: b.width,
+            height: b.height,
+        });
+    }
+
     fn note_filter_text_changed(&mut self) {
         self.filter_cycle = self.filter_cycle.wrapping_add(1);
 
@@ -1312,17 +1380,24 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Scroll the chat message list (wheel over the chat viewport). Recomputes the
-    /// visible window and damages only the chat region.
+    /// Scroll the chat message list (wheel over the chat viewport).
+    ///
+    /// O(Δ) scroll-blit: the surviving viewport region is shifted on the GPU
+    /// inside Plane 1 (bounce via the Plane 3 scratch, overlap-safe), the CPU
+    /// renders only the newly exposed strip (into the Plane 3 strip scratch)
+    /// and the scrollbar thumb span. Falls back to a full-panel CPU repaint
+    /// when a shift is already pending or the delta exceeds the viewport.
     fn handle_chat_scroll_input(&mut self, wheel_down: bool) {
         if !self.scroll_marker_emitted {
             let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
             self.scroll_marker_emitted = true;
         }
-        let viewport_h = crate::interaction::CHAT_PANEL_H
-            .saturating_sub(crate::interaction::CHAT_PAD.saturating_mul(2));
+        use crate::interaction::{
+            CHAT_LINE_H, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y,
+        };
+        let viewport_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
         let max_scroll = self.chat_content_h.saturating_sub(viewport_h);
-        let step = crate::interaction::CHAT_LINE_H.saturating_mul(2);
+        let step = CHAT_LINE_H.saturating_mul(3);
         let old = self.chat_scroll_y;
         let new = if wheel_down {
             old.saturating_add(step).min(max_scroll)
@@ -1332,19 +1407,98 @@ impl DisplayServerRuntime {
         if new == old {
             return;
         }
+        let delta = new as i32 - old as i32;
         self.chat_scroll_y = new;
         self.chat_content_h =
             super::chat::compute_visible(&self.chat_provider, new, &mut self.chat_visible);
-        self.queue_dirty_rect(DamageRect {
-            x: crate::interaction::CHAT_PANEL_X,
-            y: crate::interaction::CHAT_PANEL_Y,
-            width: crate::interaction::CHAT_PANEL_W,
-            height: crate::interaction::CHAT_PANEL_H,
-        });
+        // The chat panel overlaps the sidebar rest strip — the cached blurred
+        // backdrop is stale now. Recomputed lazily on the next sidebar open.
+        self.sidebar_blur_cache_valid = false;
+
+        let can_blit = self.chat_shift_pending.is_none()
+            && delta.unsigned_abs() < viewport_h
+            && self.render_chat_strip_to_scratch(delta).is_ok();
+        if can_blit {
+            self.chat_shift_pending = Some(delta);
+            self.queue_chat_scrollbar_damage(old, new);
+            // Present the shifted panel from Plane 1.
+            self.queue_gpu_blit_rect(DamageRect {
+                x: CHAT_PANEL_X,
+                y: CHAT_PANEL_Y,
+                width: CHAT_PANEL_W,
+                height: CHAT_PANEL_H,
+            });
+        } else {
+            // Full repaint supersedes any pending shift (it rewrites Plane 1
+            // with the current scroll state).
+            self.chat_shift_pending = None;
+            self.queue_dirty_rect(DamageRect {
+                x: CHAT_PANEL_X,
+                y: CHAT_PANEL_Y,
+                width: CHAT_PANEL_W,
+                height: CHAT_PANEL_H,
+            });
+        }
         if !self.live_scroll_marker_emitted {
             let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
             self.live_scroll_marker_emitted = true;
         }
+    }
+
+    /// Render the newly exposed scroll strip (Δ rows of the chat panel at the
+    /// new scroll offset) into the Plane 3 strip scratch. The scene CB later
+    /// blits it into Plane 1 *after* the shift, so the CPU never races the GPU.
+    fn render_chat_strip_to_scratch(&mut self, delta: i32) -> Result<(), WindowdError> {
+        use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
+        let Some(handle) = self.framebuffer else {
+            return Err(WindowdError::InvalidDamage);
+        };
+        let vp_y = CHAT_PANEL_Y + CHAT_PAD;
+        let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
+        let d = delta.unsigned_abs();
+        if d == 0 || d >= vp_h {
+            return Err(WindowdError::InvalidDamage);
+        }
+        let strip_y = if delta > 0 { vp_y + vp_h - d } else { vp_y };
+        let row_len = self.mode.stride as usize;
+        if self.band_scratch.len() < row_len {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let band_scratch = &mut self.band_scratch;
+        let visible = &self.chat_visible;
+        let scroll_y = self.chat_scroll_y;
+        let content_h = self.chat_content_h;
+        let slice_start = CHAT_PANEL_X as usize * 4;
+        let slice_end = (CHAT_PANEL_X + CHAT_PANEL_W) as usize * 4;
+        for y in strip_y..strip_y + d {
+            let row = &mut band_scratch[..row_len];
+            super::chat::draw_chat_panel_row(y, row, scroll_y, content_h, visible)?;
+            let dst = (BLUR_CACHE_ROW_OFFSET + y) as usize * row_len
+                + CHAT_STRIP_SCRATCH_X as usize * 4;
+            vmo_write(handle, dst, &row[slice_start..slice_end])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+        }
+        Ok(())
+    }
+
+    /// Repaint the scrollbar column span covered by the old + new thumb (the
+    /// only part of the column the shift cannot reproduce).
+    fn queue_chat_scrollbar_damage(&mut self, old_scroll: u32, new_scroll: u32) {
+        use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
+        let (old_y, thumb_h) = super::chat::scrollbar_thumb_span(old_scroll, self.chat_content_h);
+        let (new_y, _) = super::chat::scrollbar_thumb_span(new_scroll, self.chat_content_h);
+        let y0 = old_y.min(new_y);
+        let y1 = (old_y.max(new_y).saturating_add(thumb_h))
+            .min(CHAT_PANEL_Y + CHAT_PANEL_H.saturating_sub(CHAT_PAD));
+        if y1 <= y0 {
+            return;
+        }
+        self.queue_dirty_rect(DamageRect {
+            x: CHAT_PANEL_X + CHAT_SHIFT_W,
+            y: y0,
+            width: CHAT_PANEL_W.saturating_sub(CHAT_SHIFT_W),
+            height: y1 - y0,
+        });
     }
 
     fn handle_scroll_input(&mut self) {
@@ -1686,7 +1840,20 @@ impl DisplayServerRuntime {
                 Ok(n) => {
                     let status = reply_buf.get(..n).and_then(|r| r.first()).copied();
                     if status == Some(GPUD_STATUS_OK) {
-                        self.note_present_completed();
+                        // Present/attach replies carry a 5-byte [status, handoff_id]
+                        // payload; fire-and-forget acks (cursor move) are a single
+                        // status byte and must NOT be counted as present completions
+                        // or they corrupt the frames-in-flight accounting.
+                        if n >= 5 {
+                            self.note_present_completed();
+                        }
+                    } else if n == 1 {
+                        // Failed fire-and-forget op (cursor move). Soft-fail: drop to
+                        // the software cursor path but keep the present pipeline alive.
+                        if self.hw_cursor_active {
+                            self.hw_cursor_active = false;
+                            let _ = debug_println("windowd: hw cursor move rejected, sw fallback");
+                        }
                     } else {
                         if let Some(status) = status {
                             let _ = debug_println(&alloc::format!(
@@ -1906,8 +2073,10 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Upload cursor sprite to gpud for software BlendCursor compositing.
-    /// Uses a heap-allocated Vec to avoid stack overflow for the 4KB BGRA payload.
+    /// Upload the cursor sprite to gpud. gpud arms the virtio-gpu hardware
+    /// cursor overlay (64×64 resource on the cursor queue) and keeps the sprite
+    /// as the software BlendCursor fallback. Blocking: the 5-byte reply reports
+    /// which path is live (`flags == 1` → hardware overlay).
     fn upload_cursor_bitmap_to_gpud(&mut self) {
         if !self.ensure_gpud_client() {
             return;
@@ -1919,31 +2088,102 @@ impl DisplayServerRuntime {
         if bgra_len == 0 || bgra_len > bitmap.len() {
             return;
         }
-        // Frame: [opcode(1)] + [width(4)] + [height(4)] + [bgra(bgra_len)]
-        let total = 9usize.saturating_add(bgra_len);
+        // Frame: [opcode(1)] + [w(4)] + [h(4)] + [hot_x(4)] + [hot_y(4)] + [bgra]
+        let total = 17usize.saturating_add(bgra_len);
         let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
         frame[0] = GPU_UPLOAD_CURSOR_OP;
         frame[1..5].copy_from_slice(&w.to_le_bytes());
         frame[5..9].copy_from_slice(&h.to_le_bytes());
-        frame[9..total].copy_from_slice(&bitmap[..bgra_len]);
-        self.send_gpud_fire_forget(&frame);
-        let _ = debug_println("windowd: cursor bitmap uploaded");
+        frame[9..13].copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_X.max(0) as u32).to_le_bytes());
+        frame[13..17]
+            .copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_Y.max(0) as u32).to_le_bytes());
+        frame[17..total].copy_from_slice(&bitmap[..bgra_len]);
+        // Blocking round-trip. The upload reply is magic-tagged (0xC0DE_000x);
+        // any other reply seen while waiting is an in-flight present ack (e.g.
+        // the handoff present) and is accounted as such instead of being
+        // mistaken for the cursor reply.
+        self.drain_gpud_replies();
+        let Some(client) = self.gpud_client.as_ref() else {
+            return;
+        };
+        if client.send(&frame, Wait::Blocking).is_err() {
+            return;
+        }
+        const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
+        const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
+        let mut cursor_flags: Option<u32> = None;
+        let mut present_acks_seen = 0u32;
+        let mut reply = [0u8; 8];
+        for _ in 0..4 {
+            match client.recv_into(Wait::Blocking, &mut reply) {
+                Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => {
+                    let payload = if n >= 5 {
+                        u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]])
+                    } else {
+                        0
+                    };
+                    if payload == CURSOR_REPLY_HW || payload == CURSOR_REPLY_SW {
+                        cursor_flags = Some(payload);
+                        break;
+                    }
+                    if n >= 5 {
+                        present_acks_seen += 1;
+                    }
+                }
+                _ => break,
+            }
+        }
+        for _ in 0..present_acks_seen {
+            self.note_present_completed();
+        }
+        match cursor_flags {
+            Some(flags) => {
+                let hw = flags == CURSOR_REPLY_HW;
+                self.hw_cursor_active = hw;
+                let _ = debug_println(if hw {
+                    "windowd: hw cursor on"
+                } else {
+                    "windowd: cursor bitmap uploaded (sw)"
+                });
+                if hw {
+                    // Place the overlay at the current pointer position.
+                    self.send_cursor_move_to_gpud();
+                    // The first present blended the software cursor into the
+                    // display plane before the overlay was armed — restore that
+                    // region from Plane 1 once so the baked sprite disappears.
+                    let cx = (self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
+                    let cy = (self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
+                    self.queue_gpu_blit_rect(DamageRect {
+                        x: cx,
+                        y: cy,
+                        width: self.cursor_width.max(1),
+                        height: self.cursor_height.max(1),
+                    });
+                }
+            }
+            _ => {
+                let _ = debug_println("windowd: cursor upload failed");
+            }
+        }
     }
 
-    /// Submit GPU cursor composition so cursor stays out of the CPU hot path.
-    fn submit_cursor_to_gpud(&mut self) -> Result<(), WindowdError> {
-        // Phase 6: Hardware cursor — send position via OP_MOVE_CURSOR.
-        // Pointer-accel/pointer-state compute position on CPU (fast path preserved).
-        let x = self.state.cursor_x.max(0) as u32;
-        let y = self.state.cursor_y.max(0) as u32;
-        if x >= self.mode.width || y >= self.mode.height {
-            return Err(WindowdError::InvalidDamage);
-        }
+    /// Hardware-cursor hot path: ship the pointer position to gpud's cursor
+    /// queue. Fire-and-forget — the 1-byte ack is drained asynchronously and
+    /// never touches the present pipeline. No composite, no blit, no present.
+    fn send_cursor_move_to_gpud(&mut self) {
+        let x = self
+            .state
+            .cursor_x
+            .clamp(0, self.mode.width.saturating_sub(1) as i32);
+        let y = self
+            .state
+            .cursor_y
+            .clamp(0, self.mode.height.saturating_sub(1) as i32);
         let mut frame = [0u8; 9];
         frame[0] = GPU_MOVE_CURSOR_OP;
         frame[1..5].copy_from_slice(&x.to_le_bytes());
         frame[5..9].copy_from_slice(&y.to_le_bytes());
-        self.send_gpud_status_request(&frame)
+        let _ = self.send_gpud_fire_forget(&frame);
     }
 
     fn submit_animation_to_gpud(&mut self, updates: &[SceneUpdate]) -> Result<(), WindowdError> {
@@ -2068,7 +2308,7 @@ impl DisplayServerRuntime {
             let _ = debug_println(CURSOR_MOVE_VISIBLE_MARKER);
             self.input_markers_emitted.cursor = true;
         }
-        if self.state.hover_visible && !self.input_markers_emitted.hover {
+        if (self.state.hover_visible || self.button_hover) && !self.input_markers_emitted.hover {
             let _ = debug_println(HOVER_VISIBLE_MARKER);
             self.input_markers_emitted.hover = true;
         }
@@ -2318,38 +2558,50 @@ impl DisplayServerRuntime {
         let chat_visible = &self.chat_visible;
         let chat_scroll_y = self.chat_scroll_y;
         let chat_content_h = self.chat_content_h;
+        // Chat fast path: the chat panel is opaque, so a rect fully inside it
+        // needs no wallpaper copy, no shadow pass and no proof-panel walk —
+        // only the chat row renderer. This is what makes scroll repaints cheap.
+        let chat_only = {
+            use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
+            start_x >= CHAT_PANEL_X
+                && end_x <= CHAT_PANEL_X + CHAT_PANEL_W
+                && start_y >= CHAT_PANEL_Y
+                && end_y <= CHAT_PANEL_Y + CHAT_PANEL_H
+        };
         let mut band_start = start_y;
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let dest_start = row_idx * row_len;
                 let band_row = &mut self.band_scratch[dest_start..dest_start + row_len];
-                copy_scene_row(
-                    blur_row_buf,
-                    shadow_scratch,
-                    backdrop_cache,
-                    glass_layer,
-                    glass_scratch,
-                    path_cache,
-                    source_frame,
-                    source_x_lut,
-                    source_y_lut,
-                    mode,
-                    state,
-                    proof_layout,
-                    proof_layout_index,
-                    filter_text,
-                    filtered_words,
-                    y,
-                    render_clip,
-                    glass_quality,
-                    paint_only,
-                    band_row,
-                    &mut self.layer_cache,
-                    &mut shadow_arena,
-                    &mut self.col_scratch,
-                    &mut self.shadow_box_cache,
-                )?;
+                if !chat_only {
+                    copy_scene_row(
+                        blur_row_buf,
+                        shadow_scratch,
+                        backdrop_cache,
+                        glass_layer,
+                        glass_scratch,
+                        path_cache,
+                        source_frame,
+                        source_x_lut,
+                        source_y_lut,
+                        mode,
+                        state,
+                        proof_layout,
+                        proof_layout_index,
+                        filter_text,
+                        filtered_words,
+                        y,
+                        render_clip,
+                        glass_quality,
+                        paint_only,
+                        band_row,
+                        &mut self.layer_cache,
+                        &mut shadow_arena,
+                        &mut self.col_scratch,
+                        &mut self.shadow_box_cache,
+                    )?;
+                }
                 super::chat::draw_chat_panel_row(
                     y,
                     band_row,
@@ -2506,7 +2758,14 @@ impl DisplayServerRuntime {
         let cursor_h = self.cursor_height;
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
+        let hw_cursor = self.hw_cursor_active;
         let blur_cache_valid = self.sidebar_blur_cache_valid;
+        // Pre-blur pass rides the first handoff present (full-screen damage, so
+        // the display plane holds the complete base scene to blur from).
+        let precache_sidebar_blur =
+            self.precache_blur_pending && !blur_cache_valid && scene.sidebar_opacity <= 0.01;
+        // Consume the pending chat scroll shift; encoded at the head of the CB.
+        let chat_shift = self.chat_shift_pending.take();
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
 
@@ -2521,6 +2780,53 @@ impl DisplayServerRuntime {
                 })
                 .map_err(|_| WindowdError::InvalidDamage)?;
 
+            // 0. Chat scroll-blit (O(Δ) scroll): shift the surviving viewport
+            //    region inside Plane 1 via the Plane 3 bounce scratch (two blits,
+            //    overlap-safe regardless of direction), then drop the CPU-rendered
+            //    exposed strip in. Runs before any Plane 1 → display blit so the
+            //    damage blits below pick up the post-shift content.
+            if let Some(delta) = chat_shift {
+                use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
+                let vp_y = CHAT_PANEL_Y + CHAT_PAD;
+                let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
+                let d = delta.unsigned_abs().min(vp_h);
+                let keep_h = vp_h - d;
+                if keep_h > 0 {
+                    let (src_y, dst_y) = if delta > 0 {
+                        (vp_y + d, vp_y)
+                    } else {
+                        (vp_y, vp_y + d)
+                    };
+                    let _ = encoder.try_blit_absolute(
+                        CHAT_PANEL_X,
+                        RETAINED_ROW_OFFSET + src_y,
+                        CHAT_BOUNCE_SCRATCH_X,
+                        BLUR_CACHE_ROW_OFFSET + src_y,
+                        CHAT_SHIFT_W,
+                        keep_h,
+                    );
+                    let _ = encoder.try_blit_absolute(
+                        CHAT_BOUNCE_SCRATCH_X,
+                        BLUR_CACHE_ROW_OFFSET + src_y,
+                        CHAT_PANEL_X,
+                        RETAINED_ROW_OFFSET + dst_y,
+                        CHAT_SHIFT_W,
+                        keep_h,
+                    );
+                }
+                if d > 0 {
+                    let strip_y = if delta > 0 { vp_y + vp_h - d } else { vp_y };
+                    let _ = encoder.try_blit_absolute(
+                        CHAT_STRIP_SCRATCH_X,
+                        BLUR_CACHE_ROW_OFFSET + strip_y,
+                        CHAT_PANEL_X,
+                        RETAINED_ROW_OFFSET + strip_y,
+                        CHAT_PANEL_W,
+                        d,
+                    );
+                }
+            }
+
             // 1. Blit content damage from retained plane → display plane.
             for rect in rects.iter().copied().take(rect_count) {
                 encoder
@@ -2533,6 +2839,42 @@ impl DisplayServerRuntime {
                         rect.height,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // 1b. Pre-blur the sidebar backdrop at handoff (sidebar closed,
+            //     before any overlay is drawn — the display plane equals the
+            //     clean Plane 1 base here): blur the rest-position strip, save
+            //     it to the Plane 3 cache, restore the unblurred content from
+            //     Plane 1. One-time cost — the first sidebar open (and every
+            //     slide frame) is then a pure cache blit, zero blur work.
+            if precache_sidebar_blur {
+                let sidebar_h = mode
+                    .height
+                    .saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM)
+                    .max(1);
+                let rest = TileRect {
+                    x: SIDEBAR_REST_X,
+                    y: SIDEBAR_MARGIN_TOP,
+                    width: SIDEBAR_WIDTH,
+                    height: sidebar_h,
+                };
+                let _ = encoder.try_blur_backdrop(rest, 20, DARK_GLASS_SATURATION_PERCENT);
+                let _ = encoder.try_blit_absolute(
+                    SIDEBAR_REST_X,
+                    DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                    SIDEBAR_REST_X,
+                    BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                    SIDEBAR_WIDTH,
+                    sidebar_h,
+                );
+                let _ = encoder.try_blit_surface(
+                    SIDEBAR_REST_X,
+                    SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
+                    SIDEBAR_REST_X,
+                    SIDEBAR_MARGIN_TOP,
+                    SIDEBAR_WIDTH,
+                    sidebar_h,
+                );
             }
 
             // 2. Glass button — cached blur, skipped when sidebar covers it.
@@ -2786,11 +3128,12 @@ impl DisplayServerRuntime {
                 }
             }
 
-            // 4. Cursor — composited last, never baked into any plane. On a
-            //    cursor-only move this is the entire frame: a cheap cursor-region
-            //    blit (from the retained Plane 1) + this BlendCursor, no content
-            //    recomposite and no re-blur. That is the GPU pointer hot path.
-            if cursor_w > 0 && cursor_h > 0 {
+            // 4. Cursor — composited last, never baked into any plane. Skipped
+            //    entirely when the hardware cursor overlay is active (the host
+            //    displays and moves the cursor; frames never carry it). In the
+            //    software fallback a cursor-only move is a cheap cursor-region
+            //    blit (from the retained Plane 1) + this BlendCursor.
+            if !hw_cursor && cursor_w > 0 && cursor_h > 0 {
                 let cx = (cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
                 let cy = (cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
                 if cx < mode.width && cy < mode.height {
@@ -2801,6 +3144,10 @@ impl DisplayServerRuntime {
             encoder.end_encoding();
         }
         // Commit cache-build results so subsequent frames use the caches.
+        if precache_sidebar_blur {
+            self.sidebar_blur_cache_valid = true;
+            self.precache_blur_pending = false;
+        }
         if !blur_cache_valid && scene.sidebar_opacity > 0.01 {
             self.sidebar_blur_cache_valid = true;
         }
@@ -2880,12 +3227,16 @@ impl DisplayServerRuntime {
         }
 
         // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
+        let chat_shift_snapshot = self.chat_shift_pending;
         let mut frame_buf = [0u8; 8192];
         let written = self.build_scene_cb_into(&blits, blit_count, &mut frame_buf[1..])?;
         self.tile_map.clear();
         frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
         let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {
+            // The CB (which carried the chat shift) was dropped — re-arm the
+            // shift so the retry applies it.
+            self.chat_shift_pending = chat_shift_snapshot;
             // gpud queue full / backpressured — requeue so the next tick retries.
             for rect in content.iter().copied().take(content_count) {
                 self.queue_dirty_rect(rect);
