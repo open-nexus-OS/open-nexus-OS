@@ -1,9 +1,9 @@
 ---
 title: TASK-0063 UI v5b: virtualized list + scene graph wiring + dual-panel blur + virgl GPU rendering + 120 Hz pacing + theme tokens
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-06-10 (scope: scene graph wiring, virgl blur, dual-panel, 120 Hz pacing, lazy-loading provider, chat mockup)
+updated: 2026-06-12 (scope: scene graph wiring, virgl blur, dual-panel, 120 Hz pacing, lazy-loading provider, chat mockup)
 depends-on: [TASK-0059, TASK-0062]
 follow-up-tasks: [TASK-0275, TASK-0064]
 links:

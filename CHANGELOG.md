@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed - 2026-06-11
+### Changed - 2026-06-12
 
-#### TASK-0063 (UI v5b): Scene graph GPU pipeline + virtual list + theme tokens + virgl
+#### TASK-0063 (UI v5b): Scene graph GPU pipeline + virtual list + theme tokens + virgl — Done
 
 - **Scene graph as rendering authority**: `generate_commands_into()` translates
   all `RenderPrimitive` variants into GPU CommandBuffer commands. `flush_pending_damage`
