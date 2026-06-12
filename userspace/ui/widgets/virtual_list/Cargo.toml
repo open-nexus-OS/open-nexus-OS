@@ -1,0 +1,15 @@
+[package]
+name = "nexus-virtual-list"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_virtual_list"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+
+[dev-dependencies]
+nexus-layout-types = { path = "../../layout-types" }

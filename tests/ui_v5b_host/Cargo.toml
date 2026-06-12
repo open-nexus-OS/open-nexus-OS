@@ -1,0 +1,18 @@
+[package]
+name = "ui_v5b_host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "ui_v5b_host"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../userspace/ui/layout-types" }
+nexus-virtual-list = { path = "../../userspace/ui/widgets/virtual_list" }
+nexus-gfx = { path = "../../userspace/nexus-gfx" }
+nexus-theme = { path = "../../userspace/ui/theme" }
+windowd = { path = "../../source/services/windowd" }
+
+[dev-dependencies]

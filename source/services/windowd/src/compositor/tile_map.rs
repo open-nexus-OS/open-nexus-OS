@@ -18,7 +18,9 @@ pub(crate) struct TileMap {
 
 impl TileMap {
     pub(crate) fn new() -> Self {
-        Self { dirty: [0; TILE_DIRTY_WORDS] }
+        Self {
+            dirty: [0; TILE_DIRTY_WORDS],
+        }
     }
 
     pub(crate) fn tile_index(x: u32, y: u32) -> usize {

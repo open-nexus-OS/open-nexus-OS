@@ -214,6 +214,13 @@ build_qemu_args() {
         exit 1
         ;;
     esac
+  elif [[ "$GPU_MODE" == "virgl" ]]; then
+    # virgl 3D proof: virtio-gpu-gl needs a GL-capable display backend to bring
+    # up virglrenderer on the host, so we use egl-headless (no window, host EGL
+    # context) instead of -nographic. The MMIO `-gl-device` matches gpud's
+    # virtio-mmio transport; gpud must be built with the `virgl` feature.
+    args+=(-display egl-headless -serial mon:stdio)
+    args+=(-device "virtio-gpu-gl-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
   else
     args+=(-nographic -serial mon:stdio)
     if [[ "$GPU_MODE" == "pci" ]]; then

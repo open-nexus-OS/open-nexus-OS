@@ -7,14 +7,58 @@
 //! All UI frontends (native widgets, design kit, interpreter, AOT) target
 //! this single retained scene graph — no alternate rendering vocabulary.
 //!
+//! PRODUCTION INVARIANTS (enforced by tests in this module):
+//! - **Zero per-frame heap allocation**: the OS bump allocator never frees,
+//!   so the frame loop only uses persistent, capacity-retaining buffers
+//!   (`compute_dirty_set_into`, `render_order_into`, internal dirty list and
+//!   text-tile scratch). Allocation happens at mount/insert time only.
+//! - **O(dirty) invalidation**: mutations enqueue nodes in an explicit dirty
+//!   list; `compute_dirty_set_into` touches only dirty nodes + their ancestor
+//!   chains (`last_hash_recomputes` is the observable bound). Clean subtrees
+//!   are never visited or re-hashed.
+//! - **No per-node heap**: children are intrusive sibling links
+//!   (`first_child`/`last_child`/`next_sibling`), preserving insertion order
+//!   (= back-to-front z-order) with O(1) append.
+//! - **Explicit animation targeting**: animation updates address nodes via
+//!   `apply_animation_update_to` with a target resolved by the layer→node
+//!   registry (`SystemUiShell::animation_target`) — id-punning LayerId as
+//!   SceneNodeId is forbidden (it silently animated the root/wallpaper).
+//!
 //! OWNERS: @ui
-//! STATUS: Phase 1 — types + basic graph operations
+//! STATUS: Phase 2 — production-hardened graph core (bump-safe, O(dirty))
 //! API_STABILITY: Contract-locked for TASK-0073 through TASK-0120
-//! TEST_COVERAGE: Host unit tests in this module
+//! TEST_COVERAGE: Host unit tests in this module + tests/ui_v5b_host
 
 use alloc::vec::Vec;
 use animation::{AnimProp, LayerId, SceneUpdate};
+use nexus_gfx::command::buffer::RgbaColor;
+use nexus_gfx::command::render_encoder::RenderCommandEncoder;
+use nexus_gfx::core::error::GfxError;
+use nexus_gfx::core::types::TileRect;
 use nexus_layout_types::{BoxShadow, Rect, Rgba8};
+
+/// Clamp a tile rect to the render extent `(w, h)`.
+///
+/// Returns `None` if the rect starts outside the extent or collapses to zero
+/// area after clamping. The GPU command validator rejects any rect that
+/// overruns the framebuffer, so emitting an unclamped edge-touching rect would
+/// abort the whole frame; clamping preserves the on-screen portion instead.
+fn clamp_tile_to_extent(rect: TileRect, w: u32, h: u32) -> Option<TileRect> {
+    if rect.x >= w || rect.y >= h {
+        return None;
+    }
+    let width = rect.width.min(w - rect.x);
+    let height = rect.height.min(h - rect.y);
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some(TileRect {
+        x: rect.x,
+        y: rect.y,
+        width,
+        height,
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Hash helpers (deterministic, no_std)
@@ -71,7 +115,7 @@ fn fxpx_hash_value(v: nexus_layout_types::FxPx) -> u32 {
 /// Identity survives frame recompositions, layout changes, and tree mutations.
 /// Used for dirty tracking, hit-testing, and animation targeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct SceneNodeId(pub u64);
+pub struct SceneNodeId(pub u64);
 
 impl From<LayerId> for SceneNodeId {
     fn from(lid: LayerId) -> Self {
@@ -94,7 +138,7 @@ impl From<SceneNodeId> for LayerId {
 /// Propagated upward: a `PaintOnly` child makes the parent `PaintOnly`.
 /// A `MeasureAndPlace` child makes the parent `MeasureAndPlace`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum InvalidationClass {
+pub enum InvalidationClass {
     /// Layout changed — recompute measure + place + paint
     MeasureAndPlace,
     /// Position changed — recompute place + paint
@@ -107,7 +151,7 @@ pub(crate) enum InvalidationClass {
 
 impl InvalidationClass {
     /// Merge two invalidation classes: take the more severe.
-    pub(crate) fn merge(self, other: Self) -> Self {
+    pub fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::MeasureAndPlace, _) | (_, Self::MeasureAndPlace) => Self::MeasureAndPlace,
             (Self::PlaceOnly, _) | (_, Self::PlaceOnly) => Self::PlaceOnly,
@@ -127,13 +171,30 @@ impl InvalidationClass {
 /// target these primitives. No alternate rendering vocabulary is allowed.
 /// The render backend (gpud) maps each primitive to GPU commands.
 #[derive(Debug, Clone)]
-pub(crate) enum RenderPrimitive {
+pub enum RenderPrimitive {
     /// Filled rounded rectangle
-    Rect { width: u32, height: u32, radius: u32, color: Rgba8 },
+    Rect {
+        width: u32,
+        height: u32,
+        radius: u32,
+        color: Rgba8,
+    },
     /// Stroked rounded rectangle border
-    StrokeRect { width: u32, height: u32, radius: u32, stroke_width: u32, color: Rgba8 },
+    StrokeRect {
+        width: u32,
+        height: u32,
+        radius: u32,
+        stroke_width: u32,
+        color: Rgba8,
+    },
     /// Blit from a retained surface (atlas tile, backdrop snapshot, glyph cache)
-    Surface { surface_handle: u32, src_x: u32, src_y: u32, width: u32, height: u32 },
+    Surface {
+        surface_handle: u32,
+        src_x: u32,
+        src_y: u32,
+        width: u32,
+        height: u32,
+    },
     /// Bitmap text run (pre-shaped, pre-rasterized — text shaping is upstream)
     Text {
         /// Content string (borrowed from static assets or entry pool)
@@ -143,7 +204,10 @@ pub(crate) enum RenderPrimitive {
     },
     /// Backdrop blur filter — samples from a retained backdrop snapshot,
     /// not from live scanout memory
-    BackdropFilter { blur_radius: u32, saturation_percent: u32 },
+    BackdropFilter {
+        blur_radius: u32,
+        saturation_percent: u32,
+    },
     /// Group container — children rendered into this group with optional shadow
     Group { shadow: Option<BoxShadow> },
     /// Hardware or composited cursor
@@ -168,32 +232,56 @@ impl RenderPrimitive {
     fn hash(&self, seed: u64) -> u64 {
         let h = hash_u64(seed, self.tag());
         match self {
-            Self::Rect { width, height, radius, color } => {
+            Self::Rect {
+                width,
+                height,
+                radius,
+                color,
+            } => {
                 let h = hash_u32(h, *width);
                 let h = hash_u32(h, *height);
                 let h = hash_u32(h, *radius);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::StrokeRect { width, height, radius, stroke_width, color } => {
+            Self::StrokeRect {
+                width,
+                height,
+                radius,
+                stroke_width,
+                color,
+            } => {
                 let h = hash_u32(h, *width);
                 let h = hash_u32(h, *height);
                 let h = hash_u32(h, *radius);
                 let h = hash_u32(h, *stroke_width);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::Surface { surface_handle, src_x, src_y, width, height } => {
+            Self::Surface {
+                surface_handle,
+                src_x,
+                src_y,
+                width,
+                height,
+            } => {
                 let h = hash_u32(h, *surface_handle);
                 let h = hash_u32(h, *src_x);
                 let h = hash_u32(h, *src_y);
                 let h = hash_u32(h, *width);
                 hash_u32(h, *height)
             }
-            Self::Text { content, font_scale, color } => {
+            Self::Text {
+                content,
+                font_scale,
+                color,
+            } => {
                 let h = hash_u8s(h, content.as_bytes());
                 let h = hash_u32(h, *font_scale);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::BackdropFilter { blur_radius, saturation_percent } => {
+            Self::BackdropFilter {
+                blur_radius,
+                saturation_percent,
+            } => {
                 let h = hash_u32(h, *blur_radius);
                 hash_u32(h, *saturation_percent)
             }
@@ -207,7 +295,10 @@ impl RenderPrimitive {
                     h
                 }
             }
-            Self::Cursor { hotspot_x, hotspot_y } => {
+            Self::Cursor {
+                hotspot_x,
+                hotspot_y,
+            } => {
                 let h = hash_i32(h, *hotspot_x);
                 hash_i32(h, *hotspot_y)
             }
@@ -219,17 +310,29 @@ impl RenderPrimitive {
 // Scene node
 // ---------------------------------------------------------------------------
 
+/// Sentinel id meaning "no node" in the intrusive sibling links (slot 0 is
+/// reserved, so id 0 can never name a live node).
+const NIL: SceneNodeId = SceneNodeId(0);
+
 /// A node in the retained scene graph.
 ///
 /// Each node has a stable `id`, a position, visual properties, an optional
 /// render primitive, and child nodes. The `subtree_hash` enables O(1) dirty
 /// detection: if a node's hash matches the previous frame, the entire subtree
 /// can be skipped.
+///
+/// Children are stored as **intrusive sibling links** (`first_child` /
+/// `last_child` / `next_sibling`, sentinel = id 0) instead of a per-node
+/// `Vec`: under the OS bump allocator (which never frees) a `Vec` per node
+/// both leaks on growth and costs one heap allocation per node. The links
+/// preserve insertion order (= back-to-front z-order) with O(1) append.
 #[derive(Debug, Clone)]
-pub(crate) struct SceneNode {
+pub struct SceneNode {
     pub id: SceneNodeId,
     pub parent: Option<SceneNodeId>,
-    pub children: Vec<SceneNodeId>,
+    first_child: SceneNodeId,
+    last_child: SceneNodeId,
+    next_sibling: SceneNodeId,
 
     // Spatial properties
     pub x: i32,
@@ -244,14 +347,18 @@ pub(crate) struct SceneNode {
     // Derived state
     pub subtree_hash: u64,
     pub invalidation: InvalidationClass,
+    /// True while the node sits in the graph's dirty list (dedup flag).
+    in_dirty_list: bool,
 }
 
 impl SceneNode {
-    pub(crate) fn new(id: SceneNodeId) -> Self {
+    pub fn new(id: SceneNodeId) -> Self {
         Self {
             id,
             parent: None,
-            children: Vec::new(),
+            first_child: NIL,
+            last_child: NIL,
+            next_sibling: NIL,
             x: 0,
             y: 0,
             visible: true,
@@ -260,6 +367,7 @@ impl SceneNode {
             primitive: None,
             subtree_hash: 0,
             invalidation: InvalidationClass::MeasureAndPlace,
+            in_dirty_list: false,
         }
     }
 
@@ -296,25 +404,49 @@ impl SceneNode {
 /// Roots are the top-level nodes (mounted shells, launcher panels,
 /// overlays). The graph is retained across frames; only dirty nodes
 /// are recomposed.
-pub(crate) struct SceneGraph {
+pub struct SceneGraph {
     nodes: Vec<Option<SceneNode>>,
     roots: Vec<SceneNodeId>,
     next_id: u64,
+    /// Nodes currently marked dirty (deduped via `SceneNode::in_dirty_list`).
+    /// Persistent across frames: `Vec::clear` keeps capacity, so steady-state
+    /// frames mark/compute/clean without any heap allocation — mandatory under
+    /// the OS bump allocator, which never frees.
+    dirty_list: Vec<SceneNodeId>,
+    /// Scratch for bitmap-text tile emission in `generate_commands_into`
+    /// (reused every frame for the same reason).
+    text_tiles: Vec<TileRect>,
+    /// Diagnostic: how many subtree hashes the last `compute_dirty_set_into`
+    /// recomputed. An O(dirty) invariant check — a single-leaf change must
+    /// recompute ~depth hashes, not the whole graph.
+    hash_recomputes: u32,
 }
 
 impl SceneGraph {
     /// Maximum nodes in the graph (bounds Vec growth).
-    const MAX_NODES: usize = 256;
+    /// Raised to 2048 for virtual list + chat mockup (TASK-0063 Phase 1).
+    /// Decision: if bump-allocator pressure on OS is too high, reduce to 1024.
+    const MAX_NODES: usize = 2048;
+    /// Bound on upward-propagation / hash-fixpoint passes — a sanity guard far
+    /// above any real tree depth (shell tree is 4 levels deep).
+    const MAX_DEPTH: usize = 16;
 
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         // Slot 0 is reserved (invalid/unset).
         let mut nodes = Vec::with_capacity(Self::MAX_NODES);
         nodes.push(None);
-        Self { nodes, roots: Vec::new(), next_id: 1 }
+        Self {
+            nodes,
+            roots: Vec::new(),
+            next_id: 1,
+            dirty_list: Vec::with_capacity(256),
+            text_tiles: Vec::with_capacity(256),
+            hash_recomputes: 0,
+        }
     }
 
     /// Allocate a new node id. Does not insert anything.
-    pub(crate) fn next_id(&mut self) -> SceneNodeId {
+    pub fn next_id(&mut self) -> SceneNodeId {
         let id = SceneNodeId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
         id
@@ -323,75 +455,183 @@ impl SceneGraph {
     /// Insert a node into the graph. Returns its id.
     ///
     /// Panics (in debug) if the id is already in use or exceeds MAX_NODES.
-    pub(crate) fn insert(&mut self, mut node: SceneNode) -> SceneNodeId {
+    pub fn insert(&mut self, mut node: SceneNode) -> SceneNodeId {
         let idx = node.id.0 as usize;
-        debug_assert!(idx < Self::MAX_NODES, "SceneGraph: node id exceeds MAX_NODES");
+        debug_assert!(
+            idx < Self::MAX_NODES,
+            "SceneGraph: node id exceeds MAX_NODES"
+        );
         debug_assert!(node.id.0 > 0, "SceneGraph: node id 0 is reserved");
 
         // Grow Vec if needed
         while self.nodes.len() <= idx {
             self.nodes.push(None);
         }
-        debug_assert!(self.nodes[idx].is_none(), "SceneGraph: duplicate node id {}", node.id.0);
+        debug_assert!(
+            self.nodes[idx].is_none(),
+            "SceneGraph: duplicate node id {}",
+            node.id.0
+        );
 
         // If no parent, add to roots
         if node.parent.is_none() {
             self.roots.push(node.id);
         }
 
-        // Update parent's children list
+        // Append to the parent's sibling chain (O(1) via last_child;
+        // insertion order = back-to-front z-order).
         if let Some(parent_id) = node.parent {
+            let prev_last = match self.find(parent_id) {
+                Some(parent) => parent.last_child,
+                None => NIL,
+            };
             if let Some(parent) = self.find_mut(parent_id) {
-                parent.children.push(node.id);
+                if parent.first_child == NIL {
+                    parent.first_child = node.id;
+                }
+                parent.last_child = node.id;
             }
-        }
-
-        let id = node.id;
-        node.invalidation = InvalidationClass::MeasureAndPlace; // new nodes are dirty
-        self.nodes[idx] = Some(node);
-        id
-    }
-
-    /// Remove a node and all its descendants from the graph.
-    pub(crate) fn remove(&mut self, id: SceneNodeId) {
-        let idx = id.0 as usize;
-        if idx >= self.nodes.len() {
-            return;
-        }
-
-        // Recursively remove children first
-        let children: Vec<SceneNodeId> =
-            self.nodes[idx].as_ref().map(|n| n.children.clone()).unwrap_or_default();
-        for child_id in children {
-            self.remove(child_id);
-        }
-
-        // Remove from parent's children list
-        if let Some(node) = self.nodes[idx].as_ref() {
-            if let Some(parent_id) = node.parent {
-                if let Some(parent) = self.find_mut(parent_id) {
-                    parent.children.retain(|c| *c != id);
+            if prev_last != NIL {
+                if let Some(prev) = self.find_mut(prev_last) {
+                    prev.next_sibling = node.id;
                 }
             }
         }
 
-        // Remove from roots if present
-        self.roots.retain(|r| *r != id);
+        let id = node.id;
+        node.first_child = NIL;
+        node.last_child = NIL;
+        node.next_sibling = NIL;
+        node.invalidation = InvalidationClass::MeasureAndPlace; // new nodes are dirty
+        node.in_dirty_list = true;
+        self.nodes[idx] = Some(node);
+        self.dirty_list.push(id);
+        id
+    }
 
-        // Clear the slot
+    /// Remove a node and all its descendants from the graph.
+    pub fn remove(&mut self, id: SceneNodeId) {
+        let idx = id.0 as usize;
+        if idx >= self.nodes.len() || self.nodes[idx].is_none() {
+            return;
+        }
+
+        // Unlink from the parent's sibling chain first (descendants keep their
+        // links to each other; they are dropped wholesale below).
+        let (parent, _first_child) = match self.nodes[idx].as_ref() {
+            Some(n) => (n.parent, n.first_child),
+            None => return,
+        };
+        if let Some(parent_id) = parent {
+            self.unlink_child(parent_id, id);
+            // Structural change: re-render the parent subtree.
+            self.mark_dirty(parent_id, InvalidationClass::MeasureAndPlace);
+        } else {
+            self.roots.retain(|r| *r != id);
+        }
+
+        // Drop the subtree depth-first via the sibling links (recursion depth
+        // = tree depth, bounded and shallow; no per-node allocation).
+        self.drop_subtree(id);
+    }
+
+    fn drop_subtree(&mut self, id: SceneNodeId) {
+        let idx = id.0 as usize;
+        let first = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+            Some(n) => n.first_child,
+            None => return,
+        };
+        let mut child = first;
+        while child != NIL {
+            let next = self
+                .nodes
+                .get(child.0 as usize)
+                .and_then(|n| n.as_ref())
+                .map(|n| n.next_sibling)
+                .unwrap_or(NIL);
+            self.drop_subtree(child);
+            child = next;
+        }
         self.nodes[idx] = None;
     }
 
+    /// Remove `child` from `parent_id`'s sibling chain (order-preserving).
+    fn unlink_child(&mut self, parent_id: SceneNodeId, child: SceneNodeId) {
+        let first = match self.find(parent_id) {
+            Some(p) => p.first_child,
+            None => return,
+        };
+        if first == child {
+            let next = self.find(child).map(|n| n.next_sibling).unwrap_or(NIL);
+            if let Some(p) = self.find_mut(parent_id) {
+                p.first_child = next;
+                if p.last_child == child {
+                    p.last_child = NIL;
+                }
+            }
+            return;
+        }
+        // Walk the chain to find the predecessor.
+        let mut prev = first;
+        while prev != NIL {
+            let next = self.find(prev).map(|n| n.next_sibling).unwrap_or(NIL);
+            if next == child {
+                let after = self.find(child).map(|n| n.next_sibling).unwrap_or(NIL);
+                if let Some(p) = self.find_mut(prev) {
+                    p.next_sibling = after;
+                }
+                if let Some(p) = self.find_mut(parent_id) {
+                    if p.last_child == child {
+                        p.last_child = prev;
+                    }
+                }
+                return;
+            }
+            prev = next;
+        }
+    }
+
     /// Find a node by id (immutable).
-    pub(crate) fn find(&self, id: SceneNodeId) -> Option<&SceneNode> {
+    pub fn find(&self, id: SceneNodeId) -> Option<&SceneNode> {
         let idx = id.0 as usize;
         self.nodes.get(idx).and_then(|n| n.as_ref())
     }
 
     /// Find a node by id (mutable).
-    pub(crate) fn find_mut(&mut self, id: SceneNodeId) -> Option<&mut SceneNode> {
+    pub fn find_mut(&mut self, id: SceneNodeId) -> Option<&mut SceneNode> {
         let idx = id.0 as usize;
         self.nodes.get_mut(idx).and_then(|n| n.as_mut())
+    }
+
+    /// Iterate a node's children in insertion (z) order — allocation-free.
+    pub fn children(&self, id: SceneNodeId) -> ChildIter<'_> {
+        let first = self.find(id).map(|n| n.first_child).unwrap_or(NIL);
+        ChildIter {
+            graph: self,
+            next: first,
+        }
+    }
+
+    /// Number of children of `id` (O(children), allocation-free).
+    pub fn child_count(&self, id: SceneNodeId) -> usize {
+        self.children(id).count()
+    }
+
+    /// Centralized dirty marking: merges the invalidation class and enqueues
+    /// the node in the dirty list exactly once. Every mutating API routes
+    /// through here so the dirty list is the single source of "what changed".
+    fn mark_dirty(&mut self, id: SceneNodeId, class: InvalidationClass) {
+        let mut enqueue = false;
+        if let Some(node) = self.find_mut(id) {
+            node.invalidation = node.invalidation.merge(class);
+            if !node.in_dirty_list {
+                node.in_dirty_list = true;
+                enqueue = true;
+            }
+        }
+        if enqueue {
+            self.dirty_list.push(id);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -399,36 +639,37 @@ impl SceneGraph {
     // ------------------------------------------------------------------
 
     /// Set node position. Marks `PlaceOnly` (or keeps more severe).
-    pub(crate) fn set_position(&mut self, id: SceneNodeId, x: i32, y: i32) {
+    pub fn set_position(&mut self, id: SceneNodeId, x: i32, y: i32) {
         if let Some(node) = self.find_mut(id) {
             node.x = x;
             node.y = y;
-            node.invalidation = node.invalidation.merge(InvalidationClass::PlaceOnly);
         }
+        self.mark_dirty(id, InvalidationClass::PlaceOnly);
     }
 
     /// Set node opacity. Marks `PaintOnly`.
-    pub(crate) fn set_opacity(&mut self, id: SceneNodeId, opacity: f32) {
+    pub fn set_opacity(&mut self, id: SceneNodeId, opacity: f32) {
         if let Some(node) = self.find_mut(id) {
             node.opacity = opacity;
-            node.invalidation = node.invalidation.merge(InvalidationClass::PaintOnly);
         }
+        self.mark_dirty(id, InvalidationClass::PaintOnly);
     }
 
     /// Replace the node's render primitive. Marks `PaintOnly`.
-    pub(crate) fn set_primitive(&mut self, id: SceneNodeId, prim: RenderPrimitive) {
+    pub fn set_primitive(&mut self, id: SceneNodeId, prim: RenderPrimitive) {
         if let Some(node) = self.find_mut(id) {
             node.primitive = Some(prim);
-            node.invalidation = node.invalidation.merge(InvalidationClass::PaintOnly);
         }
+        self.mark_dirty(id, InvalidationClass::PaintOnly);
     }
 
-    /// Apply an animation `SceneUpdate` to the graph.
+    /// Apply an animation `SceneUpdate` to an **explicit** target node.
     ///
-    /// Translates `AnimProp` variants to the appropriate node property changes
-    /// and invalidation classes.
-    pub(crate) fn apply_animation_update(&mut self, update: SceneUpdate) {
-        let id = SceneNodeId::from(update.layer_id);
+    /// The target must be resolved by the owner of the layer→node mapping
+    /// (`SystemUiShell::animation_target`). The historical id-punning
+    /// `SceneNodeId::from(LayerId)` silently hit unrelated nodes (LayerId(1)
+    /// was the root, LayerId(62) did not exist) — do not reintroduce it.
+    pub fn apply_animation_update_to(&mut self, id: SceneNodeId, update: SceneUpdate) {
         match update.property {
             AnimProp::Opacity => {
                 self.set_opacity(id, update.value);
@@ -436,20 +677,18 @@ impl SceneGraph {
             AnimProp::TranslateX => {
                 if let Some(node) = self.find_mut(id) {
                     node.x = update.value as i32;
-                    node.invalidation = node.invalidation.merge(InvalidationClass::PlaceOnly);
                 }
+                self.mark_dirty(id, InvalidationClass::PlaceOnly);
             }
             AnimProp::TranslateY => {
                 if let Some(node) = self.find_mut(id) {
                     node.y = update.value as i32;
-                    node.invalidation = node.invalidation.merge(InvalidationClass::PlaceOnly);
                 }
+                self.mark_dirty(id, InvalidationClass::PlaceOnly);
             }
             // ScaleX/Y, ShadowRadius, BlurRadius — deferred to future passes.
             _ => {
-                if let Some(node) = self.find_mut(id) {
-                    node.invalidation = node.invalidation.merge(InvalidationClass::PaintOnly);
-                }
+                self.mark_dirty(id, InvalidationClass::PaintOnly);
             }
         }
     }
@@ -458,105 +697,521 @@ impl SceneGraph {
     // Dirty set computation
     // ------------------------------------------------------------------
 
-    /// Compute subtree hashes and propagate invalidation upward.
+    /// Compute the dirty set — O(dirty), allocation-free in steady state.
     ///
-    /// Returns the set of dirty node ids (nodes whose `invalidation != Clean`
-    /// after propagation). Callers should regenerate commands for these nodes.
+    /// Only nodes that were explicitly mutated since the last
+    /// `mark_all_clean` (tracked in the internal dirty list) and their
+    /// ancestor chains are touched; clean subtrees are never visited or
+    /// re-hashed. The result (dirty nodes + their ancestors, i.e. every node
+    /// whose `invalidation != Clean` after upward propagation) is written
+    /// into `out`, which callers keep alive across frames so its capacity is
+    /// reused (`Vec::clear` retains the allocation).
     ///
     /// Algorithm:
-    /// 1. Bottom-up: for each dirty node, recompute `subtree_hash` from
-    ///    `local_hash()` + children's `subtree_hash` values.
-    /// 2. Propagate: if a child is dirty (!= Clean), mark the parent at least
-    ///    as dirty as the child's class.
-    /// 3. Top-down: any parent that was propagated into also propagates to
-    ///    siblings (a dirty parent means all children may need recomposition).
-    /// 4. Collect all nodes with `invalidation != Clean`.
-    pub(crate) fn compute_dirty_set(&mut self) -> Vec<SceneNodeId> {
-        // Phase 1: bottom-up hash + invalidation propagation.
-        // Avoid borrow conflicts by collecting child data first, then applying.
-        let mut changed = true;
-        while changed {
-            changed = false;
+    /// 1. Upward propagation: each dirty node merges its invalidation class
+    ///    into its ancestors; newly-dirtied ancestors join the dirty list.
+    /// 2. Hash refresh: bounded fixpoint over the dirty list recomputing
+    ///    `subtree_hash` (= local hash ⊕ children hashes) until stable —
+    ///    converges in ≤ tree-depth passes; only listed nodes are hashed.
+    pub fn compute_dirty_set_into(&mut self, out: &mut Vec<SceneNodeId>) {
+        out.clear();
+        self.hash_recomputes = 0;
+        if self.dirty_list.is_empty() {
+            return;
+        }
 
-            // Collect updates: (node_id, new_hash, merged_invalidation)
-            let mut updates: alloc::vec::Vec<(SceneNodeId, u64, InvalidationClass)> =
-                alloc::vec::Vec::new();
-
-            for idx in 1..self.nodes.len() {
-                let node = match self.nodes[idx].as_ref() {
-                    Some(n) => n,
-                    None => continue,
+        // Phase 1: propagate invalidation to ancestors. Index loop because the
+        // list grows while iterating (newly-dirtied ancestors are appended).
+        let mut i = 0;
+        while i < self.dirty_list.len() {
+            let id = self.dirty_list[i];
+            i += 1;
+            let (mut parent, class) = match self.find(id) {
+                Some(n) => (n.parent, n.invalidation),
+                None => continue, // removed after being marked
+            };
+            let mut hops = 0;
+            while let Some(pid) = parent {
+                if hops >= Self::MAX_DEPTH {
+                    break;
+                }
+                hops += 1;
+                let next = match self.find(pid) {
+                    Some(p) => p.parent,
+                    None => break,
                 };
-                if node.invalidation == InvalidationClass::Clean {
-                    continue;
-                }
-
-                // Compute new hash from local + children (use raw lookups)
-                let mut hash = node.local_hash();
-                for &child_id in &node.children {
-                    let cidx = child_id.0 as usize;
-                    if let Some(Some(child)) = self.nodes.get(cidx) {
-                        hash = hash_u64(hash, child.subtree_hash);
-                    }
-                }
-
-                // Propagate child dirtiness
-                let mut merged = node.invalidation;
-                for &child_id in &node.children {
-                    let cidx = child_id.0 as usize;
-                    if let Some(Some(child)) = self.nodes.get(cidx) {
-                        if child.invalidation != InvalidationClass::Clean {
-                            merged = merged.merge(child.invalidation);
-                        }
-                    }
-                }
-
-                if hash != node.subtree_hash || merged != node.invalidation {
-                    updates.push((node.id, hash, merged));
-                }
+                self.mark_dirty(pid, class);
+                parent = next;
             }
+        }
 
-            // Apply updates and propagate to parents
-            for (id, hash, inval) in &updates {
-                if let Some(node) = self.find_mut(*id) {
-                    node.subtree_hash = *hash;
-                    node.invalidation = *inval;
-                    // Mark parent as at least this dirty for the next iteration
-                    if let Some(parent_id) = node.parent {
-                        if let Some(parent) = self.find_mut(parent_id) {
-                            let new_inval = parent.invalidation.merge(*inval);
-                            if new_inval != parent.invalidation {
-                                parent.invalidation = new_inval;
+        // Phase 2: refresh subtree hashes bottom-up. A pass recomputes every
+        // listed node's hash from its children's current hashes; after at most
+        // tree-depth passes the values are stable.
+        for _ in 0..Self::MAX_DEPTH {
+            let mut changed = false;
+            for i in 0..self.dirty_list.len() {
+                let id = self.dirty_list[i];
+                let idx = id.0 as usize;
+                let (new_hash, old_hash) = {
+                    let node = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    let mut hash = node.local_hash();
+                    let mut child = node.first_child;
+                    while child != NIL {
+                        let cidx = child.0 as usize;
+                        match self.nodes.get(cidx).and_then(|n| n.as_ref()) {
+                            Some(c) => {
+                                hash = hash_u64(hash, c.subtree_hash);
+                                child = c.next_sibling;
                             }
+                            None => break,
                         }
+                    }
+                    (hash, node.subtree_hash)
+                };
+                self.hash_recomputes = self.hash_recomputes.saturating_add(1);
+                if new_hash != old_hash {
+                    if let Some(node) = self.nodes[idx].as_mut() {
+                        node.subtree_hash = new_hash;
                     }
                     changed = true;
                 }
             }
-        }
-
-        // Phase 2: collect dirty nodes
-        let mut dirty = Vec::new();
-        for idx in 1..self.nodes.len() {
-            if let Some(node) = self.nodes[idx].as_ref() {
-                if node.invalidation != InvalidationClass::Clean {
-                    dirty.push(node.id);
-                }
+            if !changed {
+                break;
             }
         }
-        dirty
+
+        // Phase 3: emit the dirty set (skip ids removed in the meantime).
+        for &id in &self.dirty_list {
+            if self.find(id).is_some() {
+                out.push(id);
+            }
+        }
     }
 
-    /// Mark all nodes clean (call after frame submission).
-    pub(crate) fn mark_all_clean(&mut self) {
-        for node in self.nodes.iter_mut().flatten() {
-            node.invalidation = InvalidationClass::Clean;
+    /// Test/diagnostic convenience — allocating variant of
+    /// `compute_dirty_set_into`. Production frame paths must use the `_into`
+    /// form with a persistent buffer (bump allocator: per-frame allocs leak).
+    pub fn compute_dirty_set(&mut self) -> Vec<SceneNodeId> {
+        let mut out = Vec::new();
+        self.compute_dirty_set_into(&mut out);
+        out
+    }
+
+    /// Diagnostic: subtree hashes recomputed by the last dirty-set pass.
+    pub fn last_hash_recomputes(&self) -> u32 {
+        self.hash_recomputes
+    }
+
+    /// Mark all nodes clean (call after frame submission). O(dirty): only the
+    /// nodes in the dirty list can be non-Clean, so only they are visited.
+    pub fn mark_all_clean(&mut self) {
+        for i in 0..self.dirty_list.len() {
+            let id = self.dirty_list[i];
+            if let Some(node) = self.find_mut(id) {
+                node.invalidation = InvalidationClass::Clean;
+                node.in_dirty_list = false;
+            }
         }
+        self.dirty_list.clear();
     }
 
     /// Number of live nodes.
-    pub(crate) fn node_count(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.is_some()).count()
+    }
+
+    /// All live node ids in ascending-index (= insertion = back-to-front z)
+    /// order, for a complete frame repaint — written into a caller-persistent
+    /// buffer (allocation-free in steady state).
+    pub fn render_order_into(&self, out: &mut Vec<SceneNodeId>) {
+        out.clear();
+        for (idx, slot) in self.nodes.iter().enumerate() {
+            if slot.is_some() {
+                out.push(SceneNodeId(idx as u64));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Batch operations + recycling (virtual list / large collections)
+    // ------------------------------------------------------------------
+
+    /// Insert multiple nodes at once, allocating ids sequentially.
+    /// Returns the list of assigned ids in insertion order.
+    pub fn batch_insert(&mut self, nodes: Vec<SceneNode>) -> Vec<SceneNodeId> {
+        let mut ids = Vec::with_capacity(nodes.len());
+        for mut node in nodes {
+            node.id = self.next_id();
+            ids.push(node.id);
+            self.insert(node);
+        }
+        ids
+    }
+
+    /// Reset a recycled node for reuse with a new primitive and position.
+    /// Marks `MeasureAndPlace` so the node is fully re-rendered next frame.
+    pub fn recycle_node(&mut self, id: SceneNodeId, prim: RenderPrimitive, x: i32, y: i32) {
+        if let Some(node) = self.find_mut(id) {
+            node.x = x;
+            node.y = y;
+            node.visible = true;
+            node.opacity = 1.0;
+            node.primitive = Some(prim);
+            node.first_child = NIL;
+            node.last_child = NIL;
+            node.subtree_hash = 0;
+        }
+        self.mark_dirty(id, InvalidationClass::MeasureAndPlace);
+    }
+
+    /// Update only the text content on a recycled node (avoid full reset).
+    /// Marks `PaintOnly`.
+    pub fn set_text_content(&mut self, id: SceneNodeId, content: &'static str, color: Rgba8) {
+        if let Some(node) = self.find_mut(id) {
+            node.primitive = Some(RenderPrimitive::Text {
+                content,
+                font_scale: 2,
+                color,
+            });
+        }
+        self.mark_dirty(id, InvalidationClass::PaintOnly);
+    }
+
+    /// Update only the rect dimensions/color on a recycled node.
+    /// Marks `PaintOnly`.
+    pub fn set_rect(
+        &mut self,
+        id: SceneNodeId,
+        width: u32,
+        height: u32,
+        radius: u32,
+        color: Rgba8,
+    ) {
+        if let Some(node) = self.find_mut(id) {
+            node.primitive = Some(RenderPrimitive::Rect {
+                width,
+                height,
+                radius,
+                color,
+            });
+        }
+        self.mark_dirty(id, InvalidationClass::PaintOnly);
+    }
+
+    /// Return all currently unused node slots (previously removed nodes).
+    /// These slots can be reused by recycling callers without growing the arena.
+    pub fn free_slots(&self) -> Vec<SceneNodeId> {
+        let mut free = Vec::new();
+        for (idx, slot) in self.nodes.iter().enumerate().skip(1) {
+            if slot.is_none() {
+                free.push(SceneNodeId(idx as u64));
+            }
+        }
+        free
+    }
+
+    // ------------------------------------------------------------------
+    // GPU command generation — the single rendering authority
+    // ------------------------------------------------------------------
+
+    /// Generate GPU rendering commands for the given dirty nodes into an
+    /// open render-pass encoder. Walks nodes in dirty-set order.
+    ///
+    /// The caller is responsible for:
+    /// - Opening/closing the render pass on the `CommandBuffer`.
+    /// - Adding wallpaper and any ambient rendering before/after this call.
+    /// - Calling `mark_all_clean()` after a successful frame submission.
+    ///
+    /// Returns the number of commands emitted (0 = nothing changed).
+    pub fn generate_commands_into(
+        &mut self,
+        dirty_set: &[SceneNodeId],
+        extent_w: u32,
+        extent_h: u32,
+        encoder: &mut RenderCommandEncoder<'_>,
+    ) -> Result<usize, GfxError> {
+        // Take the text-tile scratch out of `self` so node borrows and the
+        // scratch coexist; always restored (capacity is reused every frame).
+        let mut tiles_scratch = core::mem::take(&mut self.text_tiles);
+        let mut count: usize = 0;
+        let mut result: Result<(), GfxError> = Ok(());
+        for &id in dirty_set {
+            let idx = id.0 as usize;
+            let node = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if !node.visible {
+                continue;
+            }
+            if let Some(ref prim) = node.primitive {
+                match Self::emit_primitive(
+                    node,
+                    prim,
+                    extent_w,
+                    extent_h,
+                    encoder,
+                    &mut tiles_scratch,
+                ) {
+                    Ok(n) => count += n,
+                    Err(e) => {
+                        result = Err(e);
+                        break;
+                    }
+                }
+            }
+        }
+        self.text_tiles = tiles_scratch;
+        result.map(|_| count)
+    }
+
+    /// Emit CB commands for a single `RenderPrimitive` at the node's position.
+    ///
+    /// All tile rects are clamped to `(extent_w, extent_h)`: the GPU render
+    /// extent rejects any rect that overruns the framebuffer (and a single
+    /// rejection would abort the entire frame), but an edge-touching panel
+    /// shadow/blur legitimately extends to the screen border. Clamping keeps
+    /// the visible portion and drops only the off-screen overrun.
+    fn emit_primitive(
+        node: &SceneNode,
+        prim: &RenderPrimitive,
+        extent_w: u32,
+        extent_h: u32,
+        encoder: &mut RenderCommandEncoder<'_>,
+        tiles: &mut Vec<TileRect>,
+    ) -> Result<usize, GfxError> {
+        let x = node.x.max(0) as u32;
+        let y = node.y.max(0) as u32;
+        let clamp = |r: TileRect| clamp_tile_to_extent(r, extent_w, extent_h);
+
+        match prim {
+            RenderPrimitive::Rect {
+                width,
+                height,
+                radius,
+                color,
+            } => {
+                match clamp(TileRect {
+                    x,
+                    y,
+                    width: *width,
+                    height: *height,
+                }) {
+                    Some(r) => {
+                        encoder.try_fill_sdf_rounded_rect(
+                            r,
+                            *radius,
+                            RgbaColor::new(color.r, color.g, color.b, color.a),
+                        )?;
+                        Ok(1)
+                    }
+                    None => Ok(0),
+                }
+            }
+            RenderPrimitive::StrokeRect {
+                width,
+                height,
+                radius,
+                stroke_width,
+                color,
+            } => {
+                // Stroke rendered as filled rect in the border color;
+                // an interior fill covers the center when the caller
+                // emits a second Rect with a smaller radius.
+                let _ = stroke_width;
+                match clamp(TileRect {
+                    x,
+                    y,
+                    width: *width,
+                    height: *height,
+                }) {
+                    Some(r) => {
+                        encoder.try_fill_sdf_rounded_rect(
+                            r,
+                            *radius,
+                            RgbaColor::new(color.r, color.g, color.b, color.a),
+                        )?;
+                        Ok(1)
+                    }
+                    None => Ok(0),
+                }
+            }
+            RenderPrimitive::Surface {
+                surface_handle: _,
+                src_x,
+                src_y,
+                width,
+                height,
+            } => {
+                encoder.try_blit_surface(*src_x, *src_y, x, y, *width, *height)?;
+                Ok(1)
+            }
+            RenderPrimitive::Text {
+                content,
+                font_scale,
+                color,
+            } => {
+                // Rasterize the 5x7 bitmap font into solid tiles and emit one
+                // DrawTiles command per run (a single colored fill batch — well
+                // within the per-frame command budget). Text shaping is upstream;
+                // this is the GPU draw of pre-shaped content.
+                const GLYPH_W: u32 = 5;
+                const GLYPH_H: u32 = 7;
+                const MAX_GLYPH_TILES: usize = 1024; // CommandBuffer MAX_TILE_RECTS
+                let scale = (*font_scale).max(1);
+                let advance = (GLYPH_W + 1) * scale;
+                tiles.clear(); // reused scratch — capacity persists across frames
+                let mut pen_x = x;
+                'chars: for ch in content.chars() {
+                    let rows = crate::bitmap_font::bitmap_font_5x7(ch);
+                    for (ry, bits) in rows.iter().enumerate() {
+                        if (ry as u32) >= GLYPH_H {
+                            break;
+                        }
+                        // Coalesce consecutive on-pixels in this row into a single
+                        // wide tile — far fewer commands/bytes than one tile per
+                        // pixel (which can overflow the serialized CB buffer).
+                        let mut cx = 0u32;
+                        while cx < GLYPH_W {
+                            // Leftmost column is the MSB of the 5-bit row.
+                            if (bits >> (GLYPH_W - 1 - cx)) & 1 == 1 {
+                                let run_start = cx;
+                                while cx < GLYPH_W && (bits >> (GLYPH_W - 1 - cx)) & 1 == 1 {
+                                    cx += 1;
+                                }
+                                let tile = TileRect {
+                                    x: pen_x + run_start * scale,
+                                    y: y + ry as u32 * scale,
+                                    width: (cx - run_start) * scale,
+                                    height: scale,
+                                };
+                                if let Some(r) = clamp(tile) {
+                                    tiles.push(r);
+                                    if tiles.len() >= MAX_GLYPH_TILES {
+                                        break 'chars;
+                                    }
+                                }
+                            } else {
+                                cx += 1;
+                            }
+                        }
+                    }
+                    pen_x = pen_x.saturating_add(advance);
+                }
+                if tiles.is_empty() {
+                    return Ok(0);
+                }
+                encoder
+                    .try_draw_tiles(&tiles, RgbaColor::new(color.r, color.g, color.b, color.a))?;
+                Ok(1)
+            }
+            RenderPrimitive::BackdropFilter {
+                blur_radius,
+                saturation_percent,
+            } => {
+                // BackdropFilter applies to the node's clipped region.
+                if let Some(clip) = node.clip {
+                    let cx = clip.x.as_i32().max(0) as u32;
+                    let cy = clip.y.as_i32().max(0) as u32;
+                    let cw = clip.width.as_i32().max(0) as u32;
+                    let ch = clip.height.as_i32().max(0) as u32;
+                    if let Some(r) = clamp(TileRect {
+                        x: cx,
+                        y: cy,
+                        width: cw,
+                        height: ch,
+                    }) {
+                        encoder.try_blur_backdrop(r, *blur_radius, *saturation_percent)?;
+                        return Ok(1);
+                    }
+                }
+                Ok(0)
+            }
+            RenderPrimitive::Group { shadow } => {
+                // Groups are containers — children emit their own commands.
+                // If a shadow is present, emit a blurred offset fill as the shadow.
+                if let Some(s) = shadow {
+                    let sx = (x as i32 + s.offset_x.as_i32()).max(0) as u32;
+                    let sy = (y as i32 + s.offset_y.as_i32()).max(0) as u32;
+                    // Shadow rendered as a filled rect with the shadow color,
+                    // offset and expanded by the blur radius to approximate spread.
+                    let br = s.blur_radius.as_i32().max(0) as u32;
+                    let mut emitted = 0;
+                    if let Some(clip) = node.clip {
+                        let cw = clip.width.as_i32().max(0) as u32;
+                        let ch = clip.height.as_i32().max(0) as u32;
+                        if cw > 0 && ch > 0 && br > 0 {
+                            // Blur the shadow region behind the group.
+                            if let Some(r) = clamp(TileRect {
+                                x: sx.saturating_sub(br),
+                                y: sy.saturating_sub(br),
+                                width: (cw + br * 2).min(8192),
+                                height: (ch + br * 2).min(8192),
+                            }) {
+                                encoder.try_blur_backdrop(r, br, 0)?;
+                                emitted += 1;
+                            }
+                        }
+                        // Fill shadow rect at offset.
+                        if let Some(r) = clamp(TileRect {
+                            x: sx,
+                            y: sy,
+                            width: cw,
+                            height: ch,
+                        }) {
+                            encoder.try_fill_sdf_rounded_rect(
+                                r,
+                                4,
+                                RgbaColor::new(s.color.r, s.color.g, s.color.b, s.color.a),
+                            )?;
+                            emitted += 1;
+                        }
+                    }
+                    Ok(emitted)
+                } else {
+                    Ok(0)
+                }
+            }
+            RenderPrimitive::Cursor {
+                hotspot_x: _,
+                hotspot_y: _,
+            } => {
+                // Cursor blending is handled outside the scene graph
+                // via `shell.update_cursor()` + explicit `BlendCursor`.
+                Ok(0)
+            }
+        }
+    }
+}
+
+impl Default for SceneGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Allocation-free iterator over a node's children (insertion / z order),
+/// following the intrusive sibling links.
+pub struct ChildIter<'a> {
+    graph: &'a SceneGraph,
+    next: SceneNodeId,
+}
+
+impl<'a> Iterator for ChildIter<'a> {
+    type Item = SceneNodeId;
+
+    fn next(&mut self) -> Option<SceneNodeId> {
+        if self.next == NIL {
+            return None;
+        }
+        let id = self.next;
+        self.next = self.graph.find(id).map(|n| n.next_sibling).unwrap_or(NIL);
+        Some(id)
     }
 }
 
@@ -574,7 +1229,12 @@ mod tests {
     }
 
     fn rect_prim(w: u32, h: u32) -> RenderPrimitive {
-        RenderPrimitive::Rect { width: w, height: h, radius: 4, color: Rgba8::new(255, 0, 0, 255) }
+        RenderPrimitive::Rect {
+            width: w,
+            height: h,
+            radius: 4,
+            color: Rgba8::new(255, 0, 0, 255),
+        }
     }
 
     fn make_node(graph: &mut SceneGraph, parent: Option<SceneNodeId>) -> SceneNodeId {
@@ -608,10 +1268,30 @@ mod tests {
 
         assert_eq!(g.node_count(), 2);
         assert_eq!(g.roots, vec![root]);
-        let root_node = g.find(root).unwrap();
-        assert_eq!(root_node.children, vec![child]);
+        let kids: Vec<SceneNodeId> = g.children(root).collect();
+        assert_eq!(kids, vec![child]);
         let child_node = g.find(child).unwrap();
         assert_eq!(child_node.parent, Some(root));
+    }
+
+    #[test]
+    fn sibling_links_preserve_order_across_removal() {
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let a = make_node(&mut g, Some(root));
+        let b = make_node(&mut g, Some(root));
+        let c = make_node(&mut g, Some(root));
+        let kids: Vec<SceneNodeId> = g.children(root).collect();
+        assert_eq!(kids, vec![a, b, c]);
+
+        // Removing the middle child keeps order; appending re-links at the end.
+        g.remove(b);
+        let kids: Vec<SceneNodeId> = g.children(root).collect();
+        assert_eq!(kids, vec![a, c]);
+        let d = make_node(&mut g, Some(root));
+        let kids: Vec<SceneNodeId> = g.children(root).collect();
+        assert_eq!(kids, vec![a, c, d]);
+        assert_eq!(g.child_count(root), 3);
     }
 
     #[test]
@@ -631,12 +1311,18 @@ mod tests {
         let id = make_node(&mut g, None);
 
         // Initially MeasureAndPlace (new node)
-        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::MeasureAndPlace);
+        assert_eq!(
+            g.find(id).unwrap().invalidation,
+            InvalidationClass::MeasureAndPlace
+        );
 
         // Mark clean, then move
         g.mark_all_clean();
         g.set_position(id, 10, 20);
-        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::PlaceOnly);
+        assert_eq!(
+            g.find(id).unwrap().invalidation,
+            InvalidationClass::PlaceOnly
+        );
     }
 
     #[test]
@@ -645,7 +1331,10 @@ mod tests {
         let id = make_node(&mut g, None);
         g.mark_all_clean();
         g.set_opacity(id, 0.5);
-        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::PaintOnly);
+        assert_eq!(
+            g.find(id).unwrap().invalidation,
+            InvalidationClass::PaintOnly
+        );
     }
 
     #[test]
@@ -656,7 +1345,10 @@ mod tests {
 
         g.mark_all_clean();
         assert_eq!(g.find(root).unwrap().invalidation, InvalidationClass::Clean);
-        assert_eq!(g.find(child).unwrap().invalidation, InvalidationClass::Clean);
+        assert_eq!(
+            g.find(child).unwrap().invalidation,
+            InvalidationClass::Clean
+        );
 
         g.set_opacity(child, 0.5);
         let dirty = g.compute_dirty_set();
@@ -676,7 +1368,10 @@ mod tests {
         g.compute_dirty_set();
         let hash_after = g.find(id).unwrap().subtree_hash;
 
-        assert_ne!(hash_before, hash_after, "hash should change when primitive changes");
+        assert_ne!(
+            hash_before, hash_after,
+            "hash should change when primitive changes"
+        );
     }
 
     #[test]
@@ -718,12 +1413,15 @@ mod tests {
         let id = make_node(&mut g, None);
         g.mark_all_clean();
 
-        g.apply_animation_update(SceneUpdate {
-            layer_id: LayerId(id.0),
-            property: AnimProp::TranslateX,
-            progress: 0.0,
-            value: 42.0,
-        });
+        g.apply_animation_update_to(
+            id,
+            SceneUpdate {
+                layer_id: LayerId(id.0),
+                property: AnimProp::TranslateX,
+                progress: 0.0,
+                value: 42.0,
+            },
+        );
 
         let node = g.find(id).unwrap();
         assert_eq!(node.x, 42);
@@ -736,12 +1434,15 @@ mod tests {
         let id = make_node(&mut g, None);
         g.mark_all_clean();
 
-        g.apply_animation_update(SceneUpdate {
-            layer_id: LayerId(id.0),
-            property: AnimProp::Opacity,
-            progress: 0.0,
-            value: 0.3,
-        });
+        g.apply_animation_update_to(
+            id,
+            SceneUpdate {
+                layer_id: LayerId(id.0),
+                property: AnimProp::Opacity,
+                progress: 0.0,
+                value: 0.3,
+            },
+        );
 
         let node = g.find(id).unwrap();
         assert_eq!(node.opacity, 0.3);
@@ -775,7 +1476,10 @@ mod tests {
         let _root = make_node(&mut g, None);
         g.mark_all_clean();
         let dirty = g.compute_dirty_set();
-        assert!(dirty.is_empty(), "no nodes should be dirty after mark_all_clean");
+        assert!(
+            dirty.is_empty(),
+            "no nodes should be dirty after mark_all_clean"
+        );
     }
 
     #[test]
@@ -798,8 +1502,13 @@ mod tests {
     fn render_primitive_tag_uniqueness() {
         // Each variant must have a unique tag
         let tags: Vec<u64> = vec![
-            RenderPrimitive::Rect { width: 0, height: 0, radius: 0, color: Rgba8::new(0, 0, 0, 0) }
-                .tag(),
+            RenderPrimitive::Rect {
+                width: 0,
+                height: 0,
+                radius: 0,
+                color: Rgba8::new(0, 0, 0, 0),
+            }
+            .tag(),
             RenderPrimitive::StrokeRect {
                 width: 0,
                 height: 0,
@@ -808,13 +1517,31 @@ mod tests {
                 color: Rgba8::new(0, 0, 0, 0),
             }
             .tag(),
-            RenderPrimitive::Surface { surface_handle: 0, src_x: 0, src_y: 0, width: 0, height: 0 }
-                .tag(),
-            RenderPrimitive::Text { content: "", font_scale: 0, color: Rgba8::new(0, 0, 0, 0) }
-                .tag(),
-            RenderPrimitive::BackdropFilter { blur_radius: 0, saturation_percent: 0 }.tag(),
+            RenderPrimitive::Surface {
+                surface_handle: 0,
+                src_x: 0,
+                src_y: 0,
+                width: 0,
+                height: 0,
+            }
+            .tag(),
+            RenderPrimitive::Text {
+                content: "",
+                font_scale: 0,
+                color: Rgba8::new(0, 0, 0, 0),
+            }
+            .tag(),
+            RenderPrimitive::BackdropFilter {
+                blur_radius: 0,
+                saturation_percent: 0,
+            }
+            .tag(),
             RenderPrimitive::Group { shadow: None }.tag(),
-            RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 }.tag(),
+            RenderPrimitive::Cursor {
+                hotspot_x: 0,
+                hotspot_y: 0,
+            }
+            .tag(),
         ];
         let mut seen = alloc::vec::Vec::new();
         for t in &tags {
@@ -830,5 +1557,123 @@ mod tests {
         let sid: SceneNodeId = lid.into();
         let lid2: LayerId = sid.into();
         assert_eq!(lid, lid2);
+    }
+
+    #[test]
+    fn dirty_set_is_o_dirty_not_o_nodes() {
+        // 1 root + 500 leaves; touching ONE leaf must rehash only that leaf
+        // and its ancestor chain — never the whole graph.
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let mut leaves = alloc::vec::Vec::new();
+        for _ in 0..500 {
+            leaves.push(make_node(&mut g, Some(root)));
+        }
+        let mut out = alloc::vec::Vec::new();
+        g.compute_dirty_set_into(&mut out);
+        g.mark_all_clean();
+
+        g.set_position(leaves[250], 42, 42);
+        g.compute_dirty_set_into(&mut out);
+        // Dirty set: the leaf + its ancestor (root).
+        assert_eq!(out.len(), 2);
+        assert!(out.contains(&leaves[250]));
+        assert!(out.contains(&root));
+        // O(dirty) invariant: only the listed nodes were hashed (×passes),
+        // far below the 501 nodes in the graph.
+        assert!(
+            g.last_hash_recomputes() <= 8,
+            "hash recomputes {} not O(dirty)",
+            g.last_hash_recomputes()
+        );
+    }
+
+    #[test]
+    fn dirty_propagates_class_to_ancestors() {
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let mid = make_node(&mut g, Some(root));
+        let leaf = make_node(&mut g, Some(mid));
+        g.mark_all_clean();
+
+        g.set_opacity(leaf, 0.5); // PaintOnly
+        let dirty = g.compute_dirty_set();
+        assert!(dirty.contains(&leaf) && dirty.contains(&mid) && dirty.contains(&root));
+        assert_eq!(
+            g.find(root).unwrap().invalidation,
+            InvalidationClass::PaintOnly
+        );
+        assert_eq!(
+            g.find(mid).unwrap().invalidation,
+            InvalidationClass::PaintOnly
+        );
+    }
+
+    #[test]
+    fn steady_state_frames_do_not_allocate() {
+        // Bump-allocator discipline: after warm-up, the per-frame buffers
+        // (caller dirty list + internal dirty list) must not grow — Vec::clear
+        // keeps capacity, so capacities must be stable across many frames.
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let mut kids = alloc::vec::Vec::new();
+        for _ in 0..32 {
+            kids.push(make_node(&mut g, Some(root)));
+        }
+        let mut out = alloc::vec::Vec::with_capacity(64);
+        // Warm-up frame.
+        g.compute_dirty_set_into(&mut out);
+        g.mark_all_clean();
+        let warm_cap = out.capacity();
+
+        for frame in 0..200 {
+            g.set_position(kids[frame % 32], frame as i32, 0);
+            g.set_opacity(kids[(frame + 7) % 32], 0.9);
+            g.compute_dirty_set_into(&mut out);
+            assert!(!out.is_empty());
+            g.mark_all_clean();
+        }
+        assert_eq!(out.capacity(), warm_cap, "dirty-out buffer reallocated");
+    }
+
+    #[test]
+    fn mark_all_clean_then_empty_dirty_set() {
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let child = make_node(&mut g, Some(root));
+        g.set_opacity(child, 0.4);
+        g.mark_all_clean();
+        let mut out = alloc::vec::Vec::new();
+        g.compute_dirty_set_into(&mut out);
+        assert!(out.is_empty());
+        assert_eq!(g.last_hash_recomputes(), 0);
+    }
+
+    #[test]
+    fn removed_node_does_not_appear_in_dirty_set() {
+        let mut g = make_graph();
+        let root = make_node(&mut g, None);
+        let child = make_node(&mut g, Some(root));
+        g.mark_all_clean();
+        g.set_opacity(child, 0.4); // dirty, then remove before the frame
+        g.remove(child);
+        let dirty = g.compute_dirty_set();
+        assert!(!dirty.contains(&child));
+        // The structural change still re-renders the parent.
+        assert!(dirty.contains(&root));
+    }
+
+    #[test]
+    fn render_order_into_reuses_buffer_and_orders_by_insertion() {
+        let mut g = make_graph();
+        let a = make_node(&mut g, None);
+        let b = make_node(&mut g, Some(a));
+        let c = make_node(&mut g, Some(a));
+        let mut out = alloc::vec::Vec::with_capacity(8);
+        g.render_order_into(&mut out);
+        assert_eq!(out, alloc::vec![a, b, c]);
+        let cap = out.capacity();
+        g.render_order_into(&mut out);
+        assert_eq!(out.capacity(), cap);
     }
 }

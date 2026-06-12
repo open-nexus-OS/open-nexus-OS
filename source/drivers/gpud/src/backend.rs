@@ -12,8 +12,9 @@ use nexus_gfx::core::types::PixelFormat;
 
 use crate::error::GpuDriverError;
 use crate::markers::{
-    GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL, GPUD_RESOURCE_CREATED,
-    GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
+    GPUD_CPU_FALLBACK, GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL,
+    GPUD_RESOURCE_CREATED, GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL,
+    GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_VIRGL_READY,
 };
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
@@ -26,6 +27,13 @@ pub struct VirtioGpuBackend {
     _mmio_len: usize,
     next_resource_id: u32,
     probed: bool,
+    /// True when virgl GPU acceleration is detected at probe time.
+    /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
+    #[allow(dead_code)]
+    virgl_capable: bool,
+    /// Virgl rendering context ID (0 = not created).
+    #[allow(dead_code)]
+    virgl_ctx_id: u32,
     resources: alloc::vec::Vec<ResourceRecord>,
     scanout_resource: Option<ResourceId>,
     /// Fragment uniform storage for SetFragmentBytes commands.
@@ -40,6 +48,24 @@ pub struct VirtioGpuBackend {
     cursor_sprite_h: u32,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
+    /// virtio-gpu cursor virtqueue (index 1) — carries UPDATE_CURSOR / MOVE_CURSOR
+    /// so the host composites the pointer as a hardware overlay (the GPU hot path).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    cursorq: Option<CtrlQueue>,
+    /// Number of virgl backing VMOs allocated (VA slot allocator).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    virgl_backing_count: usize,
+    /// True after the boot draw self-test verified a full GPU draw by readback.
+    /// Gates the blur pipeline (which reuses the self-test's state objects).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    virgl_draw_ok: bool,
+    /// True once the blur resources (fb-alias texture, tmp RT, quad, shader)
+    /// are created. Lazy: the fb VMO only exists after windowd's handoff.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    virgl_blur_ready: bool,
+    /// One-shot GPU-vs-CPU blur parity check on first real blur.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    virgl_parity_done: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +93,8 @@ impl VirtioGpuBackend {
             _mmio_len: mmio_len,
             next_resource_id: 1,
             probed: false,
+            virgl_capable: false,
+            virgl_ctx_id: 0,
             resources: alloc::vec::Vec::new(),
             scanout_resource: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -76,6 +104,16 @@ impl VirtioGpuBackend {
             cursor_sprite_h: 0,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            cursorq: None,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            virgl_backing_count: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            virgl_draw_ok: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            virgl_blur_ready: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            virgl_parity_done: false,
         }
     }
 
@@ -87,6 +125,67 @@ impl VirtioGpuBackend {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         self.probe_os()?;
         self.probed = true;
+
+        // Virgl capability detection.
+        // When the `virgl` feature is compiled in, probe for GPU acceleration.
+        // On QEMU with `-device virtio-gpu-pci,virgl=on`, the device reports
+        // virgl capability in its config space. Without the feature or when
+        // virgl is not detected, CPU fallback is used for blur operations.
+        // `self.virgl_capable` is set during `probe_os()` feature negotiation:
+        // true iff the device offered (and we acked) VIRTIO_GPU_F_VIRGL. Create
+        // the 3D context; emit `virgl ready` ONLY on success, `cpu fallback`
+        // otherwise — exactly one of the two markers, never both.
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        {
+            if self.virgl_capable && self.create_virgl_context().is_ok() {
+                let _ = nexus_abi::debug_println(GPUD_VIRGL_READY);
+                // Validate the SUBMIT_3D wire format against virglrenderer.
+                if self.submit3d_selftest().is_ok() {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SUBMIT3D_OK);
+                }
+                // Validate the draw-state path (resource → surface → fb → clear).
+                if self.virgl_rt_clear_test().is_ok() {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_OK);
+                }
+                // Validate TGSI shader creation (vertex + fragment).
+                if self.virgl_shader_test().is_ok() {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_OK);
+                    // Full-pipeline draw proof with readback pixel verification.
+                    // Solid-red FS over a blue clear: center pixel (BGRA bytes)
+                    // tells us exactly how far the pipeline got.
+                    match self.virgl_draw_selftest() {
+                        Ok([0, 0, 255, 255]) => {
+                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_OK);
+                            self.virgl_draw_ok = true;
+                        }
+                        Ok([255, 0, 0, 255]) => {
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_NOOP);
+                        }
+                        Ok(_) => {
+                            let _ = nexus_abi::debug_println(
+                                crate::markers::GPUD_VIRGL_DRAW_MISMATCH,
+                            );
+                        }
+                        Err(_) => {
+                            let _ = nexus_abi::debug_println("gpud: virgl draw submit fail");
+                        }
+                    }
+                }
+            } else {
+                self.virgl_capable = false;
+                let _ = nexus_abi::debug_println(GPUD_CPU_FALLBACK);
+            }
+        }
+        #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
+        {
+            // Host fallback: no virgl possible, always CPU fallback.
+            // Marker emitted via println! (host) or debug_println (OS).
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            let _ = nexus_abi::debug_println(GPUD_CPU_FALLBACK);
+            #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+            let _ = GPUD_CPU_FALLBACK;
+        }
 
         // Query available displays. Without this, QEMU may not report
         // scanout dimensions correctly.
@@ -498,8 +597,8 @@ impl VirtioGpuBackend {
                     }
                     self.fragment_data[*offset..end].copy_from_slice(data);
                 }
-                Command::DrawTiles { tiles } => {
-                    let color = self.tile_color_from_fragment();
+                Command::DrawTiles { tiles, color } => {
+                    let c = color.as_array();
                     for t in tiles {
                         fill_rect_solid_vmo(
                             fb,
@@ -509,7 +608,7 @@ impl VirtioGpuBackend {
                             t.y.saturating_add(display_y_offset),
                             t.width,
                             t.height,
-                            color,
+                            c,
                         );
                     }
                 }
@@ -527,17 +626,42 @@ impl VirtioGpuBackend {
                     );
                 }
                 Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                    blur_backdrop_vmo(
-                        fb,
-                        fb_len,
-                        fb_w,
-                        rect.x,
-                        rect.y.saturating_add(display_y_offset),
-                        rect.width,
-                        rect.height,
-                        *radius,
-                        *saturation_percent,
-                    )?;
+                    // Phase 3 (virgl): dispatch to GPU-accelerated shader when
+                    // virgl is compiled in and the context was created successfully.
+                    // Falls back through separable gaussian → box-blur chain.
+                    #[cfg(feature = "virgl")]
+                    let virgl_ok = self.virgl_capable
+                        && self.submit_virgl_blur(
+                            fb, fb_len, fb_w,
+                            rect.x, rect.y.saturating_add(display_y_offset),
+                            rect.width, rect.height, *radius,
+                        ).is_ok();
+                    #[cfg(not(feature = "virgl"))]
+                    let virgl_ok = false;
+
+                    if !virgl_ok {
+                        // CPU fallback: separable gaussian (higher quality) for
+                        // virgl-capable backends that haven't loaded the GPU shader,
+                        // or box-blur for non-virgl backends.
+                        #[cfg(feature = "virgl")]
+                        let use_separable = self.virgl_capable;
+                        #[cfg(not(feature = "virgl"))]
+                        let use_separable = false;
+
+                        if use_separable {
+                            blur_backdrop_separable_vmo(
+                                fb, fb_len, fb_w,
+                                rect.x, rect.y.saturating_add(display_y_offset),
+                                rect.width, rect.height, *radius, *saturation_percent,
+                            )?;
+                        } else {
+                            blur_backdrop_vmo(
+                                fb, fb_len, fb_w,
+                                rect.x, rect.y.saturating_add(display_y_offset),
+                                rect.width, rect.height, *radius, *saturation_percent,
+                            )?;
+                        }
+                    }
                 }
                 Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
                     // Retained-surface composite: src_y is an absolute VMO row
@@ -638,7 +762,8 @@ impl VirtioGpuBackend {
             hot_y,
             _padding: 0,
         };
-        self.ctrl_submit_struct(&cmd)?;
+        // UPDATE_CURSOR goes on the cursor queue (hardware cursor overlay).
+        self.cursor_submit_struct(&cmd)?;
         Ok(())
     }
 
@@ -654,23 +779,9 @@ impl VirtioGpuBackend {
             hot_y: 0,
             _padding: 0,
         };
-        self.ctrl_submit_struct(&cmd)
-    }
-
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    fn tile_color_from_fragment(&self) -> [u8; 4] {
-        let sidebar_opacity = f32::from_le_bytes([
-            self.fragment_data[12],
-            self.fragment_data[13],
-            self.fragment_data[14],
-            self.fragment_data[15],
-        ]);
-        let alpha = (sidebar_opacity.clamp(0.0, 1.0) * 192.0) as u8;
-        if alpha > 0 {
-            [200, 220, 255, alpha]
-        } else {
-            [0, 0, 0, 0]
-        }
+        // MOVE_CURSOR on the cursor queue — host repositions the overlay,
+        // no scanout re-render (the GPU pointer hot path).
+        self.cursor_submit_struct(&cmd)
     }
 }
 
@@ -930,10 +1041,26 @@ const GPU_QUEUE_VA: usize = 0x2030_0000;
 const GPU_CMD_VA: usize = 0x2031_0000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_RESP_VA: usize = 0x2031_1000;
+// Cursor virtqueue (queue index 1) — separate VA region so it does not collide
+// with the control queue's desc/cmd/resp pages. The hardware cursor overlay is
+// the GPU "hot path" for the pointer: MOVE_CURSOR repositions it host-side
+// without re-rendering the scene.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_CURSOR_QUEUE_VA: usize = 0x2032_0000;
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_CURSOR_CMD_VA: usize = 0x2033_0000;
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_CURSOR_RESP_VA: usize = 0x2033_1000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_RESOURCE_BASE_VA: usize = 0x2040_0000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_RESOURCE_STRIDE: usize = 0x0100_0000;
+/// VA region for virgl 3D resource backings (readback targets) — separate from
+/// the 2D resource region so the two allocators never collide.
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+const GPU_VIRGL_BACKING_BASE_VA: usize = 0x3800_0000;
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+const GPU_VIRGL_BACKING_STRIDE: usize = 0x0100_0000;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[repr(C)]
@@ -971,6 +1098,7 @@ struct VqUsed<const N: usize> {
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 struct CtrlQueue {
+    queue_index: u32,
     _queue_vmo: u32,
     _cmd_vmo: u32,
     _resp_vmo: u32,
@@ -999,20 +1127,808 @@ impl VirtioGpuBackend {
         }
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS, 0);
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS, 1 | 2);
-        write_reg(self.mmio_base, 0x024, 0);
-        write_reg(self.mmio_base, 0x020, 0);
-        write_reg(self.mmio_base, 0x024, 1);
-        write_reg(self.mmio_base, 0x020, 0);
+
+        // Feature negotiation. The non-virgl build acknowledges no features
+        // (the long-proven 2D path); the virgl build reads the device feature
+        // bits and acks VIRGL + CONTEXT_INIT + VERSION_1 when the device (a
+        // `virtio-gpu-gl` model) offers them, enabling the 3D command path.
+        #[cfg(feature = "virgl")]
+        {
+            self.negotiate_features_virgl();
+        }
+        #[cfg(not(feature = "virgl"))]
+        {
+            write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES_SEL, 0);
+            write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES, 0);
+            write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES_SEL, 1);
+            write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES, 0);
+        }
+
         let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS);
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS, status | 8);
         if read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS) & 8 == 0 {
+            // FEATURES_OK refused: the device rejected our negotiated set.
+            #[cfg(feature = "virgl")]
+            {
+                self.virgl_capable = false;
+            }
             return Err(GpuDriverError::CommandRejected);
         }
-        let ctrlq = CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX)?;
+        let ctrlq =
+            CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, GPU_QUEUE_VA, GPU_CMD_VA, GPU_RESP_VA)?;
         self.ctrlq = Some(ctrlq);
+        // Cursor virtqueue (index 1) — hardware-cursor overlay path. Best-effort:
+        // if it can't be set up, cursor falls back and 2D still works.
+        if let Ok(cursorq) = CtrlQueue::new(
+            self.mmio_base,
+            CURSOR_QUEUE_INDEX,
+            GPU_CURSOR_QUEUE_VA,
+            GPU_CURSOR_CMD_VA,
+            GPU_CURSOR_RESP_VA,
+        ) {
+            self.cursorq = Some(cursorq);
+        }
         let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS);
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS, status | 4);
         Ok(())
+    }
+
+    /// Create a virgl rendering context for GPU shader dispatch.
+    /// Must be called after probe_os() (ctrlq is set up).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn create_virgl_context(&mut self) -> Result<(), GpuDriverError> {
+        use crate::protocol::{
+            VirtioGpuCtxCreate, VirtioGpuCtrlHdr, VIRTIO_GPU_CAPSET_VIRGL2,
+            VIRTIO_GPU_CMD_CTX_CREATE,
+        };
+        let mut name = [0u8; 64];
+        let label = b"gpud-virgl-ctx";
+        let len = label.len().min(64);
+        name[..len].copy_from_slice(&label[..len]);
+
+        // The guest chooses the context id; subsequent 3D commands carry it in
+        // their header's ctx_id field. We use a single context (id 1).
+        const VIRGL_CTX_ID: u32 = 1;
+        let cmd = VirtioGpuCtxCreate {
+            hdr: VirtioGpuCtrlHdr {
+                type_: VIRTIO_GPU_CMD_CTX_CREATE,
+                flags: 0,
+                fence_id: 0,
+                ctx_id: VIRGL_CTX_ID,
+                _padding: 0,
+            },
+            nlen: len as u32,
+            context_init: VIRTIO_GPU_CAPSET_VIRGL2,
+            debug_name: name,
+        };
+
+        // `ctrl_submit_struct` writes the command, notifies the device, and
+        // validates the response header (RESP_OK_NODATA → Ok, else Err).
+        self.ctrl_submit_struct(&cmd).map_err(|_| GpuDriverError::CommandRejected)?;
+        self.virgl_ctx_id = VIRGL_CTX_ID;
+        Ok(())
+    }
+
+    /// Submit a `VirtioGpuSubmit3d` header followed by a hand-encoded virgl
+    /// command stream on the control queue (one descriptor chain). The response
+    /// is validated by `wait_complete` (RESP_OK_NODATA → Ok).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn ctrl_submit_header_tail<T>(&mut self, hdr: &T, tail: &[u8]) -> Result<(), GfxError> {
+        let hdr_bytes = unsafe {
+            core::slice::from_raw_parts((hdr as *const T).cast::<u8>(), core::mem::size_of::<T>())
+        };
+        let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
+        queue.submit_two(self.mmio_base, hdr_bytes, tail)
+    }
+
+    /// End-to-end validation of the `SUBMIT_3D` path: emit a minimal NOP stream
+    /// and confirm virglrenderer accepts it. This proves the 3D wire format and
+    /// context routing work before the full blur pipeline is built; it does not
+    /// touch the blur path (blur stays on the CPU separable gaussian until the
+    /// GPU shader lands).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn submit3d_selftest(&mut self) -> Result<(), GfxError> {
+        use crate::protocol::{VirtioGpuCtrlHdr, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
+        let mut stream = crate::virgl::Submit3d::new();
+        stream.emit_nop();
+        let bytes = stream.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: VirtioGpuCtrlHdr {
+                type_: VIRTIO_GPU_CMD_SUBMIT_3D,
+                flags: 0,
+                fence_id: 0,
+                ctx_id: self.virgl_ctx_id,
+                _padding: 0,
+            },
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)
+    }
+
+    /// A virtio-gpu control header carrying our virgl context id (3D commands
+    /// are context-scoped, unlike the 2D path which uses ctx_id 0).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_hdr(&self, type_: u32) -> protocol::VirtioGpuCtrlHdr {
+        protocol::VirtioGpuCtrlHdr {
+            type_,
+            flags: 0,
+            fence_id: 0,
+            ctx_id: self.virgl_ctx_id,
+            _padding: 0,
+        }
+    }
+
+    /// Create a 3D render-target texture and attach it to the virgl context.
+    /// Bound as both RENDER_TARGET (draw destination) and SAMPLER_VIEW (so the
+    /// blur shader can later read a source texture of the same shape).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_create_rt(&mut self, res_id: u32, w: u32, h: u32) -> Result<(), GfxError> {
+        use crate::protocol::{
+            VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d,
+            VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
+        };
+        use crate::virgl::{
+            PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_FORMAT_B8G8R8A8_UNORM,
+            PIPE_TEXTURE_2D,
+        };
+        let create = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: res_id,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
+            width: w,
+            height: h,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create)?;
+        let attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: res_id,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&attach)?;
+        Ok(())
+    }
+
+    /// Increment A: create a render target, wrap it as a surface, bind it as
+    /// the framebuffer, and clear it. Validates the draw-state pipeline
+    /// (resource → surface → framebuffer → clear) end-to-end against
+    /// virglrenderer before shaders/draw are introduced. Does not touch the
+    /// blur path.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_rt_clear_test(&mut self) -> Result<(), GfxError> {
+        use crate::protocol::{VirtioGpuCtrlHdr, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
+        use crate::virgl::{Submit3d, PIPE_CLEAR_COLOR0, PIPE_FORMAT_B8G8R8A8_UNORM};
+        const RT_RES_ID: u32 = 0xF0;
+        const SURFACE_HANDLE: u32 = 1;
+
+        self.virgl_create_rt(RT_RES_ID, 64, 64)?;
+
+        let mut s = Submit3d::new();
+        s.emit_create_surface(SURFACE_HANDLE, RT_RES_ID, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_set_framebuffer_state(0, &[SURFACE_HANDLE]);
+        s.emit_clear(PIPE_CLEAR_COLOR0, [1.0, 0.0, 0.0, 1.0], 1.0, 0);
+        let bytes = s.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: VirtioGpuCtrlHdr {
+                type_: VIRTIO_GPU_CMD_SUBMIT_3D,
+                flags: 0,
+                fence_id: 0,
+                ctx_id: self.virgl_ctx_id,
+                _padding: 0,
+            },
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)
+    }
+
+    /// Allocate a guest VMO, map it into the virgl backing VA region, and
+    /// attach it as the backing store of `res_id` (then attach the resource to
+    /// the virgl context). Returns the backing VA for CPU access after
+    /// TRANSFER_FROM_HOST_3D.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_attach_backing(&mut self, res_id: u32, byte_len: usize) -> Result<usize, GfxError> {
+        use crate::protocol::{
+            VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
+            VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+        };
+        let slot = self.virgl_backing_count;
+        if slot >= 8 {
+            return Err(GfxError::ResourceExhausted);
+        }
+        let backing_va = GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE;
+        let backing_len = align_page(byte_len);
+        let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
+        let flags = nexus_abi::page_flags::VALID
+            | nexus_abi::page_flags::USER
+            | nexus_abi::page_flags::READ
+            | nexus_abi::page_flags::WRITE;
+        for offset in (0..backing_len).step_by(4096) {
+            nexus_abi::vmo_map_page(vmo, backing_va + offset, offset, flags)
+                .map_err(|_| GfxError::MmioFault)?;
+        }
+        unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        nexus_abi::cap_query(vmo, &mut info).map_err(|_| GfxError::MmioFault)?;
+        self.virgl_backing_count = slot + 1;
+
+        let attach = VirtioGpuResourceAttachBacking {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
+            resource_id: res_id,
+            nr_entries: 1,
+        };
+        let entry = VirtioGpuMemEntry { addr: info.base, length: byte_len as u32, _padding: 0 };
+        self.ctrl_submit_pair(&attach, &entry)?;
+        let ctx_attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: res_id,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach)?;
+        Ok(backing_va)
+    }
+
+    /// Issue TRANSFER_FROM_HOST_3D for a full-width box of `res_id` and wait
+    /// for completion — host GPU contents land in the resource's guest backing.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_transfer_from_host(
+        &mut self,
+        res_id: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        stride: u32,
+    ) -> Result<(), GfxError> {
+        use crate::protocol::{
+            VirtioGpuBox, VirtioGpuTransferHost3d, VIRTIO_GPU_CMD_TRANSFER_FROM_HOST_3D,
+        };
+        let cmd = VirtioGpuTransferHost3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_TRANSFER_FROM_HOST_3D),
+            box_: VirtioGpuBox { x, y, z: 0, w, h, d: 1 },
+            offset: (y as u64) * (stride as u64) + (x as u64) * 4,
+            resource_id: res_id,
+            level: 0,
+            stride,
+            layer_stride: 0,
+        };
+        self.ctrl_submit_struct(&cmd)
+    }
+
+    /// Full-pipeline GPU draw proof: state objects + fullscreen-triangle vertex
+    /// buffer + the (already created) passthrough VS / solid-red FS + DRAW_VBO
+    /// into a 64×64 render target, then TRANSFER_FROM_HOST_3D readback and a
+    /// CPU pixel check. Returns the first pixel's BGRA bytes.
+    ///
+    /// This verifies the entire 3D path end-to-end on-device — no display
+    /// needed: if the pixels read back red, the GPU really rasterized our draw.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_draw_selftest(&mut self) -> Result<[u8; 4], GfxError> {
+        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
+        use crate::virgl::{
+            Submit3d, PIPE_BIND_VERTEX_BUFFER, PIPE_BUFFER, PIPE_CLEAR_COLOR0,
+            PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_FORMAT_R32G32B32A32_FLOAT, PIPE_FORMAT_R8_UNORM,
+            PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX, VIRGL_OBJECT_BLEND,
+            VIRGL_OBJECT_DSA, VIRGL_OBJECT_RASTERIZER, VIRGL_OBJECT_VERTEX_ELEMENTS,
+        };
+        const RT_RES: u32 = 0xF4;
+        const VBO_RES: u32 = 0xF5;
+        const RT_W: u32 = 64;
+        const RT_H: u32 = 64;
+        // Object handles (context-scoped namespace).
+        const H_BLEND: u32 = 0x20;
+        const H_DSA: u32 = 0x21;
+        const H_RAST: u32 = 0x22;
+        const H_VE: u32 = 0x23;
+        const H_SURF: u32 = 0x24;
+        const H_VS: u32 = 10; // created by virgl_shader_test
+        const H_FS: u32 = 11;
+
+        // Render target with guest backing for readback.
+        self.virgl_create_rt(RT_RES, RT_W, RT_H)?;
+        let backing_va = self.virgl_attach_backing(RT_RES, (RT_W * RT_H * 4) as usize)?;
+
+        // Vertex buffer resource (host-side storage; filled via INLINE_WRITE).
+        {
+            use crate::protocol::{VirtioGpuResourceCreate3d, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D};
+            let create = VirtioGpuResourceCreate3d {
+                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+                resource_id: VBO_RES,
+                target: PIPE_BUFFER,
+                format: PIPE_FORMAT_R8_UNORM,
+                bind: PIPE_BIND_VERTEX_BUFFER,
+                width: 48, // 3 vertices × vec4 f32
+                height: 1,
+                depth: 1,
+                array_size: 1,
+                last_level: 0,
+                nr_samples: 0,
+                flags: 0,
+                _padding: 0,
+            };
+            self.ctrl_submit_struct(&create)?;
+            use crate::protocol::{VirtioGpuCtxAttachResource, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE};
+            let attach = VirtioGpuCtxAttachResource {
+                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+                resource_id: VBO_RES,
+                _padding: 0,
+            };
+            self.ctrl_submit_struct(&attach)?;
+        }
+
+        // Fullscreen triangle (clip space), vec4 positions.
+        let verts: [f32; 12] = [-1.0, -1.0, 0.0, 1.0, 3.0, -1.0, 0.0, 1.0, -1.0, 3.0, 0.0, 1.0];
+        let mut vbytes = [0u8; 48];
+        for (i, v) in verts.iter().enumerate() {
+            vbytes[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+
+        let mut s = Submit3d::new();
+        s.emit_resource_inline_write(VBO_RES, &vbytes);
+        s.emit_create_blend_default(H_BLEND);
+        s.emit_bind_object(VIRGL_OBJECT_BLEND, H_BLEND);
+        s.emit_create_dsa_default(H_DSA);
+        s.emit_bind_object(VIRGL_OBJECT_DSA, H_DSA);
+        s.emit_create_rasterizer_default(H_RAST);
+        s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
+        s.emit_create_vertex_elements(H_VE, &[(0, 0, 0, PIPE_FORMAT_R32G32B32A32_FLOAT)]);
+        s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
+        s.emit_set_vertex_buffers(&[(16, 0, VBO_RES)]);
+        s.emit_create_surface(H_SURF, RT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_set_framebuffer_state(0, &[H_SURF]);
+        s.emit_set_viewport(RT_W as f32, RT_H as f32);
+        s.emit_clear(PIPE_CLEAR_COLOR0, [0.0, 0.0, 1.0, 1.0], 1.0, 0); // blue base
+        s.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+        s.emit_bind_shader(H_FS, PIPE_SHADER_FRAGMENT);
+        s.emit_draw_vbo(0, 3, PIPE_PRIM_TRIANGLES);
+        let bytes = s.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+
+        // Read the rendered pixels back into the guest backing and inspect.
+        self.virgl_transfer_from_host(RT_RES, 0, 0, RT_W, RT_H, RT_W * 4)?;
+        let center = (32 * RT_W as usize + 32) * 4;
+        let px = unsafe {
+            let p = (backing_va + center) as *const u8;
+            [p.read_volatile(), p.add(1).read_volatile(), p.add(2).read_volatile(), p.add(3).read_volatile()]
+        };
+        Ok(px)
+    }
+
+    /// Increment B: create a passthrough vertex shader and a solid-color
+    /// fragment shader from TGSI text. virglrenderer parses the text at create
+    /// time, so this validates the CREATE_OBJECT(SHADER) text encoding (the
+    /// foundation for the gaussian blur fragment shader). Object handles 10/11
+    /// are reserved for these shaders within the virgl context.
+    ///
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_shader_test(&mut self) -> Result<(), GfxError> {
+        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
+        use crate::virgl::{Submit3d, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX};
+        const VS: &str = "VERT\nDCL IN[0]\nDCL OUT[0], POSITION\nMOV OUT[0], IN[0]\nEND\n";
+        const FS: &str = "FRAG\nDCL OUT[0], COLOR\nIMM[0] FLT32 { 1.0000, 0.0000, 0.0000, 1.0000}\nMOV OUT[0], IMM[0]\nEND\n";
+        let mut s = Submit3d::new();
+        s.emit_create_shader(10, PIPE_SHADER_VERTEX, VS);
+        s.emit_create_shader(11, PIPE_SHADER_FRAGMENT, FS);
+        let bytes = s.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)
+    }
+
+    /// Issue TRANSFER_TO_HOST_3D for a box of `res_id` (guest backing → host
+    /// GL texture) and wait for completion.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_transfer_to_host(
+        &mut self,
+        res_id: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        stride: u32,
+    ) -> Result<(), GfxError> {
+        use crate::protocol::{
+            VirtioGpuBox, VirtioGpuTransferHost3d, VIRTIO_GPU_CMD_TRANSFER_TO_HOST_3D,
+        };
+        let cmd = VirtioGpuTransferHost3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_TRANSFER_TO_HOST_3D),
+            box_: VirtioGpuBox { x, y, z: 0, w, h, d: 1 },
+            offset: (y as u64) * (stride as u64) + (x as u64) * 4,
+            resource_id: res_id,
+            level: 0,
+            stride,
+            layer_stride: 0,
+        };
+        self.ctrl_submit_struct(&cmd)
+    }
+
+    /// Lazily create the GPU blur pipeline. The source/destination texture
+    /// ALIASES the framebuffer VMO's display planes (rows 1600..3199), so the
+    /// blur is zero-copy: TRANSFER_TO_HOST syncs the region into the GL
+    /// texture, two shader passes blur it (H into a scratch RT, V back), and
+    /// TRANSFER_FROM_HOST lands the result directly in the scanned-out VMO.
+    /// Reuses the boot self-test's blend/DSA/rasterizer/vertex-elements and
+    /// vertex shader (context-persistent objects).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_blur_init(&mut self) -> Result<(), GfxError> {
+        use crate::protocol::{
+            VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
+            VirtioGpuResourceCreate3d, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
+            VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
+            VIRTIO_GPU_CMD_SUBMIT_3D,
+        };
+        use crate::virgl::{
+            Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_BIND_VERTEX_BUFFER,
+            PIPE_BUFFER, PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_FORMAT_R8_UNORM, PIPE_SHADER_FRAGMENT,
+            PIPE_TEXTURE_2D,
+        };
+        // Scanout record carries the fb VMO physical base for the alias.
+        let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
+        let record = self.find_resource(scanout).ok_or(GfxError::DeviceNotFound)?;
+        let fb_pa = record.backing_pa;
+        // Display planes: rows 1600..3199 of the 1280×3200 VMO.
+        let alias_pa = fb_pa + 1600 * 5120;
+        let alias_len = 1600u32 * 5120;
+
+        // FBSRC: 1280×1600 texture aliasing the display planes.
+        let create_src = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: 0xF8,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
+            width: 1280,
+            height: 1600,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create_src)?;
+        let attach = VirtioGpuResourceAttachBacking {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
+            resource_id: 0xF8,
+            nr_entries: 1,
+        };
+        let entry = VirtioGpuMemEntry { addr: alias_pa, length: alias_len, _padding: 0 };
+        self.ctrl_submit_pair(&attach, &entry)?;
+        let ctx_attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: 0xF8,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach)?;
+
+        // TMP: 1280×800 scratch render target (host-side only, no backing).
+        let create_tmp = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: 0xF9,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
+            width: 1280,
+            height: 800,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create_tmp)?;
+        let ctx_attach_tmp = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: 0xF9,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach_tmp)?;
+
+        // QUAD: exact −1..1 quad (two triangles) so rasterization covers the
+        // viewport box exactly — no scissor needed.
+        let create_quad = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: 0xFA,
+            target: PIPE_BUFFER,
+            format: PIPE_FORMAT_R8_UNORM,
+            bind: PIPE_BIND_VERTEX_BUFFER,
+            width: 96,
+            height: 1,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create_quad)?;
+        let ctx_attach_quad = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: 0xFA,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach_quad)?;
+
+        let quad: [f32; 24] = [
+            -1.0, -1.0, 0.0, 1.0, 1.0, -1.0, 0.0, 1.0, -1.0, 1.0, 0.0, 1.0, // tri 1
+            1.0, -1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, -1.0, 1.0, 0.0, 1.0, // tri 2
+        ];
+        let mut qbytes = [0u8; 96];
+        for (i, v) in quad.iter().enumerate() {
+            qbytes[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+
+        // Separable gaussian fragment shader. CONST[0] = (inv_w, inv_h, radius,
+        // k = -1/(2σ²·ln2)); CONST[1] = (dir_x, dir_y, origin_x, origin_y).
+        // Per tap: weight = 2^(k·i²) (≡ exp(-i²/2σ²)); the weight sum
+        // normalizes, matching the CPU reference in blur_backdrop_separable_vmo.
+        const FS_BLUR: &str = "FRAG\n\
+            DCL IN[0], POSITION, LINEAR\n\
+            DCL OUT[0], COLOR\n\
+            DCL SAMP[0]\n\
+            DCL SVIEW[0], 2D, FLOAT\n\
+            DCL CONST[0..1]\n\
+            DCL TEMP[0..5]\n\
+            DCL ADDR[0]\n\
+            IMM[0] FLT32 { 0.0000, 1.0000, -1.0000, 0.5000}\n\
+            MOV TEMP[0], IMM[0].xxxx\n\
+            MOV TEMP[1].x, IMM[0].xxxx\n\
+            MUL TEMP[2].x, CONST[0].zzzz, IMM[0].zzzz\n\
+            BGNLOOP\n\
+            SGT TEMP[3].x, TEMP[2].xxxx, CONST[0].zzzz\n\
+            IF TEMP[3].xxxx\n\
+            BRK\n\
+            ENDIF\n\
+            MUL TEMP[3].x, TEMP[2].xxxx, TEMP[2].xxxx\n\
+            MUL TEMP[3].x, TEMP[3].xxxx, CONST[0].wwww\n\
+            EX2 TEMP[3].x, TEMP[3].xxxx\n\
+            MAD TEMP[4].xy, CONST[1].xyyy, TEMP[2].xxxx, IN[0].xyyy\n\
+            ADD TEMP[4].xy, TEMP[4].xyyy, CONST[1].zwww\n\
+            MUL TEMP[4].xy, TEMP[4].xyyy, CONST[0].xyyy\n\
+            TEX TEMP[5], TEMP[4], SAMP[0], 2D\n\
+            MAD TEMP[0], TEMP[5], TEMP[3].xxxx, TEMP[0]\n\
+            ADD TEMP[1].x, TEMP[1].xxxx, TEMP[3].xxxx\n\
+            ADD TEMP[2].x, TEMP[2].xxxx, IMM[0].yyyy\n\
+            ENDLOOP\n\
+            RCP TEMP[1].x, TEMP[1].xxxx\n\
+            MUL OUT[0], TEMP[0], TEMP[1].xxxx\n\
+            END\n";
+
+        let mut s = Submit3d::new();
+        s.emit_resource_inline_write(0xFA, &qbytes);
+        s.emit_create_surface(0x30, 0xF8, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_surface(0x31, 0xF9, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_sampler_view(0x32, 0xF8, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_sampler_view(0x33, 0xF9, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_sampler_state_default(0x34);
+        s.emit_create_shader(13, PIPE_SHADER_FRAGMENT, FS_BLUR);
+        let bytes = s.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.virgl_blur_ready = true;
+        Ok(())
+    }
+
+    /// Two-pass separable gaussian blur on the GPU via virgl.
+    ///
+    /// `y` is the absolute framebuffer row (display offset already applied by
+    /// the caller); the fb-alias texture covers rows 1600..3199. The CPU
+    /// fallback in `blur_backdrop_separable_vmo` remains the parity reference —
+    /// on the first GPU blur the result is compared against it (interior of
+    /// the region, tolerance 2 LSB) and a parity marker is emitted.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    #[allow(clippy::too_many_arguments)]
+    fn submit_virgl_blur(
+        &mut self,
+        fb: *mut u8,
+        fb_len: usize,
+        fb_w: usize,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+    ) -> Result<(), GfxError> {
+        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
+        use crate::virgl::{
+            Submit3d, PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX,
+        };
+        if !self.virgl_capable || !self.virgl_draw_ok || self.virgl_ctx_id == 0 {
+            return Err(GfxError::DeviceNotFound);
+        }
+        if radius == 0 || w == 0 || h == 0 || fb_w != 1280 {
+            return Err(GfxError::InvalidArgument);
+        }
+        // The alias texture covers display rows 1600..3199.
+        if y < 1600 || x.saturating_add(w) > 1280 || (y - 1600).saturating_add(h) > 1600 {
+            return Err(GfxError::InvalidArgument);
+        }
+        let y_rel = y - 1600;
+        if !self.virgl_blur_ready {
+            self.virgl_blur_init()?;
+            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_BLUR_GPU_ON);
+        }
+
+        // One-shot parity: snapshot the region and CPU-blur it for comparison.
+        let parity_buf: Option<(usize, usize)> = if !self.virgl_parity_done
+            && (w as usize) * (h as usize) * 4 <= 1024 * 1024
+        {
+            self.virgl_parity_done = true;
+            match self.virgl_alloc_scratch((w as usize) * (h as usize) * 4) {
+                Ok(va) => {
+                    // Tightly pack the region into the scratch and CPU-blur it.
+                    for row in 0..h as usize {
+                        let src_off = (y as usize + row) * fb_w * 4 + (x as usize) * 4;
+                        if src_off + (w as usize) * 4 > fb_len {
+                            break;
+                        }
+                        unsafe {
+                            core::ptr::copy_nonoverlapping(
+                                fb.add(src_off),
+                                (va + row * (w as usize) * 4) as *mut u8,
+                                (w as usize) * 4,
+                            );
+                        }
+                    }
+                    let _ = blur_backdrop_separable_vmo(
+                        va as *mut u8,
+                        (w as usize) * (h as usize) * 4,
+                        w as usize,
+                        0,
+                        0,
+                        w,
+                        h,
+                        radius,
+                        0,
+                    );
+                    Some((va, (w as usize) * 4))
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        // Sync the region from the guest VMO into the GL texture.
+        self.virgl_transfer_to_host(0xF8, x, y_rel, w, h, 5120)?;
+
+        let sigma = (radius as f32) / 2.0;
+        let k = -1.0 / (2.0 * sigma * sigma * core::f32::consts::LN_2);
+        let r = radius as f32;
+
+        let mut s = Submit3d::new();
+        // Pass 1: horizontal blur, FBSRC region → TMP at (0,0,w,h).
+        s.emit_set_framebuffer_state(0, &[0x31]);
+        s.emit_set_viewport_box(0.0, 0.0, w as f32, h as f32);
+        s.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[0x32]);
+        s.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[0x34]);
+        s.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[1.0 / 1280.0, 1.0 / 1600.0, r, k, 1.0, 0.0, x as f32, y_rel as f32],
+        );
+        s.emit_bind_shader(10, PIPE_SHADER_VERTEX);
+        s.emit_bind_shader(13, PIPE_SHADER_FRAGMENT);
+        s.emit_set_vertex_buffers(&[(16, 0, 0xFA)]);
+        s.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        // Pass 2: vertical blur, TMP (0,0,w,h) → FBSRC region.
+        s.emit_set_framebuffer_state(0, &[0x30]);
+        s.emit_set_viewport_box(x as f32, y_rel as f32, w as f32, h as f32);
+        s.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[0x33]);
+        s.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[1.0 / 1280.0, 1.0 / 800.0, r, k, 0.0, 1.0, -(x as f32), -(y_rel as f32)],
+        );
+        s.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        let bytes = s.as_bytes();
+        let hdr = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+
+        // Land the blurred pixels back in the scanned-out guest VMO.
+        self.virgl_transfer_from_host(0xF8, x, y_rel, w, h, 5120)?;
+
+        // Compare GPU result vs CPU reference over the interior.
+        if let Some((ref_va, ref_stride)) = parity_buf {
+            let inset = (radius + 1) as usize;
+            let mut max_diff: u8 = 0;
+            if (w as usize) > 2 * inset && (h as usize) > 2 * inset {
+                for row in inset..(h as usize - inset) {
+                    for col in inset..(w as usize - inset) {
+                        let gpu_off = (y as usize + row) * fb_w * 4 + (x as usize + col) * 4;
+                        let ref_off = row * ref_stride + col * 4;
+                        for c in 0..3 {
+                            let g = unsafe { fb.add(gpu_off + c).read_volatile() };
+                            let r8 = unsafe { ((ref_va + ref_off + c) as *const u8).read() };
+                            let d = g.abs_diff(r8);
+                            if d > max_diff {
+                                max_diff = d;
+                            }
+                        }
+                    }
+                }
+                let _ = nexus_abi::debug_println(if max_diff <= 2 {
+                    crate::markers::GPUD_VIRGL_BLUR_PARITY_OK
+                } else {
+                    crate::markers::GPUD_VIRGL_BLUR_PARITY_OFF
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Allocate and map a page-aligned scratch VMO in the virgl backing VA
+    /// region (no resource attach). Returns the VA.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
+        let slot = self.virgl_backing_count;
+        if slot >= 8 {
+            return Err(GfxError::ResourceExhausted);
+        }
+        let va = GPU_VIRGL_BACKING_BASE_VA + slot * GPU_VIRGL_BACKING_STRIDE;
+        let len = align_page(byte_len);
+        let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
+        let flags = nexus_abi::page_flags::VALID
+            | nexus_abi::page_flags::USER
+            | nexus_abi::page_flags::READ
+            | nexus_abi::page_flags::WRITE;
+        for offset in (0..len).step_by(4096) {
+            nexus_abi::vmo_map_page(vmo, va + offset, offset, flags)
+                .map_err(|_| GfxError::MmioFault)?;
+        }
+        self.virgl_backing_count = slot + 1;
+        Ok(va)
+    }
+
+    /// Read the device feature bits and acknowledge the subset we support for
+    /// virgl 3D. Must run after ACKNOWLEDGE|DRIVER and before FEATURES_OK.
+    ///
+    /// Sets `self.virgl_capable` iff the device offered `VIRTIO_GPU_F_VIRGL`.
+    /// We ack VIRGL (3D), CONTEXT_INIT (so CTX_CREATE may select the VIRGL2
+    /// capset), and VERSION_1 (modern virtio — the queue is already driven via
+    /// the split DESC/DRIVER/DEVICE registers, so VERSION_1 is the correct mode).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn negotiate_features_virgl(&mut self) {
+        // Low feature word (bits 0..31).
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES_SEL, 0);
+        let dev_lo = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES);
+        // High feature word (bits 32..63), where VERSION_1 lives.
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES_SEL, 1);
+        let dev_hi = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_DEVICE_FEATURES);
+
+        let want_lo = protocol::VIRTIO_GPU_F_VIRGL | protocol::VIRTIO_GPU_F_CONTEXT_INIT;
+        let drv_lo = dev_lo & want_lo;
+        let drv_hi = dev_hi & protocol::VIRTIO_F_VERSION_1_HI;
+
+        self.virgl_capable = (dev_lo & protocol::VIRTIO_GPU_F_VIRGL) != 0;
+
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES_SEL, 0);
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES, drv_lo);
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES_SEL, 1);
+        write_reg(self.mmio_base, protocol::VIRTIO_MMIO_DRIVER_FEATURES, drv_hi);
     }
 
     fn create_resource_os(
@@ -1154,12 +2070,12 @@ impl VirtioGpuBackend {
         let cmd = protocol::VirtioGpuCursorPos {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_MOVE_CURSOR),
             pos: protocol::VirtioGpuCursorPosData { scanout_id: 0, x, y, _padding: 0 },
-            resource_id: 0,
+            resource_id: 1,
             hot_x: 0,
             hot_y: 0,
             _padding: 0,
         };
-        self.ctrl_submit_struct(&cmd)
+        self.cursor_submit_struct(&cmd)
     }
 
     fn ctrl_submit_struct<T>(&mut self, cmd: &T) -> Result<(), GfxError> {
@@ -1167,6 +2083,15 @@ impl VirtioGpuBackend {
             core::slice::from_raw_parts((cmd as *const T).cast::<u8>(), core::mem::size_of::<T>())
         };
         self.ctrl_submit_bytes(bytes)
+    }
+
+    /// Submit a cursor command (UPDATE_CURSOR / MOVE_CURSOR) on the cursor queue.
+    fn cursor_submit_struct<T>(&mut self, cmd: &T) -> Result<(), GfxError> {
+        let bytes = unsafe {
+            core::slice::from_raw_parts((cmd as *const T).cast::<u8>(), core::mem::size_of::<T>())
+        };
+        let queue = self.cursorq.as_mut().ok_or(GfxError::DeviceNotFound)?;
+        queue.submit(self.mmio_base, bytes)
     }
 
     fn ctrl_submit_pair<A, B>(&mut self, a: &A, b: &B) -> Result<(), GfxError> {
@@ -1188,7 +2113,13 @@ impl VirtioGpuBackend {
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 impl CtrlQueue {
-    fn new(mmio_base: usize, queue_index: u32) -> Result<Self, GpuDriverError> {
+    fn new(
+        mmio_base: usize,
+        queue_index: u32,
+        queue_va: usize,
+        cmd_va_base: usize,
+        resp_va_base: usize,
+    ) -> Result<Self, GpuDriverError> {
         let q_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
         let cmd_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
         let resp_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
@@ -1196,11 +2127,11 @@ impl CtrlQueue {
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
-        nexus_abi::vmo_map_page(q_vmo, GPU_QUEUE_VA, 0, flags)
+        nexus_abi::vmo_map_page(q_vmo, queue_va, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        nexus_abi::vmo_map_page(cmd_vmo, GPU_CMD_VA, 0, flags)
+        nexus_abi::vmo_map_page(cmd_vmo, cmd_va_base, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        nexus_abi::vmo_map_page(resp_vmo, GPU_RESP_VA, 0, flags)
+        nexus_abi::vmo_map_page(resp_vmo, resp_va_base, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
         let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
@@ -1209,17 +2140,17 @@ impl CtrlQueue {
         nexus_abi::cap_query(cmd_vmo, &mut cmd_info).map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::cap_query(resp_vmo, &mut resp_info).map_err(|_| GpuDriverError::MmioFault)?;
         unsafe {
-            core::ptr::write_bytes(GPU_QUEUE_VA as *mut u8, 0, 4096);
-            core::ptr::write_bytes(GPU_CMD_VA as *mut u8, 0, 4096);
-            core::ptr::write_bytes(GPU_RESP_VA as *mut u8, 0, 4096);
+            core::ptr::write_bytes(queue_va as *mut u8, 0, 4096);
+            core::ptr::write_bytes(cmd_va_base as *mut u8, 0, 4096);
+            core::ptr::write_bytes(resp_va_base as *mut u8, 0, 4096);
         }
 
         let desc_bytes = core::mem::size_of::<VqDesc>() * QUEUE_LEN;
         let avail_bytes = core::mem::size_of::<VqAvail<QUEUE_LEN>>();
         let used_off = align4(desc_bytes + avail_bytes);
-        let desc_va = GPU_QUEUE_VA;
-        let avail_va = GPU_QUEUE_VA + desc_bytes;
-        let used_va = GPU_QUEUE_VA + used_off;
+        let desc_va = queue_va;
+        let avail_va = queue_va + desc_bytes;
+        let used_va = queue_va + used_off;
 
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_SEL, queue_index);
         let max = read_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NUM_MAX);
@@ -1241,15 +2172,16 @@ impl CtrlQueue {
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_READY, 1);
 
         Ok(Self {
+            queue_index,
             _queue_vmo: q_vmo,
             _cmd_vmo: cmd_vmo,
             _resp_vmo: resp_vmo,
             desc: desc_va as *mut VqDesc,
             avail: avail_va as *mut VqAvail<QUEUE_LEN>,
             used: used_va as *mut VqUsed<QUEUE_LEN>,
-            cmd_va: GPU_CMD_VA,
+            cmd_va: cmd_va_base,
             cmd_pa: cmd_info.base,
-            resp_va: GPU_RESP_VA,
+            resp_va: resp_va_base,
             resp_pa: resp_info.base,
             last_used: 0,
         })
@@ -1300,7 +2232,7 @@ impl CtrlQueue {
             core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, CTRL_QUEUE_INDEX);
+        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
         // Log command type: first[0..4] = virtio-gpu cmd type u32le.
         // Allocation-free: this runs for every GPU command on the per-frame
         // submit path, and gpud's bump allocator never frees — a `format!` here
@@ -1634,6 +2566,137 @@ fn blur_backdrop_vmo(
             }
         }
     }
+    Ok(())
+}
+
+/// Separable gaussian blur — the virgl GPU path target.
+///
+/// Uses a precomputed gaussian kernel for higher-quality blur than the box-blur
+/// fallback. The two-pass separable convolution (horizontal + vertical) is the
+/// same algorithm a GPU compute shader would execute; this CPU implementation
+/// serves as both the reference and the fallback when virgl is unavailable.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn blur_backdrop_separable_vmo(
+    fb: *mut u8,
+    fb_len: usize,
+    fb_w: usize,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    radius: u32,
+    _saturation_pct: u32,
+) -> Result<(), GfxError> {
+    if radius == 0 {
+        return Ok(());
+    }
+    let fb_w_u = fb_w as u32;
+    let end_x = x.saturating_add(w).min(fb_w_u);
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let end_y = y.saturating_add(h).min(fb_h);
+    let r = radius as usize;
+    let pixels = (end_x - x) as usize;
+    let rows = (end_y - y) as usize;
+    if pixels == 0 || rows == 0 {
+        return Ok(());
+    }
+
+    // Precompute gaussian kernel weights for the given radius.
+    // σ = radius / 2 gives a natural falloff.
+    let sigma = (r as f32) / 2.0_f32.max(0.5);
+    let kernel_size = r * 2 + 1;
+    let kernel: [f32; 41] = {
+        let mut k = [0.0_f32; 41];
+        let mut sum = 0.0_f32;
+        for i in 0..kernel_size.min(41) {
+            let dx = (i as i32 - r as i32) as f32;
+            let w = libm::expf(-dx * dx / (2.0 * sigma * sigma));
+            k[i] = w;
+            sum += w;
+        }
+        // Normalize
+        if sum > 0.0 {
+            for v in k.iter_mut().take(kernel_size.min(41)) {
+                *v /= sum;
+            }
+        }
+        k
+    };
+    let k_len = kernel_size.min(41);
+
+    // Horizontal pass: convolve each row with the gaussian kernel.
+    // Stack-allocated scratch: worst case 1280*4 = 5120 bytes.
+    let row_bytes = pixels * 4;
+    let mut scratch: [u8; 5120] = [0u8; 5120];
+    if row_bytes > scratch.len() {
+        return Err(GfxError::ResourceExhausted);
+    }
+    for py in y..end_y {
+        let row_start = (py as usize * fb_w + x as usize) * 4;
+        if row_start + row_bytes > fb_len {
+            continue;
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(fb.add(row_start), scratch.as_mut_ptr(), row_bytes);
+        }
+        for i in 0..pixels {
+            let mut acc: [f32; 4] = [0.0; 4];
+            for ki in 0..k_len {
+                let src_i = (i as i32 + ki as i32 - r as i32).clamp(0, pixels as i32 - 1) as usize;
+                let si = src_i * 4;
+                let w = kernel[ki];
+                for c in 0..4 {
+                    acc[c] += scratch[si + c] as f32 * w;
+                }
+            }
+            let di = row_start + i * 4;
+            for c in 0..4 {
+                unsafe {
+                    core::ptr::write_volatile(fb.add(di + c), libm::roundf(acc[c]).clamp(0.0, 255.0) as u8);
+                }
+            }
+        }
+    }
+
+    // Vertical pass: convolve each column with the gaussian kernel.
+    let col_bytes = rows * 4;
+    let mut col_buf: [u8; 3200] = [0u8; 3200]; // 800 rows * 4 bytes
+    if col_bytes > col_buf.len() {
+        return Err(GfxError::ResourceExhausted);
+    }
+    for px in x..end_x {
+        let col_off = px as usize * 4;
+        for row_i in 0..rows {
+            let src = (y as usize + row_i) * fb_w + col_off;
+            if src + 4 <= fb_len {
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        fb.add(src),
+                        col_buf.as_mut_ptr().add(row_i * 4),
+                        4,
+                    );
+                }
+            }
+        }
+        for i in 0..rows {
+            let mut acc: [f32; 4] = [0.0; 4];
+            for ki in 0..k_len {
+                let src_i = (i as i32 + ki as i32 - r as i32).clamp(0, rows as i32 - 1) as usize;
+                let si = src_i * 4;
+                let w = kernel[ki];
+                for c in 0..4 {
+                    acc[c] += col_buf[si + c] as f32 * w;
+                }
+            }
+            let di = (y as usize + i) * fb_w + col_off;
+            for c in 0..4 {
+                unsafe {
+                    core::ptr::write_volatile(fb.add(di + c), libm::roundf(acc[c]).clamp(0.0, 255.0) as u8);
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

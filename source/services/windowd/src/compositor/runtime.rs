@@ -48,6 +48,7 @@ use crate::live_runtime::{
 };
 use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
+use crate::systemui_shell::{DeviceProfile, SystemUiShell};
 use crate::telemetry::WindowdDisplayTelemetryReport;
 use alloc::vec::Vec;
 use animation::{AnimProp, AnimationDriver, LayerId, SceneUpdate};
@@ -70,8 +71,7 @@ const GPUD_STATUS_OK: u8 = 0;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
-const HOVER_LAYER_ID: LayerId = LayerId(1);
-const SIDEBAR_LAYER_ID: LayerId = LayerId(62);
+use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 const SIDEBAR_WIDTH: u32 = 320;
 const SIDEBAR_MARGIN_TOP: u32 = 18;
 const SIDEBAR_MARGIN_BOTTOM: u32 = 18;
@@ -143,7 +143,11 @@ struct AnimatedSceneState {
 
 impl AnimatedSceneState {
     const fn new() -> Self {
-        Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
+        Self {
+            hover_opacity: 0.0,
+            sidebar_translate_x: 320.0,
+            sidebar_opacity: 0.0,
+        }
     }
 }
 
@@ -153,7 +157,9 @@ fn draw_animation_proof_overlay_row(
     mode: VisibleBootstrapMode,
     scene: AnimatedSceneState,
 ) {
-    let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+    let button_x = mode
+        .width
+        .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
     let button_rect = ProofBoxRect {
         x: button_x,
@@ -175,10 +181,12 @@ fn draw_animation_proof_overlay_row(
         6,
         32,
     );
-    let menu_icon_x =
-        button_rect.x.saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
-    let menu_icon_y =
-        button_rect.y.saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_x = button_rect
+        .x
+        .saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_y = button_rect
+        .y
+        .saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
     let menu_icon_alpha = (152.0 + 92.0 * scene.hover_opacity).clamp(120.0, 244.0) as u8;
     draw_lucide_menu_icon_row(
         row,
@@ -190,13 +198,18 @@ fn draw_animation_proof_overlay_row(
     );
 
     let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-    let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
+    let sidebar_x = mode
+        .width
+        .saturating_sub(SIDEBAR_WIDTH)
+        .saturating_add(translate);
     let sidebar_alpha = (220.0 * scene.sidebar_opacity).clamp(0.0, 220.0) as u8;
     if sidebar_alpha == 0 {
         return;
     }
-    let sidebar_height =
-        mode.height.saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM)).max(1);
+    let sidebar_height = mode
+        .height
+        .saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM))
+        .max(1);
     let sidebar_rect = ProofBoxRect {
         x: sidebar_x,
         y: SIDEBAR_MARGIN_TOP,
@@ -257,7 +270,12 @@ fn draw_floating_glass_rect_row(
     }
     let rect_end_y = rect.y.saturating_add(rect.height);
     if y >= rect.y.saturating_add(shadow_dy) && y < rect_end_y.saturating_add(shadow_dy) {
-        blend_span(row, rect.x.saturating_add(shadow_dx), rect.width, [0, 0, 0, shadow_alpha]);
+        blend_span(
+            row,
+            rect.x.saturating_add(shadow_dx),
+            rect.width,
+            [0, 0, 0, shadow_alpha],
+        );
     }
     if y < rect.y || y >= rect_end_y {
         return;
@@ -459,6 +477,9 @@ pub(crate) struct DisplayServerRuntime {
     /// (~1.4KB/frame) and exhaust the 1MB heap after ~700 animation
     /// frames — the cause of the `alloc-fail svc=windowd` crash mid-animation.
     scene_cb: CommandBuffer,
+    /// SystemUI shell with retained scene graph — the single rendering authority
+    /// for all UI surfaces (Phase 0: GPU pipeline hardening).
+    shell: SystemUiShell,
     /// Set when register_framebuffer_vmo creates the framebuffer VMO but
     /// after sending the response.
     framebuffer_pending_first_write: bool,
@@ -561,8 +582,10 @@ impl DisplayServerRuntime {
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
         let proof_layouts = build_live_proof_layouts(initial_state);
-        let proof_layout_index =
-            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
+        let proof_layout_index = proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.first())
+            .map(|layout| {
                 LayoutHotPathIndex::build(
                     layout,
                     PROOF_PANEL_X,
@@ -648,6 +671,7 @@ impl DisplayServerRuntime {
             gpud_client: None,
             pipeline_timer,
             scene_cb: CommandBuffer::new(),
+            shell: SystemUiShell::new(DeviceProfile::qemu_default()),
             framebuffer_pending_first_write: false,
             present_seq: 0,
             frames_in_flight: 0,
@@ -742,8 +766,10 @@ impl DisplayServerRuntime {
         self.framebuffer_pending_first_write = true;
         let next = self.first_handoff_id.wrapping_add(1);
         self.first_handoff_id = if next == 0 { 1 } else { next };
-        self.first_handoff_deadline_ns =
-            nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
+        self.first_handoff_deadline_ns = nsec()
+            .ok()
+            .map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS))
+            .unwrap_or(0);
         self.first_handoff_frame_written = false;
         self.first_handoff_bootstrap_markers_emitted = false;
         self.first_handoff_attach_acked = false;
@@ -829,8 +855,13 @@ impl DisplayServerRuntime {
         // the scene into Plane 1; this CB copies it to Plane 2 (display) so the
         // first frame is identical to every steady-state frame (one code path).
         if !self.first_handoff_present_sent {
-            let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
-            let mut frame_buf = [0u8; 2048];
+            let full = DamageRect {
+                x: 0,
+                y: 0,
+                width: self.mode.width,
+                height: self.mode.height,
+            };
+            let mut frame_buf = [0u8; 8192];
             let sent = match self.build_scene_cb_into(&[full], 1, &mut frame_buf[1..]) {
                 Ok(written) => {
                     frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
@@ -1034,7 +1065,26 @@ impl DisplayServerRuntime {
         if self.state == old_state && self.active_filter_idx == old_filter_idx {
             return STATUS_OK;
         }
-        self.queue_target_damage(old_state, self.state);
+        // ── Phase 0: Scene graph updates instead of damage rect queueing ──
+        // Card active states: hover → slot 0, click → slot 1, keyboard → slot 2
+        let hover_changed = old_state.hover_visible != self.state.hover_visible;
+        let click_changed = old_state.launcher_click_visible != self.state.launcher_click_visible;
+        let key_changed = old_state.keyboard_visible != self.state.keyboard_visible;
+        if hover_changed {
+            self.shell.set_card_active(0, self.state.hover_visible);
+        }
+        if click_changed {
+            self.shell
+                .set_card_active(1, self.state.launcher_click_visible);
+        }
+        if key_changed {
+            self.shell.set_card_active(2, self.state.keyboard_visible);
+        }
+        // Sidebar visibility
+        if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+            self.shell
+                .set_sidebar_visible(self.state.sidebar_open_visible);
+        }
         // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
         let cursor_changed =
             old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
@@ -1077,10 +1127,16 @@ impl DisplayServerRuntime {
             // Sidebar open/close uses a dedicated state so close actions are not
             // coupled to hover leave.
             if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
-                let sidebar_from =
-                    if old_state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
-                let sidebar_to =
-                    if self.state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                let sidebar_from = if old_state.sidebar_open_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
+                let sidebar_to = if self.state.sidebar_open_visible {
+                    0.0
+                } else {
+                    SIDEBAR_WIDTH as f32
+                };
                 self.animation_driver.spring_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
@@ -1092,7 +1148,11 @@ impl DisplayServerRuntime {
                     SIDEBAR_LAYER_ID,
                     AnimProp::Opacity,
                     self.animated_scene.sidebar_opacity,
-                    if self.state.sidebar_open_visible { 1.0 } else { 0.0 },
+                    if self.state.sidebar_open_visible {
+                        1.0
+                    } else {
+                        0.0
+                    },
                     spring,
                 );
                 if !self.animation_proof.timeline_marker {
@@ -1102,15 +1162,39 @@ impl DisplayServerRuntime {
             }
             // Click card opacity
             if old_state.launcher_click_visible != self.state.launcher_click_visible {
-                let from = if old_state.launcher_click_visible { 1.0 } else { 0.0 };
-                let to = if self.state.launcher_click_visible { 1.0 } else { 0.0 };
-                self.animation_driver.spring_to(LayerId(2), AnimProp::Opacity, from, to, spring);
+                let from = if old_state.launcher_click_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                let to = if self.state.launcher_click_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                self.animation_driver.spring_to(
+                    CLICK_LAYER_ID,
+                    AnimProp::Opacity,
+                    from,
+                    to,
+                    spring,
+                );
             }
             // Keyboard card opacity
             if old_state.keyboard_visible != self.state.keyboard_visible {
                 let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
-                let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
-                self.animation_driver.spring_to(LayerId(3), AnimProp::Opacity, from, to, spring);
+                let to = if self.state.keyboard_visible {
+                    1.0
+                } else {
+                    0.0
+                };
+                self.animation_driver.spring_to(
+                    KEYBOARD_LAYER_ID,
+                    AnimProp::Opacity,
+                    from,
+                    to,
+                    spring,
+                );
             }
         }
         if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
@@ -1120,11 +1204,14 @@ impl DisplayServerRuntime {
                 SIDEBAR_CLOSE_MARKER
             });
             // Sidebar is a GPU overlay — no CPU content in P1 changes on open/close.
-            // Cache invalidation is deferred until the close animation fully completes.
+            // Cache invalidation is deferred until the close animation completes.
             self.queue_gpu_blit_rect(self.sidebar_damage_rect());
         }
         self.paint_only_damage =
             paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
+        // Cursor hot path: a cursor-only move queues just the merged old+new
+        // cursor rect — flush blits that region from the retained Plane 1 and
+        // overlays BlendCursor on the GPU. No content recomposite, no re-blur.
         self.queue_cursor_damage(
             old_cursor_x,
             old_cursor_y,
@@ -1197,8 +1284,11 @@ impl DisplayServerRuntime {
         let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
-            let container_id =
-                layout.boxes.iter().find(|b| b.id == Some("filter_list")).map(|b| b.node_id);
+            let container_id = layout
+                .boxes
+                .iter()
+                .find(|b| b.id == Some("filter_list"))
+                .map(|b| b.node_id);
 
             if let Some(id) = container_id {
                 let viewport_h = layout
@@ -1207,7 +1297,7 @@ impl DisplayServerRuntime {
                     .find(|b| b.node_id == id)
                     .map(|b| {
                         FxPx::new(
-                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
                         )
                     })
                     .unwrap_or(FxPx::ZERO);
@@ -1218,7 +1308,11 @@ impl DisplayServerRuntime {
                     .map(|b| b.scroll_offset)
                     .unwrap_or((FxPx::ZERO, FxPx::ZERO));
 
-                let dy = if wheel_down_visible { FxPx::new(20) } else { FxPx::new(-20) };
+                let dy = if wheel_down_visible {
+                    FxPx::new(20)
+                } else {
+                    FxPx::new(-20)
+                };
                 let max_scroll = FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
@@ -1233,7 +1327,12 @@ impl DisplayServerRuntime {
                 let w = rect.width.as_u32().unwrap_or(0);
                 let h = rect.height.as_u32().unwrap_or(0);
                 if w > 0 && h > 0 {
-                    self.queue_dirty_rect(DamageRect { x, y, width: w, height: h });
+                    self.queue_dirty_rect(DamageRect {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    });
                 }
             }
             if !damage.is_empty() {
@@ -1324,9 +1423,9 @@ impl DisplayServerRuntime {
         self.apply_scene_updates(updates);
 
         // Per-layer damage: only mark regions that actually changed.
-        // Sidebar animation → only sidebar rect. Hover/click/key → only panel.
-        // This prevents sidebar animation from invalidating the proof panel
-        // and hover animation from invalidating the sidebar.
+        // Sidebar animation → only sidebar rect; hover/click/key → only panel.
+        // GPU-only blit rects: Plane 1 content is unchanged, the GPU CB reads
+        // the animated state each frame — no CPU recomposite, no re-blur.
         let mut panel_dirty = false;
         let mut sidebar_dirty = false;
         for update in updates {
@@ -1342,13 +1441,9 @@ impl DisplayServerRuntime {
                 width: COMBINED_PANEL_WIDTH as u32,
                 height: PROOF_PANEL_H,
             };
-            // GPU-only: only animated props (hover_opacity) changed. Plane 1 is
-            // current. Display plane needs a refresh blit but no CPU recomposite.
             self.queue_gpu_blit_rect(panel_damage);
         }
         if sidebar_dirty {
-            // GPU-only: only translate_x/opacity changed. Plane 1 sidebar content
-            // is unchanged. GPU CB reads current animated state each frame.
             self.queue_gpu_blit_rect(self.sidebar_damage_rect());
         }
 
@@ -1388,6 +1483,12 @@ impl DisplayServerRuntime {
 
     fn apply_scene_updates(&mut self, updates: &[SceneUpdate]) {
         for update in updates {
+            // Route to the scene graph via the shell's explicit layer→node
+            // mapping (unknown layers are dropped, never mistargeted).
+            if let Some(target) = self.shell.animation_target(update.layer_id) {
+                self.shell.graph.apply_animation_update_to(target, *update);
+            }
+            // Keep legacy state for backward-compatible markers/telemetry.
             match (update.layer_id, update.property) {
                 (HOVER_LAYER_ID, AnimProp::Opacity) => {
                     self.animated_scene.hover_opacity = update.value.clamp(0.0, 1.0);
@@ -1395,6 +1496,9 @@ impl DisplayServerRuntime {
                 (SIDEBAR_LAYER_ID, AnimProp::TranslateX) => {
                     self.animated_scene.sidebar_translate_x =
                         update.value.clamp(0.0, SIDEBAR_WIDTH as f32);
+                    // Also update the sidebar's scene graph position.
+                    self.shell
+                        .set_sidebar_slide(self.animated_scene.sidebar_translate_x);
                 }
                 (SIDEBAR_LAYER_ID, AnimProp::Opacity) => {
                     self.animated_scene.sidebar_opacity = update.value.clamp(0.0, 1.0);
@@ -1531,7 +1635,10 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let send_result = {
-            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
+            let client = self
+                .gpud_client
+                .as_ref()
+                .ok_or(WindowdError::InvalidDamage)?;
             client.send(frame, Wait::Blocking)
         };
         if let Err(err) = send_result {
@@ -1540,7 +1647,10 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let recv_result = {
-            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
+            let client = self
+                .gpud_client
+                .as_ref()
+                .ok_or(WindowdError::InvalidDamage)?;
             client.recv(Wait::Blocking)
         };
         match recv_result {
@@ -1612,8 +1722,12 @@ impl DisplayServerRuntime {
             // Blur the combined glass panel region.
             // gpud reads from the VMO display region (offset DISPLAY_OFFSET_BYTES),
             // applies box blur, and writes the result back.
-            let glass_rect =
-                TileRect { x: 0, y: 0, width: COMBINED_PANEL_WIDTH as u32, height: PROOF_PANEL_H };
+            let glass_rect = TileRect {
+                x: 0,
+                y: 0,
+                width: COMBINED_PANEL_WIDTH as u32,
+                height: PROOF_PANEL_H,
+            };
             if encoder
                 .try_blur_backdrop(
                     glass_rect,
@@ -1758,22 +1872,27 @@ impl DisplayServerRuntime {
             payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
             payload[8..12].copy_from_slice(&self.animated_scene.sidebar_translate_x.to_le_bytes());
             payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
-            encoder.try_set_fragment_bytes(0, &payload).map_err(|_| WindowdError::InvalidDamage)?;
             encoder
-                .try_draw_tiles(&[
-                    TileRect {
-                        x: self.mode.width.saturating_sub(SIDEBAR_WIDTH),
-                        y: 0,
-                        width: SIDEBAR_WIDTH,
-                        height: self.mode.height,
-                    },
-                    TileRect {
-                        x: self.mode.width.saturating_sub(180),
-                        y: 24,
-                        width: 156,
-                        height: 56,
-                    },
-                ])
+                .try_set_fragment_bytes(0, &payload)
+                .map_err(|_| WindowdError::InvalidDamage)?;
+            encoder
+                .try_draw_tiles(
+                    &[
+                        TileRect {
+                            x: self.mode.width.saturating_sub(SIDEBAR_WIDTH),
+                            y: 0,
+                            width: SIDEBAR_WIDTH,
+                            height: self.mode.height,
+                        },
+                        TileRect {
+                            x: self.mode.width.saturating_sub(180),
+                            y: 24,
+                            width: 156,
+                            height: 56,
+                        },
+                    ],
+                    RgbaColor::new(200, 220, 255, 192),
+                )
                 .map_err(|_| WindowdError::InvalidDamage)?;
             encoder.end_encoding();
         }
@@ -1934,7 +2053,12 @@ impl DisplayServerRuntime {
             width: self.mode.width,
             height: self.mode.height,
         });
-        self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)
+        self.write_rows(
+            0,
+            self.mode.height,
+            select_glass_quality(PROOF_PANEL_H),
+            false,
+        )
     }
 
     fn write_rows(
@@ -1953,8 +2077,10 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout = self
+            .proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -2022,15 +2148,21 @@ impl DisplayServerRuntime {
             let offset = band_start as usize * row_len;
             // CPU computes background content (wallpaper + proof panel) into Plane 1.
             // GPU draws the animated overlay (button, sidebar, cursor) on top each frame.
-            vmo_write(handle, RETAINED_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
-                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            vmo_write(
+                handle,
+                RETAINED_OFFSET_BYTES + offset,
+                &band_scratch[..band_bytes],
+            )
+            .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
         self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         self.telemetry.record_compose_timed(
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
+            nsec()
+                .unwrap_or(render_start_ns)
+                .saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -2059,8 +2191,10 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout = self
+            .proof_layouts
+            .as_ref()
+            .and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -2142,7 +2276,9 @@ impl DisplayServerRuntime {
         self.telemetry.record_compose_timed(
             u64::from(end_x.saturating_sub(start_x))
                 .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
+            nsec()
+                .unwrap_or(render_start_ns)
+                .saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -2290,7 +2426,9 @@ impl DisplayServerRuntime {
             }
 
             // 2. Glass button — cached blur, skipped when sidebar covers it.
-            let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+            let button_x = mode
+                .width
+                .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
             let button_blit_w = GLASS_BUTTON_W.min(mode.width.saturating_sub(button_x));
             let sidebar_x_for_btn = mode
                 .width
@@ -2369,7 +2507,12 @@ impl DisplayServerRuntime {
                 let icon_alpha = (160.0 + 80.0 * scene.hover_opacity).clamp(160.0, 240.0) as u8;
                 let bar_color = RgbaColor::new(255, 255, 255, icon_alpha);
                 let _ = encoder.try_fill_sdf_rounded_rect(
-                    TileRect { x: bar_x, y: bar_y, width: MENU_BAR_W, height: MENU_BAR_H },
+                    TileRect {
+                        x: bar_x,
+                        y: bar_y,
+                        width: MENU_BAR_W,
+                        height: MENU_BAR_H,
+                    },
                     1,
                     bar_color,
                 );
@@ -2404,7 +2547,10 @@ impl DisplayServerRuntime {
             let sidebar_opacity = scene.sidebar_opacity;
             if sidebar_opacity > 0.01 {
                 let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-                let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
+                let sidebar_x = mode
+                    .width
+                    .saturating_sub(SIDEBAR_WIDTH)
+                    .saturating_add(translate);
                 if sidebar_x < mode.width {
                     let sidebar_w = SIDEBAR_WIDTH.min(mode.width.saturating_sub(sidebar_x));
                     let sidebar_h = mode
@@ -2530,7 +2676,10 @@ impl DisplayServerRuntime {
                 }
             }
 
-            // 4. Cursor — composited last, never baked into any plane.
+            // 4. Cursor — composited last, never baked into any plane. On a
+            //    cursor-only move this is the entire frame: a cheap cursor-region
+            //    blit (from the retained Plane 1) + this BlendCursor, no content
+            //    recomposite and no re-blur. That is the GPU pointer hot path.
             if cursor_w > 0 && cursor_h > 0 {
                 let cx = (cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
                 let cy = (cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
@@ -2548,22 +2697,27 @@ impl DisplayServerRuntime {
         if built_button_cache {
             self.button_blur_cache_valid = true;
         }
-        self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
+        self.scene_cb
+            .serialize_into(out)
+            .map_err(|_| WindowdError::InvalidDamage)
     }
 
     /// Flush pending damage to gpud as one batched CommandBuffer.
     ///
-    /// Retained-surface model: content damage is recomposited (CPU) into the
-    /// retained plane (Plane 1) first; then a single CB blits every damage region
-    /// (content + cursor + gpu-blit) from Plane 1 to the display plane (Plane 2)
-    /// and overlays animated glass and cursor. GPU-blit-only frames (animation ticks
-    /// where only translate_x/opacity changed) skip the CPU recomposite entirely —
-    /// Plane 1 is already current; only the display plane needs refreshing.
+    /// Phase 0 (GPU pipeline hardening): the scene graph is the single rendering
+    /// authority. `compute_dirty_set()` on the scene graph drives all CB generation.
+    /// No CPU compositing — wallpaper is a `BlitSurface` from Plane 0,
+    /// panels are `FillSdfRoundedRect`/`BlurBackdrop`, and the cursor is `BlendCursor`.
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
 
         // 1. Collect content damage (panels/text — needs CPU recomposite of Plane 1).
-        let mut content = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
+        let mut content = [DamageRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        }; 5];
         let mut content_count = 0usize;
         if let Some(rect) = self.pending_damage_rect.take() {
             content[content_count] = rect;
@@ -2579,22 +2733,28 @@ impl DisplayServerRuntime {
 
         // GPU-blit-only rect from animation ticks (Plane 1 already current).
         let gpu_blit_rect = self.pending_gpu_blit_rect.take();
+        // Cursor-only move: skip CPU recomposite — just a cheap blit of the
+        // cursor region from the retained Plane 1 + BlendCursor (the hot path).
         let cursor_rect = self.pending_cursor_rect.take();
 
         if content_count == 0 && gpu_blit_rect.is_none() && cursor_rect.is_none() {
             return Ok(());
         }
 
-        // 2. Recomposite ONLY content damage into Plane 1 (CPU).
-        //    GPU-blit rects and cursor rects skip this — Plane 1 is already current.
+        // 2. Recomposite ONLY content damage into Plane 1 (CPU, blur cached).
         let glass_quality = select_glass_quality(PROOF_PANEL_H);
         for rect in content.iter().copied().take(content_count) {
             self.write_damage_rect(rect, glass_quality, paint_only)?;
         }
 
-        // 3. Blit list: content rects + gpu-blit rect + cursor rect.
-        //    All need a display-plane refresh from Plane 1.
-        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 7];
+        // 3. Blit list: content + gpu-blit + cursor rects — all refresh the
+        //    display plane from the retained Plane 1.
+        let mut blits = [DamageRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        }; 7];
         let mut blit_count = 0usize;
         for rect in content.iter().copied().take(content_count) {
             blits[blit_count] = rect;
@@ -2610,14 +2770,13 @@ impl DisplayServerRuntime {
         }
 
         // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
-        //    Serialized straight out of the reusable scene_cb (no per-frame alloc).
-        let mut frame_buf = [0u8; 2048];
+        let mut frame_buf = [0u8; 8192];
         let written = self.build_scene_cb_into(&blits, blit_count, &mut frame_buf[1..])?;
         self.tile_map.clear();
         frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
         let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {
-            // Requeue so the next pacer tick retries.
+            // gpud queue full / backpressured — requeue so the next tick retries.
             for rect in content.iter().copied().take(content_count) {
                 self.queue_dirty_rect(rect);
             }
@@ -2634,7 +2793,11 @@ impl DisplayServerRuntime {
                 });
             }
             self.paint_only_damage = false;
-            return Err(WindowdError::InvalidDamage);
+            return Ok(());
+        }
+        if !self.v3b_composition_verified {
+            let _ = debug_println("windowd: scene graph on");
+            let _ = debug_println("windowd: gpu pipeline on");
         }
         self.emit_input_markers();
         self.v3b_composition_verified = true;

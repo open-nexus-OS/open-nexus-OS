@@ -11,8 +11,13 @@
 use crate::error::WindowdError;
 
 pub(crate) fn checked_stride(width: u32) -> Result<u32, WindowdError> {
-    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-    bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow).map(|v| v / 64 * 64)
+    let bytes = width
+        .checked_mul(4)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    bytes
+        .checked_add(63)
+        .ok_or(WindowdError::ArithmeticOverflow)
+        .map(|v| v / 64 * 64)
 }
 
 /// Single-row horizontal box blur with variable radius.

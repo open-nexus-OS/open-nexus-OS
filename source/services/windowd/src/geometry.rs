@@ -26,7 +26,12 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -47,8 +52,14 @@ pub(crate) fn validate_damage(width: u32, height: u32, damage: &[Rect]) -> Resul
         if rect.width == 0 || rect.height == 0 {
             return Err(WindowdError::InvalidDamage);
         }
-        let end_x = rect.x.checked_add(rect.width).ok_or(WindowdError::ArithmeticOverflow)?;
-        let end_y = rect.y.checked_add(rect.height).ok_or(WindowdError::ArithmeticOverflow)?;
+        let end_x = rect
+            .x
+            .checked_add(rect.width)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let end_y = rect
+            .y
+            .checked_add(rect.height)
+            .ok_or(WindowdError::ArithmeticOverflow)?;
         if end_x > width || end_y > height {
             return Err(WindowdError::InvalidDamage);
         }
@@ -57,14 +68,21 @@ pub(crate) fn validate_damage(width: u32, height: u32, damage: &[Rect]) -> Resul
 }
 
 pub(crate) fn checked_stride(width: u32) -> Result<u32> {
-    let bytes = width.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
-    let aligned = bytes.checked_add(63).ok_or(WindowdError::ArithmeticOverflow)? / 64 * 64;
+    let bytes = width
+        .checked_mul(4)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
+    let aligned = bytes
+        .checked_add(63)
+        .ok_or(WindowdError::ArithmeticOverflow)?
+        / 64
+        * 64;
     Ok(aligned)
 }
 
 pub(crate) fn checked_len(stride: u32, height: u32) -> Result<usize> {
-    let len =
-        (stride as usize).checked_mul(height as usize).ok_or(WindowdError::ArithmeticOverflow)?;
+    let len = (stride as usize)
+        .checked_mul(height as usize)
+        .ok_or(WindowdError::ArithmeticOverflow)?;
     if len > MAX_TOTAL_BYTES {
         return Err(WindowdError::SurfaceTooLarge);
     }

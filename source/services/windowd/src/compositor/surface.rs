@@ -108,7 +108,15 @@ pub(crate) fn draw_proof_surface_row(
                 filter_input_rect = Some(rect);
                 let asset_id = crate::proof_panel_spec::filter_input_asset_id(filter_text);
                 if let Some(asset) = crate::assets::proof_text_asset(asset_id) {
-                    blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+                    blend_asset_row(
+                        y,
+                        row,
+                        rect.x,
+                        rect.y,
+                        asset.width,
+                        asset.height,
+                        asset.bgra,
+                    )?;
                 }
                 return Ok(());
             }
@@ -121,7 +129,15 @@ pub(crate) fn draw_proof_surface_row(
                 return Ok(());
             }
             if let Some(asset) = crate::assets::proof_text_asset(id) {
-                blend_asset_row(y, row, rect.x, rect.y, asset.width, asset.height, asset.bgra)?;
+                blend_asset_row(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    asset.width,
+                    asset.height,
+                    asset.bgra,
+                )?;
             }
         }
         Ok(())
@@ -182,7 +198,9 @@ fn draw_layout_box_row(
             let start_x = cached.bounds.x.min(row_pixels);
             let end_x = cached.bounds.end_x().min(row_pixels);
             let local_start_x = start_x.saturating_sub(cached.bounds.x);
-            let local_end_x = end_x.saturating_sub(cached.bounds.x).min(cached.bounds.width);
+            let local_end_x = end_x
+                .saturating_sub(cached.bounds.x)
+                .min(cached.bounds.width);
             let dst_start = start_x as usize * 4;
             let dst_end = end_x as usize * 4;
             let src_byte_start = src_start + local_start_x as usize * 4;
@@ -242,7 +260,12 @@ fn draw_layout_box_row(
 
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
-            let cr = layout_box.visual.corner_radius.top_left.as_u32().unwrap_or(0);
+            let cr = layout_box
+                .visual
+                .corner_radius
+                .top_left
+                .as_u32()
+                .unwrap_or(0);
             if cr > 0 {
                 // SDF rounded rect path (anti-aliased corners)
                 if let Some(bgra) = get_effective_bgra(layout_box) {
@@ -380,7 +403,10 @@ fn static_layer_cacheable_id(id: &str) -> bool {
 fn static_layer_has_cacheable_paint(layout_box: &nexus_layout::LayoutBox) -> bool {
     layout_box.visual.background.is_some()
         || layout_box.visual.border.top.is_some()
-        || matches!(layout_box.visual.shape, nexus_layout_types::ShapeKind::Path(_))
+        || matches!(
+            layout_box.visual.shape,
+            nexus_layout_types::ShapeKind::Path(_)
+        )
 }
 
 fn proof_paint_role(id: &str) -> Option<ProofPaintRole> {
@@ -428,7 +454,12 @@ pub(crate) fn record_layer_cache_row(
     if !rect.contains_y(y) {
         return Ok(());
     }
-    let bounds = DamageRect { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    let bounds = DamageRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
     let needs_insert = layer_cache
         .get(id)
         .map(|layer| {
@@ -504,7 +535,12 @@ pub(crate) fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<Pro
             return None; // completely outside clip rect
         }
     }
-    Some(ProofBoxRect { x, y, width, height })
+    Some(ProofBoxRect {
+        x,
+        y,
+        width,
+        height,
+    })
 }
 
 fn proof_box_background(
@@ -536,9 +572,11 @@ fn proof_box_background(
         } else {
             crate::assets::PROOF_CARD_BORDER
         }),
-        ProofPaintPart::ScrollUp => {
-            Some(if state.wheel_up_visible { crate::assets::PROOF_ICON_FG } else { card.accent })
-        }
+        ProofPaintPart::ScrollUp => Some(if state.wheel_up_visible {
+            crate::assets::PROOF_ICON_FG
+        } else {
+            card.accent
+        }),
         ProofPaintPart::ScrollDown => Some(if state.wheel_down_visible {
             crate::assets::PROOF_ICON_FG
         } else {
@@ -559,7 +597,10 @@ fn proof_box_border(
     let border = layout_box.visual.border.top?;
     let width = border.width.as_u32().unwrap_or(1);
     let color = match paint_role {
-        Some(ProofPaintRole { card, part: ProofPaintPart::Root | ProofPaintPart::Icon }) => {
+        Some(ProofPaintRole {
+            card,
+            part: ProofPaintPart::Root | ProofPaintPart::Icon,
+        }) => {
             let paint = card.paint(state);
             if paint.active {
                 paint.accent

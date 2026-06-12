@@ -30,7 +30,8 @@ pub(crate) fn blend_asset_row(
     blend_overlay_row(
         row,
         x as usize,
-        src.get(sr..sr + w as usize * 4).ok_or(WindowdError::BufferLengthMismatch)?,
+        src.get(sr..sr + w as usize * 4)
+            .ok_or(WindowdError::BufferLengthMismatch)?,
     )
 }
 
@@ -49,7 +50,10 @@ pub(crate) fn blend_asset_row_clipped(
         return Ok(());
     }
     let vx = x.max(cx);
-    let ve = x.saturating_add(w).min(cx.saturating_add(cw)).min((row.len() / 4) as u32);
+    let ve = x
+        .saturating_add(w)
+        .min(cx.saturating_add(cw))
+        .min((row.len() / 4) as u32);
     if ve <= vx {
         return Ok(());
     }
@@ -60,7 +64,8 @@ pub(crate) fn blend_asset_row_clipped(
     blend_overlay_row(
         row,
         vx as usize,
-        src.get(sr + so..sr + so + sl).ok_or(WindowdError::BufferLengthMismatch)?,
+        src.get(sr + so..sr + so + sl)
+            .ok_or(WindowdError::BufferLengthMismatch)?,
     )
 }
 
@@ -142,7 +147,10 @@ pub(crate) fn draw_path_row(
             ry,
             w,
             h,
-            *path.points.last().unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
+            *path
+                .points
+                .last()
+                .unwrap_or(&nexus_layout_types::PathPoint::new(0, 0)),
             path.points[0],
             bgra,
         )?;

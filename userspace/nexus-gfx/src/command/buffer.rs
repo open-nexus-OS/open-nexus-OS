@@ -63,8 +63,8 @@ impl RgbaColor {
 pub enum Command {
     /// Set shader uniform data at a byte offset.
     SetFragmentBytes { offset: usize, data: Vec<u8> },
-    /// Fill rectangular tiles with a solid color.
-    DrawTiles { tiles: Vec<TileRect> },
+    /// Fill rectangular tiles with a solid color (e.g. bitmap-font glyph pixels).
+    DrawTiles { tiles: Vec<TileRect>, color: RgbaColor },
     /// Copy a rectangle from the source surface to the framebuffer.
     /// All coordinates are in the render-pass coordinate space.
     BlitSurface { src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, width: u32, height: u32 },
@@ -181,7 +181,10 @@ const TAG_BLEND_CURSOR: u8 = 5;
 const TAG_BLIT_ABSOLUTE: u8 = 6;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
-const MAX_SERIALIZED: usize = 2048;
+// Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
+// opcode prefix and headroom). Frames carry the full scene-graph CB including
+// bitmap-text DrawTiles runs, which exceed the old 2048 cap.
+const MAX_SERIALIZED: usize = 8000;
 
 impl CommittedBuffer {
     /// Access the commands for backend inspection/execution.
@@ -303,8 +306,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
             Command::SetFragmentBytes { offset, data } => {
                 pos = ser_tag_data(buf, pos, TAG_SET_FRAGMENT, *offset, data)?;
             }
-            Command::DrawTiles { tiles } => {
-                pos = ser_tiles(buf, pos, TAG_DRAW_TILES, tiles)?;
+            Command::DrawTiles { tiles, color } => {
+                pos = ser_tiles(buf, pos, TAG_DRAW_TILES, tiles, *color)?;
             }
             Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
                 pos = ser_blit(
@@ -373,19 +376,27 @@ fn ser_tag_data(
     Ok(pos + 5 + data.len())
 }
 
-fn ser_tiles(buf: &mut [u8], pos: usize, tag: u8, tiles: &[TileRect]) -> Result<usize, GfxError> {
+fn ser_tiles(
+    buf: &mut [u8],
+    pos: usize,
+    tag: u8,
+    tiles: &[TileRect],
+    color: RgbaColor,
+) -> Result<usize, GfxError> {
     if tiles.len() > u16::MAX as usize {
         return Err(GfxError::ResourceExhausted);
     }
     let tile_bytes = tiles.len() * 16;
-    let needed = pos + 3 + tile_bytes;
+    // tag(1) + count(2) + color(4) + tiles.
+    let needed = pos + 7 + tile_bytes;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
     buf[pos] = tag;
     let count = tiles.len() as u16;
     buf[pos + 1..pos + 3].copy_from_slice(&count.to_le_bytes());
-    let mut p = pos + 3;
+    buf[pos + 3..pos + 7].copy_from_slice(&color.as_u32().to_le_bytes());
+    let mut p = pos + 7;
     for t in tiles {
         buf[p..p + 4].copy_from_slice(&t.x.to_le_bytes());
         buf[p + 4..p + 8].copy_from_slice(&t.y.to_le_bytes());
@@ -481,11 +492,17 @@ fn deser_fragment(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> 
 }
 
 fn deser_tiles(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 2 {
+    if buf.len() < pos + 6 {
         return Err(GfxError::InvalidArgument);
     }
     let count = u16::from_le_bytes([buf[pos], buf[pos + 1]]) as usize;
-    let tpos = pos + 2;
+    let color = RgbaColor::from_u32(u32::from_le_bytes([
+        buf[pos + 2],
+        buf[pos + 3],
+        buf[pos + 4],
+        buf[pos + 5],
+    ]));
+    let tpos = pos + 6;
     let bytes = count * 16;
     if buf.len() < tpos + bytes {
         return Err(GfxError::InvalidArgument);
@@ -500,7 +517,7 @@ fn deser_tiles(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
             height: u32::from_le_bytes([buf[b + 12], buf[b + 13], buf[b + 14], buf[b + 15]]),
         });
     }
-    Ok((Command::DrawTiles { tiles }, tpos + bytes))
+    Ok((Command::DrawTiles { tiles, color }, tpos + bytes))
 }
 
 fn deser_blit(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
@@ -627,7 +644,7 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
             }
             Ok(())
         }
-        Command::DrawTiles { tiles } => validate_tile_list(tiles, render_extent),
+        Command::DrawTiles { tiles, .. } => validate_tile_list(tiles, render_extent),
         Command::BlitSurface { width, height, .. } => {
             if *width == 0 || *height == 0 {
                 return Err(GfxError::InvalidArgument);

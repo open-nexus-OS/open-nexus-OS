@@ -1097,6 +1097,7 @@ dependencies = [
 name = "gpud"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "nexus-abi",
  "nexus-gfx",
  "nexus-ipc",
@@ -2025,6 +2026,13 @@ dependencies = [
  "capnp",
  "nexus-idl-runtime",
  "nexus-ipc",
+]
+
+[[package]]
+name = "nexus-virtual-list"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
 ]
 
 [[package]]
@@ -3661,6 +3669,17 @@ dependencies = [
  "nexus-layout-types",
  "nexus-msdf",
  "nexus-sdf",
+ "windowd",
+]
+
+[[package]]
+name = "ui_v5b_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-gfx",
+ "nexus-layout-types",
+ "nexus-theme",
+ "nexus-virtual-list",
  "windowd",
 ]
 

@@ -32,15 +32,15 @@ impl<'a> RenderCommandEncoder<'a> {
 
     // ── Tiles ─────────────────────────────────────────────────
 
-    pub fn draw_tiles(&mut self, tiles: &[TileRect]) {
-        self.try_draw_tiles(tiles).expect("invalid tile draw");
+    pub fn draw_tiles(&mut self, tiles: &[TileRect], color: RgbaColor) {
+        self.try_draw_tiles(tiles, color).expect("invalid tile draw");
     }
 
-    pub fn try_draw_tiles(&mut self, tiles: &[TileRect]) -> Result<(), GfxError> {
+    pub fn try_draw_tiles(&mut self, tiles: &[TileRect], color: RgbaColor) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
         }
-        self.cmd.push_command(Command::DrawTiles { tiles: tiles.to_vec() })
+        self.cmd.push_command(Command::DrawTiles { tiles: tiles.to_vec(), color })
     }
 
     // ── Blit ──────────────────────────────────────────────────

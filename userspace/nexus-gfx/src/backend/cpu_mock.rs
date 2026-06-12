@@ -93,11 +93,10 @@ impl CpuMockBackend {
                     }
                     self.fragment_data[*offset..end].copy_from_slice(data);
                 }
-                Command::DrawTiles { tiles } => {
-                    // Derive tile color from fragment uniform data (animation state).
-                    let color = self.tile_color_from_fragment();
+                Command::DrawTiles { tiles, color } => {
+                    let c = color.as_array();
                     for t in tiles {
-                        self.fill_rect_solid(t.x, t.y, t.width, t.height, color);
+                        self.fill_rect_solid(t.x, t.y, t.width, t.height, c);
                     }
                 }
                 Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
@@ -128,21 +127,6 @@ impl CpuMockBackend {
     }
 
     // ── Rendering primitives ─────────────────────────────────
-
-    fn tile_color_from_fragment(&self) -> [u8; 4] {
-        let sidebar_opacity = f32::from_le_bytes([
-            self.fragment_data[12],
-            self.fragment_data[13],
-            self.fragment_data[14],
-            self.fragment_data[15],
-        ]);
-        let alpha = (sidebar_opacity.clamp(0.0, 1.0) * 192.0) as u8;
-        if alpha > 0 {
-            [200, 220, 255, alpha]
-        } else {
-            [0, 0, 0, 0]
-        }
-    }
 
     fn fill_rect_solid(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
         let fw = self.width as usize;

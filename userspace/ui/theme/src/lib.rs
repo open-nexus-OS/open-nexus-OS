@@ -25,12 +25,14 @@
 pub mod error;
 pub mod parser;
 pub mod qualifier;
+pub mod registry;
 pub mod schema;
 pub mod tokens;
 
 pub use error::{ThemeError, ThemeResult};
 pub use parser::parse_theme_file;
 pub use qualifier::Qualifier;
+pub use registry::ThemeRegistry;
 pub use tokens::{ColorValue, Material, TokenMap};
 
 use std::collections::HashMap;

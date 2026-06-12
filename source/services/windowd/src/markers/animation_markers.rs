@@ -13,3 +13,15 @@ pub const WINDOWD_LIVE_TRANSITION_OK: &str = "windowd: live transition ok";
 pub const SELFTEST_GPU_CURSOR_MOVE_OK: &str = "SELFTEST: gpu cursor move ok";
 pub const SELFTEST_GPU_SCANOUT_FLIP_OK: &str = "SELFTEST: gpu scanout flip ok";
 pub const SELFTEST_UI_V5_TRANSITION_OK: &str = "SELFTEST: ui v5 transition ok";
+// ── TASK-0063 (UI v5b) markers ───────────────────────────────────────
+pub const SELFTEST_UI_V5_SCENE_GRAPH_OK: &str = "SELFTEST: ui v5 scene graph ok";
+pub const SELFTEST_UI_V5_VIRTUALIZE_OK: &str = "SELFTEST: ui v5 virtualize ok";
+pub const SELFTEST_UI_V5_THEME_OK: &str = "SELFTEST: ui v5 theme ok";
+pub const UI_VIRTUAL_LIST_ON: &str = "ui: virtual list on";
+pub const VIRTUALIZE_MOUNT: &str = "virtualize: mount ok";
+pub const VIRTUALIZE_RECYCLE: &str = "virtualize: recycle ok";
+pub const VIRTUALIZE_LIVE_SCROLL_OK: &str = "virtualize: live scroll ok";
+pub const VIRTUALIZE_PAGE_LOAD_OK: &str = "virtualize: page load ok";
+pub const VIRTUALIZE_PREPEND_ANCHOR_OK: &str = "virtualize: prepend anchor ok";
+pub const UITHEME_LOADED: &str = "uitheme: loaded (mode=light)";
+pub const UITHEME_SWITCHED: &str = "uitheme: switched (to=dark)";

@@ -15,12 +15,17 @@ os-lite = [
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
 ]
+# Enables GPU-accelerated backdrop blur via virgl (QEMU -device virtio-gpu-pci,virgl=on).
+# When enabled and virgl is detected at runtime, gpud emits "gpud: virgl ready".
+# Without this feature or when virgl is not detected, CPU fallback is used.
+virgl = []
 
 [package.metadata.nexus-service]
 kind = "service"
 stack_pages = 2
 
 [dependencies]
+libm = "0.2"
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }

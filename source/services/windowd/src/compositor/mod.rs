@@ -42,7 +42,7 @@ mod blur;
 mod cache;
 mod damage;
 mod filter;
-mod font;
+pub(crate) mod font;
 mod path_cache;
 mod primitives;
 mod runtime;
@@ -56,7 +56,6 @@ mod tests;
 mod tile_map;
 mod types;
 
-use backdrop::*;
 use blur::*;
 use cache::*;
 use damage::*;
@@ -65,11 +64,7 @@ use font::bitmap_font_5x7;
 use path_cache::*;
 use primitives::*;
 use runtime::*;
-use scene::*;
 use sdf::*;
-use shadow::*;
-use source::*;
-use surface::*;
 use tile_map::TileMap;
 use types::*;
 

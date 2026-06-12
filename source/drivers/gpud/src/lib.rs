@@ -16,5 +16,11 @@ pub mod error;
 pub mod markers;
 pub mod protocol;
 
+/// Virgl 3D command-stream encoders (Phase 2). Compiled for the `virgl`
+/// feature build and for host unit tests; excluded from the 2D-only build so
+/// it never adds dead code there.
+#[cfg(any(test, feature = "virgl"))]
+pub mod virgl;
+
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub mod service;

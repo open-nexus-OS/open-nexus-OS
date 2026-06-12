@@ -100,7 +100,10 @@ fn committed_buffer_is_sealed() {
             height: 64,
         });
         enc.set_fragment_bytes(0, &[1, 2, 3, 4]);
-        enc.draw_tiles(&[TileRect { x: 0, y: 0, width: 10, height: 10 }]);
+        enc.draw_tiles(
+            &[TileRect { x: 0, y: 0, width: 10, height: 10 }],
+            nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF),
+        );
         enc.end_encoding();
     }
     let committed = cmd.commit();
@@ -145,7 +148,12 @@ fn test_reject_tile_outside_render_pass() {
     let mut enc = cmd
         .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
-    let err = enc.try_draw_tiles(&[TileRect { x: 60, y: 0, width: 8, height: 8 }]).err();
+    let err = enc
+        .try_draw_tiles(
+            &[TileRect { x: 60, y: 0, width: 8, height: 8 }],
+            nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF),
+        )
+        .err();
     assert_eq!(err, Some(GfxError::InvalidArgument));
 }
 
@@ -171,7 +179,11 @@ fn queue_submit_validates_committed_buffers() {
                 height: 64,
             })
             .unwrap();
-        enc.try_draw_tiles(&[TileRect { x: 0, y: 0, width: 8, height: 8 }]).unwrap();
+        enc.try_draw_tiles(
+            &[TileRect { x: 0, y: 0, width: 8, height: 8 }],
+            nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF),
+        )
+        .unwrap();
     }
     let mut queue = Queue::with_depth(1).unwrap();
     assert!(queue.submit(cmd).unwrap().signaled());
@@ -193,10 +205,13 @@ fn committed_buffer_serialize_round_trip() {
             height: 800,
         });
         enc.set_fragment_bytes(0, &[0u8; 16]);
-        enc.draw_tiles(&[
-            TileRect { x: 960, y: 0, width: 320, height: 800 },
-            TileRect { x: 1100, y: 24, width: 156, height: 56 },
-        ]);
+        enc.draw_tiles(
+            &[
+                TileRect { x: 960, y: 0, width: 320, height: 800 },
+                TileRect { x: 1100, y: 24, width: 156, height: 56 },
+            ],
+            nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF),
+        );
         enc.end_encoding();
     }
     let committed = cmd.commit();

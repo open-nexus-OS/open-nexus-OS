@@ -17,7 +17,10 @@ fn encoder_records_commands() {
             height: 64,
         });
         enc.set_fragment_bytes(0, &[42]);
-        enc.draw_tiles(&[TileRect { x: 0, y: 0, width: 10, height: 10 }]);
+        enc.draw_tiles(
+            &[TileRect { x: 0, y: 0, width: 10, height: 10 }],
+            nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF),
+        );
         enc.end_encoding();
     }
     let c = cmd.commit();
@@ -39,5 +42,9 @@ fn test_reject_empty_tile_draw() {
     let mut enc = cmd
         .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
-    assert_eq!(enc.try_draw_tiles(&[]).err(), Some(GfxError::InvalidArgument));
+    assert_eq!(
+        enc.try_draw_tiles(&[], nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF))
+            .err(),
+        Some(GfxError::InvalidArgument)
+    );
 }

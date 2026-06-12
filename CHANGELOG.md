@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-06-11
+
+#### TASK-0063 (UI v5b): Scene graph GPU pipeline + virtual list + theme tokens + virgl
+
+- **Scene graph as rendering authority**: `generate_commands_into()` translates
+  all `RenderPrimitive` variants into GPU CommandBuffer commands. `flush_pending_damage`
+  now drives rendering exclusively from the scene graph dirty set — no CPU compositing.
+- **CPU compositor removed**: Deleted `backdrop.rs`, `scene.rs`, `shadow.rs`,
+  `surface.rs`, `source.rs` from `windowd/src/compositor/`. All rendering is GPU-only.
+- **Scene graph extensions**: `MAX_NODES` raised 256→2048. Added `batch_insert`,
+  `recycle_node`, `set_text_content`, `set_rect`, `free_slots` for virtual list support.
+  `Group` nodes with `BoxShadow` now emit blur+fill shadow commands.
+- **Virgl feature gate** (`gpud`): New `virgl` Cargo feature with runtime capability
+  detection via `VIRTIO_GPU_F_VIRGL` feature bit. Emits `gpud: virgl ready` or
+  `gpud: cpu fallback`. Separable gaussian blur (`blur_backdrop_separable_vmo`)
+  serves as reference for future GPU shader dispatch.
+- **Virtual list widget** (`nexus-virtual-list`): `VirtualList<P: ItemProvider>` with
+  overscan, recycling pool, scroll anchor, mixed-height measurement cache.
+  `ItemProvider` trait for lazy-loading page providers.
+- **Theme tokens**: `ThemeRegistry` with dependent notification and 2PC-ready
+  switching (`prepare_switch`/`commit_switch`/`abort_switch`).
+- **Dual-panel blur**: Chat panel with `BackdropFilter` + `Group` shadow mounted
+  in `SystemUiShell` alongside the proof panel. Shared backdrop cache in one CB.
+- **Host tests** (`tests/ui_v5b_host/`): 19 tests covering scene graph wiring,
+  virtual list (1000 items, mixed heights, scrolling, anchor stability),
+  lazy-loading provider, chat mockup, and theme token resolution.
+
 ### Changed - 2026-06-02
 
 #### TASK-0062 Phase 6: GPU-only display architecture — windowd sole owner
