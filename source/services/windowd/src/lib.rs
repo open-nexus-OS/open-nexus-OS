@@ -26,6 +26,8 @@ mod fixed_sdf;
 mod frame;
 mod geometry;
 mod ids;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod interaction;
 mod layout_panel;
 mod legacy;
 #[cfg(any(test, target_os = "none"))]

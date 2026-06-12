@@ -34,6 +34,7 @@ nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-effects = { path = "../../../userspace/ui/effects" }
 animation = { path = "../../../userspace/ui/animation" }
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
+nexus-virtual-list = { path = "../../../userspace/ui/widgets/virtual_list", default-features = false }
 
 [build-dependencies]
 fontdue = "0.9"

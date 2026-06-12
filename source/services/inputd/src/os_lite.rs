@@ -24,8 +24,7 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::{
     decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, visible_panel_hover_target_contains,
-    visible_sidebar_close_target_contains, visible_sidebar_open_target_contains, InputDispatch,
+    visible_display_start_position, InputDispatch,
     InputdConfig, InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR,
     LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD,
     VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT,
@@ -461,12 +460,16 @@ impl LiveRouteRuntime {
         active_source: Option<PointerSource>,
     ) {
         let now_ns = nsec().unwrap_or(0);
+        // Pure input normalization: inputd ships the display-space pointer plus
+        // raw button/wheel/key facts. It does NOT hit-test — windowd owns all UI
+        // intent (hover/click/scroll/focus) against its own rendered geometry
+        // (the compositor model). This is why the legacy 64×48 "route" hit-test
+        // is gone: a downscaled proof-space pointer never matched the real
+        // 1280×800 control rects.
         let display_pointer = self.input.display_pointer_position();
-        let route_pointer = self.input.route_pointer_position();
         let pointer_held = self.input.primary_pointer_held();
         let keyboard_held = self.input.held_non_modifier_key_count() > 0;
-        let previous_hover_visible = self.visible_state.hover_visible;
-        let previous_sidebar_open_visible = self.visible_state.sidebar_open_visible;
+        let previous_launcher_click = self.visible_state.launcher_click_visible;
         let previous_focus_visible = self.visible_state.focus_visible;
         self.visible_state.cursor_x = display_pointer.x;
         self.visible_state.cursor_y = display_pointer.y;
@@ -507,31 +510,11 @@ impl LiveRouteRuntime {
             self.visible_state.input_visible_on = true;
             self.note_wheel_indicator(pointer_wheel_delta, now_ns);
         }
-        if self.visible_state.pointer_route_live {
-            let sidebar_open_target =
-                visible_sidebar_open_target_contains(route_pointer.x, route_pointer.y);
-            let sidebar_close_target =
-                visible_sidebar_close_target_contains(route_pointer.x, route_pointer.y);
-            let panel_hover = visible_panel_hover_target_contains(route_pointer.x, route_pointer.y);
-            // Hover only highlights the burger button — it does NOT open the
-            // sidebar. The sidebar is click-driven (toggle), matching the user
-            // model: click the burger to open, click the X (or outside) to close.
-            self.visible_state.hover_visible = panel_hover || sidebar_open_target;
-            if pointer_down_dispatched {
-                if sidebar_close_target {
-                    // Click the X icon → close.
-                    self.visible_state.sidebar_open_visible = false;
-                } else if sidebar_open_target {
-                    // Click the burger button → toggle open/closed.
-                    self.visible_state.sidebar_open_visible =
-                        !self.visible_state.sidebar_open_visible;
-                } else if self.visible_state.sidebar_open_visible {
-                    // Click anywhere else while open → dismiss.
-                    self.visible_state.sidebar_open_visible = false;
-                }
-            }
-            self.visible_state.launcher_click_visible = pointer_held;
-        }
+        // Raw primary-button level. windowd detects the click edge and resolves
+        // it (sidebar toggle / focus) against the rendered geometry. hover_visible
+        // and sidebar_open_visible are no longer produced here — they are
+        // windowd-owned derived state.
+        self.visible_state.launcher_click_visible = pointer_held;
         if keyboard_dispatched {
             self.visible_state.keyboard_route_live = true;
             self.visible_state.input_visible_on = true;
@@ -552,16 +535,16 @@ impl LiveRouteRuntime {
             active_source,
             Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
         );
-        let hover_changed = previous_hover_visible != self.visible_state.hover_visible;
-        let sidebar_changed =
-            previous_sidebar_open_visible != self.visible_state.sidebar_open_visible;
+        // Push immediately on a button edge (both press and release) so windowd
+        // sees clean click edges and can detect the next click's rising edge.
+        let button_changed = previous_launcher_click != self.visible_state.launcher_click_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
-            || sidebar_changed
+            || button_changed
             || focus_changed
-            || (pointer_move_seen && (hover_changed || absolute_pointer_source));
+            || (pointer_move_seen && absolute_pointer_source);
         self.push_visible_state_to_windowd(now_ns, immediate_push);
     }
 

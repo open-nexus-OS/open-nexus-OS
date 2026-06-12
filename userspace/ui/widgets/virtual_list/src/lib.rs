@@ -17,6 +17,9 @@ extern crate alloc;
 use alloc::vec::Vec;
 use nexus_layout_types::FxPx;
 
+pub mod chat;
+pub use chat::{ChatMessage, ChatMessageProvider};
+
 // ---------------------------------------------------------------------------
 // ItemProvider trait
 // ---------------------------------------------------------------------------

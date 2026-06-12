@@ -40,6 +40,7 @@
 mod backdrop;
 mod blur;
 mod cache;
+mod chat;
 mod damage;
 mod filter;
 pub(crate) mod font;

@@ -61,6 +61,7 @@ use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
+use nexus_virtual_list::ChatMessageProvider;
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
@@ -72,22 +73,14 @@ const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
-const SIDEBAR_WIDTH: u32 = 320;
-const SIDEBAR_MARGIN_TOP: u32 = 18;
-const SIDEBAR_MARGIN_BOTTOM: u32 = 18;
-const SIDEBAR_RADIUS: u32 = 24;
-const GLASS_BUTTON_W: u32 = 156;
-const GLASS_BUTTON_H: u32 = 56;
-const GLASS_BUTTON_TOP: u32 = 24;
-const GLASS_BUTTON_RIGHT: u32 = 24;
-const GLASS_BUTTON_RADIUS: u32 = 18;
+// Interactive geometry lives in `interaction` — the single source of truth shared
+// by the live renderer and the hit-tester (hit area == rendered rect).
+use crate::interaction::{
+    GLASS_BUTTON_H, GLASS_BUTTON_RADIUS, GLASS_BUTTON_RIGHT, GLASS_BUTTON_TOP, GLASS_BUTTON_W,
+    LUCIDE_ICON_SIZE, SIDEBAR_MARGIN_BOTTOM, SIDEBAR_MARGIN_TOP, SIDEBAR_RADIUS, SIDEBAR_WIDTH,
+};
 const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
 const ANIMATION_UPDATE_CAP: usize = 8;
-const VISIBLE_ROUTE_WIDTH: u32 = 64;
-const VISIBLE_ROUTE_HEIGHT: u32 = 48;
-const CLOSE_TARGET_ROUTE_X: u32 = 52;
-const CLOSE_TARGET_ROUTE_Y: u32 = 18;
-const LUCIDE_ICON_SIZE: u32 = 24;
 
 fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
     let label = match err {
@@ -157,15 +150,14 @@ fn draw_animation_proof_overlay_row(
     mode: VisibleBootstrapMode,
     scene: AnimatedSceneState,
 ) {
-    let button_x = mode
-        .width
-        .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
+    // SSOT: the rendered button rect is exactly the rect windowd hit-tests.
+    let bh = crate::interaction::button_rect(mode.width);
     let button_rect = ProofBoxRect {
-        x: button_x,
-        y: GLASS_BUTTON_TOP,
-        width: GLASS_BUTTON_W,
-        height: GLASS_BUTTON_H,
+        x: bh.x,
+        y: bh.y,
+        width: bh.width,
+        height: bh.height,
     };
     let gt = crate::assets::GLASS_TINT;
     let ge = crate::assets::GLASS_EDGE;
@@ -197,24 +189,17 @@ fn draw_animation_proof_overlay_row(
         [255, 255, 255, menu_icon_alpha],
     );
 
-    let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-    let sidebar_x = mode
-        .width
-        .saturating_sub(SIDEBAR_WIDTH)
-        .saturating_add(translate);
     let sidebar_alpha = (220.0 * scene.sidebar_opacity).clamp(0.0, 220.0) as u8;
     if sidebar_alpha == 0 {
         return;
     }
-    let sidebar_height = mode
-        .height
-        .saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM))
-        .max(1);
+    // SSOT: the rendered sidebar rect is exactly the rect windowd hit-tests.
+    let sh = crate::interaction::sidebar_rect(mode, scene.sidebar_translate_x);
     let sidebar_rect = ProofBoxRect {
-        x: sidebar_x,
-        y: SIDEBAR_MARGIN_TOP,
-        width: SIDEBAR_WIDTH,
-        height: sidebar_height,
+        x: sh.x,
+        y: sh.y,
+        width: sh.width,
+        height: sh.height,
     };
     let gt = crate::assets::GLASS_TINT;
     let ge = crate::assets::GLASS_EDGE;
@@ -231,23 +216,21 @@ fn draw_animation_proof_overlay_row(
         34,
     );
 
-    let close_mid_x = route_cell_midpoint(CLOSE_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, mode.width);
-    let close_mid_y = route_cell_midpoint(CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, mode.height);
-    let sidebar_end_x = sidebar_rect.x.saturating_add(sidebar_rect.width);
-    let sidebar_end_y = sidebar_rect.y.saturating_add(sidebar_rect.height);
-    let close_icon_x = close_mid_x.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
-        sidebar_rect.x.saturating_add(14),
-        sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14),
-    );
-    let close_icon_y = close_mid_y.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
-        sidebar_rect.y.saturating_add(14),
-        sidebar_end_y.saturating_sub(LUCIDE_ICON_SIZE + 14),
+    // SSOT: the rendered close icon rect is exactly the close hit target.
+    let close = crate::interaction::sidebar_close_icon_rect(
+        mode,
+        crate::interaction::HitRect {
+            x: sidebar_rect.x,
+            y: sidebar_rect.y,
+            width: sidebar_rect.width,
+            height: sidebar_rect.height,
+        },
     );
     draw_lucide_x_icon_row(
         row,
         y,
-        close_icon_x,
-        close_icon_y,
+        close.x,
+        close.y,
         LUCIDE_ICON_SIZE,
         [255, 255, 255, sidebar_alpha.saturating_add(40)],
     );
@@ -346,16 +329,6 @@ fn draw_lucide_x_icon_row(row: &mut [u8], y: u32, x: u32, top: u32, size: u32, c
         PathPoint::new(220, 780),
         color,
     );
-}
-
-fn route_cell_midpoint(route_coord: u32, route_extent: u32, display_extent: u32) -> u32 {
-    let start = route_coord.saturating_mul(display_extent) / route_extent.max(1);
-    let end = (route_coord.saturating_add(1))
-        .saturating_mul(display_extent)
-        .saturating_add(route_extent.saturating_sub(1))
-        / route_extent.max(1);
-    let end = end.max(start.saturating_add(1));
-    (start.saturating_add(end).saturating_sub(1)) / 2
 }
 
 fn blend_span(row: &mut [u8], x: u32, width: u32, color: [u8; 4]) {
@@ -499,6 +472,13 @@ pub(crate) struct DisplayServerRuntime {
     first_handoff_bootstrap_markers_emitted: bool,
     first_handoff_attach_acked: bool,
     first_handoff_present_sent: bool,
+    /// Chat panel (right side): message provider + scroll state + the precomputed
+    /// visible window. `chat_visible` is rebuilt only on scroll (not per row), so
+    /// the per-scanline renderer never allocates and never walks all 500 messages.
+    chat_provider: ChatMessageProvider,
+    chat_scroll_y: u32,
+    chat_content_h: u32,
+    chat_visible: Vec<super::chat::ChatVisibleMsg>,
 }
 
 #[derive(Default)]
@@ -620,6 +600,17 @@ impl DisplayServerRuntime {
         let _ = debug_println("dbg: windowd init animation-driver ok");
         let pipeline_timer = PipelineTimer::new();
         let _ = debug_println("dbg: windowd init pipeline-timer ok");
+        // Chat panel: 200 deterministic mixed-length messages. The provider is the
+        // data source; chat layout heights come from `interaction` (hard-wrap) so
+        // the precomputed window matches the renderer exactly.
+        let chat_provider = ChatMessageProvider::synthetic(
+            200,
+            crate::interaction::chat_chars_per_line(),
+            crate::interaction::CHAT_LINE_H,
+        );
+        let mut chat_visible = Vec::new();
+        let chat_content_h = super::chat::compute_visible(&chat_provider, 0, &mut chat_visible);
+        let _ = debug_println("dbg: windowd init chat ok");
         Ok(Self {
             mode,
             source_frame,
@@ -683,6 +674,10 @@ impl DisplayServerRuntime {
             first_handoff_bootstrap_markers_emitted: false,
             first_handoff_attach_acked: false,
             first_handoff_present_sent: false,
+            chat_provider,
+            chat_scroll_y: 0,
+            chat_content_h,
+            chat_visible,
         })
     }
 
@@ -1038,13 +1033,42 @@ impl DisplayServerRuntime {
             || upstream.keyboard_route_live;
         self.state.cursor_move_visible |=
             upstream.cursor_move_visible || upstream.pointer_route_live;
-        self.state.hover_visible = upstream.hover_visible;
-        // P2 fix: sidebar_open_visible must NOT be coupled to hover.
-        // Hover over a target should not trigger the sidebar animation.
-        // Sidebar open/close is its own independent state.
-        self.state.sidebar_open_visible = upstream.sidebar_open_visible;
+        // ── windowd-owned hit-testing (compositor model) ──
+        // inputd ships a raw display-space pointer + raw button/wheel/key facts;
+        // windowd resolves all UI intent against its own rendered geometry, so a
+        // control's hit area is exactly its rendered rect (interaction::*).
+        let cursor_x = upstream.cursor_x;
+        let cursor_y = upstream.cursor_y;
+        let mode = self.mode;
+
+        // Hover highlights the glass button only. It never opens the sidebar —
+        // only a click does. (User: "nur der button rechts oben soll die
+        // animation auslösen, nicht der hover test".)
+        self.state.hover_visible = crate::interaction::hover_over_button(mode, cursor_x, cursor_y);
+
+        // Raw primary-button level from inputd; a rising edge is a click.
+        let primary_down = upstream.launcher_click_visible;
+        let primary_press = primary_down && !old_state.launcher_click_visible;
+        self.state.launcher_click_visible = primary_down;
+
+        // Resolve the click against the rendered geometry. The sidebar is the
+        // single click-driven animation trigger.
+        if primary_press {
+            use crate::interaction::{resolve_click, ClickAction};
+            match resolve_click(mode, self.state.sidebar_open_visible, cursor_x, cursor_y) {
+                ClickAction::ToggleSidebar => {
+                    self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
+                }
+                ClickAction::CloseSidebar => {
+                    self.state.sidebar_open_visible = false;
+                }
+                ClickAction::FocusPanel => {
+                    self.state.focus_visible = true;
+                }
+                ClickAction::None => {}
+            }
+        }
         self.state.focus_visible |= upstream.focus_visible;
-        self.state.launcher_click_visible = upstream.launcher_click_visible;
         // Reflect the momentary key-held state from inputd (which already sends
         // `keyboard_visible = keyboard_held`). Must NOT be OR-latched with
         // `keyboard_route_live` — that flag stays true forever once the keyboard
@@ -1072,6 +1096,15 @@ impl DisplayServerRuntime {
         let key_changed = old_state.keyboard_visible != self.state.keyboard_visible;
         if hover_changed {
             self.shell.set_card_active(0, self.state.hover_visible);
+            // Hover highlights the glass button — present its rect so the
+            // highlight shows even before the spring's first tick.
+            let b = crate::interaction::button_rect(mode.width);
+            self.queue_gpu_blit_rect(DamageRect {
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.height,
+            });
         }
         if click_changed {
             self.shell
@@ -1224,11 +1257,19 @@ impl DisplayServerRuntime {
             self.note_filter_text_changed();
         }
 
-        // ── v3b: scroll on wheel events ──
-        if (upstream.wheel_up_visible || upstream.wheel_down_visible)
-            && self.active_proof_layout().is_some()
-        {
-            self.handle_scroll_input();
+        // ── v3b: scroll on wheel events, routed to the control under the cursor ──
+        if upstream.wheel_up_visible || upstream.wheel_down_visible {
+            use crate::interaction::{resolve_wheel_target, WheelTarget};
+            match resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y) {
+                WheelTarget::Chat => self.handle_chat_scroll_input(upstream.wheel_down_visible),
+                // Filter is the fallback so a wheel anywhere off the chat still
+                // scrolls the proof list (and emits the scroll markers).
+                _ => {
+                    if self.active_proof_layout().is_some() {
+                        self.handle_scroll_input();
+                    }
+                }
+            }
         }
 
         // ── v3b: selftest summary markers (once) ──
@@ -1268,6 +1309,41 @@ impl DisplayServerRuntime {
             };
         for rect in filter_rects.into_iter().flatten() {
             self.queue_dirty_rect(rect);
+        }
+    }
+
+    /// Scroll the chat message list (wheel over the chat viewport). Recomputes the
+    /// visible window and damages only the chat region.
+    fn handle_chat_scroll_input(&mut self, wheel_down: bool) {
+        if !self.scroll_marker_emitted {
+            let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
+            self.scroll_marker_emitted = true;
+        }
+        let viewport_h = crate::interaction::CHAT_PANEL_H
+            .saturating_sub(crate::interaction::CHAT_PAD.saturating_mul(2));
+        let max_scroll = self.chat_content_h.saturating_sub(viewport_h);
+        let step = crate::interaction::CHAT_LINE_H.saturating_mul(2);
+        let old = self.chat_scroll_y;
+        let new = if wheel_down {
+            old.saturating_add(step).min(max_scroll)
+        } else {
+            old.saturating_sub(step)
+        };
+        if new == old {
+            return;
+        }
+        self.chat_scroll_y = new;
+        self.chat_content_h =
+            super::chat::compute_visible(&self.chat_provider, new, &mut self.chat_visible);
+        self.queue_dirty_rect(DamageRect {
+            x: crate::interaction::CHAT_PANEL_X,
+            y: crate::interaction::CHAT_PANEL_Y,
+            width: crate::interaction::CHAT_PANEL_W,
+            height: crate::interaction::CHAT_PANEL_H,
+        });
+        if !self.live_scroll_marker_emitted {
+            let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
+            self.live_scroll_marker_emitted = true;
         }
     }
 
@@ -1428,9 +1504,13 @@ impl DisplayServerRuntime {
         // the animated state each frame — no CPU recomposite, no re-blur.
         let mut panel_dirty = false;
         let mut sidebar_dirty = false;
+        let mut button_dirty = false;
         for update in updates {
             match update.layer_id {
                 SIDEBAR_LAYER_ID => sidebar_dirty = true,
+                // HOVER drives the glass button's alpha (hover highlight), which
+                // sits at the top-right — not in the left panel rect.
+                HOVER_LAYER_ID => button_dirty = true,
                 _ => panel_dirty = true,
             }
         }
@@ -1442,6 +1522,15 @@ impl DisplayServerRuntime {
                 height: PROOF_PANEL_H,
             };
             self.queue_gpu_blit_rect(panel_damage);
+        }
+        if button_dirty {
+            let b = crate::interaction::button_rect(self.mode.width);
+            self.queue_gpu_blit_rect(DamageRect {
+                x: b.x,
+                y: b.y,
+                width: b.width,
+                height: b.height,
+            });
         }
         if sidebar_dirty {
             self.queue_gpu_blit_rect(self.sidebar_damage_rect());
@@ -2092,6 +2181,9 @@ impl DisplayServerRuntime {
         let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
+        let chat_visible = &self.chat_visible;
+        let chat_scroll_y = self.chat_scroll_y;
+        let chat_content_h = self.chat_content_h;
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
         let backdrop_cache = &mut self.backdrop_cache;
@@ -2141,6 +2233,14 @@ impl DisplayServerRuntime {
                     &mut shadow_arena,
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
+                )?;
+                // Chat panel: additive CPU overlay at the right-hand region.
+                super::chat::draw_chat_panel_row(
+                    y,
+                    band_row,
+                    chat_scroll_y,
+                    chat_content_h,
+                    chat_visible,
                 )?;
                 // GPU overlay (button, sidebar, cursor) is rendered in the CommandBuffer
                 // by build_scene_cb — not in the CPU plane so it can be animated freely.
@@ -2215,6 +2315,9 @@ impl DisplayServerRuntime {
         let byte_start = start_x as usize * 4;
         let byte_end = end_x as usize * 4;
         let render_clip = RenderClip::new(start_x, end_x, self.mode.width);
+        let chat_visible = &self.chat_visible;
+        let chat_scroll_y = self.chat_scroll_y;
+        let chat_content_h = self.chat_content_h;
         let mut band_start = start_y;
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
@@ -2246,6 +2349,13 @@ impl DisplayServerRuntime {
                     &mut shadow_arena,
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
+                )?;
+                super::chat::draw_chat_panel_row(
+                    y,
+                    band_row,
+                    chat_scroll_y,
+                    chat_content_h,
+                    chat_visible,
                 )?;
                 // GPU overlay is added in build_scene_cb, not here.
             }

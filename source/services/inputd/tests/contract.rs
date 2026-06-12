@@ -900,16 +900,8 @@ fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
                 )
     ));
     assert_eq!(inputd.display_pointer_position(), target_display);
-    // CURSOR_END (58, 2) is inside the glass button hover target (route 55..62, 1..4).
-    assert!(inputd::visible_hover_target_contains(
-        inputd::VISIBLE_INPUT_CURSOR_END_X,
-        inputd::VISIBLE_INPUT_CURSOR_END_Y
-    ));
-    // Left side of screen, bottom area — should not trigger hover.
-    assert!(!inputd::visible_hover_target_contains(4, 36));
-    assert!(!inputd::visible_hover_target_contains(0, 0));
-    assert!(!inputd::visible_hover_target_contains(0, 47));
-    assert!(!inputd::visible_hover_target_contains(63, 47));
+    // Hit-testing moved to windowd (the compositor owns it); inputd only proves
+    // pointer-accel reaches the target display position without edge clamping.
 
     let delivered = inputd.router_mut().take_input_events(caller, surface).expect("deliveries");
     assert_eq!(delivered.len(), 1);
