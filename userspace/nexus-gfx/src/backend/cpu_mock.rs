@@ -121,9 +121,166 @@ impl CpuMockBackend {
                 Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
                     self.blit(*src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
                 }
+                Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
+                    self.fill_sdf_gradient(
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        *radius,
+                        *color_top,
+                        *color_bottom,
+                    );
+                }
+                Command::DropShadow { rect, radius, blur, offset_x, offset_y, color } => {
+                    self.drop_shadow(
+                        rect.x,
+                        rect.y,
+                        rect.width,
+                        rect.height,
+                        *radius,
+                        *blur,
+                        *offset_x,
+                        *offset_y,
+                        *color,
+                    );
+                }
+                Command::CompositeLayer { .. } => {
+                    // GPU-only op: composites a content texture into the GL
+                    // scanout RT with per-layer effects. The CPU mock has no
+                    // scanout-RT/atlas separation, so it is a no-op here (the
+                    // real backend executes it; the 2D path bakes layers on the
+                    // CPU and never emits this command).
+                }
             }
         }
         Ok(())
+    }
+
+    /// Vertical linear-gradient SDF fill: per-row color lerp, same rounded
+    /// inside-test as `fill_sdf_rounded` (reference for the gpud executors).
+    #[allow(clippy::too_many_arguments)]
+    fn fill_sdf_gradient(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+        top: RgbaColor,
+        bottom: RgbaColor,
+    ) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        let tc = top.as_array();
+        let bc = bottom.as_array();
+        let fw = self.width as usize;
+        let end_x = x.saturating_add(w).min(self.width);
+        let end_y = y.saturating_add(h).min(self.height);
+        let r = radius.min(w / 2).min(h / 2) as i32;
+        let cx = x as i32 + r;
+        let cy = y as i32 + r;
+        let cx2 = x as i32 + w as i32 - r - 1;
+        let cy2 = y as i32 + h as i32 - r - 1;
+        for py in y..end_y {
+            let t_num = (py - y) as u32;
+            let denom = (h - 1).max(1);
+            let mut rgba = [0u8; 4];
+            for c in 0..4 {
+                rgba[c] =
+                    ((tc[c] as u32 * (denom - t_num) + bc[c] as u32 * t_num) / denom) as u8;
+            }
+            if rgba[3] == 0 {
+                continue;
+            }
+            let row = py as usize * fw;
+            for px in x..end_x {
+                let i = (row + px as usize) * 4;
+                if i + 4 > self.framebuffer.len() {
+                    continue;
+                }
+                let inside = if r <= 0 {
+                    true
+                } else {
+                    let px = px as i32;
+                    let py = py as i32;
+                    let d = if px <= cx && py <= cy {
+                        corner_dist(px, py, cx, cy, r)
+                    } else if px >= cx2 && py <= cy {
+                        corner_dist(px, py, cx2, cy, r)
+                    } else if px <= cx && py >= cy2 {
+                        corner_dist(px, py, cx, cy2, r)
+                    } else if px >= cx2 && py >= cy2 {
+                        corner_dist(px, py, cx2, cy2, r)
+                    } else {
+                        0
+                    };
+                    d <= 0
+                };
+                if inside {
+                    blend_pixel(&mut self.framebuffer[i..i + 4], &rgba);
+                }
+            }
+        }
+    }
+
+    /// Soft drop shadow: quadratic SDF falloff over `blur` px around the
+    /// offset shape rect (reference for the gpud executors).
+    #[allow(clippy::too_many_arguments)]
+    fn drop_shadow(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+        blur: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color: RgbaColor,
+    ) {
+        if w == 0 || h == 0 || blur == 0 {
+            return;
+        }
+        let rgba = color.as_array();
+        if rgba[3] == 0 {
+            return;
+        }
+        let fw = self.width as usize;
+        let blur_i = blur as i32;
+        let rx0 = x as i32 + offset_x;
+        let ry0 = y as i32 + offset_y;
+        let rx1 = rx0 + w as i32;
+        let ry1 = ry0 + h as i32;
+        let r = radius.min(w / 2).min(h / 2) as i32;
+        let py0 = (ry0 - blur_i).max(0);
+        let py1 = (ry1 + blur_i).min(self.height as i32);
+        let px0 = (rx0 - blur_i).max(0);
+        let px1 = (rx1 + blur_i).min(self.width as i32);
+        for py in py0..py1 {
+            let row = py as usize * fw;
+            for px in px0..px1 {
+                let qx = (rx0 + r - px).max(px - (rx1 - 1 - r)).max(0);
+                let qy = (ry0 + r - py).max(py - (ry1 - 1 - r)).max(0);
+                // Octagonal norm ≈ length(qx, qy) — avoids per-pixel sqrt.
+                let dist = qx.max(qy) + qx.min(qy) / 2 - r;
+                let fall = blur_i - dist.max(0);
+                if fall <= 0 {
+                    continue;
+                }
+                let a = (rgba[3] as i32 * fall * fall) / (blur_i * blur_i);
+                if a <= 0 {
+                    continue;
+                }
+                let i = (row + px as usize) * 4;
+                if i + 4 > self.framebuffer.len() {
+                    continue;
+                }
+                let src = [rgba[0], rgba[1], rgba[2], a.min(255) as u8];
+                blend_pixel(&mut self.framebuffer[i..i + 4], &src);
+            }
+        }
     }
 
     // ── Rendering primitives ─────────────────────────────────

@@ -78,6 +78,42 @@ pub enum Command {
     /// adjustment that BlitSurface applies. Used to write/read the Plane 3 blur
     /// cache: writing cached blur (display→Plane3) and reading it back (Plane3→display).
     BlitAbsolute { src_x: u32, src_y_abs: u32, dst_x: u32, dst_y_abs: u32, width: u32, height: u32 },
+    /// Fill an SDF rounded rectangle with a vertical linear gradient
+    /// (`color_top` → `color_bottom`). GPU path: per-pixel interpolation in the
+    /// fragment shader with analytic SDF edge coverage; CPU fallback matches.
+    FillSdfGradient { rect: TileRect, radius: u32, color_top: RgbaColor, color_bottom: RgbaColor },
+    /// Soft drop shadow for a rounded rect: alpha falls off with the SDF
+    /// distance over `blur` pixels, drawn offset by (`offset_x`, `offset_y`).
+    /// `rect`/`radius` describe the casting shape, not the shadow extent.
+    DropShadow {
+        rect: TileRect,
+        radius: u32,
+        blur: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color: RgbaColor,
+    },
+    /// GPU-composited layer (production-grade compositor op, OHOS RSRenderNode /
+    /// Apple CALayer model): sample the layer's content texture — a region of
+    /// the shared framebuffer atlas at absolute row `src_row_abs`, `src_x` —
+    /// and composite it into the scanout render target at (`dst_x`, `dst_y`)
+    /// with per-layer GPU effects: `opacity` (0..255), `corner_radius` (rounded
+    /// mask), and an optional soft drop shadow (`shadow_blur`>0). The backend
+    /// composites this directly into the GL scanout RT — it is NOT a VMO write
+    /// (only valid on the GPU/virgl path; the 2D path bakes layers on the CPU).
+    CompositeLayer {
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+    },
 }
 
 /// A recorded command buffer. Use begin_render_pass() to start a render pass.
@@ -179,6 +215,9 @@ const TAG_FILL_SDF_ROUNDED_RECT: u8 = 3;
 const TAG_BLUR_BACKDROP: u8 = 4;
 const TAG_BLEND_CURSOR: u8 = 5;
 const TAG_BLIT_ABSOLUTE: u8 = 6;
+const TAG_FILL_SDF_GRADIENT: u8 = 7;
+const TAG_DROP_SHADOW: u8 = 8;
+const TAG_COMPOSITE_LAYER: u8 = 9;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
 // Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
@@ -278,6 +317,9 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
             TAG_BLUR_BACKDROP => deser_sdf_rect(buf, pos, true)?,
             TAG_BLEND_CURSOR => deser_cursor(buf, pos)?,
             TAG_BLIT_ABSOLUTE => deser_blit_absolute(buf, pos)?,
+            TAG_FILL_SDF_GRADIENT => deser_sdf_gradient(buf, pos)?,
+            TAG_DROP_SHADOW => deser_drop_shadow(buf, pos)?,
+            TAG_COMPOSITE_LAYER => deser_composite_layer(buf, pos)?,
             _ => return Err(GfxError::InvalidArgument),
         };
         pos = n;
@@ -349,6 +391,44 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                     *dst_y_abs,
                     *width,
                     *height,
+                )?;
+            }
+            Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
+                pos = ser_sdf_gradient(buf, pos, rect, *radius, *color_top, *color_bottom)?;
+            }
+            Command::DropShadow { rect, radius, blur, offset_x, offset_y, color } => {
+                pos =
+                    ser_drop_shadow(buf, pos, rect, *radius, *blur, *offset_x, *offset_y, *color)?;
+            }
+            Command::CompositeLayer {
+                src_row_abs,
+                src_x,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                opacity,
+                corner_radius,
+                shadow_blur,
+                shadow_offset_y,
+                shadow_alpha,
+            } => {
+                pos = ser_composite_layer(
+                    buf,
+                    pos,
+                    &[
+                        *src_row_abs,
+                        *src_x,
+                        *width,
+                        *height,
+                        *dst_x,
+                        *dst_y,
+                        *opacity,
+                        *corner_radius,
+                        *shadow_blur,
+                        *shadow_offset_y as u32,
+                        *shadow_alpha,
+                    ],
                 )?;
             }
         }
@@ -452,6 +532,72 @@ fn ser_sdf_rect(
     buf[pos + 17..pos + 21].copy_from_slice(&radius.to_le_bytes());
     buf[pos + 21..pos + 25].copy_from_slice(&color_or_sat.0.to_le_bytes());
     Ok(pos + 25)
+}
+
+fn ser_sdf_gradient(
+    buf: &mut [u8],
+    pos: usize,
+    rect: &TileRect,
+    radius: u32,
+    top: RgbaColor,
+    bottom: RgbaColor,
+) -> Result<usize, GfxError> {
+    let needed = pos + 29;
+    if buf.len() < needed || needed > MAX_SERIALIZED {
+        return Err(GfxError::ResourceExhausted);
+    }
+    buf[pos] = TAG_FILL_SDF_GRADIENT;
+    buf[pos + 1..pos + 5].copy_from_slice(&rect.x.to_le_bytes());
+    buf[pos + 5..pos + 9].copy_from_slice(&rect.y.to_le_bytes());
+    buf[pos + 9..pos + 13].copy_from_slice(&rect.width.to_le_bytes());
+    buf[pos + 13..pos + 17].copy_from_slice(&rect.height.to_le_bytes());
+    buf[pos + 17..pos + 21].copy_from_slice(&radius.to_le_bytes());
+    buf[pos + 21..pos + 25].copy_from_slice(&top.0.to_le_bytes());
+    buf[pos + 25..pos + 29].copy_from_slice(&bottom.0.to_le_bytes());
+    Ok(pos + 29)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ser_drop_shadow(
+    buf: &mut [u8],
+    pos: usize,
+    rect: &TileRect,
+    radius: u32,
+    blur: u32,
+    offset_x: i32,
+    offset_y: i32,
+    color: RgbaColor,
+) -> Result<usize, GfxError> {
+    let needed = pos + 37;
+    if buf.len() < needed || needed > MAX_SERIALIZED {
+        return Err(GfxError::ResourceExhausted);
+    }
+    buf[pos] = TAG_DROP_SHADOW;
+    buf[pos + 1..pos + 5].copy_from_slice(&rect.x.to_le_bytes());
+    buf[pos + 5..pos + 9].copy_from_slice(&rect.y.to_le_bytes());
+    buf[pos + 9..pos + 13].copy_from_slice(&rect.width.to_le_bytes());
+    buf[pos + 13..pos + 17].copy_from_slice(&rect.height.to_le_bytes());
+    buf[pos + 17..pos + 21].copy_from_slice(&radius.to_le_bytes());
+    buf[pos + 21..pos + 25].copy_from_slice(&blur.to_le_bytes());
+    buf[pos + 25..pos + 29].copy_from_slice(&offset_x.to_le_bytes());
+    buf[pos + 29..pos + 33].copy_from_slice(&offset_y.to_le_bytes());
+    buf[pos + 33..pos + 37].copy_from_slice(&color.0.to_le_bytes());
+    Ok(pos + 37)
+}
+
+/// 11 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 11]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 11 * 4;
+    if buf.len() < needed || needed > MAX_SERIALIZED {
+        return Err(GfxError::ResourceExhausted);
+    }
+    buf[pos] = TAG_COMPOSITE_LAYER;
+    let mut p = pos + 1;
+    for w in words {
+        buf[p..p + 4].copy_from_slice(&w.to_le_bytes());
+        p += 4;
+    }
+    Ok(p)
 }
 
 fn ser_cursor(
@@ -589,6 +735,87 @@ fn deser_sdf_rect(buf: &[u8], pos: usize, is_blur: bool) -> Result<(Command, usi
     Ok((cmd, pos + 24))
 }
 
+fn deser_sdf_gradient(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
+    if buf.len() < pos + 28 {
+        return Err(GfxError::InvalidArgument);
+    }
+    let rect = TileRect {
+        x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
+        y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
+        width: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
+        height: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
+    };
+    let radius = u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]);
+    let top = u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]);
+    let bottom = u32::from_le_bytes([buf[pos + 24], buf[pos + 25], buf[pos + 26], buf[pos + 27]]);
+    Ok((
+        Command::FillSdfGradient {
+            rect,
+            radius,
+            color_top: RgbaColor::from_u32(top),
+            color_bottom: RgbaColor::from_u32(bottom),
+        },
+        pos + 28,
+    ))
+}
+
+fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
+    if buf.len() < pos + 36 {
+        return Err(GfxError::InvalidArgument);
+    }
+    let rect = TileRect {
+        x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
+        y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
+        width: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
+        height: u32::from_le_bytes([buf[pos + 12], buf[pos + 13], buf[pos + 14], buf[pos + 15]]),
+    };
+    let radius = u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]);
+    let blur = u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]);
+    let offset_x =
+        i32::from_le_bytes([buf[pos + 24], buf[pos + 25], buf[pos + 26], buf[pos + 27]]);
+    let offset_y =
+        i32::from_le_bytes([buf[pos + 28], buf[pos + 29], buf[pos + 30], buf[pos + 31]]);
+    let color = u32::from_le_bytes([buf[pos + 32], buf[pos + 33], buf[pos + 34], buf[pos + 35]]);
+    Ok((
+        Command::DropShadow {
+            rect,
+            radius,
+            blur,
+            offset_x,
+            offset_y,
+            color: RgbaColor::from_u32(color),
+        },
+        pos + 36,
+    ))
+}
+
+fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
+    if buf.len() < pos + 44 {
+        return Err(GfxError::InvalidArgument);
+    }
+    let mut w = [0u32; 11];
+    for (i, slot) in w.iter_mut().enumerate() {
+        let b = pos + i * 4;
+        *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
+    }
+    Ok((
+        Command::CompositeLayer {
+            src_row_abs: w[0],
+            src_x: w[1],
+            width: w[2],
+            height: w[3],
+            dst_x: w[4],
+            dst_y: w[5],
+            opacity: w[6],
+            corner_radius: w[7],
+            shadow_blur: w[8],
+            shadow_offset_y: w[9] as i32,
+            shadow_alpha: w[10],
+        },
+        pos + 44,
+    ))
+}
+
 fn deser_cursor(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
     if buf.len() < pos + 16 {
         return Err(GfxError::InvalidArgument);
@@ -651,8 +878,25 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
             }
             Ok(())
         }
-        Command::FillSdfRoundedRect { rect, .. } | Command::BlurBackdrop { rect, .. } => {
+        Command::FillSdfRoundedRect { rect, .. }
+        | Command::BlurBackdrop { rect, .. }
+        | Command::FillSdfGradient { rect, .. } => validate_tile(*rect, render_extent),
+        Command::DropShadow { rect, blur, .. } => {
+            // The shape rect must be in-extent; the blur halo may exceed it
+            // (the executor clamps). Bound blur so the halo stays sane.
+            if *blur > 64 {
+                return Err(GfxError::InvalidArgument);
+            }
             validate_tile(*rect, render_extent)
+        }
+        Command::CompositeLayer { width, height, opacity, shadow_blur, shadow_alpha, .. } => {
+            if *width == 0 || *height == 0 {
+                return Err(GfxError::InvalidArgument);
+            }
+            if *opacity > 255 || *shadow_alpha > 255 || *shadow_blur > 64 {
+                return Err(GfxError::InvalidArgument);
+            }
+            Ok(())
         }
         Command::BlendCursor { width, height, .. } => {
             if *width == 0 || *height == 0 {

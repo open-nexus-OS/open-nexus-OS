@@ -248,3 +248,96 @@ fn committed_buffer_serialize_reject_buffer_too_small() {
     let mut buf = [0u8; 2];
     assert!(committed.serialize_into(&mut buf).is_err());
 }
+
+#[test]
+fn vector_commands_serialize_roundtrip() {
+    use nexus_gfx::command::buffer::RgbaColor;
+    let mut cmd = CommandBuffer::new();
+    {
+        let mut enc = cmd.begin_render_pass(RenderPassDesc {
+            color_attachments: vec![],
+            width: 1280,
+            height: 800,
+        });
+        enc.fill_sdf_gradient(
+            TileRect { x: 100, y: 50, width: 360, height: 600 },
+            16,
+            RgbaColor::new(40, 44, 52, 230),
+            RgbaColor::new(24, 26, 32, 245),
+        );
+        enc.drop_shadow(
+            TileRect { x: 100, y: 50, width: 360, height: 600 },
+            16,
+            24,
+            0,
+            8,
+            RgbaColor::new(0, 0, 0, 140),
+        );
+        enc.end_encoding();
+    }
+    let committed = cmd.commit();
+    assert_eq!(committed.command_count(), 2);
+    let mut buf = [0u8; 256];
+    let written = committed.serialize_into(&mut buf).unwrap();
+    let (restored, consumed) = CommittedBuffer::deserialize_from(&buf[..written]).unwrap();
+    assert_eq!(consumed, written);
+    assert_eq!(restored, committed);
+}
+
+#[test]
+fn drop_shadow_rejects_oversized_blur() {
+    use nexus_gfx::command::buffer::RgbaColor;
+    let mut cmd = CommandBuffer::new();
+    {
+        let mut enc = cmd.begin_render_pass(RenderPassDesc {
+            color_attachments: vec![],
+            width: 1280,
+            height: 800,
+        });
+        let res = enc.try_drop_shadow(
+            TileRect { x: 0, y: 0, width: 100, height: 100 },
+            8,
+            65, // > 64 cap
+            0,
+            0,
+            RgbaColor::new(0, 0, 0, 128),
+        );
+        assert!(res.is_err());
+        enc.end_encoding();
+    }
+}
+
+#[test]
+fn composite_layer_serialize_roundtrip() {
+    let mut cmd = CommandBuffer::new();
+    {
+        let mut enc = cmd.begin_render_pass(RenderPassDesc {
+            color_attachments: vec![],
+            width: 1280,
+            height: 800,
+        });
+        enc.composite_layer(3200, 0, 366, 600, 890, 96, 255, 12, 22, 10, 78);
+        enc.end_encoding();
+    }
+    let committed = cmd.commit();
+    assert_eq!(committed.command_count(), 1);
+    let mut buf = [0u8; 128];
+    let written = committed.serialize_into(&mut buf).unwrap();
+    let (restored, consumed) = CommittedBuffer::deserialize_from(&buf[..written]).unwrap();
+    assert_eq!(consumed, written);
+    assert_eq!(restored, committed);
+}
+
+#[test]
+fn composite_layer_rejects_bad_params() {
+    let mut cmd = CommandBuffer::new();
+    let mut enc = cmd.begin_render_pass(RenderPassDesc {
+        color_attachments: vec![],
+        width: 1280,
+        height: 800,
+    });
+    assert!(enc.try_composite_layer(0, 0, 0, 600, 0, 0, 255, 0, 0, 0, 0).is_err()); // zero width
+    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 300, 0, 0, 0, 0).is_err()); // opacity > 255
+    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 255, 0, 99, 0, 0).is_err()); // blur > 64
+    enc.end_encoding();
+}

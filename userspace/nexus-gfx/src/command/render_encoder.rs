@@ -116,6 +116,132 @@ impl<'a> RenderCommandEncoder<'a> {
         self.cmd.push_command(Command::FillSdfRoundedRect { rect, radius, color })
     }
 
+    // ── SDF gradient fill ─────────────────────────────────────
+
+    /// Fill an SDF rounded rectangle with a vertical linear gradient.
+    pub fn fill_sdf_gradient(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        color_top: RgbaColor,
+        color_bottom: RgbaColor,
+    ) {
+        self.try_fill_sdf_gradient(rect, radius, color_top, color_bottom)
+            .expect("invalid SDF gradient fill");
+    }
+
+    pub fn try_fill_sdf_gradient(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        color_top: RgbaColor,
+        color_bottom: RgbaColor,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::FillSdfGradient { rect, radius, color_top, color_bottom })
+    }
+
+    // ── Drop shadow ───────────────────────────────────────────
+
+    /// Soft drop shadow behind a rounded rect (SDF falloff over `blur` px).
+    pub fn drop_shadow(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        blur: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color: RgbaColor,
+    ) {
+        self.try_drop_shadow(rect, radius, blur, offset_x, offset_y, color)
+            .expect("invalid drop shadow");
+    }
+
+    pub fn try_drop_shadow(
+        &mut self,
+        rect: TileRect,
+        radius: u32,
+        blur: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color: RgbaColor,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::DropShadow { rect, radius, blur, offset_x, offset_y, color })
+    }
+
+    // ── GPU-composited layer (compositor) ─────────────────────
+
+    /// Composite a content-texture layer into the scanout RT with per-layer
+    /// GPU effects. See [`Command::CompositeLayer`]. GPU/virgl path only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn composite_layer(
+        &mut self,
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+    ) {
+        self.try_composite_layer(
+            src_row_abs,
+            src_x,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            opacity,
+            corner_radius,
+            shadow_blur,
+            shadow_offset_y,
+            shadow_alpha,
+        )
+        .expect("invalid composite layer");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_composite_layer(
+        &mut self,
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::CompositeLayer {
+            src_row_abs,
+            src_x,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            opacity,
+            corner_radius,
+            shadow_blur,
+            shadow_offset_y,
+            shadow_alpha,
+        })
+    }
+
     // ── Backdrop blur ─────────────────────────────────────────
 
     /// Apply box blur + saturation to a framebuffer region.
