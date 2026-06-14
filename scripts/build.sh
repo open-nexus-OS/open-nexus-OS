@@ -175,6 +175,16 @@ prepare_service_payloads() {
     return
   fi
 
+  # GPU_MODE=virgl needs gpud built WITH the `virgl` cargo feature, otherwise the
+  # entire virgl path (3D context, shaders, GPU blur, vector pipeline) is compiled
+  # out and gpud falls back to CPU 2D ("gpud: cpu fallback"). Wire it here so the
+  # virgl QEMU device (virtio-gpu-gl) actually has a virgl-capable guest driver.
+  # An explicit per-service override still wins.
+  if [[ "${GPU_MODE:-}" == "virgl" && -z "${INIT_LITE_SERVICE_GPUD_CARGO_FLAGS:-}" ]]; then
+    INIT_LITE_SERVICE_GPUD_CARGO_FLAGS="--no-default-features --features os-lite,virgl"
+    echo "[build] GPU_MODE=virgl -> gpud built with virgl feature" >&2
+  fi
+
   for raw in "${SERVICES[@]}"; do
     local svc=${raw//[[:space:]]/}
     [[ -z "$svc" ]] && continue

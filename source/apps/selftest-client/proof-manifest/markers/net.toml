@@ -144,6 +144,12 @@ forbidden_when = { profile = "quic-required" }
 phase = "net"
 forbidden_when = { profile = "quic-required" }
 
+[marker."dsoftbusd: quic msg1 timeout"]
+phase = "net"
+# Informational: the single-VM quic handshake probe gave up waiting for msg1
+# (no peer in single-VM profiles; surfaces on slow boots, e.g. virgl bringup).
+forbidden_when = { profile = "quic-required" }
+
 [marker."dbg: phase net skipped"]
 phase = "net"
 

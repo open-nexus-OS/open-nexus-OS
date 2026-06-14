@@ -186,12 +186,26 @@ build_qemu_args() {
   if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
     local display_backend="$QEMU_DISPLAY_BACKEND"
     [[ "$display_backend" == "gtk" ]] && display_backend="gtk,show-menubar=off,zoom-to-fit=off"
-    args+=(-display "$display_backend" -serial mon:stdio)
-    if [[ "$GPU_MODE" == "pci" ]]; then
+    if [[ "$GPU_MODE" == "virgl" ]]; then
+      # Windowed virgl: a GL-accelerated display backend so virglrenderer comes
+      # up against the window's GL context, plus the GL-capable GPU device
+      # (MMIO transport matches gpud). gpud must be built with the `virgl`
+      # feature (scripts/build.sh wires that when GPU_MODE=virgl). This is the
+      # visible counterpart to the headless egl-headless virgl proof below.
+      # Any windowed backend (gtk/sdl) needs gl=on for virgl; honour an
+      # explicit gl= option if the caller already set one.
+      if [[ "$display_backend" != *,gl=* && "$display_backend" != egl-headless* ]]; then
+        display_backend="${display_backend},gl=on"
+      fi
+      args+=(-display "$display_backend" -serial mon:stdio)
+      args+=(-device "virtio-gpu-gl-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
+    elif [[ "$GPU_MODE" == "pci" ]]; then
       # PCIe virtio-gpu connects correctly to the QEMU display backend.
       # Bus auto-assignment works on riscv64 virt machine's built-in PCIe.
+      args+=(-display "$display_backend" -serial mon:stdio)
       args+=(-device "virtio-gpu-pci,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
     else
+      args+=(-display "$display_backend" -serial mon:stdio)
       args+=(-device "virtio-gpu-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
     fi
     # Visible bootstrap needs deterministic virtio-input MMIO devices so
@@ -261,6 +275,13 @@ build_qemu_args() {
   args+=(${QEMU_RNG_OBJECT} ${QEMU_RNG_DEVICE})
   args+=(${QEMU_BLK_DRIVE} ${QEMU_BLK_DEVICE})
   args+=("${input_args[@]}")
+
+  # Debug/proof hook: extra QEMU arguments (e.g. "-vnc :77" to read back GL
+  # scanouts for screendump verification on headless hosts).
+  if [[ -n "${QEMU_EXTRA_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    args+=(${QEMU_EXTRA_ARGS})
+  fi
 
   printf '%s\n' "${args[@]}"
 }
@@ -336,13 +357,21 @@ monitor_uart_stream() {
     # RUN_UNTIL_MARKER=1: stop when init: ready + grace period passes
     # so that all service readiness markers and routing probes flush to UART.
     if [[ "$RUN_UNTIL_MARKER" == "1" && "$saw_kself_ok" -eq 1 && "$saw_init_start" -eq 1 && "$saw_ready" -eq 1 ]]; then
-      # Grace period: let service readiness + routing + selftest phases flush
+      # Grace period: a FIXED window after `init: ready` for service-readiness +
+      # routing + selftest markers to flush. 30s is proven sufficient for the
+      # 2D ladder; the virgl GPU bringup boots slower, so give it 90s. (An
+      # earlier progress-re-armed window over-extended every run toward its hard
+      # cap because the selftest suite emits "ok" markers continuously.)
+      local grace_secs="${QEMU_READY_GRACE_SECS:-30}"
+      if [[ "${GPU_MODE:-}" == "virgl" && -z "${QEMU_READY_GRACE_SECS:-}" ]]; then
+        grace_secs=90
+      fi
       local start_nsec
       start_nsec=$(date +%s 2>/dev/null || echo 0)
       while true; do
         local now
         now=$(date +%s 2>/dev/null || echo 0)
-        [[ $(( now - start_nsec )) -ge 30 ]] && break
+        [[ $(( now - start_nsec )) -ge "$grace_secs" ]] && break
         # Read as fast as lines arrive (max 100ms silence = buffer empty)
         IFS= read -r -t 0.1 line 2>/dev/null || true
         [[ -n "$line" ]] && echo "$line"

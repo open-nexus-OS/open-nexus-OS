@@ -5,6 +5,13 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The virgl GPU bringup (3D context + shader/draw/gradient selftests + GL
+# scanout) adds boot time; the stock 90s default cuts the marker ladder a few
+# lines short (late services like metricsd miss their ready line). Widen only
+# the default — an explicit RUN_TIMEOUT always wins.
+if [[ -z "${RUN_TIMEOUT:-}" && "${GPU_MODE:-}" == "virgl" ]]; then
+  RUN_TIMEOUT=240s
+fi
 RUN_TIMEOUT=${RUN_TIMEOUT:-90s}
 RUN_UNTIL_MARKER=${RUN_UNTIL_MARKER:-1}
 RUN_PHASE=${RUN_PHASE:-}

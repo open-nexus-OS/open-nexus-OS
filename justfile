@@ -99,9 +99,9 @@ start *args:
     # self-contained interactive path: build first, then keep the same guest
     # alive with the richer breadcrumb ladder. Default to the host build path so
     # interactive starts do not rebuild the dev container or compile cargo-udeps.
-    make MODE=${NEXUS_START_BUILD_MODE:-host} build
-    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
-    @echo "[hint] just start builds first via MODE=${NEXUS_START_BUILD_MODE:-host}; set NEXUS_START_BUILD_MODE=container for container parity."
+    GPU_MODE=${GPU_MODE:-mmio} make MODE=${NEXUS_START_BUILD_MODE:-host} build
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-mmio} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
+    @echo "[hint] just start defaults to GPU_MODE=mmio + gtk (reliable visible window; renders the same UI — gradients/shadows via the CPU fallback). GPU_MODE=virgl uses the GL-scanout compositor but the windowed GL backend (gtk/sdl gl=on) is black on this Wayland/KDE host (QEMU bug); the GPU path is verified headless via tools/vnc_snapshot.py."
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
