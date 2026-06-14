@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_abi::{debug_println, mmio_map, yield_, AbiError};
+use nexus_abi::{debug_println, debug_write, mmio_map, nsec, yield_, AbiError};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
@@ -124,6 +124,14 @@ fn service_requests(
     // exhaust the 384KB heap after a few hundred animation frames (`alloc-fail
     // svc=gpud`), which is exactly what crashed the GPU pipeline mid-animation.
     let mut scene_cb = CommittedBuffer::with_capacity(32);
+    // Present-time telemetry (frame budget for 120Hz = 8333us). Accumulated over
+    // a window and emitted as a no-alloc marker every PRESENT_STATS_WINDOW
+    // presents — gpud runs on a non-freeing bump allocator, so no per-frame
+    // format!/heap. Lets us measure where the glass/compositor frame cost goes.
+    const PRESENT_STATS_WINDOW: u32 = 120;
+    let mut present_count: u32 = 0;
+    let mut present_ns_sum: u64 = 0;
+    let mut present_ns_max: u64 = 0;
     loop {
         // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
         // or animation submit). No polling, no busy-wait. The kernel wakes us on message arrival.
@@ -184,10 +192,25 @@ fn service_requests(
                                     // Lift the save-under cursor so scene blits land on
                                     // a cursor-free plane, present, then re-apply it on
                                     // top so the pointer always stays visible.
+                                    let t0 = nsec().unwrap_or(0);
                                     backend.cursor_before_present();
                                     let _ = backend.present_committed(&scene_cb);
                                     let st = present_scanout_damage(&mut backend, damage_rect);
                                     backend.cursor_after_present();
+                                    let dt = nsec().unwrap_or(t0).saturating_sub(t0);
+                                    present_ns_sum += dt;
+                                    present_ns_max = present_ns_max.max(dt);
+                                    present_count += 1;
+                                    if present_count >= PRESENT_STATS_WINDOW {
+                                        emit_present_stats(
+                                            (present_ns_sum / present_count as u64 / 1000) as u32,
+                                            (present_ns_max / 1000) as u32,
+                                            present_count,
+                                        );
+                                        present_count = 0;
+                                        present_ns_sum = 0;
+                                        present_ns_max = 0;
+                                    }
                                     st
                                 }
                                 Err(_) => {
@@ -265,6 +288,49 @@ fn service_requests(
             Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
         }
     }
+}
+
+/// Emit `gpud: present us avg=A max=M n=N` without heap allocation (gpud's
+/// bump allocator never frees). 120Hz budget = 8333us; this surfaces the
+/// per-present compositor cost so glass/layer optimisations can be measured.
+fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
+    let mut buf = [0u8; 64];
+    let mut p = 0usize;
+    let put = |buf: &mut [u8; 64], p: &mut usize, s: &[u8]| {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    };
+    let put_dec = |buf: &mut [u8; 64], p: &mut usize, mut v: u32| {
+        let mut tmp = [0u8; 10];
+        let mut n = 0usize;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            n += 1;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            if *p < buf.len() {
+                buf[*p] = tmp[n];
+                *p += 1;
+            }
+        }
+    };
+    put(&mut buf, &mut p, b"gpud: present us avg=");
+    put_dec(&mut buf, &mut p, avg_us);
+    put(&mut buf, &mut p, b" max=");
+    put_dec(&mut buf, &mut p, max_us);
+    put(&mut buf, &mut p, b" n=");
+    put_dec(&mut buf, &mut p, n);
+    put(&mut buf, &mut p, b"\n");
+    let _ = debug_write(&buf[..p]);
 }
 
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
