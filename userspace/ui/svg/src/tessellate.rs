@@ -431,8 +431,25 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                     points.push((px, py));
                 }
             }
-            PathCommand::ArcTo { .. } | PathCommand::ArcToRel { .. } => {
-                // Arcs are not implemented; skip silently
+            PathCommand::ArcTo { rx, ry, xrot, large, sweep, x, y } => {
+                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, *x, *y);
+                for (px, py) in pts {
+                    let (tx, ty) = tf.apply(px, py);
+                    points.push((tx, ty));
+                }
+                cx = *x;
+                cy = *y;
+            }
+            PathCommand::ArcToRel { rx, ry, xrot, large, sweep, dx, dy } => {
+                let x = cx + dx;
+                let y = cy + dy;
+                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, x, y);
+                for (px, py) in pts {
+                    let (tx, ty) = tf.apply(px, py);
+                    points.push((tx, ty));
+                }
+                cx = x;
+                cy = y;
             }
         }
     }
@@ -527,6 +544,96 @@ fn ellipse_segments(cx: f32, cy: f32, rx: f32, ry: f32, tf: &Transform) -> Vec<(
 // ---------------------------------------------------------------------------
 // Bezier curve segment approximation
 // ---------------------------------------------------------------------------
+
+/// Flatten an SVG elliptical arc (current point → endpoint) into line-segment
+/// endpoints, via the spec's endpoint-to-center parameterisation (SVG F.6.5).
+/// Returns the sampled points AFTER the start (the start is already in `points`),
+/// including the endpoint. Degenerate arcs (zero radius / coincident endpoints)
+/// fall back to a straight line.
+#[allow(clippy::too_many_arguments)]
+fn arc_segments(
+    x1: f32,
+    y1: f32,
+    rx_in: f32,
+    ry_in: f32,
+    xrot_deg: f32,
+    large: bool,
+    sweep: bool,
+    x2: f32,
+    y2: f32,
+) -> Vec<(f32, f32)> {
+    // Coincident endpoints → nothing to draw (per spec).
+    if (x1 - x2).abs() < 1e-6 && (y1 - y2).abs() < 1e-6 {
+        return Vec::new();
+    }
+    let mut rx = rx_in.abs();
+    let mut ry = ry_in.abs();
+    // Zero radius → straight line to the endpoint.
+    if rx < 1e-6 || ry < 1e-6 {
+        return alloc::vec![(x2, y2)];
+    }
+    let phi = xrot_deg.nexus_to_radians();
+    let cos_p = phi.nexus_cos();
+    let sin_p = phi.nexus_sin();
+
+    // Step 1: transform endpoints to the rotated, mid-centred frame (x1', y1').
+    let dx = (x1 - x2) * 0.5;
+    let dy = (y1 - y2) * 0.5;
+    let x1p = cos_p * dx + sin_p * dy;
+    let y1p = -sin_p * dx + cos_p * dy;
+
+    // Correct out-of-range radii (spec F.6.6).
+    let lambda = x1p * x1p / (rx * rx) + y1p * y1p / (ry * ry);
+    if lambda > 1.0 {
+        let s = lambda.nexus_sqrt();
+        rx *= s;
+        ry *= s;
+    }
+
+    // Step 2: centre (cx', cy') in the rotated frame.
+    let rx2 = rx * rx;
+    let ry2 = ry * ry;
+    let num = (rx2 * ry2 - rx2 * y1p * y1p - ry2 * x1p * x1p).max(0.0);
+    let den = rx2 * y1p * y1p + ry2 * x1p * x1p;
+    let mut coef = if den > 0.0 { (num / den).nexus_sqrt() } else { 0.0 };
+    if large == sweep {
+        coef = -coef;
+    }
+    let cxp = coef * rx * y1p / ry;
+    let cyp = -coef * ry * x1p / rx;
+
+    // Step 3: centre back in the original frame.
+    let cx = cos_p * cxp - sin_p * cyp + (x1 + x2) * 0.5;
+    let cy = sin_p * cxp + cos_p * cyp + (y1 + y2) * 0.5;
+
+    // Step 4: start angle θ1 and sweep Δθ via atan2 on the normalised vectors.
+    let ux = (x1p - cxp) / rx;
+    let uy = (y1p - cyp) / ry;
+    let vx = (-x1p - cxp) / rx;
+    let vy = (-y1p - cyp) / ry;
+    let theta1 = uy.nexus_atan2(ux);
+    let mut dtheta = (uy * vx - ux * vy).nexus_atan2(ux * vx + uy * vy);
+    let two_pi = core::f32::consts::PI * 2.0;
+    if !sweep && dtheta > 0.0 {
+        dtheta -= two_pi;
+    } else if sweep && dtheta < 0.0 {
+        dtheta += two_pi;
+    }
+
+    // Segment count proportional to arc length (≈ one segment per 6° of sweep),
+    // bounded so AA hides any residual faceting at typical icon/cursor sizes.
+    let segs = ((dtheta.abs() / (core::f32::consts::PI / 30.0)).nexus_ceil() as usize)
+        .clamp(2, 180);
+    let mut pts = Vec::with_capacity(segs);
+    for i in 1..=segs {
+        let t = theta1 + dtheta * (i as f32 / segs as f32);
+        let (st, ct) = (t.nexus_sin(), t.nexus_cos());
+        let ex = cx + rx * ct * cos_p - ry * st * sin_p;
+        let ey = cy + rx * ct * sin_p + ry * st * cos_p;
+        pts.push((ex, ey));
+    }
+    pts
+}
 
 #[allow(clippy::too_many_arguments)]
 fn cubic_bezier_segments(

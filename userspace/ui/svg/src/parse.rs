@@ -857,6 +857,31 @@ fn parse_path_data(d_str: &str, segments: &mut usize) -> SvgResult<PathData> {
                 let (dx, dy) = parse_two_floats(&mut chars);
                 commands.push(PathCommand::SmoothQuadraticToRel { dx, dy });
             }
+            // Elliptical arc: `rx ry x-axis-rotation large-arc-flag sweep-flag x y`.
+            // `try_parse_float` on rx drives the implicit-repeat loop (one set or
+            // many), mirroring the other path commands.
+            'A' => {
+                while let Some(rx) = try_parse_float(&mut chars) {
+                    let ry = parse_float(&mut chars);
+                    let xrot = parse_float(&mut chars);
+                    let large = parse_float(&mut chars) != 0.0;
+                    let sweep = parse_float(&mut chars) != 0.0;
+                    let (x, y) = parse_two_floats(&mut chars);
+                    commands.push(PathCommand::ArcTo { rx, ry, xrot, large, sweep, x, y });
+                    *segments += 1;
+                }
+            }
+            'a' => {
+                while let Some(rx) = try_parse_float(&mut chars) {
+                    let ry = parse_float(&mut chars);
+                    let xrot = parse_float(&mut chars);
+                    let large = parse_float(&mut chars) != 0.0;
+                    let sweep = parse_float(&mut chars) != 0.0;
+                    let (dx, dy) = parse_two_floats(&mut chars);
+                    commands.push(PathCommand::ArcToRel { rx, ry, xrot, large, sweep, dx, dy });
+                    *segments += 1;
+                }
+            }
             'Z' | 'z' => {
                 commands.push(PathCommand::ClosePath);
             }
