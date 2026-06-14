@@ -20,6 +20,7 @@ pub struct WindowdDisplayTelemetry {
     damage_pixels: u64,
     render_ns: u64,
     max_render_ns: u64,
+    poll_spins: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,10 @@ pub struct WindowdDisplayTelemetryReport {
     pub damage_pixels: u64,
     pub avg_render_us: u64,
     pub max_render_us: u64,
+    /// Empty NonBlocking poll wake-ups per second while pacing an animation.
+    /// Idle ~= 0 (windowd blocks); high during animation = busy-poll cost the
+    /// kernel timer IRQ would eliminate (RFC-0062). The work-vs-pacing signal.
+    pub spin_hz: u64,
 }
 
 impl WindowdDisplayTelemetry {
@@ -57,6 +62,10 @@ impl WindowdDisplayTelemetry {
 
     pub fn record_drop(&mut self) {
         self.dropped_events = self.dropped_events.saturating_add(1);
+    }
+
+    pub fn record_poll_spin(&mut self) {
+        self.poll_spins = self.poll_spins.saturating_add(1);
     }
 
     pub fn report_values_if_due(&mut self, now_ns: u64) -> Option<WindowdDisplayTelemetryReport> {
@@ -87,6 +96,11 @@ impl WindowdDisplayTelemetry {
             .unwrap_or(0)
             / 1_000;
         let max_render_us = self.max_render_ns / 1_000;
+        let spin_hz = self
+            .poll_spins
+            .saturating_mul(1_000_000_000)
+            .checked_div(elapsed)
+            .unwrap_or(0);
         let report = WindowdDisplayTelemetryReport {
             compose_hz,
             present_hz,
@@ -95,6 +109,7 @@ impl WindowdDisplayTelemetry {
             damage_pixels: self.damage_pixels,
             avg_render_us,
             max_render_us,
+            spin_hz,
         };
         self.last_report_ns = now_ns;
         self.compose_events = 0;
@@ -104,20 +119,22 @@ impl WindowdDisplayTelemetry {
         self.damage_pixels = 0;
         self.render_ns = 0;
         self.max_render_ns = 0;
+        self.poll_spins = 0;
         Some(report)
     }
 
     pub fn report_if_due(&mut self, now_ns: u64) -> Option<String> {
         let report = self.report_values_if_due(now_ns)?;
         Some(format!(
-            "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={}",
+            "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={} spin_hz={}",
             report.compose_hz,
             report.present_hz,
             report.coalesced_events,
             report.dropped_events,
             report.damage_pixels,
             report.avg_render_us,
-            report.max_render_us
+            report.max_render_us,
+            report.spin_hz
         ))
     }
 }

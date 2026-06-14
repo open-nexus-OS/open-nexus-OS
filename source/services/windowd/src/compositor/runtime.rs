@@ -1749,6 +1749,12 @@ impl DisplayServerRuntime {
         self.animation_driver.active_count() > 0
     }
 
+    /// Record one empty NonBlocking poll wake-up (busy-poll spin) for telemetry.
+    /// See `WindowdDisplayTelemetryReport::spin_hz`.
+    pub(crate) fn record_poll_spin(&mut self) {
+        self.telemetry.record_poll_spin();
+    }
+
     pub(crate) fn tick(&mut self, now_ns: u64) {
         // Reactive: only drive animations when they are active.
         // No polling — the caller gates this via has_active_animations().

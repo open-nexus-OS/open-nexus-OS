@@ -509,6 +509,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     // we just submitted) and inputd (to deliver the next event)
                     // between polls. Without this, the NonBlocking loop would
                     // monopolize the single hart and gpud would never run.
+                    //
+                    // Count this empty wake-up: it's the busy-poll cost of having
+                    // no timer IRQ (RFC-0062). Surfaced as `spin_hz` — idle ~= 0,
+                    // high during animation = the work-vs-pacing diagnostic.
+                    runtime.record_poll_spin();
                     let _ = yield_();
                 }
             }
@@ -521,14 +526,15 @@ fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {
     let mut line = FixedDebugLine::new();
     if write!(
         &mut line,
-        "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={}",
+        "fps: windowd compose_hz={} present_hz={} coalesced={} dropped={} damage_px={} avg_render_us={} max_render_us={} spin_hz={}",
         report.compose_hz,
         report.present_hz,
         report.coalesced_events,
         report.dropped_events,
         report.damage_pixels,
         report.avg_render_us,
-        report.max_render_us
+        report.max_render_us,
+        report.spin_hz
     )
     .is_err()
     {
