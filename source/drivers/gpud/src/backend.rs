@@ -806,6 +806,7 @@ impl VirtioGpuBackend {
                             fb, fb_len, fb_w,
                             rect.x, rect.y.saturating_add(display_y_offset),
                             rect.width, rect.height, *radius,
+                            true,
                         ).is_ok();
                     #[cfg(not(feature = "virgl"))]
                     let virgl_ok = false;
@@ -2490,6 +2491,11 @@ END\n";
         w: u32,
         h: u32,
         radius: u32,
+        // When false, the blurred result is left in the GL texture (0xF8) only
+        // and NOT copied back to the VMO — the caller composites over 0xF8
+        // directly (glass layer), saving a transfer per frame. The one-shot
+        // boot parity check forces a writeback regardless.
+        writeback: bool,
     ) -> Result<(), GfxError> {
         use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
         use crate::virgl::{
@@ -2600,8 +2606,12 @@ END\n";
         };
         self.ctrl_submit_header_tail(&hdr, &bytes)?;
 
-        // Land the blurred pixels back in the scanned-out guest VMO.
-        self.virgl_transfer_from_host(0xF8, x, y_rel, w, h, 5120)?;
+        // Land the blurred pixels back in the scanned-out guest VMO — unless the
+        // caller will composite over 0xF8 directly (glass) and only the boot
+        // parity check (which reads the VMO) needs it.
+        if writeback || parity_buf.is_some() {
+            self.virgl_transfer_from_host(0xF8, x, y_rel, w, h, 5120)?;
+        }
 
         // Compare GPU result vs CPU reference over the interior.
         if let Some((ref_va, ref_stride)) = parity_buf {

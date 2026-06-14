@@ -337,10 +337,11 @@ impl VirtioGpuBackend {
         let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
         self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
         if backdrop_blur > 0 {
-            // Glass: GPU-blur the destination backdrop in place (leaves the
-            // blurred result in the display texture 0xF8 + VMO). The layer is
-            // then alpha-composited over it, so the blur shows through the
-            // (translucent) content — the background-blur material.
+            // Glass: GPU-blur the destination backdrop, leaving the result in
+            // the display texture (0xF8) only — the layer pass composites over
+            // it directly, so we skip the blur's VMO writeback (one fewer
+            // transfer per glass frame; composite_layer_gpu does the final
+            // writeback after the content is blended).
             let (fb, fb_len, fb_w, _row) =
                 self.scanout_fb().ok_or(GfxError::DeviceNotFound)?;
             self.submit_virgl_blur(
@@ -352,6 +353,7 @@ impl VirtioGpuBackend {
                 width,
                 height,
                 backdrop_blur,
+                false,
             )?;
         } else {
             // Sync the destination backdrop region into the display texture so
