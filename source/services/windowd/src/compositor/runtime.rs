@@ -487,6 +487,11 @@ pub(crate) struct DisplayServerRuntime {
     /// compositor blits that surface to the on-screen position. Moving the
     /// window is just a different blit destination — no content re-render.
     chat_atlas: crate::atlas::AtlasSurface,
+    /// Cached blurred backdrop behind the chat window (atlas surface). Rebuilt
+    /// only when `chat_blur_cache_valid` is false (window opened/moved); reused
+    /// every present so glass costs one blit, not a blur, per frame.
+    chat_blur_cache: crate::atlas::AtlasSurface,
+    chat_blur_cache_valid: bool,
     /// Set when the chat surface needs re-rendering (init, scroll, new message).
     chat_surface_dirty: bool,
     /// Message provider + scroll state + the precomputed visible window.
@@ -638,6 +643,13 @@ impl DisplayServerRuntime {
         let chat_atlas = atlas
             .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Cache of the BLURRED backdrop behind the chat window. The backdrop is
+        // the static base, so we blur it once per window move and reuse it every
+        // present (Task #17 pattern) — zero per-frame blur for glass, the key to
+        // running several glass layers at 120Hz.
+        let chat_blur_cache = atlas
+            .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -715,6 +727,8 @@ impl DisplayServerRuntime {
             precache_blur_pending: true,
             button_hover: false,
             chat_atlas,
+            chat_blur_cache,
+            chat_blur_cache_valid: false,
             chat_surface_dirty: true,
             chat_provider,
             chat_scroll_y: 0,
@@ -1168,7 +1182,9 @@ impl DisplayServerRuntime {
                         let _ = debug_println("windowd: chat window open");
                         // Surface content is retained in the atlas — just
                         // damage the window region (plus shadow halo) so the
-                        // composite draws it at the current bounds.
+                        // composite draws it at the current bounds. Rebuild the
+                        // blurred-backdrop cache (it may be stale from a prior pos).
+                        self.chat_blur_cache_valid = false;
                         let b = self.wm.chat_window().bounds;
                         self.erase_chat_region(b.x, b.y);
                     } else {
@@ -1523,6 +1539,9 @@ impl DisplayServerRuntime {
             let _ = debug_println("windowd: chat window drag ok");
             self.chat_drag_marker_emitted = true;
         }
+        // The backdrop behind the window changed → the blurred-backdrop cache
+        // is stale; rebuild it at the new position next composite.
+        self.chat_blur_cache_valid = false;
         self.erase_chat_region(old_bounds.x, old_bounds.y);
     }
 
@@ -2812,6 +2831,9 @@ impl DisplayServerRuntime {
         let chat_show = self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
+        let chat_blur_cache_row = self.chat_blur_cache.abs_row;
+        let chat_blur_cache_valid = self.chat_blur_cache_valid;
+        let mut built_chat_blur_cache = false;
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
 
@@ -2876,6 +2898,46 @@ impl DisplayServerRuntime {
                     let hw = (CHAT_PANEL_W + 2 * pad).min(mode.width.saturating_sub(hx));
                     let hh = (CHAT_PANEL_H + 2 * pad).min(mode.height.saturating_sub(hy));
                     let _ = encoder.try_blit_surface(hx, hy + RETAINED_ROW_OFFSET, hx, hy, hw, hh);
+                    // Backdrop-blur cache: the halo restore just put the clean
+                    // base into the window region. Blur it ONCE (on open/move)
+                    // into the cache; thereafter just blit the cache back —
+                    // zero per-frame blur for the glass.
+                    if !chat_blur_cache_valid {
+                        let _ = encoder.try_blur_backdrop(
+                            TileRect {
+                                x: chat_dx,
+                                y: chat_dy,
+                                width: CHAT_PANEL_W,
+                                height: CHAT_PANEL_H,
+                            },
+                            super::DARK_GLASS_BLUR_RADIUS,
+                            super::DARK_GLASS_SATURATION_PERCENT,
+                        );
+                        // Save the blurred backdrop (display window region) to
+                        // the off-screen cache surface.
+                        let _ = encoder.try_blit_absolute(
+                            chat_dx,
+                            DISPLAY_ROW_OFFSET + chat_dy,
+                            0,
+                            chat_blur_cache_row,
+                            CHAT_PANEL_W,
+                            CHAT_PANEL_H,
+                        );
+                        built_chat_blur_cache = true;
+                    } else {
+                        // Reuse the cached blurred backdrop (one blit, no blur).
+                        let _ = encoder.try_blit_absolute(
+                            0,
+                            chat_blur_cache_row,
+                            chat_dx,
+                            DISPLAY_ROW_OFFSET + chat_dy,
+                            CHAT_PANEL_W,
+                            CHAT_PANEL_H,
+                        );
+                    }
+                    // The backdrop is already blurred in the display window
+                    // region, so the layer composite does shadow + content blend
+                    // only (backdrop_blur = 0).
                     let _ = encoder.try_composite_layer(
                         chat_atlas_row,
                         0,
@@ -2888,7 +2950,7 @@ impl DisplayServerRuntime {
                         CHAT_SHADOW_BLUR,
                         CHAT_SHADOW_OFFSET_Y,
                         CHAT_SHADOW_ALPHA as u32,
-                        super::DARK_GLASS_BLUR_RADIUS,
+                        0,
                     );
                 }
             }
@@ -3310,6 +3372,9 @@ impl DisplayServerRuntime {
         }
         if built_button_cache {
             self.button_blur_cache_valid = true;
+        }
+        if built_chat_blur_cache {
+            self.chat_blur_cache_valid = true;
         }
         self.scene_cb
             .serialize_into(out)
