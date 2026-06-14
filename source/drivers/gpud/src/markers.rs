@@ -53,3 +53,33 @@ pub const GPUD_VIRGL_BLUR_PARITY_OK: &str = "gpud: virgl blur parity ok";
 pub const GPUD_VIRGL_BLUR_PARITY_OFF: &str = "gpud: virgl blur parity off";
 /// Emitted once when the first BlurBackdrop is executed by the GPU shader path.
 pub const GPUD_VIRGL_BLUR_GPU_ON: &str = "gpud: virgl blur gpu on";
+/// GPU vector pipeline (M1): a per-pixel gradient quad rendered + read back with
+/// top≠bottom interpolation — proves GPU gradient fills work end-to-end.
+pub const GPUD_VIRGL_GRADIENT_OK: &str = "gpud: virgl gradient ok";
+/// Gradient self-test reached the GPU but readback showed no interpolation.
+pub const GPUD_VIRGL_GRADIENT_FLAT: &str = "gpud: virgl gradient flat";
+/// G0: the displayed scanout is a virgl render target (GL-presented). Emitted
+/// once when SET_SCANOUT to the GL RT + GPU clear + flush succeeded.
+pub const GPUD_GL_SCANOUT_OK: &str = "gpud: gl scanout ok";
+/// G1: first VMO→GL present executed (upload + GPU blit + flush).
+pub const GPUD_GL_PRESENT_OK: &str = "gpud: gl present ok";
+/// G1 proof: scanout-RT readback matches the windowd display plane.
+pub const GPUD_GL_PRESENT_PARITY_OK: &str = "gpud: gl present parity ok";
+/// Readback matches the display plane vertically flipped — orientation bug.
+pub const GPUD_GL_PRESENT_FLIPPED: &str = "gpud: gl present flipped";
+/// Readback matches neither orientation — blit content bug.
+pub const GPUD_GL_PRESENT_PARITY_OFF: &str = "gpud: gl present parity off";
+/// GL scanout init failed; display fell back to the 2D transfer/flush path.
+pub const GPUD_GL_SCANOUT_FALLBACK: &str = "gpud: gl scanout fallback 2d";
+/// G3/M1b: first FillSdfGradient executed by the GPU SDF shader.
+pub const GPUD_SDF_GRAD_OK: &str = "gpud: sdf-grad ok";
+/// G3/M1c: first DropShadow executed by the GPU SDF-falloff shader.
+pub const GPUD_DROPSHADOW_OK: &str = "gpud: dropshadow ok";
+/// G2: the GPU layer-composite primitive (textured layer + rounded mask +
+/// opacity composited into an RT) verified by readback at bringup.
+pub const GPUD_LAYER_COMPOSITE_OK: &str = "gpud: layer composite ok";
+/// Layer-composite self-test reached the GPU but readback was wrong.
+pub const GPUD_LAYER_COMPOSITE_OFF: &str = "gpud: layer composite off";
+/// G2 live: first window/layer GPU-composited into the display plane from a
+/// CompositeLayer command (windowd → gpud).
+pub const GPUD_LAYER_COMPOSITE_LIVE: &str = "gpud: layer composite live";

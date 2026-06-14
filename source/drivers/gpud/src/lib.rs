@@ -22,5 +22,24 @@ pub mod protocol;
 #[cfg(any(test, feature = "virgl"))]
 pub mod virgl;
 
+/// GL-presented scanout (GPU compositor G0/G1): the displayed scanout is a
+/// virgl render target presented by the host GL, fed by a GPU blit of the
+/// CPU-composited VMO. Empty unless the virgl OS build is active.
+#[cfg(feature = "virgl")]
+pub mod gl_scanout;
+
+/// GPU vector pipeline (G3/M1b-c): SDF gradient fills + soft drop shadows as
+/// virgl fragment-shader passes. Empty unless the virgl OS build is active.
+#[cfg(feature = "virgl")]
+pub mod virgl_vector;
+
+/// GPU layer compositor (G2): the CompositeLayer draw op (content texture +
+/// transform + opacity + rounded mask + shadow), the OHOS/Fuchsia/Apple model.
+#[cfg(feature = "virgl")]
+pub mod virgl_composite;
+
+/// CPU fallback for the vector pipeline (non-virgl 2D path).
+pub mod cpu_vector;
+
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub mod service;

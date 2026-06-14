@@ -71,6 +71,9 @@ pub const PIPE_BIND_RENDER_TARGET: u32 = 1 << 1;
 pub const PIPE_BIND_SAMPLER_VIEW: u32 = 1 << 3;
 /// `PIPE_BIND_VERTEX_BUFFER` (bit 4).
 pub const PIPE_BIND_VERTEX_BUFFER: u32 = 1 << 4;
+/// `VIRGL_RES_BIND_SCANOUT` (bit 18) — a resource the host display may present
+/// directly (QEMU `dpy_gl_scanout_texture` on virtio-gpu-gl).
+pub const PIPE_BIND_SCANOUT: u32 = 1 << 18;
 /// `PIPE_PRIM_TRIANGLES`.
 pub const PIPE_PRIM_TRIANGLES: u32 = 4;
 
@@ -269,6 +272,34 @@ impl Submit3d {
         self.words.push(0); // S1
         for _ in 0..8 {
             self.words.push(0xF << 27); // RT: blend off, colormask RGBA
+        }
+    }
+
+    /// Standard "over" alpha blending on RT0:
+    /// rgb = src.rgb·src.a + dst.rgb·(1−src.a); a = src.a + dst.a·(1−src.a).
+    /// RT dword layout (VIRGL_OBJ_BLEND_S2): enable(0) | rgb_func(1..3) |
+    /// rgb_src(4..8) | rgb_dst(9..13) | a_func(14..16) | a_src(17..21) |
+    /// a_dst(22..26) | colormask(27..30).
+    pub fn emit_create_blend_alpha(&mut self, handle: u32) {
+        const PIPE_BLEND_ADD: u32 = 0;
+        const PIPE_BLENDFACTOR_ONE: u32 = 0x1;
+        const PIPE_BLENDFACTOR_SRC_ALPHA: u32 = 0x3;
+        const PIPE_BLENDFACTOR_INV_SRC_ALPHA: u32 = 0x13;
+        let rt0 = 1
+            | (PIPE_BLEND_ADD << 1)
+            | (PIPE_BLENDFACTOR_SRC_ALPHA << 4)
+            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 9)
+            | (PIPE_BLEND_ADD << 14)
+            | (PIPE_BLENDFACTOR_ONE << 17)
+            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 22)
+            | (0xF << 27);
+        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_BLEND, 11);
+        self.words.push(handle);
+        self.words.push(0); // S0
+        self.words.push(0); // S1
+        self.words.push(rt0);
+        for _ in 0..7 {
+            self.words.push(0xF << 27);
         }
     }
 

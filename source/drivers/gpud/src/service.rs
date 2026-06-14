@@ -44,7 +44,13 @@ const GPUD_SEND_SLOT: u32 = 4;
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
-const RESOURCE_HEIGHT: u32 = 3200; // 4-plane VMO: wallpaper / retained-scene / slot-A / slot-B
+// 6400 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
+// atlas (3200) for the retained-surface compositor's cached layers. MUST match
+// windowd `crate::atlas::RESOURCE_HEIGHT` (separate crate, no shared dep).
+const RESOURCE_HEIGHT: u32 = 6400;
+/// Display plane row within the resource (fixed 4-plane layout). Matches
+/// `backend::DISPLAY_PLANE_ROW` and windowd's `DISPLAY_ROW_OFFSET`.
+const DISPLAY_PLANE_ROW: u32 = 1600;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut backend = open_backend_once()?;
     if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
@@ -217,19 +223,18 @@ fn service_requests(
                             let hot_y =
                                 u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                             let bgra = &frame[17..];
-                            // Store the sprite and let gpud composite it save-under
-                            // into the scanout — visible on every display backend.
-                            // The virtio-gpu cursor-queue OVERLAY is not shown on this
-                            // MMIO+GTK path, so we do not arm it; windowd still hands
-                            // the cursor off (CURSOR_REPLY_HW, magic-tagged so it is
-                            // distinct from present acks) and never blends it into the
-                            // scene CB — gpud owns the cursor now.
+                            // Store the sprite for the scene-CB BlendCursor path.
+                            // windowd composites the cursor into the per-present CB
+                            // (reactive: one present per move, no racing). The gpud
+                            // save-under path raced windowd's presents (flicker) and
+                            // flushed per move (UART/loop storm), so it is disabled
+                            // — reply SW so windowd keeps the BlendCursor path.
+                            // (`hot_x`/`hot_y` are applied by windowd's BlendCursor.)
+                            let _ = (hot_x, hot_y);
                             match backend.store_cursor_sprite(bgra, w, h) {
                                 Ok(()) => {
-                                    backend.cursor_take_ownership(hot_x, hot_y);
                                     let _ = debug_println("gpud: cursor uploaded");
-                                    let _ = debug_println("gpud: hw cursor on");
-                                    (STATUS_OK, Some(CURSOR_REPLY_HW))
+                                    (STATUS_OK, Some(CURSOR_REPLY_SW))
                                 }
                                 Err(_) => (STATUS_DEVICE_ERROR, None),
                             }
@@ -288,7 +293,49 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
             Command::BlitSurface { dst_x, dst_y, width, height, .. } => {
                 (*dst_x, *dst_y, *width, *height)
             }
+            // Absolute blits that target the display plane (e.g. the chat layer
+            // composite, sidebar/button blur-cache restores) MUST contribute to
+            // the present damage, or their region is written to the backing but
+            // never transferred/flushed to the host. Convert the absolute dst row
+            // back to screen-relative; ignore blits aimed elsewhere (atlas/cache).
+            Command::BlitAbsolute { dst_x, dst_y_abs, width, height, .. } => {
+                if *dst_y_abs >= DISPLAY_PLANE_ROW
+                    && *dst_y_abs < DISPLAY_PLANE_ROW + DISPLAY_HEIGHT
+                {
+                    (*dst_x, dst_y_abs - DISPLAY_PLANE_ROW, *width, *height)
+                } else {
+                    continue;
+                }
+            }
             Command::FillSdfRoundedRect { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
+            Command::FillSdfGradient { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
+            Command::CompositeLayer {
+                width,
+                height,
+                dst_x,
+                dst_y,
+                shadow_blur,
+                shadow_offset_y,
+                ..
+            } => {
+                // Damage the layer rect plus its shadow halo (blur + offset).
+                let pad = *shadow_blur + shadow_offset_y.unsigned_abs();
+                let x0 = dst_x.saturating_sub(pad);
+                let y0 = dst_y.saturating_sub(pad);
+                let x1 = (dst_x + width).saturating_add(pad);
+                let y1 = (dst_y + height).saturating_add(pad);
+                (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+            }
+            Command::DropShadow { rect, blur, offset_x, offset_y, .. } => {
+                // The painted halo extends past the casting rect by blur,
+                // shifted by the offset — damage the full extent (clamped).
+                let pad = *blur as i32;
+                let x0 = (rect.x as i32 + offset_x - pad).max(0) as u32;
+                let y0 = (rect.y as i32 + offset_y - pad).max(0) as u32;
+                let x1 = ((rect.x + rect.width) as i32 + offset_x + pad).max(0) as u32;
+                let y1 = ((rect.y + rect.height) as i32 + offset_y + pad).max(0) as u32;
+                (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+            }
             Command::BlurBackdrop { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
             Command::BlendCursor { x, y, width, height } => (*x, *y, *width, *height),
             _ => continue,
@@ -302,6 +349,12 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
         found = true;
     }
     if found {
+        // Clamp to the display plane — halo-style commands (DropShadow) may
+        // extend past the screen edges.
+        let min_x = min_x.min(DISPLAY_WIDTH);
+        let min_y = min_y.min(DISPLAY_HEIGHT);
+        let max_x = max_x.min(DISPLAY_WIDTH);
+        let max_y = max_y.min(DISPLAY_HEIGHT);
         Rect {
             x: min_x,
             y: min_y,
