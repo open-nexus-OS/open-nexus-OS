@@ -1029,24 +1029,22 @@ impl VirtioGpuBackend {
                                 DISPLAY_PLANE_HEIGHT,
                             );
                         }
+                        // Glass: when backdrop_blur>0 the backdrop is blurred
+                        // inline here; when 0 the caller already placed a
+                        // (cached) blurred backdrop in the display region. Either
+                        // way the content is ALPHA-BLENDED over it — opaque
+                        // content (alpha 255) blends to opaque, so this is
+                        // correct for both glass and solid layers.
                         if *backdrop_blur > 0 {
-                            // Glass: blur the backdrop, then alpha-blend the
-                            // (translucent) content over it so the blur shows.
                             let _ = blur_backdrop_vmo(
                                 fb, fb_len, fb_w, *dst_x, dst_y_abs, *width, *height,
                                 *backdrop_blur, 0,
                             );
-                            let _ = blit_blend_vmo(
-                                fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
-                                *width, *height,
-                            );
-                        } else {
-                            // Opaque content blit (atlas → display plane).
-                            let _ = blit_vmo(
-                                fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
-                                *width, *height,
-                            );
                         }
+                        let _ = blit_blend_vmo(
+                            fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
+                            *width, *height,
+                        );
                     }
                 }
             }
