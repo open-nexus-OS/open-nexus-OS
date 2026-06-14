@@ -112,7 +112,39 @@ pub struct VirtioGpuBackend {
     /// Guest backing VA of the GL scanout RT (parity readback only).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_scanout_backing_va: usize,
+    /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
+    /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
+    /// straight onto the scanout RT after the base upload, instead of rendered
+    /// into the VMO and re-uploaded. Reversible kill-switch.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    rt_direct_layers: bool,
+    /// Layers deferred this frame for RT-direct compositing (no per-frame alloc:
+    /// fixed stack capacity; overflow falls back to the VMO path).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pending_rt_layers: [PendingRtLayer; MAX_PENDING_RT_LAYERS],
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pending_rt_count: usize,
 }
+
+/// A CompositeLayer op deferred for RT-direct compositing after the base upload.
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+#[derive(Clone, Copy, Default)]
+struct PendingRtLayer {
+    src_row_abs: u32,
+    src_x: u32,
+    width: u32,
+    height: u32,
+    dst_x: u32,
+    dst_y: u32,
+    opacity: u32,
+    corner_radius: u32,
+    shadow_blur: u32,
+    shadow_offset_y: i32,
+    shadow_alpha: u32,
+}
+
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+const MAX_PENDING_RT_LAYERS: usize = 8;
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -190,6 +222,14 @@ impl VirtioGpuBackend {
             gl_present_parity_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_scanout_backing_va: 0,
+            // RT-direct layer compositing on by default for the virgl path; the
+            // field is the kill-switch if a regression shows up in the thumbnail.
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            rt_direct_layers: true,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            pending_rt_layers: [PendingRtLayer::default(); MAX_PENDING_RT_LAYERS],
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            pending_rt_count: 0,
         }
     }
 
@@ -974,6 +1014,32 @@ impl VirtioGpuBackend {
                     // relies on the content's own alpha (translucent panel bg).
                     #[cfg(not(feature = "virgl"))]
                     let _ = opacity;
+                    // RT-direct (Increment 1): defer non-glass layers and
+                    // composite them straight onto the scanout RT after the base
+                    // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
+                    // still uses the VMO path below until the RT-backdrop lands.
+                    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+                    if self.rt_direct_layers
+                        && self.gl_scanout_active
+                        && *backdrop_blur == 0
+                        && self.pending_rt_count < MAX_PENDING_RT_LAYERS
+                    {
+                        self.pending_rt_layers[self.pending_rt_count] = PendingRtLayer {
+                            src_row_abs: *src_row_abs,
+                            src_x: *src_x,
+                            width: *width,
+                            height: *height,
+                            dst_x: *dst_x,
+                            dst_y: *dst_y,
+                            opacity: *opacity,
+                            corner_radius: *corner_radius,
+                            shadow_blur: *shadow_blur,
+                            shadow_offset_y: *shadow_offset_y,
+                            shadow_alpha: *shadow_alpha,
+                        };
+                        self.pending_rt_count += 1;
+                        continue; // composited onto the RT in gl_present, not here
+                    }
                     // GPU layer compositor op (G2). On virgl the layer is
                     // composited on the GPU into the display-plane surface
                     // (shadow + optional backdrop blur + content texture +
@@ -1050,6 +1116,38 @@ impl VirtioGpuBackend {
             }
         }
         Ok(())
+    }
+
+    /// Composite all layers deferred this frame (RT-direct, Increment 1) straight
+    /// onto the scanout RT. Called by gl_present AFTER the base upload and the
+    /// one-shot parity readback, BEFORE the flush — so the base is on the RT and
+    /// parity still compares the clean base. Drains the pending buffer.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn composite_pending_rt_layers(&mut self) {
+        let n = self.pending_rt_count;
+        self.pending_rt_count = 0;
+        for i in 0..n {
+            let l = self.pending_rt_layers[i];
+            let ok = self
+                .composite_layer_rt(
+                    l.src_row_abs,
+                    l.src_x,
+                    l.width,
+                    l.height,
+                    l.dst_x,
+                    l.dst_y,
+                    l.opacity,
+                    l.corner_radius,
+                    l.shadow_blur,
+                    l.shadow_offset_y,
+                    l.shadow_alpha,
+                )
+                .is_ok();
+            if ok && !self.virgl_layer_marker_done {
+                self.virgl_layer_marker_done = true;
+                let _ = nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
+            }
+        }
     }
 
     /// Store the software cursor sprite (premultiplied BGRA) for BlendCursor.

@@ -47,7 +47,7 @@ use crate::virgl::{
 const GL_SCANOUT_RES: u32 = 0xE0;
 /// Surface handle for the scanout RT (context-scoped object namespace; the
 /// blur path owns 0x30..0x34, selftests 0x20..0x24, gradient 0x30s on 0xF6).
-const H_GLS_SURF: u32 = 0x42;
+pub(crate) const H_GLS_SURF: u32 = 0x42;
 /// Fragment shader handle for the display-texture blit (VS is handle 10, the
 /// boot self-test's passthrough vertex shader, which persists in the context).
 const H_FS_BLIT: u32 = 14;
@@ -217,12 +217,18 @@ impl VirtioGpuBackend {
         })?;
 
         // One-shot on-device proof: read the scanout RT back and compare a
-        // pixel sample against the source plane (G1 marker).
+        // pixel sample against the source plane (G1 marker). Runs BEFORE the
+        // RT-direct layers so parity still compares the clean base.
         if !self.gl_present_parity_done {
             self.gl_present_parity_done = true;
             self.gl_present_parity_check();
             let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_PRESENT_OK);
         }
+
+        // RT-direct (Increment 1): composite the layers deferred this frame
+        // straight onto the scanout RT, over the base just blitted here — no VMO
+        // render + re-upload. No-op when nothing was deferred.
+        self.composite_pending_rt_layers();
 
         self.gl_flush_rect(Rect { x, y, width: w, height: h }).map_err(|e| {
             let _ = nexus_abi::debug_println(

@@ -379,6 +379,65 @@ impl VirtioGpuBackend {
         self.virgl_transfer_from_host(0xF8, dst_x, dst_y, width, height, FB_STRIDE)
     }
 
+    /// RT-direct layer composite (Increment 1 of true GPU compositing): composite
+    /// the layer straight onto the scanout render target (`H_GLS_SURF`), over the
+    /// base that gl_present already blitted there — NO VMO display-plane writeback
+    /// and NO `0xF8` backdrop transfer (the RT is the final surface). Only the
+    /// `backdrop_blur == 0` case (shadow + content); glass-over-dynamic still uses
+    /// `composite_layer_gpu` until the RT-backdrop pass lands in a later step.
+    /// Coordinates are screen-space (0..SCREEN_H), matching the RT.
+    pub(crate) fn composite_layer_rt(
+        &mut self,
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+    ) -> Result<(), GfxError> {
+        if !self.virgl_capable || !self.virgl_draw_ok {
+            return Err(GfxError::DeviceNotFound);
+        }
+        self.composite_atlas_init()?;
+        // Shadow first, alpha-blended over the base already on the RT.
+        if shadow_blur > 0 {
+            self.submit_drop_shadow_rt(
+                dst_x,
+                dst_y,
+                width,
+                height,
+                corner_radius,
+                shadow_blur,
+                0,
+                shadow_offset_y,
+                RgbaColor::new(0, 0, 0, shadow_alpha.min(255) as u8),
+            )?;
+        }
+        // Sync the content from the VMO atlas into the GL atlas texture.
+        let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
+        self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
+        // Composite the content straight onto the scanout RT (alpha-over base).
+        self.submit_layer_pass(
+            crate::gl_scanout::H_GLS_SURF,
+            ATLAS_SVIEW,
+            1280,
+            ATLAS_ROWS,
+            src_x,
+            src_row_rel,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            opacity,
+            corner_radius,
+        )
+    }
+
     fn submit_composite_stream(&mut self, s: &Submit3d) -> Result<(), GfxError> {
         let bytes = s.as_bytes();
         let hdr = VirtioGpuSubmit3d {

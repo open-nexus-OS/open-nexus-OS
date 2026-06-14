@@ -236,14 +236,80 @@ impl VirtioGpuBackend {
     /// Common pass state: explicit binds (state is context-global), display
     /// surface as target, viewport = affected box, alpha blending, quad VBO.
     fn emit_vector_state(&mut self, s: &mut Submit3d, x: u32, y: u32, w: u32, h: u32) {
+        self.emit_vector_state_to(s, H_FBSRC_SURF, x, y, w, h);
+    }
+
+    /// Like [`emit_vector_state`] but renders into an explicit target surface.
+    /// Used by the RT-direct path to draw vector passes straight onto the scanout
+    /// render target instead of the VMO display-plane surface.
+    fn emit_vector_state_to(
+        &mut self,
+        s: &mut Submit3d,
+        target_surface: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+    ) {
         s.emit_bind_object(VIRGL_OBJECT_BLEND, H_BLEND_ALPHA);
         s.emit_bind_object(VIRGL_OBJECT_DSA, 0x21);
         s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, 0x22);
         s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-        s.emit_set_framebuffer_state(0, &[H_FBSRC_SURF]);
+        s.emit_set_framebuffer_state(0, &[target_surface]);
         s.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
         s.emit_bind_shader(10, PIPE_SHADER_VERTEX);
         s.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
+    }
+
+    /// Drop shadow rendered directly onto the scanout render target (RT-direct
+    /// path). Screen-space coordinates (no DISPLAY_ROW), the shadow SDF is
+    /// alpha-blended over the base already present on the RT — so unlike
+    /// [`submit_virgl_drop_shadow`] there is no `0xF8` backdrop transfer and no
+    /// VMO writeback (the RT is the final surface).
+    pub(crate) fn submit_drop_shadow_rt(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+        blur: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color: RgbaColor,
+    ) -> Result<(), GfxError> {
+        if !self.virgl_capable || !self.virgl_draw_ok || blur == 0 || w == 0 || h == 0 {
+            return Err(GfxError::InvalidArgument);
+        }
+        self.virgl_vector_init()?;
+        let sx0 = (x as i32 + offset_x - blur as i32).max(0) as u32;
+        let sy0 = (y as i32 + offset_y - blur as i32).max(0) as u32;
+        let sx1 = ((x + w) as i32 + offset_x + blur as i32).min(SCREEN_W as i32) as u32;
+        let sy1 = ((y + h) as i32 + offset_y + blur as i32).min(SCREEN_H as i32) as u32;
+        if sx0 >= sx1 || sy0 >= sy1 {
+            return Ok(()); // fully clipped
+        }
+        let (rw, rh) = (sx1 - sx0, sy1 - sy0);
+        let r = (radius.min(w / 2).min(h / 2)) as f32;
+        let cx = x as f32 + offset_x as f32 + w as f32 / 2.0;
+        let cy = y as f32 + offset_y as f32 + h as f32 / 2.0;
+        let bx = w as f32 / 2.0 - r;
+        let by = h as f32 / 2.0 - r;
+        let c = rgba_f32(color);
+
+        let mut s = Submit3d::new();
+        self.emit_vector_state_to(&mut s, crate::gl_scanout::H_GLS_SURF, sx0, sy0, rw, rh);
+        s.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[
+                -cx, -cy, bx, by, //
+                r, 1.0 / (blur as f32), 0.0, 0.0, //
+                c[0], c[1], c[2], c[3],
+            ],
+        );
+        s.emit_bind_shader(H_FS_SHADOW, PIPE_SHADER_FRAGMENT);
+        s.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        self.submit_vector_stream(&s)
     }
 
     fn submit_vector_stream(&mut self, s: &Submit3d) -> Result<(), GfxError> {
