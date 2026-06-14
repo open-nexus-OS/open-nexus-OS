@@ -492,6 +492,9 @@ pub(crate) struct DisplayServerRuntime {
     /// every present so glass costs one blit, not a blur, per frame.
     chat_blur_cache: crate::atlas::AtlasSurface,
     chat_blur_cache_valid: bool,
+    /// Cached fully-composited sidebar (valid only while it's settled/static).
+    sidebar_composite_cache: crate::atlas::AtlasSurface,
+    sidebar_composite_cache_valid: bool,
     /// Set when the chat surface needs re-rendering (init, scroll, new message).
     chat_surface_dirty: bool,
     /// Message provider + scroll state + the precomputed visible window.
@@ -650,6 +653,13 @@ impl DisplayServerRuntime {
         let chat_blur_cache = atlas
             .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Cache of the FULLY COMPOSITED sidebar (blurred backdrop + glass tint +
+        // border + icons). When the sidebar is settled (fully open, static), it's
+        // composited once and then blitted each present — so a cursor move over
+        // the sidebar costs one blit, not 4 full-height SDF fills.
+        let sidebar_composite_cache = atlas
+            .alloc(crate::interaction::SIDEBAR_WIDTH, mode.height)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -729,6 +739,8 @@ impl DisplayServerRuntime {
             chat_atlas,
             chat_blur_cache,
             chat_blur_cache_valid: false,
+            sidebar_composite_cache,
+            sidebar_composite_cache_valid: false,
             chat_surface_dirty: true,
             chat_provider,
             chat_scroll_y: 0,
@@ -2846,6 +2858,12 @@ impl DisplayServerRuntime {
         let mut built_chat_blur_cache = false;
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
+        // Sidebar composite cache: usable only when the sidebar is fully open and
+        // static (settled). During the slide it's redrawn each frame (animation).
+        let sidebar_settled = scene.sidebar_opacity >= 0.99 && scene.sidebar_translate_x <= 0.5;
+        let sidebar_composite_cache_row = self.sidebar_composite_cache.abs_row;
+        let sidebar_composite_cache_valid = self.sidebar_composite_cache_valid;
+        let mut built_sidebar_composite_cache = false;
 
         self.scene_cb.clear();
         {
@@ -3227,6 +3245,18 @@ impl DisplayServerRuntime {
                         .saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM)
                         .max(1);
 
+                    // Fast path: the sidebar is settled and already composited
+                    // into the cache — one blit, skip the blur-cache + SDF fills.
+                    if sidebar_settled && sidebar_composite_cache_valid {
+                        let _ = encoder.try_blit_absolute(
+                            sidebar_x,
+                            sidebar_composite_cache_row + SIDEBAR_MARGIN_TOP,
+                            sidebar_x,
+                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_w,
+                            sidebar_h,
+                        );
+                    } else {
                     if !blur_cache_valid {
                         // Cache-build frame (once per sidebar open):
                         // restore full Plane 1 bg at rest position, blur it, save to Plane 3.
@@ -3356,6 +3386,20 @@ impl DisplayServerRuntime {
                             cc,
                         );
                     }
+                    // Snapshot the fully composited sidebar into the cache on the
+                    // first settled frame; subsequent presents are a single blit.
+                    if sidebar_settled {
+                        let _ = encoder.try_blit_absolute(
+                            sidebar_x,
+                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                            sidebar_x,
+                            sidebar_composite_cache_row + SIDEBAR_MARGIN_TOP,
+                            sidebar_w,
+                            sidebar_h,
+                        );
+                        built_sidebar_composite_cache = true;
+                    }
+                    }
                 }
             }
 
@@ -3387,6 +3431,14 @@ impl DisplayServerRuntime {
         }
         if built_chat_blur_cache {
             self.chat_blur_cache_valid = true;
+        }
+        // Sidebar composite cache: valid once built on a settled frame; dropped
+        // whenever the sidebar is animating (slide/fade) so the animation draws
+        // fresh frames and the cache is rebuilt when it settles again.
+        if built_sidebar_composite_cache {
+            self.sidebar_composite_cache_valid = true;
+        } else if !sidebar_settled {
+            self.sidebar_composite_cache_valid = false;
         }
         self.scene_cb
             .serialize_into(out)
