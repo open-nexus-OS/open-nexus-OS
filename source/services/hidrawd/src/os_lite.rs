@@ -106,6 +106,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             }
             if !raw_gate_emitted && polled.evidence.raw_event_count() > 0 {
                 debug_println("hidrawd: virtio-input raw event seen")?;
+                // Input-chain hop I1: a raw HID event reached us from the device.
+                debug_println("hidrawd: chain I1 device event (raw HID polled)")?;
                 raw_gate_emitted = true;
             }
             if !normalized_gate_emitted && polled.evidence.normalized_event_count() > 0 {
@@ -130,6 +132,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 Ok(()) => {
                     if !send_ok_emitted {
                         debug_println("dbg: hidrawd inputd send ok")?;
+                        // Input-chain hop I2: normalized wire batch sent to inputd.
+                        debug_println("hidrawd: chain I2 wire sent to inputd")?;
                         send_ok_emitted = true;
                     }
                 }
@@ -137,6 +141,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                     chain.send_failures = chain.send_failures.saturating_add(1);
                     if !send_fail_emitted {
                         debug_println(live_route_send_fail_label(err))?;
+                        // Input-chain hop I2 fail: inputd unreachable (reason above).
+                        debug_println("hidrawd: chain I2 wire send FAIL (inputd route)")?;
                         send_fail_emitted = true;
                     }
                     if classify_live_route_send_error(map_live_route_send_error(err))

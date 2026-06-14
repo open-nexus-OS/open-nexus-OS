@@ -46,8 +46,12 @@ impl Contract for InputdContract {
         bus.emit_marker(id, "inputd: priority-wired slots 5/6 ok");
 
         if self.cursor_moves {
+            // Input-chain hops I3..I5, string-identical to os_lite.rs.
+            bus.emit_marker(id, "inputd: chain I3 wire recv from hidrawd");
+            bus.emit_marker(id, "inputd: chain I4 normalized");
             bus.emit_marker(id, "inputd: cursor move computed");
             bus.emit_marker(id, "inputd: windowd visible-state pushed");
+            bus.emit_marker(id, "inputd: chain I5 delivered to windowd");
         }
 
         bus.emit_marker(id, "inputd: ready");

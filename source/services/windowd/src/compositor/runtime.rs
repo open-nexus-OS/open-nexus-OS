@@ -1096,6 +1096,9 @@ impl DisplayServerRuntime {
     pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
         if !self.input_state_debug_emitted {
             let _ = debug_println("dbg: windowd input state applied");
+            // Input-chain hop I6: input reached windowd and was applied. The
+            // present chain (gpud G1..G4) takes over from here to put it onscreen.
+            let _ = debug_println("windowd: chain I6 input recv (state applied)");
             self.input_state_debug_emitted = true;
         }
         let old_state = self.state;

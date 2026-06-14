@@ -149,6 +149,8 @@ struct LiveRouteRuntime {
     keyboard_dispatch_debug_emitted: bool,
     keyboard_delivery_debug_emitted: bool,
     hid_batch_recv_debug_emitted: bool,
+    chain_normalize_ok_emitted: bool,
+    chain_normalize_fail_emitted: bool,
     absolute_source_debug_emitted: bool,
     relative_blocked_debug_emitted: bool,
     windowd_push_ok_emitted: bool,
@@ -258,6 +260,8 @@ impl LiveRouteRuntime {
             keyboard_dispatch_debug_emitted: false,
             keyboard_delivery_debug_emitted: false,
             hid_batch_recv_debug_emitted: false,
+            chain_normalize_ok_emitted: false,
+            chain_normalize_fail_emitted: false,
             absolute_source_debug_emitted: false,
             relative_blocked_debug_emitted: false,
             windowd_push_ok_emitted: false,
@@ -281,14 +285,27 @@ impl LiveRouteRuntime {
         if frame_has_op(frame, OP_PUSH_HID_BATCH) {
             if !self.hid_batch_recv_debug_emitted {
                 let _ = debug_println("dbg: inputd hid batch recv");
+                // Input-chain hop I3: a wire batch arrived from hidrawd.
+                let _ = debug_println("inputd: chain I3 wire recv from hidrawd");
                 self.hid_batch_recv_debug_emitted = true;
             }
             let Some(batch) = decode_push_hid_batch(frame) else {
                 self.chain.frame_decode_malformed =
                     self.chain.frame_decode_malformed.saturating_add(1);
                 self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
+                // Input-chain hop I4 fail: the wire batch could not be decoded.
+                if !self.chain_normalize_fail_emitted {
+                    let _ =
+                        debug_println("inputd: chain I4 normalize FAIL (malformed wire batch)");
+                    self.chain_normalize_fail_emitted = true;
+                }
                 return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
             };
+            // Input-chain hop I4: the wire batch decoded into normalized events.
+            if !self.chain_normalize_ok_emitted {
+                let _ = debug_println("inputd: chain I4 normalized");
+                self.chain_normalize_ok_emitted = true;
+            }
             let status = self.apply_wire_batch(batch);
             self.chain.record_hid_status(status);
             return encode_status(OP_PUSH_HID_BATCH, status);
@@ -620,6 +637,8 @@ impl LiveRouteRuntime {
                 self.last_windowd_push_ns = now_ns;
                 if !self.windowd_push_ok_emitted {
                     let _ = debug_println("inputd: windowd visible-state pushed");
+                    // Input-chain hop I5: normalized state delivered to windowd.
+                    let _ = debug_println("inputd: chain I5 delivered to windowd");
                     self.windowd_push_ok_emitted = true;
                 }
             }
@@ -631,6 +650,8 @@ impl LiveRouteRuntime {
             Err(_) => {
                 if !self.windowd_push_fail_emitted {
                     let _ = debug_println("inputd: windowd visible-state push fail");
+                    // Input-chain hop I5 fail: windowd unreachable (route dropped).
+                    let _ = debug_println("inputd: chain I5 deliver FAIL (windowd route)");
                     self.windowd_push_fail_emitted = true;
                 }
                 self.windowd_client = None;

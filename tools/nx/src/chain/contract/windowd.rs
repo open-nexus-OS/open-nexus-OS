@@ -71,6 +71,9 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "SELFTEST: ui v2 present ok");
         bus.emit_marker(id, "SELFTEST: ui visible present ok");
         bus.emit_marker(id, "windowd: input visible on");
+        // Input-chain hop I6: input reached windowd and was applied (handoff to
+        // the present chain). String-identical to compositor/runtime.rs.
+        bus.emit_marker(id, "windowd: chain I6 input recv (state applied)");
         bus.emit_marker(id, "windowd: cursor move visible");
         bus.emit_marker(id, "windowd: hover visible");
         bus.emit_marker(id, "windowd: focus visible");
