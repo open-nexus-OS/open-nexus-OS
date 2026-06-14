@@ -1062,9 +1062,12 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
         req.len() as u32,
     );
 
-    // Send request
+    // Send request. 2s budget (matches the route budgets elsewhere): rngd
+    // does a policyd round-trip before replying, and slow boots (e.g. the
+    // virgl GPU bringup competing for the single hart) push that past the
+    // old 500ms window.
     let clock = OsClock;
-    let deadline_ns = deadline_after(&clock, Duration::from_millis(500)).ok()?;
+    let deadline_ns = deadline_after(&clock, Duration::from_secs(2)).ok()?;
     if nexus_ipc::budget::raw::send_budgeted(&clock, rng_send_slot, &hdr, &req, deadline_ns)
         .is_err()
     {

@@ -147,9 +147,20 @@ fn handle_sleep_until(frame: &[u8]) -> Vec<u8> {
 }
 
 fn route_timed_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"timed")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+    if let Some((send_slot, recv_slot)) = route_blocking(b"timed") {
+        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+    }
+    // Routing budget expired (slow boots — e.g. the virgl GPU bringup delays
+    // init's wiring past the 2s budget). Fall back to the deterministic slots
+    // init wires via cap_transfer (recv=3, send=4 — same order as metricsd).
+    emit_line("timed: route fallback slots");
+    KernelServer::new_with_slots(TIMED_RECV_SLOT, TIMED_SEND_SLOT).ok()
 }
+
+/// Deterministic slots wired by init's cap_transfer for timed (recv first →
+/// slot 3, send second → slot 4; matches the logged metricsd wiring order).
+const TIMED_RECV_SLOT: u32 = 0x03;
+const TIMED_SEND_SLOT: u32 = 0x04;
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     const CTRL_SEND_SLOT: u32 = 1;

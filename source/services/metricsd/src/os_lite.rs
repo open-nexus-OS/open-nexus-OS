@@ -44,6 +44,8 @@ pub type MetricsResult<T> = Result<T, MetricsError>;
 // Deterministic slots distributed by init-lite for metricsd:
 // - statefsd send: 0x07
 // - logd send: 0x08
+const METRICSD_RECV_SLOT: u32 = 0x03;
+const METRICSD_SEND_SLOT: u32 = 0x04;
 const METRICSD_STATEFSD_SEND_SLOT: u32 = 0x07;
 const METRICSD_LOGD_SEND_SLOT: u32 = 0x08;
 const METRICSD_REPLY_SEND_SLOT: u32 = 0x06;
@@ -429,8 +431,14 @@ fn reject_rsp(op: u8, nonce: u32, reject: RejectReason) -> (Vec<u8>, Option<u8>)
 }
 
 fn route_metricsd_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"metricsd")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+    if let Some((send_slot, recv_slot)) = route_blocking(b"metricsd") {
+        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+    }
+    // Routing budget expired (slow boots — e.g. the virgl GPU bringup delays
+    // init's wiring past the 2s budget). Fall back to the deterministic slots
+    // init-lite distributes (recv=3, send=4), like logd/samgrd/gpud do.
+    emit_line("metricsd: route fallback slots");
+    KernelServer::new_with_slots(METRICSD_RECV_SLOT, METRICSD_SEND_SLOT).ok()
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {

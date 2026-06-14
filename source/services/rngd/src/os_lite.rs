@@ -125,9 +125,19 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn route_rngd_blocking() -> Option<KernelServer> {
-    let (send_slot, recv_slot) = route_blocking(b"rngd")?;
-    KernelServer::new_with_slots(recv_slot, send_slot).ok()
+    if let Some((send_slot, recv_slot)) = route_blocking(b"rngd") {
+        return KernelServer::new_with_slots(recv_slot, send_slot).ok();
+    }
+    // Routing budget expired (slow boots — e.g. the virgl GPU bringup delays
+    // init's wiring past the 2s budget). Fall back to the deterministic slots
+    // init wires via cap_transfer (recv first → 3, send second → 4).
+    emit_line("rngd: route fallback slots");
+    KernelServer::new_with_slots(RNGD_RECV_SLOT, RNGD_SEND_SLOT).ok()
 }
+
+/// Deterministic slots wired by init's cap_transfer for rngd.
+const RNGD_RECV_SLOT: u32 = 0x03;
+const RNGD_SEND_SLOT: u32 = 0x04;
 
 /// Handle an incoming IPC frame.
 ///
