@@ -316,7 +316,7 @@ fn composite_layer_serialize_roundtrip() {
             width: 1280,
             height: 800,
         });
-        enc.composite_layer(3200, 0, 366, 600, 890, 96, 255, 12, 22, 10, 78);
+        enc.composite_layer(3200, 0, 366, 600, 890, 96, 255, 12, 22, 10, 78, 20);
         enc.end_encoding();
     }
     let committed = cmd.commit();
@@ -336,8 +336,8 @@ fn composite_layer_rejects_bad_params() {
         width: 1280,
         height: 800,
     });
-    assert!(enc.try_composite_layer(0, 0, 0, 600, 0, 0, 255, 0, 0, 0, 0).is_err()); // zero width
-    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 300, 0, 0, 0, 0).is_err()); // opacity > 255
-    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 255, 0, 99, 0, 0).is_err()); // blur > 64
+    assert!(enc.try_composite_layer(0, 0, 0, 600, 0, 0, 255, 0, 0, 0, 0, 0).is_err()); // zero width
+    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 300, 0, 0, 0, 0, 0).is_err()); // opacity > 255
+    assert!(enc.try_composite_layer(0, 0, 10, 10, 0, 0, 255, 0, 99, 0, 0, 0).is_err()); // blur > 64
     enc.end_encoding();
 }

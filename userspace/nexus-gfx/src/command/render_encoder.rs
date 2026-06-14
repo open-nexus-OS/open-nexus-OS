@@ -192,6 +192,7 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        backdrop_blur: u32,
     ) {
         self.try_composite_layer(
             src_row_abs,
@@ -205,6 +206,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_blur,
             shadow_offset_y,
             shadow_alpha,
+            backdrop_blur,
         )
         .expect("invalid composite layer");
     }
@@ -223,6 +225,7 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        backdrop_blur: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -239,6 +242,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_blur,
             shadow_offset_y,
             shadow_alpha,
+            backdrop_blur,
         })
     }
 

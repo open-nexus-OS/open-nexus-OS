@@ -98,9 +98,12 @@ pub enum Command {
     /// the shared framebuffer atlas at absolute row `src_row_abs`, `src_x` —
     /// and composite it into the scanout render target at (`dst_x`, `dst_y`)
     /// with per-layer GPU effects: `opacity` (0..255), `corner_radius` (rounded
-    /// mask), and an optional soft drop shadow (`shadow_blur`>0). The backend
-    /// composites this directly into the GL scanout RT — it is NOT a VMO write
-    /// (only valid on the GPU/virgl path; the 2D path bakes layers on the CPU).
+    /// mask), an optional soft drop shadow (`shadow_blur`>0), and an optional
+    /// **backdrop blur** (`backdrop_blur`>0) — the destination region is blurred
+    /// before the (translucent) content is composited over it, the glass /
+    /// background-blur material (Apple CALayer backgroundFilters / OHOS
+    /// background blur). The backend GPU-composites this on virgl or CPU-bakes
+    /// it on the 2D path.
     CompositeLayer {
         src_row_abs: u32,
         src_x: u32,
@@ -113,6 +116,7 @@ pub enum Command {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        backdrop_blur: u32,
     },
 }
 
@@ -412,6 +416,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 shadow_blur,
                 shadow_offset_y,
                 shadow_alpha,
+                backdrop_blur,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -428,6 +433,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *shadow_blur,
                         *shadow_offset_y as u32,
                         *shadow_alpha,
+                        *backdrop_blur,
                     ],
                 )?;
             }
@@ -585,9 +591,9 @@ fn ser_drop_shadow(
     Ok(pos + 37)
 }
 
-/// 11 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 11]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 11 * 4;
+/// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 12]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 12 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -790,10 +796,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 44 {
+    if buf.len() < pos + 48 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 11];
+    let mut w = [0u32; 12];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -811,8 +817,9 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             shadow_blur: w[8],
             shadow_offset_y: w[9] as i32,
             shadow_alpha: w[10],
+            backdrop_blur: w[11],
         },
-        pos + 44,
+        pos + 48,
     ))
 }
 
@@ -889,11 +896,19 @@ fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Res
             }
             validate_tile(*rect, render_extent)
         }
-        Command::CompositeLayer { width, height, opacity, shadow_blur, shadow_alpha, .. } => {
+        Command::CompositeLayer {
+            width,
+            height,
+            opacity,
+            shadow_blur,
+            shadow_alpha,
+            backdrop_blur,
+            ..
+        } => {
             if *width == 0 || *height == 0 {
                 return Err(GfxError::InvalidArgument);
             }
-            if *opacity > 255 || *shadow_alpha > 255 || *shadow_blur > 64 {
+            if *opacity > 255 || *shadow_alpha > 255 || *shadow_blur > 64 || *backdrop_blur > 64 {
                 return Err(GfxError::InvalidArgument);
             }
             Ok(())
