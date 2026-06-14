@@ -27,6 +27,10 @@ mod frame;
 mod geometry;
 mod ids;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod atlas;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod wm;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod interaction;
 mod layout_panel;
 mod legacy;

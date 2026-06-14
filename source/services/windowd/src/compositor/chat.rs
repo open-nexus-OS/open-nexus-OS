@@ -24,7 +24,8 @@ use crate::error::WindowdError;
 use crate::interaction::{
     chat_chars_per_line, chat_line_char_range, chat_message_height, chat_message_lines,
     CHAT_FONT_ADVANCE, CHAT_FONT_H, CHAT_FONT_SCALE, CHAT_FONT_W, CHAT_LINE_H, CHAT_MSG_PAD,
-    CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y, CHAT_SCROLLBAR_W,
+    CHAT_CLOSE_ZONE_W, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W,
+    CHAT_TITLE_BAR_H,
 };
 use alloc::vec::Vec;
 use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
@@ -40,14 +41,17 @@ const SCROLL_THUMB: [u8; 4] = [130, 122, 120, 230];
 /// viewport edge so consecutive bubbles read as separate.
 const BUBBLE_INSET: u32 = 4;
 
-/// A message in the current scroll window, with its top in *screen* pixels.
+/// A message in the current scroll window, positioned in *surface-local* pixels
+/// (top-left of the chat surface is 0,0). The surface is composited to its
+/// on-screen position by a single BlitAbsolute, so the content is independent of
+/// where the window currently sits — moving the window costs no re-render.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ChatVisibleMsg {
     pub(crate) text: &'static str,
     pub(crate) from_me: bool,
-    /// Top of the message block in screen-space pixels (may be negative when the
+    /// Top of the message block in surface-local pixels (may be negative when the
     /// message is partially scrolled above the viewport).
-    pub(crate) screen_top: i32,
+    pub(crate) top: i32,
     pub(crate) lines: u32,
     /// Character count (NOT byte length) — the message pool contains multi-byte
     /// UTF-8 (em-dashes), so wrapping is by char and slicing is by char boundary.
@@ -78,11 +82,11 @@ pub(crate) fn compute_visible(
         let height = chat_message_height(lines);
         let block_bottom = block_top.saturating_add(height);
         if block_bottom > scroll_y && block_top < view_bottom {
-            let screen_top = vp_y as i32 + block_top as i32 - scroll_y as i32;
+            let top = vp_y as i32 + block_top as i32 - scroll_y as i32;
             out.push(ChatVisibleMsg {
                 text: msg.text,
                 from_me: msg.from_me,
-                screen_top,
+                top,
                 lines,
                 char_len,
             });
@@ -92,48 +96,118 @@ pub(crate) fn compute_visible(
     block_top
 }
 
+// Title bar colours (BGRA): subtle vertical gradient, separator, close X.
+const TITLE_BAR_TOP: [u8; 4] = [72, 64, 62, 255];
+const TITLE_BAR_BOTTOM: [u8; 4] = [52, 46, 45, 255];
+const TITLE_SEPARATOR: [u8; 4] = [30, 27, 27, 255];
+const TITLE_TEXT: [u8; 4] = [240, 238, 235, 255];
+
+/// Surface-local viewport rect (x, y, w, h). The chat surface top-left is (0,0);
+/// the on-screen position is applied only at composite time. Content starts
+/// below the title bar.
 #[inline]
 fn viewport() -> (u32, u32, u32, u32) {
-    let vp_x = CHAT_PANEL_X + CHAT_PAD;
-    let vp_y = CHAT_PANEL_Y + CHAT_PAD;
+    let vp_x = CHAT_PAD;
+    let vp_y = CHAT_TITLE_BAR_H.saturating_add(CHAT_PAD);
     let vp_w = CHAT_PANEL_W
         .saturating_sub(CHAT_PAD.saturating_mul(2))
         .saturating_sub(CHAT_SCROLLBAR_W);
-    let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
+    let vp_h = CHAT_PANEL_H
+        .saturating_sub(CHAT_TITLE_BAR_H)
+        .saturating_sub(CHAT_PAD.saturating_mul(2));
     (vp_x, vp_y, vp_w, vp_h)
 }
 
-/// Render the chat panel for scanline `y` into `row`. No-op outside the panel.
+/// Render one row of the title bar: gradient background, bottom separator,
+/// "CHAT" label on the left, and an X glyph centered in the close zone.
+fn draw_title_bar_row(ly: u32, row: &mut [u8]) -> Result<(), WindowdError> {
+    // Vertical gradient (per-row lerp top → bottom).
+    let denom = (CHAT_TITLE_BAR_H - 1).max(1);
+    let mut bg = [0u8; 4];
+    for c in 0..4 {
+        let t = TITLE_BAR_TOP[c] as u32;
+        let b = TITLE_BAR_BOTTOM[c] as u32;
+        bg[c] = ((t * (denom - ly) + b * ly) / denom) as u8;
+    }
+    if ly == CHAT_TITLE_BAR_H - 1 {
+        bg = TITLE_SEPARATOR;
+    }
+    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, CHAT_TITLE_BAR_H, bg)?;
+
+    // Title label "CHAT" (5x7 bitmap font, 2x scale) vertically centered.
+    const TITLE: &str = "CHAT";
+    const TITLE_SCALE: u32 = 2;
+    let glyph_h = 7 * TITLE_SCALE;
+    let title_top = (CHAT_TITLE_BAR_H - glyph_h) / 2;
+    if ly >= title_top && ly < title_top + glyph_h {
+        let glyph_row = ((ly - title_top) / TITLE_SCALE) as usize;
+        let mut pen_x = CHAT_PAD;
+        for ch in TITLE.chars() {
+            let glyph = bitmap_font_5x7(ch);
+            let bits = glyph[glyph_row];
+            for col in 0..5u32 {
+                if bits & (1 << (4 - col)) != 0 {
+                    let px = pen_x + col * TITLE_SCALE;
+                    fill_row_rect(ly, row, px, ly, TITLE_SCALE, 1, TITLE_TEXT)?;
+                }
+            }
+            pen_x += (5 + 1) * TITLE_SCALE;
+        }
+    }
+
+    // Close X: two 2px diagonals in a 14x14 box centered in the close zone.
+    const X_SIZE: u32 = 14;
+    let zone_x = CHAT_PANEL_W - CHAT_CLOSE_ZONE_W;
+    let x0 = zone_x + (CHAT_CLOSE_ZONE_W - X_SIZE) / 2;
+    let y0 = (CHAT_TITLE_BAR_H - X_SIZE) / 2;
+    if ly >= y0 && ly < y0 + X_SIZE {
+        let dy = ly - y0;
+        // Down-right diagonal and down-left diagonal, 2px thick.
+        for (dx, w) in [(dy, 2u32), (X_SIZE - 1 - dy, 2u32)] {
+            let px = x0 + dx.min(X_SIZE - 2);
+            fill_row_rect(ly, row, px, ly, w, 1, TITLE_TEXT)?;
+        }
+    }
+    Ok(())
+}
+
+/// Render one *surface-local* row `ly` (0..CHAT_PANEL_H) of the chat panel into
+/// `row` (pixels written at local x 0..CHAT_PANEL_W). The caller blits the
+/// finished surface to its on-screen position. No-op for `ly` outside the panel.
 pub(crate) fn draw_chat_panel_row(
-    y: u32,
+    ly: u32,
     row: &mut [u8],
     scroll_y: u32,
     content_h: u32,
     visible: &[ChatVisibleMsg],
 ) -> Result<(), WindowdError> {
-    if y < CHAT_PANEL_Y || y >= CHAT_PANEL_Y.saturating_add(CHAT_PANEL_H) {
+    if ly >= CHAT_PANEL_H {
         return Ok(());
     }
-    // Panel background (full panel, every row).
-    fill_row_rect(y, row, CHAT_PANEL_X, CHAT_PANEL_Y, CHAT_PANEL_W, CHAT_PANEL_H, PANEL_BG)?;
+    // Title bar rows render their own background + chrome.
+    if ly < CHAT_TITLE_BAR_H {
+        return draw_title_bar_row(ly, row);
+    }
+    // Panel background (full panel width, every row) — opaque, so no glass blur.
+    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, CHAT_PANEL_H, PANEL_BG)?;
 
     let (vp_x, vp_y, vp_w, vp_h) = viewport();
     let vp_bottom = vp_y.saturating_add(vp_h);
-    if y < vp_y || y >= vp_bottom {
+    if ly < vp_y || ly >= vp_bottom {
         return Ok(());
     }
-    let yi = y as i32;
+    let yi = ly as i32;
     let cpl = chat_chars_per_line();
 
     for m in visible {
         let height = chat_message_height(m.lines);
         // Bubble background, clipped to the viewport vertically.
-        let bub_top = m.screen_top.max(vp_y as i32);
-        let bub_bottom = (m.screen_top + height as i32).min(vp_bottom as i32);
+        let bub_top = m.top.max(vp_y as i32);
+        let bub_bottom = (m.top + height as i32).min(vp_bottom as i32);
         if bub_bottom > bub_top && yi >= bub_top && yi < bub_bottom {
             let bubble_bg = if m.from_me { BUBBLE_FROM_ME } else { BUBBLE_INCOMING };
             fill_row_rect(
-                y,
+                ly,
                 row,
                 vp_x.saturating_add(BUBBLE_INSET),
                 bub_top as u32,
@@ -143,7 +217,7 @@ pub(crate) fn draw_chat_panel_row(
             )?;
         }
         // Text lines.
-        let text_top = m.screen_top + CHAT_MSG_PAD as i32;
+        let text_top = m.top + CHAT_MSG_PAD as i32;
         let text_bottom = text_top + (m.lines.saturating_mul(CHAT_LINE_H)) as i32;
         if yi >= text_top && yi < text_bottom {
             let rel = (yi - text_top) as u32;
@@ -154,7 +228,7 @@ pub(crate) fn draw_chat_panel_row(
                     let text_x = vp_x.saturating_add(BUBBLE_INSET).saturating_add(6);
                     let clip_end = vp_x.saturating_add(vp_w);
                     draw_text_line_row(
-                        y,
+                        ly,
                         row,
                         m.text,
                         cs,
@@ -169,7 +243,7 @@ pub(crate) fn draw_chat_panel_row(
     }
 
     if content_h > vp_h {
-        draw_scrollbar_row(y, row, vp_y, vp_h, scroll_y, content_h)?;
+        draw_scrollbar_row(ly, row, vp_y, vp_h, scroll_y, content_h)?;
     }
     Ok(())
 }
@@ -215,11 +289,10 @@ fn draw_text_line_row(
     Ok(())
 }
 
-/// Thumb geometry `(thumb_y, thumb_h)` in screen pixels for a given scroll
-/// offset. Shared by the row renderer and the runtime's scroll-blit damage
-/// computation so the repainted span always matches the drawn thumb.
-pub(crate) fn scrollbar_thumb_span(scroll_y: u32, content_h: u32) -> (u32, u32) {
-    let vp_y = CHAT_PANEL_Y + CHAT_PAD;
+/// Thumb geometry `(thumb_y, thumb_h)` in surface-local pixels for a scroll
+/// offset.
+fn scrollbar_thumb_span(scroll_y: u32, content_h: u32) -> (u32, u32) {
+    let vp_y = CHAT_PAD;
     let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
     let max_scroll = content_h.saturating_sub(vp_h).max(1);
     let thumb_h = (vp_h.saturating_mul(vp_h) / content_h.max(1)).clamp(24, vp_h);
@@ -229,23 +302,23 @@ pub(crate) fn scrollbar_thumb_span(scroll_y: u32, content_h: u32) -> (u32, u32) 
 }
 
 fn draw_scrollbar_row(
-    y: u32,
+    ly: u32,
     row: &mut [u8],
     vp_y: u32,
     vp_h: u32,
     scroll_y: u32,
     content_h: u32,
 ) -> Result<(), WindowdError> {
-    let track_x = CHAT_PANEL_X
-        .saturating_add(CHAT_PANEL_W)
+    // Surface-local scrollbar column at the right edge of the panel.
+    let track_x = CHAT_PANEL_W
         .saturating_sub(CHAT_PAD)
         .saturating_sub(CHAT_SCROLLBAR_W);
-    if y >= vp_y && y < vp_y.saturating_add(vp_h) {
-        fill_row_rect(y, row, track_x, vp_y, CHAT_SCROLLBAR_W, vp_h, SCROLL_TRACK)?;
+    if ly >= vp_y && ly < vp_y.saturating_add(vp_h) {
+        fill_row_rect(ly, row, track_x, vp_y, CHAT_SCROLLBAR_W, vp_h, SCROLL_TRACK)?;
     }
     let (thumb_y, thumb_h) = scrollbar_thumb_span(scroll_y, content_h);
-    if y >= thumb_y && y < thumb_y.saturating_add(thumb_h) {
-        fill_row_rect(y, row, track_x, thumb_y, CHAT_SCROLLBAR_W, thumb_h, SCROLL_THUMB)?;
+    if ly >= thumb_y && ly < thumb_y.saturating_add(thumb_h) {
+        fill_row_rect(ly, row, track_x, thumb_y, CHAT_SCROLLBAR_W, thumb_h, SCROLL_THUMB)?;
     }
     Ok(())
 }

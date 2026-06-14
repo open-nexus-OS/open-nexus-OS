@@ -121,7 +121,9 @@ pub(crate) const ROUTE_NAME: &str = "windowd";
 //     Plane 3: rows 2400..3199 — frame ring slot B  (offset 0xBB8000)
 pub(crate) const DISPLAY_WIDTH: u32 = 1280;
 pub(crate) const DISPLAY_HEIGHT: u32 = 800;
-pub(crate) const RESOURCE_HEIGHT: u32 = 3200;
+// 6400 rows: 4 display planes (3200) + surface atlas (3200) for cached layers.
+// SSOT for the atlas layout is `crate::atlas`. gpud mirrors this value.
+pub(crate) const RESOURCE_HEIGHT: u32 = crate::atlas::RESOURCE_HEIGHT;
 pub(crate) const DISPLAY_OFFSET_BYTES: usize = 8_192_000; // Plane 2 / slot A
 pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = 12_288_000;
 /// Plane 1 — retained scene. The CPU compositor renders the full cursor-free
@@ -186,6 +188,13 @@ pub(crate) const DARK_GLASS_BORDER: Rgba8 = Rgba8::new(255, 255, 255, 26);
 pub(crate) const SOFT_PANEL_SHADOW_OFFSET_Y: i32 = 4;
 pub(crate) const SOFT_PANEL_SHADOW_BLUR_RADIUS: u32 = 30;
 pub(crate) const SOFT_PANEL_SHADOW_ALPHA: u32 = 128;
+/// Chat-window drop shadow (subtle, macOS-like floating panel): a soft, not
+/// heavy, penumbra offset slightly downward. The compositor restores this
+/// halo from the retained plane before each (translucent) redraw so it never
+/// accumulates. See `build_scene_cb_into` step 1a.
+pub(crate) const CHAT_SHADOW_BLUR: u32 = 22;
+pub(crate) const CHAT_SHADOW_OFFSET_Y: i32 = 10;
+pub(crate) const CHAT_SHADOW_ALPHA: u8 = 78;
 pub(crate) const PATH_CACHE_ENTRIES: usize = 2;
 pub(crate) const PATH_CACHE_MAX_SIDE: usize = 16;
 pub(crate) const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;

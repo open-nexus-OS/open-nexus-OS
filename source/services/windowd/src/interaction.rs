@@ -130,6 +130,8 @@ pub(crate) enum ClickAction {
     ToggleSidebar,
     /// Cursor is over the close icon, or outside an open sidebar → close it.
     CloseSidebar,
+    /// Cursor is over the chat button → toggle the chat window open/closed.
+    ToggleChat,
     /// Cursor is over the left proof/test panel → focus it (filter input).
     FocusPanel,
     /// Click landed on nothing interactive.
@@ -175,6 +177,27 @@ pub(crate) fn button_rect(width: u32) -> HitRect {
         y: GLASS_BUTTON_TOP,
         width: GLASS_BUTTON_W,
         height: GLASS_BUTTON_H,
+    }
+}
+
+/// Chat window title bar height (drawn by `compositor::chat`, hit-tested by
+/// `wm`) — single source so the drag/close zones always match the pixels.
+pub(crate) const CHAT_TITLE_BAR_H: u32 = 40;
+/// Close hit-zone width at the right end of the title bar (matches the X).
+pub(crate) const CHAT_CLOSE_ZONE_W: u32 = 48;
+
+/// Chat toggle button — a square glass button in the bottom-right corner
+/// (clear of the chat window's default bounds and the hamburger button).
+pub(crate) const CHAT_BUTTON_SIZE: u32 = 56;
+pub(crate) const CHAT_BUTTON_MARGIN: u32 = 24;
+pub(crate) const CHAT_BUTTON_RADIUS: u32 = 16;
+
+pub(crate) fn chat_button_rect(width: u32, height: u32) -> HitRect {
+    HitRect {
+        x: width.saturating_sub(CHAT_BUTTON_SIZE.saturating_add(CHAT_BUTTON_MARGIN)),
+        y: height.saturating_sub(CHAT_BUTTON_SIZE.saturating_add(CHAT_BUTTON_MARGIN)),
+        width: CHAT_BUTTON_SIZE,
+        height: CHAT_BUTTON_SIZE,
     }
 }
 
@@ -286,6 +309,9 @@ pub(crate) fn resolve_click(
         // Inside the open sidebar but not on the close icon: no-op.
         return ClickAction::None;
     }
+    if rect_contains(chat_button_rect(mode.width, mode.height), x, y) {
+        return ClickAction::ToggleChat;
+    }
     if rect_contains(proof_panel_rect(), x, y) {
         return ClickAction::FocusPanel;
     }
@@ -293,11 +319,22 @@ pub(crate) fn resolve_click(
 }
 
 /// Resolve which scrollable a wheel event belongs to, by the cursor position.
-pub(crate) fn resolve_wheel_target(mode: VisibleBootstrapMode, x: i32, y: i32) -> WheelTarget {
+/// `chat_bounds` is the chat window's CURRENT on-screen rect (None when the
+/// window is closed) — the wheel target follows a dragged window instead of
+/// the default spawn position.
+pub(crate) fn resolve_wheel_target(
+    mode: VisibleBootstrapMode,
+    x: i32,
+    y: i32,
+    chat_bounds: Option<HitRect>,
+) -> WheelTarget {
     let _ = mode;
-    if rect_contains(chat_viewport_rect(), x, y) {
-        WheelTarget::Chat
-    } else if rect_contains(proof_panel_rect(), x, y) {
+    if let Some(b) = chat_bounds {
+        if rect_contains(b, x, y) {
+            return WheelTarget::Chat;
+        }
+    }
+    if rect_contains(proof_panel_rect(), x, y) {
         WheelTarget::Filter
     } else {
         WheelTarget::None
@@ -358,6 +395,38 @@ mod tests {
     }
 
     #[test]
+    fn click_chat_button_toggles_chat_when_sidebar_closed() {
+        let m = mode();
+        let r = chat_button_rect(m.width, m.height);
+        let cx = (r.x + r.width / 2) as i32;
+        let cy = (r.y + r.height / 2) as i32;
+        assert_eq!(resolve_click(mode(), false, cx, cy), ClickAction::ToggleChat);
+        // One pixel outside misses.
+        assert_eq!(
+            resolve_click(mode(), false, (r.x + r.width) as i32, cy),
+            ClickAction::None
+        );
+    }
+
+    #[test]
+    fn chat_button_sits_bottom_right_clear_of_chat_window() {
+        let m = mode();
+        let cb = chat_button_rect(m.width, m.height);
+        // Bottom-right corner with margin.
+        assert_eq!(cb.x + cb.width, m.width - CHAT_BUTTON_MARGIN);
+        assert_eq!(cb.y + cb.height, m.height - CHAT_BUTTON_MARGIN);
+        // Clear of the chat window's default bounds (no z-fight with the
+        // title bar / close X).
+        assert!(cb.y >= CHAT_PANEL_Y + CHAT_PANEL_H);
+    }
+
+    #[test]
+    fn title_bar_constants_match_wm_zones() {
+        assert_eq!(CHAT_TITLE_BAR_H as i32, crate::wm::TITLE_BAR_H);
+        assert_eq!(CHAT_CLOSE_ZONE_W as i32, crate::wm::CLOSE_ZONE_W);
+    }
+
+    #[test]
     fn click_close_icon_closes_when_open() {
         let open = sidebar_rect(mode(), 0.0);
         let icon = sidebar_close_icon_rect(mode(), open);
@@ -391,14 +460,37 @@ mod tests {
         let chat = chat_viewport_rect();
         let p = proof_panel_rect();
         assert_eq!(
-            resolve_wheel_target(mode(), (chat.x + 5) as i32, (chat.y + 5) as i32),
+            resolve_wheel_target(mode(), (chat.x + 5) as i32, (chat.y + 5) as i32, Some(chat)),
             WheelTarget::Chat
         );
         assert_eq!(
-            resolve_wheel_target(mode(), (p.x + 5) as i32, (p.y + 5) as i32),
+            resolve_wheel_target(mode(), (p.x + 5) as i32, (p.y + 5) as i32, Some(chat_viewport_rect())),
             WheelTarget::Filter
         );
-        assert_eq!(resolve_wheel_target(mode(), 5, 5), WheelTarget::None);
+        assert_eq!(
+            resolve_wheel_target(mode(), 5, 5, Some(chat_viewport_rect())),
+            WheelTarget::None
+        );
+    }
+
+    #[test]
+    fn wheel_follows_moved_chat_window_and_ignores_closed() {
+        // Window dragged to a new position: wheel hits there, not at spawn.
+        let moved = HitRect { x: 100, y: 200, width: CHAT_PANEL_W, height: CHAT_PANEL_H };
+        assert_eq!(
+            resolve_wheel_target(mode(), 150, 250, Some(moved)),
+            WheelTarget::Chat
+        );
+        let spawn = chat_viewport_rect();
+        assert_eq!(
+            resolve_wheel_target(mode(), (spawn.x + 5) as i32, (spawn.y + 5) as i32, Some(moved)),
+            WheelTarget::None
+        );
+        // Closed window: wheel never targets the chat.
+        assert_eq!(
+            resolve_wheel_target(mode(), 150, 250, None),
+            WheelTarget::None
+        );
     }
 
     #[test]

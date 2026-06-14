@@ -37,8 +37,8 @@ use super::{
     LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES,
     PATH_CACHE_MAX_PIXELS, PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, RETAINED_OFFSET_BYTES,
     RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X,
-    SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y, VISIBLE_UPDATE_FLUSH_LIMIT,
-    WINDOWD_SHADOW_ARENA_SIZE,
+    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, CHAT_SHADOW_ALPHA, CHAT_SHADOW_BLUR,
+    CHAT_SHADOW_OFFSET_Y,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -81,16 +81,6 @@ use crate::interaction::{
 };
 const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
 const ANIMATION_UPDATE_CAP: usize = 8;
-/// Chat scroll-blit: width of the GPU-shifted text region (excludes the
-/// scrollbar column at the right, which the CPU repaints — see
-/// `queue_chat_scrollbar_damage`). 342 ends at x=1232, two px left of the track.
-const CHAT_SHIFT_W: u32 = 342;
-/// Plane 3 scratch column for the bounce copy of the shifted region
-/// (x 200..542 — clear of the button blur cache at x<156).
-const CHAT_BOUNCE_SCRATCH_X: u32 = 200;
-/// Plane 3 scratch column for the CPU-rendered exposed strip
-/// (x 576..942 — clear of the sidebar blur cache at x≥960).
-const CHAT_STRIP_SCRATCH_X: u32 = 576;
 
 fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
     let label = match err {
@@ -492,16 +482,26 @@ pub(crate) struct DisplayServerRuntime {
     /// Cursor over the top-right glass button (highlight only — windowd-internal,
     /// independent of the proof-panel hover test card in `state.hover_visible`).
     button_hover: bool,
-    /// Pending chat scroll-blit: vertical delta in pixels to apply as a GPU
-    /// shift of the chat text region within Plane 1 at the next CB build.
-    chat_shift_pending: Option<i32>,
-    /// Chat panel (right side): message provider + scroll state + the precomputed
-    /// visible window. `chat_visible` is rebuilt only on scroll (not per row), so
-    /// the per-scanline renderer never allocates and never walks all 500 messages.
+    /// Chat panel as a retained-surface LAYER. Content is rendered once (on
+    /// change) into `chat_atlas` (an off-screen VMO atlas surface) and the
+    /// compositor blits that surface to the on-screen position. Moving the
+    /// window is just a different blit destination — no content re-render.
+    chat_atlas: crate::atlas::AtlasSurface,
+    /// Set when the chat surface needs re-rendering (init, scroll, new message).
+    chat_surface_dirty: bool,
+    /// Message provider + scroll state + the precomputed visible window.
+    /// `chat_visible` is rebuilt only on scroll (not per row), so the surface
+    /// renderer never allocates and never walks all messages.
     chat_provider: ChatMessageProvider,
     chat_scroll_y: u32,
     chat_content_h: u32,
     chat_visible: Vec<super::chat::ChatVisibleMsg>,
+    /// Window manager: owns the chat window's bounds/visibility/drag. The
+    /// compositor blits the chat surface at `wm.chat_window().bounds`, so moving
+    /// the window is just a different blit destination (no content re-render).
+    wm: crate::wm::WindowManager,
+    /// One-shot `chat window drag ok` marker latch.
+    chat_drag_marker_emitted: bool,
 }
 
 #[derive(Default)]
@@ -633,6 +633,20 @@ impl DisplayServerRuntime {
         );
         let mut chat_visible = Vec::new();
         let chat_content_h = super::chat::compute_visible(&chat_provider, 0, &mut chat_visible);
+        // Reserve the chat layer's surface in the VMO atlas (off-screen).
+        let mut atlas = crate::atlas::AtlasAllocator::new();
+        let chat_atlas = atlas
+            .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Window manager. The chat window starts open at the panel's current
+        // position (a dedicated chat button will toggle it in a later step).
+        let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
+            crate::interaction::CHAT_PANEL_X as i32,
+            crate::interaction::CHAT_PANEL_Y as i32,
+            crate::interaction::CHAT_PANEL_W as i32,
+            crate::interaction::CHAT_PANEL_H as i32,
+        ));
+        wm.open(crate::wm::WindowId::Chat);
         let _ = debug_println("dbg: windowd init chat ok");
         Ok(Self {
             mode,
@@ -700,11 +714,14 @@ impl DisplayServerRuntime {
             hw_cursor_active: false,
             precache_blur_pending: true,
             button_hover: false,
-            chat_shift_pending: None,
+            chat_atlas,
+            chat_surface_dirty: true,
             chat_provider,
             chat_scroll_y: 0,
             chat_content_h,
             chat_visible,
+            wm,
+            chat_drag_marker_emitted: false,
         })
     }
 
@@ -898,6 +915,9 @@ impl DisplayServerRuntime {
                 self.first_handoff_present_sent = true;
                 // Drain the ack reply (kernel delivers it reactively).
                 self.drain_gpud_replies();
+                // Proof-harness contract (TASK-0055/0055B): first checked
+                // present — one full-screen damage rect, sequence 1.
+                let _ = debug_println("windowd: present ok (seq=1 dmg=1)");
             } else {
                 let _ = debug_println("windowd: handoff present failed");
                 self.framebuffer_pending_first_write = false;
@@ -980,6 +1000,9 @@ impl DisplayServerRuntime {
         };
         if ack_ok {
             let _ = debug_println("windowd: handoff attach ack");
+            // Proof-harness contract (TASK-0055B): the acked VMO handoff is
+            // exactly what this marker asserts.
+            let _ = debug_println("windowd: fb handoff to gpud ok");
             self.first_handoff_attach_acked = true;
         } else {
             let _ = debug_println("windowd: handoff attach ack bad status");
@@ -1090,14 +1113,47 @@ impl DisplayServerRuntime {
             })
             .unwrap_or(false);
 
-        // Raw primary-button level from inputd; a rising edge is a click.
+        // Raw primary-button level from inputd; rising/falling edges are click/release.
         let primary_down = upstream.launcher_click_visible;
         let primary_press = primary_down && !old_state.launcher_click_visible;
+        let primary_release = !primary_down && old_state.launcher_click_visible;
         self.state.launcher_click_visible = primary_down;
 
-        // Resolve the click against the rendered geometry. The sidebar is the
-        // single click-driven animation trigger.
+        // Window manager first: a press on the chat title bar starts a drag, a
+        // press on the close button closes it. Both consume the press so it does
+        // not also hit the panel/sidebar logic below.
+        let mut window_consumed_press = false;
         if primary_press {
+            use crate::wm::PointerAction;
+            match self.wm.on_pointer_down(cursor_x, cursor_y) {
+                PointerAction::DragStarted(_) => {
+                    window_consumed_press = true;
+                }
+                PointerAction::Closed(id) => {
+                    window_consumed_press = true;
+                    self.on_chat_window_closed(id);
+                }
+                PointerAction::None => {}
+            }
+        }
+        // Continue an in-progress drag: move the window and damage old+new regions.
+        if self.wm.is_dragging() {
+            let old_bounds = self.wm.chat_window().bounds;
+            if self
+                .wm
+                .on_pointer_move(cursor_x, cursor_y, mode.width as i32, mode.height as i32)
+            {
+                self.note_chat_window_moved(old_bounds);
+            }
+        }
+        if primary_release {
+            let _ = self.wm.on_pointer_up();
+        }
+
+        // Resolve the click against the rendered geometry (only if the window
+        // manager did not consume it). The sidebar is the single click-driven
+        // animation trigger.
+        if primary_press && !window_consumed_press {
             use crate::interaction::{resolve_click, ClickAction};
             match resolve_click(mode, self.state.sidebar_open_visible, cursor_x, cursor_y) {
                 ClickAction::ToggleSidebar => {
@@ -1105,6 +1161,19 @@ impl DisplayServerRuntime {
                 }
                 ClickAction::CloseSidebar => {
                     self.state.sidebar_open_visible = false;
+                }
+                ClickAction::ToggleChat => {
+                    let now_visible = self.wm.toggle(crate::wm::WindowId::Chat);
+                    if now_visible {
+                        let _ = debug_println("windowd: chat window open");
+                        // Surface content is retained in the atlas — just
+                        // damage the window region (plus shadow halo) so the
+                        // composite draws it at the current bounds.
+                        let b = self.wm.chat_window().bounds;
+                        self.erase_chat_region(b.x, b.y);
+                    } else {
+                        self.on_chat_window_closed(crate::wm::WindowId::Chat);
+                    }
                 }
                 ClickAction::FocusPanel => {
                     self.state.focus_visible = true;
@@ -1302,8 +1371,20 @@ impl DisplayServerRuntime {
 
         // ── v3b: scroll on wheel events, routed to the control under the cursor ──
         if upstream.wheel_up_visible || upstream.wheel_down_visible {
-            use crate::interaction::{resolve_wheel_target, WheelTarget};
-            match resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y) {
+            use crate::interaction::{resolve_wheel_target, HitRect, WheelTarget};
+            // Wheel routing follows the chat window's live bounds (None when
+            // closed) — a dragged window keeps scrolling under the cursor.
+            let chat_bounds = {
+                let w = self.wm.chat_window();
+                w.visible.then(|| HitRect {
+                    x: w.bounds.x.max(0) as u32,
+                    y: w.bounds.y.max(0) as u32,
+                    width: w.bounds.w.max(0) as u32,
+                    height: w.bounds.h.max(0) as u32,
+                })
+            };
+            match resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds)
+            {
                 WheelTarget::Chat => self.handle_chat_scroll_input(upstream.wheel_down_visible),
                 // Filter is the fallback so a wheel anywhere off the chat still
                 // scrolls the proof list (and emits the scroll markers).
@@ -1407,98 +1488,85 @@ impl DisplayServerRuntime {
         if new == old {
             return;
         }
-        let delta = new as i32 - old as i32;
         self.chat_scroll_y = new;
         self.chat_content_h =
             super::chat::compute_visible(&self.chat_provider, new, &mut self.chat_visible);
-        // The chat panel overlaps the sidebar rest strip — the cached blurred
-        // backdrop is stale now. Recomputed lazily on the next sidebar open.
-        self.sidebar_blur_cache_valid = false;
-
-        let can_blit = self.chat_shift_pending.is_none()
-            && delta.unsigned_abs() < viewport_h
-            && self.render_chat_strip_to_scratch(delta).is_ok();
-        if can_blit {
-            self.chat_shift_pending = Some(delta);
-            self.queue_chat_scrollbar_damage(old, new);
-            // Present the shifted panel from Plane 1.
-            self.queue_gpu_blit_rect(DamageRect {
-                x: CHAT_PANEL_X,
-                y: CHAT_PANEL_Y,
-                width: CHAT_PANEL_W,
-                height: CHAT_PANEL_H,
-            });
-        } else {
-            // Full repaint supersedes any pending shift (it rewrites Plane 1
-            // with the current scroll state).
-            self.chat_shift_pending = None;
-            self.queue_dirty_rect(DamageRect {
-                x: CHAT_PANEL_X,
-                y: CHAT_PANEL_Y,
-                width: CHAT_PANEL_W,
-                height: CHAT_PANEL_H,
-            });
-        }
+        // Re-render the chat layer's surface (off-screen) and present its region;
+        // the compositor blits the updated surface to the display.
+        self.chat_surface_dirty = true;
+        self.queue_gpu_blit_rect(DamageRect {
+            x: CHAT_PANEL_X,
+            y: CHAT_PANEL_Y,
+            width: CHAT_PANEL_W,
+            height: CHAT_PANEL_H,
+        });
         if !self.live_scroll_marker_emitted {
             let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
             self.live_scroll_marker_emitted = true;
         }
     }
 
-    /// Render the newly exposed scroll strip (Δ rows of the chat panel at the
-    /// new scroll offset) into the Plane 3 strip scratch. The scene CB later
-    /// blits it into Plane 1 *after* the shift, so the CPU never races the GPU.
-    fn render_chat_strip_to_scratch(&mut self, delta: i32) -> Result<(), WindowdError> {
-        use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
-        let Some(handle) = self.framebuffer else {
-            return Err(WindowdError::InvalidDamage);
-        };
-        let vp_y = CHAT_PANEL_Y + CHAT_PAD;
-        let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
-        let d = delta.unsigned_abs();
-        if d == 0 || d >= vp_h {
-            return Err(WindowdError::InvalidDamage);
+    /// Damage the chat window's last region so the base shows through after the
+    /// window is closed (the composite no longer draws it).
+    fn on_chat_window_closed(&mut self, _id: crate::wm::WindowId) {
+        let _ = debug_println("windowd: chat window close");
+        let b = self.wm.chat_window().bounds;
+        self.erase_chat_region(b.x, b.y);
+    }
+
+    /// A drag moved the chat window: erase the old region (a cheap GPU blit of
+    /// the base from Plane 1 — the chat was never baked there), and the
+    /// compositor re-blits the cached chat surface at the new bounds. No CPU
+    /// recomposite, no content re-render → GPU-bound drag.
+    fn note_chat_window_moved(&mut self, old_bounds: crate::wm::WmRect) {
+        if !self.chat_drag_marker_emitted {
+            let _ = debug_println("windowd: chat window drag ok");
+            self.chat_drag_marker_emitted = true;
         }
-        let strip_y = if delta > 0 { vp_y + vp_h - d } else { vp_y };
-        let row_len = self.mode.stride as usize;
-        if self.band_scratch.len() < row_len {
+        self.erase_chat_region(old_bounds.x, old_bounds.y);
+    }
+
+    /// Refresh the display from the (cursor-free, chat-free) base in Plane 1 for
+    /// a chat-sized region at (x, y). Pure GPU blit — no recomposite. The region
+    /// is padded by the drop-shadow halo (blur + offset) so a moved window
+    /// leaves no stale shadow behind.
+    fn erase_chat_region(&mut self, x: i32, y: i32) {
+        let pad = CHAT_SHADOW_BLUR.saturating_add(CHAT_SHADOW_OFFSET_Y.unsigned_abs()) as i32;
+        self.queue_gpu_blit_rect(DamageRect {
+            x: (x - pad).max(0) as u32,
+            y: (y - pad).max(0) as u32,
+            width: crate::interaction::CHAT_PANEL_W + 2 * pad as u32,
+            height: crate::interaction::CHAT_PANEL_H + 2 * pad as u32,
+        });
+    }
+
+    /// Render the full chat layer content into its off-screen atlas surface
+    /// (rows `chat_atlas.abs_row..`, x 0..CHAT_PANEL_W). Called when the surface
+    /// is dirty (init / scroll / new message), never per move — moving the
+    /// window only changes the composite blit destination.
+    fn render_chat_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride {
             return Err(WindowdError::BufferLengthMismatch);
         }
-        let band_scratch = &mut self.band_scratch;
-        let visible = &self.chat_visible;
+        let abs_row = self.chat_atlas.abs_row;
+        let width_bytes = crate::interaction::CHAT_PANEL_W as usize * 4;
+        let height = crate::interaction::CHAT_PANEL_H;
         let scroll_y = self.chat_scroll_y;
         let content_h = self.chat_content_h;
-        let slice_start = CHAT_PANEL_X as usize * 4;
-        let slice_end = (CHAT_PANEL_X + CHAT_PANEL_W) as usize * 4;
-        for y in strip_y..strip_y + d {
-            let row = &mut band_scratch[..row_len];
-            super::chat::draw_chat_panel_row(y, row, scroll_y, content_h, visible)?;
-            let dst = (BLUR_CACHE_ROW_OFFSET + y) as usize * row_len
-                + CHAT_STRIP_SCRATCH_X as usize * 4;
-            vmo_write(handle, dst, &row[slice_start..slice_end])
+        let visible = &self.chat_visible;
+        let band = &mut self.band_scratch;
+        for ly in 0..height {
+            let row = &mut band[..stride];
+            super::chat::draw_chat_panel_row(ly, row, scroll_y, content_h, visible)?;
+            let dst = (abs_row + ly) as usize * stride;
+            vmo_write(handle, dst, &row[..width_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         Ok(())
-    }
-
-    /// Repaint the scrollbar column span covered by the old + new thumb (the
-    /// only part of the column the shift cannot reproduce).
-    fn queue_chat_scrollbar_damage(&mut self, old_scroll: u32, new_scroll: u32) {
-        use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
-        let (old_y, thumb_h) = super::chat::scrollbar_thumb_span(old_scroll, self.chat_content_h);
-        let (new_y, _) = super::chat::scrollbar_thumb_span(new_scroll, self.chat_content_h);
-        let y0 = old_y.min(new_y);
-        let y1 = (old_y.max(new_y).saturating_add(thumb_h))
-            .min(CHAT_PANEL_Y + CHAT_PANEL_H.saturating_sub(CHAT_PAD));
-        if y1 <= y0 {
-            return;
-        }
-        self.queue_dirty_rect(DamageRect {
-            x: CHAT_PANEL_X + CHAT_SHIFT_W,
-            y: y0,
-            width: CHAT_PANEL_W.saturating_sub(CHAT_SHIFT_W),
-            height: y1 - y0,
-        });
     }
 
     fn handle_scroll_input(&mut self) {
@@ -2421,9 +2489,6 @@ impl DisplayServerRuntime {
         let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
-        let chat_visible = &self.chat_visible;
-        let chat_scroll_y = self.chat_scroll_y;
-        let chat_content_h = self.chat_content_h;
         let blur_row_buf = &mut self.blur_row_buf[..row_len];
         let shadow_scratch = &mut self.shadow_scratch[..row_len];
         let backdrop_cache = &mut self.backdrop_cache;
@@ -2474,16 +2539,9 @@ impl DisplayServerRuntime {
                     &mut self.col_scratch,
                     &mut self.shadow_box_cache,
                 )?;
-                // Chat panel: additive CPU overlay at the right-hand region.
-                super::chat::draw_chat_panel_row(
-                    y,
-                    band_row,
-                    chat_scroll_y,
-                    chat_content_h,
-                    chat_visible,
-                )?;
-                // GPU overlay (button, sidebar, cursor) is rendered in the CommandBuffer
-                // by build_scene_cb — not in the CPU plane so it can be animated freely.
+                // Chat is a retained-surface layer composited by build_scene_cb —
+                // no longer baked into Plane 1 here. GPU overlays (button, sidebar,
+                // cursor) are likewise added in the CommandBuffer.
             }
             let offset = band_start as usize * row_len;
             // CPU computes background content (wallpaper + proof panel) into Plane 1.
@@ -2555,61 +2613,39 @@ impl DisplayServerRuntime {
         let byte_start = start_x as usize * 4;
         let byte_end = end_x as usize * 4;
         let render_clip = RenderClip::new(start_x, end_x, self.mode.width);
-        let chat_visible = &self.chat_visible;
-        let chat_scroll_y = self.chat_scroll_y;
-        let chat_content_h = self.chat_content_h;
-        // Chat fast path: the chat panel is opaque, so a rect fully inside it
-        // needs no wallpaper copy, no shadow pass and no proof-panel walk —
-        // only the chat row renderer. This is what makes scroll repaints cheap.
-        let chat_only = {
-            use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
-            start_x >= CHAT_PANEL_X
-                && end_x <= CHAT_PANEL_X + CHAT_PANEL_W
-                && start_y >= CHAT_PANEL_Y
-                && end_y <= CHAT_PANEL_Y + CHAT_PANEL_H
-        };
         let mut band_start = start_y;
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let dest_start = row_idx * row_len;
                 let band_row = &mut self.band_scratch[dest_start..dest_start + row_len];
-                if !chat_only {
-                    copy_scene_row(
-                        blur_row_buf,
-                        shadow_scratch,
-                        backdrop_cache,
-                        glass_layer,
-                        glass_scratch,
-                        path_cache,
-                        source_frame,
-                        source_x_lut,
-                        source_y_lut,
-                        mode,
-                        state,
-                        proof_layout,
-                        proof_layout_index,
-                        filter_text,
-                        filtered_words,
-                        y,
-                        render_clip,
-                        glass_quality,
-                        paint_only,
-                        band_row,
-                        &mut self.layer_cache,
-                        &mut shadow_arena,
-                        &mut self.col_scratch,
-                        &mut self.shadow_box_cache,
-                    )?;
-                }
-                super::chat::draw_chat_panel_row(
+                copy_scene_row(
+                    blur_row_buf,
+                    shadow_scratch,
+                    backdrop_cache,
+                    glass_layer,
+                    glass_scratch,
+                    path_cache,
+                    source_frame,
+                    source_x_lut,
+                    source_y_lut,
+                    mode,
+                    state,
+                    proof_layout,
+                    proof_layout_index,
+                    filter_text,
+                    filtered_words,
                     y,
+                    render_clip,
+                    glass_quality,
+                    paint_only,
                     band_row,
-                    chat_scroll_y,
-                    chat_content_h,
-                    chat_visible,
+                    &mut self.layer_cache,
+                    &mut shadow_arena,
+                    &mut self.col_scratch,
+                    &mut self.shadow_box_cache,
                 )?;
-                // GPU overlay is added in build_scene_cb, not here.
+                // Chat is composited as a layer in build_scene_cb, not baked here.
             }
             for (row_idx, y) in (band_start..band_end).enumerate() {
                 let offset = y as usize * row_len + byte_start;
@@ -2750,6 +2786,12 @@ impl DisplayServerRuntime {
         rect_count: usize,
         out: &mut [u8],
     ) -> Result<usize, WindowdError> {
+        // Re-render the chat layer's cached surface (off-screen atlas) if its
+        // content changed. Done before the encoder borrows `self.scene_cb`.
+        if self.chat_surface_dirty {
+            self.render_chat_surface()?;
+            self.chat_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -2764,8 +2806,12 @@ impl DisplayServerRuntime {
         // the display plane holds the complete base scene to blur from).
         let precache_sidebar_blur =
             self.precache_blur_pending && !blur_cache_valid && scene.sidebar_opacity <= 0.01;
-        // Consume the pending chat scroll shift; encoded at the head of the CB.
-        let chat_shift = self.chat_shift_pending.take();
+        // Chat layer: source row of its cached surface + on-screen placement from
+        // the window manager (so a drag just changes the blit destination).
+        let chat_atlas_row = self.chat_atlas.abs_row;
+        let chat_show = self.wm.chat_visible();
+        let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
+        let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
 
@@ -2780,53 +2826,6 @@ impl DisplayServerRuntime {
                 })
                 .map_err(|_| WindowdError::InvalidDamage)?;
 
-            // 0. Chat scroll-blit (O(Δ) scroll): shift the surviving viewport
-            //    region inside Plane 1 via the Plane 3 bounce scratch (two blits,
-            //    overlap-safe regardless of direction), then drop the CPU-rendered
-            //    exposed strip in. Runs before any Plane 1 → display blit so the
-            //    damage blits below pick up the post-shift content.
-            if let Some(delta) = chat_shift {
-                use crate::interaction::{CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y};
-                let vp_y = CHAT_PANEL_Y + CHAT_PAD;
-                let vp_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
-                let d = delta.unsigned_abs().min(vp_h);
-                let keep_h = vp_h - d;
-                if keep_h > 0 {
-                    let (src_y, dst_y) = if delta > 0 {
-                        (vp_y + d, vp_y)
-                    } else {
-                        (vp_y, vp_y + d)
-                    };
-                    let _ = encoder.try_blit_absolute(
-                        CHAT_PANEL_X,
-                        RETAINED_ROW_OFFSET + src_y,
-                        CHAT_BOUNCE_SCRATCH_X,
-                        BLUR_CACHE_ROW_OFFSET + src_y,
-                        CHAT_SHIFT_W,
-                        keep_h,
-                    );
-                    let _ = encoder.try_blit_absolute(
-                        CHAT_BOUNCE_SCRATCH_X,
-                        BLUR_CACHE_ROW_OFFSET + src_y,
-                        CHAT_PANEL_X,
-                        RETAINED_ROW_OFFSET + dst_y,
-                        CHAT_SHIFT_W,
-                        keep_h,
-                    );
-                }
-                if d > 0 {
-                    let strip_y = if delta > 0 { vp_y + vp_h - d } else { vp_y };
-                    let _ = encoder.try_blit_absolute(
-                        CHAT_STRIP_SCRATCH_X,
-                        BLUR_CACHE_ROW_OFFSET + strip_y,
-                        CHAT_PANEL_X,
-                        RETAINED_ROW_OFFSET + strip_y,
-                        CHAT_PANEL_W,
-                        d,
-                    );
-                }
-            }
-
             // 1. Blit content damage from retained plane → display plane.
             for rect in rects.iter().copied().take(rect_count) {
                 encoder
@@ -2839,6 +2838,58 @@ impl DisplayServerRuntime {
                         rect.height,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // 1a. Chat window layer: composite its cached opaque surface from the
+            //     VMO atlas onto the display at the window's current position.
+            //     One blit — dragging the window just changes the destination,
+            //     no content re-render. Drawn over the base, under the button/
+            //     sidebar overlays (z-order finalized in a later phase).
+            if chat_show {
+                use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
+                // Only recomposite the chat layer when a damage rect actually
+                // touches its shadow halo. The window + shadow persist on the
+                // display plane otherwise, so a cursor move far away keeps the
+                // cheap hot path (no halo flush). Without this gate the shadow
+                // would be redrawn on every present.
+                let pad = CHAT_SHADOW_BLUR.saturating_add(CHAT_SHADOW_OFFSET_Y.unsigned_abs());
+                let hx0 = chat_dx.saturating_sub(pad) as i32;
+                let hy0 = chat_dy.saturating_sub(pad) as i32;
+                let hx1 = (chat_dx + CHAT_PANEL_W + pad) as i32;
+                let hy1 = (chat_dy + CHAT_PANEL_H + pad) as i32;
+                let touches_chat = rects.iter().take(rect_count).any(|r| {
+                    let rx1 = (r.x + r.width) as i32;
+                    let ry1 = (r.y + r.height) as i32;
+                    (r.x as i32) < hx1 && rx1 > hx0 && (r.y as i32) < hy1 && ry1 > hy0
+                });
+                if touches_chat {
+                    // Restore the full halo from the retained plane first so the
+                    // (translucent) shadow blends over a clean backdrop and never
+                    // accumulates — and the cursor hot path can't carve a trail
+                    // through it. Then composite the chat as ONE layer: gpud
+                    // GPU-composites it (shadow + content texture + rounded mask)
+                    // on virgl, or CPU-bakes it (shadow + opaque blit) on the 2D
+                    // path. The window's content lives in the atlas; moving it
+                    // just changes the layer's destination.
+                    let hx = chat_dx.saturating_sub(pad);
+                    let hy = chat_dy.saturating_sub(pad);
+                    let hw = (CHAT_PANEL_W + 2 * pad).min(mode.width.saturating_sub(hx));
+                    let hh = (CHAT_PANEL_H + 2 * pad).min(mode.height.saturating_sub(hy));
+                    let _ = encoder.try_blit_surface(hx, hy + RETAINED_ROW_OFFSET, hx, hy, hw, hh);
+                    let _ = encoder.try_composite_layer(
+                        chat_atlas_row,
+                        0,
+                        CHAT_PANEL_W,
+                        CHAT_PANEL_H,
+                        chat_dx,
+                        chat_dy,
+                        255,
+                        super::DARK_GLASS_RADIUS,
+                        CHAT_SHADOW_BLUR,
+                        CHAT_SHADOW_OFFSET_Y,
+                        CHAT_SHADOW_ALPHA as u32,
+                    );
+                }
             }
 
             // 1b. Pre-blur the sidebar backdrop at handoff (sidebar closed,
@@ -2938,10 +2989,23 @@ impl DisplayServerRuntime {
                 let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(96.0, 220.0) as u8;
                 let gt = crate::assets::GLASS_TINT;
                 let ge = crate::assets::GLASS_EDGE;
-                let _ = encoder.try_fill_sdf_rounded_rect(
+                // Glass body as a vertical gradient (light falls from above) —
+                // GPU per-pixel via the SDF shader, CPU per-row fallback.
+                let _ = encoder.try_fill_sdf_gradient(
                     btn_rect,
                     GLASS_BUTTON_RADIUS,
-                    RgbaColor::new(gt.r, gt.g, gt.b, button_alpha),
+                    RgbaColor::new(
+                        gt.r.saturating_add(18),
+                        gt.g.saturating_add(18),
+                        gt.b.saturating_add(18),
+                        button_alpha,
+                    ),
+                    RgbaColor::new(
+                        gt.r.saturating_sub(8),
+                        gt.g.saturating_sub(8),
+                        gt.b.saturating_sub(8),
+                        button_alpha,
+                    ),
                 );
                 let _ = encoder.try_fill_sdf_rounded_rect(
                     btn_rect,
@@ -2988,6 +3052,86 @@ impl DisplayServerRuntime {
                     1,
                     bar_color,
                 );
+            }
+
+            // 2b. Chat toggle button — square glass button under the hamburger
+            //     (P7). Same cover rule as the hamburger: hidden while the
+            //     sidebar overlaps it. Speech-bubble glyph: rounded outline +
+            //     three dots.
+            {
+                use crate::interaction::{chat_button_rect, CHAT_BUTTON_RADIUS};
+                let cb = chat_button_rect(mode.width, mode.height);
+                let covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= cb.x;
+                if cb.width > 0 && !covered {
+                    let gt = crate::assets::GLASS_TINT;
+                    let ge = crate::assets::GLASS_EDGE;
+                    let cb_rect =
+                        TileRect { x: cb.x, y: cb.y, width: cb.width, height: cb.height };
+                    // Restore the clean base from Plane 1 first — the glass
+                    // fills are translucent and would accumulate over the
+                    // previous frame's button pixels otherwise.
+                    let _ = encoder.try_blit_surface(
+                        cb.x,
+                        cb.y + RETAINED_ROW_OFFSET,
+                        cb.x,
+                        cb.y,
+                        cb.width,
+                        cb.height,
+                    );
+                    let chat_open = self.wm.chat_window().visible;
+                    // Slightly brighter while the chat window is open (active state).
+                    let body_alpha: u8 = if chat_open { 200 } else { 128 };
+                    let _ = encoder.try_fill_sdf_gradient(
+                        cb_rect,
+                        CHAT_BUTTON_RADIUS,
+                        RgbaColor::new(
+                            gt.r.saturating_add(18),
+                            gt.g.saturating_add(18),
+                            gt.b.saturating_add(18),
+                            body_alpha,
+                        ),
+                        RgbaColor::new(
+                            gt.r.saturating_sub(8),
+                            gt.g.saturating_sub(8),
+                            gt.b.saturating_sub(8),
+                            body_alpha,
+                        ),
+                    );
+                    let _ = encoder.try_fill_sdf_rounded_rect(
+                        cb_rect,
+                        CHAT_BUTTON_RADIUS,
+                        RgbaColor::new(ge.r, ge.g, ge.b, ge.a),
+                    );
+                    // Speech bubble: a rounded rect with three dots.
+                    const BUBBLE_W: u32 = 26;
+                    const BUBBLE_H: u32 = 18;
+                    let bx = cb.x + (cb.width - BUBBLE_W) / 2;
+                    let by = cb.y + (cb.height - BUBBLE_H) / 2;
+                    let icon = RgbaColor::new(255, 255, 255, 220);
+                    let _ = encoder.try_fill_sdf_rounded_rect(
+                        TileRect { x: bx, y: by, width: BUBBLE_W, height: BUBBLE_H },
+                        6,
+                        icon,
+                    );
+                    let dot = RgbaColor::new(
+                        gt.r.saturating_sub(8),
+                        gt.g.saturating_sub(8),
+                        gt.b.saturating_sub(8),
+                        255,
+                    );
+                    for i in 0..3u32 {
+                        let _ = encoder.try_fill_sdf_rounded_rect(
+                            TileRect {
+                                x: bx + 5 + i * 6,
+                                y: by + BUBBLE_H / 2 - 1,
+                                width: 3,
+                                height: 3,
+                            },
+                            1,
+                            dot,
+                        );
+                    }
+                }
             }
 
             // 3. Sidebar panel — GPU overlay, only when visible (opacity > 0).
@@ -3083,10 +3227,22 @@ impl DisplayServerRuntime {
                             width: sbr.width - 2,
                             height: sbr.height - 2,
                         };
-                        let _ = encoder.try_fill_sdf_rounded_rect(
+                        // Glass body as a vertical gradient (light from above).
+                        let _ = encoder.try_fill_sdf_gradient(
                             sbr_inner,
                             SIDEBAR_RADIUS.saturating_sub(1),
-                            RgbaColor::new(gt.r, gt.g, gt.b, sidebar_alpha),
+                            RgbaColor::new(
+                                gt.r.saturating_add(14),
+                                gt.g.saturating_add(14),
+                                gt.b.saturating_add(14),
+                                sidebar_alpha,
+                            ),
+                            RgbaColor::new(
+                                gt.r.saturating_sub(6),
+                                gt.g.saturating_sub(6),
+                                gt.b.saturating_sub(6),
+                                sidebar_alpha,
+                            ),
                         );
                         let _ = encoder.try_fill_sdf_rounded_rect(
                             sbr_inner,
@@ -3227,16 +3383,12 @@ impl DisplayServerRuntime {
         }
 
         // 4. One scene CB: blit retained→display + GPU glass overlays + cursor.
-        let chat_shift_snapshot = self.chat_shift_pending;
         let mut frame_buf = [0u8; 8192];
         let written = self.build_scene_cb_into(&blits, blit_count, &mut frame_buf[1..])?;
         self.tile_map.clear();
         frame_buf[0] = GPU_PRESENT_DAMAGE_OP;
         let gpud_ok = self.send_gpud_present(&frame_buf[..1 + written]);
         if !gpud_ok {
-            // The CB (which carried the chat shift) was dropped — re-arm the
-            // shift so the retry applies it.
-            self.chat_shift_pending = chat_shift_snapshot;
             // gpud queue full / backpressured — requeue so the next tick retries.
             for rect in content.iter().copied().take(content_count) {
                 self.queue_dirty_rect(rect);
