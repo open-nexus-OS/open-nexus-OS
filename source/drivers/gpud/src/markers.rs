@@ -83,3 +83,25 @@ pub const GPUD_LAYER_COMPOSITE_OFF: &str = "gpud: layer composite off";
 /// G2 live: first window/layer GPU-composited into the display plane from a
 /// CompositeLayer command (windowd → gpud).
 pub const GPUD_LAYER_COMPOSITE_LIVE: &str = "gpud: layer composite live";
+
+// --- Present-chain hop markers (graphical-output bisection) -----------------
+// One frame's journey through gpud's present chain, emitted in order so a
+// headless run shows exactly HOW FAR a frame gets: the last hop printed is the
+// last stage reached. Traced one-shot once a frame completes cleanly, but
+// re-armed every frame while the chain is broken. Failures carry a reason.
+// Kept string-identical to the GpudContract spec in tools/nx so the chain test
+// verifies the same hop order the real service emits.
+/// G1: gpud received an OP_PRESENT_DAMAGE frame from windowd.
+pub const GPUD_CHAIN_RECV: &str = "gpud: chain G1 recv present-damage";
+/// G2: the serialized command buffer deserialized (reload_from) cleanly.
+pub const GPUD_CHAIN_PARSE_OK: &str = "gpud: chain G2 parse ok";
+/// G2 fail: the command buffer was rejected (truncated / bad tag / over cap).
+pub const GPUD_CHAIN_PARSE_FAIL: &str = "gpud: chain G2 parse FAIL (command buffer rejected)";
+/// G3: present_committed executed every blit/composite command.
+pub const GPUD_CHAIN_EXEC_OK: &str = "gpud: chain G3 exec ok (commands applied)";
+/// G3 fail: a command failed during present_committed (reason follows).
+pub const GPUD_CHAIN_EXEC_FAIL: &str = "gpud: chain G3 exec FAIL";
+/// G4: the frame was transferred/blitted to the scanout and flushed.
+pub const GPUD_CHAIN_SCANOUT_OK: &str = "gpud: chain G4 scanout ok (frame presented)";
+/// G4 fail: the scanout present failed (sub-stage reason follows on virgl).
+pub const GPUD_CHAIN_SCANOUT_FAIL: &str = "gpud: chain G4 scanout FAIL";

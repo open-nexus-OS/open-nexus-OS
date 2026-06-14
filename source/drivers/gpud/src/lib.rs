@@ -41,5 +41,9 @@ pub mod virgl_composite;
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;
 
+/// Headless debug instrument: ASCII-art thumbnail of a framebuffer region over
+/// the serial console, for compositor pipeline bisection without a host display.
+pub mod debug_thumbnail;
+
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub mod service;

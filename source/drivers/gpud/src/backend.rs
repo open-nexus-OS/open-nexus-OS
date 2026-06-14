@@ -1093,6 +1093,42 @@ impl VirtioGpuBackend {
         Some((record.backing_va as *mut u8, record.backing_len, record.width as usize, DISPLAY_PLANE_ROW))
     }
 
+    /// Emit an ASCII thumbnail of what we actually render — the windowd-composited
+    /// source plane, plus (on the virgl path) the GPU scanout readback — to the
+    /// serial console. Headless pipeline-bisection instrument (no host display);
+    /// see the `debug_thumbnail` module. Driven by the service present loop.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) fn emit_debug_thumbnail(&mut self) {
+        #[cfg(feature = "virgl")]
+        if self.gl_scanout_active {
+            self.gl_emit_thumbnails();
+            return;
+        }
+        if let Some((fb, fb_len, fb_w, display_row)) = self.scanout_fb() {
+            if fb_w == 0 {
+                return;
+            }
+            let total_rows = fb_len / 4 / fb_w;
+            // Display plane height: screen rows only — the atlas lives above it.
+            let h = total_rows.saturating_sub(display_row as usize).min(800);
+            if h == 0 {
+                return;
+            }
+            unsafe {
+                crate::debug_thumbnail::emit_ascii_thumbnail(
+                    "cpu-src",
+                    fb as *const u8,
+                    fb_len,
+                    fb_w,
+                    0,
+                    display_row as usize,
+                    fb_w,
+                    h,
+                );
+            }
+        }
+    }
+
     /// Mark gpud as the cursor compositor and store the sprite/hotspot. The
     /// sprite stays the BlendCursor source; the first move paints it.
     pub fn cursor_take_ownership(&mut self, hot_x: u32, hot_y: u32) {

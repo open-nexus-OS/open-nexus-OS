@@ -74,4 +74,38 @@ mod tests {
         }
         assert_eq!(report.status, ChainStatus::Passed);
     }
+
+    /// Chain: a single frame's journey through gpud's present chain. Mirrors the
+    /// real GPUD_CHAIN_* hop markers (source/drivers/gpud/src/markers.rs); on a
+    /// real run the last hop printed is the last stage reached, and the gpud
+    /// diagnostic names the exact sub-stage on failure. This spec pins the order.
+    #[tokio::test]
+    async fn chain_gpu_present_hops_in_order() {
+        let mut runner = ChainRunner::new("gpu-present-hops");
+
+        runner.register(Box::new(GpudContract::with_handoff_and_cursor()));
+        runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
+
+        runner
+            .expect_marker("gpud: chain G1 recv present-damage", ms(1000))
+            .describe("G1: gpud received OP_PRESENT_DAMAGE from windowd");
+        runner
+            .expect_marker("gpud: chain G2 parse ok", ms(200))
+            .after(0)
+            .describe("G2: command buffer deserialized (reload_from)");
+        runner
+            .expect_marker("gpud: chain G3 exec ok (commands applied)", ms(200))
+            .after(1)
+            .describe("G3: present_committed executed every command");
+        runner
+            .expect_marker("gpud: chain G4 scanout ok (frame presented)", ms(200))
+            .after(2)
+            .describe("G4: frame transferred + flushed to the scanout");
+
+        let report = runner.run().await;
+        if report.status != ChainStatus::Passed {
+            eprintln!("{}", report.diagnostic());
+        }
+        assert_eq!(report.status, ChainStatus::Passed);
+    }
 }

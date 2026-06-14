@@ -132,6 +132,16 @@ fn service_requests(
     let mut present_count: u32 = 0;
     let mut present_ns_sum: u64 = 0;
     let mut present_ns_max: u64 = 0;
+    // Debug pipeline-bisection: dump an ASCII thumbnail of our actual output (the
+    // windowd source plane and the GPU scanout readback) over the serial console.
+    // Headless — no host display. Fires once at an early settled frame, then
+    // periodically, so we can SEE what we render and where the frame breaks.
+    let mut total_presents: u32 = 0;
+    const THUMBNAIL_EVERY: u32 = 240;
+    // Present-chain hop trace (graphical-output bisection): emit the per-frame
+    // hops once a frame gets all the way through, but keep re-tracing every frame
+    // while the chain is broken so a headless run shows exactly HOW FAR we get.
+    let mut chain_trace_done = false;
     loop {
         // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
         // or animation submit). No polling, no busy-wait. The kernel wakes us on message arrival.
@@ -184,19 +194,53 @@ fn service_requests(
                         // BlitSurface commands describing all damage regions.
                         let handoff_id =
                             decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
+                        let trace = !chain_trace_done;
+                        if trace {
+                            let _ = debug_println(crate::markers::GPUD_CHAIN_RECV);
+                        }
                         let status = if frame.len() > 1 {
                             // Reuse scene_cb (reload_from) — no per-frame heap alloc.
                             match scene_cb.reload_from(&frame[1..]) {
                                 Ok(_) => {
+                                    if trace {
+                                        let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
+                                    }
                                     let damage_rect = damage_rect_from_cb(&scene_cb);
                                     // Lift the save-under cursor so scene blits land on
                                     // a cursor-free plane, present, then re-apply it on
                                     // top so the pointer always stays visible.
                                     let t0 = nsec().unwrap_or(0);
                                     backend.cursor_before_present();
-                                    let _ = backend.present_committed(&scene_cb);
+                                    // present_committed's result was previously discarded;
+                                    // capture it so a failed composite is no longer silent.
+                                    match backend.present_committed(&scene_cb) {
+                                        Ok(_) => {
+                                            if trace {
+                                                let _ =
+                                                    debug_println(crate::markers::GPUD_CHAIN_EXEC_OK);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ =
+                                                debug_println(crate::markers::GPUD_CHAIN_EXEC_FAIL);
+                                            let _ = debug_println(gfx_error_label(e));
+                                        }
+                                    }
                                     let st = present_scanout_damage(&mut backend, damage_rect);
                                     backend.cursor_after_present();
+                                    if trace {
+                                        if st == STATUS_OK {
+                                            let _ = debug_println(
+                                                crate::markers::GPUD_CHAIN_SCANOUT_OK,
+                                            );
+                                            // Whole chain reached the end: stop tracing.
+                                            chain_trace_done = true;
+                                        } else {
+                                            let _ = debug_println(
+                                                crate::markers::GPUD_CHAIN_SCANOUT_FAIL,
+                                            );
+                                        }
+                                    }
                                     let dt = nsec().unwrap_or(t0).saturating_sub(t0);
                                     present_ns_sum += dt;
                                     present_ns_max = present_ns_max.max(dt);
@@ -211,9 +255,22 @@ fn service_requests(
                                         present_ns_sum = 0;
                                         present_ns_max = 0;
                                     }
+                                    total_presents += 1;
+                                    // Capture the first composed frames (the UI
+                                    // settles over the bootstrap selftest: base →
+                                    // effects → blur) plus a periodic steady tick.
+                                    if matches!(total_presents, 1 | 4 | 8)
+                                        || total_presents % THUMBNAIL_EVERY == 0
+                                    {
+                                        backend.emit_debug_thumbnail();
+                                    }
                                     st
                                 }
                                 Err(_) => {
+                                    if trace {
+                                        let _ =
+                                            debug_println(crate::markers::GPUD_CHAIN_PARSE_FAIL);
+                                    }
                                     // Only fall back to legacy damage-rect format when the
                                     // frame is exactly 17 bytes (opcode + 16-byte rect).
                                     if frame.len() == 17 {
@@ -293,6 +350,19 @@ fn service_requests(
 /// Emit `gpud: present us avg=A max=M n=N` without heap allocation (gpud's
 /// bump allocator never frees). 120Hz budget = 8333us; this surfaces the
 /// per-present compositor cost so glass/layer optimisations can be measured.
+/// Human-readable reason for a present-chain hop failure (G3 exec). Static
+/// strings only — no alloc on gpud's bump heap.
+fn gfx_error_label(e: GfxError) -> &'static str {
+    match e {
+        GfxError::DeviceNotFound => "gpud: chain reason: device not found",
+        GfxError::MmioFault => "gpud: chain reason: mmio fault",
+        GfxError::CommandRejected => "gpud: chain reason: command rejected",
+        GfxError::ResourceExhausted => "gpud: chain reason: resource exhausted (bump heap?)",
+        GfxError::Unsupported => "gpud: chain reason: unsupported command",
+        GfxError::InvalidArgument => "gpud: chain reason: invalid argument",
+    }
+}
+
 fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
     let mut buf = [0u8; 64];
     let mut p = 0usize;

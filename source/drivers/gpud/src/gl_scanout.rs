@@ -174,7 +174,13 @@ impl VirtioGpuBackend {
         }
         // Display plane row 0 == display texture row 0 (0xF8 aliases fb rows
         // 1600..3199, and the display plane starts at fb row 1600).
-        self.virgl_transfer_to_host(0xF8, x, y, w, h, FB_STRIDE)?;
+        self.virgl_transfer_to_host(0xF8, x, y, w, h, FB_STRIDE)
+            .map_err(|e| {
+                let _ = nexus_abi::debug_println(
+                    "gpud: chain G4.1 display-tex upload FAIL (transfer_to_host 0xF8)",
+                );
+                e
+            })?;
 
         let mut s = Submit3d::new();
         // Pipeline state is context-global and other passes (selftests, blur)
@@ -203,7 +209,12 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, &bytes).map_err(|e| {
+            let _ = nexus_abi::debug_println(
+                "gpud: chain G4.2 scanout blit submit FAIL (submit_3d)",
+            );
+            e
+        })?;
 
         // One-shot on-device proof: read the scanout RT back and compare a
         // pixel sample against the source plane (G1 marker).
@@ -213,7 +224,12 @@ impl VirtioGpuBackend {
             let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_PRESENT_OK);
         }
 
-        self.gl_flush_rect(Rect { x, y, width: w, height: h })
+        self.gl_flush_rect(Rect { x, y, width: w, height: h }).map_err(|e| {
+            let _ = nexus_abi::debug_println(
+                "gpud: chain G4.3 scanout flush FAIL (resource_flush)",
+            );
+            e
+        })
     }
 
     /// RESOURCE_FLUSH on the scanout RT — on virtio-gpu-gl this triggers the
@@ -283,5 +299,48 @@ impl VirtioGpuBackend {
         } else {
             crate::markers::GPUD_GL_PRESENT_PARITY_OFF
         });
+    }
+
+    /// Debug: emit ASCII thumbnails of both pipeline ends — the windowd source
+    /// plane (`gl-src`) and the presented scanout RT read back from the host
+    /// (`gl-rt`). Lets us SEE our GPU output headlessly and localize where the
+    /// frame goes wrong: `gl-src` blank => windowd; `gl-src` good but `gl-rt`
+    /// blank => the GPU composite/present. See the `debug_thumbnail` module.
+    pub(crate) fn gl_emit_thumbnails(&mut self) {
+        // Stage 1: windowd-composited display plane in the shared VMO.
+        if let Some((fb, fb_len, fb_w, display_row)) = self.scanout_fb() {
+            unsafe {
+                crate::debug_thumbnail::emit_ascii_thumbnail(
+                    "gl-src",
+                    fb as *const u8,
+                    fb_len,
+                    fb_w,
+                    0,
+                    display_row as usize,
+                    SCREEN_W as usize,
+                    SCREEN_H as usize,
+                );
+            }
+        }
+        // Stage 3: read the presented scanout RT back into guest memory.
+        if self
+            .virgl_transfer_from_host(GL_SCANOUT_RES, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)
+            .is_ok()
+        {
+            let rt = self.gl_scanout_backing_va as *const u8;
+            let len = SCREEN_W as usize * SCREEN_H as usize * 4;
+            unsafe {
+                crate::debug_thumbnail::emit_ascii_thumbnail(
+                    "gl-rt",
+                    rt,
+                    len,
+                    SCREEN_W as usize,
+                    0,
+                    0,
+                    SCREEN_W as usize,
+                    SCREEN_H as usize,
+                );
+            }
+        }
     }
 }

@@ -85,6 +85,13 @@ impl Contract for GpudContract {
             bus.emit_marker(id, "gpud: display ready (w=1280, h=800)");
             // Phase 2+7: GPU blur+present pipeline markers (fire when CB is processed)
             if self.gpu_present {
+                // Present-chain hops (graphical-output bisection). String-identical
+                // to source/drivers/gpud/src/markers.rs GPUD_CHAIN_*; a real run
+                // shows how far a frame gets, this spec verifies the hop order.
+                bus.emit_marker(id, "gpud: chain G1 recv present-damage");
+                bus.emit_marker(id, "gpud: chain G2 parse ok");
+                bus.emit_marker(id, "gpud: chain G3 exec ok (commands applied)");
+                bus.emit_marker(id, "gpud: chain G4 scanout ok (frame presented)");
                 bus.emit_marker(id, "gpud: backend submit ok");
                 bus.emit_marker(id, "gpud: present scanout damage ok");
                 bus.emit_marker(id, "gpud: transfer_to_host ok");
