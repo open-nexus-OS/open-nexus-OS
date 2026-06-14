@@ -2888,6 +2888,7 @@ impl DisplayServerRuntime {
                         CHAT_SHADOW_BLUR,
                         CHAT_SHADOW_OFFSET_Y,
                         CHAT_SHADOW_ALPHA as u32,
+                        super::DARK_GLASS_BLUR_RADIUS,
                     );
                 }
             }

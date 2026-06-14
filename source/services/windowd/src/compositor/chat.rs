@@ -31,7 +31,9 @@ use alloc::vec::Vec;
 use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
 
 // Colours (BGRA — the framebuffer is BGRA8888).
-const PANEL_BG: [u8; 4] = [46, 40, 40, 236];
+// PANEL_BG is translucent so the compositor's backdrop blur shows through as
+// glass; message bubbles stay opaque for readability (iMessage/Telegram look).
+const PANEL_BG: [u8; 4] = [44, 38, 38, 168];
 const BUBBLE_INCOMING: [u8; 4] = [70, 64, 60, 255];
 const BUBBLE_FROM_ME: [u8; 4] = [180, 96, 44, 255];
 const TEXT_COLOR: [u8; 4] = [245, 245, 240, 255];
