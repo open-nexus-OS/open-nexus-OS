@@ -313,6 +313,7 @@ impl VirtioGpuBackend {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        backdrop_blur: u32,
     ) -> Result<(), GfxError> {
         if !self.virgl_capable || !self.virgl_draw_ok {
             return Err(GfxError::DeviceNotFound);
@@ -335,9 +336,28 @@ impl VirtioGpuBackend {
         // Sync the content from the VMO atlas into the GL atlas texture.
         let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
         self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
-        // Sync the destination backdrop region into the display texture so the
-        // layer's translucent (rounded) edges blend over current content.
-        self.virgl_transfer_to_host(0xF8, dst_x, dst_y, width, height, FB_STRIDE)?;
+        if backdrop_blur > 0 {
+            // Glass: GPU-blur the destination backdrop in place (leaves the
+            // blurred result in the display texture 0xF8 + VMO). The layer is
+            // then alpha-composited over it, so the blur shows through the
+            // (translucent) content — the background-blur material.
+            let (fb, fb_len, fb_w, _row) =
+                self.scanout_fb().ok_or(GfxError::DeviceNotFound)?;
+            self.submit_virgl_blur(
+                fb,
+                fb_len,
+                fb_w,
+                dst_x,
+                dst_y + DISPLAY_PLANE_ROW,
+                width,
+                height,
+                backdrop_blur,
+            )?;
+        } else {
+            // Sync the destination backdrop region into the display texture so
+            // the layer's translucent (rounded) edges blend over current content.
+            self.virgl_transfer_to_host(0xF8, dst_x, dst_y, width, height, FB_STRIDE)?;
+        }
         // Composite the layer into the display-plane surface.
         self.submit_layer_pass(
             H_FBSRC_SURF,

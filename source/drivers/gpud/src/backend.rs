@@ -967,16 +967,18 @@ impl VirtioGpuBackend {
                     shadow_blur,
                     shadow_offset_y,
                     shadow_alpha,
+                    backdrop_blur,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
-                    // blit is opaque (chat is always opacity 255).
+                    // relies on the content's own alpha (translucent panel bg).
                     #[cfg(not(feature = "virgl"))]
                     let _ = opacity;
                     // GPU layer compositor op (G2). On virgl the layer is
                     // composited on the GPU into the display-plane surface
-                    // (shadow + content texture + rounded mask + opacity); on
-                    // the 2D path it falls back to the CPU shadow + opaque blit
-                    // (behaviour-identical to the old DropShadow + BlitAbsolute).
+                    // (shadow + optional backdrop blur + content texture +
+                    // rounded mask + opacity); on the 2D path it falls back to
+                    // CPU shadow + optional backdrop blur + an alpha-blended
+                    // (or opaque) content blit.
                     let dst_y_abs = dst_y.saturating_add(display_y_offset);
                     #[cfg(feature = "virgl")]
                     let gpu_ok = self.virgl_capable
@@ -994,6 +996,7 @@ impl VirtioGpuBackend {
                                 *shadow_blur,
                                 *shadow_offset_y,
                                 *shadow_alpha,
+                                *backdrop_blur,
                             )
                             .is_ok();
                     #[cfg(not(feature = "virgl"))]
@@ -1025,11 +1028,24 @@ impl VirtioGpuBackend {
                                 DISPLAY_PLANE_HEIGHT,
                             );
                         }
-                        // Opaque content blit (atlas → display plane).
-                        let _ = blit_vmo(
-                            fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs, *width,
-                            *height,
-                        );
+                        if *backdrop_blur > 0 {
+                            // Glass: blur the backdrop, then alpha-blend the
+                            // (translucent) content over it so the blur shows.
+                            let _ = blur_backdrop_vmo(
+                                fb, fb_len, fb_w, *dst_x, dst_y_abs, *width, *height,
+                                *backdrop_blur, 0,
+                            );
+                            let _ = blit_blend_vmo(
+                                fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
+                                *width, *height,
+                            );
+                        } else {
+                            // Opaque content blit (atlas → display plane).
+                            let _ = blit_vmo(
+                                fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
+                                *width, *height,
+                            );
+                        }
                     }
                 }
             }
@@ -2464,7 +2480,7 @@ END\n";
     /// the region, tolerance 2 LSB) and a parity marker is emitted.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     #[allow(clippy::too_many_arguments)]
-    fn submit_virgl_blur(
+    pub(crate) fn submit_virgl_blur(
         &mut self,
         fb: *mut u8,
         fb_len: usize,
@@ -3502,6 +3518,55 @@ fn blit_vmo(
         }
         unsafe {
             core::ptr::copy_nonoverlapping(buf.as_ptr(), fb.add(dst_off), row_bytes);
+        }
+    }
+    Ok(())
+}
+
+/// Like `blit_vmo`, but ALPHA-BLENDS the source over the destination (instead
+/// of an opaque copy). Used by the CPU glass path: composite a translucent
+/// layer (e.g. the chat panel with a low-alpha background) over a blurred
+/// backdrop so the blur shows through. Source rows are read into scratch first
+/// so a src/dst overlap is safe.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[allow(clippy::too_many_arguments)]
+fn blit_blend_vmo(
+    fb: *mut u8,
+    fb_len: usize,
+    fb_w: usize,
+    src_x: u32,
+    src_y: u32,
+    dst_x: u32,
+    dst_y: u32,
+    w: u32,
+    h: u32,
+) -> Result<(), GfxError> {
+    let fb_w_u = fb_w as u32;
+    let fb_h = (fb_len / (fb_w * 4)) as u32;
+    let copy_w = w.min(fb_w_u.saturating_sub(dst_x)).min(fb_w_u.saturating_sub(src_x));
+    let copy_h = h.min(fb_h.saturating_sub(dst_y)).min(fb_h.saturating_sub(src_y));
+    if copy_w == 0 || copy_h == 0 {
+        return Ok(());
+    }
+    let row_bytes = copy_w as usize * 4;
+    let mut buf: [u8; 5120] = [0u8; 5120];
+    if row_bytes > buf.len() {
+        return Err(GfxError::ResourceExhausted);
+    }
+    for row in 0..copy_h {
+        let sy = src_y.saturating_add(row);
+        let dy = dst_y.saturating_add(row);
+        let src_off = (sy as usize * fb_w + src_x as usize) * 4;
+        let dst_off = (dy as usize * fb_w + dst_x as usize) * 4;
+        if src_off + row_bytes > fb_len || dst_off + row_bytes > fb_len {
+            continue;
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(fb.add(src_off), buf.as_mut_ptr(), row_bytes);
+        }
+        for col in 0..copy_w as usize {
+            let s = [buf[col * 4], buf[col * 4 + 1], buf[col * 4 + 2], buf[col * 4 + 3]];
+            blend_pixel_vmo(fb, dst_off + col * 4, &s);
         }
     }
     Ok(())
