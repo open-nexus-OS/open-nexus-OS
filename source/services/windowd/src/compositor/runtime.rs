@@ -1568,22 +1568,32 @@ impl DisplayServerRuntime {
             return Ok(());
         };
         let stride = self.mode.stride as usize;
-        if self.band_scratch.len() < stride {
+        if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let abs_row = self.chat_atlas.abs_row;
-        let width_bytes = crate::interaction::CHAT_PANEL_W as usize * 4;
         let height = crate::interaction::CHAT_PANEL_H;
         let scroll_y = self.chat_scroll_y;
         let content_h = self.chat_content_h;
         let visible = &self.chat_visible;
         let band = &mut self.band_scratch;
-        for ly in 0..height {
-            let row = &mut band[..stride];
-            super::chat::draw_chat_panel_row(ly, row, scroll_y, content_h, visible)?;
-            let dst = (abs_row + ly) as usize * stride;
-            vmo_write(handle, dst, &row[..width_bytes])
+        // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
+        // per band instead of one per row (~30x fewer syscalls). `vmo_write` is
+        // a syscall, so per-row writes made chat scroll (full re-render) very
+        // slow. The band carries full-stride rows; the chat draws into x<366 and
+        // the unused atlas padding past it is never sampled by the composite.
+        let mut band_start = 0u32;
+        while band_start < height {
+            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(height);
+            let band_rows = (band_end - band_start) as usize;
+            for (i, ly) in (band_start..band_end).enumerate() {
+                let row = &mut band[i * stride..(i + 1) * stride];
+                super::chat::draw_chat_panel_row(ly, row, scroll_y, content_h, visible)?;
+            }
+            let dst = (abs_row + band_start) as usize * stride;
+            vmo_write(handle, dst, &band[..band_rows * stride])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
         }
         Ok(())
     }
@@ -3272,8 +3282,10 @@ impl DisplayServerRuntime {
                         width: sidebar_w,
                         height: sidebar_h,
                     };
-                    let sidebar_alpha = (220.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
-                    let border_alpha = (180.0 * sidebar_opacity).clamp(0.0, 180.0) as u8;
+                    // Translucent enough that the blurred backdrop reads as
+                    // glass (220 was nearly opaque → looked flat gray).
+                    let sidebar_alpha = (150.0 * sidebar_opacity).clamp(0.0, 150.0) as u8;
+                    let border_alpha = (130.0 * sidebar_opacity).clamp(0.0, 130.0) as u8;
                     let gt = crate::assets::GLASS_TINT;
                     let ge = crate::assets::GLASS_EDGE;
                     let pb = crate::assets::PROOF_PANEL_BORDER;
