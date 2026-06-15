@@ -103,6 +103,18 @@ start *args:
     NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-mmio} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
     @echo "[hint] just start defaults to GPU_MODE=mmio + gtk (reliable visible window; renders the same UI — gradients/shadows via the CPU fallback). GPU_MODE=virgl uses the GL-scanout compositor but the windowed GL backend (gtk/sdl gl=on) is black on this Wayland/KDE host (QEMU bug); the GPU path is verified headless via tools/vnc_snapshot.py."
 
+# Interactive REAL GPU compositor (virgl), viewed over VNC. The windowed GL
+# backend (gtk/sdl gl=on) is black on this Wayland/KDE host — a QEMU host bug,
+# not ours — but QEMU serves the GL scanout over VNC just fine, and VNC forwards
+# mouse/keyboard to the guest, so this is how you SEE and INTERACT with the real
+# GPU-composited UI. Needs a VNC viewer (none ships by default):
+#   pacman -S tigervnc   → vncviewer localhost:5979
+#   or KDE krdc          → krdc vnc://localhost:5979
+start-vnc *args:
+    GPU_MODE=virgl make MODE=${NEXUS_START_BUILD_MODE:-host} build
+    @echo "[VNC] real GPU compositor up — connect now:  vncviewer localhost:5979   (or  krdc vnc://localhost:5979)"
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_EXTRA_ARGS="-vnc 127.0.0.1:79" QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
+
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest
 # list-env --profile=…`). Default `headless` runs without display.
