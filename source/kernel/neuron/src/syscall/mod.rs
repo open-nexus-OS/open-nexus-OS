@@ -102,6 +102,13 @@ pub const SYSCALL_TIMER_CREATE: usize = 33;
 pub const SYSCALL_TIMER_SET: usize = 34;
 /// Cancels a previously armed timer capability.
 pub const SYSCALL_TIMER_CANCEL: usize = 35;
+/// Binds an external interrupt (PLIC source) to an endpoint capability so the
+/// kernel delivers that device IRQ to a userspace driver's endpoint (reactive
+/// input). Args: (irq_source_id, endpoint_cap_slot).
+pub const SYSCALL_IRQ_BIND: usize = 36;
+/// Acknowledges a delivered IRQ so the PLIC can re-arm it. The driver calls this
+/// after servicing the device. Args: (irq_source_id).
+pub const SYSCALL_IRQ_COMPLETE: usize = 37;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

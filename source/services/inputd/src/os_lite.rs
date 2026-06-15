@@ -22,23 +22,14 @@ use keymaps::{KeyAction, KeyOutput};
 use nexus_abi::{debug_println, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
+use crate::route::NormalizeRouter;
 use crate::{
     decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
     visible_display_start_position, InputDispatch,
     InputdConfig, InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR,
     LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD,
-    VISIBLE_INPUT_LEFT_SQUARE_X, VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT,
-    VISIBLE_INPUT_PROOF_WIDTH, VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y,
-    VISIBLE_INPUT_SQUARE_SIZE,
 };
 
-const VISIBLE_INPUT_SURFACE_X: i32 = 0;
-const VISIBLE_INPUT_SURFACE_Y: i32 = 0;
-const VISIBLE_INPUT_SURFACE_WIDTH: u32 = VISIBLE_INPUT_PROOF_WIDTH;
-const VISIBLE_INPUT_SURFACE_HEIGHT: u32 = VISIBLE_INPUT_PROOF_HEIGHT;
-const VISIBLE_INPUT_BGRA: [u8; 4] = [0x18, 0x30, 0x88, 0xff];
-const VISIBLE_INPUT_LEFT_IDLE_BGRA: [u8; 4] = [0x30, 0x70, 0xd8, 0xff];
-const VISIBLE_INPUT_RIGHT_IDLE_BGRA: [u8; 4] = [0x90, 0x40, 0x40, 0xff];
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
 const ROUTE_BIND_RETRIES: usize = 256;
 
@@ -137,7 +128,7 @@ fn bind_server() -> core::result::Result<KernelServer, nexus_ipc::IpcError> {
 }
 
 struct LiveRouteRuntime {
-    input: InputdService<windowd::WindowServer>,
+    input: InputdService<NormalizeRouter>,
     launcher: windowd::CallerCtx,
     surface: windowd::SurfaceId,
     visible_state: VisibleState,
@@ -174,54 +165,19 @@ enum WheelIndicatorDirection {
 impl LiveRouteRuntime {
     fn new() -> Result<Self, &'static str> {
         let launcher = windowd::CallerCtx::from_service_metadata(0x55);
-        let mut server = windowd::WindowServer::new(windowd::WindowdConfig {
-            width: VISIBLE_INPUT_PROOF_WIDTH,
-            height: VISIBLE_INPUT_PROOF_HEIGHT,
-            hz: 60,
-        })
-        .map_err(|_| fail("inputd: init fail window-server"))?;
-        let initial = visible_input_scene_surface(
-            launcher,
-            50,
-            VISIBLE_INPUT_LEFT_IDLE_BGRA,
-            VISIBLE_INPUT_RIGHT_IDLE_BGRA,
-        )
-        .map_err(|_| fail("inputd: init fail scene-buffer"))?;
-        let surface = server
-            .create_surface(launcher, initial.clone())
-            .map_err(|_| fail("inputd: init fail create-surface"))?;
-        server
-            .queue_buffer(
-                launcher,
-                surface,
-                initial,
-                &[windowd::Rect::new(
-                    0,
-                    0,
-                    VISIBLE_INPUT_SURFACE_WIDTH,
-                    VISIBLE_INPUT_SURFACE_HEIGHT,
-                )],
-            )
-            .map_err(|_| fail("inputd: init fail queue-buffer"))?;
-        server
-            .commit_scene(
-                windowd::CallerCtx::system(),
-                windowd::CommitSeq::new(1),
-                &[windowd::Layer {
-                    surface,
-                    x: VISIBLE_INPUT_SURFACE_X,
-                    y: VISIBLE_INPUT_SURFACE_Y,
-                    z: 0,
-                }],
-            )
-            .map_err(|_| fail("inputd: init fail commit-scene"))?;
-        // RFC-0055: enable pointer-motion coalescing fastpath in the live OS path
-        server.enable_fastpath();
-        let _ack = server.present_tick().map_err(|_| fail("inputd: init fail present-tick"))?;
+        // Production-grade input pipeline (Fuchsia/Apple/OHOS): inputd owns NO
+        // window server and does NO hit-testing. A pure NormalizeRouter handles
+        // pointer transform + coalescing; windowd (the compositor, interaction.rs
+        // SSOT since A1) resolves all hover/click/focus against its own rendered
+        // geometry. The old embedded windowd::WindowServer + its never-displayed
+        // "visible input proof" surface are gone — that was a legacy dual.
         let display_start = visible_display_start_position()
             .map_err(|_| fail("inputd: init fail pointer-transform"))?;
         let display_space =
             visible_display_space().map_err(|_| fail("inputd: init fail pointer-transform"))?;
+        // Unrouted surface 0: inputd forwards normalized input; windowd routes it.
+        let surface = windowd::SurfaceId::new(0);
+        let router = NormalizeRouter::new(display_space.width(), display_space.height(), 2);
         let config = InputdConfig::new(
             "de",
             350,
@@ -236,7 +192,7 @@ impl LiveRouteRuntime {
         )
         .and_then(|config| config.with_display_space(display_space.width(), display_space.height()))
         .map_err(|_| fail("inputd: init fail config"))?;
-        let input = InputdService::new(server, config)
+        let input = InputdService::new(router, config)
             .map_err(|_| fail("inputd: init fail route-service"))?;
         Ok(Self {
             input,
@@ -864,64 +820,3 @@ fn fail(label: &'static str) -> &'static str {
     label
 }
 
-fn visible_input_scene_surface(
-    caller: windowd::CallerCtx,
-    frame_index: u64,
-    left_square: [u8; 4],
-    right_square: [u8; 4],
-) -> Result<windowd::SurfaceBuffer, ()> {
-    let mut surface = windowd::SurfaceBuffer::solid(
-        caller,
-        frame_index,
-        VISIBLE_INPUT_SURFACE_WIDTH,
-        VISIBLE_INPUT_SURFACE_HEIGHT,
-        VISIBLE_INPUT_BGRA,
-    )
-    .map_err(|_| ())?;
-    for y in 0..surface.height {
-        for x in 0..surface.width {
-            let bgra = visible_input_scene_pixel_bgra(x, y, left_square, right_square);
-            let idx = (y as usize * surface.stride as usize) + (x as usize * 4);
-            surface.pixels[idx..idx + 4].copy_from_slice(&bgra);
-        }
-    }
-    Ok(surface)
-}
-
-fn visible_input_scene_pixel_bgra(
-    x: u32,
-    y: u32,
-    left_square: [u8; 4],
-    right_square: [u8; 4],
-) -> [u8; 4] {
-    if rect_contains(
-        x,
-        y,
-        VISIBLE_INPUT_LEFT_SQUARE_X,
-        VISIBLE_INPUT_LEFT_SQUARE_Y,
-        VISIBLE_INPUT_SQUARE_SIZE,
-        VISIBLE_INPUT_SQUARE_SIZE,
-    ) {
-        left_square
-    } else if rect_contains(
-        x,
-        y,
-        VISIBLE_INPUT_RIGHT_SQUARE_X,
-        VISIBLE_INPUT_RIGHT_SQUARE_Y,
-        VISIBLE_INPUT_SQUARE_SIZE,
-        VISIBLE_INPUT_SQUARE_SIZE,
-    ) {
-        right_square
-    } else {
-        let stripe = ((x / 8) + (y / 8)) & 1;
-        if stripe == 0 {
-            VISIBLE_INPUT_BGRA
-        } else {
-            [0x24, 0x38, 0xa0, 0xff]
-        }
-    }
-}
-
-fn rect_contains(x: u32, y: u32, left: u32, top: u32, width: u32, height: u32) -> bool {
-    x >= left && x < left.saturating_add(width) && y >= top && y < top.saturating_add(height)
-}

@@ -47,6 +47,12 @@ const REG_QUEUE_NUM: usize = 0x038;
 const REG_QUEUE_READY: usize = 0x044;
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_NOTIFY: usize = 0x050;
+/// virtio-mmio InterruptStatus (RO): bit0 = used-ring update, bit1 = config change.
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
+const REG_INTERRUPT_STATUS: usize = 0x060;
+/// virtio-mmio InterruptACK (WO): write back the status bits to de-assert the IRQ.
+#[cfg(all(feature = "os-lite", not(feature = "std")))]
+const REG_INTERRUPT_ACK: usize = 0x064;
 const REG_STATUS: usize = 0x070;
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 const REG_QUEUE_DESC_LOW: usize = 0x080;
@@ -480,6 +486,17 @@ impl MappedVirtioInputDevice {
     #[must_use]
     pub const fn role(&self) -> DeviceRole {
         self.role
+    }
+
+    /// Acknowledges a pending device interrupt so its level-triggered IRQ line
+    /// de-asserts. MUST be called after draining the used ring when running
+    /// IRQ-driven (PLIC `irq_bind`); otherwise the source re-fires immediately
+    /// and storms. No-op when no interrupt is pending.
+    pub fn ack_interrupt(&self) {
+        let status = self.bus.read(REG_INTERRUPT_STATUS);
+        if status != 0 {
+            self.bus.write(REG_INTERRUPT_ACK, status);
+        }
     }
 
     #[must_use]

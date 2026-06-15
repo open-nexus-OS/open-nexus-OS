@@ -58,8 +58,8 @@ pub struct VirtioGpuBackend {
     cursor_owned: bool,
     cursor_drawn: bool,
     cursor_suspended: bool,
-    cursor_ox: i32,
-    cursor_oy: i32,
+    pub(crate) cursor_ox: i32,
+    pub(crate) cursor_oy: i32,
     cursor_dw: u32,
     cursor_dh: u32,
     cursor_saveunder: alloc::vec::Vec<u8>,
@@ -112,6 +112,12 @@ pub struct VirtioGpuBackend {
     /// Guest backing VA of the GL scanout RT (parity readback only).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_scanout_backing_va: usize,
+    /// Guest backing VA of the NON-ALIASED display texture (own backing, not a
+    /// VMO alias). The present copies windowd's VMO frame here, uploads it, and
+    /// blits it to the scanout RT — avoiding the 0xF8 VMO-alias that QEMU's GL
+    /// scanout refuses to present (see RFC / the black-screen investigation).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) gl_display_tex_va: usize,
     /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
     /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
     /// straight onto the scanout RT after the base upload, instead of rendered
@@ -222,6 +228,8 @@ impl VirtioGpuBackend {
             gl_present_parity_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_scanout_backing_va: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            gl_display_tex_va: 0,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -408,26 +416,39 @@ impl VirtioGpuBackend {
             )?;
         }
 
-        let create = protocol::VirtioGpuResourceCreate2d {
-            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
-            resource_id: id.0,
-            format: Self::to_gpu_format(PixelFormat::Bgra8888),
-            width,
-            height,
-        };
-        self.ctrl_submit_struct(&create).map_err(|_| GfxError::CommandRejected)?;
+        // The VMO needs a virtio 2D resource ONLY for the non-virgl 2D scanout
+        // path. On the virgl path the VMO is read solely as the 3D texture 0xF8
+        // (an alias of the same physical pages); creating a 2D resource on that
+        // same memory is the "mixing 3D rendering and 2D scanout on one resource"
+        // that blacks out the gl device (see the comment below). So skip it when
+        // virgl drives the scanout — leaving 0xF8 (3D) as the sole resource on
+        // that memory. The non-virgl/mmio build keeps the clean 2D path.
+        #[cfg(feature = "virgl")]
+        let use_virgl_scanout = self.virgl_capable && self.virgl_draw_ok;
+        #[cfg(not(feature = "virgl"))]
+        let use_virgl_scanout = false;
+        if !use_virgl_scanout {
+            let create = protocol::VirtioGpuResourceCreate2d {
+                hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
+                resource_id: id.0,
+                format: Self::to_gpu_format(PixelFormat::Bgra8888),
+                width,
+                height,
+            };
+            self.ctrl_submit_struct(&create).map_err(|_| GfxError::CommandRejected)?;
 
-        let attach = protocol::VirtioGpuResourceAttachBacking {
-            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-            resource_id: id.0,
-            nr_entries: 1,
-        };
-        let entry = protocol::VirtioGpuMemEntry {
-            addr: info.base,
-            length: (width * height * 4) as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_pair(&attach, &entry).map_err(|_| GfxError::CommandRejected)?;
+            let attach = protocol::VirtioGpuResourceAttachBacking {
+                hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
+                resource_id: id.0,
+                nr_entries: 1,
+            };
+            let entry = protocol::VirtioGpuMemEntry {
+                addr: info.base,
+                length: (width * height * 4) as u32,
+                _padding: 0,
+            };
+            self.ctrl_submit_pair(&attach, &entry).map_err(|_| GfxError::CommandRejected)?;
+        }
 
         // GL-presented scanout (G0/G1): on a virgl-capable device the display
         // is a GPU render target and presents are GPU blits of this VMO — the
@@ -465,8 +486,28 @@ impl VirtioGpuBackend {
                         return Ok(());
                     }
                     Err(_) => {
-                        // Keep the record (pushed above) and fall through to
-                        // the proven 2D scanout path.
+                        // virgl scanout failed: create the 2D resource that was
+                        // skipped above (use_virgl_scanout) so the proven 2D
+                        // scanout path below can take over.
+                        let create = protocol::VirtioGpuResourceCreate2d {
+                            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_CREATE_RESOURCE_2D),
+                            resource_id: id.0,
+                            format: Self::to_gpu_format(PixelFormat::Bgra8888),
+                            width,
+                            height,
+                        };
+                        let _ = self.ctrl_submit_struct(&create);
+                        let attach = protocol::VirtioGpuResourceAttachBacking {
+                            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
+                            resource_id: id.0,
+                            nr_entries: 1,
+                        };
+                        let entry = protocol::VirtioGpuMemEntry {
+                            addr: info.base,
+                            length: (width * height * 4) as u32,
+                            _padding: 0,
+                        };
+                        let _ = self.ctrl_submit_pair(&attach, &entry);
                         let _ =
                             nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_FALLBACK);
                         self.resources.pop();
@@ -1232,7 +1273,12 @@ impl VirtioGpuBackend {
     pub fn cursor_take_ownership(&mut self, hot_x: u32, hot_y: u32) {
         self.cursor_owned = true;
         self.cursor_hot = (hot_x, hot_y);
-        let cap = (self.cursor_sprite_w as usize * self.cursor_sprite_h as usize * 4).max(4);
+        // Size the save-under for whichever sprite we'll paint: the uploaded SVG
+        // sprite OR the procedural arrow fallback (so the fallback can erase its
+        // own region on move without trailing).
+        let sprite_px = self.cursor_sprite_w as usize * self.cursor_sprite_h as usize;
+        let fallback_px = CURSOR_FALLBACK_W as usize * CURSOR_FALLBACK_H as usize;
+        let cap = (sprite_px.max(fallback_px) * 4).max(4);
         if self.cursor_saveunder.len() < cap {
             self.cursor_saveunder.resize(cap, 0);
         }
@@ -1270,7 +1316,7 @@ impl VirtioGpuBackend {
     /// sprite over them. In-place, no flush. Sets the drawn rect.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     fn cursor_paint(&mut self, ox: i32, oy: i32) {
-        if !self.cursor_owned || self.cursor_sprite.is_empty() {
+        if !self.cursor_owned {
             return;
         }
         let Some((fb, fb_len, fb_w, dyoff)) = self.scanout_fb() else {
@@ -1279,8 +1325,16 @@ impl VirtioGpuBackend {
         let fb_h = (fb_len / (fb_w * 4)) as i32 - dyoff as i32;
         let ox = ox.clamp(0, (fb_w as i32 - 1).max(0));
         let oy = oy.clamp(0, (fb_h - 1).max(0));
-        let w = (self.cursor_sprite_w as i32).min(fb_w as i32 - ox).max(0) as u32;
-        let h = (self.cursor_sprite_h as i32).min(fb_h - oy).max(0) as u32;
+        // Use the uploaded SVG sprite if present; otherwise paint the procedural
+        // arrow fallback (blend_cursor_vmo draws CURSOR_ARROW when the sprite is
+        // empty). This keeps a visible pointer before/without the SVG cursor.
+        let (sprite_w, sprite_h) = if self.cursor_sprite.is_empty() {
+            (CURSOR_FALLBACK_W, CURSOR_FALLBACK_H)
+        } else {
+            (self.cursor_sprite_w, self.cursor_sprite_h)
+        };
+        let w = (sprite_w as i32).min(fb_w as i32 - ox).max(0) as u32;
+        let h = (sprite_h as i32).min(fb_h - oy).max(0) as u32;
         if w == 0 || h == 0 {
             return;
         }
@@ -1477,6 +1531,41 @@ impl VirtioGpuBackend {
     /// True once the hardware cursor overlay is armed.
     pub fn hw_cursor_active(&self) -> bool {
         self.cursor_resource_id.is_some()
+    }
+
+    /// Records the current pointer position for the GL-scanout fallback cursor
+    /// (the Stage-4 build-up draws the procedural arrow at `cursor_ox/oy` each
+    /// present). Transfer-free, so it is safe on the virgl GL scanout.
+    pub fn set_pointer_pos(&mut self, x: i32, y: i32) {
+        self.cursor_ox = x;
+        self.cursor_oy = y;
+    }
+
+    /// Arms the hardware-cursor overlay with the procedural [`CURSOR_ARROW`] so a
+    /// pointer is visible WITHOUT an uploaded SVG sprite — a testing fallback that
+    /// is independent of windowd's BlendCursor, the scanout, and the build-up
+    /// (the overlay is a QEMU-composited plane). Tip at (0,0) = hot spot.
+    ///
+    /// NOTE: `upload_cursor` issues a `transfer_to_host` for the cursor resource,
+    /// which blanks the virgl GL-scanout present — DO NOT call this on the virgl
+    /// path; it is kept for the CPU/mmio scanout where the transfer is harmless.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    #[allow(dead_code)]
+    pub fn install_fallback_hw_cursor(&mut self) -> Result<(), GfxError> {
+        let w = CURSOR_FALLBACK_W;
+        let h = CURSOR_FALLBACK_H;
+        let mut sprite = alloc::vec::Vec::new();
+        sprite.resize((w * h * 4) as usize, 0u8);
+        for py in 0..h {
+            for px in 0..w {
+                let c = cursor_pixel_bgra(px, py, w, h);
+                let i = ((py * w + px) * 4) as usize;
+                sprite[i..i + 4].copy_from_slice(&c);
+            }
+        }
+        self.upload_cursor(&sprite, w, h, 0, 0)?;
+        let _ = nexus_abi::debug_println(crate::markers::GPUD_CURSOR_ON);
+        Ok(())
     }
 }
 
@@ -3794,6 +3883,11 @@ fn blend_premultiplied_vmo(fb: *mut u8, idx: usize, src: &[u8; 4]) {
         core::ptr::write_volatile(fb.add(idx + 3), 255);
     }
 }
+
+/// Footprint of the procedural [`CURSOR_ARROW`] fallback (drawn when no SVG cursor
+/// sprite has been uploaded yet). Matches the arrow bitmap below.
+pub(crate) const CURSOR_FALLBACK_W: u32 = 12;
+pub(crate) const CURSOR_FALLBACK_H: u32 = 19;
 
 /// Classic left-pointer arrow sprite, 12×19, tip at (0,0).
 /// `B` = dark border, `W` = white fill, space = transparent. This is a fixed

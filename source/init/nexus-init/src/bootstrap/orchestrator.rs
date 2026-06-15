@@ -1768,6 +1768,10 @@ where
     }
 
     // Resume display-chain services after MMIO grants and route wiring.
+    // gpud FIRST: the GL-scanout display handoff (OP_SET_FRAMEBUFFER_VMO →
+    // scanout) must be ready before windowd presents, or the window stays black.
+    // inputd is resumed right after windowd; hidrawd (already running) routes to it
+    // and binds its device IRQ — the input chain is live shortly after the UI.
     for service_name in ["gpud", "windowd", "inputd"] {
         if let Some(chan) = ctrl_channels.iter().find(|c| c.svc_name == service_name) {
             match nexus_abi::task_resume(chan.pid) {

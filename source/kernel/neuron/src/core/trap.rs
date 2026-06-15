@@ -878,6 +878,56 @@ pub(crate) fn process_expired_timers(
     }
 }
 
+/// Preempts the running user task on a timer tick: re-enqueue it, pick the next
+/// runnable task (round-robin within its QoS class), and load that task's saved
+/// frame so the trap epilogue resumes it. Resolves cooperative-scheduler starvation
+/// — without this, a service that stays runnable via `poll + yield` (e.g. the GPU
+/// compositor's reactive pacing under the heavy virgl bring-up) can monopolise the
+/// CPU and freeze lower-traffic services such as the input chain.
+///
+/// No-op (resumes the interrupted task) when it is the only runnable task.
+///
+/// # Safety contract (caller-enforced)
+/// Must be called only from the supervisor timer trap with a **user-mode** interrupted
+/// context (`sstatus.SPP == 0`) on the boot hart. That guarantees `tasks`/`scheduler`/
+/// `spaces` are not concurrently borrowed by S-mode kernel code, so the `&mut`s are the
+/// unique live borrows. The function itself contains no `unsafe`.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn preempt_current_user_task(
+    frame: &mut TrapFrame,
+    tasks: &mut task::TaskTable,
+    scheduler: &mut Scheduler,
+    spaces: &mut AddressSpaceManager,
+) {
+    let old_pid = tasks.current_pid();
+    // Re-enqueue the running task at the back of its class, then pick the next. If
+    // round-robin hands back the same task, nothing else is runnable — resume it
+    // with its registers untouched (cheap fast path for a single busy task).
+    scheduler.yield_current();
+    let Some(next) = scheduler.schedule_next() else {
+        return;
+    };
+    if next == old_pid {
+        return;
+    }
+    // Commit the switch, mirroring the syscall path: persist the interrupted task's
+    // live registers, retarget the task table, swap the address space, then load the
+    // next task's saved frame for the trap epilogue to restore.
+    if let Some(task) = tasks.task_mut(old_pid) {
+        *task.frame_mut() = *frame;
+    }
+    tasks.set_current(next);
+    #[cfg(not(feature = "selftest_no_satp"))]
+    if let Some(handle) = tasks.task(next).and_then(|t| t.address_space()) {
+        // On activation failure the next task cannot be resumed safely; the page-fault
+        // path reaps it when it runs. Loading its frame below is still correct.
+        let _ = spaces.activate(handle);
+    }
+    if let Some(task) = tasks.task(next) {
+        *frame = *task.frame();
+    }
+}
+
 // ——— Rust trap handler called from assembly ———
 
 #[no_mangle]
@@ -910,27 +960,76 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             return;
         }
         if code == S_TIMER_INT {
-            if let Ok(kernel_handles) = runtime_kernel_handles() {
-                let timer = unsafe {
-                    // SAFETY: runtime installation stores a valid static timer pointer.
-                    &*kernel_handles.timer
-                };
-                let mut hart_timers_ptr = kernel_handles.hart_timers;
-                let hart_timers = unsafe { hart_timers_ptr.as_mut() };
-                let mut router_ptr = kernel_handles.router;
-                let router = unsafe { router_ptr.as_mut() };
-                let mut tasks_ptr = kernel_handles.tasks;
-                let tasks = unsafe { tasks_ptr.as_mut() };
-                let mut scheduler_ptr = kernel_handles.scheduler;
-                let scheduler = unsafe { scheduler_ptr.as_mut() };
-                process_expired_timers(timer, hart_timers, router, tasks, scheduler);
-            } else {
-                #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
-                {
-                    let next = riscv::register::time::read() as u64 + DEFAULT_TICK_CYCLES;
-                    sbi::set_timer(next);
+            // Supervisor timer tick. Preemption + scheduler/task access is only safe
+            // when we interrupted a USER-mode task (sstatus.SPP == 0): such a context
+            // holds no kernel borrows, so mutating the scheduler/task table here cannot
+            // alias S-mode kernel code (timer IRQs are hardware-masked while SIE is
+            // clear inside any S-mode trap handler). When we interrupt S-mode (kernel
+            // idle/boot), we only re-arm the heartbeat and resume untouched.
+            const SSTATUS_SPP: usize = 1 << 8;
+            let interrupted_user = frame.sstatus & SSTATUS_SPP == 0;
+            if interrupted_user {
+                if let Ok(handles) = runtime_kernel_handles() {
+                    // SAFETY: install_runtime stores valid 'static kernel structures;
+                    // runtime_kernel_handles enforces boot-hart, and we interrupted
+                    // U-mode, so these are the unique live mutable borrows.
+                    let timer = unsafe { &*handles.timer };
+                    let mut hart_timers_ptr = handles.hart_timers;
+                    let hart_timers = unsafe { hart_timers_ptr.as_mut() };
+                    let mut router_ptr = handles.router;
+                    let router = unsafe { router_ptr.as_mut() };
+                    let mut tasks_ptr = handles.tasks;
+                    let tasks = unsafe { tasks_ptr.as_mut() };
+                    let mut scheduler_ptr = handles.scheduler;
+                    let scheduler = unsafe { scheduler_ptr.as_mut() };
+                    let mut spaces_ptr = handles.spaces;
+                    let spaces = unsafe { spaces_ptr.as_mut() };
+                    // Reactive: deliver fired timer caps + re-arm the next deadline.
+                    process_expired_timers(timer, hart_timers, router, tasks, scheduler);
+                    // Backstop for device IRQs: the S_EXT handler delivers them
+                    // immediately while a task runs, but if one asserted during an
+                    // S-mode window (or while every task was blocked) the timer tick
+                    // drains and delivers it here within one period. No-op when
+                    // nothing is pending (claim() returns None).
+                    crate::irq::dispatch_external(router, tasks, scheduler);
+                    // Preemptive: rotate the running user task so no service can
+                    // monopolise the cooperative scheduler (anti-starvation).
+                    preempt_current_user_task(frame, tasks, scheduler, spaces);
+                    return;
                 }
             }
+            // S-mode interrupt (kernel idle/boot) or runtime not yet installed:
+            // re-arm the heartbeat and resume the interrupted context untouched.
+            #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+            {
+                let next = riscv::register::time::read() as u64 + DEFAULT_TICK_CYCLES;
+                sbi::set_timer(next);
+            }
+        }
+        const S_EXT_INT: usize = 9;
+        if code == S_EXT_INT {
+            // External device interrupt via the PLIC. Deliver to bound userspace
+            // drivers (waking a blocked driver) only when we interrupted U-mode —
+            // the same exclusivity guarantee as the timer path (no S-mode kernel
+            // code is concurrently borrowing the router/tasks/scheduler).
+            const SSTATUS_SPP: usize = 1 << 8;
+            if frame.sstatus & SSTATUS_SPP == 0 {
+                if let Ok(handles) = runtime_kernel_handles() {
+                    // SAFETY: boot-hart + U-mode interrupted → unique live borrows.
+                    let mut router_ptr = handles.router;
+                    let router = unsafe { router_ptr.as_mut() };
+                    let mut tasks_ptr = handles.tasks;
+                    let tasks = unsafe { tasks_ptr.as_mut() };
+                    let mut scheduler_ptr = handles.scheduler;
+                    let scheduler = unsafe { scheduler_ptr.as_mut() };
+                    crate::irq::dispatch_external(router, tasks, scheduler);
+                    return;
+                }
+            }
+            // S-mode interrupt or runtime not yet installed: drain without delivery
+            // so a stray source cannot storm (bound sources stay enabled for the
+            // next U-mode trap).
+            crate::irq::drain_undelivered();
         }
         return;
     }

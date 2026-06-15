@@ -625,6 +625,26 @@ pub fn kmain() -> ! {
     // End of kernel bring-up; user-mode services are responsible for
     // emitting their own readiness markers.
 
+    // Arm the reactive, preemptive scheduler tick. Selftests have completed and the
+    // trap runtime is installed, so from here a supervisor timer IRQ (1) delivers
+    // fired timer caps reactively and (2) preempts long-running user tasks, so no
+    // single service can monopolise the cooperative scheduler. Done last to keep all
+    // earlier bring-up/selftest sequencing non-preemptive.
+    #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
+    unsafe {
+        crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+        crate::trap::enable_timer_interrupts();
+    }
+
+    // Reactive device input: initialise the PLIC and unmask supervisor external
+    // interrupts. No source is enabled until a driver binds its IRQ (irq_bind), so
+    // nothing fires here; binding routes the device IRQ to the driver's endpoint.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        crate::hal::plic::plic_init();
+        riscv::register::sie::set_sext();
+    }
+
     kernel.idle_loop()
 }
 

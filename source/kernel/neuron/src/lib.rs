@@ -279,6 +279,9 @@ mod hal;
 #[cfg(target_os = "none")]
 mod ipc;
 #[cfg(target_os = "none")]
+#[path = "core/irq.rs"]
+mod irq;
+#[cfg(target_os = "none")]
 #[path = "core/kmain.rs"]
 mod kmain;
 #[cfg(target_os = "none")]

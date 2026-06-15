@@ -172,6 +172,47 @@ impl VirtioGpuBackend {
         self.virgl_transfer_from_host(0xF8, x, y_rel, w, h, FB_STRIDE)
     }
 
+    /// DIAGNOSTIC: pure-GL SDF gradient drawn DIRECTLY into the scanout RT
+    /// (`H_GLS_SURF`), screen-space, with NO `0xF8`/VMO transfer at all. Used to
+    /// prove whether a GL *draw* (not just a clear) presents to the display — if
+    /// it does, the black content path is specifically the `transfer_to_host` of
+    /// the scanout-aliased display plane, and the fix is to compose from the
+    /// (non-scanout-aliased) atlas via GL draws only.
+    pub(crate) fn diag_gradient_rt(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        top: RgbaColor,
+        bottom: RgbaColor,
+    ) -> Result<(), GfxError> {
+        if !self.virgl_capable || !self.virgl_draw_ok || w == 0 || h == 0 {
+            return Err(GfxError::InvalidArgument);
+        }
+        self.virgl_vector_init()?;
+        let cx = x as f32 + w as f32 / 2.0;
+        let cy = y as f32 + h as f32 / 2.0;
+        let bx = w as f32 / 2.0;
+        let by = h as f32 / 2.0;
+        let tc = rgba_f32(top);
+        let bc = rgba_f32(bottom);
+        let mut s = Submit3d::new();
+        self.emit_vector_state_to(&mut s, crate::gl_scanout::H_GLS_SURF, x, y, w, h);
+        s.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[
+                -cx, -cy, bx, by, //
+                0.0, 1.0 / (h as f32).max(1.0), -(y as f32), 0.0, //
+                tc[0], tc[1], tc[2], tc[3], //
+                bc[0], bc[1], bc[2], bc[3],
+            ],
+        );
+        s.emit_bind_shader(H_FS_SDF_GRAD, PIPE_SHADER_FRAGMENT);
+        s.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        self.submit_vector_stream(&s)
+    }
+
     /// GPU soft drop shadow for a rounded rect. `(x, y_abs, w, h)` is the
     /// casting shape; the drawn region is the shape expanded by `blur` and
     /// shifted by the offset, clamped to the display plane.

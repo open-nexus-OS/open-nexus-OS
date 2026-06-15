@@ -1840,6 +1840,42 @@ pub fn timer_cancel(timer_cap: Cap) -> SysResult<()> {
     }
 }
 
+/// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
+/// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
+/// receiver — the reactive alternative to polling the device. The driver then
+/// blocks on `recv(endpoint)` and calls [`irq_complete`] after servicing it.
+#[cfg(nexus_env = "os")]
+pub fn irq_bind(irq: u32, endpoint_cap: Cap) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IRQ_BIND: usize = 36;
+        let raw = unsafe { ecall2(SYSCALL_IRQ_BIND, irq as usize, endpoint_cap as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (irq, endpoint_cap);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Acknowledges a delivered IRQ so the PLIC can re-arm it. Call after the device
+/// has been serviced (its interrupt condition cleared, e.g. virtqueue drained).
+#[cfg(nexus_env = "os")]
+pub fn irq_complete(irq: u32) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IRQ_COMPLETE: usize = 37;
+        let raw = unsafe { ecall1(SYSCALL_IRQ_COMPLETE, irq as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = irq;
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Returns the current task PID.
 #[cfg(nexus_env = "os")]
 pub fn pid() -> SysResult<u32> {

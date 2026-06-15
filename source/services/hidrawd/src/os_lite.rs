@@ -18,7 +18,10 @@ use input_live_protocol::{
     encode_push_hid_batch_into, WireHidBatch, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
     MAX_HID_BATCH_FRAME_LEN,
 };
-use nexus_abi::{cap_clone, cap_close, debug_println, nsec, yield_};
+use nexus_abi::{
+    cap_clone, cap_close, debug_println, ipc_recv_v1, irq_bind, irq_complete, nsec, yield_, Cap,
+    MsgHeader, IPC_SYS_TRUNCATE,
+};
 use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use virtio_input::{
@@ -49,6 +52,10 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     let mut send_ok_emitted = false;
     let mut send_fail_emitted = false;
     let mut chain = HidrawChainTelemetry::new();
+    // Reactive input: endpoint the kernel routes device IRQs to (via irq_bind), so
+    // we block on it instead of busy-polling the virtio-input queues. Bound lazily
+    // once devices are open.
+    let mut irq_endpoint: Option<Cap> = None;
 
     loop {
         if !payload_ready_emitted {
@@ -79,6 +86,25 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             chain.report_if_due();
             let _ = yield_();
             continue;
+        }
+
+        // Bind each device's PLIC IRQ to our control-reply endpoint (slot 2),
+        // which we already own + recv on and which is idle after routing. The
+        // kernel then wakes us reactively on input (irq_bind) instead of polling.
+        // (A dedicated endpoint via init's EndpointFactory is a later refinement;
+        // plain ipc_endpoint_create is a deprecated, permission-denied ABI.)
+        if irq_endpoint.is_none() {
+            const IRQ_NOTIFY_SLOT: Cap = 2;
+            let mut bound_any = false;
+            for device in &live_devices {
+                if irq_bind(device.irq, IRQ_NOTIFY_SLOT).is_ok() {
+                    bound_any = true;
+                }
+            }
+            if bound_any {
+                irq_endpoint = Some(IRQ_NOTIFY_SLOT);
+                debug_println("hidrawd: irq endpoint bound (reactive input)")?;
+            }
         }
 
         let mut sent_any = false;
@@ -158,11 +184,26 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             sent_any = true;
         }
 
-        if !sent_any {
+        // Reactive idle: ack each device (de-assert its level-triggered IRQ) and
+        // re-arm its PLIC source, then BLOCK until the next device IRQ. The kernel
+        // routes the virtio-input IRQ to our endpoint (immediately via S_EXT, or
+        // within a tick via the timer backstop) and wakes this recv — no busy-poll.
+        for device in &live_devices {
+            device.driver.ack_interrupt();
+        }
+        chain.report_if_due();
+        if let Some(ep) = irq_endpoint {
+            for device in &live_devices {
+                let _ = irq_complete(device.irq);
+            }
+            let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 32];
+            // Blocking recv (no NONBLOCK): parks until a device IRQ notification.
+            let _ = ipc_recv_v1(ep, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
+        } else if !sent_any {
             chain.idle_yields = chain.idle_yields.saturating_add(1);
             let _ = yield_();
         }
-        chain.report_if_due();
     }
 }
 
@@ -328,6 +369,8 @@ fn open_live_devices(missing_slots_logged: &mut [bool; INPUT_CAP_SLOTS.len()]) -
             confirmed_class: None,
             abs_max_x,
             abs_max_y,
+            // cap-slot index `idx` => virtio-mmio slot 2+idx => PLIC source 3+idx.
+            irq: 3 + idx as u32,
         });
     }
     devices
@@ -367,6 +410,10 @@ struct LiveDevice {
     confirmed_class: Option<LiveDeviceClass>,
     abs_max_x: i32,
     abs_max_y: i32,
+    /// PLIC interrupt source for this device. QEMU virt wires virtio-mmio slot N
+    /// (0x10001000 + N*0x1000) to source `1 + N`; the input devices are granted at
+    /// mmio slots 2/3 (cap-slot index 0/1), i.e. sources 3/4.
+    irq: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

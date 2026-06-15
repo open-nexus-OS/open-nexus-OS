@@ -617,6 +617,8 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);
+    table.register(crate::syscall::SYSCALL_IRQ_BIND, sys_irq_bind);
+    table.register(crate::syscall::SYSCALL_IRQ_COMPLETE, sys_irq_complete);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
@@ -703,6 +705,34 @@ fn sys_timer_cancel(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
     let timer_id = timer_id_from_cap(ctx, slot)?;
     ctx.hart_timers.disarm(timer_id).map_err(map_timer_error)?;
+    Ok(0)
+}
+
+/// Binds an external interrupt (PLIC source) to an endpoint the caller owns, so
+/// the kernel routes that device IRQ to the driver's endpoint and wakes it. The
+/// caller must hold an Endpoint capability for the receiving endpoint (proves it
+/// is the intended driver). Args: (irq_source_id, endpoint_cap_slot).
+fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let irq_raw = args.get(0) as u32;
+    let endpoint_slot = args.get(1);
+    let irq = crate::hal::plic::IrqId::new(irq_raw)
+        .ok_or(Error::Capability(CapError::InvalidSlot))?;
+    let endpoint = match ctx.tasks.current_caps_mut().get(endpoint_slot)?.kind {
+        CapabilityKind::Endpoint(id) => id,
+        _ => return Err(Error::Capability(CapError::InvalidSlot)),
+    };
+    crate::irq::bind(irq, endpoint);
+    Ok(0)
+}
+
+/// Acknowledges a delivered IRQ so the PLIC re-arms it. The driver calls this
+/// after it has drained the device (cleared the interrupt condition). Args:
+/// (irq_source_id).
+fn sys_irq_complete(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let irq_raw = args.get(0) as u32;
+    let irq = crate::hal::plic::IrqId::new(irq_raw)
+        .ok_or(Error::Capability(CapError::InvalidSlot))?;
+    crate::irq::complete(irq);
     Ok(0)
 }
 

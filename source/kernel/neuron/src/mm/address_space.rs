@@ -635,6 +635,23 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(e);
     }
 
+    // Identity-map the PLIC so the kernel can claim/complete external device
+    // interrupts and route them to userspace drivers (reactive input). QEMU virt
+    // places the PLIC at 0x0c00_0000 with a 0x60_0000 register window.
+    const PLIC_BASE: usize = 0x0c00_0000;
+    const PLIC_LEN: usize = 0x60_0000;
+    if let Err(e) = map_identity_range(
+        table,
+        align_down(PLIC_BASE),
+        align_up(PLIC_BASE + PLIC_LEN),
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in PLIC");
+        }
+        return Err(e);
+    }
+
     log_info!(target: "mm", "map kernel segments ok");
     Ok(())
 }

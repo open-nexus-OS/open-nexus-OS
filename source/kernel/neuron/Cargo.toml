@@ -6,7 +6,7 @@ license = "Apache-2.0"
 authors = ["Open Nexus OS Contributors"]
 
 [features]
-default = ["failpoints", "boot_banner", "selftest_priv_stack", "selftest_time"]
+default = ["failpoints", "boot_banner", "selftest_priv_stack", "selftest_time", "timer_irq"]
 failpoints = []
 # Development-only verbose UART diagnostics (not enabled by default)
 debug_uart = []

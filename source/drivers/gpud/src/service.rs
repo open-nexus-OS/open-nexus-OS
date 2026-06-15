@@ -256,14 +256,13 @@ fn service_requests(
                                         present_ns_max = 0;
                                     }
                                     total_presents += 1;
-                                    // Capture the first composed frames (the UI
-                                    // settles over the bootstrap selftest: base →
-                                    // effects → blur) plus a periodic steady tick.
-                                    if matches!(total_presents, 1 | 4 | 8)
-                                        || total_presents % THUMBNAIL_EVERY == 0
-                                    {
-                                        backend.emit_debug_thumbnail();
-                                    }
+                                    // NOTE: the debug thumbnail did
+                                    // `transfer_from_host(GL_SCANOUT_RES)` (reading the
+                                    // scanout texture back) which desyncs QEMU's GL
+                                    // present → black display. It must NOT run in the
+                                    // live present path. Kept off; re-enable only for
+                                    // offline RT inspection that doesn't also present.
+                                    let _ = total_presents;
                                     st
                                 }
                                 Err(_) => {
@@ -557,7 +556,13 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             }
             let x = i32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let y = i32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            // Save-under composite into the scanout (visible on every backend).
+            // Record the pointer position for the GL-scanout fallback cursor (the
+            // Stage-4 build-up draws a procedural arrow at cursor_ox/oy each present
+            // — no transfer_to_host, so it is safe on the virgl GL scanout, unlike
+            // the hardware-cursor overlay whose resource transfer blanks the GL
+            // present). windowd also sends OP_PRESENT_DAMAGE on move, re-rendering.
+            backend.set_pointer_pos(x, y);
+            // Legacy save-under SW path (no-op while cursor ownership is unclaimed).
             if backend.cursor_move(x, y).is_err() {
                 return STATUS_DEVICE_ERROR;
             }

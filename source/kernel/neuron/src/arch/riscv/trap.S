@@ -19,36 +19,51 @@
     .align 4
 
 __trap_vector:
-    /* If trap came from U-mode (SPP=0), swap user<->kernel stack via sscratch. */
-    csrr  t0, sstatus
-    /* Test SSTATUS_SPP (bit 8) */
-    andi  t1, t0, 256
-    bnez  t1, 1f
-    csrrw sp, sscratch, sp
-1:
-    /* allocate TrapFrame */
-    addi  sp, sp, -{TF_SIZE}
+    /* Full-context trap entry. CRITICAL: every GPR x1..x31 is saved with its
+     * ORIGINAL trapped value so this path is correct for *asynchronous* traps
+     * (timer/software interrupts that preempt at an arbitrary instruction), not
+     * only synchronous ecalls. The prologue clobbers only t0 and t1 as temps and
+     * stashes their originals (orig t0 -> sscratch, orig t1 -> trap-stack red
+     * zone); t2..t6 are never touched before they are persisted.
+     *
+     * sscratch holds the per-hart trap stack top (installed at trap setup).
+     * After this swap: t0 = trap_stack_top, sscratch = orig t0. */
+    csrrw t0, sscratch, t0
+    sd    t1, -8(t0)              /* stash orig t1 in the trap-stack red zone */
 
-    /* save GPRs x1..x31 into frame.x[i] (x0 is implicit) */
+    /* Pick the kernel stack based on the trapped privilege (SSTATUS.SPP, bit 8). */
+    csrr  t1, sstatus
+    andi  t1, t1, 256            /* t1 = SPP (0 => trap from U-mode) */
+    bnez  t1, .Ltrap_smode
+
+    /* From U-mode: build the frame on the (empty) trap stack; preserve user sp. */
+    sd    sp, -16(t0)            /* stash user sp in the red zone */
+    addi  sp, t0, -{TF_SIZE}      /* frame base on the trap stack */
+    ld    t1, -16(t0)
+    sd    t1, 2*8(sp)            /* frame.x2 = user sp */
+    j     .Ltrap_saved_sp
+
+.Ltrap_smode:
+    /* From S-mode: keep the current kernel stack so the kernel's own stack depth
+     * is never relocated (trap frames stack naturally; traps do not nest, SIE=0). */
+    sd    sp, -16(t0)            /* stash kernel sp in the red zone */
+    addi  sp, sp, -{TF_SIZE}      /* frame base on the current kernel stack */
+    ld    t1, -16(t0)
+    sd    t1, 2*8(sp)            /* frame.x2 = kernel sp */
+
+.Ltrap_saved_sp:
+    /* sp = frame base. Persist every GPR's ORIGINAL value. */
     sd    ra,   1*8(sp)
-    /* If U-mode trap (t1==0), store user SP from sscratch; otherwise current SP. */
-    beqz  t1, 2f
-    sd    sp,   2*8(sp)         /* S-mode trap */
-    j     3f
-2:  csrr  t2, sscratch
-    sd    t2,  2*8(sp)          /* U-mode trap: preserve user SP */
-3:
     sd    gp,   3*8(sp)
-    /* Ensure kernel Rust runs with the kernel GP, not a user-provided GP.
-     * We already saved the trapped GP value into the TrapFrame above; it will be restored on sret.
-     */
-    /* Restore kernel gp for small-data addressing (PC-relative; kernel is linked above 2GiB). */
-    .option push
-    .option norelax
-    la    gp, __global_pointer$
-    .option pop
     sd    tp,   4*8(sp)
-    sd    t0,   5*8(sp);  sd  t1,   6*8(sp);  sd  t2,   7*8(sp)
+    /* recover orig t0 (from sscratch) and orig t1 (from the red zone), persist them */
+    csrr  t1, sscratch
+    sd    t1,   5*8(sp)
+    ld    t1, -8(t0)
+    sd    t1,   6*8(sp)
+    sd    t2,   7*8(sp)          /* orig t2 (never clobbered) */
+    /* restore sscratch = trap_stack_top for the next trap */
+    csrw  sscratch, t0
     sd    s0,   8*8(sp);  sd  s1,   9*8(sp)
     sd    a0,  10*8(sp);  sd  a1,  11*8(sp);  sd  a2,  12*8(sp);  sd  a3,  13*8(sp)
     sd    a4,  14*8(sp);  sd  a5,  15*8(sp);  sd  a6,  16*8(sp);  sd  a7,  17*8(sp)
@@ -57,15 +72,22 @@ __trap_vector:
     sd    s10, 26*8(sp);  sd  s11, 27*8(sp)
     sd    t3,  28*8(sp);  sd  t4,  29*8(sp);  sd  t5,  30*8(sp);  sd  t6,  31*8(sp)
 
-    /* save CSRs */
+    /* Kernel gp for small-data addressing while in the Rust handler. The trapped
+     * gp is already saved at 3*8(sp) and restored on sret. */
+    .option push
+    .option norelax
+    la    gp, __global_pointer$
+    .option pop
+
+    /* save CSRs (t0/t1 are now free; their originals are persisted) */
     csrr  t0, sepc
     sd    t0, {OFF_SEPC}(sp)
-    csrr  t1, sstatus
-    sd    t1, {OFF_SSTATUS}(sp)
-    csrr  t2, scause
-    sd    t2, {OFF_SCAUSE}(sp)
-    csrr  t3, stval
-    sd    t3, {OFF_STVAL}(sp)
+    csrr  t0, sstatus
+    sd    t0, {OFF_SSTATUS}(sp)
+    csrr  t0, scause
+    sd    t0, {OFF_SCAUSE}(sp)
+    csrr  t0, stval
+    sd    t0, {OFF_STVAL}(sp)
 
     /* call Rust handler: a0 = &mut TrapFrame */
     mv    a0, sp
@@ -74,10 +96,12 @@ __trap_vector:
     /* write back possibly updated sepc/sstatus */
     ld    t0, {OFF_SEPC}(sp)
     csrw  sepc, t0
-    ld    t1, {OFF_SSTATUS}(sp)
-    csrw  sstatus, t1
+    ld    t0, {OFF_SSTATUS}(sp)
+    csrw  sstatus, t0
 
-    /* restore GPRs (sp via dealloc below) */
+    /* restore GPRs; orig sp restored LAST from frame.x2 (handles a frame that the
+     * Rust handler swapped to another task during preemption). sscratch already
+     * holds trap_stack_top for the next trap. */
     ld    ra,   1*8(sp)
     ld    gp,   3*8(sp)
     ld    tp,   4*8(sp)
@@ -89,20 +113,8 @@ __trap_vector:
     ld    s6,  22*8(sp);  ld  s7,  23*8(sp);  ld  s8,  24*8(sp);  ld  s9,  25*8(sp)
     ld    s10, 26*8(sp);  ld  s11, 27*8(sp)
     ld    t3,  28*8(sp);  ld  t4,  29*8(sp);  ld  t5,  30*8(sp);  ld  t6,  31*8(sp)
-
-    /* deallocate frame and return */
-    /* If returning to U-mode (SPP=0), restore user sp from TrapFrame.x2. */
-    csrr  t0, sstatus
-    andi  t0, t0, 256
-    bnez  t0, 1f
-    ld    t2, 2*8(sp)
-    addi  sp, sp, {TF_SIZE}
-    csrw  sscratch, t2
-    csrrw sp, sscratch, sp
-    j     2f
-1:
-    addi  sp, sp, {TF_SIZE}
-2:  sret
+    ld    sp,   2*8(sp)         /* restore orig sp (must be the final GPR load) */
+    sret
 
     .size __trap_vector, .-__trap_vector
 
