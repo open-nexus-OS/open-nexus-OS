@@ -52,6 +52,17 @@ pub enum CapabilityKind {
     ///
     /// The payload is the kernel-local `TimerId` (opaque to userspace).
     Timer(u32),
+    /// Waitset capability bound to a per-hart waitset table entry (RFC-0033).
+    ///
+    /// A waitset lets a task block on multiple endpoints and wake on the first ready.
+    /// The payload is the kernel-local `WaitsetId` (opaque to userspace), stored as a
+    /// raw `u32` so this enum stays independent of the `waitset` module (mirrors `Timer`).
+    Waitset(u32),
+    /// Timeline fence capability bound to a per-hart fence table entry (RFC-0033).
+    ///
+    /// A fence holds a monotonic `u64` value; `fence_wait(target)` blocks until
+    /// `value >= target`. The payload is the kernel-local `FenceId` as a raw `u32`.
+    Fence(u32),
     /// Scheduler affinity control (TASK-0042): holder may set CPU affinity for other tasks.
     ///
     /// Rationale: Only privileged services (e.g., execd, policyd) should be able to set

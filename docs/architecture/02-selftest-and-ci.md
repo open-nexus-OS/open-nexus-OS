@@ -39,6 +39,48 @@ They remain available as explicit, opt-in requirements controlled by the QEMU sm
 
 See `docs/adr/0025-qemu-smoke-proof-gating.md` for rationale and usage.
 
+## Host unit tests for kernel logic (the ungated-module pattern)
+
+The `neuron` kernel crate is built **only** for the bare-metal target: in `lib.rs` every
+module is declared `#[cfg(target_os = "none")]`. A direct consequence, which is easy to
+trip over:
+
+> **`cargo test -p neuron` runs 0 tests on the host.** Because the modules are gated out for
+> the host target, their in-tree `#[cfg(test)] mod tests` are never compiled or run there
+> (this includes otherwise-rich suites such as `timer.rs`'s). Equally, `#[cfg(test)]` code
+> inside a gated module — e.g. the `mod tests` in `syscall/api.rs` — is **not type-checked**
+> in any routine build, so call sites there can silently drift (some still pass the old
+> arg count to `Context::new`); do not treat that test module as a live gate, and don't
+> churn it when threading new `Context` fields.
+
+The two gates that actually protect the kernel are therefore:
+
+1. **`cargo check -p neuron --target riscv64imac-unknown-none-elf`** (wrapped by
+   `just diag-kernel`) — the real type/exhaustiveness/borrow gate. `neuron`'s
+   `deny(warnings)` is active only on this target, so dead code and unused items are caught
+   here, not on the host.
+2. **QEMU boot + `KSELFTEST:` markers** — runtime behaviour, asserted by `scripts/qemu-test.sh`.
+
+### When you still want a deterministic host oracle
+
+Pure kernel *data-structure* logic (no MMIO, no router, no scheduler coupling) can and
+should be host-unit-tested. The pattern, established by the RFC-0033 spine
+(`source/kernel/neuron/src/waitset.rs`, `source/kernel/neuron/src/fence.rs`):
+
+- Declare the module **un-gated** in `lib.rs` (the only modules without
+  `#[cfg(target_os = "none")]`), with a comment stating why.
+- Keep it free of riscv-only types: use `alloc` (available on host and target) and raw
+  `u32`/`u64` ids instead of `EndpointId`/`Pid`/`Cap`. The gated syscall layer does the
+  id ↔ kernel-type mapping; the table stays portable.
+- Add `#[cfg_attr(not(target_os = "none"), allow(dead_code))]` at the module top: on the
+  host the only consumer is the test module (the syscall layer that uses it is gated out),
+  so this silences host dead-code noise while the riscv build keeps strict checks.
+- Write the `#[cfg(test)] mod tests` as normal — they now run under `cargo test -p neuron`
+  and are the deterministic oracle (QEMU timing never decides correctness).
+
+The syscall *integration* (dispatch → table → router/scheduler) is not host-testable this
+way; prove it with a `KSELFTEST:` marker added to `selftest/mod.rs` instead.
+
 ## CI pipeline
 
 CI lives under `.github/workflows/`:

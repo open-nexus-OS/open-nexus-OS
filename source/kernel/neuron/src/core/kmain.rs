@@ -45,6 +45,12 @@ struct KernelState {
     #[cfg(target_os = "none")]
     #[allow(dead_code)]
     hart_timers: crate::timer::HartTimers,
+    #[cfg(target_os = "none")]
+    #[allow(dead_code)]
+    waitsets: crate::waitset::WaitsetTable,
+    #[cfg(target_os = "none")]
+    #[allow(dead_code)]
+    fences: crate::fence::FenceTable,
 }
 
 static mut KERNEL_STATE: MaybeUninit<KernelState> = MaybeUninit::uninit();
@@ -174,6 +180,8 @@ impl KernelState {
             kernel_as,
             syscalls,
             hart_timers: crate::timer::HartTimers::new(),
+            waitsets: crate::waitset::WaitsetTable::new(),
+            fences: crate::fence::FenceTable::new(),
         }
     }
 
@@ -425,6 +433,8 @@ unsafe fn context_switch_with_activate(
             &mut kernel.address_spaces,
             timer,
             &mut kernel.hart_timers,
+            &mut kernel.waitsets,
+            &mut kernel.fences,
             &kernel.syscalls,
         );
     }
@@ -542,6 +552,8 @@ pub fn kmain() -> ! {
         &mut kernel.address_spaces,
         timer,
         &mut kernel.hart_timers,
+        &mut kernel.waitsets,
+        &mut kernel.fences,
         &kernel.syscalls,
     );
     kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
@@ -595,6 +607,8 @@ pub fn kmain() -> ! {
             tasks: &mut kernel.tasks,
             scheduler: &mut kernel.scheduler,
             hart_timers: &mut kernel.hart_timers,
+            waitsets: &mut kernel.waitsets,
+            fences: &mut kernel.fences,
         };
         // Gate: validate target PC and dump RA/SP before entering selftest
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]

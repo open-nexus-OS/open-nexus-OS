@@ -208,6 +208,8 @@ struct KernelHandles {
     spaces: NonNull<AddressSpaceManager>,
     timer: *const dyn Timer,
     hart_timers: NonNull<crate::timer::HartTimers>,
+    waitsets: NonNull<crate::waitset::WaitsetTable>,
+    fences: NonNull<crate::fence::FenceTable>,
 }
 unsafe impl Send for KernelHandles {}
 unsafe impl Sync for KernelHandles {}
@@ -244,6 +246,8 @@ pub fn install_runtime(
     spaces: &mut AddressSpaceManager,
     timer: &'static dyn Timer,
     hart_timers: &mut crate::timer::HartTimers,
+    waitsets: &mut crate::waitset::WaitsetTable,
+    fences: &mut crate::fence::FenceTable,
     syscalls: &SyscallTable,
 ) -> TrapDomainId {
     let install_cpu = crate::smp::cpu_current_id();
@@ -260,6 +264,8 @@ pub fn install_runtime(
             spaces: NonNull::from(spaces),
             timer: timer as *const dyn Timer,
             hart_timers: NonNull::from(hart_timers),
+            waitsets: NonNull::from(waitsets),
+            fences: NonNull::from(fences),
         },
         syscalls: syscalls_ptr,
     };
@@ -1238,6 +1244,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         let spaces = unsafe { spaces_ptr.as_mut() };
         let mut hart_timers_ptr = kernel_handles.hart_timers;
         let hart_timers = unsafe { hart_timers_ptr.as_mut() };
+        let mut waitsets_ptr = kernel_handles.waitsets;
+        let waitsets = unsafe { waitsets_ptr.as_mut() };
+        let mut fences_ptr = kernel_handles.fences;
+        let fences = unsafe { fences_ptr.as_mut() };
 
         let current_pid = tasks.current_pid();
         let domain_id = tasks
@@ -1256,7 +1266,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         };
         #[allow(unused_variables)]
         let old_pid = tasks.current_pid();
-        let mut ctx = api::Context::new(scheduler, tasks, router, spaces, timer, hart_timers);
+        let mut ctx = api::Context::new(
+            scheduler, tasks, router, spaces, timer, hart_timers, waitsets, fences,
+        );
         handle_ecall(frame, table, &mut ctx);
 
         let current_pid = ctx.tasks.current_pid();

@@ -519,6 +519,8 @@ pub struct Context<'a> {
     pub address_spaces: &'a mut AddressSpaceManager,
     pub timer: &'a dyn Timer,
     pub hart_timers: &'a mut crate::timer::HartTimers,
+    pub waitsets: &'a mut crate::waitset::WaitsetTable,
+    pub fences: &'a mut crate::fence::FenceTable,
     pub last_message: Option<ipc::Message>,
 }
 
@@ -531,8 +533,20 @@ impl<'a> Context<'a> {
         address_spaces: &'a mut AddressSpaceManager,
         timer: &'a dyn Timer,
         hart_timers: &'a mut crate::timer::HartTimers,
+        waitsets: &'a mut crate::waitset::WaitsetTable,
+        fences: &'a mut crate::fence::FenceTable,
     ) -> Self {
-        Self { scheduler, tasks, router, address_spaces, timer, hart_timers, last_message: None }
+        Self {
+            scheduler,
+            tasks,
+            router,
+            address_spaces,
+            timer,
+            hart_timers,
+            waitsets,
+            fences,
+            last_message: None,
+        }
     }
 
     /// Returns the last received message header for inspection.
@@ -577,6 +591,33 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
                 let _ = ctx.router.remove_send_waiter(endpoint, pid.as_raw());
                 observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
+            Some(BlockReason::Waitset { ws_id, deadline_ns })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
+                // Deregister the timed-out waiter from every member, then wake it (it
+                // returns `TimedOut` on re-entry). Snapshot members to a stack buffer so
+                // the `waitsets` and `router` borrows stay disjoint (no heap, bounded ≤16).
+                let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
+                let n = ctx
+                    .waitsets
+                    .members(crate::waitset::WaitsetId(ws_id))
+                    .map(|m| {
+                        buf[..m.len()].copy_from_slice(m);
+                        m.len()
+                    })
+                    .unwrap_or(0);
+                for &ep in &buf[..n] {
+                    let _ = ctx.router.remove_recv_waiter(ep, pid.as_raw());
+                }
+                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+            }
+            Some(BlockReason::Fence { fence_id, deadline_ns, .. })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
+                // Deregister the timed-out waiter, then wake it (returns TimedOut on re-entry).
+                ctx.fences.remove_waiter(crate::fence::FenceId(fence_id), pid.as_raw());
+                observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
+            }
             _ => {}
         }
     }
@@ -619,6 +660,12 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);
     table.register(crate::syscall::SYSCALL_IRQ_BIND, sys_irq_bind);
     table.register(crate::syscall::SYSCALL_IRQ_COMPLETE, sys_irq_complete);
+    table.register(crate::syscall::SYSCALL_WAITSET_CREATE, sys_waitset_create);
+    table.register(crate::syscall::SYSCALL_WAITSET_ADD, sys_waitset_add);
+    table.register(crate::syscall::SYSCALL_WAITSET_WAIT, sys_waitset_wait);
+    table.register(crate::syscall::SYSCALL_FENCE_CREATE, sys_fence_create);
+    table.register(crate::syscall::SYSCALL_FENCE_SIGNAL, sys_fence_signal);
+    table.register(crate::syscall::SYSCALL_FENCE_WAIT, sys_fence_wait);
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
@@ -734,6 +781,238 @@ fn sys_irq_complete(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         .ok_or(Error::Capability(CapError::InvalidSlot))?;
     crate::irq::complete(irq);
     Ok(0)
+}
+
+#[inline]
+fn map_waitset_error(err: crate::waitset::WaitsetError) -> Error {
+    match err {
+        crate::waitset::WaitsetError::ResourceExhausted => Error::Capability(CapError::NoSpace),
+        crate::waitset::WaitsetError::InvalidHandle => Error::Capability(CapError::InvalidSlot),
+    }
+}
+
+/// Resolves a waitset cap slot to its kernel-local id, enforcing ownership (RFC-0033).
+#[inline]
+fn waitset_id_from_cap(
+    ctx: &mut Context<'_>,
+    slot: usize,
+) -> Result<crate::waitset::WaitsetId, Error> {
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    match cap.kind {
+        CapabilityKind::Waitset(id) => {
+            let ws_id = crate::waitset::WaitsetId(id);
+            if !ctx.waitsets.owned_by(ws_id, ctx.tasks.current_pid().as_raw()) {
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+            Ok(ws_id)
+        }
+        _ => Err(Error::Capability(CapError::InvalidSlot)),
+    }
+}
+
+/// `SYSCALL_WAITSET_CREATE` (38): allocate an empty waitset owned by the caller and
+/// return its capability slot. Mirrors `sys_timer_create`'s alloc-then-cap pattern,
+/// rolling back the table entry if the cap table is full.
+fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    let owner = ctx.tasks.current_pid().as_raw();
+    let ws_id = ctx.waitsets.alloc(owner).map_err(map_waitset_error)?;
+    let cap = Capability { kind: CapabilityKind::Waitset(ws_id.0), rights: Rights::MANAGE };
+    match ctx.tasks.current_caps_mut().allocate(cap) {
+        Ok(slot) => Ok(slot),
+        Err(err) => {
+            let _ = ctx.waitsets.free(ws_id);
+            Err(Error::Capability(err))
+        }
+    }
+}
+
+/// `SYSCALL_WAITSET_ADD` (39): add an endpoint as a waitset member. The caller must
+/// hold `RECV` right on the endpoint (proves it is the legitimate receiver). Bounded to
+/// `MAX_WAITSET_MEMBERS`; over-limit → `NoSpace`. Args: (waitset_slot, endpoint_slot).
+fn sys_waitset_add(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let ws_slot = args.get(0);
+    let ep_slot = args.get(1);
+    let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
+    let endpoint =
+        ctx.tasks.current_caps_mut().derive_endpoint_ref(ep_slot, Rights::RECV)?.endpoint();
+    ctx.waitsets.add_member(ws_id, endpoint).map_err(map_waitset_error)?;
+    Ok(0)
+}
+
+/// `SYSCALL_WAITSET_WAIT` (40): block until any member endpoint has a pending message,
+/// then return the ready member index (in add order). `deadline_ns == 0` blocks
+/// indefinitely; a non-zero deadline yields `TimedOut`. Args: (waitset_slot, deadline_ns).
+///
+/// This is purely additive: it reuses the existing recv-waiter / wake / deadline
+/// machinery. The task registers as a recv-waiter on *every* member; the first member a
+/// sender delivers to wakes it (via the unchanged `router.send → pop_recv_waiter →
+/// tasks.wake` path). The single-endpoint recv path is untouched.
+fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let ws_slot = args.get(0);
+    let deadline_ns = args.get(1) as u64;
+    let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
+
+    if deadline_ns != 0 {
+        ctx.timer.set_wakeup(deadline_ns);
+    }
+
+    // Snapshot the (bounded, ≤16) members into a stack buffer: no heap on the wait/block
+    // path, and it detaches the member list from `ctx` so the router can be borrowed freely.
+    let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
+    let n = match ctx.waitsets.members(ws_id) {
+        Some(m) => {
+            buf[..m.len()].copy_from_slice(m);
+            m.len()
+        }
+        None => return Err(Error::Capability(CapError::InvalidSlot)),
+    };
+    let members = &buf[..n];
+    let cur = ctx.tasks.current_pid();
+
+    // Clear any registrations left from a prior blocking round: when a sender woke us via
+    // one member, the *other* members still list us as a waiter. Idempotent on first entry.
+    // Guarantees we hold no member registrations whenever we return ready/timed-out.
+    for &ep in members {
+        let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
+    }
+
+    // Level-ready scan: first member with a pending message wins.
+    if let Some(index) = crate::waitset::first_ready(members, |ep| ctx.router.pending(ep)) {
+        return Ok(index);
+    }
+    if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
+        return Err(Error::Ipc(ipc::IpcError::TimedOut));
+    }
+
+    // Register on every member, then re-scan once (a sender may have enqueued between the
+    // scan above and registration — the missed-wakeup guard, as in sys_ipc_recv_v1).
+    for &ep in members {
+        let _ = ctx.router.register_recv_waiter(ep, cur.as_raw());
+    }
+    if let Some(index) = crate::waitset::first_ready(members, |ep| ctx.router.pending(ep)) {
+        for &ep in members {
+            let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
+        }
+        return Ok(index);
+    }
+
+    ctx.tasks.block_current(BlockReason::Waitset { ws_id: ws_id.0, deadline_ns }, ctx.scheduler);
+    wake_expired_blocked(ctx);
+    if let Some(next) = ctx.scheduler.schedule_next() {
+        ctx.tasks.set_current(next);
+        return Err(Error::Reschedule);
+    }
+    // Degenerate fallback: nothing else runnable. Deregister, self-wake, reschedule — the
+    // idle loop re-drives us (mirrors the single-endpoint recv path; load-bearing self-wake).
+    for &ep in members {
+        let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
+    }
+    observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
+    Err(Error::Reschedule)
+}
+
+#[inline]
+fn map_fence_error(err: crate::fence::FenceError) -> Error {
+    match err {
+        crate::fence::FenceError::ResourceExhausted => Error::Capability(CapError::NoSpace),
+        crate::fence::FenceError::InvalidHandle => Error::Capability(CapError::InvalidSlot),
+    }
+}
+
+/// Resolves a fence cap slot to its kernel-local id, enforcing ownership (RFC-0033).
+#[inline]
+fn fence_id_from_cap(ctx: &mut Context<'_>, slot: usize) -> Result<crate::fence::FenceId, Error> {
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    match cap.kind {
+        CapabilityKind::Fence(id) => {
+            let fence_id = crate::fence::FenceId(id);
+            if !ctx.fences.owned_by(fence_id, ctx.tasks.current_pid().as_raw()) {
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+            Ok(fence_id)
+        }
+        _ => Err(Error::Capability(CapError::InvalidSlot)),
+    }
+}
+
+/// `SYSCALL_FENCE_CREATE` (41): allocate a fence (value 0) owned by the caller and return
+/// its capability slot. Mirrors `sys_timer_create`'s alloc-then-cap rollback pattern.
+fn sys_fence_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    let owner = ctx.tasks.current_pid().as_raw();
+    let fence_id = ctx.fences.alloc(owner).map_err(map_fence_error)?;
+    let cap = Capability { kind: CapabilityKind::Fence(fence_id.0), rights: Rights::MANAGE };
+    match ctx.tasks.current_caps_mut().allocate(cap) {
+        Ok(slot) => Ok(slot),
+        Err(err) => {
+            let _ = ctx.fences.free(fence_id);
+            Err(Error::Capability(err))
+        }
+    }
+}
+
+/// `SYSCALL_FENCE_SIGNAL` (42): advance the fence monotonically to at least `value` and wake
+/// every waiter the new value now satisfies. Args: (fence_slot, value).
+fn sys_fence_signal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let value = args.get(1) as u64;
+    let fence_id = fence_id_from_cap(ctx, slot)?;
+    ctx.fences.signal(fence_id, value).map_err(map_fence_error)?;
+    // Wake satisfied waiters. Bounded stack buffer (no heap); any overflow is released by
+    // the next signal. The woken tasks re-check `value >= target` on re-entry.
+    let mut woken = [0u32; crate::fence::MAX_FENCE_WAITERS];
+    let n = ctx.fences.take_satisfied(fence_id, &mut woken);
+    for &pid in &woken[..n] {
+        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
+    }
+    Ok(0)
+}
+
+/// `SYSCALL_FENCE_WAIT` (43): block until the fence value reaches `target`. `deadline_ns == 0`
+/// blocks indefinitely; a non-zero deadline yields `TimedOut`. Args: (fence_slot, target,
+/// deadline_ns). Additive: reuses `BlockReason::Fence` + `tasks.wake` (driven by
+/// `fence_signal`); the single-endpoint recv path is untouched.
+fn sys_fence_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let target = args.get(1) as u64;
+    let deadline_ns = args.get(2) as u64;
+    let fence_id = fence_id_from_cap(ctx, slot)?;
+
+    if deadline_ns != 0 {
+        ctx.timer.set_wakeup(deadline_ns);
+    }
+    let cur = ctx.tasks.current_pid();
+
+    // Clear any registration left from a prior blocking round (idempotent), so we hold no
+    // waiter entry whenever we return satisfied/timed-out.
+    ctx.fences.remove_waiter(fence_id, cur.as_raw());
+
+    if ctx.fences.is_satisfied(fence_id, target) == Some(true) {
+        return Ok(0);
+    }
+    if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
+        return Err(Error::Ipc(ipc::IpcError::TimedOut));
+    }
+
+    // Register + recheck once (a signal may land between the check above and registration).
+    ctx.fences.register_waiter(fence_id, cur.as_raw(), target).map_err(map_fence_error)?;
+    if ctx.fences.is_satisfied(fence_id, target) == Some(true) {
+        ctx.fences.remove_waiter(fence_id, cur.as_raw());
+        return Ok(0);
+    }
+
+    ctx.tasks.block_current(
+        BlockReason::Fence { fence_id: fence_id.0, target, deadline_ns },
+        ctx.scheduler,
+    );
+    wake_expired_blocked(ctx);
+    if let Some(next) = ctx.scheduler.schedule_next() {
+        ctx.tasks.set_current(next);
+        return Err(Error::Reschedule);
+    }
+    // Degenerate fallback: nothing else runnable — deregister, self-wake, reschedule.
+    ctx.fences.remove_waiter(fence_id, cur.as_raw());
+    observe_wake_outcome(ctx.tasks.wake(cur, ctx.scheduler));
+    Err(Error::Reschedule)
 }
 
 fn service_id_from_name(name: &[u8]) -> u64 {
@@ -927,8 +1206,18 @@ fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     //
     // Global endpoint close is handled by `sys_ipc_endpoint_close` (requires `Rights::MANAGE`).
     let cap = ctx.tasks.current_caps_mut().take(slot)?;
-    if let CapabilityKind::Timer(id) = cap.kind {
-        let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
+    // Release the backing kernel object for caps that own one (no dangling table entries).
+    match cap.kind {
+        CapabilityKind::Timer(id) => {
+            let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
+        }
+        CapabilityKind::Waitset(id) => {
+            let _ = ctx.waitsets.free(crate::waitset::WaitsetId(id));
+        }
+        CapabilityKind::Fence(id) => {
+            let _ = ctx.fences.free(crate::fence::FenceId(id));
+        }
+        _ => {}
     }
     Ok(0)
 }

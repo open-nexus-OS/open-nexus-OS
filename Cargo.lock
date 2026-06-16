@@ -1765,6 +1765,10 @@ name = "nexus-discovery-packet"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-driverkit"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-e2e"
 version = "0.1.0"
 dependencies = [

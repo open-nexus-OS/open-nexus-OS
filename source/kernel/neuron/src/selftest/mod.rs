@@ -41,8 +41,10 @@ use crate::{
     sched::{EnqueueOutcome, QosClass, Scheduler},
     syscall::{
         api, Args, Error as SysError, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP,
-        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
-        SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT, SYSCALL_YIELD,
+        SYSCALL_CAP_CLOSE, SYSCALL_EXIT, SYSCALL_FENCE_CREATE, SYSCALL_FENCE_SIGNAL,
+        SYSCALL_FENCE_WAIT, SYSCALL_SPAWN, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
+        SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
+        SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE, SYSCALL_WAITSET_WAIT, SYSCALL_YIELD,
     },
     task::TaskTable,
     types::CpuId,
@@ -105,6 +107,8 @@ pub struct Context<'a> {
     #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     pub scheduler: &'a mut Scheduler,
     pub hart_timers: &'a mut crate::timer::HartTimers,
+    pub waitsets: &'a mut crate::waitset::WaitsetTable,
+    pub fences: &'a mut crate::fence::FenceTable,
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -209,6 +213,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             ctx.address_spaces,
             timer,
             &mut ctx.hart_timers,
+            &mut ctx.waitsets,
+            &mut ctx.fences,
         );
 
         let h = table
@@ -415,6 +421,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                         ctx.address_spaces,
                         timer,
                         &mut ctx.hart_timers,
+                        &mut ctx.waitsets,
+                        &mut ctx.fences,
                     );
                     const PROT_READ: usize = 1 << 0;
                     const PROT_WRITE: usize = 1 << 1;
@@ -489,6 +497,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         ctx.address_spaces,
         timer,
         &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
     );
     const PROT_READ: usize = 1 << 0;
     const PROT_WRITE: usize = 1 << 1;
@@ -527,6 +537,8 @@ fn run_exit_wait_selftests(ctx: &mut Context<'_>) {
         ctx.address_spaces,
         timer,
         &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
     );
 
     let entry = child_exit_zero as usize;
@@ -598,6 +610,8 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_ipc_close_wakes_waiters_selftest(ctx);
     run_ipc_owner_exit_wakes_waiters_selftest(ctx);
     run_timer_cap_selftest(ctx);
+    run_waitset_selftest(ctx);
+    run_fence_selftest(ctx);
     run_spawn_reason_selftest();
     run_resource_sentinel_selftest(ctx);
     run_smp_selftests(ctx);
@@ -1000,6 +1014,8 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
         ctx.address_spaces,
         timer,
         &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
     );
 
     let notify_ep =
@@ -1117,6 +1133,254 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
             close_ok
         );
     }
+}
+
+/// RFC-0033 runtime proof: exercises the waitset syscalls end-to-end in QEMU. Uses a
+/// **timer-notify endpoint** as a member (the headline "timer member gives deterministic
+/// pacing" path) so the readiness scan, ownership checks, multi-member add, index
+/// reporting, and the timeout path are all proven against the real router + timer.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_waitset_selftest(ctx: &mut Context<'_>) {
+    use crate::ipc::IpcError;
+
+    // Deterministic ownership + cap-table semantics for the waitset proof.
+    ctx.tasks.set_current(Pid::KERNEL);
+
+    // Dedicated bootstrap cap slots (above the timer selftest's slot 48).
+    const EP_IDLE_SLOT: usize = 49; // waitset member index 0 — stays empty
+    const EP_TIMER_SLOT: usize = 50; // waitset member index 1 — a timer-notify endpoint
+    const EP_TMO_SLOT: usize = 51; // timeout-test member — empty
+
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
+    );
+    let pid = sys_ctx.tasks.current_pid().as_raw();
+
+    // Two member endpoints: an idle one (member 0) and a timer-notify one (member 1).
+    let ep_idle = match sys_ctx.router.create_endpoint(8, Some(pid)) {
+        Ok(id) => id,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL ep_idle={:?}", e);
+            return;
+        }
+    };
+    let ep_timer = match sys_ctx.router.create_endpoint(8, Some(pid)) {
+        Ok(id) => id,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL ep_timer={:?}", e);
+            return;
+        }
+    };
+    for (slot, ep) in [(EP_IDLE_SLOT, ep_idle), (EP_TIMER_SLOT, ep_timer)] {
+        let cap = Capability {
+            kind: CapabilityKind::Endpoint(ep),
+            rights: Rights::RECV | Rights::SEND | Rights::MANAGE,
+        };
+        if let Err(e) = sys_ctx.tasks.current_caps_mut().set(slot, cap) {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL install_ep={:?}", e);
+            return;
+        }
+    }
+
+    // Create the waitset and add both members (idle = index 0, timer = index 1).
+    let ws_slot = match table.dispatch(SYSCALL_WAITSET_CREATE, &mut sys_ctx, &Args::new([0; 6])) {
+        Ok(slot) => slot,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL create={:?}", e);
+            return;
+        }
+    };
+    for (idx, ep_slot) in [EP_IDLE_SLOT, EP_TIMER_SLOT].iter().enumerate() {
+        if let Err(e) = table.dispatch(
+            SYSCALL_WAITSET_ADD,
+            &mut sys_ctx,
+            &Args::new([ws_slot, *ep_slot, 0, 0, 0, 0]),
+        ) {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL add[{}]={:?}", idx, e);
+            return;
+        }
+    }
+
+    // Arm a one-shot timer on the timer member and deliver it: after this, member 1 has a
+    // pending OP_TIMER_FIRED while member 0 is still empty.
+    let timer_slot = match table.dispatch(
+        SYSCALL_TIMER_CREATE,
+        &mut sys_ctx,
+        &Args::new([EP_TIMER_SLOT, 0, 0, 0, 0, 0]),
+    ) {
+        Ok(slot) => slot,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL timer_create={:?}", e);
+            return;
+        }
+    };
+    if let Err(e) = table.dispatch(
+        SYSCALL_TIMER_SET,
+        &mut sys_ctx,
+        &Args::new([timer_slot, timer.now() as usize, 0, 0, 0, 0]),
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: waitset FAIL timer_set={:?}", e);
+        return;
+    }
+    crate::trap::process_expired_timers(
+        timer,
+        sys_ctx.hart_timers,
+        sys_ctx.router,
+        sys_ctx.tasks,
+        sys_ctx.scheduler,
+    );
+
+    // waitset_wait: member 0 empty, member 1 pending → returns the ready index (1) without
+    // blocking. Proves create + multi-member add + readiness scan + index reporting.
+    match table.dispatch(SYSCALL_WAITSET_WAIT, &mut sys_ctx, &Args::new([ws_slot, 0, 0, 0, 0, 0])) {
+        Ok(1) => log_info!(target: "selftest", "KSELFTEST: waitset wake ok"),
+        Ok(other) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset wake FAIL idx={}", other)
+        }
+        Err(e) => log_error!(target: "selftest", "KSELFTEST: waitset wake FAIL err={:?}", e),
+    }
+
+    // Timeout path: a fresh waitset over a single empty member with an already-elapsed
+    // deadline must return TimedOut (no hang, fully deregistered).
+    let ep_tmo = match sys_ctx.router.create_endpoint(8, Some(pid)) {
+        Ok(id) => id,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL ep_tmo={:?}", e);
+            return;
+        }
+    };
+    if let Err(e) = sys_ctx.tasks.current_caps_mut().set(
+        EP_TMO_SLOT,
+        Capability { kind: CapabilityKind::Endpoint(ep_tmo), rights: Rights::RECV | Rights::SEND },
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: waitset FAIL install_tmo={:?}", e);
+        return;
+    }
+    let ws_tmo = match table.dispatch(SYSCALL_WAITSET_CREATE, &mut sys_ctx, &Args::new([0; 6])) {
+        Ok(slot) => slot,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: waitset FAIL create2={:?}", e);
+            return;
+        }
+    };
+    if let Err(e) = table.dispatch(
+        SYSCALL_WAITSET_ADD,
+        &mut sys_ctx,
+        &Args::new([ws_tmo, EP_TMO_SLOT, 0, 0, 0, 0]),
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: waitset FAIL add_tmo={:?}", e);
+        return;
+    }
+    let past_deadline = timer.now() as usize;
+    match table.dispatch(
+        SYSCALL_WAITSET_WAIT,
+        &mut sys_ctx,
+        &Args::new([ws_tmo, past_deadline, 0, 0, 0, 0]),
+    ) {
+        Err(SysError::Ipc(IpcError::TimedOut)) => {
+            log_info!(target: "selftest", "KSELFTEST: waitset timeout ok")
+        }
+        other => {
+            log_error!(target: "selftest", "KSELFTEST: waitset timeout FAIL: {:?}", other)
+        }
+    }
+
+    // Cap close frees the backing table entries (no dangling waitsets).
+    for slot in [ws_slot, ws_tmo, timer_slot] {
+        let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([slot, 0, 0, 0, 0, 0]));
+    }
+}
+
+/// RFC-0033 runtime proof: exercises the fence syscalls end-to-end in QEMU. Proves create,
+/// monotonic signal (a lower signal does not lower the value), the immediately-satisfied
+/// wait path, and the deadline/timeout path — all against the real table + block/wake
+/// machinery (`fence_signal` reuses the shared `tasks.wake` path).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn run_fence_selftest(ctx: &mut Context<'_>) {
+    use crate::ipc::IpcError;
+
+    ctx.tasks.set_current(Pid::KERNEL);
+
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
+    );
+
+    let fence_slot = match table.dispatch(SYSCALL_FENCE_CREATE, &mut sys_ctx, &Args::new([0; 6])) {
+        Ok(slot) => slot,
+        Err(e) => {
+            log_error!(target: "selftest", "KSELFTEST: fence FAIL create={:?}", e);
+            return;
+        }
+    };
+
+    // Signal to 10, then a wait for target 5 is satisfied immediately (no block) → Ok.
+    if let Err(e) = table.dispatch(
+        SYSCALL_FENCE_SIGNAL,
+        &mut sys_ctx,
+        &Args::new([fence_slot, 10, 0, 0, 0, 0]),
+    ) {
+        log_error!(target: "selftest", "KSELFTEST: fence FAIL signal={:?}", e);
+        return;
+    }
+    let wait_ok = table
+        .dispatch(SYSCALL_FENCE_WAIT, &mut sys_ctx, &Args::new([fence_slot, 5, 0, 0, 0, 0]))
+        .is_ok();
+
+    // Monotonic: a lower signal (3) must NOT lower the value, so a wait for 10 still passes.
+    let _ =
+        table.dispatch(SYSCALL_FENCE_SIGNAL, &mut sys_ctx, &Args::new([fence_slot, 3, 0, 0, 0, 0]));
+    let mono_ok = table
+        .dispatch(SYSCALL_FENCE_WAIT, &mut sys_ctx, &Args::new([fence_slot, 10, 0, 0, 0, 0]))
+        .is_ok();
+
+    if wait_ok && mono_ok {
+        log_info!(target: "selftest", "KSELFTEST: fence wait ok");
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: fence wait FAIL: wait_ok={} mono_ok={}",
+            wait_ok,
+            mono_ok
+        );
+    }
+
+    // Timeout: an unreachable target (999) with an already-elapsed deadline → TimedOut
+    // (checked before any block, so no hang).
+    let past_deadline = timer.now() as usize;
+    match table.dispatch(
+        SYSCALL_FENCE_WAIT,
+        &mut sys_ctx,
+        &Args::new([fence_slot, 999, past_deadline, 0, 0, 0]),
+    ) {
+        Err(SysError::Ipc(IpcError::TimedOut)) => {
+            log_info!(target: "selftest", "KSELFTEST: fence timeout ok")
+        }
+        other => {
+            log_error!(target: "selftest", "KSELFTEST: fence timeout FAIL: {:?}", other)
+        }
+    }
+
+    let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &Args::new([fence_slot, 0, 0, 0, 0, 0]));
 }
 
 fn run_spawn_reason_selftest() {
@@ -1403,6 +1667,8 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         ctx.address_spaces,
         timer,
         &mut ctx.hart_timers,
+        &mut ctx.waitsets,
+        &mut ctx.fences,
     );
 
     // Load init ELF and get entry point

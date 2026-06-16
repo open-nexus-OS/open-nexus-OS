@@ -1899,6 +1899,61 @@ pub fn waitset_wait(waitset_cap: Cap, deadline_ns: u64) -> SysResult<u32> {
     }
 }
 
+/// Creates a timeline **fence** capability (RFC-0033). A fence holds a monotonic `u64`
+/// value: producers advance it with [`fence_signal`], consumers block for a target with
+/// [`fence_wait`]. It is the completion/ordering primitive for the DriverKit submit ring
+/// (a producer signals a sequence number; consumers wait for it).
+#[cfg(nexus_env = "os")]
+pub fn fence_create() -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_FENCE_CREATE: usize = 41;
+        let raw = unsafe { ecall0(SYSCALL_FENCE_CREATE) };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Advances `fence_cap` monotonically to at least `value` (a lower value is a no-op) and
+/// wakes every waiter the new value now satisfies.
+#[cfg(nexus_env = "os")]
+pub fn fence_signal(fence_cap: Cap, value: u64) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_FENCE_SIGNAL: usize = 42;
+        let raw = unsafe { ecall2(SYSCALL_FENCE_SIGNAL, fence_cap as usize, value as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (fence_cap, value);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Blocks until `fence_cap`'s value reaches `target`. `deadline_ns == 0` blocks
+/// indefinitely; a non-zero deadline returns `TimedOut` when it elapses. Unlike a
+/// recv-timeout clock, the deadline is a fixed wall-clock cap, so re-entry never resets it.
+#[cfg(nexus_env = "os")]
+pub fn fence_wait(fence_cap: Cap, target: u64, deadline_ns: u64) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_FENCE_WAIT: usize = 43;
+        let raw = unsafe {
+            ecall3(SYSCALL_FENCE_WAIT, fence_cap as usize, target as usize, deadline_ns as usize)
+        };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (fence_cap, target, deadline_ns);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

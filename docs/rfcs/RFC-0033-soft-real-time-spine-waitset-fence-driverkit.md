@@ -147,12 +147,26 @@ deterministic pacing (the timer's *fixed* cap-deadline drives it via the working
 
 ## Proof / validation
 
-- **Host (oracle)**: `cargo test -p neuron` — waitset readiness aggregation, bound/arg
-  validation, reject matrix; `cargo test -p nexus-driverkit` — ring lifecycle +
-  backpressure + fence completion goldens (CPU mock).
-- **OS/QEMU**: new markers `waitset: ready`, `SELFTEST: waitset wake ok`,
-  `SELFTEST: driverkit submit/fence ok`; gpud/windowd boot proof (mmio + virgl):
-  present cadence at display rate, 0 faults; `SMP=2`/`SMP=1` reruns green.
+> **Kernel host-test reality (important).** Every `neuron` module is `#[cfg(target_os =
+> "none")]`, so `cargo test -p neuron` compiles *none* of the kernel and runs **0 tests** on
+> the host; the kernel's in-tree `#[cfg(test)] mod tests` never build off-target. The real
+> kernel gates are therefore (a) `cargo check -p neuron --target riscv64imac-unknown-none-elf`
+> (= `just diag-kernel`) for type/exhaustiveness/borrow checking, and (b) QEMU boot + `KSELFTEST:`
+> markers for runtime behaviour. To still get a **deterministic host oracle** for pure data-
+> structure logic, the spine's table modules (`waitset.rs`, `fence.rs`) are the *only* ungated
+> kernel modules: pure `alloc` + raw `u32` ids, no router/MMIO coupling, so their
+> `#[cfg(test)] mod tests` **do** run under `cargo test -p neuron`. See
+> `docs/architecture/02-selftest-and-ci.md` § "Host unit tests for kernel logic".
+
+- **Host (oracle)**: `cargo test -p neuron` runs the ungated table tests —
+  `waitset::tests::*` (readiness aggregation, member/table bounds, dedup, free) and
+  `fence::tests::*` (monotonic signal, satisfied-waiter selection, waiter bounds);
+  `cargo test -p nexus-driverkit` — ring lifecycle + backpressure + fence completion
+  goldens (CPU mock).
+- **OS/QEMU**: markers `KSELFTEST: waitset wake ok` / `waitset timeout ok`,
+  `KSELFTEST: fence wait ok` / `fence timeout ok`, `SELFTEST: driverkit submit/fence ok`;
+  gpud/windowd boot proof (mmio + virgl): present cadence at display rate, 0 faults;
+  `SMP=2`/`SMP=1` reruns green.
 
 ## Minimal-v1 vs future deluxe
 

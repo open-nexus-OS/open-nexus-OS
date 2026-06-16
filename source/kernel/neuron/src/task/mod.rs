@@ -46,6 +46,14 @@ pub enum BlockReason {
     IpcRecv { endpoint: ipc::EndpointId, deadline_ns: u64 },
     IpcSend { endpoint: ipc::EndpointId, deadline_ns: u64 },
     WaitChild { target: Option<Pid> },
+    /// Blocked in `waitset_wait` on a set of endpoints (RFC-0033). The task is
+    /// registered as a recv-waiter on *every* member; the first member to deliver
+    /// (or the deadline) wakes it. `ws_id` is the kernel-local waitset id (raw `u32`).
+    Waitset { ws_id: u32, deadline_ns: u64 },
+    /// Blocked in `fence_wait` until the fence's monotonic value reaches `target`
+    /// (RFC-0033). Registered as a fence waiter; `fence_signal` wakes it once
+    /// `value >= target`, or the deadline does. `fence_id` is the raw kernel id.
+    Fence { fence_id: u32, target: u64, deadline_ns: u64 },
 }
 
 #[must_use = "wake outcomes must be handled explicitly"]

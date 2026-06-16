@@ -1,0 +1,8 @@
+[package]
+name = "nexus-driverkit"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "RFC-0033 DriverKit core: bounded submit ring + completion fence + buffer budgets + QoS, shared across device-class servers (GPU/NPU/VPU/Audio)."
+
+[dependencies]

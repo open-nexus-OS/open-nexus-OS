@@ -528,6 +528,15 @@ impl Router {
         self.endpoints.get(id as usize).map(|ep| ep.alive).unwrap_or(false)
     }
 
+    /// Returns true if `id` exists, is alive, and has at least one queued message.
+    ///
+    /// Non-consuming readiness probe used by `waitset_wait` (RFC-0033) to scan members
+    /// without dequeuing; the caller then `recv`s the ready endpoint normally. A dead or
+    /// unknown endpoint reads as not-pending (the waitset deregisters from it on wake).
+    pub fn pending(&self, id: EndpointId) -> bool {
+        self.endpoints.get(id as usize).map(|ep| ep.alive && !ep.queue.is_empty()).unwrap_or(false)
+    }
+
     /// Closes every endpoint owned by `owner` and returns all drained waiter PIDs.
     pub fn close_endpoints_for_owner(&mut self, owner: WaiterId) -> Vec<WaiterId> {
         let mut out: Vec<WaiterId> = Vec::new();

@@ -308,6 +308,15 @@ mod syscall;
 mod task;
 #[cfg(target_os = "none")]
 mod timer;
+// RFC-0033: the waitset table is intentionally NOT target-gated. Its pure logic
+// (membership, bounds, readiness aggregation) is host-unit-tested via
+// `cargo test -p neuron` — the deterministic oracle, since the rest of the kernel is
+// riscv-only and never runs host tests. The riscv kernel + syscall layer use the same
+// module; only its `EndpointId`/`Pid` mapping lives in the (gated) syscall layer.
+mod waitset;
+// RFC-0033: timeline fence table — host-testable for the same reason as `waitset` (pure
+// `alloc` + raw u64 value / u32 ids). See `docs/architecture/02-selftest-and-ci.md`.
+mod fence;
 #[cfg(target_os = "none")]
 #[path = "core/trap.rs"]
 mod trap;

@@ -109,6 +109,22 @@ pub const SYSCALL_IRQ_BIND: usize = 36;
 /// Acknowledges a delivered IRQ so the PLIC can re-arm it. The driver calls this
 /// after servicing the device. Args: (irq_source_id).
 pub const SYSCALL_IRQ_COMPLETE: usize = 37;
+/// Creates an empty waitset capability (RFC-0033). Returns the new cap slot.
+pub const SYSCALL_WAITSET_CREATE: usize = 38;
+/// Adds an endpoint (RECV right required) as a member of a waitset. Bounded to 16.
+/// Args: (waitset_cap_slot, endpoint_cap_slot).
+pub const SYSCALL_WAITSET_ADD: usize = 39;
+/// Blocks until any member endpoint of a waitset has a pending message, then returns
+/// the ready member index; `-ETIMEDOUT` on deadline. Args: (waitset_cap_slot, deadline_ns).
+pub const SYSCALL_WAITSET_WAIT: usize = 40;
+/// Creates a timeline fence capability (value starts at 0). Returns the new cap slot.
+pub const SYSCALL_FENCE_CREATE: usize = 41;
+/// Advances a fence monotonically to at least `value`, waking satisfied waiters.
+/// Args: (fence_cap_slot, value).
+pub const SYSCALL_FENCE_SIGNAL: usize = 42;
+/// Blocks until the fence value reaches `target`; `-ETIMEDOUT` on deadline.
+/// Args: (fence_cap_slot, target, deadline_ns).
+pub const SYSCALL_FENCE_WAIT: usize = 43;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).
