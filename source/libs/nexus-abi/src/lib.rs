@@ -1840,6 +1840,65 @@ pub fn timer_cancel(timer_cap: Cap) -> SysResult<()> {
     }
 }
 
+/// Creates an empty **waitset** capability (RFC-0033). A waitset lets a task block
+/// on MULTIPLE endpoints at once (commands + a timer-notify + a fence-notify) and
+/// wake on the first ready — the first-class replacement for using a recv timeout
+/// as a clock. Add members with [`waitset_add`], block with [`waitset_wait`].
+#[cfg(nexus_env = "os")]
+pub fn waitset_create() -> SysResult<Cap> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_WAITSET_CREATE: usize = 38;
+        let raw = unsafe { ecall0(SYSCALL_WAITSET_CREATE) };
+        decode_syscall(raw).map(|slot| slot as Cap)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Adds an endpoint (RECV right required) as a member of `waitset_cap`. Bounded:
+/// over the member limit rejects with `ResourceExhausted`; a non-endpoint cap
+/// rejects with `InvalidArgument`. A timer- or fence-notify endpoint is added the
+/// same way, so one waitset unifies command, timer, and completion waits.
+#[cfg(nexus_env = "os")]
+pub fn waitset_add(waitset_cap: Cap, endpoint_cap: Cap) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_WAITSET_ADD: usize = 39;
+        let raw =
+            unsafe { ecall2(SYSCALL_WAITSET_ADD, waitset_cap as usize, endpoint_cap as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (waitset_cap, endpoint_cap);
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Blocks until any member endpoint of `waitset_cap` has a pending message, then
+/// returns that member's **slot index** (the order it was added). The caller then
+/// `ipc_recv`s that endpoint. `deadline_ns == 0` blocks indefinitely (pacing comes
+/// from a timer member's fixed deadline, not from this call — so re-entry never
+/// resets a clock); a non-zero deadline returns `TimedOut` when it elapses.
+#[cfg(nexus_env = "os")]
+pub fn waitset_wait(waitset_cap: Cap, deadline_ns: u64) -> SysResult<u32> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_WAITSET_WAIT: usize = 40;
+        let raw =
+            unsafe { ecall2(SYSCALL_WAITSET_WAIT, waitset_cap as usize, deadline_ns as usize) };
+        decode_syscall(raw).map(|slot| slot as u32)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (waitset_cap, deadline_ns);
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

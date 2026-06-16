@@ -105,3 +105,14 @@ pub const GPUD_CHAIN_EXEC_FAIL: &str = "gpud: chain G3 exec FAIL";
 pub const GPUD_CHAIN_SCANOUT_OK: &str = "gpud: chain G4 scanout ok (frame presented)";
 /// G4 fail: the scanout present failed (sub-stage reason follows on virgl).
 pub const GPUD_CHAIN_SCANOUT_FAIL: &str = "gpud: chain G4 scanout FAIL";
+/// G3b: the whole present (all SUBMIT_3D draws + the flush) was ENQUEUED into the
+/// multi-entry command ring without per-command waits — the batched-submit path.
+/// A real run printing this confirms the present reached the ring as one batch.
+pub const GPUD_CHAIN_BATCH_SUBMIT: &str = "gpud: chain G3b batch submit ok (present enqueued)";
+/// G3c: the batch drained — every enqueued command completed via ONE reactive
+/// GPU-ring-buffer-IRQ wait. This is the fix for the texture-sampling stall: a
+/// deferred-completion draw no longer blocks the next command, only the drain.
+pub const GPUD_CHAIN_BATCH_OK: &str = "gpud: chain G3c batch complete (drained)";
+/// G3c fail: the batch drain timed out (a command's used-ring never advanced
+/// within the deadline) — degraded, best-effort; the frame is abandoned.
+pub const GPUD_CHAIN_BATCH_FAIL: &str = "gpud: chain G3c batch FAIL (drain timeout)";

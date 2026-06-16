@@ -107,7 +107,7 @@ const FS_SHADOW: &str = "FRAG\n\
 impl VirtioGpuBackend {
     /// Lazily create the vector shaders + alpha-blend state. Requires the
     /// blur pipeline objects (display texture, quad VBO) — created on demand.
-    fn virgl_vector_init(&mut self) -> Result<(), GfxError> {
+    pub(crate) fn virgl_vector_init(&mut self) -> Result<(), GfxError> {
         if self.virgl_vector_ready {
             return Ok(());
         }
@@ -360,7 +360,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)
+        self.ctrl_submit_header_tail(&hdr, bytes)
     }
 }
 

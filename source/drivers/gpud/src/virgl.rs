@@ -16,6 +16,10 @@
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental — encoders + golden tests; GPU bring-up is iterative.
 //! API_STABILITY: Unstable
+//! `Submit3d` is HEAP-FREE (inline `[u32; 1024]`, `as_bytes() -> &[u8]` view) so a
+//! draw can be built per-frame without leaking on gpud's non-freeing bump
+//! allocator. See ADR-0032 / docs/architecture/gpud-command-ring-and-present-pipeline.md.
+//! TESTS: the `#[cfg(test)]` byte-format goldens in this file (`cargo test -p gpud`).
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -86,46 +90,73 @@ pub const fn cmd0(cmd: u32, object_type: u32, len: u32) -> u32 {
     cmd | (object_type << 8) | (len << 16)
 }
 
-/// Accumulates a `SUBMIT_3D` command stream as little-endian `u32` dwords.
+/// Maximum dwords in a single `SUBMIT_3D` stream. A control-queue command tops
+/// out at 4096 bytes (`submit_two`), i.e. 1024 dwords, so an inline array of this
+/// size is the exact ceiling — and keeps `Submit3d` **heap-free**, which matters:
+/// gpud runs on a non-freeing bump allocator, so a per-draw `Vec` (≈16/present)
+/// leaked until OOM at the pipelined ~120 Hz rate ([[os-service-bump-allocator-no-free]]).
+const SUBMIT3D_CAP: usize = 1024;
+
+/// Accumulates a `SUBMIT_3D` command stream as little-endian `u32` dwords in an
+/// inline (stack) buffer — no heap allocation, so it is safe to build one per
+/// draw on the present hot path.
 ///
 /// Each `emit_*` appends one complete command (header + payload). `as_bytes`
-/// produces the little-endian byte buffer that goes into the control-queue
-/// command after the `VirtioGpuSubmit3d` header.
-#[derive(Default)]
+/// returns a zero-copy little-endian byte view that goes into the control-queue
+/// command after the `VirtioGpuSubmit3d` header (riscv64 is little-endian, so the
+/// native `u32` storage already has the wire byte order).
 pub struct Submit3d {
-    words: Vec<u32>,
+    words: [u32; SUBMIT3D_CAP],
+    len: usize,
+}
+
+impl Default for Submit3d {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Submit3d {
     pub fn new() -> Self {
-        Self { words: Vec::new() }
+        Self { words: [0; SUBMIT3D_CAP], len: 0 }
+    }
+
+    /// Append one dword. Silently saturates at `SUBMIT3D_CAP` (a stream that large
+    /// is already rejected downstream by the 4096-byte command cap); `debug_assert`
+    /// catches it in tests.
+    #[inline]
+    fn w(&mut self, v: u32) {
+        debug_assert!(self.len < SUBMIT3D_CAP, "Submit3d overflow");
+        if self.len < SUBMIT3D_CAP {
+            self.words[self.len] = v;
+            self.len += 1;
+        }
     }
 
     /// Number of dwords currently in the stream.
     pub fn len_dwords(&self) -> usize {
-        self.words.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.words.is_empty()
+        self.len == 0
     }
 
     /// Raw dword view (for tests / inspection).
     pub fn words(&self) -> &[u32] {
-        &self.words
+        &self.words[..self.len]
     }
 
-    /// Little-endian serialization of the stream.
-    pub fn as_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.words.len() * 4);
-        for w in &self.words {
-            out.extend_from_slice(&w.to_le_bytes());
-        }
-        out
+    /// Zero-copy little-endian byte view of the stream (no allocation).
+    pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `words[..len]` is `len` initialised `u32`s; the view is `len*4`
+        // bytes within the same allocation, and `u32` has no padding/invalid bytes.
+        // riscv64 is little-endian so the native storage is already wire order.
+        unsafe { core::slice::from_raw_parts(self.words.as_ptr() as *const u8, self.len * 4) }
     }
 
     fn push_header(&mut self, cmd: u32, object_type: u32, payload_len: u32) {
-        self.words.push(cmd0(cmd, object_type, payload_len));
+        self.w(cmd0(cmd, object_type, payload_len));
     }
 
     /// `VIRGL_CCMD_NOP` — a no-op command with a single dummy payload dword.
@@ -135,7 +166,7 @@ impl Submit3d {
     /// stream is rejected, a well-formed one returns `RESP_OK_NODATA`.
     pub fn emit_nop(&mut self) {
         self.push_header(VIRGL_CCMD_NOP, 0, 1);
-        self.words.push(0);
+        self.w(0);
     }
 
     /// `VIRGL_CCMD_CLEAR` — clear the bound framebuffer.
@@ -144,14 +175,14 @@ impl Submit3d {
     /// depth as an f64 (2 dwords, low then high), stencil.
     pub fn emit_clear(&mut self, buffers: u32, rgba: [f32; 4], depth: f64, stencil: u32) {
         self.push_header(VIRGL_CCMD_CLEAR, 0, 8);
-        self.words.push(buffers);
+        self.w(buffers);
         for c in rgba {
-            self.words.push(c.to_bits());
+            self.w(c.to_bits());
         }
         let d = depth.to_bits();
-        self.words.push((d & 0xFFFF_FFFF) as u32);
-        self.words.push((d >> 32) as u32);
-        self.words.push(stencil);
+        self.w((d & 0xFFFF_FFFF) as u32);
+        self.w((d >> 32) as u32);
+        self.w(stencil);
     }
 
     /// `VIRGL_CCMD_SET_FRAMEBUFFER_STATE`.
@@ -161,9 +192,11 @@ impl Submit3d {
     pub fn emit_set_framebuffer_state(&mut self, zsurf_handle: u32, color_surfaces: &[u32]) {
         let nr = color_surfaces.len() as u32;
         self.push_header(VIRGL_CCMD_SET_FRAMEBUFFER_STATE, 0, 2 + nr);
-        self.words.push(nr);
-        self.words.push(zsurf_handle);
-        self.words.extend_from_slice(color_surfaces);
+        self.w(nr);
+        self.w(zsurf_handle);
+        for &s in color_surfaces {
+            self.w(s);
+        }
     }
 
     /// `VIRGL_CCMD_SET_VIEWPORT_STATE` for a single viewport (index 0).
@@ -180,14 +213,14 @@ impl Submit3d {
     /// region exactly to the box (an exact-quad draw needs no scissor).
     pub fn emit_set_viewport_box(&mut self, x: f32, y: f32, w: f32, h: f32) {
         self.push_header(VIRGL_CCMD_SET_VIEWPORT_STATE, 0, 7);
-        self.words.push(0); // start_slot
+        self.w(0); // start_slot
         let scale = [w / 2.0, h / 2.0, 0.5];
         let translate = [x + w / 2.0, y + h / 2.0, 0.5];
         for s in scale {
-            self.words.push(s.to_bits());
+            self.w(s.to_bits());
         }
         for t in translate {
-            self.words.push(t.to_bits());
+            self.w(t.to_bits());
         }
     }
 
@@ -219,16 +252,16 @@ impl Submit3d {
             VIRGL_OBJECT_SHADER,
             (5 + text_dwords) as u32,
         );
-        self.words.push(handle);
-        self.words.push(shader_type);
+        self.w(handle);
+        self.w(shader_type);
         // offlen: full text length in bytes incl. NUL; no continuation bit.
-        self.words.push((src.len() + 1) as u32);
+        self.w((src.len() + 1) as u32);
         // num_tokens: sizes virglrenderer's TGSI token buffer. The text form is
         // far larger than the binary tokens, so bytes/4 + slack is a safe bound.
-        self.words.push((src.len() / 4 + 16) as u32);
-        self.words.push(0); // num stream-output declarations
+        self.w((src.len() / 4 + 16) as u32);
+        self.w(0); // num stream-output declarations
         for chunk in buf.chunks_exact(4) {
-            self.words.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            self.w(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
         }
     }
 
@@ -240,24 +273,24 @@ impl Submit3d {
     /// single-layer level-0 view).
     pub fn emit_create_surface(&mut self, handle: u32, res_handle: u32, format: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SURFACE, 5);
-        self.words.push(handle);
-        self.words.push(res_handle);
-        self.words.push(format);
-        self.words.push(0); // texture mip level
-        self.words.push(0); // packed first/last layer
+        self.w(handle);
+        self.w(res_handle);
+        self.w(format);
+        self.w(0); // texture mip level
+        self.w(0); // packed first/last layer
     }
 
     /// `VIRGL_CCMD_BIND_OBJECT` — bind a previously created object by handle.
     pub fn emit_bind_object(&mut self, object_type: u32, handle: u32) {
         self.push_header(VIRGL_CCMD_BIND_OBJECT, object_type, 1);
-        self.words.push(handle);
+        self.w(handle);
     }
 
     /// `VIRGL_CCMD_BIND_SHADER` — bind a shader by handle for a stage.
     pub fn emit_bind_shader(&mut self, handle: u32, shader_type: u32) {
         self.push_header(VIRGL_CCMD_BIND_SHADER, 0, 2);
-        self.words.push(handle);
-        self.words.push(shader_type);
+        self.w(handle);
+        self.w(shader_type);
     }
 
     /// `CREATE_OBJECT(BLEND)` — default state: blending disabled, full RGBA
@@ -267,11 +300,11 @@ impl Submit3d {
     /// S1 (logicop func = 0), then 8 per-RT dwords (enable=0, colormask=0xF<<27).
     pub fn emit_create_blend_default(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_BLEND, 11);
-        self.words.push(handle);
-        self.words.push(0); // S0
-        self.words.push(0); // S1
+        self.w(handle);
+        self.w(0); // S0
+        self.w(0); // S1
         for _ in 0..8 {
-            self.words.push(0xF << 27); // RT: blend off, colormask RGBA
+            self.w(0xF << 27); // RT: blend off, colormask RGBA
         }
     }
 
@@ -294,12 +327,12 @@ impl Submit3d {
             | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 22)
             | (0xF << 27);
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_BLEND, 11);
-        self.words.push(handle);
-        self.words.push(0); // S0
-        self.words.push(0); // S1
-        self.words.push(rt0);
+        self.w(handle);
+        self.w(0); // S0
+        self.w(0); // S1
+        self.w(rt0);
         for _ in 0..7 {
-            self.words.push(0xF << 27);
+            self.w(0xF << 27);
         }
     }
 
@@ -308,11 +341,11 @@ impl Submit3d {
     /// Payload (5 dwords): handle, S0, two stencil dwords, alpha_ref (f32).
     pub fn emit_create_dsa_default(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_DSA, 5);
-        self.words.push(handle);
-        self.words.push(0); // S0: depth disabled
-        self.words.push(0); // stencil[0]
-        self.words.push(0); // stencil[1]
-        self.words.push(0.0f32.to_bits()); // alpha_ref
+        self.w(handle);
+        self.w(0); // S0: depth disabled
+        self.w(0); // stencil[0]
+        self.w(0); // stencil[1]
+        self.w(0.0f32.to_bits()); // alpha_ref
     }
 
     /// `CREATE_OBJECT(RASTERIZER)` — solid fill, no culling, scissor off.
@@ -321,17 +354,17 @@ impl Submit3d {
     /// S3, line_width, offset_units, offset_scale, offset_clamp.
     pub fn emit_create_rasterizer_default(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_RASTERIZER, 9);
-        self.words.push(handle);
+        self.w(handle);
         // S0: depth_clip = bit1. Everything else 0 = flat defaults
         // (cull NONE, fill FRONT/BACK solid, scissor off).
-        self.words.push(1 << 1);
-        self.words.push(1.0f32.to_bits()); // point_size
-        self.words.push(0); // sprite_coord_enable
-        self.words.push(0); // S3
-        self.words.push(1.0f32.to_bits()); // line_width
-        self.words.push(0.0f32.to_bits()); // offset_units
-        self.words.push(0.0f32.to_bits()); // offset_scale
-        self.words.push(0.0f32.to_bits()); // offset_clamp
+        self.w(1 << 1);
+        self.w(1.0f32.to_bits()); // point_size
+        self.w(0); // sprite_coord_enable
+        self.w(0); // S3
+        self.w(1.0f32.to_bits()); // line_width
+        self.w(0.0f32.to_bits()); // offset_units
+        self.w(0.0f32.to_bits()); // offset_scale
+        self.w(0.0f32.to_bits()); // offset_clamp
     }
 
     /// `CREATE_OBJECT(VERTEX_ELEMENTS)` — one entry per vertex attribute.
@@ -344,12 +377,12 @@ impl Submit3d {
             VIRGL_OBJECT_VERTEX_ELEMENTS,
             1 + 4 * elements.len() as u32,
         );
-        self.words.push(handle);
+        self.w(handle);
         for &(src_offset, divisor, buffer_index, format) in elements {
-            self.words.push(src_offset);
-            self.words.push(divisor);
-            self.words.push(buffer_index);
-            self.words.push(format);
+            self.w(src_offset);
+            self.w(divisor);
+            self.w(buffer_index);
+            self.w(format);
         }
     }
 
@@ -360,12 +393,12 @@ impl Submit3d {
     /// (identity = r,g,b,a packed 3 bits each).
     pub fn emit_create_sampler_view(&mut self, handle: u32, res_handle: u32, format: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SAMPLER_VIEW, 6);
-        self.words.push(handle);
-        self.words.push(res_handle);
-        self.words.push(format);
-        self.words.push(0); // val0: first/last layer
-        self.words.push(0); // val1: first/last level
-        self.words.push(0x688); // swizzle identity: 0 | 1<<3 | 2<<6 | 3<<9
+        self.w(handle);
+        self.w(res_handle);
+        self.w(format);
+        self.w(0); // val0: first/last layer
+        self.w(0); // val1: first/last level
+        self.w(0x688); // swizzle identity: 0 | 1<<3 | 2<<6 | 3<<9
     }
 
     /// `CREATE_OBJECT(SAMPLER_STATE)` — nearest filtering, clamp-to-edge.
@@ -374,16 +407,16 @@ impl Submit3d {
     /// border color RGBA (4 f32).
     pub fn emit_create_sampler_state_default(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SAMPLER_STATE, 9);
-        self.words.push(handle);
+        self.w(handle);
         // S0: wrap_s/t/r = CLAMP_TO_EDGE(2) at bits 0-2/3-5/6-8;
         // min/mag img filter NEAREST(0) at bits 9-10/13-14;
         // min mip filter NONE(2) at bits 11-12.
-        self.words.push(2 | (2 << 3) | (2 << 6) | (2 << 11));
-        self.words.push(0.0f32.to_bits()); // lod_bias
-        self.words.push(0.0f32.to_bits()); // min_lod
-        self.words.push(0.0f32.to_bits()); // max_lod
+        self.w(2 | (2 << 3) | (2 << 6) | (2 << 11));
+        self.w(0.0f32.to_bits()); // lod_bias
+        self.w(0.0f32.to_bits()); // min_lod
+        self.w(0.0f32.to_bits()); // max_lod
         for _ in 0..4 {
-            self.words.push(0.0f32.to_bits()); // border color
+            self.w(0.0f32.to_bits()); // border color
         }
     }
 
@@ -391,35 +424,39 @@ impl Submit3d {
     pub fn emit_set_vertex_buffers(&mut self, buffers: &[(u32, u32, u32)]) {
         self.push_header(VIRGL_CCMD_SET_VERTEX_BUFFERS, 0, 3 * buffers.len() as u32);
         for &(stride, offset, res_handle) in buffers {
-            self.words.push(stride);
-            self.words.push(offset);
-            self.words.push(res_handle);
+            self.w(stride);
+            self.w(offset);
+            self.w(res_handle);
         }
     }
 
     /// `VIRGL_CCMD_SET_SAMPLER_VIEWS` — bind sampler views for a shader stage.
     pub fn emit_set_sampler_views(&mut self, shader_type: u32, start_slot: u32, handles: &[u32]) {
         self.push_header(VIRGL_CCMD_SET_SAMPLER_VIEWS, 0, 2 + handles.len() as u32);
-        self.words.push(shader_type);
-        self.words.push(start_slot);
-        self.words.extend_from_slice(handles);
+        self.w(shader_type);
+        self.w(start_slot);
+        for &h in handles {
+            self.w(h);
+        }
     }
 
     /// `VIRGL_CCMD_BIND_SAMPLER_STATES` — bind sampler states for a stage.
     pub fn emit_bind_sampler_states(&mut self, shader_type: u32, start_slot: u32, handles: &[u32]) {
         self.push_header(VIRGL_CCMD_BIND_SAMPLER_STATES, 0, 2 + handles.len() as u32);
-        self.words.push(shader_type);
-        self.words.push(start_slot);
-        self.words.extend_from_slice(handles);
+        self.w(shader_type);
+        self.w(start_slot);
+        for &h in handles {
+            self.w(h);
+        }
     }
 
     /// `VIRGL_CCMD_SET_CONSTANT_BUFFER` — inline constants for a shader stage.
     pub fn emit_set_constant_buffer(&mut self, shader_type: u32, values: &[f32]) {
         self.push_header(VIRGL_CCMD_SET_CONSTANT_BUFFER, 0, 2 + values.len() as u32);
-        self.words.push(shader_type);
-        self.words.push(0); // index
+        self.w(shader_type);
+        self.w(0); // index
         for v in values {
-            self.words.push(v.to_bits());
+            self.w(v.to_bits());
         }
     }
 
@@ -430,18 +467,18 @@ impl Submit3d {
     /// min_index, max_index, cso.
     pub fn emit_draw_vbo(&mut self, start: u32, count: u32, mode: u32) {
         self.push_header(VIRGL_CCMD_DRAW_VBO, 0, 12);
-        self.words.push(start);
-        self.words.push(count);
-        self.words.push(mode);
-        self.words.push(0); // indexed
-        self.words.push(1); // instance_count
-        self.words.push(0); // index_bias
-        self.words.push(0); // start_instance
-        self.words.push(0); // primitive_restart
-        self.words.push(0); // restart_index
-        self.words.push(0); // min_index
-        self.words.push(count.saturating_sub(1)); // max_index
-        self.words.push(0); // cso
+        self.w(start);
+        self.w(count);
+        self.w(mode);
+        self.w(0); // indexed
+        self.w(1); // instance_count
+        self.w(0); // index_bias
+        self.w(0); // start_instance
+        self.w(0); // primitive_restart
+        self.w(0); // restart_index
+        self.w(0); // min_index
+        self.w(count.saturating_sub(1)); // max_index
+        self.w(0); // cso
     }
 
     /// `VIRGL_CCMD_RESOURCE_INLINE_WRITE` — upload raw bytes into a resource
@@ -461,26 +498,26 @@ impl Submit3d {
             0,
             (11 + data_dwords) as u32,
         );
-        self.words.push(res_handle);
-        self.words.push(0); // level
-        self.words.push(0); // usage
-        self.words.push(0); // stride (tightly packed)
-        self.words.push(0); // layer_stride
-        self.words.push(0); // box.x
-        self.words.push(0); // box.y
-        self.words.push(0); // box.z
-        self.words.push(data.len() as u32); // box.w (bytes for PIPE_BUFFER)
-        self.words.push(1); // box.h
-        self.words.push(1); // box.d
+        self.w(res_handle);
+        self.w(0); // level
+        self.w(0); // usage
+        self.w(0); // stride (tightly packed)
+        self.w(0); // layer_stride
+        self.w(0); // box.x
+        self.w(0); // box.y
+        self.w(0); // box.z
+        self.w(data.len() as u32); // box.w (bytes for PIPE_BUFFER)
+        self.w(1); // box.h
+        self.w(1); // box.d
         for chunk in buf.chunks_exact(4) {
-            self.words.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            self.w(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
         }
     }
 
     /// `VIRGL_CCMD_DESTROY_OBJECT`.
     pub fn emit_destroy_object(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_DESTROY_OBJECT, 0, 1);
-        self.words.push(handle);
+        self.w(handle);
     }
 }
 

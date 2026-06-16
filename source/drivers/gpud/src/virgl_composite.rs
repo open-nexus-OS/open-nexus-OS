@@ -445,6 +445,6 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)
+        self.ctrl_submit_header_tail(&hdr, bytes)
     }
 }

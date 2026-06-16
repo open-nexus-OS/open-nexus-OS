@@ -128,6 +128,7 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `nexusgfx-text-pipeline.md` — renderer-facing text acceleration posture aligned to existing UI layout/text contracts
 - `nexusgfx-artifact-pipeline.md` — offline-first, deterministic, signed artifact strategy for shaders/kernels/pipelines
 - `nexusgfx-capability-matrix.md` — backend capability vocabulary instead of vendor-first design
+- `gpud-command-ring-and-present-pipeline.md` — gpud's virtio-gpu multi-entry command ring, per-slot lifecycle, batched + pipelined GL present (the texture-sampling-stall fix), heap-free Submit3d, hop markers, and the present-cadence limitation (ADR-0032)
 
 **Current snapshot**:
 - `NexusGfx` is documented as an explicit, hardware-agnostic acceleration stack with CPU reference execution first.

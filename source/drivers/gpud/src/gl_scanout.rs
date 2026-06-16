@@ -6,6 +6,12 @@
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
+//! ADR: docs/adr/0032-gpu-command-ring-and-pipelined-present.md — `compositor_buildup_present`
+//!   is PIPELINED: it enqueues every SUBMIT_3D draw + the flush into the ring and
+//!   `ctrl_batch_end`s WITHOUT blocking; the next frame harvests this frame's
+//!   completion (fixes the texture-sampling stall). Hop markers G3b/G3c.
+//! TESTS: `tools/nx` `chain_gpu_scanout.rs::chain_gpu_batched_present_hops_in_order`;
+//!   `scripts/qemu-test.sh GPU_MODE=virgl` boot proof.
 //!
 //! On a `virtio-gpu-gl` device the displayed scanout is a **virgl 3D render
 //! target** that QEMU presents as a host GL texture (`dpy_gl_scanout_texture`
@@ -281,7 +287,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
 
         // Point the display at the GL RT (full resource — no plane-row window;
         // the 2D path's tall-VMO row addressing ends here).
@@ -378,7 +384,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes).map_err(|e| {
+        self.ctrl_submit_header_tail(&hdr, bytes).map_err(|e| {
             let _ = nexus_abi::debug_println(
                 "gpud: chain G4.2 scanout blit submit FAIL (submit_3d)",
             );
@@ -415,6 +421,15 @@ impl VirtioGpuBackend {
     /// shadow) are confirmed to present; textured stages test sampling.
     fn compositor_buildup_present(&mut self) -> Result<(), GfxError> {
         use nexus_gfx::command::buffer::RgbaColor;
+        // Pre-warm the lazy vector shaders (SDF gradient/shadow) SYNCHRONOUSLY so
+        // their one-time CREATE_OBJECT commands are validated outside the batch and
+        // can't silently fail inside it. Idempotent — a no-op after the first present.
+        let _ = self.virgl_vector_init();
+        // Batch the whole present: every SUBMIT_3D draw below + the final flush is
+        // ENQUEUED into the multi-entry ring without a per-command wait, then drained
+        // once at the end. A textured (sampling) draw whose completion QEMU defers no
+        // longer blocks the next command — only the single drain waits for it.
+        self.ctrl_batch_begin();
         // Background: solid clear (a later stage replaces this with the wallpaper).
         let mut s = Submit3d::new();
         s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
@@ -426,7 +441,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
 
         // Stage 2: fullscreen blit of the pre-uploaded wallpaper texture (sampled,
         // NO per-frame transfer). Tests whether sampling a texture uploaded once
@@ -455,7 +470,7 @@ impl VirtioGpuBackend {
                 size: wb.len() as u32,
                 _padding: 0,
             };
-            self.ctrl_submit_header_tail(&wh, &wb)?;
+            self.ctrl_submit_header_tail(&wh, wb)?;
         }
 
         // Spin-blur demo: orbit the panel on a fixed circle so the shadow + glass
@@ -524,7 +539,7 @@ impl VirtioGpuBackend {
                 size: bb.len() as u32,
                 _padding: 0,
             };
-            self.ctrl_submit_header_tail(&bh, &bb)?;
+            self.ctrl_submit_header_tail(&bh, bb)?;
             // Translucent glass tint over the blurred backdrop.
             let _ = self.diag_gradient_rt(
                 px,
@@ -572,11 +587,20 @@ impl VirtioGpuBackend {
             );
         }
 
-        if !self.gl_present_parity_done {
+        // Enqueue the flush as the last command in the batch. Pipelined: we do NOT
+        // wait for this frame's completion — `ctrl_batch_end` only harvests prior
+        // frames (the NEXT present's enqueues drive this frame's completion). A
+        // textured draw whose completion QEMU defers therefore never blocks the
+        // present; it is reaped one frame later. (G3c "pipeline flowing" is emitted
+        // by ctrl_batch_end once a prior batch is reclaimed.)
+        let first = !self.gl_present_parity_done;
+        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
+        if first {
             self.gl_present_parity_done = true;
             let _ = nexus_abi::debug_println("gpud: compositor buildup present");
+            let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_SUBMIT);
         }
-        self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H })
+        self.ctrl_batch_end()
     }
 
     /// RESOURCE_FLUSH on the scanout RT — on virtio-gpu-gl this triggers the

@@ -108,4 +108,41 @@ mod tests {
         }
         assert_eq!(report.status, ChainStatus::Passed);
     }
+
+    /// Chain: the BATCHED virgl present (multi-entry command ring). The whole
+    /// present is ENQUEUED (G3b) then drained ONCE (G3c) before the scanout flip
+    /// (G4) — the architecture that fixed the per-command texture-sampling stall
+    /// ([[virgl-blur-g3-exec-flaky-hang]]): a textured draw whose completion QEMU
+    /// defers no longer blocks the next command, only the single drain. On a real
+    /// run, G3b-but-not-G3c localises a stuck/timed-out drain; G3c-but-not-G4 a
+    /// scanout-flush problem. Markers are string-identical to gpud markers.rs.
+    #[tokio::test]
+    async fn chain_gpu_batched_present_hops_in_order() {
+        let mut runner = ChainRunner::new("gpu-batched-present-hops");
+
+        runner.register(Box::new(GpudContract::with_batched_present()));
+        runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
+
+        runner
+            .expect_marker("gpud: chain G3 exec ok (commands applied)", ms(1000))
+            .describe("G3: present commands applied (scene deserialized)");
+        runner
+            .expect_marker("gpud: chain G3b batch submit ok (present enqueued)", ms(200))
+            .after(0)
+            .describe("G3b: whole present enqueued into the ring (no per-command wait)");
+        runner
+            .expect_marker("gpud: chain G3c batch complete (drained)", ms(200))
+            .after(1)
+            .describe("G3c: batch drained in ONE reactive GPU-ring-buffer-IRQ wait");
+        runner
+            .expect_marker("gpud: chain G4 scanout ok (frame presented)", ms(200))
+            .after(2)
+            .describe("G4: scanout flip, after the whole batch completed");
+
+        let report = runner.run().await;
+        if report.status != ChainStatus::Passed {
+            eprintln!("{}", report.diagnostic());
+        }
+        assert_eq!(report.status, ChainStatus::Passed);
+    }
 }

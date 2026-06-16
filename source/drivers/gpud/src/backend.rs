@@ -1,6 +1,20 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: virtio-gpu `GfxBackend` — device probe, resources, scanout, and the
+//! multi-entry control-queue command ring (per-slot lifecycle: `enqueue_*` /
+//! `harvest` / `alloc_free_slot` / `wait_slot`). The virgl GL compositor present
+//! drives this ring in pipelined (enqueue-only) mode; init + mmio drive it
+//! synchronously. A future real-GPU backend reimplements `GfxBackend`, not this.
+//! OWNERS: @ui @runtime
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! ADR: docs/adr/0032-gpu-command-ring-and-pipelined-present.md
+//! ARCH: docs/architecture/gpud-command-ring-and-present-pipeline.md
+//! TESTS: `cargo test -p gpud` (protocol size + Submit3d byte-format goldens);
+//!   `tools/nx` `chain_gpu_scanout.rs` (hop-order chain); `scripts/qemu-test.sh`
+//!   (`GPU_MODE=virgl` + mmio boot proof: uniform present `max`, 0 alloc-fail).
+
 #![allow(unused_imports)] // os-lite markers only used in OS cfg
 
 use nexus_gfx::backend::error::GfxError;
@@ -68,6 +82,13 @@ pub struct VirtioGpuBackend {
     /// only by the virgl build-up present; inert on the mmio path.
     #[allow(dead_code)]
     pub(crate) buildup_frame: u64,
+    /// When set, the control-queue submit helpers ENQUEUE (no per-command wait)
+    /// instead of submit-and-drain. A present sets it, enqueues all its SUBMIT_3D
+    /// draws + the flush, then drains once — so a textured draw whose completion
+    /// QEMU defers no longer blocks the next command. Inert (false) on every other
+    /// path, so mmio/init keep the exact synchronous behaviour.
+    #[allow(dead_code)]
+    ctrl_batch: bool,
     cursor_saveunder: alloc::vec::Vec<u8>,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
@@ -201,6 +222,7 @@ impl VirtioGpuBackend {
             cursor_oy: 0,
             cursor_dw: 0,
             buildup_frame: 0,
+            ctrl_batch: false,
             cursor_dh: 0,
             cursor_saveunder: alloc::vec::Vec::new(),
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -1852,54 +1874,69 @@ const CTRL_QUEUE_INDEX: u32 = 0;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(dead_code)]
 const CURSOR_QUEUE_INDEX: u32 = 1;
+/// Maximum in-flight commands on the control queue = command slots in the ring.
+/// A present batches ~8 SUBMIT_3D draws + a flush; 16 gives headroom so a whole
+/// present is enqueued without an intra-batch drain. The cursor queue passes
+/// `slots = 1` (single-slot, unchanged behaviour).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const QUEUE_LEN: usize = 4;
+const RING_SLOTS: usize = 16;
+/// virtqueue descriptor-table length. Each command slot uses a 2-descriptor chain
+/// (cmd → resp), so the table holds `RING_SLOTS * 2` descriptors. `avail.ring` /
+/// `used.ring` are sized to this; both queues share the length (the cursor queue
+/// uses only the first pair).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const QUEUE_LEN: usize = RING_SLOTS * 2;
 /// Hard ceiling on any single GPU command wait. The used-ring advance normally
 /// completes far sooner (spin or IRQ); this only bounds a lost/late IRQ so a
 /// present can never hang — it degrades to the legacy timeout (matches the old
 /// 500 ms spin deadline).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_WAIT_DEADLINE_NS: u64 = 500_000_000;
-/// Used-ring poll iterations before parking on the GPU IRQ. Fast QEMU
-/// completions land within a few cooperative yields (no IRQ round-trip);
-/// slower virgl GL blur/flush completions exhaust this and then block on the
-/// interrupt instead of busy-yielding.
-// 0 = pure reactive completion: `await_used_advance` checks the used-ring once at the
-// top of its loop (so an already-finished command returns immediately, no syscall),
-// and otherwise BLOCKS on the GPU ring-buffer IRQ — never a busy yield-spin (a spin
-// IS a poll, which we explicitly do not want). Proven: with this, the device IRQ
-// fires + wakes gpud on both mmio and virgl (`gpud: gpu irq wake`), presents complete,
-// 0 faults. A small non-zero value would trade reactivity for catching ultra-fast
-// completions without the IRQ round-trip, but the top-of-loop check already covers the
-// already-done case, so 0 is the correct reactive default. The 500 ms deadline remains
-// the safety net for a lost/late IRQ.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_IRQ_SPIN_BEFORE_BLOCK: u32 = 0;
+// Completion is PURE REACTIVE: `wait_slot`/`alloc_free_slot` `harvest` the used-ring
+// once at the top of the loop (an already-finished command returns immediately, no
+// syscall), and otherwise BLOCK on the GPU ring-buffer IRQ via `block_on_irq` — never
+// a busy yield-spin (a spin IS a poll, which we explicitly do not want). The pipelined
+// present blocks on nothing at all; the next frame harvests. `GPU_WAIT_DEADLINE_NS` is
+// only the safety net bounding a lost/late IRQ so a present can never hang.
 /// Latches once the GPU ring-buffer IRQ first wakes a completion wait, so the
 /// headless run can confirm the interrupt path is actually live (vs. silently
 /// degrading to the spin fallback). One marker, not per-frame — no UART storm.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 static GPU_IRQ_WAKE_LOGGED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
+/// Latches once `harvest` first reclaims a completed slot — proof (once) that the
+/// pipelined completion path flows (frame N's commands complete and are observed
+/// asynchronously, without the present ever blocking on them). One marker, not
+/// per-frame.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+static PIPELINE_HARVEST_LOGGED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 /// Debug: trace the first GPU blur's step progression (xfer-in → submit → xfer-out)
 /// to pinpoint where the intermittent virgl-blur G3 stall wedges. Latches after the
 /// first blur completes so it never spams the per-frame spin presents.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_QUEUE_VA: usize = 0x2030_0000;
+// Control queue command-buffer POOL: `RING_SLOTS` contiguous 4 KiB pages, one
+// per in-flight command slot, starting here. The multi-entry ring batches a
+// whole present's commands (one buffer each) then completes once — so a textured
+// draw whose completion QEMU defers no longer blocks the next command. Pool ends
+// at GPU_CMD_VA + RING_SLOTS*4096 = 0x2032_0000 (16 slots), just below the resp page.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_CMD_VA: usize = 0x2031_0000;
+// Response POOL: one 4 KiB page holding `RING_SLOTS` × 256 B response sub-slots
+// (a virtio-gpu response header is 24 B). Slot i's resp is at GPU_RESP_VA + i*256.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_RESP_VA: usize = 0x2031_1000;
+const GPU_RESP_VA: usize = 0x2032_0000;
 // Cursor virtqueue (queue index 1) — separate VA region so it does not collide
-// with the control queue's desc/cmd/resp pages. The hardware cursor overlay is
+// with the control queue's desc/cmd-pool/resp pages. The hardware cursor overlay is
 // the GPU "hot path" for the pointer: MOVE_CURSOR repositions it host-side
-// without re-rendering the scene.
+// without re-rendering the scene. The cursor queue is single-slot (no batching).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_CURSOR_QUEUE_VA: usize = 0x2032_0000;
+const GPU_CURSOR_QUEUE_VA: usize = 0x2034_0000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_CURSOR_CMD_VA: usize = 0x2033_0000;
+const GPU_CURSOR_CMD_VA: usize = 0x2035_0000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_CURSOR_RESP_VA: usize = 0x2033_1000;
+const GPU_CURSOR_RESP_VA: usize = 0x2035_1000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_RESOURCE_BASE_VA: usize = 0x2040_0000;
 // 32 MB per resource VA slot. The external framebuffer is now 1280×6400×4 ≈ 31.3 MB
@@ -1957,6 +1994,14 @@ struct VqUsed<const N: usize> {
     ring: [VqUsedElem; N],
 }
 
+/// A virtio control/cursor virtqueue with a multi-entry command ring.
+///
+/// Holds raw pointers into device-shared memory (descriptor table, avail/used
+/// rings, command/response pools), so it is intentionally **not `Send`/`Sync`**:
+/// the buffers live in gpud's address space and the ring is driven by gpud's
+/// single cooperative thread (enqueue → notify → drain is one logical sequence).
+/// There is no `unsafe impl Send` — the queue must never cross threads, and the
+/// `!Send` default enforces that at compile time.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 struct CtrlQueue {
     queue_index: u32,
@@ -1966,10 +2011,24 @@ struct CtrlQueue {
     desc: *mut VqDesc,
     avail: *mut VqAvail<QUEUE_LEN>,
     used: *mut VqUsed<QUEUE_LEN>,
+    /// Command-buffer pool base (VA/PA). Slot `i`'s command buffer is at
+    /// `cmd_va + i*4096` / `cmd_pa + i*4096` (the pool is physically contiguous).
     cmd_va: usize,
     cmd_pa: u64,
+    /// Response-buffer pool base (VA/PA). Slot `i`'s response header is at
+    /// `resp_va + i*RESP_SLOT_SIZE` / `resp_pa + i*RESP_SLOT_SIZE`.
     resp_va: usize,
     resp_pa: u64,
+    /// Number of command slots in this ring (control = `RING_SLOTS`, cursor = 1).
+    slots: u16,
+    /// Round-robin hint for the next free-slot search.
+    next_slot: RingSlot,
+    /// Per-slot in-flight bitmask (bit `i` = slot `i` submitted, not yet completed).
+    /// A slot is freed only when its used-ring entry is harvested, so it is never
+    /// reused while QEMU may still be reading its buffers — the pipelining safety
+    /// invariant. `RING_SLOTS ≤ 32` fits a `u32`.
+    busy: u32,
+    /// Device `used.idx` already harvested — the consumer cursor into `used.ring`.
     last_used: u16,
     /// Device MMIO base — needed to drain/ACK InterruptStatus (0x60/0x64) on the
     /// GPU ring-buffer IRQ path so the level-triggered line de-asserts.
@@ -1980,6 +2039,35 @@ struct CtrlQueue {
     /// Endpoint cap slot the kernel routes the GPU IRQ to (0 = not bound). When
     /// set, the wait path blocks here instead of busy-polling.
     irq_ep: u32,
+}
+
+/// Bytes reserved per response sub-slot in the response pool (a virtio-gpu
+/// response header is 24 B; 256 B keeps slots cache-line-friendly and lets the
+/// whole `RING_SLOTS` pool fit one 4 KiB page).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const RESP_SLOT_SIZE: usize = 256;
+
+/// A command slot in the multi-entry ring (`0..slots`). A newtype so it can't be
+/// confused with a raw descriptor index (each slot owns the descriptor *pair*
+/// `2*slot` / `2*slot+1`) or with an in-flight *count* — the three are different
+/// quantities that all happen to be small integers, and mixing them in the
+/// pointer/descriptor arithmetic would be a silent memory-safety bug.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct RingSlot(u16);
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+impl RingSlot {
+    /// Head (command) descriptor index for this slot's 2-descriptor chain.
+    #[inline]
+    fn head_desc(self) -> usize {
+        2 * self.0 as usize
+    }
+    /// Response descriptor index (`head + 1`).
+    #[inline]
+    fn resp_desc(self) -> usize {
+        2 * self.0 as usize + 1
+    }
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -2024,17 +2112,26 @@ impl VirtioGpuBackend {
             }
             return Err(GpuDriverError::CommandRejected);
         }
-        let ctrlq =
-            CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, GPU_QUEUE_VA, GPU_CMD_VA, GPU_RESP_VA)?;
+        // Control queue: multi-slot ring (batches a whole present, completes once).
+        let ctrlq = CtrlQueue::new(
+            self.mmio_base,
+            CTRL_QUEUE_INDEX,
+            GPU_QUEUE_VA,
+            GPU_CMD_VA,
+            GPU_RESP_VA,
+            RING_SLOTS,
+        )?;
         self.ctrlq = Some(ctrlq);
         // Cursor virtqueue (index 1) — hardware-cursor overlay path. Best-effort:
-        // if it can't be set up, cursor falls back and 2D still works.
+        // if it can't be set up, cursor falls back and 2D still works. Single-slot
+        // (cursor commands are submitted one at a time, no batching).
         if let Ok(cursorq) = CtrlQueue::new(
             self.mmio_base,
             CURSOR_QUEUE_INDEX,
             GPU_CURSOR_QUEUE_VA,
             GPU_CURSOR_CMD_VA,
             GPU_CURSOR_RESP_VA,
+            1,
         ) {
             self.cursorq = Some(cursorq);
         }
@@ -2106,8 +2203,42 @@ impl VirtioGpuBackend {
         let hdr_bytes = unsafe {
             core::slice::from_raw_parts((hdr as *const T).cast::<u8>(), core::mem::size_of::<T>())
         };
+        let mmio = self.mmio_base;
+        let batch = self.ctrl_batch;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
-        queue.submit_two(self.mmio_base, hdr_bytes, tail)
+        if batch {
+            queue.enqueue_pair(mmio, hdr_bytes, tail).map(|_| ())
+        } else {
+            queue.submit_two(mmio, hdr_bytes, tail)
+        }
+    }
+
+    /// Begin a control-queue command batch: subsequent `ctrl_submit_*` calls
+    /// enqueue without waiting. Pair with [`ctrl_batch_end`].
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn ctrl_batch_begin(&mut self) {
+        self.ctrl_batch = true;
+    }
+
+    /// End the batch — **pipelined: does NOT block**. Clears the batch flag and
+    /// opportunistically `harvest`s completed slots (the next present would
+    /// otherwise reclaim them). The present's own commands stay in flight and are
+    /// reaped by the *next* frame's enqueue, so a textured draw whose completion
+    /// QEMU defers never blocks this present. Emits the G3c "pipeline flowing"
+    /// marker once the first prior-frame batch is reclaimed.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn ctrl_batch_end(&mut self) -> Result<(), GfxError> {
+        self.ctrl_batch = false;
+        let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
+        let before = queue.busy;
+        queue.harvest();
+        if before != 0
+            && queue.busy != before
+            && !PIPELINE_HARVEST_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
+        {
+            let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_OK);
+        }
+        Ok(())
     }
 
     /// End-to-end validation of the `SUBMIT_3D` path: emit a minimal NOP stream
@@ -2132,7 +2263,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)
+        self.ctrl_submit_header_tail(&hdr, bytes)
     }
 
     /// A virtio-gpu control header carrying our virgl context id (3D commands
@@ -2216,7 +2347,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)
+        self.ctrl_submit_header_tail(&hdr, bytes)
     }
 
     /// Allocate a guest VMO, map it into the virgl backing VA region, and
@@ -2384,7 +2515,7 @@ impl VirtioGpuBackend {
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
 
         // Read the rendered pixels back into the guest backing and inspect.
         self.virgl_transfer_from_host(RT_RES, 0, 0, RT_W, RT_H, RT_W * 4)?;
@@ -2456,7 +2587,7 @@ END\n";
                 size: bytes.len() as u32,
                 _padding: 0,
             };
-            self.ctrl_submit_header_tail(&hdr, &bytes)?;
+            self.ctrl_submit_header_tail(&hdr, bytes)?;
         }
 
         self.virgl_create_rt(RT_RES, RT_W, RT_H)?;
@@ -2538,7 +2669,7 @@ END\n";
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
 
         self.virgl_transfer_from_host(RT_RES, 0, 0, RT_W, RT_H, RT_W * 4)?;
         // Sample a near-top and near-bottom pixel; the gradient must differ.
@@ -2584,7 +2715,7 @@ END\n";
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)
+        self.ctrl_submit_header_tail(&hdr, bytes)
     }
 
     /// Issue TRANSFER_TO_HOST_3D for a box of `res_id` (guest backing → host
@@ -2781,7 +2912,7 @@ END\n";
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
         self.virgl_blur_ready = true;
         Ok(())
     }
@@ -2918,7 +3049,7 @@ END\n";
             size: bytes.len() as u32,
             _padding: 0,
         };
-        self.ctrl_submit_header_tail(&hdr, &bytes)?;
+        self.ctrl_submit_header_tail(&hdr, bytes)?;
 
         // Land the blurred pixels back in the scanned-out guest VMO — unless the
         // caller will composite over 0xF8 directly (glass) and only the boot
@@ -3178,27 +3309,48 @@ END\n";
         let b_bytes = unsafe {
             core::slice::from_raw_parts((b as *const B).cast::<u8>(), core::mem::size_of::<B>())
         };
+        let mmio = self.mmio_base;
+        let batch = self.ctrl_batch;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
-        queue.submit_two(self.mmio_base, a_bytes, b_bytes)
+        if batch {
+            queue.enqueue_pair(mmio, a_bytes, b_bytes).map(|_| ())
+        } else {
+            queue.submit_two(mmio, a_bytes, b_bytes)
+        }
     }
 
     fn ctrl_submit_bytes(&mut self, bytes: &[u8]) -> Result<(), GfxError> {
+        let mmio = self.mmio_base;
+        let batch = self.ctrl_batch;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
-        queue.submit(self.mmio_base, bytes)
+        if batch {
+            queue.enqueue_pair(mmio, bytes, &[]).map(|_| ())
+        } else {
+            queue.submit(mmio, bytes)
+        }
     }
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 impl CtrlQueue {
+    /// `slots` = number of in-flight command buffers (control = `RING_SLOTS`,
+    /// cursor = 1). The command pool is `slots` contiguous 4 KiB pages; the
+    /// response pool is one page (`slots` × `RESP_SLOT_SIZE`). `slots` must be
+    /// ≤ `RING_SLOTS` so the descriptor table (`QUEUE_LEN`) and the single
+    /// response page suffice.
     fn new(
         mmio_base: usize,
         queue_index: u32,
         queue_va: usize,
         cmd_va_base: usize,
         resp_va_base: usize,
+        slots: usize,
     ) -> Result<Self, GpuDriverError> {
+        debug_assert!(slots >= 1 && slots <= RING_SLOTS);
+        debug_assert!(slots * RESP_SLOT_SIZE <= 4096);
+        let cmd_pool_len = slots * 4096;
         let q_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
-        let cmd_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
+        let cmd_vmo = nexus_abi::vmo_create(cmd_pool_len).map_err(|_| GpuDriverError::MmioFault)?;
         let resp_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
@@ -3206,8 +3358,11 @@ impl CtrlQueue {
             | nexus_abi::page_flags::WRITE;
         nexus_abi::vmo_map_page(q_vmo, queue_va, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        nexus_abi::vmo_map_page(cmd_vmo, cmd_va_base, 0, flags)
-            .map_err(|_| GpuDriverError::MmioFault)?;
+        // Map the whole command pool (one page per in-flight slot, contiguous).
+        for i in 0..slots {
+            nexus_abi::vmo_map_page(cmd_vmo, cmd_va_base + i * 4096, i * 4096, flags)
+                .map_err(|_| GpuDriverError::MmioFault)?;
+        }
         nexus_abi::vmo_map_page(resp_vmo, resp_va_base, 0, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
         let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
@@ -3218,7 +3373,7 @@ impl CtrlQueue {
         nexus_abi::cap_query(resp_vmo, &mut resp_info).map_err(|_| GpuDriverError::MmioFault)?;
         unsafe {
             core::ptr::write_bytes(queue_va as *mut u8, 0, 4096);
-            core::ptr::write_bytes(cmd_va_base as *mut u8, 0, 4096);
+            core::ptr::write_bytes(cmd_va_base as *mut u8, 0, cmd_pool_len);
             core::ptr::write_bytes(resp_va_base as *mut u8, 0, 4096);
         }
 
@@ -3260,6 +3415,9 @@ impl CtrlQueue {
             cmd_pa: cmd_info.base,
             resp_va: resp_va_base,
             resp_pa: resp_info.base,
+            slots: slots as u16,
+            next_slot: RingSlot(0),
+            busy: 0,
             last_used: 0,
             mmio_base,
             irq_num: 0,
@@ -3280,62 +3438,230 @@ impl CtrlQueue {
         self.irq_ep = irq_ep;
     }
 
-    /// Reactively wait for this queue's used-ring to advance past `last_used`.
-    ///
-    /// The used-ring is the authoritative completion signal (QEMU always writes
-    /// it), so it is checked every iteration. For latency we spin a few times
-    /// first — fast QEMU completions finish here, avoiding the IRQ round-trip.
-    /// If the queue is bound to its IRQ and the command is still outstanding, we
-    /// BLOCK on `ipc_recv_v1(irq_ep, …, deadline)` until the GPU asserts its
-    /// ring-buffer interrupt (PLIC → bound endpoint) — no busy-yield burned on the
-    /// slow virgl GL blur/flush completions. Everything is bounded by the 500 ms
-    /// deadline so a lost/late IRQ degrades to the legacy timeout, never a hang.
-    fn await_used_advance(&mut self) -> Result<(), GfxError> {
+    // ── slot addressing (the command/response buffer pools are contiguous) ──
+    #[inline]
+    fn cmd_slot_va(&self, slot: RingSlot) -> usize {
+        self.cmd_va + slot.0 as usize * 4096
+    }
+    #[inline]
+    fn cmd_slot_pa(&self, slot: RingSlot) -> u64 {
+        self.cmd_pa + slot.0 as u64 * 4096
+    }
+    #[inline]
+    fn resp_slot_va(&self, slot: RingSlot) -> usize {
+        self.resp_va + slot.0 as usize * RESP_SLOT_SIZE
+    }
+    #[inline]
+    fn resp_slot_pa(&self, slot: RingSlot) -> u64 {
+        self.resp_pa + slot.0 as u64 * RESP_SLOT_SIZE as u64
+    }
+
+    /// Reap completed commands: walk the new `used.ring` entries and free their
+    /// slots. The used element's `id` is the head descriptor (`2*slot`), so `id/2`
+    /// maps a completion back to its slot. This is the consumer half of the
+    /// pipeline — frame N's completion is observed here (typically during frame
+    /// N+1's enqueue), so the present never blocks on its own completion.
+    fn harvest(&mut self) {
+        let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
+        while self.last_used != used_idx {
+            let elem = unsafe {
+                core::ptr::read_volatile(&(*self.used).ring[self.last_used as usize % QUEUE_LEN])
+            };
+            let slot = (elem.id / 2) as u16;
+            if slot < self.slots {
+                self.busy &= !(1u32 << slot);
+            }
+            self.last_used = self.last_used.wrapping_add(1);
+        }
+    }
+
+    /// Round-robin search for a free slot (harvest first). `None` = ring full.
+    fn find_free_slot(&mut self) -> Option<RingSlot> {
+        self.harvest();
+        for _ in 0..self.slots {
+            let s = self.next_slot.0;
+            self.next_slot = RingSlot((s + 1) % self.slots);
+            if self.busy & (1u32 << s) == 0 {
+                return Some(RingSlot(s));
+            }
+        }
+        None
+    }
+
+    /// Allocate a free slot, applying back-pressure if the ring is full: block on
+    /// the GPU IRQ + harvest until one frees (deadline-bounded). On a (degraded)
+    /// timeout, force-resync the in-flight set so the ring can never deadlock.
+    fn alloc_free_slot(&mut self) -> Result<RingSlot, GfxError> {
+        if let Some(slot) = self.find_free_slot() {
+            return Ok(slot);
+        }
         let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
         let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
-        let mut spun: u32 = 0;
-        let outcome = loop {
-            let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
-            if used_idx != self.last_used {
-                self.last_used = used_idx;
-                break Ok(());
-            }
-            let now = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-            if now >= deadline {
-                break Err(GfxError::MmioFault);
-            }
-            if self.irq_ep != 0 && spun >= GPU_IRQ_SPIN_BEFORE_BLOCK {
-                // Park on the GPU IRQ until the kernel wakes us (deadline-bounded:
-                // if the IRQ is lost the recv times out and the loop falls through
-                // to the deadline check above → legacy behaviour, no hang).
-                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-                let mut buf = [0u8; 16];
-                if nexus_abi::ipc_recv_v1(
-                    self.irq_ep,
-                    &mut hdr,
-                    &mut buf,
-                    nexus_abi::IPC_SYS_TRUNCATE,
-                    deadline,
-                )
-                .is_ok()
-                    && !GPU_IRQ_WAKE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
-                {
-                    // Proof (once): a real GPU ring-buffer IRQ woke this wait.
-                    let _ = nexus_abi::debug_println("gpud: gpu irq wake");
+        loop {
+            self.block_on_irq(deadline);
+            if let Some(slot) = self.find_free_slot() {
+                if self.irq_ep != 0 {
+                    self.ack_gpu_irq();
                 }
-            } else {
-                spun = spun.saturating_add(1);
-                let _ = nexus_abi::yield_();
+                return Ok(slot);
             }
-        };
-        // IRQ housekeeping after every completion (idempotent, safe whether the
-        // spin or the block caught it). Self-heals the used-advance-before-IRQ
-        // race: drain a stale notification, de-assert the level-triggered device
-        // line, then re-enable the (possibly masked) PLIC source.
-        if self.irq_ep != 0 {
-            self.ack_gpu_irq();
+            if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
+                // Degraded recovery: abandon the stuck in-flight set + resync the
+                // harvest cursor so we never wedge. Best-effort (a lost IRQ only).
+                self.busy = 0;
+                self.last_used = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
+                if self.irq_ep != 0 {
+                    self.ack_gpu_irq();
+                }
+                return Ok(self.next_slot);
+            }
         }
-        outcome
+    }
+
+    /// Block once on the GPU ring-buffer IRQ (deadline-bounded) or yield if the
+    /// queue isn't IRQ-bound. The reactive wait primitive shared by `wait_slot`
+    /// and `alloc_free_slot`.
+    fn block_on_irq(&self, deadline: u64) {
+        if self.irq_ep != 0 {
+            let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+            let mut buf = [0u8; 16];
+            if nexus_abi::ipc_recv_v1(
+                self.irq_ep,
+                &mut hdr,
+                &mut buf,
+                nexus_abi::IPC_SYS_TRUNCATE,
+                deadline,
+            )
+            .is_ok()
+                && !GPU_IRQ_WAKE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
+            {
+                // Proof (once): a real GPU ring-buffer IRQ woke a wait.
+                let _ = nexus_abi::debug_println("gpud: gpu irq wake");
+            }
+        } else {
+            let _ = nexus_abi::yield_();
+        }
+    }
+
+    /// Make a written descriptor chain available to the device + notify, and mark
+    /// the slot in-flight (freed later by `harvest` when its completion returns).
+    #[inline]
+    fn publish(&mut self, mmio_base: usize, slot: RingSlot) {
+        let head = slot.head_desc();
+        unsafe {
+            let idx = core::ptr::read_volatile(&(*self.avail).idx);
+            core::ptr::write_volatile(
+                &mut (*self.avail).ring[(idx as usize) % QUEUE_LEN],
+                head as u16,
+            );
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
+        }
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
+        self.busy |= 1u32 << slot.0;
+    }
+
+    /// Enqueue a command that expects a device response (cmd → resp 2-descriptor
+    /// chain) WITHOUT waiting for completion. The caller `drain`s the batch later
+    /// and may inspect the response at the returned slot. `first`+`second` are
+    /// concatenated into the slot's command buffer (`second` empty = single blob).
+    fn enqueue_pair(
+        &mut self,
+        mmio_base: usize,
+        first: &[u8],
+        second: &[u8],
+    ) -> Result<RingSlot, GfxError> {
+        let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
+        if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total {
+            return Err(GfxError::CommandRejected);
+        }
+        let slot = self.alloc_free_slot()?;
+        let head = slot.head_desc();
+        let cmd_va = self.cmd_slot_va(slot);
+        let cmd_pa = self.cmd_slot_pa(slot);
+        let resp_pa = self.resp_slot_pa(slot);
+        unsafe {
+            core::ptr::write_bytes(cmd_va as *mut u8, 0, total);
+            core::ptr::write_bytes(self.resp_slot_va(slot) as *mut u8, 0, RESP_SLOT_SIZE);
+            core::ptr::copy_nonoverlapping(first.as_ptr(), cmd_va as *mut u8, first.len());
+            if !second.is_empty() {
+                core::ptr::copy_nonoverlapping(
+                    second.as_ptr(),
+                    (cmd_va + first.len()) as *mut u8,
+                    second.len(),
+                );
+            }
+            core::ptr::write_volatile(
+                self.desc.add(head),
+                VqDesc { addr: cmd_pa, len: total as u32, flags: 1, next: slot.resp_desc() as u16 },
+            );
+            core::ptr::write_volatile(
+                self.desc.add(slot.resp_desc()),
+                VqDesc {
+                    addr: resp_pa,
+                    len: core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() as u32,
+                    flags: 2,
+                    next: 0,
+                },
+            );
+        }
+        self.publish(mmio_base, slot);
+        Ok(slot)
+    }
+
+    /// Enqueue a response-less command (single read-only descriptor) WITHOUT
+    /// waiting. Used by the cursor queue (UPDATE/MOVE_CURSOR carry no response).
+    fn enqueue_single(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<RingSlot, GfxError> {
+        if bytes.is_empty() || bytes.len() > 4096 {
+            return Err(GfxError::CommandRejected);
+        }
+        let slot = self.alloc_free_slot()?;
+        let head = slot.head_desc();
+        let cmd_va = self.cmd_slot_va(slot);
+        let cmd_pa = self.cmd_slot_pa(slot);
+        unsafe {
+            core::ptr::write_bytes(cmd_va as *mut u8, 0, bytes.len());
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), cmd_va as *mut u8, bytes.len());
+            core::ptr::write_volatile(
+                self.desc.add(head),
+                VqDesc { addr: cmd_pa, len: bytes.len() as u32, flags: 0, next: 0 },
+            );
+        }
+        self.publish(mmio_base, slot);
+        Ok(slot)
+    }
+
+    /// Synchronously wait for ONE slot's completion. Used by `submit_two` /
+    /// `submit_no_response` for the init + 2D/mmio paths, where each command's
+    /// response must be in hand before the next is issued. Harvest-driven +
+    /// reactive (block on the GPU ring-buffer IRQ), bounded by `GPU_WAIT_DEADLINE_NS`
+    /// so a lost/late IRQ degrades to a timeout, never a hang.
+    ///
+    /// The pipelined present does NOT call this — it enqueues and lets the next
+    /// frame `harvest` the completion (so a deferred textured-draw completion never
+    /// blocks the present).
+    fn wait_slot(&mut self, slot: RingSlot) -> Result<(), GfxError> {
+        let bit = 1u32 << slot.0;
+        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
+        let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
+        loop {
+            self.harvest();
+            if self.busy & bit == 0 {
+                if self.irq_ep != 0 {
+                    self.ack_gpu_irq();
+                }
+                return Ok(());
+            }
+            if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
+                self.busy &= !bit; // abandon the stuck slot (degraded, lost-IRQ only)
+                if self.irq_ep != 0 {
+                    self.ack_gpu_irq();
+                }
+                return Err(GfxError::MmioFault);
+            }
+            self.block_on_irq(deadline);
+        }
     }
 
     /// De-assert + re-arm this queue's GPU IRQ. Order matters (same lesson as
@@ -3360,87 +3686,34 @@ impl CtrlQueue {
     /// reason the hardware cursor was abandoned. Single read-only descriptor,
     /// completion = used-ring advance.
     fn submit_no_response(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
-        if bytes.is_empty() || bytes.len() > 4096 {
-            return Err(GfxError::CommandRejected);
-        }
-        unsafe {
-            core::ptr::write_bytes(self.cmd_va as *mut u8, 0, 4096);
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.cmd_va as *mut u8, bytes.len());
-            core::ptr::write_volatile(
-                self.desc.add(0),
-                VqDesc { addr: self.cmd_pa, len: bytes.len() as u32, flags: 0, next: 0 },
-            );
-            let idx = core::ptr::read_volatile(&(*self.avail).idx);
-            core::ptr::write_volatile(&mut (*self.avail).ring[(idx as usize) % QUEUE_LEN], 0);
-            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-            core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
-        }
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
-        // Reactive completion: spin briefly, then block on the GPU ring-buffer IRQ.
-        // No response payload to inspect — the used-ring advance IS the completion.
-        self.await_used_advance()
+        // Single read-only command, no response payload to inspect — the used-ring
+        // advance IS the completion. Enqueue then wait for that slot (synchronous).
+        let slot = self.enqueue_single(mmio_base, bytes)?;
+        self.wait_slot(slot)
     }
 
+    /// Synchronous single command: enqueue one cmd→resp pair, wait for that slot,
+    /// classify the response. Behaviour is identical to the pre-pipeline path —
+    /// used by init, the 2D/mmio present, and every non-batched caller. The
+    /// pipelined present instead `enqueue_pair`s every draw and never waits (the
+    /// next frame `harvest`s the completion).
     fn submit_two(
         &mut self,
         mmio_base: usize,
         first: &[u8],
         second: &[u8],
     ) -> Result<(), GfxError> {
-        let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
-        if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total
-        {
-            return Err(GfxError::CommandRejected);
-        }
-        unsafe {
-            core::ptr::write_bytes(self.cmd_va as *mut u8, 0, 4096);
-            core::ptr::write_bytes(self.resp_va as *mut u8, 0, 4096);
-            core::ptr::copy_nonoverlapping(first.as_ptr(), self.cmd_va as *mut u8, first.len());
-            if !second.is_empty() {
-                core::ptr::copy_nonoverlapping(
-                    second.as_ptr(),
-                    (self.cmd_va + first.len()) as *mut u8,
-                    second.len(),
-                );
-            }
-            core::ptr::write_volatile(
-                self.desc.add(0),
-                VqDesc { addr: self.cmd_pa, len: total as u32, flags: 1, next: 1 },
-            );
-            core::ptr::write_volatile(
-                self.desc.add(1),
-                VqDesc {
-                    addr: self.resp_pa,
-                    len: core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() as u32,
-                    flags: 2,
-                    next: 0,
-                },
-            );
-            let idx = core::ptr::read_volatile(&(*self.avail).idx);
-            core::ptr::write_volatile(&mut (*self.avail).ring[(idx as usize) % QUEUE_LEN], 0);
-            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-            core::ptr::write_volatile(&mut (*self.avail).idx, idx.wrapping_add(1));
-        }
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
-        // NOTE: no per-command debug log here — this runs for every ctrl-queue
-        // command (transfer/flush on every present), which floods the UART and
-        // dominates the cooperative loop. Errors are still logged in wait_complete.
-        self.wait_complete()
+        let slot = self.enqueue_pair(mmio_base, first, second)?;
+        self.wait_slot(slot)?;
+        self.classify_resp(slot, "ctrl")
     }
 
-    fn wait_complete(&mut self) -> Result<(), GfxError> {
-        self.wait_complete_labeled("ctrl")
-    }
-
-    fn wait_complete_labeled(&mut self, label: &str) -> Result<(), GfxError> {
-        // Reactive: spin briefly then block on the GPU ring-buffer IRQ until the
-        // used-ring advances (deadline-bounded, never a hang).
-        self.await_used_advance()?;
-        // Completion in hand — classify the device's response header.
-        let hdr =
-            unsafe { core::ptr::read_volatile(self.resp_va as *const protocol::VirtioGpuCtrlHdr) };
+    /// Classify a drained slot's device response. RESP_OK_NODATA → Ok; any error
+    /// type is logged (the string names the exact QEMU rejection) → CommandRejected.
+    fn classify_resp(&self, slot: RingSlot, label: &str) -> Result<(), GfxError> {
+        let hdr = unsafe {
+            core::ptr::read_volatile(self.resp_slot_va(slot) as *const protocol::VirtioGpuCtrlHdr)
+        };
         if hdr.type_ == protocol::VIRTIO_GPU_RESP_OK_NODATA {
             return Ok(());
         }
