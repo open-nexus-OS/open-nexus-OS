@@ -60,6 +60,27 @@ fn clamp_tile_to_extent(rect: TileRect, w: u32, h: u32) -> Option<TileRect> {
     })
 }
 
+/// Intersection of two tile rects, or `None` if they do not overlap.
+fn intersect_tile(a: TileRect, b: TileRect) -> Option<TileRect> {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.width).min(b.x + b.width);
+    let y1 = (a.y + a.height).min(b.y + b.height);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some(TileRect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 })
+}
+
+/// Bounding union of two tile rects.
+fn union_tile(a: TileRect, b: TileRect) -> TileRect {
+    let x0 = a.x.min(b.x);
+    let y0 = a.y.min(b.y);
+    let x1 = (a.x + a.width).max(b.x + b.width);
+    let y1 = (a.y + a.height).max(b.y + b.height);
+    TileRect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+}
+
 // ---------------------------------------------------------------------------
 // Hash helpers (deterministic, no_std)
 // ---------------------------------------------------------------------------
@@ -970,6 +991,115 @@ impl SceneGraph {
         result.map(|_| count)
     }
 
+    /// World-space bounds of a node's primitive (clamped to ≥0, mirroring
+    /// `emit_primitive`). `None` for nodes that occupy no compositable region
+    /// (no primitive, the HW `Cursor`, or a `BackdropFilter`/`Group` without a
+    /// clip). The unit of per-node damage and damage-intersection tests.
+    pub fn node_world_bounds(node: &SceneNode) -> Option<TileRect> {
+        let x = node.x.max(0) as u32;
+        let y = node.y.max(0) as u32;
+        match node.primitive.as_ref()? {
+            RenderPrimitive::Rect { width, height, .. }
+            | RenderPrimitive::StrokeRect { width, height, .. }
+            | RenderPrimitive::Surface { width, height, .. } => {
+                Some(TileRect { x, y, width: *width, height: *height })
+            }
+            RenderPrimitive::Text { content, font_scale, .. } => {
+                let scale = (*font_scale).max(1);
+                let advance = (5 + 1) * scale; // GLYPH_W(5)+1, see emit_primitive
+                let w = (content.chars().count() as u32).saturating_mul(advance);
+                Some(TileRect { x, y, width: w, height: 7 * scale })
+            }
+            RenderPrimitive::BackdropFilter { .. } | RenderPrimitive::Group { .. } => {
+                node.clip.map(|c| TileRect {
+                    x: c.x.as_i32().max(0) as u32,
+                    y: c.y.as_i32().max(0) as u32,
+                    width: c.width.as_i32().max(0) as u32,
+                    height: c.height.as_i32().max(0) as u32,
+                })
+            }
+            RenderPrimitive::Cursor { .. } => None,
+        }
+    }
+
+    /// Damage-aware composite — the retained-compositor present path (#23).
+    ///
+    /// Re-emit every visible node whose world bounds intersect any `damage` rect,
+    /// in back-to-front `render_order` (so z-order is reconstructed correctly
+    /// within the damaged region — the caller passes `render_order_into`'s output).
+    /// `Surface` blits are clipped to the damaged sub-rect, so a full-screen
+    /// wallpaper/background node costs only the damaged area; bounded UI
+    /// primitives (rects/text/glass) emit whole. Allocation-free: `render_order`
+    /// is caller-owned scratch and the text-tile scratch is reused.
+    ///
+    /// Unlike [`generate_commands_into`] (which emits only the *dirty* nodes and
+    /// is used for full repaints), this emits *all* nodes under the damage so an
+    /// opaque change correctly repaints the layers beneath/above it.
+    pub fn generate_commands_for_damage(
+        &mut self,
+        damage: &[TileRect],
+        render_order: &[SceneNodeId],
+        extent_w: u32,
+        extent_h: u32,
+        encoder: &mut RenderCommandEncoder<'_>,
+    ) -> Result<usize, GfxError> {
+        let mut tiles_scratch = core::mem::take(&mut self.text_tiles);
+        let mut count: usize = 0;
+        let mut result: Result<(), GfxError> = Ok(());
+        for &id in render_order {
+            let idx = id.0 as usize;
+            let node = match self.nodes.get(idx).and_then(|n| n.as_ref()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if !node.visible {
+                continue;
+            }
+            let Some(prim) = node.primitive.as_ref() else {
+                continue;
+            };
+            let Some(bounds) = Self::node_world_bounds(node) else {
+                continue;
+            };
+            // Bounding intersection of the node with all damage rects it touches.
+            let mut hit: Option<TileRect> = None;
+            for d in damage {
+                if let Some(i) = intersect_tile(bounds, *d) {
+                    hit = Some(match hit {
+                        Some(h) => union_tile(h, i),
+                        None => i,
+                    });
+                }
+            }
+            let Some(hit) = hit else {
+                continue;
+            };
+            let emit = match prim {
+                // Clip the blit to the damaged sub-rect (offset the source).
+                RenderPrimitive::Surface { src_x, src_y, .. } => {
+                    let dx = hit.x.saturating_sub(bounds.x);
+                    let dy = hit.y.saturating_sub(bounds.y);
+                    match clamp_tile_to_extent(hit, extent_w, extent_h) {
+                        Some(r) => encoder
+                            .try_blit_surface(*src_x + dx, *src_y + dy, r.x, r.y, r.width, r.height)
+                            .map(|_| 1),
+                        None => Ok(0),
+                    }
+                }
+                _ => Self::emit_primitive(node, prim, extent_w, extent_h, encoder, &mut tiles_scratch),
+            };
+            match emit {
+                Ok(n) => count += n,
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+        self.text_tiles = tiles_scratch;
+        result.map(|_| count)
+    }
+
     /// Emit CB commands for a single `RenderPrimitive` at the node's position.
     ///
     /// All tile rects are clamped to `(extent_w, extent_h)`: the GPU render
@@ -1675,5 +1805,65 @@ mod tests {
         let cap = out.capacity();
         g.render_order_into(&mut out);
         assert_eq!(out.capacity(), cap);
+    }
+
+    #[test]
+    fn node_world_bounds_per_primitive() {
+        let mut g = make_graph();
+        // Rect: bounds = position + width/height.
+        let r = make_node(&mut g, None);
+        g.set_position(r, 100, 50);
+        g.set_primitive(r, rect_prim(40, 20));
+        let rb = SceneGraph::node_world_bounds(g.find(r).unwrap()).unwrap();
+        assert_eq!((rb.x, rb.y, rb.width, rb.height), (100, 50, 40, 20));
+
+        // Cursor occupies no compositable region (HW plane).
+        let c = make_node(&mut g, None);
+        g.set_primitive(c, RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 });
+        assert!(SceneGraph::node_world_bounds(g.find(c).unwrap()).is_none());
+
+        // No primitive → no bounds.
+        let e = make_node(&mut g, None);
+        assert!(SceneGraph::node_world_bounds(g.find(e).unwrap()).is_none());
+    }
+
+    #[test]
+    fn tile_intersection_and_union() {
+        let a = TileRect { x: 0, y: 0, width: 100, height: 100 };
+        let b = TileRect { x: 50, y: 50, width: 100, height: 100 };
+        // Overlap.
+        assert_eq!(
+            intersect_tile(a, b),
+            Some(TileRect { x: 50, y: 50, width: 50, height: 50 })
+        );
+        // Disjoint → None.
+        let far = TileRect { x: 200, y: 200, width: 10, height: 10 };
+        assert_eq!(intersect_tile(a, far), None);
+        // Edge-touching (no overlap).
+        let edge = TileRect { x: 100, y: 0, width: 10, height: 10 };
+        assert_eq!(intersect_tile(a, edge), None);
+        // Union bounds both.
+        let u = union_tile(a, b);
+        assert_eq!((u.x, u.y, u.width, u.height), (0, 0, 150, 150));
+    }
+
+    #[test]
+    fn damage_intersection_selects_only_touched_nodes() {
+        // A tiny damage rect over one node must intersect only that node's
+        // bounds — the per-node-damage invariant that keeps a far-away change
+        // off the rest of the scene.
+        let mut g = make_graph();
+        let near = make_node(&mut g, None);
+        g.set_position(near, 10, 10);
+        g.set_primitive(near, rect_prim(20, 20));
+        let far = make_node(&mut g, None);
+        g.set_position(far, 500, 500);
+        g.set_primitive(far, rect_prim(20, 20));
+
+        let damage = TileRect { x: 12, y: 12, width: 4, height: 4 };
+        let nb = SceneGraph::node_world_bounds(g.find(near).unwrap()).unwrap();
+        let fb = SceneGraph::node_world_bounds(g.find(far).unwrap()).unwrap();
+        assert!(intersect_tile(nb, damage).is_some());
+        assert!(intersect_tile(fb, damage).is_none());
     }
 }
