@@ -13,11 +13,11 @@
 
 ## Status at a glance
 
-- Phase 1 — **Waitset** kernel object (wait-on-multiple): proposed.
-- Phase 2 — **Timeline fence** kernel object: proposed.
-- Phase 3 — **`nexus-driverkit`** userland lib (submit ring + fence + backpressure + buffers): proposed.
-- Phase 4 — consumers (gpud reactive on DriverKit; windowd present-scheduler on a waitset): proposed.
-- Phase 5 — **clean idle/deadline** (retire the degenerate-spin): proposed (last; riskier).
+- Phase 1 — **Waitset** kernel object (wait-on-multiple): **landed** (syscalls 38–40, QEMU-proven).
+- Phase 2 — **Timeline fence** kernel object: **landed** (syscalls 41–43, QEMU-proven).
+- Phase 3 — **`nexus-driverkit`** userland lib (submit ring + fence + backpressure + buffers): **landed** (21 host goldens).
+- Phase 4 — consumers: **landed** (gpud `CtrlQueue` on `SubmitRing`, boot-verified ~64µs presents; windowd pacing blocks on the timer-cap, `spin_hz` 2320→0). The *full* waitset present-scheduler (multi-source) is a follow-up gated on a gpud completion fence.
+- Phase 5 — **clean idle/deadline** (retire the degenerate-spin): **deferred** — see ADR-0033 (load-bearing, riskiest, and its user-visible payoff is already banked by Phase 4).
 
 ## Context
 
@@ -178,9 +178,10 @@ deterministic pacing (the timer's *fixed* cap-deadline drives it via the working
 
 ## Implementation checklist
 
-- [ ] Phase 1: Waitset object + syscalls 38–40 + nexus-abi + host tests (additive).
-- [ ] Phase 2: Timeline fence object + nexus-abi + host tests.
-- [ ] Phase 3: `nexus-driverkit` crate (ring + fence + buffers + QoS) + host goldens.
-- [ ] Phase 4: gpud on DriverKit (reactive) + windowd present-scheduler waitset.
-- [ ] Phase 5: clean idle/deadline (retire degenerate-spin) + SMP reruns.
-- [ ] ADR-0033 + `docs/architecture` spine doc; header/test audit.
+- [x] Phase 1: Waitset object + syscalls 38–40 + nexus-abi + host tests (additive).
+- [x] Phase 2: Timeline fence object + syscalls 41–43 + nexus-abi + host tests.
+- [x] Phase 3: `nexus-driverkit` crate (ring + fence + buffers + QoS) + host goldens.
+- [x] Phase 4: gpud on DriverKit (`SubmitRing`) + windowd timer-cap pacing (`spin_hz`→0).
+      Follow-up: full windowd waitset present-scheduler once gpud signals a completion fence.
+- [ ] Phase 5: clean idle/deadline (retire degenerate-spin) + SMP reruns — **deferred** (ADR-0033).
+- [x] ADR-0033 + `docs/architecture/02-selftest-and-ci.md` host-test section.
