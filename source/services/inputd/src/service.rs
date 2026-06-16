@@ -354,14 +354,18 @@ impl<R: RouteTarget> InputdService<R> {
             false
         };
 
+        // windowd hit-tests in display space (see `windowd::interaction`: "ships a
+        // display-space pointer", "every rect is in display pixels"). Ship the
+        // full-resolution display position — NOT the coarse 64×48 route cell. The old
+        // `display_to_route` quantization froze the cursor within a ~20px cell and
+        // jumped it a whole cell at the boundary (the "bewegt sich nicht / springt" bug).
         if absolute_x.is_some() || absolute_y.is_some() {
             let display = self.pointer_state.apply_absolute(absolute_x, absolute_y);
-            let route = self.pointer_transform.display_to_route(display);
             let delivery = self
                 .router
-                .try_coalesce_pointer_move(route.x, route.y)
+                .try_coalesce_pointer_move(display.x, display.y)
                 .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
+            let dispatch = InputDispatch::PointerMove { delivery, x: display.x, y: display.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = pointer_source.or(Some(PointerSource::TabletAbsolute));
         } else if dx != 0 || dy != 0 {
@@ -374,12 +378,11 @@ impl<R: RouteTarget> InputdService<R> {
                 self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?,
                 self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?,
             );
-            let route = self.pointer_transform.display_to_route(display);
             let delivery = self
                 .router
-                .try_coalesce_pointer_move(route.x, route.y)
+                .try_coalesce_pointer_move(display.x, display.y)
                 .map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerMove { delivery, x: route.x, y: route.y };
+            let dispatch = InputDispatch::PointerMove { delivery, x: display.x, y: display.y };
             self.push_dispatch(dispatch.clone())?;
             self.active_pointer_source = Some(PointerSource::MouseRelative);
         }
@@ -413,11 +416,13 @@ impl<R: RouteTarget> InputdService<R> {
         wheel_delta: i32,
     ) -> Result<(), InputdError> {
         if pointer_down {
-            let route = self.pointer_state.route_position(self.pointer_transform);
-            self.validate_pointer_bounds(route.x, route.y)?;
+            // Display space — same rationale as pointer-move: windowd hit-tests clicks
+            // against its display-pixel rects.
+            let display = self.pointer_state.display_position();
+            self.validate_pointer_bounds(display.x, display.y)?;
             let delivery =
-                self.router.route_pointer_down(route.x, route.y).map_err(InputdError::from)?;
-            let dispatch = InputDispatch::PointerDown { delivery, x: route.x, y: route.y };
+                self.router.route_pointer_down(display.x, display.y).map_err(InputdError::from)?;
+            let dispatch = InputDispatch::PointerDown { delivery, x: display.x, y: display.y };
             self.push_dispatch(dispatch.clone())?;
         }
         if wheel_delta != 0 {

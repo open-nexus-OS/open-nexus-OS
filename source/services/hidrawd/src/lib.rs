@@ -20,9 +20,9 @@ mod service;
 mod types;
 
 pub use adapter::{
-    normalize_ingress_batch, resolve_absolute_axis_max, IngressGateEvidence, IngressNormalization,
-    IngressRole, PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
-    QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
+    normalize_ingress_batch, normalize_ingress_into, resolve_absolute_axis_max,
+    IngressGateEvidence, IngressNormalization, IngressRole, PointerSource, RawIngressBatch,
+    RawIngressEvent, RawIngressEventKind, QEMU_ABSOLUTE_AXIS_FALLBACK_MAX,
 };
 pub use error::HidrawdError;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

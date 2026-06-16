@@ -44,6 +44,10 @@ pub struct HidrawdService {
     keyboard: Option<KeyboardSource>,
     mouse: Option<MouseSource>,
     recent_batches: Vec<HidBatch>,
+    /// When set, `ingest_*` skip recording into `recent_batches`. Inverted so the
+    /// `Default`/`new` default (`false`) keeps recording on for host/test code; the
+    /// OS hot path opts out via [`HidrawdService::disable_recent_recording`].
+    suppress_recent: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +65,21 @@ struct MouseSource {
 impl HidrawdService {
     #[must_use]
     pub fn new() -> Self {
-        Self { keyboard: None, mouse: None, recent_batches: Vec::new() }
+        Self {
+            keyboard: None,
+            mouse: None,
+            recent_batches: Vec::new(),
+            suppress_recent: false,
+        }
+    }
+
+    /// Stop recording ingested batches into `recent_batches`. The OS live loop reads
+    /// input via `normalize_ingress_into` and never inspects `recent_batches`, so the
+    /// recording there is pure overhead — a per-batch `Vec` clone on the non-freeing
+    /// bump heap that exhausts it under sustained input (the hidrawd OOM). Host/test
+    /// code leaves recording on so `recent_batches()` keeps working.
+    pub fn disable_recent_recording(&mut self) {
+        self.suppress_recent = true;
     }
 
     pub fn register_keyboard(&mut self, device_id: DeviceId) {
@@ -100,7 +118,7 @@ impl HidrawdService {
             HidDeviceKind::Keyboard,
             parse_keyboard(&mut keyboard.parser, timestamp, report)?,
         );
-        self.push_batch(batch.clone());
+        self.record_recent(&batch);
         Ok(batch)
     }
 
@@ -122,7 +140,7 @@ impl HidrawdService {
             PointerSource::MouseRelative,
             parse_mouse(&mut mouse.parser, timestamp, report)?,
         );
-        self.push_batch(batch.clone());
+        self.record_recent(&batch);
         Ok(batch)
     }
 
@@ -153,13 +171,20 @@ impl HidrawdService {
             }
         }
         let batch = HidBatch::new(device_id, kind, events);
-        self.push_batch(batch.clone());
+        self.record_recent(&batch);
         Ok(batch)
     }
 
     #[must_use]
     pub fn recent_batches(&self) -> &[HidBatch] {
         self.recent_batches.as_slice()
+    }
+
+    fn record_recent(&mut self, batch: &HidBatch) {
+        if self.suppress_recent {
+            return;
+        }
+        self.push_batch(batch.clone());
     }
 
     fn push_batch(&mut self, batch: HidBatch) {

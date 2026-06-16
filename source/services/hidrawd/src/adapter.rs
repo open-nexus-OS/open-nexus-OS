@@ -248,20 +248,62 @@ pub fn normalize_ingress_batch(
 fn batch_to_wire_events(batch: &HidBatch) -> Vec<WireHidEvent> {
     let mut out = Vec::with_capacity(batch.events().len());
     for event in batch.events() {
-        let kind = match event.kind() {
-            HidEventKind::Key => EVENT_KIND_KEY,
-            HidEventKind::Rel => EVENT_KIND_REL,
-            HidEventKind::Abs => EVENT_KIND_ABS,
-            HidEventKind::Btn => EVENT_KIND_BTN,
-        };
-        out.push(WireHidEvent {
-            kind,
-            code: event.code().raw(),
-            value: event.value().raw(),
-            timestamp_ns: event.timestamp().raw(),
-        });
+        out.push(wire_event_from_hid(event));
     }
     out
+}
+
+/// Map one normalized `HidEvent` to its wire form. The single source of the
+/// HID→wire encoding, shared by the Vec-returning host path
+/// ([`batch_to_wire_events`]) and the zero-alloc OS path
+/// ([`normalize_ingress_into`]) so the two cannot diverge.
+fn wire_event_from_hid(event: &HidEvent) -> WireHidEvent {
+    let kind = match event.kind() {
+        HidEventKind::Key => EVENT_KIND_KEY,
+        HidEventKind::Rel => EVENT_KIND_REL,
+        HidEventKind::Abs => EVENT_KIND_ABS,
+        HidEventKind::Btn => EVENT_KIND_BTN,
+    };
+    WireHidEvent {
+        kind,
+        code: event.code().raw(),
+        value: event.value().raw(),
+        timestamp_ns: event.timestamp().raw(),
+    }
+}
+
+/// Allocation-free ingress normalization for the OS hot path: translate raw
+/// events straight into caller-owned scratch buffers (cleared + refilled, so a
+/// reused pair allocates nothing in steady state) and return the gate evidence.
+///
+/// Shares [`translate_raw_event`] + [`wire_event_from_hid`] with the Vec-based
+/// [`normalize_ingress_batch`] (host path), so normalization is identical. It
+/// deliberately bypasses `HidBatch`/`HidrawdService::recent_batches` — those exist
+/// only for host diagnostics and would each cost a per-batch `Vec` clone on the
+/// non-freeing bump heap (the hidrawd OOM, "maus kaum benutzbar"). The caller fills
+/// the `WireHidBatch` header (device kind/id, pointer source, abs maxima) from
+/// `wire_out` + the returned evidence.
+pub fn normalize_ingress_into(
+    role: IngressRole,
+    raw: &[RawIngressEvent],
+    timestamp: TimestampNs,
+    hid_scratch: &mut Vec<HidEvent>,
+    wire_out: &mut Vec<WireHidEvent>,
+) -> IngressGateEvidence {
+    hid_scratch.clear();
+    for raw_event in raw {
+        if let Some(event) = translate_raw_event(role, *raw_event, timestamp) {
+            hid_scratch.push(event);
+        }
+    }
+    wire_out.clear();
+    for event in hid_scratch.iter() {
+        wire_out.push(wire_event_from_hid(event));
+    }
+    IngressGateEvidence::new(
+        raw.len().min(u16::MAX as usize) as u16,
+        wire_out.len().min(u16::MAX as usize) as u16,
+    )
 }
 
 fn translate_raw_event(

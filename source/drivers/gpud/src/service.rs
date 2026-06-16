@@ -360,21 +360,7 @@ fn service_requests(
                             let hot_y =
                                 u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                             let bgra = &frame[17..];
-                            // Store the sprite for the scene-CB BlendCursor path.
-                            // windowd composites the cursor into the per-present CB
-                            // (reactive: one present per move, no racing). The gpud
-                            // save-under path raced windowd's presents (flicker) and
-                            // flushed per move (UART/loop storm), so it is disabled
-                            // — reply SW so windowd keeps the BlendCursor path.
-                            // (`hot_x`/`hot_y` are applied by windowd's BlendCursor.)
-                            let _ = (hot_x, hot_y);
-                            match backend.store_cursor_sprite(bgra, w, h) {
-                                Ok(()) => {
-                                    let _ = debug_println("gpud: cursor uploaded");
-                                    (STATUS_OK, Some(CURSOR_REPLY_SW))
-                                }
-                                Err(_) => (STATUS_DEVICE_ERROR, None),
-                            }
+                            arm_cursor(&mut backend, bgra, w, h, hot_x, hot_y)
                         }
                     }
                     _ => (handle_frame(&mut backend, frame), None),
@@ -611,6 +597,40 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
     }
 }
 
+/// Handle an `OP_UPLOAD_CURSOR` payload: on the CPU/mmio scanout, arm the virtio-gpu
+/// **hardware cursor overlay** (cursor virtqueue) so the host composites the pointer at
+/// scanout — cursor moves then never touch windowd's present pipeline (reactive, decoupled).
+/// Reply `CURSOR_REPLY_HW` so windowd suppresses its software BlendCursor.
+///
+/// On the virgl GL scanout `upload_cursor`'s `transfer_to_host` blanks the present, so there
+/// (and if arming the overlay fails for any reason) we fall back to storing the sprite for
+/// windowd's BlendCursor and reply `CURSOR_REPLY_SW` — preserving the prior behaviour.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn arm_cursor(
+    backend: &mut VirtioGpuBackend,
+    bgra: &[u8],
+    w: u32,
+    h: u32,
+    hot_x: u32,
+    hot_y: u32,
+) -> (u8, Option<u32>) {
+    #[cfg(not(feature = "virgl"))]
+    if backend.upload_cursor(bgra, w, h, hot_x, hot_y).is_ok() {
+        let _ = debug_println("gpud: hw cursor armed");
+        return (STATUS_OK, Some(CURSOR_REPLY_HW));
+    }
+    // virgl GL scanout, or HW arm failed: software BlendCursor fallback (hot spot
+    // applied by windowd). `hot_x`/`hot_y` are unused on this path.
+    let _ = (hot_x, hot_y);
+    match backend.store_cursor_sprite(bgra, w, h) {
+        Ok(()) => {
+            let _ = debug_println("gpud: cursor uploaded");
+            (STATUS_OK, Some(CURSOR_REPLY_SW))
+        }
+        Err(_) => (STATUS_DEVICE_ERROR, None),
+    }
+}
+
 fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
     match backend.present_scanout_damage(rect) {
         Ok(()) => STATUS_OK,
@@ -672,6 +692,17 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             // the hardware-cursor overlay whose resource transfer blanks the GL
             // present). windowd also sends OP_PRESENT_DAMAGE on move, re-rendering.
             backend.set_pointer_pos(x, y);
+            // HW cursor overlay armed → reposition via the cursor virtqueue
+            // (submit-no-response): no scanout re-render, no present, no per-move log.
+            // This is the reactive hot path — cursor moves are fully decoupled from
+            // compositing.
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            if backend.hw_cursor_active() && x >= 0 && y >= 0 {
+                return match backend.move_hw_cursor(x as u32, y as u32) {
+                    Ok(()) => STATUS_OK,
+                    Err(_) => STATUS_DEVICE_ERROR,
+                };
+            }
             // Legacy save-under SW path (no-op while cursor ownership is unclaimed).
             if backend.cursor_move(x, y).is_err() {
                 return STATUS_DEVICE_ERROR;

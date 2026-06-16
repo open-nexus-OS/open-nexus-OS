@@ -42,14 +42,21 @@ fn fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
     (server, caller, surface)
 }
 
+// Full-display fixture at the production bootstrap resolution (1280×800), so the
+// windowd router bounds (= inputd's route space) match the live display space. This
+// mirrors the real path where inputd ships display-space pointer coordinates and
+// windowd hit-tests them directly — no 64×48 route quantization (TASK #52).
 fn full_surface_fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
     let caller = CallerCtx::from_service_metadata(0x55);
-    let mut server =
-        WindowServer::new(WindowdConfig { width: 64, height: 48, hz: 60 }).expect("server");
-    let buffer =
-        SurfaceBuffer::solid(caller, 50, 64, 48, [0x24, 0x28, 0x34, 0xff]).expect("buffer");
+    let width = windowd::VISIBLE_BOOTSTRAP_WIDTH;
+    let height = windowd::VISIBLE_BOOTSTRAP_HEIGHT;
+    let mut server = WindowServer::new(WindowdConfig { width, height, hz: 60 }).expect("server");
+    let buffer = SurfaceBuffer::solid(caller, 50, width, height, [0x24, 0x28, 0x34, 0xff])
+        .expect("buffer");
     let surface = server.create_surface(caller, buffer.clone()).expect("surface");
-    server.queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, 64, 48)]).expect("queue");
+    server
+        .queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, width, height)])
+        .expect("queue");
     server
         .commit_scene(
             CallerCtx::system(),
@@ -510,8 +517,7 @@ fn tablet_absolute_raw_ingress_pipeline_blocks_following_relative_mouse_batches(
     assert!(matches!(
         tablet_dispatches.as_slice(),
         [InputDispatch::PointerMove { x, y, .. }]
-            if (*x, *y)
-                == (inputd::VISIBLE_INPUT_CURSOR_END_X, inputd::VISIBLE_INPUT_CURSOR_END_Y)
+            if (*x, *y) == (target_display.x, target_display.y)
     ));
 
     let relative_wire = normalize_wire_batch(
@@ -575,11 +581,7 @@ fn tablet_absolute_source_blocks_following_relative_motion_in_live_mixed_stream(
     assert!(matches!(
         absolute_dispatches.as_slice(),
         [InputDispatch::PointerMove { x, y, .. }]
-            if (*x, *y)
-                == (
-                    inputd::VISIBLE_INPUT_CURSOR_END_X,
-                    inputd::VISIBLE_INPUT_CURSOR_END_Y
-                )
+            if (*x, *y) == (target_display.x, target_display.y)
     ));
     let relative_dispatches = inputd.apply_hid_batch(&relative_batch).expect("relative dispatches");
 
@@ -622,7 +624,7 @@ fn tablet_absolute_source_supports_sustained_live_motion_across_multiple_batches
         let dispatches = inputd.apply_hid_batch(&batch).expect("dispatches");
         assert!(matches!(
             dispatches.as_slice(),
-            [InputDispatch::PointerMove { x, y, .. }] if (*x, *y) == (route.x, route.y)
+            [InputDispatch::PointerMove { x, y, .. }] if (*x, *y) == (display.x, display.y)
         ));
         assert_eq!(inputd.display_pointer_position(), display);
         assert_eq!(inputd.active_pointer_source(), Some(hidrawd::PointerSource::TabletAbsolute));
@@ -893,11 +895,7 @@ fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
     assert!(matches!(
         dispatches.as_slice(),
         [InputDispatch::PointerMove { x, y, .. }]
-            if (*x, *y)
-                == (
-                    inputd::VISIBLE_INPUT_CURSOR_END_X,
-                    inputd::VISIBLE_INPUT_CURSOR_END_Y
-                )
+            if (*x, *y) == (target_display.x, target_display.y)
     ));
     assert_eq!(inputd.display_pointer_position(), target_display);
     // Hit-testing moved to windowd (the compositor owns it); inputd only proves
@@ -907,10 +905,8 @@ fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
     assert_eq!(delivered.len(), 1);
     assert!(matches!(
         delivered[0].kind,
-        windowd::InputEventKind::PointerMove {
-            x: inputd::VISIBLE_INPUT_CURSOR_END_X,
-            y: inputd::VISIBLE_INPUT_CURSOR_END_Y
-        }
+        windowd::InputEventKind::PointerMove { x, y }
+            if (x, y) == (target_display.x, target_display.y)
     ));
 }
 

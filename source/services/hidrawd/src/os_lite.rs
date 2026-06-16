@@ -13,10 +13,10 @@ extern crate alloc;
 use alloc::{format, vec::Vec};
 use core::time::Duration;
 
-use hid::TimestampNs;
+use hid::{HidEvent, TimestampNs};
 use input_live_protocol::{
-    encode_push_hid_batch_into, WireHidBatch, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
-    MAX_HID_BATCH_FRAME_LEN,
+    encode_push_hid_batch_into, WireHidBatch, WireHidEvent, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
+    MAX_HID_BATCH_FRAME_LEN, POINTER_SOURCE_NONE,
 };
 use nexus_abi::{
     cap_clone, cap_close, debug_println, ipc_recv_v1, irq_bind, irq_complete, nsec, yield_, Cap,
@@ -29,9 +29,9 @@ use virtio_input::{
 };
 
 use crate::{
-    classify_live_route_send_error, normalize_ingress_batch, resolve_absolute_axis_max, DeviceId,
+    classify_live_route_send_error, normalize_ingress_into, resolve_absolute_axis_max, DeviceId,
     HidrawdService, IngressGateEvidence, IngressRole, LiveRouteSendAction, LiveRouteSendErrorClass,
-    PointerSource, RawIngressBatch, RawIngressEvent, RawIngressEventKind,
+    PointerSource, RawIngressEvent, RawIngressEventKind,
 };
 
 const INPUT_CAP_SLOTS: [u32; 3] = [50, 51, 52];
@@ -42,6 +42,12 @@ const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // Caps are pre-granted by init before resume — no yield needed.
     let mut service = HidrawdService::new();
+    // The live loop reads input via `normalize_ingress_into` and never inspects
+    // `recent_batches`; recording there only burns the non-freeing bump heap.
+    service.disable_recent_recording();
+    // Reusable per-poll buffers — cleared + refilled each iteration so the hot path
+    // allocates nothing in steady state (the hidrawd OOM fix, "maus kaum benutzbar").
+    let mut scratch = IngressScratch::new();
     let mut missing_slots_logged = [false; INPUT_CAP_SLOTS.len()];
     let mut live_devices = open_live_devices(&mut missing_slots_logged);
     let mut client = route_inputd_blocking();
@@ -109,7 +115,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
 
         let mut sent_any = false;
         for device in &mut live_devices {
-            let Some(polled) = device.poll_batch(&mut service) else {
+            let Some(polled) = device.poll_batch(&mut service, &mut scratch) else {
                 continue;
             };
             chain.raw_batches = chain.raw_batches.saturating_add(1);
@@ -140,20 +146,38 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 debug_println("hidrawd: ingress adapter ready")?;
                 normalized_gate_emitted = true;
             }
-            let Some(batch) = polled.wire_batch else {
+            let Some(meta) = polled.wire_meta else {
                 chain.wire_batches_skipped = chain.wire_batches_skipped.saturating_add(1);
                 continue;
             };
             chain.wire_batches = chain.wire_batches.saturating_add(1);
             let mut frame_buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
-            let Some(frame_len) = encode_push_hid_batch_into(&batch, &mut frame_buf) else {
+            // Move the reusable wire-event buffer into a transient batch for encoding,
+            // then move it straight back so its heap capacity survives to the next poll
+            // (zero steady-state alloc). `mem::take` leaves an empty `Vec` (no alloc).
+            let mut batch = WireHidBatch {
+                device_kind: meta.device_kind,
+                device_id: meta.device_id,
+                pointer_source: meta.pointer_source,
+                abs_max_x: meta.abs_max_x,
+                abs_max_y: meta.abs_max_y,
+                raw_event_count: meta.raw_event_count,
+                normalized_event_count: meta.normalized_event_count,
+                events: core::mem::take(&mut scratch.wire),
+            };
+            let encoded = encode_push_hid_batch_into(&batch, &mut frame_buf);
+            scratch.wire = core::mem::take(&mut batch.events);
+            let Some(frame_len) = encoded else {
                 continue;
             };
             let frame = &frame_buf[..frame_len];
             let Some(current_client) = client.as_ref() else {
                 break;
             };
-            while current_client.recv(Wait::NonBlocking).is_ok() {}
+            // Drain inputd's acks into a stack buffer (the allocating `recv` would leak
+            // a `Vec` per ack on the non-freeing bump heap).
+            let mut drain = [0u8; 64];
+            while current_client.recv_into(Wait::NonBlocking, &mut drain).is_ok() {}
             match current_client.send(&frame, Wait::NonBlocking) {
                 Ok(()) => {
                     if !send_ok_emitted {
@@ -423,15 +447,25 @@ enum LiveDeviceClass {
 }
 
 impl LiveDevice {
-    fn poll_batch(&mut self, service: &mut HidrawdService) -> Option<PolledDeviceFrame> {
-        let Ok(Some(polled)) = self.driver.poll_batch() else {
+    /// Poll one device into the shared reusable `scratch` buffers (zero steady-state
+    /// alloc). On success `scratch.wire` holds the normalized wire events; the returned
+    /// frame carries the `WireHidBatch` header fields the caller needs to emit them.
+    fn poll_batch(
+        &mut self,
+        service: &mut HidrawdService,
+        scratch: &mut IngressScratch,
+    ) -> Option<PolledDeviceFrame> {
+        // Drain the device used-ring into the reusable raw buffer; bail if nothing new.
+        if !self.driver.poll_batch_into(&mut scratch.raw_input).ok()? {
             return None;
-        };
+        }
         let timestamp = TimestampNs::new(nsec().unwrap_or(0));
-        let raw_events: Vec<RawIngressEvent> =
-            polled.events().iter().copied().map(raw_ingress_event).collect();
+        scratch.raw_ingress.clear();
+        scratch
+            .raw_ingress
+            .extend(scratch.raw_input.iter().copied().map(raw_ingress_event));
         let active_class =
-            infer_device_class(self.provisional_class, self.confirmed_class, &raw_events);
+            infer_device_class(self.provisional_class, self.confirmed_class, &scratch.raw_ingress);
         let active_pointer_source = pointer_source_for_class(active_class);
         let active_role = ingress_role_for_source(active_pointer_source);
         if self.confirmed_class != Some(active_class) {
@@ -462,41 +496,79 @@ impl LiveDevice {
             }
             self.confirmed_class = Some(active_class);
         }
-        let raw_batch =
-            RawIngressBatch::with_pointer_source(active_role, active_pointer_source, raw_events);
-        self.abs_max_x =
-            resolve_absolute_axis_max(active_pointer_source, self.abs_max_x, raw_batch.events(), 0);
-        self.abs_max_y =
-            resolve_absolute_axis_max(active_pointer_source, self.abs_max_y, raw_batch.events(), 1);
-        let Ok(normalized) = normalize_ingress_batch(
-            service,
-            self.device_id,
-            &raw_batch,
-            timestamp,
+        self.abs_max_x = resolve_absolute_axis_max(
+            active_pointer_source,
             self.abs_max_x,
+            &scratch.raw_ingress,
+            0,
+        );
+        self.abs_max_y = resolve_absolute_axis_max(
+            active_pointer_source,
             self.abs_max_y,
-        ) else {
-            return None;
-        };
-        let wire_batch = normalized.into_wire_batch().map(|mut batch| {
-            batch.device_kind = wire_kind_for(active_role);
-            batch
+            &scratch.raw_ingress,
+            1,
+        );
+        // Disjoint field borrows: `raw_ingress` (read) + `hid`/`wire` (written).
+        let evidence = normalize_ingress_into(
+            active_role,
+            &scratch.raw_ingress,
+            timestamp,
+            &mut scratch.hid,
+            &mut scratch.wire,
+        );
+        let wire_meta = (evidence.normalized_event_count() > 0).then(|| WireMeta {
+            device_kind: wire_kind_for(active_role),
+            device_id: self.device_id.raw(),
+            pointer_source: active_pointer_source
+                .map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
+            abs_max_x: self.abs_max_x,
+            abs_max_y: self.abs_max_y,
+            raw_event_count: evidence.raw_event_count(),
+            normalized_event_count: evidence.normalized_event_count(),
         });
-        Some(PolledDeviceFrame {
-            evidence: IngressGateEvidence::new(
-                raw_batch.events().len().min(u16::MAX as usize) as u16,
-                wire_batch.as_ref().map_or(0, |batch| batch.normalized_event_count),
-            ),
-            pointer_source: active_pointer_source,
-            wire_batch,
-        })
+        Some(PolledDeviceFrame { evidence, pointer_source: active_pointer_source, wire_meta })
     }
 }
 
+/// Reusable per-poll scratch buffers for the live ingest loop. Each is `clear()`ed
+/// and refilled per poll, so capacity is retained and the hot path allocates nothing
+/// in steady state (the hidrawd OOM fix). Pre-sized to comfortably hold one frame
+/// (`MAX_HID_BATCH_FRAME_LEN` bounds a batch to ≤15 events).
+struct IngressScratch {
+    raw_input: Vec<RawInputEvent>,
+    raw_ingress: Vec<RawIngressEvent>,
+    hid: Vec<HidEvent>,
+    wire: Vec<WireHidEvent>,
+}
+
+impl IngressScratch {
+    fn new() -> Self {
+        Self {
+            raw_input: Vec::with_capacity(64),
+            raw_ingress: Vec::with_capacity(64),
+            hid: Vec::with_capacity(64),
+            wire: Vec::with_capacity(64),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 struct PolledDeviceFrame {
     evidence: IngressGateEvidence,
     pointer_source: Option<PointerSource>,
-    wire_batch: Option<WireHidBatch>,
+    /// `Some` when `scratch.wire` holds events to emit; carries the wire header fields.
+    wire_meta: Option<WireMeta>,
+}
+
+#[derive(Clone, Copy)]
+struct WireMeta {
+    device_kind: u8,
+    device_id: u16,
+    pointer_source: u8,
+    abs_max_x: i32,
+    abs_max_y: i32,
+    raw_event_count: u16,
+    normalized_event_count: u16,
 }
 
 fn infer_device_class(

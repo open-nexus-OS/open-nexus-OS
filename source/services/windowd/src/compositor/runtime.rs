@@ -1202,6 +1202,7 @@ impl DisplayServerRuntime {
                         self.chat_blur_cache_valid = false;
                         let b = self.wm.chat_window().bounds;
                         self.erase_chat_region(b.x, b.y);
+                        self.note_chat_button_dirty();
                     } else {
                         self.on_chat_window_closed(crate::wm::WindowId::Chat);
                     }
@@ -1543,6 +1544,21 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: chat window close");
         let b = self.wm.chat_window().bounds;
         self.erase_chat_region(b.x, b.y);
+        self.note_chat_button_dirty();
+    }
+
+    /// Damage the chat toggle button's rect so the incremental composite redraws its
+    /// active-state tint after a chat-visibility change (its body alpha tracks
+    /// `chat_window().visible`). Without this the gated button block would keep the
+    /// stale tint until another damage rect happened to touch it.
+    fn note_chat_button_dirty(&mut self) {
+        let cb = crate::interaction::chat_button_rect(self.mode.width, self.mode.height);
+        self.queue_gpu_blit_rect(DamageRect {
+            x: cb.x,
+            y: cb.y,
+            width: cb.width,
+            height: cb.height,
+        });
     }
 
     /// A drag moved the chat window: erase the old region (a cheap GPU blit of
@@ -2874,6 +2890,44 @@ impl DisplayServerRuntime {
         let sidebar_composite_cache_valid = self.sidebar_composite_cache_valid;
         let mut built_sidebar_composite_cache = false;
 
+        // Incremental overlays: a static glass overlay (hamburger, chat button,
+        // sidebar) only needs re-rendering when a damage rect actually overwrote its
+        // region — step 1 above blits ONLY the damage rects, so an untouched overlay
+        // persists on the display plane. Every interaction that changes an overlay
+        // queues that overlay's rect (note_button_hover_changed, sidebar open/slide,
+        // chat-visibility toggle), so "region touched" is the exact, complete redraw
+        // condition. This keeps a far-away hover/card change off the glass GPU work
+        // (the per-present cost that made the UI feel unresponsive once the cursor was
+        // decoupled to the HW overlay).
+        let overlaps = |x0: i32, y0: i32, x1: i32, y1: i32| -> bool {
+            rects.iter().take(rect_count).any(|r| {
+                let rx1 = (r.x + r.width) as i32;
+                let ry1 = (r.y + r.height) as i32;
+                (r.x as i32) < x1 && rx1 > x0 && (r.y as i32) < y1 && ry1 > y0
+            })
+        };
+        let hb = crate::interaction::button_rect(mode.width);
+        let button_touched = overlaps(
+            hb.x as i32,
+            hb.y as i32,
+            (hb.x + hb.width) as i32,
+            (hb.y + hb.height) as i32,
+        );
+        let cbtn = crate::interaction::chat_button_rect(mode.width, mode.height);
+        let chat_btn_touched = overlaps(
+            cbtn.x as i32,
+            cbtn.y as i32,
+            (cbtn.x + cbtn.width) as i32,
+            (cbtn.y + cbtn.height) as i32,
+        );
+        let sidebar_touched = {
+            let sx = mode
+                .width
+                .saturating_sub(SIDEBAR_WIDTH)
+                .saturating_add(scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32);
+            overlaps(sx as i32, 0, mode.width as i32, mode.height as i32)
+        };
+
         self.scene_cb.clear();
         {
             let mut encoder = self
@@ -3038,7 +3092,10 @@ impl DisplayServerRuntime {
                 .saturating_sub(SIDEBAR_WIDTH)
                 .saturating_add(scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32);
             let button_covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= button_x;
-            if button_blit_w > 0 && !button_covered {
+            // Incremental: only redraw the glass button when a damage rect overwrote
+            // its region (hover spring / handoff / cache build all queue the button
+            // rect). A far-away change leaves the button untouched on the display plane.
+            if button_blit_w > 0 && !button_covered && (button_touched || !btn_blur_cache_valid) {
                 if btn_blur_cache_valid {
                     // Fast path: restore pre-blurred background from Plane 3 cache.
                     let _ = encoder.try_blit_absolute(
@@ -3162,7 +3219,9 @@ impl DisplayServerRuntime {
                 use crate::interaction::{chat_button_rect, CHAT_BUTTON_RADIUS};
                 let cb = chat_button_rect(mode.width, mode.height);
                 let covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= cb.x;
-                if cb.width > 0 && !covered {
+                // Incremental: only redraw when its region was overwritten (chat-visibility
+                // toggle queues the chat-button rect; handoff damages full screen).
+                if cb.width > 0 && !covered && chat_btn_touched {
                     let gt = crate::assets::GLASS_TINT;
                     let ge = crate::assets::GLASS_EDGE;
                     let cb_rect =
@@ -3241,7 +3300,13 @@ impl DisplayServerRuntime {
             //    every frame. Cache spans the full 320px at SIDEBAR_REST_X=960 so all
             //    visible sub-strips during the slide animation are covered.
             let sidebar_opacity = scene.sidebar_opacity;
-            if sidebar_opacity > 0.01 {
+            // Incremental: redraw only when sliding/opening (animation queues the
+            // sidebar rect each tick), when a damage rect overwrote it, or while a
+            // blur/composite cache still needs building. A settled, cached, untouched
+            // sidebar persists on the display plane — no per-present blur/SDF work.
+            if sidebar_opacity > 0.01
+                && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
+            {
                 let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
                 let sidebar_x = mode
                     .width

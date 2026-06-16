@@ -511,10 +511,27 @@ impl MappedVirtioInputDevice {
 
     pub fn poll_batch(&mut self) -> Result<Option<PolledBatch>, VirtioInputError> {
         let mut events = Vec::new();
+        if self.poll_batch_into(&mut events)? {
+            Ok(Some(PolledBatch::new(self.slot, self.role, events)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Drain the used-ring into a caller-provided buffer, returning whether any
+    /// non-SYN events were produced. Allocation-free counterpart to [`poll_batch`]:
+    /// the buffer is cleared and refilled, so a caller that reuses one `Vec` across
+    /// polls allocates nothing in steady state — required on the non-freeing bump
+    /// heap where a per-poll `Vec` would monotonically exhaust the heap (hidrawd OOM).
+    pub fn poll_batch_into(
+        &mut self,
+        out: &mut Vec<RawInputEvent>,
+    ) -> Result<bool, VirtioInputError> {
+        out.clear();
         let mut requeued = false;
         while let Some((desc_id, raw_event)) = self.queue.take_used_event()? {
             if !raw_event.is_syn_report() {
-                events.push(raw_event);
+                out.push(raw_event);
             }
             self.queue.requeue_desc(desc_id, &self.bus)?;
             requeued = true;
@@ -522,10 +539,7 @@ impl MappedVirtioInputDevice {
         if requeued {
             self.bus.write(REG_QUEUE_NOTIFY, INPUT_EVENT_QUEUE_INDEX);
         }
-        if events.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(PolledBatch::new(self.slot, self.role, events)))
+        Ok(!out.is_empty())
     }
 }
 
