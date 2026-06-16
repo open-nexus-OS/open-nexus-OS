@@ -2019,15 +2019,13 @@ struct CtrlQueue {
     /// `resp_va + i*RESP_SLOT_SIZE` / `resp_pa + i*RESP_SLOT_SIZE`.
     resp_va: usize,
     resp_pa: u64,
-    /// Number of command slots in this ring (control = `RING_SLOTS`, cursor = 1).
-    slots: u16,
-    /// Round-robin hint for the next free-slot search.
-    next_slot: RingSlot,
-    /// Per-slot in-flight bitmask (bit `i` = slot `i` submitted, not yet completed).
-    /// A slot is freed only when its used-ring entry is harvested, so it is never
-    /// reused while QEMU may still be reading its buffers — the pipelining safety
-    /// invariant. `RING_SLOTS ≤ 32` fits a `u32`.
-    busy: u32,
+    /// Slot lifecycle — in-flight set, round-robin allocation, backpressure — provided by
+    /// the shared DriverKit submit ring (RFC-0033 `nexus_driverkit::SubmitRing`, the lib that
+    /// generalises this very ring). A slot is reserved on `try_alloc` and freed only when its
+    /// used-ring entry is harvested (`complete`), so it is never reused while QEMU may still
+    /// be reading its buffers — the pipelining safety invariant. The virtio specifics
+    /// (descriptor pairs, cmd/resp pools, the `last_used` cursor) stay here in gpud.
+    ring: nexus_driverkit::SubmitRing,
     /// Device `used.idx` already harvested — the consumer cursor into `used.ring`.
     last_used: u16,
     /// Device MMIO base — needed to drain/ACK InterruptStatus (0x60/0x64) on the
@@ -2230,10 +2228,10 @@ impl VirtioGpuBackend {
     pub(crate) fn ctrl_batch_end(&mut self) -> Result<(), GfxError> {
         self.ctrl_batch = false;
         let queue = self.ctrlq.as_mut().ok_or(GfxError::DeviceNotFound)?;
-        let before = queue.busy;
+        let before = queue.ring.in_flight();
         queue.harvest();
         if before != 0
-            && queue.busy != before
+            && queue.ring.in_flight() != before
             && !PIPELINE_HARVEST_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
         {
             let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_OK);
@@ -3415,9 +3413,7 @@ impl CtrlQueue {
             cmd_pa: cmd_info.base,
             resp_va: resp_va_base,
             resp_pa: resp_info.base,
-            slots: slots as u16,
-            next_slot: RingSlot(0),
-            busy: 0,
+            ring: nexus_driverkit::SubmitRing::new(slots),
             last_used: 0,
             mmio_base,
             irq_num: 0,
@@ -3467,25 +3463,25 @@ impl CtrlQueue {
             let elem = unsafe {
                 core::ptr::read_volatile(&(*self.used).ring[self.last_used as usize % QUEUE_LEN])
             };
-            let slot = (elem.id / 2) as u16;
-            if slot < self.slots {
-                self.busy &= !(1u32 << slot);
+            let slot = (elem.id / 2) as usize;
+            if slot < self.ring.capacity() {
+                // Free the slot. Idempotent: a spurious/duplicate completion for an
+                // already-free slot is ignored (`complete` errors, no double-count) — same
+                // as the old `busy &= !(1<<slot)` bitmask clear.
+                let _ = self.ring.complete(nexus_driverkit::Slot(slot as u8));
             }
             self.last_used = self.last_used.wrapping_add(1);
         }
     }
 
-    /// Round-robin search for a free slot (harvest first). `None` = ring full.
+    /// Round-robin reservation of a free slot (harvest first). `None` = ring full.
     fn find_free_slot(&mut self) -> Option<RingSlot> {
         self.harvest();
-        for _ in 0..self.slots {
-            let s = self.next_slot.0;
-            self.next_slot = RingSlot((s + 1) % self.slots);
-            if self.busy & (1u32 << s) == 0 {
-                return Some(RingSlot(s));
-            }
-        }
-        None
+        // Reserve via the shared ring. Reserving here rather than at `publish` is
+        // behaviour-equivalent: every `find_free_slot` / `alloc_free_slot` is unconditionally
+        // followed by `publish` (no early return between), so a reserved slot is always
+        // submitted — no leak. `RING_SLOTS ≤ 16` so the u8→u16 widen is lossless.
+        self.ring.try_alloc().map(|(slot, _ticket)| RingSlot(slot.0 as u16))
     }
 
     /// Allocate a free slot, applying back-pressure if the ring is full: block on
@@ -3508,12 +3504,17 @@ impl CtrlQueue {
             if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
                 // Degraded recovery: abandon the stuck in-flight set + resync the
                 // harvest cursor so we never wedge. Best-effort (a lost IRQ only).
-                self.busy = 0;
+                self.ring.reset();
                 self.last_used = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
                 if self.irq_ep != 0 {
                     self.ack_gpu_irq();
                 }
-                return Ok(self.next_slot);
+                // `reset` emptied the ring, so this reservation always succeeds.
+                return self
+                    .ring
+                    .try_alloc()
+                    .map(|(slot, _)| RingSlot(slot.0 as u16))
+                    .ok_or(GfxError::MmioFault);
             }
         }
     }
@@ -3559,7 +3560,8 @@ impl CtrlQueue {
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
-        self.busy |= 1u32 << slot.0;
+        // The slot was already reserved (marked in-flight) at alloc by `ring.try_alloc`;
+        // `harvest` frees it when the completion returns. (Was `self.busy |= 1<<slot` here.)
     }
 
     /// Enqueue a command that expects a device response (cmd → resp 2-descriptor
@@ -3642,19 +3644,21 @@ impl CtrlQueue {
     /// frame `harvest` the completion (so a deferred textured-draw completion never
     /// blocks the present).
     fn wait_slot(&mut self, slot: RingSlot) -> Result<(), GfxError> {
-        let bit = 1u32 << slot.0;
+        let dk_slot = nexus_driverkit::Slot(slot.0 as u8);
         let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
         let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
         loop {
             self.harvest();
-            if self.busy & bit == 0 {
+            if !self.ring.is_in_flight(dk_slot) {
                 if self.irq_ep != 0 {
                     self.ack_gpu_irq();
                 }
                 return Ok(());
             }
             if nexus_abi::nsec().map_err(|_| GfxError::MmioFault)? >= deadline {
-                self.busy &= !bit; // abandon the stuck slot (degraded, lost-IRQ only)
+                // Abandon the stuck slot (degraded, lost-IRQ only): free it WITHOUT counting
+                // a completion (the command never finished), so a fence can't jump past it.
+                self.ring.abandon(dk_slot);
                 if self.irq_ep != 0 {
                     self.ack_gpu_irq();
                 }

@@ -145,6 +145,39 @@ impl SubmitRing {
             None
         }
     }
+
+    /// Whether `slot` is currently in flight (reserved, not yet completed).
+    pub fn is_in_flight(&self, slot: Slot) -> bool {
+        slot.0 < self.slots && (self.busy & (1 << slot.0)) != 0
+    }
+
+    /// Abandon a single in-flight slot **without** counting it as a completion — the
+    /// driver gave up on this submission (e.g. a per-slot lost-IRQ timeout). Frees the slot
+    /// for reuse but leaves `completed()` unchanged, so a fence mirrored to it never claims
+    /// the abandoned work finished. No-op (returns `false`) if the slot wasn't in flight.
+    pub fn abandon(&mut self, slot: Slot) -> bool {
+        if slot.0 >= self.slots {
+            return false;
+        }
+        let bit = 1u32 << slot.0;
+        if self.busy & bit == 0 {
+            return false;
+        }
+        self.busy &= !bit;
+        true
+    }
+
+    /// Abandon **all** in-flight slots without counting them as completions.
+    ///
+    /// This is the degraded-recovery escape hatch for a device that has lost a completion
+    /// notification (e.g. a dropped GPU IRQ): rather than wedge forever, the driver gives up
+    /// on the stuck in-flight set and resyncs. The monotonic `submitted`/`completed` counters
+    /// are intentionally left unchanged (those submissions did not actually complete), so a
+    /// fence mirrored to `completed()` never jumps forward over work that was abandoned.
+    pub fn reset(&mut self) {
+        self.busy = 0;
+        self.next = 0;
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +262,47 @@ mod tests {
         r.complete(s0).unwrap();
         assert_eq!(r.ticket_of(s0), None);
         assert_eq!(r.ticket_of(Slot(99)), None);
+    }
+
+    #[test]
+    fn is_in_flight_tracks_reservation() {
+        let mut r = SubmitRing::new(2);
+        let (s0, _) = r.try_alloc().unwrap();
+        assert!(r.is_in_flight(s0));
+        assert!(!r.is_in_flight(Slot(99)));
+        r.complete(s0).unwrap();
+        assert!(!r.is_in_flight(s0));
+    }
+
+    #[test]
+    fn abandon_frees_one_slot_without_counting() {
+        let mut r = SubmitRing::new(4);
+        let (s0, _) = r.try_alloc().unwrap();
+        let (s1, _) = r.try_alloc().unwrap();
+        assert!(r.abandon(s0));
+        assert!(!r.is_in_flight(s0));
+        assert!(r.is_in_flight(s1)); // other slots untouched
+        assert_eq!(r.completed(), 0); // abandon does NOT count as a completion
+        // Idempotent / safe on a free or bad slot.
+        assert!(!r.abandon(s0));
+        assert!(!r.abandon(Slot(99)));
+    }
+
+    #[test]
+    fn reset_abandons_in_flight_without_counting_completions() {
+        let mut r = SubmitRing::new(4);
+        let (_s0, _) = r.try_alloc().unwrap();
+        let (_s1, _) = r.try_alloc().unwrap();
+        let submitted_before = r.submitted();
+        r.reset();
+        // Everything is free again, but no spurious completions were counted.
+        assert!(r.is_empty());
+        assert_eq!(r.in_flight(), 0);
+        assert_eq!(r.completed(), 0);
+        // `submitted` (the ticket counter) is monotonic — reset does not rewind it.
+        assert_eq!(r.submitted(), submitted_before);
+        // The ring is usable again immediately.
+        assert!(r.try_alloc().is_some());
     }
 
     #[test]

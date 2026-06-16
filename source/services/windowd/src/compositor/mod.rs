@@ -425,17 +425,24 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 let _ = debug_println(flush_error_label(err));
             }
         }
-        // Phase D.1: deadline-driven sleep instead of busy yield_().
-        // Drains one message that arrived during processing, or blocks
-        // until the next message / animation tick interval.
+        // Phase D.1 / RFC-0033: deadline-driven sleep instead of busy yield_().
+        // During animation/present the supervisor timer IRQ is now ENABLED, so the one-shot
+        // pacer timer-cap armed above delivers OP_TIMER_FIRED into our endpoint at the frame
+        // deadline and wakes a BLOCKING recv — deterministic ~120 Hz with zero polling, paced
+        // by the timer-cap's fixed deadline (process_expired_timers), not a recv-timeout clock
+        // (see memory: recv-timeout self-pace can't hit 120 Hz). We block only when that timer
+        // is actually armed to wake us; otherwise the monotonic self-pace fallback (the
+        // WouldBlock arm below) keeps the frame alive so a failed/absent timer can't freeze it.
+        // This replaces the old NonBlocking + yield_() spin (was written when timer IRQ was off)
+        // — the source of the high `spin_hz` / low `present_hz`.
+        #[cfg(nexus_env = "os")]
+        let animation_wait = if pacer_timer_armed { Wait::Blocking } else { Wait::NonBlocking };
+        #[cfg(not(nexus_env = "os"))]
+        let animation_wait = Wait::NonBlocking;
         let wait = if runtime.is_handoff_pending() {
             Wait::NonBlocking
         } else if runtime.has_active_animations() || runtime.has_pending_damage() {
-            // Animation/present in progress: do NOT block. The timer IRQ that
-            // would wake us is disabled, so blocking here freezes the spring
-            // until the next input event. Poll (NonBlocking) and self-pace via
-            // the monotonic clock in the WouldBlock arm below.
-            Wait::NonBlocking
+            animation_wait
         } else {
             // Fully idle: block until the next input message. Zero CPU.
             Wait::Blocking

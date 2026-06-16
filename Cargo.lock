@@ -1099,6 +1099,7 @@ version = "0.1.0"
 dependencies = [
  "libm",
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-gfx",
  "nexus-ipc",
  "nexus-service-entry",
