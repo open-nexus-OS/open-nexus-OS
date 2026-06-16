@@ -878,6 +878,47 @@ pub(crate) fn process_expired_timers(
     }
 }
 
+/// Wake every task whose IPC recv/send deadline has elapsed. A timed recv/send
+/// (`Wait::Timeout`) arms the supervisor timer to its deadline via `set_wakeup`,
+/// so the timer IRQ honors it here — making timed IPC waits reactive without
+/// busy-polling (windowd's 120Hz pacer, gpud's spin-blur re-present). Without
+/// this the timer handler only delivered timer caps + device IRQs, so a peer
+/// blocked purely on an IPC deadline was never woken by the IRQ. Caller must hold
+/// no aliasing borrows (the timer handler calls this only on a U-mode interrupt).
+pub(crate) fn wake_expired_ipc_deadlines(
+    timer: &dyn Timer,
+    router: &mut ipc::Router,
+    tasks: &mut task::TaskTable,
+    scheduler: &mut Scheduler,
+) {
+    let now = timer.now();
+    let len = tasks.len();
+    for pid_usize in 0..len {
+        let pid = task::Pid::from_raw(pid_usize as u32);
+        let Some(t) = tasks.task(pid) else {
+            continue;
+        };
+        if !t.is_blocked() {
+            continue;
+        }
+        match t.block_reason() {
+            Some(task::BlockReason::IpcRecv { endpoint, deadline_ns })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
+                let _ = router.remove_recv_waiter(endpoint, pid.as_raw());
+                let _ = tasks.wake(pid, scheduler);
+            }
+            Some(task::BlockReason::IpcSend { endpoint, deadline_ns })
+                if deadline_ns != 0 && now >= deadline_ns =>
+            {
+                let _ = router.remove_send_waiter(endpoint, pid.as_raw());
+                let _ = tasks.wake(pid, scheduler);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Preempts the running user task on a timer tick: re-enqueue it, pick the next
 /// runnable task (round-robin within its QoS class), and load that task's saved
 /// frame so the trap epilogue resumes it. Resolves cooperative-scheduler starvation
@@ -992,6 +1033,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     // drains and delivers it here within one period. No-op when
                     // nothing is pending (claim() returns None).
                     crate::irq::dispatch_external(router, tasks, scheduler);
+                    // Reactive IPC deadlines: wake any task whose timed recv/send
+                    // (set_wakeup-armed) has elapsed — windowd's pacer, gpud's spin
+                    // re-present. Makes the timer IRQ the single wake source for ALL
+                    // deadlines (caps + IPC), like a production microkernel.
+                    wake_expired_ipc_deadlines(timer, router, tasks, scheduler);
                     // Preemptive: rotate the running user task so no service can
                     // monopolise the cooperative scheduler (anti-starvation).
                     preempt_current_user_task(frame, tasks, scheduler, spaces);

@@ -286,6 +286,30 @@ impl KernelState {
                     }
                 }
             } else {
+                // Reactive idle delivery: when nothing is runnable, the supervisor
+                // S_TIMER/S_EXT trap handlers only act on U-mode interrupts (to avoid
+                // reentrancy), so a timer cap that fired (windowd's 120Hz pacer,
+                // gpud's spin-blur demo) or a pending device IRQ would otherwise be
+                // missed right here — the only live context is this S-mode idle.
+                // Deliver them cooperatively so a blocked animator/driver wakes.
+                // Safe: the async handlers skip S-mode, so they never reenter these
+                // borrows; we hold disjoint &mut field borrows.
+                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+                {
+                    let timer: &dyn crate::hal::Timer = self.hal.timer();
+                    crate::trap::process_expired_timers(
+                        timer,
+                        &mut self.hart_timers,
+                        &mut self.ipc,
+                        &mut self.tasks,
+                        &mut self.scheduler,
+                    );
+                    crate::irq::dispatch_external(
+                        &mut self.ipc,
+                        &mut self.tasks,
+                        &mut self.scheduler,
+                    );
+                }
                 // If nothing is runnable, try waking tasks blocked on deadlines (IPC v1).
                 // Without this, the kernel could spin forever even though a deadline has expired.
                 let now = self.hal.timer().now();

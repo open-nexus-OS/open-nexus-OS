@@ -62,6 +62,12 @@ pub struct VirtioGpuBackend {
     pub(crate) cursor_oy: i32,
     cursor_dw: u32,
     cursor_dh: u32,
+    /// Frame counter for the build-up spin-blur demo animation (incremented each
+    /// build-up present; drives a circular panel offset so the blur re-computes
+    /// per frame — a reactive GPU/blur performance test, no input needed). Read
+    /// only by the virgl build-up present; inert on the mmio path.
+    #[allow(dead_code)]
+    pub(crate) buildup_frame: u64,
     cursor_saveunder: alloc::vec::Vec<u8>,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
@@ -194,6 +200,7 @@ impl VirtioGpuBackend {
             cursor_ox: 0,
             cursor_oy: 0,
             cursor_dw: 0,
+            buildup_frame: 0,
             cursor_dh: 0,
             cursor_saveunder: alloc::vec::Vec::new(),
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -831,6 +838,17 @@ impl VirtioGpuBackend {
 
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     fn execute_commands(&mut self, cmds: &[Command]) -> Result<(), GfxError> {
+        // In the virgl build-up compositor the scanout is the GL render target
+        // (`compositor_buildup_present` draws the full frame there each present), so
+        // this CPU/VMO command stream is never presented. Several commands (glass
+        // blur, drop shadow) also need a per-frame TRANSFER_TO_HOST_3D that
+        // intermittently stalls QEMU's virgl renderer (used-ring never advances →
+        // the present-damage chain wedges before G4). Skip the whole VMO stream; the
+        // GL-RT build-up owns the output. (mmio scans out the VMO, so it still runs.)
+        #[cfg(feature = "virgl")]
+        if crate::gl_scanout::COMPOSITOR_BUILDUP {
+            return Ok(());
+        }
         let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
         let record = self.find_resource(scanout).ok_or(GfxError::DeviceNotFound)?;
         if record.backing_va == 0 {
@@ -878,41 +896,58 @@ impl VirtioGpuBackend {
                     );
                 }
                 Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                    // Phase 3 (virgl): dispatch to GPU-accelerated shader when
-                    // virgl is compiled in and the context was created successfully.
-                    // Falls back through separable gaussian → box-blur chain.
+                    // In the virgl build-up compositor the scanout is the GL render
+                    // target (`compositor_buildup_present`, which does its own pure-GL
+                    // Stage-3 glass blur by sampling a persistent texture — NO transfer),
+                    // NOT this CPU/VMO plane. Blurring the VMO here is therefore wasted
+                    // work, and `submit_virgl_blur`'s per-frame TRANSFER_TO_HOST_3D
+                    // intermittently stalls QEMU's virgl renderer (used-ring never
+                    // advances → the present-damage chain never reaches G4). Skip it and
+                    // let the GL-RT build-up own the blurred output.
                     #[cfg(feature = "virgl")]
-                    let virgl_ok = self.virgl_capable
-                        && self.submit_virgl_blur(
-                            fb, fb_len, fb_w,
-                            rect.x, rect.y.saturating_add(display_y_offset),
-                            rect.width, rect.height, *radius,
-                            true,
-                        ).is_ok();
+                    let buildup_owns_scanout = crate::gl_scanout::COMPOSITOR_BUILDUP;
                     #[cfg(not(feature = "virgl"))]
-                    let virgl_ok = false;
-
-                    if !virgl_ok {
-                        // CPU fallback: separable gaussian (higher quality) for
-                        // virgl-capable backends that haven't loaded the GPU shader,
-                        // or box-blur for non-virgl backends.
+                    let buildup_owns_scanout = false;
+                    if !buildup_owns_scanout {
+                        // GPU-accelerated shader when virgl is compiled in and the
+                        // context exists; otherwise separable gaussian → box-blur.
                         #[cfg(feature = "virgl")]
-                        let use_separable = self.virgl_capable;
+                        let virgl_ok = self.virgl_capable
+                            && self
+                                .submit_virgl_blur(
+                                    fb,
+                                    fb_len,
+                                    fb_w,
+                                    rect.x,
+                                    rect.y.saturating_add(display_y_offset),
+                                    rect.width,
+                                    rect.height,
+                                    *radius,
+                                    true,
+                                )
+                                .is_ok();
                         #[cfg(not(feature = "virgl"))]
-                        let use_separable = false;
+                        let virgl_ok = false;
 
-                        if use_separable {
-                            blur_backdrop_separable_vmo(
-                                fb, fb_len, fb_w,
-                                rect.x, rect.y.saturating_add(display_y_offset),
-                                rect.width, rect.height, *radius, *saturation_percent,
-                            )?;
-                        } else {
-                            blur_backdrop_vmo(
-                                fb, fb_len, fb_w,
-                                rect.x, rect.y.saturating_add(display_y_offset),
-                                rect.width, rect.height, *radius, *saturation_percent,
-                            )?;
+                        if !virgl_ok {
+                            #[cfg(feature = "virgl")]
+                            let use_separable = self.virgl_capable;
+                            #[cfg(not(feature = "virgl"))]
+                            let use_separable = false;
+
+                            if use_separable {
+                                blur_backdrop_separable_vmo(
+                                    fb, fb_len, fb_w,
+                                    rect.x, rect.y.saturating_add(display_y_offset),
+                                    rect.width, rect.height, *radius, *saturation_percent,
+                                )?;
+                            } else {
+                                blur_backdrop_vmo(
+                                    fb, fb_len, fb_w,
+                                    rect.x, rect.y.saturating_add(display_y_offset),
+                                    rect.width, rect.height, *radius, *saturation_percent,
+                                )?;
+                            }
                         }
                     }
                 }
@@ -1819,6 +1854,36 @@ const CTRL_QUEUE_INDEX: u32 = 0;
 const CURSOR_QUEUE_INDEX: u32 = 1;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const QUEUE_LEN: usize = 4;
+/// Hard ceiling on any single GPU command wait. The used-ring advance normally
+/// completes far sooner (spin or IRQ); this only bounds a lost/late IRQ so a
+/// present can never hang — it degrades to the legacy timeout (matches the old
+/// 500 ms spin deadline).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_WAIT_DEADLINE_NS: u64 = 500_000_000;
+/// Used-ring poll iterations before parking on the GPU IRQ. Fast QEMU
+/// completions land within a few cooperative yields (no IRQ round-trip);
+/// slower virgl GL blur/flush completions exhaust this and then block on the
+/// interrupt instead of busy-yielding.
+// 0 = pure reactive completion: `await_used_advance` checks the used-ring once at the
+// top of its loop (so an already-finished command returns immediately, no syscall),
+// and otherwise BLOCKS on the GPU ring-buffer IRQ — never a busy yield-spin (a spin
+// IS a poll, which we explicitly do not want). Proven: with this, the device IRQ
+// fires + wakes gpud on both mmio and virgl (`gpud: gpu irq wake`), presents complete,
+// 0 faults. A small non-zero value would trade reactivity for catching ultra-fast
+// completions without the IRQ round-trip, but the top-of-loop check already covers the
+// already-done case, so 0 is the correct reactive default. The 500 ms deadline remains
+// the safety net for a lost/late IRQ.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_IRQ_SPIN_BEFORE_BLOCK: u32 = 0;
+/// Latches once the GPU ring-buffer IRQ first wakes a completion wait, so the
+/// headless run can confirm the interrupt path is actually live (vs. silently
+/// degrading to the spin fallback). One marker, not per-frame — no UART storm.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+static GPU_IRQ_WAKE_LOGGED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+/// Debug: trace the first GPU blur's step progression (xfer-in → submit → xfer-out)
+/// to pinpoint where the intermittent virgl-blur G3 stall wedges. Latches after the
+/// first blur completes so it never spams the per-frame spin presents.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_QUEUE_VA: usize = 0x2030_0000;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -1906,6 +1971,15 @@ struct CtrlQueue {
     resp_va: usize,
     resp_pa: u64,
     last_used: u16,
+    /// Device MMIO base — needed to drain/ACK InterruptStatus (0x60/0x64) on the
+    /// GPU ring-buffer IRQ path so the level-triggered line de-asserts.
+    mmio_base: usize,
+    /// PLIC source bound to this queue's completion IRQ (0 = not bound → the
+    /// legacy spin+yield wait is used, never a hang).
+    irq_num: u32,
+    /// Endpoint cap slot the kernel routes the GPU IRQ to (0 = not bound). When
+    /// set, the wait path blocks here instead of busy-polling.
+    irq_ep: u32,
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -1967,6 +2041,25 @@ impl VirtioGpuBackend {
         let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS);
         write_reg(self.mmio_base, protocol::VIRTIO_MMIO_STATUS, status | 4);
         Ok(())
+    }
+
+    /// Bind this GPU's virtio-mmio completion IRQ (PLIC source) to `irq_ep` so the
+    /// command-completion wait can BLOCK on the interrupt instead of busy-polling
+    /// the used-ring. Wires both the control and cursor queues — they share the one
+    /// device IRQ. Best-effort: on a denied/failed bind the queues keep `irq_ep = 0`
+    /// and the legacy spin+yield wait stays in force, so a wrong IRQ never hangs a
+    /// present, it only forgoes the reactive wake. Returns true when bound.
+    pub(crate) fn bind_gpu_irq(&mut self, irq_num: u32, irq_ep: u32) -> bool {
+        if nexus_abi::irq_bind(irq_num, irq_ep).is_err() {
+            return false;
+        }
+        if let Some(q) = self.ctrlq.as_mut() {
+            q.set_gpu_irq(irq_num, irq_ep);
+        }
+        if let Some(q) = self.cursorq.as_mut() {
+            q.set_gpu_irq(irq_num, irq_ep);
+        }
+        true
     }
 
     /// Create a virgl rendering context for GPU shader dispatch.
@@ -3168,11 +3261,95 @@ impl CtrlQueue {
             resp_va: resp_va_base,
             resp_pa: resp_info.base,
             last_used: 0,
+            mmio_base,
+            irq_num: 0,
+            irq_ep: 0,
         })
     }
 
     fn submit(&mut self, mmio_base: usize, bytes: &[u8]) -> Result<(), GfxError> {
         self.submit_two(mmio_base, bytes, &[])
+    }
+
+    /// Bind this queue to a GPU ring-buffer IRQ so the completion wait can BLOCK
+    /// on the interrupt instead of busy-polling. `irq_ep` is the endpoint cap slot
+    /// the kernel routes the PLIC source to (set via `irq_bind`); `irq_num` is that
+    /// source. Both 0 keeps the legacy spin+yield path.
+    fn set_gpu_irq(&mut self, irq_num: u32, irq_ep: u32) {
+        self.irq_num = irq_num;
+        self.irq_ep = irq_ep;
+    }
+
+    /// Reactively wait for this queue's used-ring to advance past `last_used`.
+    ///
+    /// The used-ring is the authoritative completion signal (QEMU always writes
+    /// it), so it is checked every iteration. For latency we spin a few times
+    /// first — fast QEMU completions finish here, avoiding the IRQ round-trip.
+    /// If the queue is bound to its IRQ and the command is still outstanding, we
+    /// BLOCK on `ipc_recv_v1(irq_ep, …, deadline)` until the GPU asserts its
+    /// ring-buffer interrupt (PLIC → bound endpoint) — no busy-yield burned on the
+    /// slow virgl GL blur/flush completions. Everything is bounded by the 500 ms
+    /// deadline so a lost/late IRQ degrades to the legacy timeout, never a hang.
+    fn await_used_advance(&mut self) -> Result<(), GfxError> {
+        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
+        let deadline = start.saturating_add(GPU_WAIT_DEADLINE_NS);
+        let mut spun: u32 = 0;
+        let outcome = loop {
+            let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
+            if used_idx != self.last_used {
+                self.last_used = used_idx;
+                break Ok(());
+            }
+            let now = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
+            if now >= deadline {
+                break Err(GfxError::MmioFault);
+            }
+            if self.irq_ep != 0 && spun >= GPU_IRQ_SPIN_BEFORE_BLOCK {
+                // Park on the GPU IRQ until the kernel wakes us (deadline-bounded:
+                // if the IRQ is lost the recv times out and the loop falls through
+                // to the deadline check above → legacy behaviour, no hang).
+                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+                let mut buf = [0u8; 16];
+                if nexus_abi::ipc_recv_v1(
+                    self.irq_ep,
+                    &mut hdr,
+                    &mut buf,
+                    nexus_abi::IPC_SYS_TRUNCATE,
+                    deadline,
+                )
+                .is_ok()
+                    && !GPU_IRQ_WAKE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
+                {
+                    // Proof (once): a real GPU ring-buffer IRQ woke this wait.
+                    let _ = nexus_abi::debug_println("gpud: gpu irq wake");
+                }
+            } else {
+                spun = spun.saturating_add(1);
+                let _ = nexus_abi::yield_();
+            }
+        };
+        // IRQ housekeeping after every completion (idempotent, safe whether the
+        // spin or the block caught it). Self-heals the used-advance-before-IRQ
+        // race: drain a stale notification, de-assert the level-triggered device
+        // line, then re-enable the (possibly masked) PLIC source.
+        if self.irq_ep != 0 {
+            self.ack_gpu_irq();
+        }
+        outcome
+    }
+
+    /// De-assert + re-arm this queue's GPU IRQ. Order matters (same lesson as
+    /// virtio-input): drain the queued notification, clear the device's
+    /// InterruptStatus, THEN `irq_complete` so the source can't immediately storm.
+    fn ack_gpu_irq(&self) {
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 16];
+        let _ = nexus_abi::ipc_recv_v1_nb(self.irq_ep, &mut hdr, &mut buf, true);
+        let status = read_reg(self.mmio_base, protocol::VIRTIO_MMIO_INTERRUPT_STATUS);
+        if status != 0 {
+            write_reg(self.mmio_base, protocol::VIRTIO_MMIO_INTERRUPT_ACK, status);
+        }
+        let _ = nexus_abi::irq_complete(self.irq_num);
     }
 
     /// Submit a command that the device completes WITHOUT writing a response
@@ -3200,21 +3377,9 @@ impl CtrlQueue {
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_index);
-        // Wait for the used-ring to advance; do NOT inspect the (absent) response.
-        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-        let deadline = start.saturating_add(500_000_000);
-        loop {
-            let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
-            if used_idx != self.last_used {
-                self.last_used = used_idx;
-                return Ok(());
-            }
-            let now = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-            if now > deadline {
-                return Err(GfxError::MmioFault);
-            }
-            let _ = nexus_abi::yield_();
-        }
+        // Reactive completion: spin briefly, then block on the GPU ring-buffer IRQ.
+        // No response payload to inspect — the used-ring advance IS the completion.
+        self.await_used_advance()
     }
 
     fn submit_two(
@@ -3270,52 +3435,42 @@ impl CtrlQueue {
     }
 
     fn wait_complete_labeled(&mut self, label: &str) -> Result<(), GfxError> {
-        let start = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-        let deadline = start.saturating_add(500_000_000);
-        loop {
-            let used_idx = unsafe { core::ptr::read_volatile(&(*self.used).idx) };
-            if used_idx != self.last_used {
-                self.last_used = used_idx;
-                let hdr = unsafe {
-                    core::ptr::read_volatile(self.resp_va as *const protocol::VirtioGpuCtrlHdr)
-                };
-                if hdr.type_ == protocol::VIRTIO_GPU_RESP_OK_NODATA {
-                    return Ok(());
-                }
-                // Debug: classify the error response from QEMU
-                match hdr.type_ {
-                    0x1200 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC");
-                        // Log which command was rejected
-                        let _ = nexus_abi::debug_println(label);
-                    }
-                    0x1201 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY");
-                    }
-                    0x1202 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_SCANOUT_ID");
-                    }
-                    0x1203 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_RESOURCE_ID");
-                    }
-                    0x1204 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_CONTEXT_ID");
-                    }
-                    0x1205 => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER");
-                    }
-                    _ => {
-                        let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN");
-                    }
-                }
-                return Err(GfxError::CommandRejected);
-            }
-            let now = nexus_abi::nsec().map_err(|_| GfxError::MmioFault)?;
-            if now >= deadline {
-                return Err(GfxError::MmioFault);
-            }
-            let _ = nexus_abi::yield_();
+        // Reactive: spin briefly then block on the GPU ring-buffer IRQ until the
+        // used-ring advances (deadline-bounded, never a hang).
+        self.await_used_advance()?;
+        // Completion in hand — classify the device's response header.
+        let hdr =
+            unsafe { core::ptr::read_volatile(self.resp_va as *const protocol::VirtioGpuCtrlHdr) };
+        if hdr.type_ == protocol::VIRTIO_GPU_RESP_OK_NODATA {
+            return Ok(());
         }
+        // Debug: classify the error response from QEMU
+        match hdr.type_ {
+            0x1200 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_UNSPEC");
+                // Log which command was rejected
+                let _ = nexus_abi::debug_println(label);
+            }
+            0x1201 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_OUT_OF_MEMORY");
+            }
+            0x1202 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_SCANOUT_ID");
+            }
+            0x1203 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_RESOURCE_ID");
+            }
+            0x1204 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_CONTEXT_ID");
+            }
+            0x1205 => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER");
+            }
+            _ => {
+                let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN");
+            }
+        }
+        Err(GfxError::CommandRejected)
     }
 }
 

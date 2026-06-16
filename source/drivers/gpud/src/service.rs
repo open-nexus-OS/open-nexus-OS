@@ -9,6 +9,8 @@
 
 use nexus_abi::{debug_println, debug_write, mmio_map, nsec, yield_, AbiError};
 use nexus_ipc::{KernelServer, Server as _, Wait};
+#[cfg(all(nexus_env = "os", feature = "virgl"))]
+use core::time::Duration;
 
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
@@ -27,6 +29,10 @@ pub const OP_MOVE_CURSOR: u8 = 2;
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
 pub const OP_UPLOAD_CURSOR: u8 = 5;
+/// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
+/// as the gpud server-recv timeout: an idle recv wakes here to re-present.
+#[cfg(all(nexus_env = "os", feature = "virgl"))]
+const SPIN_DEMO_PERIOD_NS: u64 = 8_333_333;
 /// Reply payloads for OP_UPLOAD_CURSOR (magic-tagged — distinguishable from
 /// present acks, whose u32 slot carries a small handoff id).
 pub const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
@@ -40,6 +46,18 @@ const GPU_MMIO_VA: usize = 0x2020_0000;
 const GPU_MMIO_LEN: usize = 0x1000;
 const GPUD_RECV_SLOT: u32 = 3;
 const GPUD_SEND_SLOT: u32 = 4;
+/// virtio-mmio GPU PLIC interrupt source. The GPU sits at MMIO 0x1000_8000 on the
+/// QEMU virt machine = virtio-mmio slot 7 (0x1000_1000 + 7·0x1000), and QEMU wires
+/// slot N to PLIC source N+1 → source 8. Same convention as virtio-input (slots
+/// 2/3 → IRQ 3/4 in hidrawd). Drives the reactive GPU ring-buffer completion wait.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_IRQ_SOURCE: u32 = 8;
+/// Endpoint cap slot the GPU IRQ is routed to: gpud's idle control-reply endpoint
+/// (slot 2 — the same idle endpoint hidrawd reuses for input IRQs). Deliberately
+/// NOT the windowd↔gpud server endpoint (slot 3): binding a notification source
+/// there would intercept windowd's present commands and break the channel.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+const GPU_IRQ_NOTIFY_SLOT: u32 = 2;
 /// Display framebuffer dimensions matching windowd's VISIBLE_BOOTSTRAP_WIDTH/HEIGHT.
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
@@ -73,6 +91,21 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // OP_SET_FRAMEBUFFER_VMO. No boot splash, no startup create_resource.
     // Register in the global IPC registry BEFORE emitting the ready marker.
     // Windowd's KernelClient::new_for("gpud") depends on this registration.
+    //
+    // Reactive GPU completion: route the device's ring-buffer IRQ to our idle
+    // control-reply endpoint so command waits BLOCK on the interrupt instead of
+    // busy-polling the used-ring (Apple/Fuchsia-style driver IRQ port). Bound after
+    // the bootstrap scanout so early init keeps the simple spin path; best-effort —
+    // a denied bind leaves the queues on spin+yield (never a hang). The shared
+    // virtio-gpu IRQ covers both the control and cursor queues.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    {
+        if backend.bind_gpu_irq(GPU_IRQ_SOURCE, GPU_IRQ_NOTIFY_SLOT) {
+            let _ = debug_println("gpud: gpu irq bound");
+        } else {
+            let _ = debug_println("gpud: gpu irq bind skipped (spin fallback)");
+        }
+    }
     let server = bind_server()?;
     debug_println(GPUD_READY)?;
     service_requests(server, backend)
@@ -142,10 +175,29 @@ fn service_requests(
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
     let mut chain_trace_done = false;
+    // Build-up spin-blur demo: when active, the main recv below uses a frame-paced
+    // timeout (SPIN_DEMO_PERIOD_NS) so an idle gpud re-presents the orbiting build-up
+    // every ~8.33ms (120Hz), recomputing the GPU blur/shadow and driving the reactive
+    // ring-buffer IRQ. It is a *recv deadline* — woken by the kernel idle-loop's
+    // IpcRecv-deadline scan — NOT a timer cap on our server endpoint (an earlier
+    // timer-cap attempt intercepted windowd's commands and OOM'd the present channel).
+    #[cfg(all(nexus_env = "os", feature = "virgl"))]
+    let spin_demo_active =
+        crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO;
     loop {
         // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
-        // or animation submit). No polling, no busy-wait. The kernel wakes us on message arrival.
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+        // or animation submit). No polling, no busy-wait. The kernel wakes us on message
+        // arrival. With the spin-blur demo active we instead use a frame-paced timeout so
+        // an idle gpud self-re-presents (handled in the Timeout arm below).
+        #[cfg(all(nexus_env = "os", feature = "virgl"))]
+        let wait = if spin_demo_active {
+            Wait::Timeout(Duration::from_nanos(SPIN_DEMO_PERIOD_NS))
+        } else {
+            Wait::Blocking
+        };
+        #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
+        let wait = Wait::Blocking;
+        match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
                 let op = match frame.first().copied() {
@@ -172,6 +224,12 @@ fn service_requests(
                                     let _ = debug_println("gpud: handoff attach ack");
                                     let _ = debug_println(GPUD_CURSOR_ON);
                                     let _ = debug_println(GPUD_DISPLAY_READY);
+                                    // The GL scanout now exists, so the recv-timeout
+                                    // path may re-present the build-up (spin-blur demo).
+                                    #[cfg(all(nexus_env = "os", feature = "virgl"))]
+                                    if spin_demo_active {
+                                        let _ = debug_println("gpud: spin-blur demo armed (120Hz)");
+                                    }
                                     (STATUS_OK, Some(active_handoff_id))
                                 }
                                 Err(e) => {
@@ -333,8 +391,26 @@ fn service_requests(
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                // WouldBlock/Timeout are unexpected in Blocking mode; yield and retry.
-                let _ = yield_();
+                // Spin-blur demo tick: the frame-paced recv timed out (windowd idle) →
+                // re-present the orbiting build-up, recomputing the GPU blur/shadow and
+                // driving the reactive ring-buffer IRQ (folded into present-stats). With
+                // the demo off this is just the legacy yield+retry.
+                #[cfg(all(nexus_env = "os", feature = "virgl"))]
+                let presented = spin_demo_active && active_handoff_id != 0 && {
+                    present_buildup_tick(
+                        &mut backend,
+                        &mut present_count,
+                        &mut present_ns_sum,
+                        &mut present_ns_max,
+                        PRESENT_STATS_WINDOW,
+                    );
+                    true
+                };
+                #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
+                let presented = false;
+                if !presented {
+                    let _ = yield_();
+                }
             }
             Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint))
             | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) => {
@@ -359,6 +435,40 @@ fn gfx_error_label(e: GfxError) -> &'static str {
         GfxError::ResourceExhausted => "gpud: chain reason: resource exhausted (bump heap?)",
         GfxError::Unsupported => "gpud: chain reason: unsupported command",
         GfxError::InvalidArgument => "gpud: chain reason: invalid argument",
+    }
+}
+
+/// Re-present the orbiting build-up panel once (spin-blur demo tick) and fold the
+/// GPU/blur cost into the present-stats window. Driven by the recv-timeout path so
+/// an idle gpud keeps the GPU pipeline + reactive ring-buffer IRQ exercised.
+#[cfg(all(nexus_env = "os", feature = "virgl"))]
+fn present_buildup_tick(
+    backend: &mut VirtioGpuBackend,
+    present_count: &mut u32,
+    present_ns_sum: &mut u64,
+    present_ns_max: &mut u64,
+    window: u32,
+) {
+    let t0 = nsec().unwrap_or(0);
+    let _ = backend.present_scanout_damage(Rect {
+        x: 0,
+        y: 0,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
+    });
+    let dt = nsec().unwrap_or(t0).saturating_sub(t0);
+    *present_ns_sum = present_ns_sum.saturating_add(dt);
+    *present_ns_max = (*present_ns_max).max(dt);
+    *present_count += 1;
+    if *present_count >= window {
+        emit_present_stats(
+            (*present_ns_sum / *present_count as u64 / 1000) as u32,
+            (*present_ns_max / 1000) as u32,
+            *present_count,
+        );
+        *present_count = 0;
+        *present_ns_sum = 0;
+        *present_ns_max = 0;
     }
 }
 

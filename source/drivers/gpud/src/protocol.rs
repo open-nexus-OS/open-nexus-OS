@@ -20,6 +20,12 @@ pub const VIRTIO_MMIO_QUEUE_ALIGN: usize = 0x03c;
 pub const VIRTIO_MMIO_QUEUE_PFN: usize = 0x040;
 pub const VIRTIO_MMIO_QUEUE_READY: usize = 0x044;
 pub const VIRTIO_MMIO_QUEUE_NOTIFY: usize = 0x050;
+/// InterruptStatus (RO): bit0 = used-ring updated, bit1 = config changed.
+/// Read to learn why the device asserted its IRQ; mirror the value into
+/// `VIRTIO_MMIO_INTERRUPT_ACK` to de-assert the level-triggered line.
+pub const VIRTIO_MMIO_INTERRUPT_STATUS: usize = 0x060;
+/// InterruptACK (WO): write the bits read from InterruptStatus to clear them.
+pub const VIRTIO_MMIO_INTERRUPT_ACK: usize = 0x064;
 pub const VIRTIO_MMIO_STATUS: usize = 0x070;
 pub const VIRTIO_MMIO_QUEUE_DESC_LOW: usize = 0x080;
 pub const VIRTIO_MMIO_QUEUE_DESC_HIGH: usize = 0x084;

@@ -83,10 +83,43 @@ const SCREEN_H: u32 = 800;
 /// the op QEMU's GL-scanout present can't handle — and every working stage is a
 /// real compositor feature. While `true`, the present renders this synthetic
 /// scene instead of windowd's VMO content.
-const COMPOSITOR_BUILDUP: bool = true;
+pub(crate) const COMPOSITOR_BUILDUP: bool = true;
 /// Features added on top of the base (0 = clear + gradient only).
 /// 1 = + drop shadow. 2 = + wallpaper texture. 3 = + glass blur. 4 = + cursor (input).
 const COMPOSITOR_STAGE: u32 = 4;
+/// Automated spin-blur demo: when true, an idle gpud re-presents the *orbiting*
+/// build-up panel (shadow + glass blur) every frame to exercise the GPU blur/shadow
+/// pipeline + the reactive ring-buffer IRQ at the 120 Hz target. The re-present is
+/// driven by a recv timeout on gpud's server endpoint (the kernel's timer IRQ wakes
+/// the timed-out recv via `wake_expired_ipc_deadlines`), NOT a timer cap on that
+/// endpoint — an earlier timer-cap attempt intercepted windowd's present commands
+/// and OOM'd the channel.
+//
+// The virgl glass-blur G3-exec stall ([[virgl-blur-g3-exec-flaky-hang]]) is being
+// debugged, not worked around: it is intermittent and independent of this flag (it
+// hits the FIRST windowd present-damage before the spin runs; spin OFF still stalls).
+// Keep the orbit on so the perf test exercises the blur once the stall is fixed.
+pub(crate) const BUILDUP_SPIN_DEMO: bool = true;
+/// Integer cos/sin LUT (16 steps, amplitude 48 px) for the spin orbit — avoids any
+/// float trig in the present hot path. `[dx, dy]` per step.
+const SPIN_ORBIT_LUT: [(i32, i32); 16] = [
+    (48, 0),
+    (44, 18),
+    (34, 34),
+    (18, 44),
+    (0, 48),
+    (-18, 44),
+    (-34, 34),
+    (-44, 18),
+    (-48, 0),
+    (-44, -18),
+    (-34, -34),
+    (-18, -44),
+    (0, -48),
+    (18, -44),
+    (34, -34),
+    (44, -18),
+];
 /// Height of the display texture 0xF8 (display plane + blur-cache plane).
 const DISPLAY_TEX_H: u32 = 1600;
 const FB_STRIDE: u32 = SCREEN_W * 4;
@@ -425,7 +458,17 @@ impl VirtioGpuBackend {
             self.ctrl_submit_header_tail(&wh, &wb)?;
         }
 
-        let (px, py, pw, ph) = (200u32, 140u32, 880u32, 520u32);
+        // Spin-blur demo: orbit the panel on a fixed circle so the shadow + glass
+        // blur recompute every frame (reactive GPU/blur perf test; gpud drives the
+        // re-presents on a 60Hz timer cap, no input). Disabled → static panel.
+        let (px, py, pw, ph) = if BUILDUP_SPIN_DEMO {
+            let (dx, dy) =
+                SPIN_ORBIT_LUT[(self.buildup_frame % SPIN_ORBIT_LUT.len() as u64) as usize];
+            self.buildup_frame = self.buildup_frame.wrapping_add(1);
+            ((200i32 + dx).max(0) as u32, (140i32 + dy).max(0) as u32, 880u32, 520u32)
+        } else {
+            (200u32, 140u32, 880u32, 520u32)
+        };
 
         // Stage 1: drop shadow behind the panel (computed SDF, alpha-blended).
         if COMPOSITOR_STAGE >= 1 {

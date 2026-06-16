@@ -280,14 +280,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut pacer_timer_log_emitted = false;
     // Phase 7: unified pacing timer drives frame submission at display refresh rate.
     const PACER_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
-                                              // Cooperative animation pacing. The kernel supervisor-timer IRQ that would
-                                              // deliver OP_TIMER_FIRED is not enabled (RFC-0062 is draft; `timer_irq` is
-                                              // off and `enable_timer_interrupts` is never called), so windowd cannot rely
-                                              // on the kernel timer to wake it for animation frames. Instead, while an
-                                              // animation is active we poll on the monotonic clock and advance the springs
-                                              // ourselves at ~120Hz, then go back to blocking on IPC once idle. `tick`
-                                              // integrates real elapsed time, so the exact poll rate only affects how many
-                                              // frames we emit, not the animation's duration or final state.
+                                              // Animation pacing. The supervisor-timer IRQ is now ENABLED in the kernel
+                                              // (`timer_irq` default + `enable_timer_interrupts` in kmain), so the 120Hz
+                                              // one-shot timer cap armed below delivers OP_TIMER_FIRED reactively while an
+                                              // animation runs. The monotonic-clock self-pacing (the WouldBlock arm below,
+                                              // reached via the NonBlocking recv) is retained as a robust fallback so a
+                                              // missed/idle-time tick can never freeze the spring; `tick` integrates real
+                                              // elapsed time, so the exact wake rate only affects how many frames we emit,
+                                              // not the animation's duration or final state. (A fully poll-free wait
+                                              // depends on idle-time timer-cap delivery and is a separate step.)
     let mut last_anim_tick_ns: u64 = 0;
     loop {
         runtime.drain_gpud_replies();

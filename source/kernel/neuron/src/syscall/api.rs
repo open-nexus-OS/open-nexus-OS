@@ -966,6 +966,12 @@ fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize
 
 fn sys_yield(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     crate::liveness::bump();
+    // Honor pending IPC deadlines at every scheduling transition, not just at
+    // recv/send blocks. A task that polls via `yield_()` would otherwise keep the
+    // scheduler perpetually runnable, so a peer blocked on a timed recv (windowd's
+    // 120Hz pacer, gpud's spin-blur re-present) is never woken at its deadline —
+    // the cooperative analogue of a missed timer IRQ.
+    wake_expired_blocked(ctx);
     ctx.scheduler.yield_current();
     if let Some(next) = ctx.scheduler.schedule_next() {
         ctx.tasks.set_current(next);
