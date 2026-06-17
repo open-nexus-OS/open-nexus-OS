@@ -2005,6 +2005,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-style"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+]
+
+[[package]]
 name = "nexus-svg"
 version = "0.1.0"
 dependencies = [
@@ -2037,6 +2044,7 @@ dependencies = [
 name = "nexus-virtual-list"
 version = "0.1.0"
 dependencies = [
+ "nexus-layout",
  "nexus-layout-types",
 ]
 
@@ -2045,6 +2053,32 @@ name = "nexus-vmo"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+]
+
+[[package]]
+name = "nexus-widget-button"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+]
+
+[[package]]
+name = "nexus-widget-panel"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+]
+
+[[package]]
+name = "nexus-widget-window"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-widget-button",
+ "nexus-widget-panel",
 ]
 
 [[package]]

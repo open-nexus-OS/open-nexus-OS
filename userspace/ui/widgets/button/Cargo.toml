@@ -1,0 +1,13 @@
+[package]
+name = "nexus-widget-button"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_widget_button"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-style = { path = "../../style" }

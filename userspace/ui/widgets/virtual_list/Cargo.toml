@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 nexus-layout-types = { path = "../../layout-types" }
+nexus-layout = { path = "../../layout" }
 
 [dev-dependencies]
 nexus-layout-types = { path = "../../layout-types" }

@@ -15,10 +15,37 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use nexus_layout_types::FxPx;
+use nexus_layout::LayoutEngine;
+use nexus_layout_types::{FxPx, LayoutNode, MeasureText};
 
 pub mod chat;
 pub use chat::{ChatMessage, ChatMessageProvider};
+
+// ---------------------------------------------------------------------------
+// ItemView — the app-supplied cell builder (Apple's data-source/cell config)
+// ---------------------------------------------------------------------------
+
+/// Builds the layout subtree ("cell") for one item.
+///
+/// Paired with an [`ItemProvider`] (which supplies the *data*), this is the
+/// single interface through which app state reaches the generic compositor:
+/// the app describes each item as a `LayoutNode` tree (boxes + `VisualStyle` +
+/// text), the layout engine (`nexus_layout`) measures/places it, and windowd
+/// paints the resulting `LayoutBox`es generically — the compositor has **no**
+/// item-type knowledge. A "chat" is then just an `ItemProvider<Item = ChatMessage>`
+/// plus an `ItemView` that renders a `ChatMessage` as a bubble, assembled by the
+/// app/target-test — not baked into windowd.
+///
+/// This mirrors Apple's split of `UICollectionViewDataSource` (data) from the
+/// cell registration/configuration (view), keeping the framework generic.
+pub trait ItemView {
+    /// The item type — matches the paired `ItemProvider::Item`.
+    type Item;
+
+    /// Build the layout-node subtree for `item` at `index`. Pure: the same
+    /// item must yield the same node (deterministic layout / pretext contract).
+    fn build_item(&self, index: usize, item: &Self::Item) -> LayoutNode;
+}
 
 // ---------------------------------------------------------------------------
 // ItemProvider trait
@@ -192,6 +219,39 @@ impl<P: ItemProvider> VirtualList<P> {
         self.state = ListState::Scrolling;
         self.recompute_visible_range();
         self.visible_range.clone()
+    }
+
+    /// Measure the loaded items' real heights via the layout engine
+    /// (`nexus_layout`) — the single measurement SSOT — instead of the provider's
+    /// `height_hint` estimate. Each loaded item is built into a `LayoutNode` by
+    /// `view`, laid out at `width`, and its `content_height` cached. Unloaded
+    /// slots keep their estimate (lazy loading). Recomputes content height +
+    /// visible range. O(loaded items) — call after data/width changes, not per scroll.
+    pub fn measure_with<V>(&mut self, view: &V, measure: &dyn MeasureText, width: FxPx)
+    where
+        V: ItemView<Item = P::Item>,
+    {
+        let n = self.measured.len();
+        if n == 0 {
+            return;
+        }
+        let engine = LayoutEngine::new();
+        // Disjoint field borrows: `provider` (read for items) + `measured` (write).
+        let items = self.provider.get(0..n);
+        for i in 0..items.len() {
+            let Some(item) = items[i].as_ref() else {
+                continue; // unloaded — keep the height-hint estimate (lazy)
+            };
+            let node = view.build_item(i, item);
+            if let Ok(result) = engine.layout(&node, width, measure) {
+                if let Some(row) = self.measured.get_mut(i) {
+                    row.height = result.content_height;
+                    row.estimated = false;
+                }
+            }
+        }
+        self.recompute_content_height();
+        self.recompute_visible_range();
     }
 
     /// Notify the list that a new page of data has arrived.
@@ -415,5 +475,80 @@ mod tests {
         }
         let list = VirtualList::new(UnknownProvider, FxPx::new(200), VirtualListConfig::default());
         assert_eq!(list.measured.len(), 0);
+    }
+
+    #[test]
+    fn item_view_builds_a_cell_node() {
+        use nexus_layout_types::{FlexItem, Spacer};
+        // The app-supplied cell builder: an item → LayoutNode. windowd never
+        // sees the item type — only the resulting node tree.
+        struct RowView;
+        impl ItemView for RowView {
+            type Item = &'static str;
+            fn build_item(&self, _index: usize, _item: &&'static str) -> LayoutNode {
+                LayoutNode::Spacer(Spacer {
+                    id: Some("row"),
+                    flex_grow: 1,
+                    min_size: None,
+                    item: FlexItem::default(),
+                })
+            }
+        }
+        let node = RowView.build_item(0, &"hello");
+        assert!(matches!(node, LayoutNode::Spacer(_)));
+    }
+
+    #[test]
+    fn measure_with_fills_heights_from_the_layout_engine() {
+        use nexus_layout_types::measure::{LineLayout, LineMetrics, PreparedTextHandle};
+        use nexus_layout_types::node::TextContent;
+        use nexus_layout_types::{FlexItem, MeasureText, Spacer, TextStyle};
+
+        struct StubMeasure;
+        impl MeasureText for StubMeasure {
+            fn prepare(&self, _c: &TextContent, _s: &TextStyle) -> PreparedTextHandle {
+                PreparedTextHandle(0)
+            }
+            fn measure_width(&self, _h: &PreparedTextHandle) -> FxPx {
+                FxPx::new(40)
+            }
+            fn layout_lines(
+                &self,
+                _h: &PreparedTextHandle,
+                width: FxPx,
+                max_lines: Option<u32>,
+            ) -> LineLayout {
+                let line = LineMetrics {
+                    text_range: 0..1,
+                    width: FxPx::new(40).min(width.max(FxPx::new(1))),
+                    baseline: FxPx::new(16),
+                    height: FxPx::new(16),
+                };
+                let lines = if matches!(max_lines, Some(0)) { Vec::new() } else { alloc::vec![line] };
+                LineLayout { lines, natural_width: FxPx::new(40) }
+            }
+        }
+        // Item cell = a fixed-height box; the engine measures it (no text needed).
+        struct RowView;
+        impl ItemView for RowView {
+            type Item = &'static str;
+            fn build_item(&self, _i: usize, _item: &&'static str) -> LayoutNode {
+                LayoutNode::Spacer(Spacer {
+                    id: None,
+                    flex_grow: 0,
+                    min_size: Some(FxPx::new(30)),
+                    item: FlexItem::default(),
+                })
+            }
+        }
+
+        let mut list = VirtualList::new(make_provider(20), FxPx::new(100), VirtualListConfig::default());
+        assert!(list.measured.iter().take(20).all(|m| m.estimated), "start estimated");
+        list.measure_with(&RowView, &StubMeasure, FxPx::new(200));
+        // Loaded items now carry an engine-measured (non-estimated) height.
+        assert!(
+            list.measured.iter().take(20).all(|m| !m.estimated),
+            "all loaded items measured by the layout engine"
+        );
     }
 }
