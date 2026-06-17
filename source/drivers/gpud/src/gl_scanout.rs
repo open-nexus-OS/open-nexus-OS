@@ -90,9 +90,16 @@ const SCREEN_H: u32 = 800;
 /// real compositor feature. While `true`, the present renders this synthetic
 /// scene instead of windowd's VMO content.
 pub(crate) const COMPOSITOR_BUILDUP: bool = true;
-/// Features added on top of the base (0 = clear + gradient only).
-/// 1 = + drop shadow. 2 = + wallpaper texture. 3 = + glass blur. 4 = + cursor (input).
-const COMPOSITOR_STAGE: u32 = 4;
+/// Incremental compositor build-up — raise ONE stage at a time and boot
+/// (`GPU_MODE=virgl just start`) to find which GL op first goes black:
+///   0 = solid clear background + cursor (the absolute minimum)
+///   1 = + wallpaper-texture background (our background; sampled, no per-frame transfer)
+///   2 = + opaque gradient panel
+///   3 = + drop shadow behind the panel
+///   4 = + glass blur (frosted panel)
+/// The cursor (the mouse) is ALWAYS drawn, on top — moving the mouse must move
+/// it on any stage. Start at 1 = background + mouse per the incremental bring-up.
+const COMPOSITOR_STAGE: u32 = 1;
 /// Automated spin-blur demo: when true, an idle gpud re-presents the *orbiting*
 /// build-up panel (shadow + glass blur) every frame to exercise the GPU blur/shadow
 /// pipeline + the reactive ring-buffer IRQ at the 120 Hz target. The re-present is
@@ -216,9 +223,10 @@ impl VirtioGpuBackend {
         self.gl_display_tex_va =
             self.virgl_attach_backing(H_DISPLAY_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
 
-        // Stage-2 wallpaper texture: uploaded ONCE here (no per-frame transfer).
-        // Filled with recognizable BGRA color bands so "a sampled texture renders"
-        // is unmistakable; tests whether sampling a pre-uploaded texture presents.
+        // Wallpaper texture: created here and seeded with recognizable BGRA color
+        // bands as a boot fallback (proves "a sampled texture renders"). The first
+        // build-up present replaces this content with the real wallpaper from VMO
+        // Plane 0 (see `try_upload_wallpaper_from_vmo`) — no per-frame transfer.
         let create_wp = VirtioGpuResourceCreate3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
             resource_id: H_WALLPAPER_TEX,
@@ -242,6 +250,9 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_struct(&wp_ctx)?;
         let wp_va = self.virgl_attach_backing(H_WALLPAPER_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
+        // Remember the backing so the first present can replace these boot bands
+        // with the real wallpaper (windowd's decoded JPEG in VMO Plane 0).
+        self.gl_wallpaper_tex_va = wp_va as usize;
         {
             let dst = wp_va as *mut u8;
             const BANDS: [[u8; 4]; 8] = [
@@ -414,6 +425,41 @@ impl VirtioGpuBackend {
         })
     }
 
+    /// Copy the real wallpaper from windowd's shared-VMO **Plane 0** (rows
+    /// 0..SCREEN_H — the decoded JPEG it writes once at boot) into the wallpaper
+    /// texture's backing and transfer it to the host. One-shot: replaces the boot
+    /// color-bands with the real background. No-op (leaves the bands) until Plane 0
+    /// is reachable. The shared VMO base is `scanout_fb`'s `fb` (Plane 0 = offset 0).
+    fn try_upload_wallpaper_from_vmo(&mut self) {
+        let Some((fb, fb_len, fb_w, _display_row)) = self.scanout_fb() else {
+            return;
+        };
+        let dst = self.gl_wallpaper_tex_va as *mut u8;
+        if dst.is_null() || fb.is_null() {
+            return;
+        }
+        let stride = fb_w * 4; // VMO row stride (bytes)
+        let row_bytes = (SCREEN_W as usize * 4).min(stride);
+        // Plane 0 (wallpaper) occupies rows 0..SCREEN_H of the shared VMO.
+        if SCREEN_H as usize * stride > fb_len {
+            return;
+        }
+        for row in 0..SCREEN_H as usize {
+            let src_off = row * stride;
+            let dst_off = row * (SCREEN_W as usize * 4);
+            unsafe {
+                core::ptr::copy_nonoverlapping(fb.add(src_off), dst.add(dst_off), row_bytes);
+            }
+        }
+        if self
+            .virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)
+            .is_ok()
+        {
+            self.wallpaper_from_vmo_uploaded = true;
+            let _ = nexus_abi::debug_println("gpud: wallpaper uploaded from vmo (jpeg)");
+        }
+    }
+
     /// Incremental GPU compositor (build-up). Renders a synthetic scene into the
     /// scanout RT via GL draws only, adding one feature per `COMPOSITOR_STAGE`
     /// (see the const docs) — to find which GL op breaks the present while
@@ -425,6 +471,16 @@ impl VirtioGpuBackend {
         // their one-time CREATE_OBJECT commands are validated outside the batch and
         // can't silently fail inside it. Idempotent — a no-op after the first present.
         let _ = self.virgl_vector_init();
+        // One-shot: replace the boot color-bands with the real wallpaper (windowd's
+        // decoded JPEG in VMO Plane 0). Done before the batch — it issues its own
+        // transfer_to_host (a ctrl command), like `virgl_vector_init` above.
+        if COMPOSITOR_STAGE >= 1 && !self.wallpaper_from_vmo_uploaded {
+            self.try_upload_wallpaper_from_vmo();
+        }
+        // One-shot: upload the real cursor sprite (windowd's Mocu cursor, set via
+        // store_cursor_sprite) into its GL texture + pre-warm the layer shader, so
+        // the cursor composites as a proper layer below. Outside the batch.
+        let _ = self.cursor_tex_init();
         // Batch the whole present: every SUBMIT_3D draw below + the final flush is
         // ENQUEUED into the multi-entry ring without a per-command wait, then drained
         // once at the end. A textured (sampling) draw whose completion QEMU defers no
@@ -443,10 +499,11 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_header_tail(&hdr, bytes)?;
 
-        // Stage 2: fullscreen blit of the pre-uploaded wallpaper texture (sampled,
-        // NO per-frame transfer). Tests whether sampling a texture uploaded once
-        // at init presents — vs the per-frame-transfer content path (black).
-        if COMPOSITOR_STAGE >= 2 {
+        // Stage 1: our wallpaper background — fullscreen blit of the texture
+        // uploaded ONCE at init (sampled, NO per-frame transfer). Tests whether
+        // sampling a texture uploaded once presents — vs the per-frame-transfer
+        // content path (black).
+        if COMPOSITOR_STAGE >= 1 {
             let mut sw = Submit3d::new();
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
@@ -473,118 +530,133 @@ impl VirtioGpuBackend {
             self.ctrl_submit_header_tail(&wh, wb)?;
         }
 
-        // Spin-blur demo: orbit the panel on a fixed circle so the shadow + glass
-        // blur recompute every frame (reactive GPU/blur perf test; gpud drives the
-        // re-presents on a 60Hz timer cap, no input). Disabled → static panel.
-        let (px, py, pw, ph) = if BUILDUP_SPIN_DEMO {
-            let (dx, dy) =
-                SPIN_ORBIT_LUT[(self.buildup_frame % SPIN_ORBIT_LUT.len() as u64) as usize];
-            self.buildup_frame = self.buildup_frame.wrapping_add(1);
-            ((200i32 + dx).max(0) as u32, (140i32 + dy).max(0) as u32, 880u32, 520u32)
-        } else {
-            (200u32, 140u32, 880u32, 520u32)
-        };
-
-        // Stage 1: drop shadow behind the panel (computed SDF, alpha-blended).
-        if COMPOSITOR_STAGE >= 1 {
-            let _ = self.submit_drop_shadow_rt(
-                px,
-                py,
-                pw,
-                ph,
-                28,
-                36,
-                0,
-                24,
-                RgbaColor::new(0, 0, 0, 180),
-            );
-        }
-
-        if COMPOSITOR_STAGE >= 3 {
-            // Stage 3: GLASS panel — blur the persistent wallpaper behind the
-            // panel (FS_BLUR sampling H_WALLPAPER, vertical so the horizontal
-            // bands visibly soften), then a translucent tint = frosted glass.
-            // Pure GL draws + sampling a persistent texture — no per-frame transfer.
-            let mut sb = Submit3d::new();
-            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
-            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
-            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
-            sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-            sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-            sb.emit_set_viewport_box(px as f32, py as f32, pw as f32, ph as f32);
-            sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
-            sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
-            // FS_BLUR (handle 13): CONST[0]=(inv_w,inv_h,radius,falloff),
-            // CONST[1]=(dir_x,dir_y,off_x,off_y). Vertical, radius 20, soft.
-            sb.emit_set_constant_buffer(
-                PIPE_SHADER_FRAGMENT,
-                &[
-                    1.0 / SCREEN_W as f32,
-                    1.0 / SCREEN_H as f32,
-                    20.0,
-                    -0.02,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                ],
-            );
-            sb.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-            sb.emit_bind_shader(13, PIPE_SHADER_FRAGMENT); // FS_BLUR
-            sb.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
-            sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
-            let bb = sb.as_bytes();
-            let bh = VirtioGpuSubmit3d {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-                size: bb.len() as u32,
-                _padding: 0,
+        // Stage 2+: the panel and its effects (only while building up the UI on
+        // top of the background + mouse). Nothing panel-related is emitted below
+        // stage 2, so stage 0/1 is purely background + cursor.
+        if COMPOSITOR_STAGE >= 2 {
+            // Spin-blur demo: orbit the panel on a fixed circle so the shadow +
+            // glass blur recompute every frame (reactive GPU/blur perf test; gpud
+            // drives the re-presents on a 60Hz timer cap, no input). Disabled →
+            // static panel.
+            let (px, py, pw, ph) = if BUILDUP_SPIN_DEMO {
+                let (dx, dy) =
+                    SPIN_ORBIT_LUT[(self.buildup_frame % SPIN_ORBIT_LUT.len() as u64) as usize];
+                self.buildup_frame = self.buildup_frame.wrapping_add(1);
+                ((200i32 + dx).max(0) as u32, (140i32 + dy).max(0) as u32, 880u32, 520u32)
+            } else {
+                (200u32, 140u32, 880u32, 520u32)
             };
-            self.ctrl_submit_header_tail(&bh, bb)?;
-            // Translucent glass tint over the blurred backdrop.
-            let _ = self.diag_gradient_rt(
-                px,
-                py,
-                pw,
-                ph,
-                RgbaColor::new(255, 255, 255, 70),
-                RgbaColor::new(150, 180, 230, 96),
-            );
-        } else {
-            // Base (Stage 0): opaque gradient panel — pure GL draw, over the shadow.
-            let _ = self.diag_gradient_rt(
-                px,
-                py,
-                pw,
-                ph,
-                RgbaColor::new(56, 122, 230, 255),
-                RgbaColor::new(20, 44, 96, 255),
-            );
+
+            // Stage 3: drop shadow behind the panel (computed SDF, alpha-blended).
+            if COMPOSITOR_STAGE >= 3 {
+                let _ = self.submit_drop_shadow_rt(
+                    px,
+                    py,
+                    pw,
+                    ph,
+                    28,
+                    36,
+                    0,
+                    24,
+                    RgbaColor::new(0, 0, 0, 180),
+                );
+            }
+
+            if COMPOSITOR_STAGE >= 4 {
+                // Stage 4: GLASS panel — blur the persistent wallpaper behind the
+                // panel (FS_BLUR sampling H_WALLPAPER, vertical so the horizontal
+                // bands visibly soften), then a translucent tint = frosted glass.
+                // Pure GL draws + sampling a persistent texture — no per-frame transfer.
+                let mut sb = Submit3d::new();
+                sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
+                sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
+                sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
+                sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
+                sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+                sb.emit_set_viewport_box(px as f32, py as f32, pw as f32, ph as f32);
+                sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+                sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
+                // FS_BLUR (handle 13): CONST[0]=(inv_w,inv_h,radius,falloff),
+                // CONST[1]=(dir_x,dir_y,off_x,off_y). Vertical, radius 20, soft.
+                sb.emit_set_constant_buffer(
+                    PIPE_SHADER_FRAGMENT,
+                    &[
+                        1.0 / SCREEN_W as f32,
+                        1.0 / SCREEN_H as f32,
+                        20.0,
+                        -0.02,
+                        0.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                );
+                sb.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+                sb.emit_bind_shader(13, PIPE_SHADER_FRAGMENT); // FS_BLUR
+                sb.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
+                sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+                let bb = sb.as_bytes();
+                let bh = VirtioGpuSubmit3d {
+                    hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+                    size: bb.len() as u32,
+                    _padding: 0,
+                };
+                self.ctrl_submit_header_tail(&bh, bb)?;
+                // Translucent glass tint over the blurred backdrop.
+                let _ = self.diag_gradient_rt(
+                    px,
+                    py,
+                    pw,
+                    ph,
+                    RgbaColor::new(255, 255, 255, 70),
+                    RgbaColor::new(150, 180, 230, 96),
+                );
+            } else {
+                // Stage 2: opaque gradient panel — pure GL draw, over the shadow.
+                let _ = self.diag_gradient_rt(
+                    px,
+                    py,
+                    pw,
+                    ph,
+                    RgbaColor::new(56, 122, 230, 255),
+                    RgbaColor::new(20, 44, 96, 255),
+                );
+            }
         }
 
-        // Stage 4: INPUT — draw a GL cursor at gpud's current pointer position
-        // (cursor_ox/oy, updated by OP_MOVE_CURSOR from windowd as the mouse
-        // moves; windowd also sends OP_PRESENT_DAMAGE on move so this re-renders).
-        // Moving the mouse moves this marker = input live on the GPU compositor.
-        if COMPOSITOR_STAGE >= 4 {
+        // INPUT — draw a GL cursor at gpud's current pointer position, ALWAYS, on
+        // top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from windowd
+        // as the mouse moves; windowd also sends OP_PRESENT_DAMAGE on move so this
+        // re-renders). Moving the mouse moves this marker = input live on the GPU
+        // compositor, on every stage.
+        {
             let cx = self.cursor_ox.clamp(0, SCREEN_W as i32 - 20) as u32;
             let cy = self.cursor_oy.clamp(0, SCREEN_H as i32 - 28) as u32;
-            // Dark outline then bright fill, so the cursor reads on any backdrop.
-            let _ = self.diag_gradient_rt(
-                cx.saturating_sub(2),
-                cy.saturating_sub(2),
-                22,
-                30,
-                RgbaColor::new(20, 20, 24, 255),
-                RgbaColor::new(20, 20, 24, 255),
-            );
-            let _ = self.diag_gradient_rt(
-                cx,
-                cy,
-                18,
-                26,
-                RgbaColor::new(255, 255, 255, 255),
-                RgbaColor::new(225, 230, 240, 255),
-            );
+            if self.cursor_tex_ready() {
+                // Production path: composite the real cursor sprite as a layer
+                // (alpha-blended; its own alpha shapes the arrow). Reuses the
+                // generic layer compositor, not a bespoke draw.
+                let _ = self.composite_cursor_rt(cx, cy);
+            } else {
+                // Fallback until windowd uploads the sprite: a procedural arrow so
+                // the pointer is never invisible. Dark outline then bright fill.
+                let _ = self.diag_gradient_rt(
+                    cx.saturating_sub(2),
+                    cy.saturating_sub(2),
+                    22,
+                    30,
+                    RgbaColor::new(20, 20, 24, 255),
+                    RgbaColor::new(20, 20, 24, 255),
+                );
+                let _ = self.diag_gradient_rt(
+                    cx,
+                    cy,
+                    18,
+                    26,
+                    RgbaColor::new(255, 255, 255, 255),
+                    RgbaColor::new(225, 230, 240, 255),
+                );
+            }
         }
 
         // Enqueue the flush as the last command in the batch. Pipelined: we do NOT

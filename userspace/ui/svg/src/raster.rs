@@ -3,10 +3,10 @@
 
 use alloc::vec::Vec;
 
-use crate::elements::SvgDocument;
+use crate::elements::{FillRule, SvgDocument, Transform};
 use crate::limits::OUTPUT_BYTES_PER_PIXEL;
 use crate::math::F32Math;
-use crate::tessellate::{tessellate_document, Edge};
+use crate::tessellate::{tessellate_document_with, Edge};
 
 /// Rasterized BGRA8888 output.
 #[derive(Debug, Clone)]
@@ -16,23 +16,37 @@ pub struct RasterOutput {
     pub buffer: Vec<u8>,
 }
 
-/// Rasterize an SVG document to a BGRA8888 buffer.
+/// Rasterize an SVG document to a BGRA8888 buffer at its intrinsic size.
 pub fn rasterize_document(doc: &SvgDocument) -> Result<RasterOutput, crate::error::SvgError> {
     let width = (doc.width + 0.99999_f32) as u32;
     let height = (doc.height + 0.99999_f32) as u32;
+    rasterize_document_at(doc, width, height)
+}
 
-    if width == 0 || height == 0 {
-        return Ok(RasterOutput { width, height, buffer: Vec::new() });
+/// Rasterize a document into an explicit `out_w × out_h` target, scaling geometry
+/// to fit (the document's intrinsic box maps onto the output). Coverage is
+/// computed in the target grid and curves flatten to the scaled transform, so the
+/// result is crisp at HiDPI/5K — this is the asset pipeline's render entry.
+pub fn rasterize_document_at(
+    doc: &SvgDocument,
+    out_w: u32,
+    out_h: u32,
+) -> Result<RasterOutput, crate::error::SvgError> {
+    if out_w == 0 || out_h == 0 {
+        return Ok(RasterOutput { width: out_w, height: out_h, buffer: Vec::new() });
     }
+    let sx = out_w as f32 / doc.width.max(1e-3);
+    let sy = out_h as f32 / doc.height.max(1e-3);
+    let root = Transform { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 };
 
-    let edges = tessellate_document(doc);
+    let edges = tessellate_document_with(doc, &root);
 
-    let size = (width as usize) * (height as usize) * OUTPUT_BYTES_PER_PIXEL;
+    let size = (out_w as usize) * (out_h as usize) * OUTPUT_BYTES_PER_PIXEL;
     let mut buffer = vec![0u8; size];
 
-    scanline_fill(&edges, width as usize, height as usize, &mut buffer);
+    scanline_fill(&edges, out_w as usize, out_h as usize, &mut buffer);
 
-    Ok(RasterOutput { width, height, buffer })
+    Ok(RasterOutput { width: out_w, height: out_h, buffer })
 }
 
 /// Simple scanline polygon fill with alpha blending.
@@ -91,9 +105,12 @@ fn scanline_fill_shape(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
     }
     let y_end = y_end_i as usize;
 
-    // Per-row coverage accumulator + reusable crossing scratch.
+    // All edges of a shape share one fill rule (set in tessellation).
+    let fill_rule = edges[0].fill_rule;
+
+    // Per-row coverage accumulator + reusable crossing scratch (x, winding dir).
     let mut cov = vec![0f32; w];
-    let mut xs: Vec<f32> = Vec::new();
+    let mut xs: Vec<(f32, i32)> = Vec::new();
     let inv_ss = 1.0 / SUBSAMPLES_Y as f32;
 
     for y in y_start..=y_end {
@@ -105,20 +122,31 @@ fn scanline_fill_shape(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
             xs.clear();
             for e in edges {
                 // Half-open [y0, y1): a vertex shared by two edges is counted
-                // once, so even-odd spans stay correctly paired.
+                // once, so spans stay correctly paired.
                 if yf >= e.y0 && yf < e.y1 {
                     let t = (yf - e.y0) / (e.y1 - e.y0);
-                    xs.push(e.x0 + t * (e.x1 - e.x0));
+                    xs.push((e.x0 + t * (e.x1 - e.x0), e.dir));
                 }
             }
             if xs.len() < 2 {
                 continue;
             }
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+            xs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
+            // Walk crossings left→right; the interval [xs[i], xs[i+1]] is inside
+            // per the fill rule — nonzero: running winding != 0; even-odd: parity
+            // (every other interval, preserving the classic paired-span fill).
+            let mut wind = 0i32;
             let mut i = 0;
             while i + 1 < xs.len() {
-                add_span_coverage(&mut cov, xs[i], xs[i + 1], inv_ss, w);
-                i += 2;
+                wind += xs[i].1;
+                let inside = match fill_rule {
+                    FillRule::NonZero => wind != 0,
+                    FillRule::EvenOdd => i % 2 == 0,
+                };
+                if inside {
+                    add_span_coverage(&mut cov, xs[i].0, xs[i + 1].0, inv_ss, w);
+                }
+                i += 1;
             }
         }
         let row = y * w;
@@ -148,6 +176,56 @@ fn add_span_coverage(cov: &mut [f32], x0: f32, x1: f32, weight: f32, w: usize) {
         if overlap > 0.0 {
             *slot += overlap * weight;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::elements::Color;
+    use crate::tessellate::Edge;
+
+    // Two nested squares wound the SAME direction, as one shape. Under nonzero
+    // the centre (inside both) stays filled (winding ±2 ≠ 0); under even-odd the
+    // centre is a hole (inside count 2 = even). This is the rule that makes real
+    // icons render correctly.
+    fn nested_squares(fill_rule: FillRule) -> Vec<Edge> {
+        let c = Color { r: 255, g: 255, b: 255, a: 255 };
+        let v = |x: f32, y0: f32, y1: f32, dir: i32| Edge {
+            x0: x,
+            y0,
+            x1: x,
+            y1,
+            color: c,
+            shape_id: 0,
+            dir,
+            fill_rule,
+        };
+        // Outer CW: right edge x=90 down (+1), left edge x=10 up (−1).
+        // Inner CW: right edge x=70 down (+1), left edge x=30 up (−1).
+        vec![
+            v(90.0, 10.0, 90.0, 1),
+            v(10.0, 10.0, 90.0, -1),
+            v(70.0, 30.0, 70.0, 1),
+            v(30.0, 30.0, 70.0, -1),
+        ]
+    }
+
+    fn center_alpha(fill_rule: FillRule) -> u8 {
+        let (w, h) = (100usize, 100usize);
+        let mut buf = vec![0u8; w * h * OUTPUT_BYTES_PER_PIXEL];
+        scanline_fill(&nested_squares(fill_rule), w, h, &mut buf);
+        buf[(50 * w + 50) * OUTPUT_BYTES_PER_PIXEL + 3]
+    }
+
+    #[test]
+    fn nonzero_fills_nested_same_winding_center() {
+        assert!(center_alpha(FillRule::NonZero) > 200, "nonzero fills the centre");
+    }
+
+    #[test]
+    fn even_odd_leaves_nested_center_hole() {
+        assert_eq!(center_alpha(FillRule::EvenOdd), 0, "even-odd punches a hole");
     }
 }
 

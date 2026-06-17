@@ -1,7 +1,51 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use nexus_svg::{render_svg, SvgError};
+use nexus_svg::{render_svg, render_svg_tinted, render_svg_tinted_at, SvgError};
+
+#[test]
+fn renders_at_hidpi_scale() {
+    // Render-at-scale (the asset-pipeline entry): the same icon at 256px covers
+    // far more pixels than at 24px and fills the larger canvas — crisp at HiDPI.
+    let svg = include_str!("../../../../resources/icons/lucide/icons/wallet.svg");
+    let small = render_svg_tinted_at(svg, (255, 255, 255), 24, 24).unwrap();
+    let big = render_svg_tinted_at(svg, (255, 255, 255), 256, 256).unwrap();
+    assert_eq!((big.width, big.height), (256, 256));
+    let count = |o: &nexus_svg::RasterOutput| o.buffer.chunks_exact(4).filter(|p| p[3] > 0).count();
+    let (s, b) = (count(&small), count(&big));
+    assert!(b > s * 10, "HiDPI render covers far more pixels ({b} vs {s})");
+}
+
+#[test]
+fn renders_real_lucide_icon() {
+    // The real Lucide wallet icon: root stroke="currentColor", two child <path>s
+    // (with arcs) that inherit it, round caps/joins. End-to-end proof.
+    let svg = include_str!("../../../../resources/icons/lucide/icons/wallet.svg");
+    let out = render_svg_tinted(svg, (255, 255, 255)).unwrap();
+    let opaque = out.buffer.chunks_exact(4).filter(|p| p[3] > 0).count();
+    assert!(opaque > 50, "real Lucide icon renders a visible stroke ({opaque} px)");
+}
+
+#[test]
+fn inherited_stroke_and_currentcolor_tint() {
+    // Lucide pattern: stroke/width/linecap on the root <svg>, fill=none; the child
+    // <path> declares none of them and must inherit — and currentColor resolves to
+    // the caller's tint. Without the cascade the child would render nothing.
+    let svg = r##"<svg width="24" height="24" xmlns="http://www.w3.org/2000/svg"
+        fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4,12 L20,12" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let w = out.width as usize;
+    let alpha = |x: usize, y: usize| out.buffer[(y * w + x) * 4 + 3];
+    assert!(alpha(12, 12) > 0, "child path inherits the root stroke");
+
+    // currentColor → red tint colors the inherited stroke (BGRA: r at +2, b at +0).
+    let red = render_svg_tinted(svg, (255, 0, 0)).unwrap();
+    let i = (12 * w + 12) * 4;
+    assert!(red.buffer[i + 2] > 200 && red.buffer[i] < 60, "currentColor tinted red");
+}
 
 #[test]
 fn test_render_simple_rect() {
@@ -11,6 +55,22 @@ fn test_render_simple_rect() {
     let output = render_svg(svg).unwrap();
     assert_eq!(output.width, 100);
     assert_eq!(output.height, 100);
+}
+
+#[test]
+fn round_join_fills_outer_corner_of_stroke() {
+    // A right-angle stroke (8px) with a round join. The outer corner pixel
+    // (22,3) lies outside both segment quads but inside the join disc at the
+    // vertex (20,5) — so it must be opaque. Before joins existed this was a gap.
+    let svg = r##"<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5,5 L20,5 L20,20" fill="none" stroke="#000000" stroke-width="8" stroke-linejoin="round" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let w = out.width as usize;
+    let alpha = |x: usize, y: usize| out.buffer[(y * w + x) * 4 + 3];
+    assert!(alpha(22, 3) > 0, "round join must fill the outer corner gap");
+    // A point well outside the stroke stays empty.
+    assert_eq!(alpha(2, 27), 0, "background stays transparent");
 }
 
 #[test]

@@ -484,6 +484,12 @@ pub(crate) struct DisplayServerRuntime {
     /// moves then ship as a 9-byte OP_MOVE_CURSOR (host repositions the
     /// overlay) — zero composite, zero blits, zero presents per move.
     hw_cursor_active: bool,
+    /// True when gpud draws a procedural cursor on the virgl GL scanout (the
+    /// build-up present owns the scanout, so the software BlendCursor in the VMO
+    /// is ignored). Pointer moves ship OP_MOVE_CURSOR (updates gpud's pointer
+    /// pos) AND damage the cursor rect so a present re-renders the procedural
+    /// arrow at the new position.
+    gl_cursor_active: bool,
     /// One-shot: pre-blur the sidebar backdrop into the Plane 3 cache during
     /// the first handoff present, so the first open never pays for a blur.
     precache_blur_pending: bool,
@@ -742,6 +748,7 @@ impl DisplayServerRuntime {
             first_handoff_attach_acked: false,
             first_handoff_present_sent: false,
             hw_cursor_active: false,
+            gl_cursor_active: false,
             precache_blur_pending: true,
             button_hover: false,
             chat_atlas,
@@ -1394,6 +1401,20 @@ impl DisplayServerRuntime {
         if self.hw_cursor_active {
             if cursor_changed {
                 self.send_cursor_move_to_gpud();
+            }
+        } else if self.gl_cursor_active {
+            // virgl procedural cursor: update gpud's pointer pos AND damage the
+            // cursor rect so a present is scheduled — the build-up present
+            // redraws the procedural arrow at the new spot (its VMO BlendCursor
+            // is ignored while the GL build-up owns the scanout).
+            if cursor_changed {
+                self.send_cursor_move_to_gpud();
+                self.queue_cursor_damage(
+                    old_cursor_x,
+                    old_cursor_y,
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                );
             }
         } else {
             self.queue_cursor_damage(

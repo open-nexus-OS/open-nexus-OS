@@ -37,6 +37,11 @@ const SPIN_DEMO_PERIOD_NS: u64 = 8_333_333;
 /// present acks, whose u32 slot carries a small handoff id).
 pub const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
 pub const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
+/// virgl GL scanout: the build-up present draws a *procedural* cursor at
+/// `cursor_ox/oy` each frame (no resource transfer — safe on the GL scanout,
+/// unlike the HW overlay). windowd must ship `OP_MOVE_CURSOR` on every move
+/// AND a present so the procedural arrow re-renders at the new position.
+pub const CURSOR_REPLY_GL: u32 = 0xC0DE_0002;
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
 pub const STATUS_DEVICE_ERROR: u8 = 2;
@@ -619,13 +624,20 @@ fn arm_cursor(
         let _ = debug_println("gpud: hw cursor armed");
         return (STATUS_OK, Some(CURSOR_REPLY_HW));
     }
-    // virgl GL scanout, or HW arm failed: software BlendCursor fallback (hot spot
-    // applied by windowd). `hot_x`/`hot_y` are unused on this path.
+    // virgl GL scanout, or HW arm failed. `hot_x`/`hot_y` are unused on this path.
     let _ = (hot_x, hot_y);
+    // On virgl the build-up present owns the scanout and draws a procedural
+    // cursor at `cursor_ox/oy` — reply GL so windowd ships moves + a present
+    // (its software BlendCursor into the VMO would be ignored here). Elsewhere
+    // (HW arm failed) fall back to windowd's BlendCursor (SW).
+    #[cfg(feature = "virgl")]
+    const NON_HW_REPLY: u32 = CURSOR_REPLY_GL;
+    #[cfg(not(feature = "virgl"))]
+    const NON_HW_REPLY: u32 = CURSOR_REPLY_SW;
     match backend.store_cursor_sprite(bgra, w, h) {
         Ok(()) => {
             let _ = debug_println("gpud: cursor uploaded");
-            (STATUS_OK, Some(CURSOR_REPLY_SW))
+            (STATUS_OK, Some(NON_HW_REPLY))
         }
         Err(_) => (STATUS_DEVICE_ERROR, None),
     }

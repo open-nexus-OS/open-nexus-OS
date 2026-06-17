@@ -2005,10 +2005,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-shell-desktop"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-virtual-list",
+ "nexus-widget-button",
+ "nexus-widget-panel",
+ "nexus-widget-text-field",
+ "nexus-widget-window",
+]
+
+[[package]]
 name = "nexus-style"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
+ "nexus-theme-tokens",
 ]
 
 [[package]]
@@ -2029,6 +2044,13 @@ version = "0.1.0"
 dependencies = [
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "nexus-theme-tokens"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
 ]
 
 [[package]]
@@ -2065,6 +2087,14 @@ dependencies = [
 
 [[package]]
 name = "nexus-widget-panel"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+]
+
+[[package]]
+name = "nexus-widget-text-field"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",

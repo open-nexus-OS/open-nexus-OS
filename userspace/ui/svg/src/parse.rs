@@ -10,7 +10,8 @@ use core::str::Chars;
 use hashbrown::HashMap;
 
 use crate::elements::{
-    Color, FillRule, GradientStop, Paint, PathCommand, PathData, SvgDocument, SvgElement, Transform,
+    Color, FillRule, GradientStop, LineCap, LineJoin, Paint, PathCommand, PathData, StrokeStyle,
+    SvgDocument, SvgElement, Transform,
 };
 use crate::error::{SvgError, SvgResult};
 use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES};
@@ -231,6 +232,12 @@ impl<'a> Tokenizer<'a> {
 
 // Parse an SVG string into an `SvgDocument`.
 pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
+    parse_svg_tinted(input, Color::BLACK)
+}
+
+/// Parse with a base `tint` for `currentColor`, so monochrome icons (Lucide
+/// et al., `stroke="currentColor"`) are themed by the caller's token color.
+pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocument> {
     let mut tokenizer = Tokenizer::new(input);
     let mut node_count = 0;
     let mut segments = 0;
@@ -238,6 +245,8 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
     let mut root: Option<SvgDocument> = None;
     let mut stack: AVec<(String, Vec<SvgElement>)> = AVec::new();
     let mut defs: HashMap<String, SvgElement> = HashMap::new();
+    // The presentation-property cascade root; replaced by the <svg>'s own style.
+    let mut root_style = StyleContext::root(tint);
 
     loop {
         let token = tokenizer.next_token()?;
@@ -255,6 +264,8 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                 match tag_lower.as_str() {
                     "svg" => {
                         let (w, h) = parse_dimensions(&attrs)?;
+                        // The root <svg>'s presentation attrs seed the cascade.
+                        root_style = resolve_context(&attrs, &StyleContext::root(tint));
                         root = Some(SvgDocument {
                             width: w,
                             height: h,
@@ -274,6 +285,7 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                             &mut node_count,
                             &mut segments,
                             &mut defs,
+                            &root_style,
                         )?;
                         if let Some((_, children)) = stack.last_mut() {
                             children.push(elem);
@@ -298,6 +310,7 @@ pub fn parse_svg(input: &str) -> SvgResult<SvgDocument> {
                     &mut node_count,
                     &mut segments,
                     &mut defs,
+                    &root_style,
                 )?;
 
                 // Push self-closing element into parent's children
@@ -383,7 +396,11 @@ const KNOWN_ATTRS: &[&str] = &[
     "d",
     "fill",
     "stroke",
+    "color",
     "stroke-width",
+    "stroke-linejoin",
+    "stroke-linecap",
+    "stroke-miterlimit",
     "fill-rule",
     "opacity",
     "x",
@@ -429,7 +446,9 @@ fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<
             continue;
         }
 
-        if !KNOWN_ATTRS.contains(&name.as_str()) {
+        // Attribute names are matched case-insensitively (SVG allows camelCase
+        // presentation attrs like `viewBox`/`gradientUnits`).
+        if !KNOWN_ATTRS.contains(&name.to_lowercase().as_str()) {
             return Err(SvgError::UnsupportedAttribute {
                 tag: tag.to_string(),
                 attr: name.clone(),
@@ -465,19 +484,24 @@ fn parse_element(
     _node_count: &mut usize,
     segments: &mut usize,
     defs: &mut HashMap<String, SvgElement>,
+    inherited: &StyleContext,
 ) -> SvgResult<SvgElement> {
     let transform = parse_transform_attr(attrs);
     let opacity = parse_opacity_attr(attrs);
-    let fill = parse_paint_attr(attrs, "fill");
-    let stroke = parse_paint_attr(attrs, "stroke");
-    let stroke_width = parse_f32_attr(attrs, "stroke-width").unwrap_or(1.0);
+    // Resolve fill/stroke/stroke-width/stroke-style through the inherited cascade
+    // (so e.g. a Lucide icon's children pick up the root <svg>'s stroke).
+    let eff = resolve_context(attrs, inherited);
+    let fill = eff.fill;
+    let stroke = eff.stroke;
+    let stroke_width = eff.stroke_width;
+    let stroke_style = eff.stroke_style;
 
     match tag {
         "g" => Ok(SvgElement::Group { children: AVec::new(), transform, opacity }),
         "path" => {
             let d_str = get_attr(attrs, "d").unwrap_or("");
             let data = parse_path_data(d_str, segments)?;
-            Ok(SvgElement::Path { data, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Path { data, fill, stroke, stroke_width, stroke_style, transform, opacity })
         }
         "rect" => {
             let x = parse_f32_attr(attrs, "x").unwrap_or(0.0);
@@ -496,6 +520,7 @@ fn parse_element(
                 fill,
                 stroke,
                 stroke_width,
+                stroke_style,
                 transform,
                 opacity,
             })
@@ -504,7 +529,7 @@ fn parse_element(
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
             let cy = parse_f32_attr(attrs, "cy").unwrap_or(0.0);
             let r = parse_f32_attr(attrs, "r").unwrap_or(0.0);
-            Ok(SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, stroke_style, transform, opacity })
         }
         "ellipse" => {
             let cx = parse_f32_attr(attrs, "cx").unwrap_or(0.0);
@@ -519,6 +544,7 @@ fn parse_element(
                 fill,
                 stroke,
                 stroke_width,
+                stroke_style,
                 transform,
                 opacity,
             })
@@ -528,12 +554,12 @@ fn parse_element(
             let y1 = parse_f32_attr(attrs, "y1").unwrap_or(0.0);
             let x2 = parse_f32_attr(attrs, "x2").unwrap_or(0.0);
             let y2 = parse_f32_attr(attrs, "y2").unwrap_or(0.0);
-            Ok(SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_style, transform, opacity })
         }
         "polygon" => {
             let points_str = get_attr(attrs, "points").unwrap_or("");
             let points = parse_points(points_str)?;
-            Ok(SvgElement::Polygon { points, fill, stroke, stroke_width, transform, opacity })
+            Ok(SvgElement::Polygon { points, fill, stroke, stroke_width, stroke_style, transform, opacity })
         }
         "lineargradient" => {
             // LinearGradient is a defs entry — parsed inline
@@ -627,6 +653,64 @@ fn parse_opacity_attr(attrs: &[(String, String)]) -> f32 {
     parse_f32_attr(attrs, "opacity").unwrap_or(1.0).clamp(0.0, 1.0)
 }
 
+/// Parse stroke styling (`stroke-linejoin`/`stroke-linecap`/`stroke-miterlimit`),
+/// per attribute falling back to the inherited `parent` value (the SVG cascade).
+fn parse_stroke_style(attrs: &[(String, String)], parent: StrokeStyle) -> StrokeStyle {
+    let line_join = match get_attr(attrs, "stroke-linejoin") {
+        Some("round") => LineJoin::Round,
+        Some("bevel") => LineJoin::Bevel,
+        Some("miter") => LineJoin::Miter,
+        _ => parent.line_join,
+    };
+    let line_cap = match get_attr(attrs, "stroke-linecap") {
+        Some("round") => LineCap::Round,
+        Some("square") => LineCap::Square,
+        Some("butt") => LineCap::Butt,
+        _ => parent.line_cap,
+    };
+    let miter_limit = parse_f32_attr(attrs, "stroke-miterlimit").unwrap_or(parent.miter_limit);
+    StrokeStyle { line_join, line_cap, miter_limit }
+}
+
+/// Inherited presentation properties — the SVG style cascade. Captured from the
+/// root `<svg>` and applied to descendants that don't specify their own.
+#[derive(Clone)]
+struct StyleContext {
+    fill: Option<Paint>,
+    stroke: Option<Paint>,
+    stroke_width: f32,
+    stroke_style: StrokeStyle,
+    /// Value of the `color` property — what `currentColor` resolves to.
+    color: Color,
+}
+
+impl StyleContext {
+    /// Root of the cascade: SVG initial values, with `tint` as the base
+    /// `currentColor` (so external callers can theme monochrome icons).
+    fn root(tint: Color) -> Self {
+        StyleContext {
+            fill: None,
+            stroke: None,
+            stroke_width: 1.0,
+            stroke_style: StrokeStyle::default(),
+            color: tint,
+        }
+    }
+}
+
+/// Resolve an element's effective inherited style: its own presentation
+/// attributes override `parent`, otherwise the parent value cascades down.
+fn resolve_context(attrs: &[(String, String)], parent: &StyleContext) -> StyleContext {
+    let color = get_attr(attrs, "color").map(parse_color).unwrap_or(parent.color);
+    StyleContext {
+        fill: parse_paint_attr(attrs, "fill", color).or_else(|| parent.fill.clone()),
+        stroke: parse_paint_attr(attrs, "stroke", color).or_else(|| parent.stroke.clone()),
+        stroke_width: parse_f32_attr(attrs, "stroke-width").unwrap_or(parent.stroke_width),
+        stroke_style: parse_stroke_style(attrs, parent.stroke_style),
+        color,
+    }
+}
+
 fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
     let w = parse_f32_attr(attrs, "width").unwrap_or(100.0);
     let h = parse_f32_attr(attrs, "height").unwrap_or(100.0);
@@ -638,10 +722,14 @@ fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
     Ok((w, h))
 }
 
-fn parse_paint_attr(attrs: &[(String, String)], name: &str) -> Option<Paint> {
+fn parse_paint_attr(attrs: &[(String, String)], name: &str, current_color: Color) -> Option<Paint> {
     let val = get_attr(attrs, name)?;
-    if val == "none" {
+    if val.eq_ignore_ascii_case("none") {
         return Some(Paint::None);
+    }
+    // `currentColor` resolves to the inherited `color` property (icon tinting).
+    if val.eq_ignore_ascii_case("currentColor") {
+        return Some(Paint::Color(current_color));
     }
     if val.starts_with("url(") {
         let inner = val.trim_start_matches("url(").trim_end_matches(')');

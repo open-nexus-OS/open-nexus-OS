@@ -73,6 +73,13 @@ const ATLAS_ROW: u32 = 3200; // atlas start row in the VMO
 const ATLAS_ROWS: u32 = 3200; // atlas height (rows 3200..6399)
 const DISPLAY_PLANE_ROW: u32 = 1600;
 
+// Cursor sprite as a layer: its own self-backed sampler texture (BGRA), so the
+// pointer composites through the generic `submit_layer_pass` like any layer —
+// no procedural rect. Resource 0xE3 (free: display 0xE1, wallpaper 0xE2),
+// sampler view 0x49 (free: 0x44/0x45 display/wallpaper, 0x48 atlas).
+const H_CURSOR_TEX: u32 = 0xE3;
+const H_CURSOR_SVIEW: u32 = 0x49;
+
 /// Sample a content texture (fragcoord→UV) and modulate its alpha by an analytic
 /// rounded-rect SDF coverage and the layer opacity.
 /// CONST[0] = (1/tex_w, 1/tex_h, (src_x-dst_x)/tex_w, (src_row-dst_y)/tex_h) — UV map.
@@ -435,6 +442,113 @@ impl VirtioGpuBackend {
             dst_y,
             opacity,
             corner_radius,
+        )
+    }
+
+    /// Upload the stored cursor sprite (BGRA, set by `store_cursor_sprite` when
+    /// windowd arms the cursor) into its own GL sampler texture, and pre-warm the
+    /// layer shader. One-shot. Returns true once a cursor texture is ready to
+    /// sample. Issues create/attach/transfer ctrl commands — call OUTSIDE a present
+    /// batch (like the wallpaper upload), never interleaved with batched draws.
+    pub(crate) fn cursor_tex_init(&mut self) -> Result<bool, GfxError> {
+        let w = self.cursor_sprite_w;
+        let h = self.cursor_sprite_h;
+        if w == 0 || h == 0 || self.cursor_sprite.is_empty() {
+            return Ok(false); // windowd hasn't uploaded the sprite yet
+        }
+        if self.cursor_tex_va != 0 {
+            return Ok(true); // already uploaded
+        }
+        // Pre-warm the layer shader/blend/sampler outside any batch so its
+        // one-time CREATE_OBJECTs are validated here, not inside a present batch.
+        self.composite_init()?;
+        let create = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: H_CURSOR_TEX,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_SAMPLER_VIEW,
+            width: w,
+            height: h,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create)?;
+        let ctx_attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: H_CURSOR_TEX,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach)?;
+        let byte_len = (w as usize) * (h as usize) * 4;
+        let va = self.virgl_attach_backing(H_CURSOR_TEX, byte_len)?;
+        // Copy the sprite into the texture backing (tight stride = w*4).
+        let dst = va as *mut u8;
+        if !dst.is_null() && self.cursor_sprite.len() >= byte_len {
+            unsafe {
+                core::ptr::copy_nonoverlapping(self.cursor_sprite.as_ptr(), dst, byte_len);
+            }
+        }
+        self.virgl_transfer_to_host(H_CURSOR_TEX, 0, 0, w, h, w * 4)?;
+        let mut s = Submit3d::new();
+        s.emit_create_sampler_view(H_CURSOR_SVIEW, H_CURSOR_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
+        self.submit_composite_stream(&s)?;
+        self.cursor_tex_va = va;
+        self.cursor_tex_w = w;
+        self.cursor_tex_h = h;
+        Ok(true)
+    }
+
+    /// True once the cursor sprite has been uploaded into its GL texture.
+    pub(crate) fn cursor_tex_ready(&self) -> bool {
+        self.cursor_tex_va != 0
+    }
+
+    /// Composite the cursor sprite as a layer onto the scanout RT at (`dst_x`,
+    /// `dst_y`), alpha-blended (the sprite's own alpha shapes the arrow). Reuses
+    /// the generic `submit_layer_pass`; safe inside the present batch (the shader
+    /// and texture were created in `cursor_tex_init` outside it). No-op until the
+    /// sprite is uploaded.
+    pub(crate) fn composite_cursor_rt(&mut self, dst_x: u32, dst_y: u32) -> Result<(), GfxError> {
+        if self.cursor_tex_va == 0 {
+            return Ok(());
+        }
+        let (w, h) = (self.cursor_tex_w, self.cursor_tex_h);
+        self.composite_sprite_rt(H_CURSOR_SVIEW, w, h, dst_x, dst_y, 255, 0)
+    }
+
+    /// Composite an uploaded BGRA sprite (`content_sview`, a `tex_w×tex_h`
+    /// texture) as a layer onto the scanout RT at (`dst_x`,`dst_y`), alpha-blended
+    /// via the generic `submit_layer_pass`. The reusable sprite-layer entry — the
+    /// cursor uses it, and icons/other sprites can too (each its own texture), so
+    /// no sprite gets a bespoke draw path.
+    pub(crate) fn composite_sprite_rt(
+        &mut self,
+        content_sview: u32,
+        tex_w: u32,
+        tex_h: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        radius: u32,
+    ) -> Result<(), GfxError> {
+        self.submit_layer_pass(
+            crate::gl_scanout::H_GLS_SURF,
+            content_sview,
+            tex_w,
+            tex_h,
+            0,
+            0,
+            tex_w,
+            tex_h,
+            dst_x,
+            dst_y,
+            opacity,
+            radius,
         )
     }
 

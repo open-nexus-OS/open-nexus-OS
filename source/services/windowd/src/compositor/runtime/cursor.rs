@@ -50,6 +50,9 @@ impl DisplayServerRuntime {
         }
         const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
         const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
+        // virgl GL scanout: gpud draws a procedural cursor at its pointer pos —
+        // we must ship moves + a present, not a software BlendCursor.
+        const CURSOR_REPLY_GL: u32 = 0xC0DE_0002;
         let mut cursor_flags: Option<u32> = None;
         let mut present_acks_seen = 0u32;
         let mut reply = [0u8; 8];
@@ -61,7 +64,10 @@ impl DisplayServerRuntime {
                     } else {
                         0
                     };
-                    if payload == CURSOR_REPLY_HW || payload == CURSOR_REPLY_SW {
+                    if payload == CURSOR_REPLY_HW
+                        || payload == CURSOR_REPLY_SW
+                        || payload == CURSOR_REPLY_GL
+                    {
                         cursor_flags = Some(payload);
                         break;
                     }
@@ -78,12 +84,22 @@ impl DisplayServerRuntime {
         match cursor_flags {
             Some(flags) => {
                 let hw = flags == CURSOR_REPLY_HW;
+                let gl = flags == CURSOR_REPLY_GL;
                 self.hw_cursor_active = hw;
+                self.gl_cursor_active = gl;
                 let _ = debug_println(if hw {
                     "windowd: hw cursor on"
+                } else if gl {
+                    "windowd: gl procedural cursor on"
                 } else {
                     "windowd: cursor bitmap uploaded (sw)"
                 });
+                if gl {
+                    // Procedural GL cursor: place it once at the current pointer.
+                    // Moves then ship OP_MOVE_CURSOR + a present-damage (handled
+                    // in `apply_input_state`) so the build-up present re-renders it.
+                    self.send_cursor_move_to_gpud();
+                }
                 if hw {
                     // Place the overlay at the current pointer position.
                     self.send_cursor_move_to_gpud();

@@ -28,6 +28,7 @@
 use nexus_layout_types::{
     BoxShadow, CornerRadius, EdgeBorder, Fraction, FxPx, Rgba8, VisualStyle,
 };
+use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 
 /// Backdrop-blur modifier. The only visual modifier not representable on
 /// `VisualStyle` (the renderer emits it as a backdrop filter over the region
@@ -90,6 +91,26 @@ impl Style {
         self
     }
 
+    // ── Theme-token modifiers ──────────────────────────────────────────────
+    // Resolve a semantic token against a theme and apply it. Widgets/shells use
+    // these so visual values come from the theme (variables), never hardcoded —
+    // swap the `Tokens` impl to rebrand without touching widget code.
+
+    /// Background from a color token.
+    pub fn background_token(self, tokens: &dyn Tokens, color: ColorToken) -> Self {
+        self.background(tokens.color(color))
+    }
+
+    /// Uniform border from length + color tokens.
+    pub fn border_token(self, tokens: &dyn Tokens, width: LengthToken, color: ColorToken) -> Self {
+        self.border(tokens.length(width), tokens.color(color))
+    }
+
+    /// Corner radius from a length token.
+    pub fn rounded_token(self, tokens: &dyn Tokens, radius: LengthToken) -> Self {
+        self.rounded(tokens.length(radius))
+    }
+
     /// The accumulated `VisualStyle` (for a `LayoutNode`).
     pub fn visual(&self) -> VisualStyle {
         self.visual.clone()
@@ -129,5 +150,19 @@ mod tests {
         let s = Style::new();
         assert_eq!(s.visual(), VisualStyle::default());
         assert_eq!(s.backdrop_blur(), None);
+    }
+
+    #[test]
+    fn token_modifiers_pull_values_from_the_theme() {
+        use nexus_theme_tokens::BaseTokens;
+        let t = BaseTokens;
+        let s = Style::new()
+            .background_token(&t, ColorToken::Surface)
+            .rounded_token(&t, LengthToken::RadiusMedium)
+            .border_token(&t, LengthToken::BorderThin, ColorToken::Border);
+        let vs = s.visual();
+        assert_eq!(vs.background, Some(t.color(ColorToken::Surface)));
+        assert_eq!(vs.corner_radius, CornerRadius::uniform(t.length(LengthToken::RadiusMedium)));
+        assert!(vs.border.top.is_some());
     }
 }

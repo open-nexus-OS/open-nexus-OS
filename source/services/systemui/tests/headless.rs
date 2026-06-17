@@ -12,5 +12,7 @@
 fn systemui_checksum() {
     assert!(systemui::wallpaper_source_is_jpeg());
     assert_eq!(systemui::wallpaper_decoded_size(), (1280, 800));
-    assert_eq!(systemui::checksum(), 3_222_117_274);
+    // Golden updated when the wallpaper downscale moved from nearest-neighbour to
+    // a box (area-average) filter — crisper background, deterministic output.
+    assert_eq!(systemui::checksum(), 4_234_514_043);
 }

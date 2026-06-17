@@ -15,7 +15,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use nexus_layout::LayoutEngine;
+use nexus_layout::{LayoutBox, LayoutEngine};
 use nexus_layout_types::{FxPx, LayoutNode, MeasureText};
 
 pub mod chat;
@@ -75,6 +75,49 @@ pub trait ItemProvider {
     /// Height hint for an unloaded item at `index`. Used for scrollbar
     /// estimation and placeholder sizing.
     fn height_hint(&self, index: usize) -> u32;
+}
+
+// ---------------------------------------------------------------------------
+// List — non-virtualized, filterable list of a small/bounded collection
+// ---------------------------------------------------------------------------
+
+/// A non-virtualized list: builds one `LayoutNode` per item via an [`ItemView`],
+/// optionally restricted by a **filter** predicate. For small/bounded
+/// collections (e.g. a settings list, a filtered word list); use [`VirtualList`]
+/// for large/streaming data. Pure — produces the item rows; the caller wraps
+/// them in a container (`Panel`). Shares the `ItemView` cell contract + the
+/// filter capability with `VirtualList`, so "list" and "virtual list" are the
+/// same component family, both filterable.
+pub struct List<'a, I, V: ItemView<Item = I>> {
+    items: &'a [I],
+    view: &'a V,
+}
+
+impl<'a, I, V: ItemView<Item = I>> List<'a, I, V> {
+    pub fn new(items: &'a [I], view: &'a V) -> Self {
+        Self { items, view }
+    }
+
+    /// All item rows (no filter).
+    pub fn rows(&self) -> Vec<LayoutNode> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| self.view.build_item(i, item))
+            .collect()
+    }
+
+    /// Item rows for the items matching `pred` (e.g. a search query). The
+    /// closure captures app state (the query) — the framework/app split: the
+    /// list is generic, the predicate is app-supplied.
+    pub fn filtered_rows(&self, pred: impl Fn(&I) -> bool) -> Vec<LayoutNode> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| pred(item))
+            .map(|(i, item)| self.view.build_item(i, item))
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +307,49 @@ impl<P: ItemProvider> VirtualList<P> {
             self.measured.push(MeasuredRow { height: FxPx::new(h as i32), width_bucket: 0, estimated: true });
         }
         self.recompute_content_height();
+    }
+
+    /// Positioned `LayoutBox`es for the **visible window only** (visible range +
+    /// overscan) — O(window), not O(total). Each visible item is built into a
+    /// `LayoutNode` by `view`, laid out via the layout engine, and its boxes are
+    /// shifted to the item's on-screen `y` (cumulative item heights − scroll
+    /// offset). windowd paints these generically (`draw_row_box`); unloaded items
+    /// contribute no boxes (lazy). Call `measure_with` first so heights are real.
+    pub fn visible_boxes<V>(
+        &self,
+        view: &V,
+        measure: &dyn MeasureText,
+        width: FxPx,
+    ) -> Vec<LayoutBox>
+    where
+        V: ItemView<Item = P::Item>,
+    {
+        let range = self.visible_range.clone();
+        let mut out = Vec::new();
+        if range.start >= self.measured.len() {
+            return out;
+        }
+        let engine = LayoutEngine::new();
+        // On-screen y of the first visible item's top.
+        let mut top: i32 = self.measured[..range.start].iter().map(|m| m.height.as_i32()).sum();
+        let scroll = self.scroll_offset.as_i32();
+        let items = self.provider.get(range.clone());
+        for (off, slot) in items.iter().enumerate() {
+            let idx = range.start + off;
+            let item_h = self.measured.get(idx).map(|m| m.height.as_i32()).unwrap_or(0);
+            if let Some(item) = slot {
+                let node = view.build_item(idx, item);
+                if let Ok(result) = engine.layout(&node, width, measure) {
+                    let dy = top - scroll; // item top within the list viewport
+                    for mut b in result.boxes {
+                        b.rect.y = FxPx::new(b.rect.y.as_i32() + dy);
+                        out.push(b);
+                    }
+                }
+            }
+            top += item_h;
+        }
+        out
     }
 
     /// Current visible range (inclusive start, exclusive end).
@@ -499,6 +585,25 @@ mod tests {
     }
 
     #[test]
+    fn list_rows_and_filter() {
+        use nexus_layout_types::{FlexItem, Spacer};
+        struct RowView;
+        impl ItemView for RowView {
+            type Item = &'static str;
+            fn build_item(&self, _i: usize, _item: &&'static str) -> LayoutNode {
+                LayoutNode::Spacer(Spacer { id: None, flex_grow: 1, min_size: None, item: FlexItem::default() })
+            }
+        }
+        let items: [&'static str; 4] = ["apple", "apricot", "banana", "cherry"];
+        let list = List::new(&items, &RowView);
+        // No filter → one row per item.
+        assert_eq!(list.rows().len(), 4);
+        // Filter (query "ap") → only matching items get rows. O(items) build.
+        let filtered = list.filtered_rows(|s| s.starts_with("ap"));
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
     fn measure_with_fills_heights_from_the_layout_engine() {
         use nexus_layout_types::measure::{LineLayout, LineMetrics, PreparedTextHandle};
         use nexus_layout_types::node::TextContent;
@@ -550,5 +655,61 @@ mod tests {
             list.measured.iter().take(20).all(|m| !m.estimated),
             "all loaded items measured by the layout engine"
         );
+    }
+
+    #[test]
+    fn visible_boxes_are_windowed_not_all_items() {
+        use nexus_layout_types::measure::{LineLayout, LineMetrics, PreparedTextHandle};
+        use nexus_layout_types::node::TextContent;
+        use nexus_layout_types::{
+            Align, Direction, EdgeInsets, FlexItem, Justify, MeasureText, Overflow, Rgba8, Stack,
+            TextStyle, VisualStyle,
+        };
+
+        struct StubMeasure;
+        impl MeasureText for StubMeasure {
+            fn prepare(&self, _c: &TextContent, _s: &TextStyle) -> PreparedTextHandle {
+                PreparedTextHandle(0)
+            }
+            fn measure_width(&self, _h: &PreparedTextHandle) -> FxPx {
+                FxPx::new(40)
+            }
+            fn layout_lines(&self, _h: &PreparedTextHandle, _w: FxPx, _m: Option<u32>) -> LineLayout {
+                LineLayout { lines: Vec::new(), natural_width: FxPx::new(40) }
+            }
+        }
+        // Each item is a fixed-height box (so it produces a LayoutBox).
+        struct RowView;
+        impl ItemView for RowView {
+            type Item = &'static str;
+            fn build_item(&self, _i: usize, _item: &&'static str) -> LayoutNode {
+                LayoutNode::Stack(
+                    Stack {
+                        id: None,
+                        direction: Direction::Column,
+                        gap: FxPx::ZERO,
+                        padding: EdgeInsets::all(FxPx::ZERO),
+                        align: Align::Start,
+                        justify: Justify::Start,
+                        overflow: Overflow::Visible,
+                        flex_wrap: false,
+                        min_width: None,
+                        max_width: None,
+                        min_height: Some(FxPx::new(30)),
+                        max_height: None,
+                        item: FlexItem::default(),
+                    },
+                    VisualStyle { background: Some(Rgba8::new(20, 24, 32, 255)), ..Default::default() },
+                    Vec::new(),
+                )
+            }
+        }
+
+        let mut list = VirtualList::new(make_provider(200), FxPx::new(120), VirtualListConfig::default());
+        list.measure_with(&RowView, &StubMeasure, FxPx::new(300));
+        let boxes = list.visible_boxes(&RowView, &StubMeasure, FxPx::new(300));
+        assert!(!boxes.is_empty(), "visible window produces boxes");
+        // O(window): a ~120px viewport over 30px rows shows a handful, NOT 200.
+        assert!(boxes.len() < 50, "got {} boxes — must be windowed, not O(N)", boxes.len());
     }
 }

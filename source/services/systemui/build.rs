@@ -74,11 +74,27 @@ fn decode_wallpaper(path: &Path, target_width: u32, target_height: u32) -> Resul
     let target_height = target_height as usize;
     let mut out = vec![0u8; target_width * target_height * 4];
 
+    // Box (area-average) downscale: each destination pixel averages every source
+    // pixel its footprint covers. Nearest-neighbour (sampling one source pixel)
+    // aliased/softened the result; averaging keeps the wallpaper crisp.
     for y in 0..target_height {
-        let src_y = y * src_height / target_height;
+        let sy0 = y * src_height / target_height;
+        let sy1 = (((y + 1) * src_height / target_height).max(sy0 + 1)).min(src_height);
         for x in 0..target_width {
-            let src_x = x * src_width / target_width;
-            let (r, g, b) = rgb_at(&pixels, info.pixel_format, src_width, src_x, src_y)?;
+            let sx0 = x * src_width / target_width;
+            let sx1 = (((x + 1) * src_width / target_width).max(sx0 + 1)).min(src_width);
+            let (mut rs, mut gs, mut bs, mut n) = (0u32, 0u32, 0u32, 0u32);
+            for sy in sy0..sy1 {
+                for sx in sx0..sx1 {
+                    let (r, g, b) = rgb_at(&pixels, info.pixel_format, src_width, sx, sy)?;
+                    rs += u32::from(r);
+                    gs += u32::from(g);
+                    bs += u32::from(b);
+                    n += 1;
+                }
+            }
+            let n = n.max(1);
+            let (r, g, b) = ((rs / n) as u8, (gs / n) as u8, (bs / n) as u8);
             let dst = (y * target_width + x) * 4;
             out[dst..dst + 4].copy_from_slice(&[b, g, r, 0xff]);
         }

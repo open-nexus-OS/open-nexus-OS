@@ -1,0 +1,19 @@
+[package]
+name = "nexus-shell-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_shell_desktop"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-style = { path = "../../style" }
+nexus-theme-tokens = { path = "../../theme-tokens" }
+nexus-widget-panel = { path = "../../widgets/panel" }
+nexus-widget-button = { path = "../../widgets/button" }
+nexus-widget-window = { path = "../../widgets/window" }
+nexus-widget-text-field = { path = "../../widgets/text_field" }
+nexus-virtual-list = { path = "../../widgets/virtual_list" }

@@ -5,7 +5,10 @@ use alloc::vec::Vec;
 
 use core::f32::consts;
 
-use crate::elements::{Color, Paint, PathCommand, PathData, SvgDocument, SvgElement, Transform};
+use crate::elements::{
+    Color, FillRule, LineCap, LineJoin, Paint, PathCommand, PathData, StrokeStyle, SvgDocument,
+    SvgElement, Transform,
+};
 use crate::math::F32Math;
 
 /// A single line segment in screen space (y-sorted: y0 <= y1).
@@ -17,24 +20,22 @@ pub struct Edge {
     pub y1: f32,
     pub color: Color,
     pub shape_id: u32,
+    /// Winding direction of the original (pre-y-sort) edge: +1 if it ran
+    /// downward (y increasing), -1 if upward. Drives the nonzero winding rule.
+    pub dir: i32,
+    /// Fill rule for the shape this edge belongs to (all edges of a shape agree).
+    pub fill_rule: FillRule,
 }
 
-/// Convert an `SvgDocument` into a flat list of edges for scanline rendering.
-pub fn tessellate_document(doc: &SvgDocument) -> Vec<Edge> {
+/// Tessellate with a `root` transform applied to every element — used to render
+/// at an arbitrary scale (HiDPI/5K). Curve flattening sees the scaled transform,
+/// so geometry stays crisp at the target resolution.
+pub fn tessellate_document_with(doc: &SvgDocument, root: &Transform) -> Vec<Edge> {
     let mut edges = Vec::new();
     let mut next_shape_id = 0;
-    let parent_transform = Transform::IDENTITY;
-    let parent_opacity = 1.0;
 
     for elem in &doc.elements {
-        tessellate_element(
-            elem,
-            &parent_transform,
-            parent_opacity,
-            &mut edges,
-            &mut next_shape_id,
-            doc,
-        );
+        tessellate_element(elem, root, 1.0, &mut edges, &mut next_shape_id, doc);
     }
 
     edges
@@ -56,21 +57,32 @@ fn tessellate_element(
                 tessellate_element(child, &tf, op, edges, next_shape_id, doc);
             }
         }
-        SvgElement::Path { data, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Path { data, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
-            let segments = path_to_segments(data, &tf);
+            // Split the path into subpaths (at each MoveTo) so disjoint contours
+            // — e.g. a donut's outer + inner ring — never bridge, and their
+            // windings combine under one shape for correct holes.
+            let subpaths = path_to_subpaths(data, &tf);
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
+                    let mut shape_edges = Vec::new();
+                    for sub in &subpaths {
+                        shape_edges.extend(polygon_edges(sub, c, data.fill_rule));
+                    }
+                    append_shape(edges, next_shape_id, shape_edges);
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, c));
+                    let mut shape_edges = Vec::new();
+                    for sub in &subpaths {
+                        shape_edges.extend(stroke_edges(sub, *stroke_width, *stroke_style, c, false));
+                    }
+                    append_shape(edges, next_shape_id, shape_edges);
                 }
             }
         }
@@ -84,6 +96,7 @@ fn tessellate_element(
             fill,
             stroke,
             stroke_width,
+            stroke_style,
             transform,
             opacity,
         } => {
@@ -94,17 +107,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, c));
+                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
                 }
             }
         }
-        SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -112,17 +125,17 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, c));
+                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
                 }
             }
         }
-        SvgElement::Ellipse { cx, cy, rx, ry, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Ellipse { cx, cy, rx, ry, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -130,17 +143,18 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, c));
+                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
                 }
             }
         }
-        SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_style, transform, opacity } => {
+            let _ = stroke_style;
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -162,11 +176,11 @@ fn tessellate_element(
                         (ex - nx, ey - ny),
                         (sx - nx, sy - ny),
                     ];
-                    append_shape(edges, next_shape_id, polygon_edges(&pts, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&pts, c, FillRule::NonZero));
                 }
             }
         }
-        SvgElement::Polygon { points, fill, stroke, stroke_width, transform, opacity } => {
+        SvgElement::Polygon { points, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
@@ -174,13 +188,13 @@ fn tessellate_element(
             if let Some(paint) = fill {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&pts, c));
+                    append_shape(edges, next_shape_id, polygon_edges(&pts, c, FillRule::NonZero));
                 }
             }
             if let Some(paint) = stroke {
                 if let Some(color) = resolve_paint(paint, doc) {
                     let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&pts, *stroke_width, c));
+                    append_shape(edges, next_shape_id, stroke_edges(&pts, *stroke_width, *stroke_style, c, true));
                 }
             }
         }
@@ -241,11 +255,14 @@ fn blend_opacity(color: Color, opacity: f32) -> Color {
 // Shape segment generators
 // ---------------------------------------------------------------------------
 
-fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
-    let mut points: Vec<(f32, f32)> = Vec::new();
+fn path_to_subpaths(data: &PathData, tf: &Transform) -> Vec<Vec<(f32, f32)>> {
+    let mut subpaths: Vec<Vec<(f32, f32)>> = Vec::new();
+    let mut cur: Vec<(f32, f32)> = Vec::new();
     let mut cx: f32 = 0.0;
     let mut cy: f32 = 0.0;
     let mut start: Option<(f32, f32)> = None;
+    // Curves flatten to a device-space tolerance, so they stay crisp at any scale.
+    let scale = transform_scale(tf);
 
     // Track previous control point for smooth curves
     let mut prev_cx2: f32 = 0.0;
@@ -256,30 +273,32 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
     for cmd in &data.commands {
         match cmd {
             PathCommand::MoveTo { x, y } => {
-                if let Some(_s) = start.take() {
-                    // Close previous subpath implicitly
-                    if points.len() >= 2 {
-                        // Don't close here unless Z was explicitly given
-                    }
+                // A MoveTo starts a new subpath — flush the current one so
+                // disjoint contours never bridge (correct holes under nonzero).
+                if !cur.is_empty() {
+                    subpaths.push(core::mem::take(&mut cur));
                 }
                 let (px, py) = tf.apply(*x, *y);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = *x;
                 cy = *y;
                 start = Some((*x, *y));
             }
             PathCommand::MoveToRel { dx, dy } => {
+                if !cur.is_empty() {
+                    subpaths.push(core::mem::take(&mut cur));
+                }
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let (px, py) = tf.apply(nx, ny);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = nx;
                 cy = ny;
                 start = Some((nx, ny));
             }
             PathCommand::LineTo { x, y } => {
                 let (px, py) = tf.apply(*x, *y);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = *x;
                 cy = *y;
             }
@@ -287,39 +306,39 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let (px, py) = tf.apply(nx, ny);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = nx;
                 cy = ny;
             }
             PathCommand::HorizontalTo { x } => {
                 let (px, py) = tf.apply(*x, cy);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = *x;
             }
             PathCommand::HorizontalToRel { dx } => {
                 let nx = cx + dx;
                 let (px, py) = tf.apply(nx, cy);
-                points.push((px, py));
+                cur.push((px, py));
                 cx = nx;
             }
             PathCommand::VerticalTo { y } => {
                 let (px, py) = tf.apply(cx, *y);
-                points.push((px, py));
+                cur.push((px, py));
                 cy = *y;
             }
             PathCommand::VerticalToRel { dy } => {
                 let ny = cy + dy;
                 let (px, py) = tf.apply(cx, ny);
-                points.push((px, py));
+                cur.push((px, py));
                 cy = ny;
             }
             PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
                 prev_cx2 = *x2;
                 prev_cy2 = *y2;
-                let pts = cubic_bezier_segments(cx, cy, *x1, *y1, *x2, *y2, *x, *y);
+                let pts = cubic_bezier_segments(cx, cy, *x1, *y1, *x2, *y2, *x, *y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = *x;
                 cy = *y;
@@ -333,10 +352,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y = cy + dy;
                 prev_cx2 = x2;
                 prev_cy2 = y2;
-                let pts = cubic_bezier_segments(cx, cy, x1, y1, x2, y2, x, y);
+                let pts = cubic_bezier_segments(cx, cy, x1, y1, x2, y2, x, y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = x;
                 cy = y;
@@ -346,10 +365,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y1 = 2.0 * cy - prev_cy2;
                 prev_cx2 = *x2;
                 prev_cy2 = *y2;
-                let pts = cubic_bezier_segments(cx, cy, x1, y1, *x2, *y2, *x, *y);
+                let pts = cubic_bezier_segments(cx, cy, x1, y1, *x2, *y2, *x, *y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = *x;
                 cy = *y;
@@ -363,10 +382,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y = cy + dy;
                 prev_cx2 = x2;
                 prev_cy2 = y2;
-                let pts = cubic_bezier_segments(cx, cy, x1, y1, x2, y2, x, y);
+                let pts = cubic_bezier_segments(cx, cy, x1, y1, x2, y2, x, y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = x;
                 cy = y;
@@ -374,10 +393,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
             PathCommand::QuadraticTo { x1, y1, x, y } => {
                 prev_qx = *x1;
                 prev_qy = *y1;
-                let pts = quadratic_bezier_segments(cx, cy, *x1, *y1, *x, *y);
+                let pts = quadratic_bezier_segments(cx, cy, *x1, *y1, *x, *y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = *x;
                 cy = *y;
@@ -389,10 +408,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y = cy + dy;
                 prev_qx = x1;
                 prev_qy = y1;
-                let pts = quadratic_bezier_segments(cx, cy, x1, y1, x, y);
+                let pts = quadratic_bezier_segments(cx, cy, x1, y1, x, y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = x;
                 cy = y;
@@ -402,10 +421,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y1 = 2.0 * cy - prev_qy;
                 prev_qx = x1;
                 prev_qy = y1;
-                let pts = quadratic_bezier_segments(cx, cy, x1, y1, *x, *y);
+                let pts = quadratic_bezier_segments(cx, cy, x1, y1, *x, *y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = *x;
                 cy = *y;
@@ -417,10 +436,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
                 let y = cy + dy;
                 prev_qx = x1;
                 prev_qy = y1;
-                let pts = quadratic_bezier_segments(cx, cy, x1, y1, x, y);
+                let pts = quadratic_bezier_segments(cx, cy, x1, y1, x, y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = x;
                 cy = y;
@@ -428,14 +447,14 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
             PathCommand::ClosePath => {
                 if let Some((sx, sy)) = start.take() {
                     let (px, py) = tf.apply(sx, sy);
-                    points.push((px, py));
+                    cur.push((px, py));
                 }
             }
             PathCommand::ArcTo { rx, ry, xrot, large, sweep, x, y } => {
-                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, *x, *y);
+                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, *x, *y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = *x;
                 cy = *y;
@@ -443,10 +462,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
             PathCommand::ArcToRel { rx, ry, xrot, large, sweep, dx, dy } => {
                 let x = cx + dx;
                 let y = cy + dy;
-                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, x, y);
+                let pts = arc_segments(cx, cy, *rx, *ry, *xrot, *large, *sweep, x, y, scale);
                 for (px, py) in pts {
                     let (tx, ty) = tf.apply(px, py);
-                    points.push((tx, ty));
+                    cur.push((tx, ty));
                 }
                 cx = x;
                 cy = y;
@@ -454,7 +473,10 @@ fn path_to_segments(data: &PathData, tf: &Transform) -> Vec<(f32, f32)> {
         }
     }
 
-    points
+    if !cur.is_empty() {
+        subpaths.push(cur);
+    }
+    subpaths
 }
 
 fn rect_segments(
@@ -561,6 +583,7 @@ fn arc_segments(
     sweep: bool,
     x2: f32,
     y2: f32,
+    scale: f32,
 ) -> Vec<(f32, f32)> {
     // Coincident endpoints → nothing to draw (per spec).
     if (x1 - x2).abs() < 1e-6 && (y1 - y2).abs() < 1e-6 {
@@ -620,10 +643,14 @@ fn arc_segments(
         dtheta += two_pi;
     }
 
-    // Segment count proportional to arc length (≈ one segment per 6° of sweep),
-    // bounded so AA hides any residual faceting at typical icon/cursor sizes.
-    let segs = ((dtheta.abs() / (core::f32::consts::PI / 30.0)).nexus_ceil() as usize)
-        .clamp(2, 180);
+    // Segment count: the greater of an angular bound (~6°/segment) and a
+    // device-arc-length bound (~2px chords), so arcs stay smooth when scaled up
+    // (5K) while staying cheap at icon size. `scale` is user→device.
+    let avg_r = (rx + ry) * 0.5;
+    let device_arclen = avg_r * scale.max(1e-3) * dtheta.abs();
+    let by_len = (device_arclen / 2.0).nexus_ceil() as usize;
+    let by_angle = (dtheta.abs() / (core::f32::consts::PI / 30.0)).nexus_ceil() as usize;
+    let segs = by_len.max(by_angle).clamp(2, 512);
     let mut pts = Vec::with_capacity(segs);
     for i in 1..=segs {
         let t = theta1 + dtheta * (i as f32 / segs as f32);
@@ -635,6 +662,30 @@ fn arc_segments(
     pts
 }
 
+/// Target flatness in *device* pixels — sub-pixel, so curves stay smooth at any
+/// scale (5K included). `scale` maps user-space deviation to device pixels.
+const FLATNESS_PX: f32 = 0.2;
+/// Recursion guard for adaptive subdivision.
+const MAX_SUBDIV: u32 = 18;
+
+fn midpoint(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+    ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
+}
+
+/// Perpendicular distance of `p` from the line through `a`,`b` (or |p−a| if a==b).
+fn point_line_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).nexus_sqrt();
+    if len < 1e-6 {
+        let (ex, ey) = (p.0 - a.0, p.1 - a.1);
+        return (ex * ex + ey * ey).nexus_sqrt();
+    }
+    ((p.0 - a.0) * dy - (p.1 - a.1) * dx).abs() / len
+}
+
+/// Adaptively flatten a cubic Bézier (de Casteljau) until each control point is
+/// within `tol` (user space) of the chord, then emit the endpoint. `tol` is
+/// `FLATNESS_PX / scale`, so the device-space error stays sub-pixel at any scale.
 #[allow(clippy::too_many_arguments)]
 fn cubic_bezier_segments(
     x0: f32,
@@ -645,19 +696,40 @@ fn cubic_bezier_segments(
     y2: f32,
     x3: f32,
     y3: f32,
+    scale: f32,
 ) -> Vec<(f32, f32)> {
-    let n = 16;
-    let mut pts = Vec::with_capacity(n);
-    for i in 1..=n {
-        let t = i as f32 / n as f32;
-        let u = 1.0 - t;
-        let x = u * u * u * x0 + 3.0 * u * u * t * x1 + 3.0 * u * t * t * x2 + t * t * t * x3;
-        let y = u * u * u * y0 + 3.0 * u * u * t * y1 + 3.0 * u * t * t * y2 + t * t * t * y3;
-        pts.push((x, y));
-    }
-    pts
+    let tol = (FLATNESS_PX / scale.max(1e-3)).max(1e-5);
+    let mut out = Vec::new();
+    subdivide_cubic((x0, y0), (x1, y1), (x2, y2), (x3, y3), tol, 0, &mut out);
+    out
 }
 
+fn subdivide_cubic(
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    p3: (f32, f32),
+    tol: f32,
+    depth: u32,
+    out: &mut Vec<(f32, f32)>,
+) {
+    if depth >= MAX_SUBDIV
+        || (point_line_dist(p1, p0, p3).max(point_line_dist(p2, p0, p3)) <= tol)
+    {
+        out.push(p3);
+        return;
+    }
+    let p01 = midpoint(p0, p1);
+    let p12 = midpoint(p1, p2);
+    let p23 = midpoint(p2, p3);
+    let p012 = midpoint(p01, p12);
+    let p123 = midpoint(p12, p23);
+    let p0123 = midpoint(p012, p123);
+    subdivide_cubic(p0, p01, p012, p0123, tol, depth + 1, out);
+    subdivide_cubic(p0123, p123, p23, p3, tol, depth + 1, out);
+}
+
+/// Adaptively flatten a quadratic Bézier — same scheme as the cubic.
 fn quadratic_bezier_segments(
     x0: f32,
     y0: f32,
@@ -665,17 +737,36 @@ fn quadratic_bezier_segments(
     y1: f32,
     x2: f32,
     y2: f32,
+    scale: f32,
 ) -> Vec<(f32, f32)> {
-    let n = 16;
-    let mut pts = Vec::with_capacity(n);
-    for i in 1..=n {
-        let t = i as f32 / n as f32;
-        let u = 1.0 - t;
-        let x = u * u * x0 + 2.0 * u * t * x1 + t * t * x2;
-        let y = u * u * y0 + 2.0 * u * t * y1 + t * t * y2;
-        pts.push((x, y));
+    let tol = (FLATNESS_PX / scale.max(1e-3)).max(1e-5);
+    let mut out = Vec::new();
+    subdivide_quadratic((x0, y0), (x1, y1), (x2, y2), tol, 0, &mut out);
+    out
+}
+
+fn subdivide_quadratic(
+    p0: (f32, f32),
+    p1: (f32, f32),
+    p2: (f32, f32),
+    tol: f32,
+    depth: u32,
+    out: &mut Vec<(f32, f32)>,
+) {
+    if depth >= MAX_SUBDIV || point_line_dist(p1, p0, p2) <= tol {
+        out.push(p2);
+        return;
     }
-    pts
+    let p01 = midpoint(p0, p1);
+    let p12 = midpoint(p1, p2);
+    let p012 = midpoint(p01, p12);
+    subdivide_quadratic(p0, p01, p012, tol, depth + 1, out);
+    subdivide_quadratic(p012, p12, p2, tol, depth + 1, out);
+}
+
+/// Approximate uniform scale of an affine transform (√|det|) — user→device.
+fn transform_scale(tf: &Transform) -> f32 {
+    (tf.a * tf.d - tf.b * tf.c).abs().nexus_sqrt().max(1e-3)
 }
 
 // ---------------------------------------------------------------------------
@@ -694,7 +785,7 @@ fn append_shape(edges: &mut Vec<Edge>, next_shape_id: &mut u32, mut shape_edges:
     edges.extend(shape_edges);
 }
 
-fn polygon_edges(points: &[(f32, f32)], color: Color) -> Vec<Edge> {
+fn polygon_edges(points: &[(f32, f32)], color: Color, fill_rule: FillRule) -> Vec<Edge> {
     if points.len() < 3 {
         return Vec::new();
     }
@@ -709,37 +800,242 @@ fn polygon_edges(points: &[(f32, f32)], color: Color) -> Vec<Edge> {
             continue;
         }
 
+        // Winding direction from the original orientation, captured before the
+        // y-sort below (downward = +1, upward = -1) for the nonzero rule.
+        let dir = if y1 > y0 { 1 } else { -1 };
         // Ensure y0 <= y1
         let (x0, y0, x1, y1) = if y0 <= y1 { (x0, y0, x1, y1) } else { (x1, y1, x0, y0) };
 
-        edges.push(Edge { x0, y0, x1, y1, color, shape_id: 0 });
+        edges.push(Edge { x0, y0, x1, y1, color, shape_id: 0, dir, fill_rule });
     }
 
     edges
 }
 
-fn stroke_edges(points: &[(f32, f32)], width: f32, color: Color) -> Vec<Edge> {
-    if points.len() < 2 {
-        return Vec::new();
+/// Tessellate a polyline stroke into filled geometry: an offset quad per segment,
+/// plus a join at each interior vertex and a cap at each open end, per
+/// `StrokeStyle`. All pieces share one shape and are unioned by the nonzero rule,
+/// so the overlaps at joins never punch holes. `closed` wraps the last vertex to
+/// the first (a join, no caps) — for rect/circle/ellipse/polygon outlines.
+fn stroke_edges(
+    points: &[(f32, f32)],
+    width: f32,
+    style: StrokeStyle,
+    color: Color,
+    closed: bool,
+) -> Vec<Edge> {
+    // Drop consecutive duplicates — zero-length segments have no normal.
+    let mut pts: Vec<(f32, f32)> = Vec::with_capacity(points.len());
+    for &p in points {
+        if pts
+            .last()
+            .map_or(true, |&q| (p.0 - q.0).abs() > 1e-4 || (p.1 - q.1).abs() > 1e-4)
+        {
+            pts.push(p);
+        }
+    }
+    // A closed outline whose last point repeats the first: drop the duplicate.
+    if closed && pts.len() >= 2 {
+        let (first, last) = (pts[0], pts[pts.len() - 1]);
+        if (first.0 - last.0).abs() < 1e-4 && (first.1 - last.1).abs() < 1e-4 {
+            pts.pop();
+        }
     }
 
     let half = (width / 2.0).max(0.5);
     let mut edges = Vec::new();
 
-    for i in 0..points.len() - 1 {
-        let (x0, y0) = points[i];
-        let (x1, y1) = points[i + 1];
+    if pts.len() < 2 {
+        if pts.len() == 1 && style.line_cap == LineCap::Round {
+            edges.extend(disc_edges(pts[0].0, pts[0].1, half, color));
+        }
+        return edges;
+    }
 
+    let n = pts.len();
+    let seg_count = if closed { n } else { n - 1 };
+
+    // Offset quad per segment.
+    for i in 0..seg_count {
+        let (x0, y0) = pts[i];
+        let (x1, y1) = pts[(i + 1) % n];
         let dx = x1 - x0;
         let dy = y1 - y0;
-        let len = (dx * dx + dy * dy).nexus_sqrt().max(0.001);
+        let len = (dx * dx + dy * dy).nexus_sqrt().max(1e-4);
         let nx = -dy / len * half;
         let ny = dx / len * half;
-
         let quad =
             vec![(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)];
-        edges.extend(polygon_edges(&quad, color));
+        edges.extend(polygon_edges(&quad, color, FillRule::NonZero));
+    }
+
+    // Joins at interior vertices (plus the wrap vertex when closed).
+    let join_iter: alloc::vec::Vec<usize> =
+        if closed { (0..n).collect() } else { (1..n - 1).collect() };
+    for i in join_iter {
+        let prev = pts[(i + n - 1) % n];
+        let cur = pts[i];
+        let next = pts[(i + 1) % n];
+        edges.extend(join_edges(prev, cur, next, half, style, color));
+    }
+
+    // Caps at the two open ends.
+    if !closed {
+        edges.extend(cap_edges(pts[1], pts[0], half, style.line_cap, color));
+        edges.extend(cap_edges(pts[n - 2], pts[n - 1], half, style.line_cap, color));
     }
 
     edges
+}
+
+/// Normalize a vector; returns `None` if it is ~zero length.
+fn normalize(dx: f32, dy: f32) -> Option<(f32, f32)> {
+    let len = (dx * dx + dy * dy).nexus_sqrt();
+    if len < 1e-5 {
+        None
+    } else {
+        Some((dx / len, dy / len))
+    }
+}
+
+/// Intersection of lines (p1 + t·d1) and (p2 + s·d2); `None` if ~parallel.
+fn line_intersect(p1: (f32, f32), d1: (f32, f32), p2: (f32, f32), d2: (f32, f32)) -> Option<(f32, f32)> {
+    let denom = d1.0 * d2.1 - d1.1 * d2.0;
+    if denom.abs() < 1e-6 {
+        return None;
+    }
+    let t = ((p2.0 - p1.0) * d2.1 - (p2.1 - p1.1) * d2.0) / denom;
+    Some((p1.0 + d1.0 * t, p1.1 + d1.1 * t))
+}
+
+/// A filled disc (24-gon) — round joins and round caps.
+fn disc_edges(cx: f32, cy: f32, r: f32, color: Color) -> Vec<Edge> {
+    let n = 24;
+    let mut pts = Vec::with_capacity(n);
+    for i in 0..n {
+        let a = 2.0 * consts::PI * i as f32 / n as f32;
+        pts.push((cx + r * a.nexus_cos(), cy + r * a.nexus_sin()));
+    }
+    polygon_edges(&pts, color, FillRule::NonZero)
+}
+
+/// Join geometry at vertex `cur` between the incoming (`prev`→`cur`) and outgoing
+/// (`cur`→`next`) segments. Round = a disc; bevel = the corner wedge; miter =
+/// bevel plus the outer spike when within the miter limit.
+fn join_edges(
+    prev: (f32, f32),
+    cur: (f32, f32),
+    next: (f32, f32),
+    half: f32,
+    style: StrokeStyle,
+    color: Color,
+) -> Vec<Edge> {
+    let (din, dout) = match (normalize(cur.0 - prev.0, cur.1 - prev.1), normalize(next.0 - cur.0, next.1 - cur.1)) {
+        (Some(a), Some(b)) => (a, b),
+        _ => return Vec::new(),
+    };
+    let cross = din.0 * dout.1 - din.1 * dout.0;
+    if cross.abs() < 1e-5 {
+        return Vec::new(); // collinear — the segment quads already meet flush
+    }
+    if style.line_join == LineJoin::Round {
+        return disc_edges(cur.0, cur.1, half, color);
+    }
+    let nin = (-din.1, din.0);
+    let nout = (-dout.1, dout.0);
+    let in_left = (cur.0 + nin.0 * half, cur.1 + nin.1 * half);
+    let in_right = (cur.0 - nin.0 * half, cur.1 - nin.1 * half);
+    let out_left = (cur.0 + nout.0 * half, cur.1 + nout.1 * half);
+    let out_right = (cur.0 - nout.0 * half, cur.1 - nout.1 * half);
+    let mut e = Vec::new();
+    // Bevel: fill both corner wedges (the outer is the visible gap; the inner is
+    // interior and harmless under nonzero).
+    e.extend(polygon_edges(&[in_left, out_left, cur], color, FillRule::NonZero));
+    e.extend(polygon_edges(&[in_right, out_right, cur], color, FillRule::NonZero));
+    if style.line_join == LineJoin::Miter {
+        // The outer offset lines intersect farther from `cur` than the inner; pick
+        // that side and extend to the miter tip if within the limit.
+        let m_left = line_intersect(in_left, din, out_left, dout);
+        let m_right = line_intersect(in_right, din, out_right, dout);
+        let dist2 = |p: (f32, f32)| (p.0 - cur.0) * (p.0 - cur.0) + (p.1 - cur.1) * (p.1 - cur.1);
+        let outer = match (m_left, m_right) {
+            (Some(l), Some(r)) => {
+                if dist2(l) >= dist2(r) {
+                    Some((in_left, l, out_left))
+                } else {
+                    Some((in_right, r, out_right))
+                }
+            }
+            (Some(l), None) => Some((in_left, l, out_left)),
+            (None, Some(r)) => Some((in_right, r, out_right)),
+            (None, None) => None,
+        };
+        if let Some((a, m, b)) = outer {
+            let mlen = (dist2(m)).nexus_sqrt();
+            if mlen <= style.miter_limit * half {
+                e.extend(polygon_edges(&[a, m, b], color, FillRule::NonZero));
+            }
+        }
+    }
+    e
+}
+
+/// Cap geometry at an open end `end`, where `from` is the previous point (so the
+/// outward direction is `end - from`). Round = a disc; square = a half-width
+/// extension; butt = nothing.
+fn cap_edges(
+    from: (f32, f32),
+    end: (f32, f32),
+    half: f32,
+    cap: LineCap,
+    color: Color,
+) -> Vec<Edge> {
+    match cap {
+        LineCap::Butt => Vec::new(),
+        LineCap::Round => disc_edges(end.0, end.1, half, color),
+        LineCap::Square => {
+            let Some(dir) = normalize(end.0 - from.0, end.1 - from.1) else {
+                return Vec::new();
+            };
+            let nrm = (-dir.1, dir.0);
+            let e_l = (end.0 + nrm.0 * half, end.1 + nrm.1 * half);
+            let e_r = (end.0 - nrm.0 * half, end.1 - nrm.1 * half);
+            let f_l = (e_l.0 + dir.0 * half, e_l.1 + dir.1 * half);
+            let f_r = (e_r.0 + dir.0 * half, e_r.1 + dir.1 * half);
+            polygon_edges(&[e_l, f_l, f_r, e_r], color, FillRule::NonZero)
+        }
+    }
+}
+
+#[cfg(test)]
+mod a4_tests {
+    use super::{cubic_bezier_segments, quadratic_bezier_segments};
+
+    #[test]
+    fn cubic_subdivision_scales_with_resolution() {
+        // A bowed cubic: more segments when rendered larger (device-space tol).
+        let small = cubic_bezier_segments(0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 10.0, 0.0, 1.0);
+        let large = cubic_bezier_segments(0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 10.0, 0.0, 50.0);
+        assert!(small.len() >= 2);
+        assert!(
+            large.len() > small.len(),
+            "higher scale subdivides more ({} vs {})",
+            large.len(),
+            small.len()
+        );
+    }
+
+    #[test]
+    fn straight_cubic_needs_no_subdivision() {
+        // Collinear control points → already flat → just the endpoint.
+        let pts = cubic_bezier_segments(0.0, 0.0, 3.0, 0.0, 6.0, 0.0, 9.0, 0.0, 1.0);
+        assert!(pts.len() <= 2, "flat cubic stays coarse ({} pts)", pts.len());
+    }
+
+    #[test]
+    fn quadratic_subdivision_scales_with_resolution() {
+        let small = quadratic_bezier_segments(0.0, 0.0, 5.0, 10.0, 10.0, 0.0, 1.0);
+        let large = quadratic_bezier_segments(0.0, 0.0, 5.0, 10.0, 10.0, 0.0, 50.0);
+        assert!(large.len() > small.len(), "{} vs {}", large.len(), small.len());
+    }
 }

@@ -57,9 +57,9 @@ pub struct VirtioGpuBackend {
     /// Software cursor sprite: the real Mocu SVG cursor (premultiplied BGRA),
     /// uploaded once by windowd. BlendCursor composites this onto the display
     /// plane each frame. Empty until uploaded → procedural arrow fallback.
-    cursor_sprite: alloc::vec::Vec<u8>,
-    cursor_sprite_w: u32,
-    cursor_sprite_h: u32,
+    pub(crate) cursor_sprite: alloc::vec::Vec<u8>,
+    pub(crate) cursor_sprite_w: u32,
+    pub(crate) cursor_sprite_h: u32,
     /// Hardware cursor resource (64×64, cursor queue). `None` until a
     /// successful `upload_cursor` arms the overlay. Unused on display backends
     /// where the overlay is not composited into the captured/shown scanout —
@@ -122,6 +122,15 @@ pub struct VirtioGpuBackend {
     /// Atlas texture (rows 3200..6399) aliased as a GPU sampler view for layer content.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) virgl_atlas_ready: bool,
+    /// Cursor sprite uploaded into its own GL sampler texture so the cursor can be
+    /// composited as a proper layer (`submit_layer_pass`) instead of a procedural
+    /// rect. Backing VA + dimensions latched at the first upload.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) cursor_tex_va: usize,
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) cursor_tex_w: u32,
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) cursor_tex_h: u32,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -145,6 +154,16 @@ pub struct VirtioGpuBackend {
     /// scanout refuses to present (see RFC / the black-screen investigation).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_display_tex_va: usize,
+    /// Backing VA of the build-up wallpaper texture (`H_WALLPAPER_TEX`). Lets the
+    /// build-up present upload the real wallpaper (windowd's decoded JPEG in
+    /// shared-VMO Plane 0) into the GL texture once, replacing the boot bands.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) gl_wallpaper_tex_va: usize,
+    /// One-shot latch: the real wallpaper has been copied from VMO Plane 0 into
+    /// `H_WALLPAPER_TEX`. Deferred to the first present so windowd has written
+    /// Plane 0 (it does so at boot, independent of GPU mode).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) wallpaper_from_vmo_uploaded: bool,
     /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
     /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
     /// straight onto the scanout RT after the base upload, instead of rendered
@@ -244,6 +263,12 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_composite_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            cursor_tex_va: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            cursor_tex_w: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            cursor_tex_h: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_atlas_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
@@ -259,6 +284,10 @@ impl VirtioGpuBackend {
             gl_scanout_backing_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_display_tex_va: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            gl_wallpaper_tex_va: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            wallpaper_from_vmo_uploaded: false,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

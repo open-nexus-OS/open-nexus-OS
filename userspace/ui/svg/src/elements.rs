@@ -28,6 +28,7 @@ pub enum SvgElement {
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -41,6 +42,7 @@ pub enum SvgElement {
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -51,6 +53,7 @@ pub enum SvgElement {
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -62,6 +65,7 @@ pub enum SvgElement {
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -72,6 +76,7 @@ pub enum SvgElement {
         y2: f32,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -80,6 +85,7 @@ pub enum SvgElement {
         fill: Option<Paint>,
         stroke: Option<Paint>,
         stroke_width: f32,
+        stroke_style: StrokeStyle,
         transform: Option<Transform>,
         opacity: f32,
     },
@@ -159,6 +165,37 @@ pub enum PathCommand {
 pub enum FillRule {
     NonZero,
     EvenOdd,
+}
+
+/// How consecutive stroke segments are joined at a vertex.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineJoin {
+    Miter,
+    Round,
+    Bevel,
+}
+
+/// How open stroke ends are capped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LineCap {
+    Butt,
+    Round,
+    Square,
+}
+
+/// Stroke styling (`stroke-linejoin`/`stroke-linecap`/`stroke-miterlimit`).
+/// Defaults match the SVG spec (miter join, butt cap, miter limit 4).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StrokeStyle {
+    pub line_join: LineJoin,
+    pub line_cap: LineCap,
+    pub miter_limit: f32,
+}
+
+impl Default for StrokeStyle {
+    fn default() -> Self {
+        StrokeStyle { line_join: LineJoin::Miter, line_cap: LineCap::Butt, miter_limit: 4.0 }
+    }
 }
 
 /// 2D affine transform.
