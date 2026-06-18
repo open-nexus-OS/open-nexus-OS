@@ -67,9 +67,7 @@ pub(crate) const CHAT_MSG_PAD: u32 = 8;
 
 /// Width in pixels available for chat text (panel minus padding and scrollbar).
 pub(crate) fn chat_text_width() -> u32 {
-    CHAT_PANEL_W
-        .saturating_sub(CHAT_PAD.saturating_mul(2))
-        .saturating_sub(CHAT_SCROLLBAR_W)
+    CHAT_PANEL_W.saturating_sub(CHAT_PAD.saturating_mul(2)).saturating_sub(CHAT_SCROLLBAR_W)
 }
 
 /// Characters per wrapped line for the chat (hard-wrap; the renderer is the
@@ -88,9 +86,7 @@ pub(crate) fn chat_message_lines(char_count: usize, cpl: usize) -> u32 {
 
 /// Total block height of a message (its wrapped lines plus top/bottom padding).
 pub(crate) fn chat_message_height(lines: u32) -> u32 {
-    lines
-        .saturating_mul(CHAT_LINE_H)
-        .saturating_add(CHAT_MSG_PAD.saturating_mul(2))
+    lines.saturating_mul(CHAT_LINE_H).saturating_add(CHAT_MSG_PAD.saturating_mul(2))
 }
 
 /// Character range `[start, end)` of wrapped line `idx` within a message of
@@ -205,20 +201,10 @@ pub(crate) fn chat_button_rect(width: u32, height: u32) -> HitRect {
 /// = fully closed/offscreen). The renderer uses the identical expression.
 pub(crate) fn sidebar_rect(mode: VisibleBootstrapMode, translate_x: f32) -> HitRect {
     let translate = translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-    let x = mode
-        .width
-        .saturating_sub(SIDEBAR_WIDTH)
-        .saturating_add(translate);
-    let height = mode
-        .height
-        .saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM))
-        .max(1);
-    HitRect {
-        x,
-        y: SIDEBAR_MARGIN_TOP,
-        width: SIDEBAR_WIDTH,
-        height,
-    }
+    let x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
+    let height =
+        mode.height.saturating_sub(SIDEBAR_MARGIN_TOP.saturating_add(SIDEBAR_MARGIN_BOTTOM)).max(1);
+    HitRect { x, y: SIDEBAR_MARGIN_TOP, width: SIDEBAR_WIDTH, height }
 }
 
 /// The rendered close (X) icon rect inside `sidebar`. Mirrors the renderer's
@@ -228,20 +214,13 @@ pub(crate) fn sidebar_close_icon_rect(mode: VisibleBootstrapMode, sidebar: HitRe
     let close_mid_y = route_cell_midpoint(CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, mode.height);
     let sidebar_end_x = sidebar.x.saturating_add(sidebar.width);
     let sidebar_end_y = sidebar.y.saturating_add(sidebar.height);
-    let x = close_mid_x.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
-        sidebar.x.saturating_add(14),
-        sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14),
-    );
-    let y = close_mid_y.saturating_sub(LUCIDE_ICON_SIZE / 2).clamp(
-        sidebar.y.saturating_add(14),
-        sidebar_end_y.saturating_sub(LUCIDE_ICON_SIZE + 14),
-    );
-    HitRect {
-        x,
-        y,
-        width: LUCIDE_ICON_SIZE,
-        height: LUCIDE_ICON_SIZE,
-    }
+    let x = close_mid_x
+        .saturating_sub(LUCIDE_ICON_SIZE / 2)
+        .clamp(sidebar.x.saturating_add(14), sidebar_end_x.saturating_sub(LUCIDE_ICON_SIZE + 14));
+    let y = close_mid_y
+        .saturating_sub(LUCIDE_ICON_SIZE / 2)
+        .clamp(sidebar.y.saturating_add(14), sidebar_end_y.saturating_sub(LUCIDE_ICON_SIZE + 14));
+    HitRect { x, y, width: LUCIDE_ICON_SIZE, height: LUCIDE_ICON_SIZE }
 }
 
 /// Comfortable click target around the close icon.
@@ -271,12 +250,7 @@ pub(crate) fn proof_panel_rect() -> HitRect {
 /// Right-hand chat panel viewport (the scrollable message list). Kept distinct
 /// from the proof panel so wheel events route to the control under the cursor.
 pub(crate) fn chat_viewport_rect() -> HitRect {
-    HitRect {
-        x: CHAT_PANEL_X,
-        y: CHAT_PANEL_Y,
-        width: CHAT_PANEL_W,
-        height: CHAT_PANEL_H,
-    }
+    HitRect { x: CHAT_PANEL_X, y: CHAT_PANEL_Y, width: CHAT_PANEL_W, height: CHAT_PANEL_H }
 }
 
 /// True when the cursor is over the glass button (hover highlight; never opens
@@ -366,11 +340,7 @@ mod tests {
         // Inclusive top-left corner is inside.
         assert!(hover_over_button(mode(), r.x as i32, r.y as i32));
         // Last inside pixel.
-        assert!(hover_over_button(
-            mode(),
-            (r.x + r.width - 1) as i32,
-            (r.y + r.height - 1) as i32
-        ));
+        assert!(hover_over_button(mode(), (r.x + r.width - 1) as i32, (r.y + r.height - 1) as i32));
         // Exclusive far edges are outside (hit area == rect, no off-by-one).
         assert!(!hover_over_button(mode(), (r.x + r.width) as i32, r.y as i32));
         assert!(!hover_over_button(mode(), r.x as i32, (r.y + r.height) as i32));
@@ -384,14 +354,8 @@ mod tests {
         let r = button_rect(mode().width);
         let cx = (r.x + r.width / 2) as i32;
         let cy = (r.y + r.height / 2) as i32;
-        assert_eq!(
-            resolve_click(mode(), false, cx, cy),
-            ClickAction::ToggleSidebar
-        );
-        assert_eq!(
-            resolve_click(mode(), true, cx, cy),
-            ClickAction::ToggleSidebar
-        );
+        assert_eq!(resolve_click(mode(), false, cx, cy), ClickAction::ToggleSidebar);
+        assert_eq!(resolve_click(mode(), true, cx, cy), ClickAction::ToggleSidebar);
     }
 
     #[test]
@@ -402,10 +366,7 @@ mod tests {
         let cy = (r.y + r.height / 2) as i32;
         assert_eq!(resolve_click(mode(), false, cx, cy), ClickAction::ToggleChat);
         // One pixel outside misses.
-        assert_eq!(
-            resolve_click(mode(), false, (r.x + r.width) as i32, cy),
-            ClickAction::None
-        );
+        assert_eq!(resolve_click(mode(), false, (r.x + r.width) as i32, cy), ClickAction::None);
     }
 
     #[test]
@@ -432,10 +393,7 @@ mod tests {
         let icon = sidebar_close_icon_rect(mode(), open);
         let cx = (icon.x + icon.width / 2) as i32;
         let cy = (icon.y + icon.height / 2) as i32;
-        assert_eq!(
-            resolve_click(mode(), true, cx, cy),
-            ClickAction::CloseSidebar
-        );
+        assert_eq!(resolve_click(mode(), true, cx, cy), ClickAction::CloseSidebar);
     }
 
     #[test]
@@ -449,10 +407,7 @@ mod tests {
         let p = proof_panel_rect();
         let cx = (p.x + p.width / 2) as i32;
         let cy = (p.y + p.height / 2) as i32;
-        assert_eq!(
-            resolve_click(mode(), false, cx, cy),
-            ClickAction::FocusPanel
-        );
+        assert_eq!(resolve_click(mode(), false, cx, cy), ClickAction::FocusPanel);
     }
 
     #[test]
@@ -464,7 +419,12 @@ mod tests {
             WheelTarget::Chat
         );
         assert_eq!(
-            resolve_wheel_target(mode(), (p.x + 5) as i32, (p.y + 5) as i32, Some(chat_viewport_rect())),
+            resolve_wheel_target(
+                mode(),
+                (p.x + 5) as i32,
+                (p.y + 5) as i32,
+                Some(chat_viewport_rect())
+            ),
             WheelTarget::Filter
         );
         assert_eq!(
@@ -477,20 +437,14 @@ mod tests {
     fn wheel_follows_moved_chat_window_and_ignores_closed() {
         // Window dragged to a new position: wheel hits there, not at spawn.
         let moved = HitRect { x: 100, y: 200, width: CHAT_PANEL_W, height: CHAT_PANEL_H };
-        assert_eq!(
-            resolve_wheel_target(mode(), 150, 250, Some(moved)),
-            WheelTarget::Chat
-        );
+        assert_eq!(resolve_wheel_target(mode(), 150, 250, Some(moved)), WheelTarget::Chat);
         let spawn = chat_viewport_rect();
         assert_eq!(
             resolve_wheel_target(mode(), (spawn.x + 5) as i32, (spawn.y + 5) as i32, Some(moved)),
             WheelTarget::None
         );
         // Closed window: wheel never targets the chat.
-        assert_eq!(
-            resolve_wheel_target(mode(), 150, 250, None),
-            WheelTarget::None
-        );
+        assert_eq!(resolve_wheel_target(mode(), 150, 250, None), WheelTarget::None);
     }
 
     #[test]
@@ -548,11 +502,6 @@ mod tests {
         let chat = chat_viewport_rect();
         let p = proof_panel_rect();
         let p_right = p.x + p.width;
-        assert!(
-            chat.x >= p_right,
-            "chat {} should start past panel right {}",
-            chat.x,
-            p_right
-        );
+        assert!(chat.x >= p_right, "chat {} should start past panel right {}", chat.x, p_right);
     }
 }

@@ -19,10 +19,7 @@ pub(crate) struct FixedDebugLine {
 
 impl FixedDebugLine {
     pub(crate) const fn new() -> Self {
-        Self {
-            buf: [0; 256],
-            len: 0,
-        }
+        Self { buf: [0; 256], len: 0 }
     }
 
     pub(crate) fn as_str(&self) -> Option<&str> {
@@ -50,17 +47,11 @@ pub(crate) struct RenderClip {
 
 impl RenderClip {
     pub(crate) const fn full(width: u32) -> Self {
-        Self {
-            start_x: 0,
-            end_x: width,
-        }
+        Self { start_x: 0, end_x: width }
     }
 
     pub(crate) fn new(start_x: u32, end_x: u32, width: u32) -> Self {
-        Self {
-            start_x: start_x.min(width),
-            end_x: end_x.min(width),
-        }
+        Self { start_x: start_x.min(width), end_x: end_x.min(width) }
     }
 }
 
@@ -110,26 +101,20 @@ pub(crate) enum ProofCard {
 impl ProofCard {
     pub(crate) fn paint(self, state: VisibleState) -> ProofCardPaint {
         match self {
-            Self::Hover => ProofCardPaint {
-                active: state.hover_visible,
-                accent: assets::PROOF_HOVER,
-            },
-            Self::Click => ProofCardPaint {
-                active: state.launcher_click_visible,
-                accent: assets::PROOF_CLICK,
-            },
+            Self::Hover => {
+                ProofCardPaint { active: state.hover_visible, accent: assets::PROOF_HOVER }
+            }
+            Self::Click => {
+                ProofCardPaint { active: state.launcher_click_visible, accent: assets::PROOF_CLICK }
+            }
             Self::Scroll => ProofCardPaint {
                 active: state.wheel_up_visible || state.wheel_down_visible,
                 accent: assets::PROOF_SCROLL,
             },
-            Self::Key => ProofCardPaint {
-                active: state.keyboard_visible,
-                accent: assets::PROOF_KEYBOARD,
-            },
-            Self::Filter => ProofCardPaint {
-                active: true,
-                accent: assets::PROOF_PANEL_TITLE,
-            },
+            Self::Key => {
+                ProofCardPaint { active: state.keyboard_visible, accent: assets::PROOF_KEYBOARD }
+            }
+            Self::Filter => ProofCardPaint { active: true, accent: assets::PROOF_PANEL_TITLE },
         }
     }
 }

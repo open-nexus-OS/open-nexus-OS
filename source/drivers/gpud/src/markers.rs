@@ -63,12 +63,6 @@ pub const GPUD_VIRGL_GRADIENT_FLAT: &str = "gpud: virgl gradient flat";
 pub const GPUD_GL_SCANOUT_OK: &str = "gpud: gl scanout ok";
 /// G1: first VMO→GL present executed (upload + GPU blit + flush).
 pub const GPUD_GL_PRESENT_OK: &str = "gpud: gl present ok";
-/// G1 proof: scanout-RT readback matches the windowd display plane.
-pub const GPUD_GL_PRESENT_PARITY_OK: &str = "gpud: gl present parity ok";
-/// Readback matches the display plane vertically flipped — orientation bug.
-pub const GPUD_GL_PRESENT_FLIPPED: &str = "gpud: gl present flipped";
-/// Readback matches neither orientation — blit content bug.
-pub const GPUD_GL_PRESENT_PARITY_OFF: &str = "gpud: gl present parity off";
 /// GL scanout init failed; display fell back to the 2D transfer/flush path.
 pub const GPUD_GL_SCANOUT_FALLBACK: &str = "gpud: gl scanout fallback 2d";
 /// G3/M1b: first FillSdfGradient executed by the GPU SDF shader.

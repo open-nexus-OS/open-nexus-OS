@@ -247,11 +247,7 @@ impl Submit3d {
         }
         let text_dwords = buf.len() / 4;
         // 5 fixed header dwords (handle, type, offlen, num_tokens, so_outputs).
-        self.push_header(
-            VIRGL_CCMD_CREATE_OBJECT,
-            VIRGL_OBJECT_SHADER,
-            (5 + text_dwords) as u32,
-        );
+        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, (5 + text_dwords) as u32);
         self.w(handle);
         self.w(shader_type);
         // offlen: full text length in bytes incl. NUL; no continuation bit.
@@ -493,11 +489,7 @@ impl Submit3d {
             buf.push(0);
         }
         let data_dwords = buf.len() / 4;
-        self.push_header(
-            VIRGL_CCMD_RESOURCE_INLINE_WRITE,
-            0,
-            (11 + data_dwords) as u32,
-        );
+        self.push_header(VIRGL_CCMD_RESOURCE_INLINE_WRITE, 0, (11 + data_dwords) as u32);
         self.w(res_handle);
         self.w(0); // level
         self.w(0); // usage
@@ -553,7 +545,7 @@ mod tests {
         assert_eq!(w[6], (d & 0xFFFF_FFFF) as u32);
         assert_eq!(w[7], (d >> 32) as u32);
         assert_eq!(w[8], 0); // stencil
-        // Bytes are little-endian and 4× the dword count.
+                             // Bytes are little-endian and 4× the dword count.
         assert_eq!(s.as_bytes().len(), 36);
         assert_eq!(&s.as_bytes()[0..4], &cmd0(VIRGL_CCMD_CLEAR, 0, 8).to_le_bytes());
     }
@@ -607,7 +599,7 @@ mod tests {
         assert_eq!(w[3], 8); // offlen = strlen+1 bytes, no CONT bit
         assert_eq!(w[4], 7 / 4 + 16); // num_tokens bound
         assert_eq!(w[5], 0); // so outputs
-        // "FRAG" = 0x46 0x52 0x41 0x47 little-endian.
+                             // "FRAG" = 0x46 0x52 0x41 0x47 little-endian.
         assert_eq!(w[6], u32::from_le_bytes([b'F', b'R', b'A', b'G']));
         assert_eq!(w[7], u32::from_le_bytes([b'\n', b'E', b'N', 0]));
         assert_eq!(s.len_dwords(), 8);

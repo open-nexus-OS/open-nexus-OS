@@ -69,10 +69,7 @@ pub(crate) fn composite_shadow_layer_row(
     let rp = target.len() / 4;
     let sc = scale.max(1) as usize;
     let ss = shadow_x.max(0).min(rp as i32) as usize;
-    let se = shadow_x
-        .saturating_add(logical_width as i32)
-        .max(0)
-        .min(rp as i32) as usize;
+    let se = shadow_x.saturating_add(logical_width as i32).max(0).min(rp as i32) as usize;
     let sr = color.r as u32;
     let sg = color.g as u32;
     let sb = color.b as u32;
@@ -192,12 +189,8 @@ pub(crate) fn compute_shadow_row(
         };
         let br = sh.blur_radius.0.max(0) as u32;
         let bi = br as i32;
-        let sx = (re.x as i32)
-            .saturating_add(sh.offset_x.0)
-            .saturating_sub(sh.spread.0);
-        let sy2 = (re.y as i32)
-            .saturating_add(sh.offset_y.0)
-            .saturating_sub(sh.spread.0);
+        let sx = (re.x as i32).saturating_add(sh.offset_x.0).saturating_sub(sh.spread.0);
+        let sy2 = (re.y as i32).saturating_add(sh.offset_y.0).saturating_sub(sh.spread.0);
         let sw = (re.width as i32).saturating_add(2 * sh.spread.0);
         let sh2 = (re.height as i32).saturating_add(2 * sh.spread.0);
         if sw <= 0 || sh2 <= 0 {
@@ -349,11 +342,7 @@ pub(crate) fn draw_shadow_row_fallback(
         return;
     }
     let st = sx.saturating_sub(bi).max(0).min(rp as i32) as usize;
-    let en = sx
-        .saturating_add(sw)
-        .saturating_add(bi)
-        .max(0)
-        .min(rp as i32) as usize;
+    let en = sx.saturating_add(sw).saturating_add(bi).max(0).min(rp as i32) as usize;
     if st >= en {
         return;
     }

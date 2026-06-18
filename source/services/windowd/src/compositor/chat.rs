@@ -23,9 +23,8 @@ use super::primitives::fill_row_rect;
 use crate::error::WindowdError;
 use crate::interaction::{
     chat_chars_per_line, chat_line_char_range, chat_message_height, chat_message_lines,
-    CHAT_FONT_ADVANCE, CHAT_FONT_H, CHAT_FONT_SCALE, CHAT_FONT_W, CHAT_LINE_H, CHAT_MSG_PAD,
-    CHAT_CLOSE_ZONE_W, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W,
-    CHAT_TITLE_BAR_H,
+    CHAT_CLOSE_ZONE_W, CHAT_FONT_ADVANCE, CHAT_FONT_H, CHAT_FONT_SCALE, CHAT_FONT_W, CHAT_LINE_H,
+    CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W, CHAT_TITLE_BAR_H,
 };
 use alloc::vec::Vec;
 use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
@@ -69,8 +68,21 @@ pub(crate) fn compute_visible(
     scroll_y: u32,
     out: &mut Vec<ChatVisibleMsg>,
 ) -> u32 {
+    compute_visible_window(provider, scroll_y, out, viewport().3)
+}
+
+/// As [`compute_visible`] but for an explicit content-viewport height — used by
+/// the GPU scroll-offset path to prerender an OVERSCAN window taller than the
+/// on-screen viewport, so scrolling within it is a composite offset, not a
+/// re-render.
+pub(crate) fn compute_visible_window(
+    provider: &ChatMessageProvider,
+    scroll_y: u32,
+    out: &mut Vec<ChatVisibleMsg>,
+    vp_h: u32,
+) -> u32 {
     out.clear();
-    let (_, vp_y, _, vp_h) = viewport();
+    let (_, vp_y, _, _) = viewport();
     let cpl = chat_chars_per_line();
     let view_bottom = scroll_y.saturating_add(vp_h);
     let mut block_top = 0u32;
@@ -85,13 +97,7 @@ pub(crate) fn compute_visible(
         let block_bottom = block_top.saturating_add(height);
         if block_bottom > scroll_y && block_top < view_bottom {
             let top = vp_y as i32 + block_top as i32 - scroll_y as i32;
-            out.push(ChatVisibleMsg {
-                text: msg.text,
-                from_me: msg.from_me,
-                top,
-                lines,
-                char_len,
-            });
+            out.push(ChatVisibleMsg { text: msg.text, from_me: msg.from_me, top, lines, char_len });
         }
         block_top = block_bottom;
     }
@@ -111,12 +117,10 @@ const TITLE_TEXT: [u8; 4] = [240, 238, 235, 255];
 fn viewport() -> (u32, u32, u32, u32) {
     let vp_x = CHAT_PAD;
     let vp_y = CHAT_TITLE_BAR_H.saturating_add(CHAT_PAD);
-    let vp_w = CHAT_PANEL_W
-        .saturating_sub(CHAT_PAD.saturating_mul(2))
-        .saturating_sub(CHAT_SCROLLBAR_W);
-    let vp_h = CHAT_PANEL_H
-        .saturating_sub(CHAT_TITLE_BAR_H)
-        .saturating_sub(CHAT_PAD.saturating_mul(2));
+    let vp_w =
+        CHAT_PANEL_W.saturating_sub(CHAT_PAD.saturating_mul(2)).saturating_sub(CHAT_SCROLLBAR_W);
+    let vp_h =
+        CHAT_PANEL_H.saturating_sub(CHAT_TITLE_BAR_H).saturating_sub(CHAT_PAD.saturating_mul(2));
     (vp_x, vp_y, vp_w, vp_h)
 }
 
@@ -182,19 +186,24 @@ pub(crate) fn draw_chat_panel_row(
     scroll_y: u32,
     content_h: u32,
     visible: &[ChatVisibleMsg],
+    surface_h: u32,
 ) -> Result<(), WindowdError> {
-    if ly >= CHAT_PANEL_H {
+    // The scrollbar is dropped on the GPU scroll-offset path (the surface is an
+    // overscan window scrolled by composite offset, not by re-render).
+    let _ = (scroll_y, content_h);
+    if ly >= surface_h {
         return Ok(());
     }
-    // Title bar rows render their own background + chrome.
+    // Title bar rows render their own background + chrome (composited fixed).
     if ly < CHAT_TITLE_BAR_H {
         return draw_title_bar_row(ly, row);
     }
     // Panel background (full panel width, every row) — opaque, so no glass blur.
-    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, CHAT_PANEL_H, PANEL_BG)?;
+    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, surface_h, PANEL_BG)?;
 
-    let (vp_x, vp_y, vp_w, vp_h) = viewport();
-    let vp_bottom = vp_y.saturating_add(vp_h);
+    let (vp_x, vp_y, vp_w, _vp_h) = viewport();
+    // Content fills from below the title to the bottom of the (overscan) surface.
+    let vp_bottom = surface_h;
     if ly < vp_y || ly >= vp_bottom {
         return Ok(());
     }
@@ -244,9 +253,6 @@ pub(crate) fn draw_chat_panel_row(
         }
     }
 
-    if content_h > vp_h {
-        draw_scrollbar_row(ly, row, vp_y, vp_h, scroll_y, content_h)?;
-    }
     Ok(())
 }
 
@@ -263,11 +269,7 @@ fn draw_text_line_row(
 ) -> Result<(), WindowdError> {
     let mut pen_x = start_x;
     // Walk by characters (boundary-safe for multi-byte UTF-8 like em-dashes).
-    for ch in text
-        .chars()
-        .skip(char_start)
-        .take(char_end.saturating_sub(char_start))
-    {
+    for ch in text.chars().skip(char_start).take(char_end.saturating_sub(char_start)) {
         if pen_x.saturating_add(CHAT_FONT_W * CHAT_FONT_SCALE) > clip_end_x {
             break;
         }
@@ -312,9 +314,7 @@ fn draw_scrollbar_row(
     content_h: u32,
 ) -> Result<(), WindowdError> {
     // Surface-local scrollbar column at the right edge of the panel.
-    let track_x = CHAT_PANEL_W
-        .saturating_sub(CHAT_PAD)
-        .saturating_sub(CHAT_SCROLLBAR_W);
+    let track_x = CHAT_PANEL_W.saturating_sub(CHAT_PAD).saturating_sub(CHAT_SCROLLBAR_W);
     if ly >= vp_y && ly < vp_y.saturating_add(vp_h) {
         fill_row_rect(ly, row, track_x, vp_y, CHAT_SCROLLBAR_W, vp_h, SCROLL_TRACK)?;
     }

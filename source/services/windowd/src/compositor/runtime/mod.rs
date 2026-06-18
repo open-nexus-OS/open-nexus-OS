@@ -31,14 +31,14 @@ use super::types::{
 };
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, BLUR_CACHE_ROW_OFFSET,
-    BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH,
-    DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES,
-    DISPLAY_ROW_OFFSET, DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT,
-    LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES,
-    PATH_CACHE_MAX_PIXELS, PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, RETAINED_OFFSET_BYTES,
-    RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X,
-    VISIBLE_UPDATE_FLUSH_LIMIT, WINDOWD_SHADOW_ARENA_SIZE, CHAT_SHADOW_ALPHA, CHAT_SHADOW_BLUR,
-    CHAT_SHADOW_OFFSET_Y,
+    BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X, CHAT_SHADOW_ALPHA, CHAT_SHADOW_BLUR,
+    CHAT_SHADOW_OFFSET_Y, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS,
+    DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET,
+    DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
+    LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
+    PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
+    ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X,
+    WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -61,14 +61,23 @@ use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
-use nexus_virtual_list::ChatMessageProvider;
+use nexus_virtual_list::{ChatMessageProvider, VirtualList, VirtualListConfig};
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
 const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
 const GPU_MOVE_CURSOR_OP: u8 = 2; // mirrors gpud::OP_MOVE_CURSOR
 const GPU_UPLOAD_CURSOR_OP: u8 = 5; // mirrors gpud::OP_UPLOAD_CURSOR
+const GPU_SET_CHAT_SCROLL_OP: u8 = 6; // mirrors gpud::OP_SET_CHAT_SCROLL
 const GPUD_STATUS_OK: u8 = 0;
+/// Extra chat content rows rendered above/below the on-screen viewport so scroll
+/// is a GPU composite offset, not a CPU re-render. Re-render only on overscan
+/// exhaustion (recenter ±CHAT_OVERSCAN/2). Larger ⇒ fewer full-surface re-renders
+/// during a fast flick (less VMO-write load → less heap pressure) AND more
+/// rendered runway in BOTH directions (smoother up-scroll, which crosses the
+/// window most). Bounded so the atlas (chat 600+this, blur 600, sidebar 800) fits
+/// the 3200-row VMO atlas: 1600+600+800 = 3000 ≤ 3200.
+const CHAT_OVERSCAN: u32 = 1000;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
@@ -144,11 +153,7 @@ struct AnimatedSceneState {
 
 impl AnimatedSceneState {
     const fn new() -> Self {
-        Self {
-            hover_opacity: 0.0,
-            sidebar_translate_x: 320.0,
-            sidebar_opacity: 0.0,
-        }
+        Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
     }
 }
 
@@ -161,12 +166,7 @@ fn draw_animation_proof_overlay_row(
     let button_alpha = (96.0 + 80.0 * scene.hover_opacity).clamp(0.0, 220.0) as u8;
     // SSOT: the rendered button rect is exactly the rect windowd hit-tests.
     let bh = crate::interaction::button_rect(mode.width);
-    let button_rect = ProofBoxRect {
-        x: bh.x,
-        y: bh.y,
-        width: bh.width,
-        height: bh.height,
-    };
+    let button_rect = ProofBoxRect { x: bh.x, y: bh.y, width: bh.width, height: bh.height };
     let gt = crate::assets::GLASS_TINT;
     let ge = crate::assets::GLASS_EDGE;
     draw_floating_glass_rect_row(
@@ -181,12 +181,10 @@ fn draw_animation_proof_overlay_row(
         6,
         32,
     );
-    let menu_icon_x = button_rect
-        .x
-        .saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
-    let menu_icon_y = button_rect
-        .y
-        .saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_x =
+        button_rect.x.saturating_add((button_rect.width.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
+    let menu_icon_y =
+        button_rect.y.saturating_add((button_rect.height.saturating_sub(LUCIDE_ICON_SIZE)) / 2);
     let menu_icon_alpha = (152.0 + 92.0 * scene.hover_opacity).clamp(120.0, 244.0) as u8;
     draw_lucide_menu_icon_row(
         row,
@@ -203,12 +201,7 @@ fn draw_animation_proof_overlay_row(
     }
     // SSOT: the rendered sidebar rect is exactly the rect windowd hit-tests.
     let sh = crate::interaction::sidebar_rect(mode, scene.sidebar_translate_x);
-    let sidebar_rect = ProofBoxRect {
-        x: sh.x,
-        y: sh.y,
-        width: sh.width,
-        height: sh.height,
-    };
+    let sidebar_rect = ProofBoxRect { x: sh.x, y: sh.y, width: sh.width, height: sh.height };
     let gt = crate::assets::GLASS_TINT;
     let ge = crate::assets::GLASS_EDGE;
     draw_floating_glass_rect_row(
@@ -261,12 +254,7 @@ fn draw_floating_glass_rect_row(
     }
     let rect_end_y = rect.y.saturating_add(rect.height);
     if y >= rect.y.saturating_add(shadow_dy) && y < rect_end_y.saturating_add(shadow_dy) {
-        blend_span(
-            row,
-            rect.x.saturating_add(shadow_dx),
-            rect.width,
-            [0, 0, 0, shadow_alpha],
-        );
+        blend_span(row, rect.x.saturating_add(shadow_dx), rect.width, [0, 0, 0, shadow_alpha]);
     }
     if y < rect.y || y >= rect_end_y {
         return;
@@ -470,6 +458,19 @@ pub(crate) struct DisplayServerRuntime {
     frames_in_flight: u32,
     /// Phase 6d: last present sequence number acknowledged by gpud.
     last_completed_seq: u32,
+    /// Stall watchdog (Android-ANR / Linux hung-task style): timestamp of the last
+    /// observed present *progress*, the seq it was at, and whether a stall was
+    /// already reported for the current episode. If damage stays pending and the
+    /// completed seq doesn't advance for `STALL_THRESHOLD_NS`, we log one
+    /// diagnostic line to the UART (→ `build/logs/*/uart.log`) so a "scrolled and
+    /// it stopped responding" freeze is self-reported with its state.
+    stall_last_progress_ns: u64,
+    stall_last_seq: u32,
+    stall_reported: bool,
+    /// Latch so a backpressured present logs its failure ONCE per episode instead
+    /// of every retry (which would flood the UART at ~120 Hz during the very stall
+    /// we want to read). Cleared on the next successful send.
+    present_fail_reported: bool,
     /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
     /// Toggled after each successful present. gpud scanout follows on swap.
     current_display_slot: u8,
@@ -511,13 +512,43 @@ pub(crate) struct DisplayServerRuntime {
     sidebar_composite_cache_valid: bool,
     /// Set when the chat surface needs re-rendering (init, scroll, new message).
     chat_surface_dirty: bool,
-    /// Message provider + scroll state + the precomputed visible window.
-    /// `chat_visible` is rebuilt only on scroll (not per row), so the surface
-    /// renderer never allocates and never walks all messages.
-    chat_provider: ChatMessageProvider,
+    /// Chat scroll engine: the `nexus-virtual-list` component is the single
+    /// source of truth for scroll *physics* (Apple-style eased momentum via
+    /// `fling`/`tick`) and owns the message provider. windowd remains the height
+    /// authority (its bitmap hard-wrap measures the real surface) and feeds that
+    /// in via `set_content_height`; the component clamps + eases. `chat_scroll_y`
+    /// below is a u32 mirror of `chat_list.scroll_offset()` consumed by the
+    /// overscan render + GPU source-row-offset composite (unchanged render path).
+    /// `chat_visible` is rebuilt only on re-render (not per row).
+    chat_list: VirtualList<ChatMessageProvider>,
     chat_scroll_y: u32,
+    /// `nsec()` of the last momentum tick — lets `tick_chat_scroll` integrate the
+    /// glide over real elapsed time (frame-rate independent). 0 = no glide active.
+    chat_scroll_last_ns: u64,
+    /// `nsec()` of the last emitted scroll-diagnostic line (rate-limited ~200ms).
+    chat_scroll_diag_ns: u64,
+    /// Coalesced wheel delta: every queued `OP_UPDATE_VISIBLE_STATE` adds its
+    /// `wheel_delta_y` here instead of scrolling immediately. The whole frame's
+    /// worth is applied ONCE per present-loop iteration (`commit_scroll_input`).
+    /// Without this, a flood of input events (hidrawd ~800/s during a drag) made
+    /// windowd replay each queued wheel one-by-one → the scroll lagged further and
+    /// further behind ("old commands still being processed the more I scroll").
+    pending_chat_wheel: i32,
+    /// Frame-aligned input sample (Android `Choreographer`/`InputConsumer` model):
+    /// every queued `OP_UPDATE_VISIBLE_STATE` is STAGED here (latest cursor/buttons
+    /// win, wheel deltas sum) and the full state is applied ONCE per present-loop
+    /// iteration — not `apply_input_state`'d per raw event. Decouples per-frame
+    /// work from input rate, so a flood (hidrawd ~800/s) can't back up the cursor
+    /// command stream + hit-testing ("mouse vanished then everything caught up").
+    pending_input: Option<VisibleState>,
     chat_content_h: u32,
     chat_visible: Vec<super::chat::ChatVisibleMsg>,
+    /// Scroll position the chat **overscan surface** is currently rendered at.
+    /// The surface holds the content window `[base .. base + viewport + overscan]`;
+    /// scrolling within that window is a GPU composite source-row offset
+    /// (`chat_scroll_y - chat_render_base`), NOT a CPU re-render. We only re-render
+    /// (recenter the base) when the scroll leaves the overscan window.
+    chat_render_base: u32,
     /// Window manager: owns the chat window's bounds/visibility/drag. The
     /// compositor blits the chat surface at `wm.chat_window().bounds`, so moving
     /// the window is just a different blit destination (no content re-render).
@@ -607,10 +638,8 @@ impl DisplayServerRuntime {
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
         let proof_layouts = build_live_proof_layouts(initial_state);
-        let proof_layout_index = proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.first())
-            .map(|layout| {
+        let proof_layout_index =
+            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
                 LayoutHotPathIndex::build(
                     layout,
                     PROOF_PANEL_X,
@@ -645,20 +674,50 @@ impl DisplayServerRuntime {
         let _ = debug_println("dbg: windowd init animation-driver ok");
         let pipeline_timer = PipelineTimer::new();
         let _ = debug_println("dbg: windowd init pipeline-timer ok");
-        // Chat panel: 200 deterministic mixed-length messages. The provider is the
-        // data source; chat layout heights come from `interaction` (hard-wrap) so
-        // the precomputed window matches the renderer exactly.
+        // Chat panel: 5000 deterministic mixed-length messages — a STRESS TEST of
+        // the virtual list. Only the visible window is ever rendered, so scroll
+        // must stay smooth regardless of collection size. The provider is the data
+        // source; chat layout heights come from `interaction` (hard-wrap) so the
+        // precomputed window matches the renderer exactly.
         let chat_provider = ChatMessageProvider::synthetic(
-            200,
+            5000,
             crate::interaction::chat_chars_per_line(),
             crate::interaction::CHAT_LINE_H,
         );
         let mut chat_visible = Vec::new();
-        let chat_content_h = super::chat::compute_visible(&chat_provider, 0, &mut chat_visible);
+        // Window the OVERSCAN content surface (viewport + overscan) at base 0.
+        // compute_visible_window returns the TOTAL content height (for max-scroll)
+        // and fills the window for the given render base.
+        let chat_overscan_content_h = (crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN)
+            .saturating_sub(crate::interaction::CHAT_TITLE_BAR_H + crate::interaction::CHAT_PAD);
+        let chat_content_h = super::chat::compute_visible_window(
+            &chat_provider,
+            0,
+            &mut chat_visible,
+            chat_overscan_content_h,
+        );
+        // Hand the provider to the virtual-list component (scroll-physics SSOT).
+        // windowd stays the height authority: the chat viewport is the panel body
+        // (minus the title bar + pad), and the real content height comes from the
+        // bitmap hard-wrap measure above — so the component's `max_scroll`/momentum
+        // clamp to the true bottom while it owns the eased motion.
+        let chat_viewport_h = crate::interaction::CHAT_PANEL_H
+            .saturating_sub(crate::interaction::CHAT_PAD.saturating_mul(2));
+        let mut chat_list = VirtualList::new(
+            chat_provider,
+            FxPx::new(chat_viewport_h as i32),
+            VirtualListConfig::default(),
+        );
+        chat_list.set_content_height(FxPx::new(chat_content_h as i32));
         // Reserve the chat layer's surface in the VMO atlas (off-screen).
         let mut atlas = crate::atlas::AtlasAllocator::new();
+        // Overscan-tall surface: viewport + CHAT_OVERSCAN extra content rows, so
+        // scroll within the window is a composite source-row offset, not a re-render.
         let chat_atlas = atlas
-            .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
+            .alloc(
+                crate::interaction::CHAT_PANEL_W,
+                crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN,
+            )
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Cache of the BLURRED backdrop behind the chat window. The backdrop is
         // the static base, so we blur it once per window move and reuse it every
@@ -738,6 +797,10 @@ impl DisplayServerRuntime {
             shell: SystemUiShell::new(DeviceProfile::qemu_default()),
             framebuffer_pending_first_write: false,
             present_seq: 0,
+            stall_last_progress_ns: 0,
+            stall_last_seq: 0,
+            stall_reported: false,
+            present_fail_reported: false,
             frames_in_flight: 0,
             last_completed_seq: 0,
             current_display_slot: 0,
@@ -757,10 +820,15 @@ impl DisplayServerRuntime {
             sidebar_composite_cache,
             sidebar_composite_cache_valid: false,
             chat_surface_dirty: true,
-            chat_provider,
+            chat_list,
             chat_scroll_y: 0,
+            chat_scroll_last_ns: 0,
+            chat_scroll_diag_ns: 0,
+            pending_chat_wheel: 0,
+            pending_input: None,
             chat_content_h,
             chat_visible,
+            chat_render_base: 0,
             wm,
             chat_drag_marker_emitted: false,
         })
@@ -848,10 +916,8 @@ impl DisplayServerRuntime {
         self.framebuffer_pending_first_write = true;
         let next = self.first_handoff_id.wrapping_add(1);
         self.first_handoff_id = if next == 0 { 1 } else { next };
-        self.first_handoff_deadline_ns = nsec()
-            .ok()
-            .map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS))
-            .unwrap_or(0);
+        self.first_handoff_deadline_ns =
+            nsec().ok().map(|now| now.saturating_add(FIRST_HANDOFF_DEADLINE_NS)).unwrap_or(0);
         self.first_handoff_frame_written = false;
         self.first_handoff_bootstrap_markers_emitted = false;
         self.first_handoff_attach_acked = false;
@@ -937,12 +1003,7 @@ impl DisplayServerRuntime {
         // the scene into Plane 1; this CB copies it to Plane 2 (display) so the
         // first frame is identical to every steady-state frame (one code path).
         if !self.first_handoff_present_sent {
-            let full = DamageRect {
-                x: 0,
-                y: 0,
-                width: self.mode.width,
-                height: self.mode.height,
-            };
+            let full = DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
             let mut frame_buf = [0u8; 8192];
             let sent = match self.build_scene_cb_into(&[full], 1, &mut frame_buf[1..]) {
                 Ok(written) => {
@@ -1108,6 +1169,34 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// STAGE one upstream input update into the frame-aligned sample instead of
+    /// applying it now. The latest cursor/button/text snapshot wins (we only render
+    /// the newest position); wheel deltas SUM (no scroll notch is lost). Replies
+    /// can be sent immediately by the caller — staging always "accepts". This is
+    /// the consumer half of the Android frame-aligned input model.
+    pub(crate) fn stage_input_state(&mut self, mut state: VisibleState) -> u8 {
+        if let Some(prev) = self.pending_input.take() {
+            // Carry the accumulated wheel forward (sum), keep the newest of all else.
+            state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
+        }
+        self.pending_input = Some(state);
+        STATUS_OK
+    }
+
+    /// Apply the frame's staged input sample ONCE (called from the present loop
+    /// after draining the IPC batch). Returns true if there was input to apply.
+    /// This collapses N raw events/frame into a single hit-test + hover + cursor
+    /// move + scroll — the work is bounded by frame rate, not input rate.
+    pub(crate) fn apply_staged_input(&mut self) -> bool {
+        match self.pending_input.take() {
+            Some(state) => {
+                self.apply_input_state(state);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
         if !self.input_state_debug_emitted {
             let _ = debug_println("dbg: windowd input state applied");
@@ -1183,10 +1272,7 @@ impl DisplayServerRuntime {
         // Continue an in-progress drag: move the window and damage old+new regions.
         if self.wm.is_dragging() {
             let old_bounds = self.wm.chat_window().bounds;
-            if self
-                .wm
-                .on_pointer_move(cursor_x, cursor_y, mode.width as i32, mode.height as i32)
-            {
+            if self.wm.on_pointer_move(cursor_x, cursor_y, mode.width as i32, mode.height as i32) {
                 self.note_chat_window_moved(old_bounds);
             }
         }
@@ -1262,8 +1348,7 @@ impl DisplayServerRuntime {
             self.shell.set_card_active(0, self.state.hover_visible);
         }
         if click_changed {
-            self.shell
-                .set_card_active(1, self.state.launcher_click_visible);
+            self.shell.set_card_active(1, self.state.launcher_click_visible);
         }
         if key_changed {
             self.shell.set_card_active(2, self.state.keyboard_visible);
@@ -1276,8 +1361,7 @@ impl DisplayServerRuntime {
         self.queue_target_damage(old_state, self.state);
         // Sidebar visibility
         if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
-            self.shell
-                .set_sidebar_visible(self.state.sidebar_open_visible);
+            self.shell.set_sidebar_visible(self.state.sidebar_open_visible);
         }
         // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
         let cursor_changed =
@@ -1311,16 +1395,10 @@ impl DisplayServerRuntime {
             // Sidebar open/close uses a dedicated state so close actions are not
             // coupled to hover leave.
             if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
-                let sidebar_from = if old_state.sidebar_open_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
-                let sidebar_to = if self.state.sidebar_open_visible {
-                    0.0
-                } else {
-                    SIDEBAR_WIDTH as f32
-                };
+                let sidebar_from =
+                    if old_state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                let sidebar_to =
+                    if self.state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
                 self.animation_driver.spring_to(
                     SIDEBAR_LAYER_ID,
                     AnimProp::TranslateX,
@@ -1332,11 +1410,7 @@ impl DisplayServerRuntime {
                     SIDEBAR_LAYER_ID,
                     AnimProp::Opacity,
                     self.animated_scene.sidebar_opacity,
-                    if self.state.sidebar_open_visible {
-                        1.0
-                    } else {
-                        0.0
-                    },
+                    if self.state.sidebar_open_visible { 1.0 } else { 0.0 },
                     spring,
                 );
                 if !self.animation_proof.timeline_marker {
@@ -1346,16 +1420,8 @@ impl DisplayServerRuntime {
             }
             // Click card opacity
             if old_state.launcher_click_visible != self.state.launcher_click_visible {
-                let from = if old_state.launcher_click_visible {
-                    1.0
-                } else {
-                    0.0
-                };
-                let to = if self.state.launcher_click_visible {
-                    1.0
-                } else {
-                    0.0
-                };
+                let from = if old_state.launcher_click_visible { 1.0 } else { 0.0 };
+                let to = if self.state.launcher_click_visible { 1.0 } else { 0.0 };
                 self.animation_driver.spring_to(
                     CLICK_LAYER_ID,
                     AnimProp::Opacity,
@@ -1367,11 +1433,7 @@ impl DisplayServerRuntime {
             // Keyboard card opacity
             if old_state.keyboard_visible != self.state.keyboard_visible {
                 let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
-                let to = if self.state.keyboard_visible {
-                    1.0
-                } else {
-                    0.0
-                };
+                let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
                 self.animation_driver.spring_to(
                     KEYBOARD_LAYER_ID,
                     AnimProp::Opacity,
@@ -1431,7 +1493,9 @@ impl DisplayServerRuntime {
         }
 
         // ── v3b: scroll on wheel events, routed to the control under the cursor ──
-        if upstream.wheel_up_visible || upstream.wheel_down_visible {
+        // Gate on the real signed delta (edge-accurate per update) rather than the
+        // latched pulse booleans, so each notch is applied once with its magnitude.
+        if upstream.wheel_delta_y != 0 {
             use crate::interaction::{resolve_wheel_target, HitRect, WheelTarget};
             // Wheel routing follows the chat window's live bounds (None when
             // closed) — a dragged window keeps scrolling under the cursor.
@@ -1444,9 +1508,36 @@ impl DisplayServerRuntime {
                     height: w.bounds.h.max(0) as u32,
                 })
             };
-            match resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds)
-            {
-                WheelTarget::Chat => self.handle_chat_scroll_input(upstream.wheel_down_visible),
+            let target =
+                resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds);
+            // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
+            // even when nothing moves — the routing target + full scroll state, so a
+            // "scrolled but nothing happened" freeze is explained by VALUES, not guesses.
+            let now = nsec().unwrap_or(0);
+            if now.saturating_sub(self.chat_scroll_diag_ns) >= 200_000_000 {
+                self.chat_scroll_diag_ns = now;
+                let _ = debug_println(&alloc::format!(
+                    "scroll-diag: in={} tgt={} cur=({},{}) chat_vis={} y={} pos={} target={} max={} base={} gl={}",
+                    upstream.wheel_delta_y,
+                    if matches!(target, WheelTarget::Chat) { "chat" } else { "filter" },
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                    self.wm.chat_window().visible,
+                    self.chat_scroll_y,
+                    self.chat_list.scroll_offset().as_i32(),
+                    self.chat_list.scroll_target(),
+                    self.chat_list.max_scroll(),
+                    self.chat_render_base,
+                    self.gl_cursor_active,
+                ));
+            }
+            match target {
+                // Coalesce: accumulate this event's notches; `commit_scroll_input`
+                // applies the frame's total ONCE (reactive, no per-event replay).
+                WheelTarget::Chat => {
+                    self.pending_chat_wheel =
+                        self.pending_chat_wheel.saturating_add(upstream.wheel_delta_y);
+                }
                 // Filter is the fallback so a wheel anywhere off the chat still
                 // scrolls the proof list (and emits the scroll markers).
                 _ => {
@@ -1485,16 +1576,10 @@ impl DisplayServerRuntime {
             };
             let from = self.animated_scene.hover_opacity;
             let to = if self.button_hover { 1.0 } else { 0.0 };
-            self.animation_driver
-                .spring_to(HOVER_LAYER_ID, AnimProp::Opacity, from, to, spring);
+            self.animation_driver.spring_to(HOVER_LAYER_ID, AnimProp::Opacity, from, to, spring);
         }
         let b = crate::interaction::button_rect(self.mode.width);
-        self.queue_gpu_blit_rect(DamageRect {
-            x: b.x,
-            y: b.y,
-            width: b.width,
-            height: b.height,
-        });
+        self.queue_gpu_blit_rect(DamageRect { x: b.x, y: b.y, width: b.width, height: b.height });
     }
 
     fn note_filter_text_changed(&mut self) {
@@ -1522,49 +1607,133 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Scroll the chat message list (wheel over the chat viewport).
-    ///
-    /// O(Δ) scroll-blit: the surviving viewport region is shifted on the GPU
-    /// inside Plane 1 (bounce via the Plane 3 scratch, overlap-safe), the CPU
-    /// renders only the newly exposed strip (into the Plane 3 strip scratch)
-    /// and the scrollbar thumb span. Falls back to a full-panel CPU repaint
-    /// when a shift is already pending or the delta exceeds the viewport.
-    fn handle_chat_scroll_input(&mut self, wheel_down: bool) {
+    /// Wheel over the chat viewport → an Apple-style **flick**. The signed wheel
+    /// delta (real notch count from inputd, no longer a quantized boolean) moves
+    /// the virtual-list's scroll *target*; `tick_chat_scroll` then eases the
+    /// position toward it over subsequent frames (momentum). One notch animates
+    /// smoothly; many notches fling proportionally further — no dropped input.
+    fn handle_chat_scroll_input(&mut self, wheel_delta_y: i32) {
+        if wheel_delta_y == 0 {
+            return;
+        }
         if !self.scroll_marker_emitted {
             let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
             self.scroll_marker_emitted = true;
         }
-        use crate::interaction::{
-            CHAT_LINE_H, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_PANEL_X, CHAT_PANEL_Y,
-        };
-        let viewport_h = CHAT_PANEL_H.saturating_sub(CHAT_PAD.saturating_mul(2));
-        let max_scroll = self.chat_content_h.saturating_sub(viewport_h);
-        let step = CHAT_LINE_H.saturating_mul(3);
-        let old = self.chat_scroll_y;
-        let new = if wheel_down {
-            old.saturating_add(step).min(max_scroll)
-        } else {
-            old.saturating_sub(step)
-        };
-        if new == old {
+        // REL_WHEEL: +up / −down (inputd convention). Scroll offset grows toward
+        // the bottom, so a wheel-down (negative delta) increases the offset →
+        // negate. Scale each notch to ~3 text lines (the standard wheel step).
+        // `wheel_delta_y` here is the COALESCED per-frame total (commit_scroll_input).
+        // Clamp it: bounds one frame's scroll AND drops stale piled-up backlog
+        // (reactive — apply this frame's intent, not a replayed flood). At ~120 Hz
+        // this still allows ~24·120 ≈ 2880 notches/s; the scroller's acceleration
+        // handles fast sequences across frames.
+        const MAX_NOTCHES_PER_FRAME: i32 = 24;
+        let notches = wheel_delta_y.clamp(-MAX_NOTCHES_PER_FRAME, MAX_NOTCHES_PER_FRAME);
+        let step = crate::interaction::CHAT_LINE_H.saturating_mul(3) as i32;
+        let delta_px = -notches.saturating_mul(step);
+        // `scroll_wheel` moves the content IMMEDIATELY (1:1, zero latency — precise
+        // for a slow careful scroll) and injects accumulating momentum (a fast
+        // spin coasts). Commit the instant move NOW so it presents on this very
+        // loop iteration's flush; the momentum tick continues the glide after.
+        self.chat_list.scroll_wheel(FxPx::new(delta_px));
+        self.commit_chat_scroll_position();
+    }
+
+    /// Apply the wheel input coalesced this present-loop iteration — ONCE, with the
+    /// frame's net delta — then clear it. Called after draining the IPC batch so a
+    /// flood of queued input events becomes a single reactive scroll step instead
+    /// of a replayed backlog ("old commands still being processed"). Returns true
+    /// if it scrolled (so the caller knows to keep the pacer alive).
+    pub(crate) fn commit_scroll_input(&mut self) -> bool {
+        let delta = core::mem::take(&mut self.pending_chat_wheel);
+        if delta == 0 {
+            return false;
+        }
+        self.handle_chat_scroll_input(delta);
+        true
+    }
+
+    /// Mirror the virtual-list scroll position into `chat_scroll_y`, recenter the
+    /// overscan render base only when the scroll leaves the prerendered window,
+    /// and re-present the chat region (a cheap GPU source-row offset, not a CPU
+    /// re-render). Shared by the immediate wheel step + the per-frame momentum
+    /// tick so both commit identically.
+    fn commit_chat_scroll_position(&mut self) {
+        let new = self.chat_list.scroll_offset().as_i32().max(0) as u32;
+        if new == self.chat_scroll_y {
             return;
         }
         self.chat_scroll_y = new;
-        self.chat_content_h =
-            super::chat::compute_visible(&self.chat_provider, new, &mut self.chat_visible);
-        // Re-render the chat layer's surface (off-screen) and present its region;
-        // the compositor blits the updated surface to the display.
-        self.chat_surface_dirty = true;
-        self.queue_gpu_blit_rect(DamageRect {
-            x: CHAT_PANEL_X,
-            y: CHAT_PANEL_Y,
-            width: CHAT_PANEL_W,
-            height: CHAT_PANEL_H,
-        });
+        let offset = new.saturating_sub(self.chat_render_base);
+        let within_overscan = new >= self.chat_render_base && offset <= CHAT_OVERSCAN;
+        if within_overscan && self.gl_cursor_active {
+            // SCROLL FAST PATH (virgl GL scanout): tell gpud to re-sample the
+            // retained chat layer at the new atlas row and GPU-re-composite (~54µs)
+            // — NO windowd CPU compose, just like the cursor's OP_MOVE_CURSOR. This
+            // is what lets scroll run at gpud's rate instead of windowd's compose rate.
+            self.send_chat_scroll_to_gpud(self.chat_atlas.abs_row + offset);
+        } else {
+            // Left the prerendered window (new content needed) OR the 2D/mmio path
+            // (no GL layer re-sample): recenter + re-render as needed, then a normal
+            // present carries the fresh layer (which also clears gpud's scroll override).
+            if !within_overscan {
+                self.chat_render_base = new.saturating_sub(CHAT_OVERSCAN / 2);
+                self.chat_surface_dirty = true;
+            }
+            self.queue_gpu_blit_rect(DamageRect {
+                x: crate::interaction::CHAT_PANEL_X,
+                y: crate::interaction::CHAT_PANEL_Y,
+                width: crate::interaction::CHAT_PANEL_W,
+                height: crate::interaction::CHAT_PANEL_H,
+            });
+        }
         if !self.live_scroll_marker_emitted {
             let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
             self.live_scroll_marker_emitted = true;
         }
+    }
+
+    /// Scroll fast path: a 5-byte fire-and-forget `OP_SET_CHAT_SCROLL(src_row)` to
+    /// gpud (mirrors the cursor's `OP_MOVE_CURSOR`). gpud re-samples the retained
+    /// scrollable chat layer at `src_row_abs` and re-composites on the GPU — no
+    /// windowd compose. No-op on the 2D/mmio backend (handled there by the CPU path).
+    fn send_chat_scroll_to_gpud(&mut self, src_row_abs: u32) {
+        let mut frame = [0u8; 5];
+        frame[0] = GPU_SET_CHAT_SCROLL_OP;
+        frame[1..5].copy_from_slice(&src_row_abs.to_le_bytes());
+        let _ = self.send_gpud_fire_forget(&frame);
+    }
+
+    /// Advance the chat scroll momentum ONE frame (called from the present-loop
+    /// pacing tick with `now_ns`). Integrates `chat_list`'s velocity over the real
+    /// elapsed time since the last tick (frame-rate independent), mirrors the new
+    /// position into `chat_scroll_y`, recenters the overscan render base only when
+    /// the scroll leaves the prerendered window, and re-presents the chat region
+    /// (a cheap GPU source-row offset, not a CPU re-render). Returns true while
+    /// still gliding so the pacer keeps ticking. This is what makes the live chat
+    /// scroll buttery (momentum) instead of a one-shot jump.
+    pub(crate) fn tick_chat_scroll(&mut self, now_ns: u64) -> bool {
+        if !self.chat_list.is_animating() {
+            self.chat_scroll_last_ns = 0;
+            return false;
+        }
+        // Real elapsed time since the last tick; on the first frame of a glide
+        // (last == 0) assume one 120 Hz frame so the integrator starts cleanly.
+        let dt_ns = if self.chat_scroll_last_ns == 0 || now_ns <= self.chat_scroll_last_ns {
+            8_333_333
+        } else {
+            now_ns - self.chat_scroll_last_ns
+        };
+        self.chat_scroll_last_ns = now_ns;
+        let still = self.chat_list.tick(dt_ns);
+        if !still {
+            self.chat_scroll_last_ns = 0;
+        }
+        // GPU scroll-offset: while the scroll stays inside the prerendered overscan
+        // window the commit is a pure composite source-row offset (no CPU re-render).
+        self.commit_chat_scroll_position();
+        still
     }
 
     /// Damage the chat window's last region so the base shows through after the
@@ -1631,24 +1800,37 @@ impl DisplayServerRuntime {
         if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
+        // Render the OVERSCAN surface (viewport + overscan) anchored at the
+        // current render base. Re-window at that base so the surface content
+        // matches; scrolling within the overscan is a composite offset (no
+        // re-render), so this runs only on init / overscan-exhaustion / new data.
+        let height = crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN;
+        let content_vp_h = height
+            .saturating_sub(crate::interaction::CHAT_TITLE_BAR_H + crate::interaction::CHAT_PAD);
+        self.chat_content_h = super::chat::compute_visible_window(
+            self.chat_list.provider(),
+            self.chat_render_base,
+            &mut self.chat_visible,
+            content_vp_h,
+        );
+        // Keep the component's height authority in sync so momentum clamps to the
+        // real bottom (re-render happens on data change / overscan exhaustion).
+        self.chat_list.set_content_height(FxPx::new(self.chat_content_h as i32));
         let abs_row = self.chat_atlas.abs_row;
-        let height = crate::interaction::CHAT_PANEL_H;
-        let scroll_y = self.chat_scroll_y;
+        let render_base = self.chat_render_base;
         let content_h = self.chat_content_h;
         let visible = &self.chat_visible;
         let band = &mut self.band_scratch;
         // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
-        // per band instead of one per row (~30x fewer syscalls). `vmo_write` is
-        // a syscall, so per-row writes made chat scroll (full re-render) very
-        // slow. The band carries full-stride rows; the chat draws into x<366 and
-        // the unused atlas padding past it is never sampled by the composite.
+        // per band instead of one per row. The band carries full-stride rows; the
+        // chat draws into x<366 and the unused atlas padding is never sampled.
         let mut band_start = 0u32;
         while band_start < height {
             let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(height);
             let band_rows = (band_end - band_start) as usize;
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
-                super::chat::draw_chat_panel_row(ly, row, scroll_y, content_h, visible)?;
+                super::chat::draw_chat_panel_row(ly, row, render_base, content_h, visible, height)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -1671,11 +1853,8 @@ impl DisplayServerRuntime {
         let mut scroll_damage = None;
         if let Some(layout) = self.active_proof_layout_mut() {
             // Find the filter_list container
-            let container_id = layout
-                .boxes
-                .iter()
-                .find(|b| b.id == Some("filter_list"))
-                .map(|b| b.node_id);
+            let container_id =
+                layout.boxes.iter().find(|b| b.id == Some("filter_list")).map(|b| b.node_id);
 
             if let Some(id) = container_id {
                 let viewport_h = layout
@@ -1684,7 +1863,7 @@ impl DisplayServerRuntime {
                     .find(|b| b.node_id == id)
                     .map(|b| {
                         FxPx::new(
-                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32,
+                            filter_list_viewport_height(b.rect.height.as_u32().unwrap_or(0)) as i32
                         )
                     })
                     .unwrap_or(FxPx::ZERO);
@@ -1695,11 +1874,7 @@ impl DisplayServerRuntime {
                     .map(|b| b.scroll_offset)
                     .unwrap_or((FxPx::ZERO, FxPx::ZERO));
 
-                let dy = if wheel_down_visible {
-                    FxPx::new(20)
-                } else {
-                    FxPx::new(-20)
-                };
+                let dy = if wheel_down_visible { FxPx::new(20) } else { FxPx::new(-20) };
                 let max_scroll = FxPx::new((content_h as i32).saturating_sub(viewport_h.0).max(0));
                 let new_offset_y = (current_offset.1 + dy).clamp(FxPx::ZERO, max_scroll);
                 let new_offset = (current_offset.0, new_offset_y);
@@ -1714,12 +1889,7 @@ impl DisplayServerRuntime {
                 let w = rect.width.as_u32().unwrap_or(0);
                 let h = rect.height.as_u32().unwrap_or(0);
                 if w > 0 && h > 0 {
-                    self.queue_dirty_rect(DamageRect {
-                        x,
-                        y,
-                        width: w,
-                        height: h,
-                    });
+                    self.queue_dirty_rect(DamageRect { x, y, width: w, height: h });
                 }
             }
             if !damage.is_empty() {
@@ -1875,9 +2045,7 @@ impl DisplayServerRuntime {
             payload[4..8].copy_from_slice(&self.animated_scene.hover_opacity.to_le_bytes());
             payload[8..12].copy_from_slice(&self.animated_scene.sidebar_translate_x.to_le_bytes());
             payload[12..16].copy_from_slice(&self.animated_scene.sidebar_opacity.to_le_bytes());
-            encoder
-                .try_set_fragment_bytes(0, &payload)
-                .map_err(|_| WindowdError::InvalidDamage)?;
+            encoder.try_set_fragment_bytes(0, &payload).map_err(|_| WindowdError::InvalidDamage)?;
             encoder
                 .try_draw_tiles(
                     &[
@@ -1932,12 +2100,7 @@ impl DisplayServerRuntime {
             width: self.mode.width,
             height: self.mode.height,
         });
-        self.write_rows(
-            0,
-            self.mode.height,
-            select_glass_quality(PROOF_PANEL_H),
-            false,
-        )
+        self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)
     }
 
     fn write_rows(
@@ -1956,10 +2119,8 @@ impl DisplayServerRuntime {
             return Err(WindowdError::BufferLengthMismatch);
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self
-            .proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -2028,21 +2189,15 @@ impl DisplayServerRuntime {
             let offset = band_start as usize * row_len;
             // CPU computes background content (wallpaper + proof panel) into Plane 1.
             // GPU draws the animated overlay (button, sidebar, cursor) on top each frame.
-            vmo_write(
-                handle,
-                RETAINED_OFFSET_BYTES + offset,
-                &band_scratch[..band_bytes],
-            )
-            .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            vmo_write(handle, RETAINED_OFFSET_BYTES + offset, &band_scratch[..band_bytes])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
         self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         self.telemetry.record_compose_timed(
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec()
-                .unwrap_or(render_start_ns)
-                .saturating_sub(render_start_ns),
+            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -2071,10 +2226,8 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let active_filter_idx = self.active_filter_idx;
-        let proof_layout = self
-            .proof_layouts
-            .as_ref()
-            .and_then(|layouts| layouts.get(active_filter_idx));
+        let proof_layout =
+            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
         let proof_layout_index = self.proof_layout_index.as_ref();
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
@@ -2156,9 +2309,7 @@ impl DisplayServerRuntime {
         self.telemetry.record_compose_timed(
             u64::from(end_x.saturating_sub(start_x))
                 .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec()
-                .unwrap_or(render_start_ns)
-                .saturating_sub(render_start_ns),
+            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -2243,6 +2394,18 @@ impl DisplayServerRuntime {
         let chat_show = self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
+        // GPU scroll-offset: the body samples the overscan surface shifted by the
+        // scroll-within-window; the title bar is composited fixed on top.
+        // HARDENING: clamp to [0, CHAT_OVERSCAN]. The surface is only
+        // `CHAT_PANEL_H + CHAT_OVERSCAN` tall, so the composite samples rows
+        // `[base+offset .. base+offset+CHAT_PANEL_H]`. If momentum ever advanced
+        // the scroll past the prerendered window before the recenter re-render
+        // landed, an unclamped offset would sample BEYOND the chat surface into
+        // adjacent atlas rows (blur/sidebar caches) → garbage or out-of-bounds.
+        // Clamping shows the window edge for one frame instead of corrupting.
+        let chat_content_offset =
+            self.chat_scroll_y.saturating_sub(self.chat_render_base).min(CHAT_OVERSCAN);
+        let chat_title_h = crate::interaction::CHAT_TITLE_BAR_H + crate::interaction::CHAT_PAD;
         let chat_blur_cache_row = self.chat_blur_cache.abs_row;
         let chat_blur_cache_valid = self.chat_blur_cache_valid;
         let mut built_chat_blur_cache = false;
@@ -2272,12 +2435,8 @@ impl DisplayServerRuntime {
             })
         };
         let hb = crate::interaction::button_rect(mode.width);
-        let button_touched = overlaps(
-            hb.x as i32,
-            hb.y as i32,
-            (hb.x + hb.width) as i32,
-            (hb.y + hb.height) as i32,
-        );
+        let button_touched =
+            overlaps(hb.x as i32, hb.y as i32, (hb.x + hb.width) as i32, (hb.y + hb.height) as i32);
         let cbtn = crate::interaction::chat_button_rect(mode.width, mode.height);
         let chat_btn_touched = overlaps(
             cbtn.x as i32,
@@ -2394,8 +2553,13 @@ impl DisplayServerRuntime {
                     // The backdrop is already blurred in the display window
                     // region, so the layer composite does shadow + content blend
                     // only (backdrop_blur = 0).
-                    let _ = encoder.try_composite_layer(
-                        chat_atlas_row,
+                    // Body: the whole window (shadow + rounded), sampling the
+                    // overscan surface shifted by the scroll-within-window offset.
+                    // Marked SCROLLABLE so gpud retains it and can re-sample it at a
+                    // new source row on the lightweight `OP_SET_CHAT_SCROLL` fast
+                    // path (a 54µs GPU re-composite) — no CPU re-render per frame.
+                    let _ = encoder.try_composite_layer_scrollable(
+                        chat_atlas_row + chat_content_offset,
                         0,
                         CHAT_PANEL_W,
                         CHAT_PANEL_H,
@@ -2408,6 +2572,23 @@ impl DisplayServerRuntime {
                         CHAT_SHADOW_ALPHA as u32,
                         0,
                     );
+                    // Title bar: composited FIXED on top (src row 0, no offset),
+                    // overdrawing the scrolled title region — so the title never
+                    // moves while the content scrolls underneath.
+                    let _ = encoder.try_composite_layer(
+                        chat_atlas_row,
+                        0,
+                        CHAT_PANEL_W,
+                        chat_title_h,
+                        chat_dx,
+                        chat_dy,
+                        255,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    );
                 }
             }
 
@@ -2418,10 +2599,8 @@ impl DisplayServerRuntime {
             //     Plane 1. One-time cost — the first sidebar open (and every
             //     slide frame) is then a pure cache blit, zero blur work.
             if precache_sidebar_blur {
-                let sidebar_h = mode
-                    .height
-                    .saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM)
-                    .max(1);
+                let sidebar_h =
+                    mode.height.saturating_sub(SIDEBAR_MARGIN_TOP + SIDEBAR_MARGIN_BOTTOM).max(1);
                 let rest = TileRect {
                     x: SIDEBAR_REST_X,
                     y: SIDEBAR_MARGIN_TOP,
@@ -2448,9 +2627,7 @@ impl DisplayServerRuntime {
             }
 
             // 2. Glass button — cached blur, skipped when sidebar covers it.
-            let button_x = mode
-                .width
-                .saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
+            let button_x = mode.width.saturating_sub(GLASS_BUTTON_W + GLASS_BUTTON_RIGHT);
             let button_blit_w = GLASS_BUTTON_W.min(mode.width.saturating_sub(button_x));
             let sidebar_x_for_btn = mode
                 .width
@@ -2545,12 +2722,7 @@ impl DisplayServerRuntime {
                 let icon_alpha = (160.0 + 80.0 * scene.hover_opacity).clamp(160.0, 240.0) as u8;
                 let bar_color = RgbaColor::new(255, 255, 255, icon_alpha);
                 let _ = encoder.try_fill_sdf_rounded_rect(
-                    TileRect {
-                        x: bar_x,
-                        y: bar_y,
-                        width: MENU_BAR_W,
-                        height: MENU_BAR_H,
-                    },
+                    TileRect { x: bar_x, y: bar_y, width: MENU_BAR_W, height: MENU_BAR_H },
                     1,
                     bar_color,
                 );
@@ -2589,8 +2761,7 @@ impl DisplayServerRuntime {
                 if cb.width > 0 && !covered && chat_btn_touched {
                     let gt = crate::assets::GLASS_TINT;
                     let ge = crate::assets::GLASS_EDGE;
-                    let cb_rect =
-                        TileRect { x: cb.x, y: cb.y, width: cb.width, height: cb.height };
+                    let cb_rect = TileRect { x: cb.x, y: cb.y, width: cb.width, height: cb.height };
                     // Restore the clean base from Plane 1 first — the glass
                     // fills are translucent and would accumulate over the
                     // previous frame's button pixels otherwise.
@@ -2673,10 +2844,7 @@ impl DisplayServerRuntime {
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {
                 let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;
-                let sidebar_x = mode
-                    .width
-                    .saturating_sub(SIDEBAR_WIDTH)
-                    .saturating_add(translate);
+                let sidebar_x = mode.width.saturating_sub(SIDEBAR_WIDTH).saturating_add(translate);
                 if sidebar_x < mode.width {
                     let sidebar_w = SIDEBAR_WIDTH.min(mode.width.saturating_sub(sidebar_x));
                     let sidebar_h = mode
@@ -2696,148 +2864,151 @@ impl DisplayServerRuntime {
                             sidebar_h,
                         );
                     } else {
-                    if !blur_cache_valid {
-                        // Cache-build frame (once per sidebar open):
-                        // restore full Plane 1 bg at rest position, blur it, save to Plane 3.
-                        let _ = encoder.try_blit_surface(
-                            SIDEBAR_REST_X,
-                            SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
-                            SIDEBAR_REST_X,
-                            SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_WIDTH,
-                            sidebar_h,
-                        );
-                        let full_sbr = TileRect {
-                            x: SIDEBAR_REST_X,
+                        if !blur_cache_valid {
+                            // Cache-build frame (once per sidebar open):
+                            // restore full Plane 1 bg at rest position, blur it, save to Plane 3.
+                            let _ = encoder.try_blit_surface(
+                                SIDEBAR_REST_X,
+                                SIDEBAR_MARGIN_TOP + RETAINED_ROW_OFFSET,
+                                SIDEBAR_REST_X,
+                                SIDEBAR_MARGIN_TOP,
+                                SIDEBAR_WIDTH,
+                                sidebar_h,
+                            );
+                            let full_sbr = TileRect {
+                                x: SIDEBAR_REST_X,
+                                y: SIDEBAR_MARGIN_TOP,
+                                width: SIDEBAR_WIDTH,
+                                height: sidebar_h,
+                            };
+                            let _ = encoder.try_blur_backdrop(
+                                full_sbr,
+                                20,
+                                DARK_GLASS_SATURATION_PERCENT,
+                            );
+                            // Save blurred display pixels to Plane 3 cache.
+                            let _ = encoder.try_blit_absolute(
+                                SIDEBAR_REST_X,
+                                DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                SIDEBAR_REST_X,
+                                BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                SIDEBAR_WIDTH,
+                                sidebar_h,
+                            );
+                            // Blit the currently-visible strip from cache for this frame.
+                            let _ = encoder.try_blit_absolute(
+                                sidebar_x,
+                                BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                sidebar_x,
+                                DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                sidebar_w,
+                                sidebar_h,
+                            );
+                        } else {
+                            // Cache-use frame: blit pre-blurred strip from Plane 3 — no blur.
+                            let _ = encoder.try_blit_absolute(
+                                sidebar_x,
+                                BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                sidebar_x,
+                                DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                sidebar_w,
+                                sidebar_h,
+                            );
+                        }
+
+                        let sbr = TileRect {
+                            x: sidebar_x,
                             y: SIDEBAR_MARGIN_TOP,
-                            width: SIDEBAR_WIDTH,
+                            width: sidebar_w,
                             height: sidebar_h,
                         };
-                        let _ =
-                            encoder.try_blur_backdrop(full_sbr, 20, DARK_GLASS_SATURATION_PERCENT);
-                        // Save blurred display pixels to Plane 3 cache.
-                        let _ = encoder.try_blit_absolute(
-                            SIDEBAR_REST_X,
-                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_REST_X,
-                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            SIDEBAR_WIDTH,
-                            sidebar_h,
-                        );
-                        // Blit the currently-visible strip from cache for this frame.
-                        let _ = encoder.try_blit_absolute(
-                            sidebar_x,
-                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_x,
-                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_w,
-                            sidebar_h,
-                        );
-                    } else {
-                        // Cache-use frame: blit pre-blurred strip from Plane 3 — no blur.
-                        let _ = encoder.try_blit_absolute(
-                            sidebar_x,
-                            BLUR_CACHE_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_x,
-                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_w,
-                            sidebar_h,
-                        );
-                    }
-
-                    let sbr = TileRect {
-                        x: sidebar_x,
-                        y: SIDEBAR_MARGIN_TOP,
-                        width: sidebar_w,
-                        height: sidebar_h,
-                    };
-                    // Translucent enough that the blurred backdrop reads as
-                    // glass (220 was nearly opaque → looked flat gray).
-                    let sidebar_alpha = (150.0 * sidebar_opacity).clamp(0.0, 150.0) as u8;
-                    let border_alpha = (130.0 * sidebar_opacity).clamp(0.0, 130.0) as u8;
-                    let gt = crate::assets::GLASS_TINT;
-                    let ge = crate::assets::GLASS_EDGE;
-                    let pb = crate::assets::PROOF_PANEL_BORDER;
-                    // Border: fill outer rect with border color, then cover interior with glass fill.
-                    let _ = encoder.try_fill_sdf_rounded_rect(
-                        sbr,
-                        SIDEBAR_RADIUS,
-                        RgbaColor::new(pb.r, pb.g, pb.b, border_alpha),
-                    );
-                    if sidebar_w > 2 && sidebar_h > 2 {
-                        let sbr_inner = TileRect {
-                            x: sbr.x + 1,
-                            y: sbr.y + 1,
-                            width: sbr.width - 2,
-                            height: sbr.height - 2,
-                        };
-                        // Glass body as a vertical gradient (light from above).
-                        let _ = encoder.try_fill_sdf_gradient(
-                            sbr_inner,
-                            SIDEBAR_RADIUS.saturating_sub(1),
-                            RgbaColor::new(
-                                gt.r.saturating_add(14),
-                                gt.g.saturating_add(14),
-                                gt.b.saturating_add(14),
-                                sidebar_alpha,
-                            ),
-                            RgbaColor::new(
-                                gt.r.saturating_sub(6),
-                                gt.g.saturating_sub(6),
-                                gt.b.saturating_sub(6),
-                                sidebar_alpha,
-                            ),
-                        );
+                        // Translucent enough that the blurred backdrop reads as
+                        // glass (220 was nearly opaque → looked flat gray).
+                        let sidebar_alpha = (150.0 * sidebar_opacity).clamp(0.0, 150.0) as u8;
+                        let border_alpha = (130.0 * sidebar_opacity).clamp(0.0, 130.0) as u8;
+                        let gt = crate::assets::GLASS_TINT;
+                        let ge = crate::assets::GLASS_EDGE;
+                        let pb = crate::assets::PROOF_PANEL_BORDER;
+                        // Border: fill outer rect with border color, then cover interior with glass fill.
                         let _ = encoder.try_fill_sdf_rounded_rect(
-                            sbr_inner,
-                            SIDEBAR_RADIUS.saturating_sub(1),
-                            RgbaColor::new(ge.r, ge.g, ge.b, ge.a),
+                            sbr,
+                            SIDEBAR_RADIUS,
+                            RgbaColor::new(pb.r, pb.g, pb.b, border_alpha),
                         );
-                    }
-                    // Close icon (× approximated as + shape) at top-right of sidebar.
-                    const CLOSE_SIZE: u32 = 16;
-                    const CLOSE_BAR: u32 = 3;
-                    const CLOSE_INSET: u32 = 16;
-                    if sidebar_w > CLOSE_SIZE + CLOSE_INSET {
-                        let cx = sidebar_x
-                            .saturating_add(sidebar_w.saturating_sub(CLOSE_SIZE + CLOSE_INSET));
-                        let cy = SIDEBAR_MARGIN_TOP.saturating_add(CLOSE_INSET);
-                        let close_alpha = (200.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
-                        let cc = RgbaColor::new(255, 255, 255, close_alpha);
-                        let _ = encoder.try_fill_sdf_rounded_rect(
-                            TileRect {
-                                x: cx,
-                                y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2,
-                                width: CLOSE_SIZE,
-                                height: CLOSE_BAR,
-                            },
-                            1,
-                            cc,
-                        );
-                        let _ = encoder.try_fill_sdf_rounded_rect(
-                            TileRect {
-                                x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2,
-                                y: cy,
-                                width: CLOSE_BAR,
-                                height: CLOSE_SIZE,
-                            },
-                            1,
-                            cc,
-                        );
-                    }
-                    // Snapshot the fully composited sidebar into the cache on the
-                    // first settled frame; subsequent presents are a single blit.
-                    if sidebar_settled {
-                        let _ = encoder.try_blit_absolute(
-                            sidebar_x,
-                            DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
-                            sidebar_x,
-                            sidebar_composite_cache_row + SIDEBAR_MARGIN_TOP,
-                            sidebar_w,
-                            sidebar_h,
-                        );
-                        built_sidebar_composite_cache = true;
-                    }
+                        if sidebar_w > 2 && sidebar_h > 2 {
+                            let sbr_inner = TileRect {
+                                x: sbr.x + 1,
+                                y: sbr.y + 1,
+                                width: sbr.width - 2,
+                                height: sbr.height - 2,
+                            };
+                            // Glass body as a vertical gradient (light from above).
+                            let _ = encoder.try_fill_sdf_gradient(
+                                sbr_inner,
+                                SIDEBAR_RADIUS.saturating_sub(1),
+                                RgbaColor::new(
+                                    gt.r.saturating_add(14),
+                                    gt.g.saturating_add(14),
+                                    gt.b.saturating_add(14),
+                                    sidebar_alpha,
+                                ),
+                                RgbaColor::new(
+                                    gt.r.saturating_sub(6),
+                                    gt.g.saturating_sub(6),
+                                    gt.b.saturating_sub(6),
+                                    sidebar_alpha,
+                                ),
+                            );
+                            let _ = encoder.try_fill_sdf_rounded_rect(
+                                sbr_inner,
+                                SIDEBAR_RADIUS.saturating_sub(1),
+                                RgbaColor::new(ge.r, ge.g, ge.b, ge.a),
+                            );
+                        }
+                        // Close icon (× approximated as + shape) at top-right of sidebar.
+                        const CLOSE_SIZE: u32 = 16;
+                        const CLOSE_BAR: u32 = 3;
+                        const CLOSE_INSET: u32 = 16;
+                        if sidebar_w > CLOSE_SIZE + CLOSE_INSET {
+                            let cx = sidebar_x
+                                .saturating_add(sidebar_w.saturating_sub(CLOSE_SIZE + CLOSE_INSET));
+                            let cy = SIDEBAR_MARGIN_TOP.saturating_add(CLOSE_INSET);
+                            let close_alpha = (200.0 * sidebar_opacity).clamp(0.0, 220.0) as u8;
+                            let cc = RgbaColor::new(255, 255, 255, close_alpha);
+                            let _ = encoder.try_fill_sdf_rounded_rect(
+                                TileRect {
+                                    x: cx,
+                                    y: cy + (CLOSE_SIZE - CLOSE_BAR) / 2,
+                                    width: CLOSE_SIZE,
+                                    height: CLOSE_BAR,
+                                },
+                                1,
+                                cc,
+                            );
+                            let _ = encoder.try_fill_sdf_rounded_rect(
+                                TileRect {
+                                    x: cx + (CLOSE_SIZE - CLOSE_BAR) / 2,
+                                    y: cy,
+                                    width: CLOSE_BAR,
+                                    height: CLOSE_SIZE,
+                                },
+                                1,
+                                cc,
+                            );
+                        }
+                        // Snapshot the fully composited sidebar into the cache on the
+                        // first settled frame; subsequent presents are a single blit.
+                        if sidebar_settled {
+                            let _ = encoder.try_blit_absolute(
+                                sidebar_x,
+                                DISPLAY_ROW_OFFSET + SIDEBAR_MARGIN_TOP,
+                                sidebar_x,
+                                sidebar_composite_cache_row + SIDEBAR_MARGIN_TOP,
+                                sidebar_w,
+                                sidebar_h,
+                            );
+                            built_sidebar_composite_cache = true;
+                        }
                     }
                 }
             }
@@ -2879,9 +3050,7 @@ impl DisplayServerRuntime {
         } else if !sidebar_settled {
             self.sidebar_composite_cache_valid = false;
         }
-        self.scene_cb
-            .serialize_into(out)
-            .map_err(|_| WindowdError::InvalidDamage)
+        self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
 
     /// Flush pending damage to gpud as one batched CommandBuffer.
@@ -2894,12 +3063,7 @@ impl DisplayServerRuntime {
         let paint_only = self.paint_only_damage;
 
         // 1. Collect content damage (panels/text — needs CPU recomposite of Plane 1).
-        let mut content = [DamageRect {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        }; 5];
+        let mut content = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 5];
         let mut content_count = 0usize;
         if let Some(rect) = self.pending_damage_rect.take() {
             content[content_count] = rect;
@@ -2931,12 +3095,7 @@ impl DisplayServerRuntime {
 
         // 3. Blit list: content + gpu-blit + cursor rects — all refresh the
         //    display plane from the retained Plane 1.
-        let mut blits = [DamageRect {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        }; 7];
+        let mut blits = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; 7];
         let mut blit_count = 0usize;
         for rect in content.iter().copied().take(content_count) {
             blits[blit_count] = rect;
@@ -2993,6 +3152,57 @@ impl DisplayServerRuntime {
             || !self.pending_damage_rects.is_empty()
             || self.pending_damage_rect.is_some()
             || self.pending_cursor_rect.is_some()
+    }
+
+    /// Stall watchdog — call once per present-loop iteration with `now_ns`.
+    ///
+    /// Detects the "scrolled and it stopped responding" failure: the loop is still
+    /// running but presents make no progress (gpud backpressure / a wedged ring /
+    /// heap exhaustion) while damage keeps piling up. When the acknowledged present
+    /// seq hasn't advanced for `STALL_THRESHOLD_NS` with damage pending, it logs ONE
+    /// diagnostic line per stall episode (rate-limited → the `format!` is not on the
+    /// hot path) capturing the state needed to triage it, then re-arms on recovery.
+    /// This is the compositor analogue of Android's ANR / Linux's hung-task detector.
+    pub(crate) fn watchdog_check(&mut self, now_ns: u64) {
+        const STALL_THRESHOLD_NS: u64 = 500_000_000; // 0.5 s — a blatant stall @120Hz
+                                                     // Progress = the completed seq advanced, or there's simply nothing pending.
+        let progressed = self.last_completed_seq != self.stall_last_seq;
+        if progressed || !self.has_pending_damage() {
+            self.stall_last_seq = self.last_completed_seq;
+            self.stall_last_progress_ns = now_ns;
+            self.stall_reported = false;
+            return;
+        }
+        if self.stall_last_progress_ns == 0 {
+            self.stall_last_progress_ns = now_ns;
+            return;
+        }
+        let stuck = now_ns.saturating_sub(self.stall_last_progress_ns);
+        if stuck >= STALL_THRESHOLD_NS {
+            if !self.stall_reported {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: STALL present stuck {}ms — pending_rects={} in_flight={} last_seq={} scroll_y={} chat_animating={} surface_dirty={} (recovering)",
+                    stuck / 1_000_000,
+                    self.pending_damage_rects.len(),
+                    self.frames_in_flight(),
+                    self.last_completed_seq,
+                    self.chat_scroll_y,
+                    self.chat_list.is_animating(),
+                    self.chat_surface_dirty,
+                ));
+                self.stall_reported = true;
+            }
+            // RECOVERY: a present that never gets acked (QEMU dropped/deferred the
+            // completion) would otherwise pin `frames_in_flight` at max forever →
+            // windowd could never present again = permanent freeze. Drop the wedged
+            // in-flight frames so the next iteration resubmits — a brief hiccup
+            // instead of a hang. A late ack is harmless: `note_present_completed`
+            // uses `saturating_sub` + an idempotent seq assignment.
+            self.frames_in_flight = 0;
+            self.last_completed_seq = self.present_seq;
+            self.stall_last_seq = self.present_seq;
+            self.stall_last_progress_ns = now_ns; // measure the next stall fresh
+        }
     }
 
     /// Phase 7: maximum in-flight frames before backpressure.

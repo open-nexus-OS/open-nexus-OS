@@ -88,11 +88,7 @@ pub const WALLPAPER_VISIBLE_MARKER: &str = "windowd: wallpaper visible";
 pub const SELFTEST_UI_V2B_ASSETS_OK_MARKER: &str = "SELFTEST: ui v2b assets ok";
 
 pub fn present_marker(ack: PresentAck) -> String {
-    format!(
-        "windowd: present ok (seq={} dmg={})",
-        ack.seq.raw(),
-        ack.damage_rects
-    )
+    format!("windowd: present ok (seq={} dmg={})", ack.seq.raw(), ack.damage_rects)
 }
 
 pub fn focus_marker(surface: SurfaceId) -> String {

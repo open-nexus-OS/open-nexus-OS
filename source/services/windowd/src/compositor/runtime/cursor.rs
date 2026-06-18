@@ -33,7 +33,8 @@ impl DisplayServerRuntime {
         frame[0] = GPU_UPLOAD_CURSOR_OP;
         frame[1..5].copy_from_slice(&w.to_le_bytes());
         frame[5..9].copy_from_slice(&h.to_le_bytes());
-        frame[9..13].copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_X.max(0) as u32).to_le_bytes());
+        frame[9..13]
+            .copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_X.max(0) as u32).to_le_bytes());
         frame[13..17]
             .copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_Y.max(0) as u32).to_le_bytes());
         frame[17..total].copy_from_slice(&bitmap[..bgra_len]);
@@ -85,15 +86,20 @@ impl DisplayServerRuntime {
             Some(flags) => {
                 let hw = flags == CURSOR_REPLY_HW;
                 let gl = flags == CURSOR_REPLY_GL;
+                let changed = hw != self.hw_cursor_active || gl != self.gl_cursor_active;
                 self.hw_cursor_active = hw;
                 self.gl_cursor_active = gl;
-                let _ = debug_println(if hw {
-                    "windowd: hw cursor on"
-                } else if gl {
-                    "windowd: gl procedural cursor on"
-                } else {
-                    "windowd: cursor bitmap uploaded (sw)"
-                });
+                // Only log on a state TRANSITION — cursor replies can arrive per
+                // move, and an unconditional print here would flood the UART log.
+                if changed {
+                    let _ = debug_println(if hw {
+                        "windowd: hw cursor on"
+                    } else if gl {
+                        "windowd: gl procedural cursor on"
+                    } else {
+                        "windowd: cursor bitmap uploaded (sw)"
+                    });
+                }
                 if gl {
                     // Procedural GL cursor: place it once at the current pointer.
                     // Moves then ship OP_MOVE_CURSOR + a present-damage (handled
@@ -126,14 +132,8 @@ impl DisplayServerRuntime {
     /// queue. Fire-and-forget — the 1-byte ack is drained asynchronously and
     /// never touches the present pipeline. No composite, no blit, no present.
     pub(super) fn send_cursor_move_to_gpud(&mut self) {
-        let x = self
-            .state
-            .cursor_x
-            .clamp(0, self.mode.width.saturating_sub(1) as i32);
-        let y = self
-            .state
-            .cursor_y
-            .clamp(0, self.mode.height.saturating_sub(1) as i32);
+        let x = self.state.cursor_x.clamp(0, self.mode.width.saturating_sub(1) as i32);
+        let y = self.state.cursor_y.clamp(0, self.mode.height.saturating_sub(1) as i32);
         let mut frame = [0u8; 9];
         frame[0] = GPU_MOVE_CURSOR_OP;
         frame[1..5].copy_from_slice(&x.to_le_bytes());

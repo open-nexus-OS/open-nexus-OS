@@ -59,9 +59,6 @@ pub(crate) const H_GLS_SURF: u32 = 0x42;
 const H_FS_BLIT: u32 = 14;
 /// Passthrough vertex shader created by `virgl_shader_test` at bringup.
 const H_VS: u32 = 10;
-/// Sampler view of the display-plane texture (created by `virgl_blur_init`,
-/// resource 0xF8 = fb VMO rows 1600..3199 → display plane is rows 0..800).
-const H_SV_DISPLAY: u32 = 0x32;
 /// NON-ALIASED display texture: a 1280×800 GL texture with its OWN backing (not
 /// a VMO alias). The present copies windowd's composed frame into its backing,
 /// uploads it, and blits it to the scanout RT. Unlike the 0xF8 VMO-alias, QEMU
@@ -82,13 +79,23 @@ const QUAD_RES: u32 = 0xFA;
 const SCREEN_W: u32 = 1280;
 const SCREEN_H: u32 = 800;
 
-/// Incremental GPU compositor build-up. From the confirmed-working base (solid
-/// clear + gradient panel — pure GL draws that DO present), add ONE feature per
-/// `COMPOSITOR_STAGE` (shadow → wallpaper texture → blur → …) and check after
-/// each whether the display still presents. The first stage that goes black is
-/// the op QEMU's GL-scanout present can't handle — and every working stage is a
-/// real compositor feature. While `true`, the present renders this synthetic
-/// scene instead of windowd's VMO content.
+/// Incremental GPU compositor build-up — a DEBUG harness. From the confirmed-
+/// working base (solid clear + gradient panel — pure GL draws that DO present),
+/// add ONE feature per `COMPOSITOR_STAGE` (shadow → wallpaper texture → blur → …)
+/// and check after each whether the display still presents. The first stage that
+/// goes black is the op QEMU's GL-scanout present can't handle.
+///
+/// This buildup harness is the **incremental "new window"**: we add real
+/// compositor pieces one `COMPOSITOR_STAGE` at a time onto the working base
+/// (background + cursor), wiring new content as VMO-sourced layers, and find
+/// where the GL scanout breaks.
+///
+/// NOTE: the full-frame `gl_present_damage` path (`false`) — uploading windowd's
+/// entire composited display plane into `H_DISPLAY_TEX` and blitting it as the
+/// whole present — currently presents BLACK on this QEMU GL scanout. That is a
+/// separate debug; the integration route is to add windowd content as *layers*
+/// on this presenting buildup base (the wallpaper already does this from Plane 0),
+/// NOT to switch the whole present over. Keep `true`.
 pub(crate) const COMPOSITOR_BUILDUP: bool = true;
 /// Incremental compositor build-up — raise ONE stage at a time and boot
 /// (`GPU_MODE=virgl just start`) to find which GL op first goes black:
@@ -97,8 +104,11 @@ pub(crate) const COMPOSITOR_BUILDUP: bool = true;
 ///   2 = + opaque gradient panel
 ///   3 = + drop shadow behind the panel
 ///   4 = + glass blur (frosted panel)
-/// The cursor (the mouse) is ALWAYS drawn, on top — moving the mouse must move
-/// it on any stage. Start at 1 = background + mouse per the incremental bring-up.
+/// The cursor (the mouse) is ALWAYS drawn, on top. Stage 1 = wallpaper + cursor
+/// base; the REAL UI (target-test panel etc.) now composites on top as windowd
+/// atlas layers (`composite_pending_rt_layers`), carrying their own shadow/glass —
+/// so the synthetic panel/shadow/blur stages (2–4) are no longer needed for the
+/// live UI. Raise to 2–4 only to bisect the synthetic GL ops in isolation.
 const COMPOSITOR_STAGE: u32 = 1;
 /// Automated spin-blur demo: when true, an idle gpud re-presents the *orbiting*
 /// build-up panel (shadow + glass blur) every frame to exercise the GPU blur/shadow
@@ -108,11 +118,11 @@ const COMPOSITOR_STAGE: u32 = 1;
 /// endpoint — an earlier timer-cap attempt intercepted windowd's present commands
 /// and OOM'd the channel.
 //
-// The virgl glass-blur G3-exec stall ([[virgl-blur-g3-exec-flaky-hang]]) is being
-// debugged, not worked around: it is intermittent and independent of this flag (it
-// hits the FIRST windowd present-damage before the spin runs; spin OFF still stalls).
-// Keep the orbit on so the perf test exercises the blur once the stall is fixed.
-pub(crate) const BUILDUP_SPIN_DEMO: bool = true;
+// REACTIVE: off. The build-up now shows windowd's real composited UI (layers),
+// so the idle spin-demo re-present is pure waste — gpud presents only on windowd's
+// OP_PRESENT_DAMAGE (input/animation), nothing on idle. (Set true only to perf-test
+// the blur/shadow orbit in isolation.)
+pub(crate) const BUILDUP_SPIN_DEMO: bool = false;
 /// Integer cos/sin LUT (16 steps, amplitude 48 px) for the spin orbit — avoids any
 /// float trig in the present hot path. `[dx, dy]` per step.
 const SPIN_ORBIT_LUT: [(i32, i32); 16] = [
@@ -133,8 +143,6 @@ const SPIN_ORBIT_LUT: [(i32, i32); 16] = [
     (34, -34),
     (44, -18),
 ];
-/// Height of the display texture 0xF8 (display plane + blur-cache plane).
-const DISPLAY_TEX_H: u32 = 1600;
 const FB_STRIDE: u32 = SCREEN_W * 4;
 
 /// Single-tap textured blit: window position → display-texture UV via
@@ -249,7 +257,8 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&wp_ctx)?;
-        let wp_va = self.virgl_attach_backing(H_WALLPAPER_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
+        let wp_va =
+            self.virgl_attach_backing(H_WALLPAPER_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
         // Remember the backing so the first present can replace these boot bands
         // with the real wallpaper (windowd's decoded JPEG in VMO Plane 0).
         self.gl_wallpaper_tex_va = wp_va as usize;
@@ -316,6 +325,68 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
+    /// Scroll fast path (analogue of `OP_MOVE_CURSOR`): re-sample the retained
+    /// scrollable layer (chat body) at `src_row_abs` and re-composite on the GPU.
+    /// `rt_layers_dirty` stays false → NO atlas re-upload, just a different source
+    /// offset into the already-uploaded texture = a ~54µs GPU pass, no CPU
+    /// re-render. Decouples scroll from the embedder's per-frame compose exactly
+    /// like the cursor overlay.
+    pub(crate) fn set_chat_scroll(&mut self, src_row_abs: u32) -> Result<(), GfxError> {
+        self.chat_scroll_src_row = Some(src_row_abs);
+        self.gl_present_damage(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H })
+    }
+
+    /// Boot-time GPU pipeline warmup — absorb the one-time virgl texture-sampling
+    /// stall during boot instead of on the user's first present/scroll.
+    ///
+    /// The FIRST texture-SAMPLING draw on virtio-gpu-gl makes QEMU defer the
+    /// used-ring advance, so gpud's synchronous drain waits the full
+    /// `GPU_WAIT_DEADLINE_NS` (~500 ms) exactly once; after that the path is warm
+    /// (~50 µs). If that first sampling draw is the user's first scroll frame, the
+    /// UI appears to "freeze for half a second and not respond" (confirmed by the
+    /// stall watchdog: `present stuck 501ms` at `last_seq=1`). Doing ONE throwaway
+    /// sampling draw here — synchronously (outside `ctrl_batch_begin/end`, so it
+    /// waits), sampling the boot-seeded wallpaper texture into the scanout RT —
+    /// pays that 500 ms at boot. The drawn content is overwritten by the first real
+    /// present, and NO one-shot upload state (wallpaper/cursor) is touched.
+    pub(crate) fn gl_pipeline_warmup(&mut self) -> Result<(), GfxError> {
+        if !self.gl_scanout_active {
+            return Ok(());
+        }
+        // Validate the lazy vector (SDF gradient/shadow) shaders' one-time
+        // CREATE_OBJECT now too, so their first use later isn't a fresh stall.
+        let _ = self.virgl_vector_init();
+        // One synchronous textured (sampling) draw — the command that trips QEMU's
+        // deferred-used-ring path. A bare submit (no batch) waits for completion.
+        let mut sw = Submit3d::new();
+        sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
+        sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
+        sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
+        sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
+        sw.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        sw.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+        sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
+        sw.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+        );
+        sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+        sw.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
+        sw.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
+        sw.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        let wb = sw.as_bytes();
+        let wh = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: wb.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&wh, wb)?;
+        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
+        let _ = nexus_abi::debug_println("gpud: pipeline warmup ok");
+        Ok(())
+    }
+
     /// G1 present: sync the damaged display-plane region from the windowd VMO
     /// into the display texture, GPU-blit it into the scanout RT, and flush
     /// (host GL flip). `rect` is screen-relative (0..800).
@@ -349,23 +420,18 @@ impl VirtioGpuBackend {
                     let len = w as usize * 4;
                     if src_off + len <= fb_len {
                         unsafe {
-                            core::ptr::copy_nonoverlapping(
-                                fb.add(src_off),
-                                dst.add(dst_off),
-                                len,
-                            );
+                            core::ptr::copy_nonoverlapping(fb.add(src_off), dst.add(dst_off), len);
                         }
                     }
                 }
             }
         }
-        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, FB_STRIDE)
-            .map_err(|e| {
-                let _ = nexus_abi::debug_println(
-                    "gpud: chain G4.1 display-tex upload FAIL (transfer_to_host)",
-                );
-                e
-            })?;
+        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, FB_STRIDE).map_err(|e| {
+            let _ = nexus_abi::debug_println(
+                "gpud: chain G4.1 display-tex upload FAIL (transfer_to_host)",
+            );
+            e
+        })?;
 
         let mut s = Submit3d::new();
         // Pipeline state is context-global and other passes (selftests, blur)
@@ -396,9 +462,8 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_header_tail(&hdr, bytes).map_err(|e| {
-            let _ = nexus_abi::debug_println(
-                "gpud: chain G4.2 scanout blit submit FAIL (submit_3d)",
-            );
+            let _ =
+                nexus_abi::debug_println("gpud: chain G4.2 scanout blit submit FAIL (submit_3d)");
             e
         })?;
 
@@ -418,9 +483,8 @@ impl VirtioGpuBackend {
         self.composite_pending_rt_layers();
 
         self.gl_flush_rect(Rect { x, y, width: w, height: h }).map_err(|e| {
-            let _ = nexus_abi::debug_println(
-                "gpud: chain G4.3 scanout flush FAIL (resource_flush)",
-            );
+            let _ =
+                nexus_abi::debug_println("gpud: chain G4.3 scanout flush FAIL (resource_flush)");
             e
         })
     }
@@ -451,9 +515,7 @@ impl VirtioGpuBackend {
                 core::ptr::copy_nonoverlapping(fb.add(src_off), dst.add(dst_off), row_bytes);
             }
         }
-        if self
-            .virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)
-            .is_ok()
+        if self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE).is_ok()
         {
             self.wallpaper_from_vmo_uploaded = true;
             let _ = nexus_abi::debug_println("gpud: wallpaper uploaded from vmo (jpeg)");
@@ -624,6 +686,14 @@ impl VirtioGpuBackend {
             }
         }
 
+        // Composite windowd's REAL atlas layers (the target-test panel et al.)
+        // straight onto the scanout RT, over the wallpaper base — the same
+        // CompositeLayer path the non-buildup present uses. `present_committed`
+        // (run by the service before this) populated the pending layers from
+        // windowd's CompositeLayer commands; this drains + composites them, so
+        // the live UI shows in the buildup window (not just the synthetic scene).
+        self.composite_pending_rt_layers();
+
         // INPUT — draw a GL cursor at gpud's current pointer position, ALWAYS, on
         // top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from windowd
         // as the mouse moves; windowd also sends OP_PRESENT_DAMAGE on move so this
@@ -690,100 +760,5 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&flush)
-    }
-
-    /// Compare a sparse pixel grid of the scanout RT against the windowd VMO's
-    /// display plane. Detects both content mismatch and a vertically flipped
-    /// blit (the classic GL FBO orientation trap) and reports via markers.
-    fn gl_present_parity_check(&mut self) {
-        let Ok(()) = self.virgl_transfer_from_host(GL_SCANOUT_RES, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)
-        else {
-            let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_PRESENT_PARITY_OFF);
-            return;
-        };
-        let Some((fb, fb_len, fb_w, display_row)) = self.scanout_fb() else {
-            return;
-        };
-        let rt = self.gl_scanout_backing_va as *const u8;
-        let mut same = 0u32;
-        let mut flipped = 0u32;
-        let mut total = 0u32;
-        for gy in (40..SCREEN_H as usize - 40).step_by(97) {
-            for gx in (40..SCREEN_W as usize - 40).step_by(101) {
-                let rt_off = (gy * SCREEN_W as usize + gx) * 4;
-                let src_off = ((display_row as usize + gy) * fb_w + gx) * 4;
-                let flip_off =
-                    ((display_row as usize + (SCREEN_H as usize - 1 - gy)) * fb_w + gx) * 4;
-                if src_off + 4 > fb_len || flip_off + 4 > fb_len {
-                    continue;
-                }
-                total += 1;
-                let mut d_same = 0u8;
-                let mut d_flip = 0u8;
-                for c in 0..3 {
-                    let r = unsafe { rt.add(rt_off + c).read_volatile() };
-                    let s = unsafe { fb.add(src_off + c).read_volatile() };
-                    let f = unsafe { fb.add(flip_off + c).read_volatile() };
-                    d_same = d_same.max(r.abs_diff(s));
-                    d_flip = d_flip.max(r.abs_diff(f));
-                }
-                if d_same <= 2 {
-                    same += 1;
-                }
-                if d_flip <= 2 {
-                    flipped += 1;
-                }
-            }
-        }
-        let _ = nexus_abi::debug_println(if total > 0 && same * 10 >= total * 9 {
-            crate::markers::GPUD_GL_PRESENT_PARITY_OK
-        } else if total > 0 && flipped * 10 >= total * 9 {
-            crate::markers::GPUD_GL_PRESENT_FLIPPED
-        } else {
-            crate::markers::GPUD_GL_PRESENT_PARITY_OFF
-        });
-    }
-
-    /// Debug: emit ASCII thumbnails of both pipeline ends — the windowd source
-    /// plane (`gl-src`) and the presented scanout RT read back from the host
-    /// (`gl-rt`). Lets us SEE our GPU output headlessly and localize where the
-    /// frame goes wrong: `gl-src` blank => windowd; `gl-src` good but `gl-rt`
-    /// blank => the GPU composite/present. See the `debug_thumbnail` module.
-    pub(crate) fn gl_emit_thumbnails(&mut self) {
-        // Stage 1: windowd-composited display plane in the shared VMO.
-        if let Some((fb, fb_len, fb_w, display_row)) = self.scanout_fb() {
-            unsafe {
-                crate::debug_thumbnail::emit_ascii_thumbnail(
-                    "gl-src",
-                    fb as *const u8,
-                    fb_len,
-                    fb_w,
-                    0,
-                    display_row as usize,
-                    SCREEN_W as usize,
-                    SCREEN_H as usize,
-                );
-            }
-        }
-        // Stage 3: read the presented scanout RT back into guest memory.
-        if self
-            .virgl_transfer_from_host(GL_SCANOUT_RES, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)
-            .is_ok()
-        {
-            let rt = self.gl_scanout_backing_va as *const u8;
-            let len = SCREEN_W as usize * SCREEN_H as usize * 4;
-            unsafe {
-                crate::debug_thumbnail::emit_ascii_thumbnail(
-                    "gl-rt",
-                    rt,
-                    len,
-                    SCREEN_W as usize,
-                    0,
-                    0,
-                    SCREEN_W as usize,
-                    SCREEN_H as usize,
-                );
-            }
-        }
     }
 }

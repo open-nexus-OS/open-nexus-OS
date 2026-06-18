@@ -55,4 +55,3 @@ pub fn visible_display_start_position() -> Result<PointerPosition, PointerStateE
         VISIBLE_INPUT_CURSOR_START_Y,
     )))
 }
-

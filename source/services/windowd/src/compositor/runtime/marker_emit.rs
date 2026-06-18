@@ -55,12 +55,11 @@ impl DisplayServerRuntime {
     }
 
     pub(super) fn emit_input_markers(&mut self) {
-        // Phase A1 diagnostic: log cursor state to trace why marker doesn't fire.
-        if self.state.cursor_move_visible {
-            let _ = debug_println("windowd: cursor_move_visible=true");
-        } else {
-            let _ = debug_println("windowd: cursor_move_visible=false");
-        }
+        // NOTE: a per-move `cursor_move_visible=…` debug print used to live here.
+        // It flooded the UART log (~117/s during interaction), drowning the scroll
+        // + present + crash diagnostics in `build/logs/*/uart.log` and adding a
+        // syscall to the hot input path. Removed — the one-shot
+        // `CURSOR_MOVE_VISIBLE_MARKER` below already records that cursor move works.
         if self.state.input_visible_on && !self.input_markers_emitted.input {
             let _ = debug_println(INPUT_ON_MARKER);
             let _ = debug_println(INPUT_VISIBLE_ON_MARKER);

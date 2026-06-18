@@ -80,27 +80,15 @@ impl WindowdDisplayTelemetry {
         if elapsed < Self::REPORT_INTERVAL_NS {
             return None;
         }
-        let compose_hz = self
-            .compose_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let present_hz = self
-            .present_events
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
-        let avg_render_us = self
-            .render_ns
-            .checked_div(self.compose_events.max(1))
-            .unwrap_or(0)
-            / 1_000;
+        let compose_hz =
+            self.compose_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let present_hz =
+            self.present_events.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
+        let avg_render_us =
+            self.render_ns.checked_div(self.compose_events.max(1)).unwrap_or(0) / 1_000;
         let max_render_us = self.max_render_ns / 1_000;
-        let spin_hz = self
-            .poll_spins
-            .saturating_mul(1_000_000_000)
-            .checked_div(elapsed)
-            .unwrap_or(0);
+        let spin_hz =
+            self.poll_spins.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let report = WindowdDisplayTelemetryReport {
             compose_hz,
             present_hz,

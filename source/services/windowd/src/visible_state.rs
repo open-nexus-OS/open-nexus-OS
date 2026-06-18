@@ -51,12 +51,7 @@ pub fn compose_live_visible_frame(
         let idx = (y as usize)
             .checked_mul(mode.stride as usize)
             .ok_or(WindowdError::ArithmeticOverflow)?;
-        copy_live_visible_row(
-            state,
-            mode,
-            y,
-            &mut frame.pixels[idx..idx + mode.stride as usize],
-        )?;
+        copy_live_visible_row(state, mode, y, &mut frame.pixels[idx..idx + mode.stride as usize])?;
     }
     Ok(frame)
 }
@@ -125,9 +120,7 @@ pub fn copy_live_visible_row(
         if state.scene_ready && cursor_rect.is_some_and(|rect| rect.contains(x, y)) {
             bgra = VISIBLE_CURSOR_BGRA;
         }
-        let idx = (x as usize)
-            .checked_mul(4)
-            .ok_or(WindowdError::ArithmeticOverflow)?;
+        let idx = (x as usize).checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         row[idx..idx + 4].copy_from_slice(&bgra);
     }
     Ok(())
@@ -159,16 +152,8 @@ fn route_rect_to_display(
     DisplayRect {
         left: scale_rect_start(left, VISIBLE_INPUT_PROOF_WIDTH, mode.width),
         top: scale_rect_start(top, VISIBLE_INPUT_PROOF_HEIGHT, mode.height),
-        right: scale_rect_end(
-            left.saturating_add(width),
-            VISIBLE_INPUT_PROOF_WIDTH,
-            mode.width,
-        ),
-        bottom: scale_rect_end(
-            top.saturating_add(height),
-            VISIBLE_INPUT_PROOF_HEIGHT,
-            mode.height,
-        ),
+        right: scale_rect_end(left.saturating_add(width), VISIBLE_INPUT_PROOF_WIDTH, mode.width),
+        bottom: scale_rect_end(top.saturating_add(height), VISIBLE_INPUT_PROOF_HEIGHT, mode.height),
     }
 }
 
@@ -181,11 +166,7 @@ fn wheel_triangle_contains(route_x: u32, route_y: u32, top_y: u32, points_up: bo
     }
     let local_x = route_x - VISIBLE_INPUT_WHEEL_X;
     let local_y = route_y - top_y;
-    let row = if points_up {
-        local_y
-    } else {
-        VISIBLE_INPUT_WHEEL_HEIGHT - 1 - local_y
-    };
+    let row = if points_up { local_y } else { VISIBLE_INPUT_WHEEL_HEIGHT - 1 - local_y };
     let center = VISIBLE_INPUT_WHEEL_WIDTH / 2;
     let left = center.saturating_sub(row);
     let right = (center + row).min(VISIBLE_INPUT_WHEEL_WIDTH - 1);

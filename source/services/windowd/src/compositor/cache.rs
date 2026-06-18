@@ -84,12 +84,7 @@ impl GlassLayerCache {
     pub(crate) fn new() -> Self {
         Self {
             key: 0,
-            rect: DamageRect {
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-            },
+            rect: DamageRect { x: 0, y: 0, width: 0, height: 0 },
             width: 0,
             height: 0,
             valid: false,

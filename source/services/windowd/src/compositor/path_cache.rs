@@ -77,14 +77,6 @@ pub(crate) fn blend_cached_path_row(
         e.color = color;
         e.valid = true;
     }
-    super::blend_asset_row(
-        y,
-        row,
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height,
-        &e.pixels[..pl],
-    )?;
+    super::blend_asset_row(y, row, rect.x, rect.y, rect.width, rect.height, &e.pixels[..pl])?;
     Ok(true)
 }

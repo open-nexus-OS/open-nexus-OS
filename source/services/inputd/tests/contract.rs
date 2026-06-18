@@ -51,12 +51,10 @@ fn full_surface_fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId
     let width = windowd::VISIBLE_BOOTSTRAP_WIDTH;
     let height = windowd::VISIBLE_BOOTSTRAP_HEIGHT;
     let mut server = WindowServer::new(WindowdConfig { width, height, hz: 60 }).expect("server");
-    let buffer = SurfaceBuffer::solid(caller, 50, width, height, [0x24, 0x28, 0x34, 0xff])
-        .expect("buffer");
+    let buffer =
+        SurfaceBuffer::solid(caller, 50, width, height, [0x24, 0x28, 0x34, 0xff]).expect("buffer");
     let surface = server.create_surface(caller, buffer.clone()).expect("surface");
-    server
-        .queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, width, height)])
-        .expect("queue");
+    server.queue_buffer(caller, surface, buffer, &[Rect::new(0, 0, width, height)]).expect("queue");
     server
         .commit_scene(
             CallerCtx::system(),
@@ -318,6 +316,64 @@ fn mouse_relative_raw_ingress_wire_pipeline_reaches_windowd_authority() {
     assert_eq!(delivered.len(), 2);
     assert!(matches!(delivered[0].kind, windowd::InputEventKind::PointerMove { x: 15, y: 13 }));
     assert_eq!(delivered[1].kind, windowd::InputEventKind::PointerDown);
+}
+
+#[test]
+fn mouse_wheel_reaches_inputd_as_pointer_wheel_with_exact_delta() {
+    // GROUND TRUTH for "what arrives from scroll" — the input side of the scroll
+    // chain. Three REL_WHEEL notches in one batch must travel device → hidrawd
+    // normalize → wire → inputd decode → a PointerWheel dispatch carrying the EXACT
+    // summed delta (no acceleration, no loss). A regression that drops or zeroes
+    // the wheel — the "scroll does nothing / a few pixels" class — fails HERE,
+    // pinning whether the problem is the input chain or downstream (windowd/gpud).
+    let (server, _caller, _surface) = fixture_server();
+    let mut inputd = InputdService::new(server, config(8)).expect("inputd");
+    let mut hidrawd = HidrawdService::new();
+    let mouse_id = DeviceId::new(22);
+    hidrawd.register_mouse(mouse_id);
+
+    let wire_batch = normalize_wire_batch(
+        &mut hidrawd,
+        mouse_id,
+        &RawIngressBatch::new(
+            IngressRole::RelativePointer,
+            vec![
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::Wheel.event_code(),
+                    1,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::Wheel.event_code(),
+                    1,
+                ),
+                RawIngressEvent::new(
+                    RawIngressEventKind::Relative,
+                    RelativeAxis::Wheel.event_code(),
+                    1,
+                ),
+            ],
+        ),
+        90,
+        0,
+        0,
+    );
+    let hid_batch =
+        inputd::decode_wire_batch(wire_batch, inputd.pointer_transform()).expect("wire decode");
+    let dispatches = inputd.apply_hid_batch(&hid_batch).expect("dispatches");
+
+    let wheel: i32 = dispatches
+        .iter()
+        .filter_map(|d| match d {
+            InputDispatch::PointerWheel { delta_y } => Some(*delta_y),
+            _ => None,
+        })
+        .sum();
+    assert_eq!(
+        wheel, 3,
+        "3 wheel notches must arrive as delta_y=3 (no loss/accel); got {wheel} from {dispatches:?}"
+    );
 }
 
 #[test]

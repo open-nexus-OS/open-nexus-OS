@@ -117,6 +117,12 @@ pub enum Command {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
+        /// Marks the one scrollable content layer (the chat body). The backend
+        /// retains it and can re-sample it at a new `src_row_abs` on a lightweight
+        /// scroll command (`OP_SET_CHAT_SCROLL`) — a 54µs GPU re-composite — instead
+        /// of the embedder re-composing the whole region on the CPU per frame. This
+        /// is the scroll fast path, the analogue of the cursor's `OP_MOVE_CURSOR`.
+        scrollable: bool,
     },
 }
 
@@ -417,6 +423,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 shadow_offset_y,
                 shadow_alpha,
                 backdrop_blur,
+                scrollable,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -434,6 +441,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *shadow_offset_y as u32,
                         *shadow_alpha,
                         *backdrop_blur,
+                        u32::from(*scrollable),
                     ],
                 )?;
             }
@@ -592,8 +600,8 @@ fn ser_drop_shadow(
 }
 
 /// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 12]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 12 * 4;
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 13]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 13 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -777,10 +785,8 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
     };
     let radius = u32::from_le_bytes([buf[pos + 16], buf[pos + 17], buf[pos + 18], buf[pos + 19]]);
     let blur = u32::from_le_bytes([buf[pos + 20], buf[pos + 21], buf[pos + 22], buf[pos + 23]]);
-    let offset_x =
-        i32::from_le_bytes([buf[pos + 24], buf[pos + 25], buf[pos + 26], buf[pos + 27]]);
-    let offset_y =
-        i32::from_le_bytes([buf[pos + 28], buf[pos + 29], buf[pos + 30], buf[pos + 31]]);
+    let offset_x = i32::from_le_bytes([buf[pos + 24], buf[pos + 25], buf[pos + 26], buf[pos + 27]]);
+    let offset_y = i32::from_le_bytes([buf[pos + 28], buf[pos + 29], buf[pos + 30], buf[pos + 31]]);
     let color = u32::from_le_bytes([buf[pos + 32], buf[pos + 33], buf[pos + 34], buf[pos + 35]]);
     Ok((
         Command::DropShadow {
@@ -796,10 +802,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 48 {
+    if buf.len() < pos + 52 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 12];
+    let mut w = [0u32; 13];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -818,8 +824,9 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             shadow_offset_y: w[9] as i32,
             shadow_alpha: w[10],
             backdrop_blur: w[11],
+            scrollable: w[12] != 0,
         },
-        pos + 48,
+        pos + 52,
     ))
 }
 
@@ -953,4 +960,70 @@ fn validate_tile(tile: TileRect, render_extent: Option<(u32, u32)>) -> Result<()
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod scroll_tag_tests {
+    use super::*;
+
+    /// The scroll fast path depends on the `scrollable` tag surviving the wire to
+    /// gpud. This pins that: a scrollable CompositeLayer serialized + deserialized
+    /// keeps `scrollable == true` (and a normal one stays false). If this breaks,
+    /// gpud can't identify the chat layer and the scroll fast path silently dies.
+    #[test]
+    fn scrollable_tag_roundtrips_over_the_wire() {
+        let cb = CommittedBuffer {
+            commands: alloc::vec![
+                Command::CompositeLayer {
+                    src_row_abs: 3200,
+                    src_x: 0,
+                    width: 366,
+                    height: 600,
+                    dst_x: 100,
+                    dst_y: 80,
+                    opacity: 255,
+                    corner_radius: 18,
+                    shadow_blur: 24,
+                    shadow_offset_y: 12,
+                    shadow_alpha: 180,
+                    backdrop_blur: 0,
+                    scrollable: true,
+                },
+                Command::CompositeLayer {
+                    src_row_abs: 4000,
+                    src_x: 0,
+                    width: 64,
+                    height: 800,
+                    dst_x: 0,
+                    dst_y: 0,
+                    opacity: 255,
+                    corner_radius: 0,
+                    shadow_blur: 0,
+                    shadow_offset_y: 0,
+                    shadow_alpha: 0,
+                    backdrop_blur: 0,
+                    scrollable: false,
+                },
+            ],
+        };
+        let mut buf = [0u8; 256];
+        let n = cb.serialize_into(&mut buf).expect("serialize");
+        let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
+        assert_eq!(consumed, n, "consumed all serialized bytes");
+        let tags: alloc::vec::Vec<(u32, bool)> = out
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::CompositeLayer { src_row_abs, scrollable, .. } => {
+                    Some((*src_row_abs, *scrollable))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tags,
+            alloc::vec![(3200, true), (4000, false)],
+            "scrollable tag preserved per layer"
+        );
+    }
 }

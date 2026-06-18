@@ -158,10 +158,22 @@ impl VirtioGpuBackend {
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                -cx, -cy, bx, by, //
-                r, 1.0 / (h as f32).max(1.0), -(y_rel as f32), 0.0, //
-                tc[0], tc[1], tc[2], tc[3], //
-                bc[0], bc[1], bc[2], bc[3],
+                -cx,
+                -cy,
+                bx,
+                by, //
+                r,
+                1.0 / (h as f32).max(1.0),
+                -(y_rel as f32),
+                0.0, //
+                tc[0],
+                tc[1],
+                tc[2],
+                tc[3], //
+                bc[0],
+                bc[1],
+                bc[2],
+                bc[3],
             ],
         );
         s.emit_bind_shader(H_FS_SDF_GRAD, PIPE_SHADER_FRAGMENT);
@@ -202,10 +214,22 @@ impl VirtioGpuBackend {
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                -cx, -cy, bx, by, //
-                0.0, 1.0 / (h as f32).max(1.0), -(y as f32), 0.0, //
-                tc[0], tc[1], tc[2], tc[3], //
-                bc[0], bc[1], bc[2], bc[3],
+                -cx,
+                -cy,
+                bx,
+                by, //
+                0.0,
+                1.0 / (h as f32).max(1.0),
+                -(y as f32),
+                0.0, //
+                tc[0],
+                tc[1],
+                tc[2],
+                tc[3], //
+                bc[0],
+                bc[1],
+                bc[2],
+                bc[3],
             ],
         );
         s.emit_bind_shader(H_FS_SDF_GRAD, PIPE_SHADER_FRAGMENT);
@@ -262,9 +286,18 @@ impl VirtioGpuBackend {
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                -cx, -cy, bx, by, //
-                r, 1.0 / (blur as f32), 0.0, 0.0, //
-                c[0], c[1], c[2], c[3],
+                -cx,
+                -cy,
+                bx,
+                by, //
+                r,
+                1.0 / (blur as f32),
+                0.0,
+                0.0, //
+                c[0],
+                c[1],
+                c[2],
+                c[3],
             ],
         );
         s.emit_bind_shader(H_FS_SHADOW, PIPE_SHADER_FRAGMENT);
@@ -343,9 +376,18 @@ impl VirtioGpuBackend {
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                -cx, -cy, bx, by, //
-                r, 1.0 / (blur as f32), 0.0, 0.0, //
-                c[0], c[1], c[2], c[3],
+                -cx,
+                -cy,
+                bx,
+                by, //
+                r,
+                1.0 / (blur as f32),
+                0.0,
+                0.0, //
+                c[0],
+                c[1],
+                c[2],
+                c[3],
             ],
         );
         s.emit_bind_shader(H_FS_SHADOW, PIPE_SHADER_FRAGMENT);
@@ -375,7 +417,12 @@ fn rgba_f32(c: RgbaColor) -> [f32; 4] {
 
 /// Clamp a display-plane region given an absolute fb row; returns
 /// (x, y_rel, w, h) in display-texture coordinates.
-fn clamp_display_region(x: u32, y_abs: u32, w: u32, h: u32) -> Result<(u32, u32, u32, u32), GfxError> {
+fn clamp_display_region(
+    x: u32,
+    y_abs: u32,
+    w: u32,
+    h: u32,
+) -> Result<(u32, u32, u32, u32), GfxError> {
     if y_abs < DISPLAY_ROW || w == 0 || h == 0 {
         return Err(GfxError::InvalidArgument);
     }

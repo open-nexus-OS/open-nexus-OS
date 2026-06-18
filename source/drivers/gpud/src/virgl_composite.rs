@@ -349,8 +349,7 @@ impl VirtioGpuBackend {
             // it directly, so we skip the blur's VMO writeback (one fewer
             // transfer per glass frame; composite_layer_gpu does the final
             // writeback after the content is blended).
-            let (fb, fb_len, fb_w, _row) =
-                self.scanout_fb().ok_or(GfxError::DeviceNotFound)?;
+            let (fb, fb_len, fb_w, _row) = self.scanout_fb().ok_or(GfxError::DeviceNotFound)?;
             self.submit_virgl_blur(
                 fb,
                 fb_len,
@@ -406,6 +405,7 @@ impl VirtioGpuBackend {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        upload: bool,
     ) -> Result<(), GfxError> {
         if !self.virgl_capable || !self.virgl_draw_ok {
             return Err(GfxError::DeviceNotFound);
@@ -425,9 +425,14 @@ impl VirtioGpuBackend {
                 RgbaColor::new(0, 0, 0, shadow_alpha.min(255) as u8),
             )?;
         }
-        // Sync the content from the VMO atlas into the GL atlas texture.
+        // Sync the content from the VMO atlas into the GL atlas texture — only
+        // when it changed. The atlas texture persists across presents, so a
+        // cursor-move present re-composites from it WITHOUT this transfer (the
+        // per-frame transfer was the mouse-move slowdown).
         let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
-        self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
+        if upload {
+            self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
+        }
         // Composite the content straight onto the scanout RT (alpha-over base).
         self.submit_layer_pass(
             crate::gl_scanout::H_GLS_SURF,

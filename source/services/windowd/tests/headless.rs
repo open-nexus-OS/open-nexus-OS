@@ -58,25 +58,13 @@ fn visible_systemui_smoke_produces_first_frame_present_evidence() {
     assert!(evidence.systemui_first_frame);
     assert_eq!(evidence.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
     assert_eq!(evidence.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
-    assert_eq!(
-        evidence.frame_source.width,
-        windowd::VISIBLE_BOOTSTRAP_WIDTH
-    );
-    assert_eq!(
-        evidence.frame_source.height,
-        windowd::VISIBLE_BOOTSTRAP_HEIGHT
-    );
-    let composed_frame = evidence
-        .composed_frame
-        .as_ref()
-        .expect("host composed frame");
+    assert_eq!(evidence.frame_source.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
+    assert_eq!(evidence.frame_source.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
+    let composed_frame = evidence.composed_frame.as_ref().expect("host composed frame");
     assert_eq!(composed_frame.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
     assert_eq!(composed_frame.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
     assert_eq!(composed_frame.stride, windowd::VISIBLE_BOOTSTRAP_WIDTH * 4);
-    assert_eq!(
-        composed_frame.pixels[0..4],
-        evidence.frame_source.pixels[0..4]
-    );
+    assert_eq!(composed_frame.pixels[0..4], evidence.frame_source.pixels[0..4]);
     assert_eq!(evidence.first_present.seq.raw(), 1);
     assert_eq!(evidence.first_present.damage_rects, 1);
 }
@@ -84,9 +72,7 @@ fn visible_systemui_smoke_produces_first_frame_present_evidence() {
 #[test]
 fn display_bootstrap_handoff_keeps_windowd_as_scene_authority() {
     let handoff = windowd::bootstrap_display_handoff().expect("bootstrap handoff");
-    let frame = handoff
-        .materialize_frame()
-        .expect("bootstrap materialized frame");
+    let frame = handoff.materialize_frame().expect("bootstrap materialized frame");
 
     assert_eq!(handoff.mode.width, windowd::VISIBLE_BOOTSTRAP_WIDTH);
     assert_eq!(handoff.mode.height, windowd::VISIBLE_BOOTSTRAP_HEIGHT);
@@ -132,27 +118,16 @@ fn live_visible_state_handoff_composes_cursor_click_and_keyboard_targets() {
         ..Default::default()
     })
     .expect("live handoff");
-    let frame = handoff
-        .materialize_frame()
-        .expect("live materialized frame");
+    let frame = handoff.materialize_frame().expect("live materialized frame");
 
     let stride = handoff.mode.stride as usize;
     let cursor = cursor.y as usize * stride + cursor.x as usize * 4;
     let click = click_rect.top as usize * stride + click_rect.left as usize * 4;
     let keyboard = keyboard_rect.top as usize * stride + keyboard_rect.left as usize * 4;
 
-    assert_eq!(
-        frame.pixels[cursor..cursor + 4],
-        windowd::VISIBLE_CURSOR_BGRA
-    );
-    assert_eq!(
-        frame.pixels[click..click + 4],
-        windowd::VISIBLE_INPUT_CLICK_BGRA
-    );
-    assert_eq!(
-        frame.pixels[keyboard..keyboard + 4],
-        windowd::VISIBLE_INPUT_KEYBOARD_BGRA
-    );
+    assert_eq!(frame.pixels[cursor..cursor + 4], windowd::VISIBLE_CURSOR_BGRA);
+    assert_eq!(frame.pixels[click..click + 4], windowd::VISIBLE_INPUT_CLICK_BGRA);
+    assert_eq!(frame.pixels[keyboard..keyboard + 4], windowd::VISIBLE_INPUT_KEYBOARD_BGRA);
 }
 
 #[test]
@@ -197,22 +172,10 @@ fn live_visible_state_handoff_composes_transient_wheel_direction_indicators() {
     let up_idx = up_indicator.y as usize * stride + up_indicator.x as usize * 4;
     let down_idx = down_indicator.y as usize * stride + down_indicator.x as usize * 4;
 
-    assert_eq!(
-        up_frame.pixels[up_idx..up_idx + 4],
-        windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
-    );
-    assert_eq!(
-        up_frame.pixels[down_idx..down_idx + 4],
-        windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA
-    );
-    assert_eq!(
-        down_frame.pixels[up_idx..up_idx + 4],
-        windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA
-    );
-    assert_eq!(
-        down_frame.pixels[down_idx..down_idx + 4],
-        windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA
-    );
+    assert_eq!(up_frame.pixels[up_idx..up_idx + 4], windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA);
+    assert_eq!(up_frame.pixels[down_idx..down_idx + 4], windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA);
+    assert_eq!(down_frame.pixels[up_idx..up_idx + 4], windowd::VISIBLE_INPUT_WHEEL_IDLE_BGRA);
+    assert_eq!(down_frame.pixels[down_idx..down_idx + 4], windowd::VISIBLE_INPUT_WHEEL_ACTIVE_BGRA);
 }
 
 #[test]
@@ -278,31 +241,20 @@ fn visible_input_smoke_produces_cursor_focus_and_click_evidence() {
     assert_eq!(evidence.scheduled_present.damage_rects, 1);
     let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
     let mut row = vec![0u8; mode.stride as usize];
-    evidence
-        .copy_cursor_row(mode, 200, &mut row)
-        .expect("scaled cursor row");
+    evidence.copy_cursor_row(mode, 200, &mut row).expect("scaled cursor row");
     let scaled_start_cursor_x = 480usize;
     let cursor = scaled_start_cursor_x * 4;
     assert_eq!(row[cursor..cursor + 4], windowd::VISIBLE_CURSOR_BGRA);
-    evidence
-        .copy_hover_row(mode, 670, &mut row)
-        .expect("scaled hover row");
+    evidence.copy_hover_row(mode, 670, &mut row).expect("scaled hover row");
     let scaled_hover_x = 160usize;
     let hover = scaled_hover_x * 4;
     assert_eq!(row[hover..hover + 4], windowd::VISIBLE_CURSOR_BGRA);
-    evidence
-        .copy_composed_row(mode, 620, &mut row)
-        .expect("scaled visible input row");
+    evidence.copy_composed_row(mode, 620, &mut row).expect("scaled visible input row");
     let scaled_click_x = 100usize;
     let click = scaled_click_x * 4;
     assert_eq!(row[click..click + 4], windowd::VISIBLE_INPUT_CLICK_BGRA);
-    evidence
-        .copy_keyboard_row(mode, 320, &mut row)
-        .expect("scaled keyboard row");
+    evidence.copy_keyboard_row(mode, 320, &mut row).expect("scaled keyboard row");
     let scaled_keyboard_x = 1060usize;
     let keyboard = scaled_keyboard_x * 4;
-    assert_eq!(
-        row[keyboard..keyboard + 4],
-        windowd::VISIBLE_INPUT_KEYBOARD_BGRA
-    );
+    assert_eq!(row[keyboard..keyboard + 4], windowd::VISIBLE_INPUT_KEYBOARD_BGRA);
 }

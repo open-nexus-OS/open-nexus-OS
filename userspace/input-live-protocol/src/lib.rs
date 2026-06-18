@@ -46,7 +46,7 @@ pub const EVENT_KIND_BTN: u8 = 4;
 const HEADER_LEN: usize = 8;
 const EVENT_LEN: usize = 15;
 pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
-const STATE_LEN: usize = 58;
+const STATE_LEN: usize = 62;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 pub const MAX_TEXT_INPUT_BYTES: usize = 24;
 
@@ -90,6 +90,12 @@ pub struct VisibleState {
     pub keyboard_visible: bool,
     pub wheel_up_visible: bool,
     pub wheel_down_visible: bool,
+    /// Signed wheel delta for this update (accumulated REL_WHEEL ticks; +up/−down).
+    /// The booleans above are a latched direction *indicator* (pulse) for markers;
+    /// this carries the real magnitude so the consumer (windowd) scrolls by the
+    /// actual notch count instead of one quantized step — fast scrolling no longer
+    /// loses notches. 0 when no wheel motion occurred in this update.
+    pub wheel_delta_y: i32,
     pub pointer_route_live: bool,
     pub keyboard_route_live: bool,
     pub cursor_svg_visible: bool,
@@ -330,6 +336,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[40] = u8::from(state.cursor_overlay_visible);
     out[41] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
     out[42..42 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
+    out[66..70].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
     out
 }
 
@@ -392,6 +399,7 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
             bytes.copy_from_slice(&frame[42..42 + MAX_TEXT_INPUT_BYTES]);
             bytes
         },
+        wheel_delta_y: i32::from_le_bytes([frame[66], frame[67], frame[68], frame[69]]),
     })
 }
 
@@ -476,6 +484,7 @@ mod tests {
             cursor_y: 200,
             wheel_up_visible: true,
             wheel_down_visible: false,
+            wheel_delta_y: 7,
             text_input_len: 0,
             text_input_bytes: [0; MAX_TEXT_INPUT_BYTES],
         };

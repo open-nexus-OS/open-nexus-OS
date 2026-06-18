@@ -15,7 +15,9 @@ use super::*;
 
 impl DisplayServerRuntime {
     pub(crate) fn has_active_animations(&self) -> bool {
-        self.animation_driver.active_count() > 0
+        // Springs (sidebar/hover) OR the chat scroll momentum — either keeps the
+        // present-loop pacer ticking until motion settles, then windowd goes idle.
+        self.animation_driver.active_count() > 0 || self.chat_list.is_animating()
     }
 
     /// Record one empty NonBlocking poll wake-up (busy-poll spin) for telemetry.
@@ -28,6 +30,13 @@ impl DisplayServerRuntime {
         // Reactive: only drive animations when they are active.
         // No polling — the caller gates this via has_active_animations().
         // When no animation is running, tick() is not called at all.
+        //
+        // Chat scroll momentum first: it integrates the virtual-list velocity
+        // over real elapsed time and queues the cheap GPU offset re-present. Runs
+        // even when no spring is active (the spring block early-returns below), so
+        // a pure scroll flick still advances every frame.
+        self.tick_chat_scroll(now_ns);
+
         let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
         let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);
         if update_count == 0 {
@@ -124,8 +133,7 @@ impl DisplayServerRuntime {
                     self.animated_scene.sidebar_translate_x =
                         update.value.clamp(0.0, SIDEBAR_WIDTH as f32);
                     // Also update the sidebar's scene graph position.
-                    self.shell
-                        .set_sidebar_slide(self.animated_scene.sidebar_translate_x);
+                    self.shell.set_sidebar_slide(self.animated_scene.sidebar_translate_x);
                 }
                 (SIDEBAR_LAYER_ID, AnimProp::Opacity) => {
                     self.animated_scene.sidebar_opacity = update.value.clamp(0.0, 1.0);

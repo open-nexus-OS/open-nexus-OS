@@ -155,10 +155,7 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let send_result = {
-            let client = self
-                .gpud_client
-                .as_ref()
-                .ok_or(WindowdError::InvalidDamage)?;
+            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
             client.send(frame, Wait::Blocking)
         };
         if let Err(err) = send_result {
@@ -167,10 +164,7 @@ impl DisplayServerRuntime {
             return Err(WindowdError::InvalidDamage);
         }
         let recv_result = {
-            let client = self
-                .gpud_client
-                .as_ref()
-                .ok_or(WindowdError::InvalidDamage)?;
+            let client = self.gpud_client.as_ref().ok_or(WindowdError::InvalidDamage)?;
             client.recv(Wait::Blocking)
         };
         match recv_result {
@@ -215,9 +209,16 @@ impl DisplayServerRuntime {
     pub(super) fn present_damage_to_gpud(&mut self, rect: DamageRect) -> bool {
         let frame = encode_gpud_damage_frame(rect);
         if self.send_gpud_present(&frame) {
+            self.present_fail_reported = false;
             return true;
         }
-        let _ = debug_println("windowd: gpud present damage failed (non-blocking, will retry)");
+        // Rate-limited: once per failure episode, not every retry (the retry path
+        // runs at ~120 Hz during backpressure and would flood the UART log — the
+        // very stall the watchdog reports cleanly).
+        if !self.present_fail_reported {
+            let _ = debug_println("windowd: gpud present damage failed (non-blocking, will retry)");
+            self.present_fail_reported = true;
+        }
         false
     }
 
@@ -242,12 +243,8 @@ impl DisplayServerRuntime {
             // Blur the combined glass panel region.
             // gpud reads from the VMO display region (offset DISPLAY_OFFSET_BYTES),
             // applies box blur, and writes the result back.
-            let glass_rect = TileRect {
-                x: 0,
-                y: 0,
-                width: COMBINED_PANEL_WIDTH as u32,
-                height: PROOF_PANEL_H,
-            };
+            let glass_rect =
+                TileRect { x: 0, y: 0, width: COMBINED_PANEL_WIDTH as u32, height: PROOF_PANEL_H };
             if encoder
                 .try_blur_backdrop(
                     glass_rect,

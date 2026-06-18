@@ -176,6 +176,18 @@ pub struct VirtioGpuBackend {
     pending_rt_layers: [PendingRtLayer; MAX_PENDING_RT_LAYERS],
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pending_rt_count: usize,
+    /// Scroll fast path: when `Some`, the retained `scrollable` layer (chat body)
+    /// is re-sampled at this absolute atlas row instead of its stored `src_row_abs`.
+    /// Set by `OP_SET_CHAT_SCROLL` (a 54µs GPU re-composite, no CPU re-render),
+    /// cleared when a full present brings a fresh authoritative layer set.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) chat_scroll_src_row: Option<u32>,
+    /// Build-up only: the retained layer set's atlas content changed, so the next
+    /// composite must re-upload it to the GL texture (`virgl_transfer_to_host`).
+    /// Cleared after upload — cursor-move presents then re-composite from the
+    /// already-uploaded texture WITHOUT the per-frame transfer (the slow path).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    rt_layers_dirty: bool,
 }
 
 /// A CompositeLayer op deferred for RT-direct compositing after the base upload.
@@ -193,6 +205,9 @@ struct PendingRtLayer {
     shadow_blur: u32,
     shadow_offset_y: i32,
     shadow_alpha: u32,
+    /// This is the one scrollable content layer (chat body). When set, gpud may
+    /// re-sample it at `chat_scroll_src_row` on the lightweight scroll fast path.
+    scrollable: bool,
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -296,6 +311,10 @@ impl VirtioGpuBackend {
             pending_rt_layers: [PendingRtLayer::default(); MAX_PENDING_RT_LAYERS],
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             pending_rt_count: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            chat_scroll_src_row: None,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            rt_layers_dirty: true,
         }
     }
 
@@ -341,13 +360,11 @@ impl VirtioGpuBackend {
                             self.virgl_draw_ok = true;
                         }
                         Ok([255, 0, 0, 255]) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_NOOP);
+                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_NOOP);
                         }
                         Ok(_) => {
-                            let _ = nexus_abi::debug_println(
-                                crate::markers::GPUD_VIRGL_DRAW_MISMATCH,
-                            );
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_MISMATCH);
                         }
                         Err(_) => {
                             let _ = nexus_abi::debug_println("gpud: virgl draw submit fail");
@@ -364,26 +381,22 @@ impl VirtioGpuBackend {
                                 nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_FLAT);
                         }
                         Err(_) => {
-                            let _ =
-                                nexus_abi::debug_println("gpud: virgl gradient submit fail");
+                            let _ = nexus_abi::debug_println("gpud: virgl gradient submit fail");
                         }
                     }
                     // G2: GPU layer compositor primitive proof (textured layer +
                     // rounded mask + opacity composited into an RT, readback).
                     match self.virgl_composite_selftest() {
                         Ok(true) => {
-                            let _ = nexus_abi::debug_println(
-                                crate::markers::GPUD_LAYER_COMPOSITE_OK,
-                            );
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OK);
                         }
                         Ok(false) => {
-                            let _ = nexus_abi::debug_println(
-                                crate::markers::GPUD_LAYER_COMPOSITE_OFF,
-                            );
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OFF);
                         }
                         Err(_) => {
-                            let _ =
-                                nexus_abi::debug_println("gpud: virgl composite submit fail");
+                            let _ = nexus_abi::debug_println("gpud: virgl composite submit fail");
                         }
                     }
                 }
@@ -533,6 +546,10 @@ impl VirtioGpuBackend {
                         let _ = nexus_abi::debug_println("gpud: set_scanout ok");
                         let _ = nexus_abi::debug_println("gpud: scanout ok");
                         let _ = nexus_abi::debug_println("gpud: scanout 1280x800 bgra8888");
+                        // Absorb the one-time virgl texture-sampling stall (~500ms)
+                        // HERE, at boot, so the user's first present/scroll is fast
+                        // instead of frozen for half a second.
+                        let _ = self.gl_pipeline_warmup();
                         self.gl_present_damage(Rect {
                             x: 0,
                             y: 0,
@@ -566,8 +583,7 @@ impl VirtioGpuBackend {
                             _padding: 0,
                         };
                         let _ = self.ctrl_submit_pair(&attach, &entry);
-                        let _ =
-                            nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_FALLBACK);
+                        let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_FALLBACK);
                         self.resources.pop();
                         self.scanout_resource = None;
                     }
@@ -898,6 +914,63 @@ impl VirtioGpuBackend {
         // GL-RT build-up owns the output. (mmio scans out the VMO, so it still runs.)
         #[cfg(feature = "virgl")]
         if crate::gl_scanout::COMPOSITOR_BUILDUP {
+            // The GL-RT build-up owns the scanout, so the CPU/VMO draw stream is
+            // never presented (and its per-frame transfers stall virgl). But we
+            // STILL collect CompositeLayer ops into `pending_rt_layers` so the
+            // build-up present composites the real UI layers (content + shadow)
+            // straight onto the RT via `composite_pending_rt_layers`. Glass
+            // backdrop-blur is dropped here (the RT-backdrop pass isn't wired yet)
+            // — the layer's content + shadow still show.
+            // Cursor-move presents carry a minimal command buffer with NO layer
+            // commands. The build-up re-renders the whole frame every present, so
+            // if we cleared the layer set on those frames the UI would flicker.
+            // Replace the retained set only when this frame actually brings layers;
+            // otherwise keep the previous set so the UI stays stable.
+            if self.gl_scanout_active
+                && cmds.iter().any(|c| matches!(c, Command::CompositeLayer { .. }))
+            {
+                self.pending_rt_count = 0;
+                self.rt_layers_dirty = true; // content changed → re-upload once
+                                             // A fresh full layer set carries the authoritative scroll offset in
+                                             // the scrollable layer's `src_row_abs`, so drop any fast-path override.
+                self.chat_scroll_src_row = None;
+                for cmd in cmds {
+                    if let Command::CompositeLayer {
+                        src_row_abs,
+                        src_x,
+                        width,
+                        height,
+                        dst_x,
+                        dst_y,
+                        opacity,
+                        corner_radius,
+                        shadow_blur,
+                        shadow_offset_y,
+                        shadow_alpha,
+                        backdrop_blur: _,
+                        scrollable,
+                    } = cmd
+                    {
+                        if self.pending_rt_count < MAX_PENDING_RT_LAYERS {
+                            self.pending_rt_layers[self.pending_rt_count] = PendingRtLayer {
+                                src_row_abs: *src_row_abs,
+                                src_x: *src_x,
+                                width: *width,
+                                height: *height,
+                                dst_x: *dst_x,
+                                dst_y: *dst_y,
+                                opacity: *opacity,
+                                corner_radius: *corner_radius,
+                                shadow_blur: *shadow_blur,
+                                shadow_offset_y: *shadow_offset_y,
+                                shadow_alpha: *shadow_alpha,
+                                scrollable: *scrollable,
+                            };
+                            self.pending_rt_count += 1;
+                        }
+                    }
+                }
+            }
             return Ok(());
         }
         let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
@@ -988,15 +1061,27 @@ impl VirtioGpuBackend {
 
                             if use_separable {
                                 blur_backdrop_separable_vmo(
-                                    fb, fb_len, fb_w,
-                                    rect.x, rect.y.saturating_add(display_y_offset),
-                                    rect.width, rect.height, *radius, *saturation_percent,
+                                    fb,
+                                    fb_len,
+                                    fb_w,
+                                    rect.x,
+                                    rect.y.saturating_add(display_y_offset),
+                                    rect.width,
+                                    rect.height,
+                                    *radius,
+                                    *saturation_percent,
                                 )?;
                             } else {
                                 blur_backdrop_vmo(
-                                    fb, fb_len, fb_w,
-                                    rect.x, rect.y.saturating_add(display_y_offset),
-                                    rect.width, rect.height, *radius, *saturation_percent,
+                                    fb,
+                                    fb_len,
+                                    fb_w,
+                                    rect.x,
+                                    rect.y.saturating_add(display_y_offset),
+                                    rect.width,
+                                    rect.height,
+                                    *radius,
+                                    *saturation_percent,
                                 )?;
                             }
                         }
@@ -1060,8 +1145,7 @@ impl VirtioGpuBackend {
                         #[cfg(feature = "virgl")]
                         if !self.virgl_grad_marker_done {
                             self.virgl_grad_marker_done = true;
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_SDF_GRAD_OK);
+                            let _ = nexus_abi::debug_println(crate::markers::GPUD_SDF_GRAD_OK);
                         }
                     } else {
                         crate::cpu_vector::fill_sdf_gradient_vmo(
@@ -1101,8 +1185,7 @@ impl VirtioGpuBackend {
                         #[cfg(feature = "virgl")]
                         if !self.virgl_shadow_marker_done {
                             self.virgl_shadow_marker_done = true;
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_DROPSHADOW_OK);
+                            let _ = nexus_abi::debug_println(crate::markers::GPUD_DROPSHADOW_OK);
                         }
                     } else {
                         crate::cpu_vector::drop_shadow_vmo(
@@ -1136,11 +1219,15 @@ impl VirtioGpuBackend {
                     shadow_offset_y,
                     shadow_alpha,
                     backdrop_blur,
+                    scrollable,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
                     // relies on the content's own alpha (translucent panel bg).
                     #[cfg(not(feature = "virgl"))]
                     let _ = opacity;
+                    // `scrollable` only drives the virgl RT-direct fast path below.
+                    #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
+                    let _ = scrollable;
                     // RT-direct (Increment 1): defer non-glass layers and
                     // composite them straight onto the scanout RT after the base
                     // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
@@ -1163,6 +1250,7 @@ impl VirtioGpuBackend {
                             shadow_blur: *shadow_blur,
                             shadow_offset_y: *shadow_offset_y,
                             shadow_alpha: *shadow_alpha,
+                            scrollable: *scrollable,
                         };
                         self.pending_rt_count += 1;
                         continue; // composited onto the RT in gl_present, not here
@@ -1199,9 +1287,8 @@ impl VirtioGpuBackend {
                         #[cfg(feature = "virgl")]
                         if !self.virgl_layer_marker_done {
                             self.virgl_layer_marker_done = true;
-                            let _ = nexus_abi::debug_println(
-                                crate::markers::GPUD_LAYER_COMPOSITE_LIVE,
-                            );
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
                         }
                     } else {
                         if *shadow_blur > 0 {
@@ -1230,13 +1317,27 @@ impl VirtioGpuBackend {
                         // correct for both glass and solid layers.
                         if *backdrop_blur > 0 {
                             let _ = blur_backdrop_vmo(
-                                fb, fb_len, fb_w, *dst_x, dst_y_abs, *width, *height,
-                                *backdrop_blur, 0,
+                                fb,
+                                fb_len,
+                                fb_w,
+                                *dst_x,
+                                dst_y_abs,
+                                *width,
+                                *height,
+                                *backdrop_blur,
+                                0,
                             );
                         }
                         let _ = blit_blend_vmo(
-                            fb, fb_len, fb_w, *src_x, *src_row_abs, *dst_x, dst_y_abs,
-                            *width, *height,
+                            fb,
+                            fb_len,
+                            fb_w,
+                            *src_x,
+                            *src_row_abs,
+                            *dst_x,
+                            dst_y_abs,
+                            *width,
+                            *height,
                         );
                     }
                 }
@@ -1252,12 +1353,30 @@ impl VirtioGpuBackend {
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn composite_pending_rt_layers(&mut self) {
         let n = self.pending_rt_count;
-        self.pending_rt_count = 0;
+        let buildup = crate::gl_scanout::COMPOSITOR_BUILDUP;
+        // The build-up re-composites every present (cursor moves re-render the
+        // whole frame), so the layer set is RETAINED across presents and only
+        // replaced when a new frame brings layers; the non-build-up path drains.
+        if !buildup {
+            self.pending_rt_count = 0;
+        }
+        // Re-upload the atlas content to the GL texture only when it changed
+        // (non-build-up always uploads since it drains per present). A retained
+        // cursor-move present composites from the already-uploaded texture — no
+        // per-frame transfer, which is what made mouse-move slow.
+        let upload = if buildup { self.rt_layers_dirty } else { true };
         for i in 0..n {
             let l = self.pending_rt_layers[i];
+            // Scroll fast path: the scrollable layer (chat body) is re-sampled at
+            // the override row when set — no CPU re-render, just a different source
+            // offset into the already-uploaded atlas texture.
+            let src_row_abs = match (l.scrollable, self.chat_scroll_src_row) {
+                (true, Some(row)) => row,
+                _ => l.src_row_abs,
+            };
             let ok = self
                 .composite_layer_rt(
-                    l.src_row_abs,
+                    src_row_abs,
                     l.src_x,
                     l.width,
                     l.height,
@@ -1268,12 +1387,16 @@ impl VirtioGpuBackend {
                     l.shadow_blur,
                     l.shadow_offset_y,
                     l.shadow_alpha,
+                    upload,
                 )
                 .is_ok();
             if ok && !self.virgl_layer_marker_done {
                 self.virgl_layer_marker_done = true;
                 let _ = nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
             }
+        }
+        if buildup {
+            self.rt_layers_dirty = false;
         }
     }
 
@@ -1315,43 +1438,12 @@ impl VirtioGpuBackend {
         if record.backing_va == 0 {
             return None;
         }
-        Some((record.backing_va as *mut u8, record.backing_len, record.width as usize, DISPLAY_PLANE_ROW))
-    }
-
-    /// Emit an ASCII thumbnail of what we actually render — the windowd-composited
-    /// source plane, plus (on the virgl path) the GPU scanout readback — to the
-    /// serial console. Headless pipeline-bisection instrument (no host display);
-    /// see the `debug_thumbnail` module. Driven by the service present loop.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) fn emit_debug_thumbnail(&mut self) {
-        #[cfg(feature = "virgl")]
-        if self.gl_scanout_active {
-            self.gl_emit_thumbnails();
-            return;
-        }
-        if let Some((fb, fb_len, fb_w, display_row)) = self.scanout_fb() {
-            if fb_w == 0 {
-                return;
-            }
-            let total_rows = fb_len / 4 / fb_w;
-            // Display plane height: screen rows only — the atlas lives above it.
-            let h = total_rows.saturating_sub(display_row as usize).min(800);
-            if h == 0 {
-                return;
-            }
-            unsafe {
-                crate::debug_thumbnail::emit_ascii_thumbnail(
-                    "cpu-src",
-                    fb as *const u8,
-                    fb_len,
-                    fb_w,
-                    0,
-                    display_row as usize,
-                    fb_w,
-                    h,
-                );
-            }
-        }
+        Some((
+            record.backing_va as *mut u8,
+            record.backing_len,
+            record.width as usize,
+            DISPLAY_PLANE_ROW,
+        ))
     }
 
     /// Mark gpud as the cursor compositor and store the sprite/hotspot. The
@@ -1432,7 +1524,11 @@ impl VirtioGpuBackend {
             let n = w as usize * 4;
             if src + n <= fb_len && dst + n <= self.cursor_saveunder.len() {
                 unsafe {
-                    core::ptr::copy_nonoverlapping(fb.add(src), self.cursor_saveunder.as_mut_ptr().add(dst), n);
+                    core::ptr::copy_nonoverlapping(
+                        fb.add(src),
+                        self.cursor_saveunder.as_mut_ptr().add(dst),
+                        n,
+                    );
                 }
             }
         }
@@ -2191,7 +2287,7 @@ impl VirtioGpuBackend {
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     fn create_virgl_context(&mut self) -> Result<(), GpuDriverError> {
         use crate::protocol::{
-            VirtioGpuCtxCreate, VirtioGpuCtrlHdr, VIRTIO_GPU_CAPSET_VIRGL2,
+            VirtioGpuCtrlHdr, VirtioGpuCtxCreate, VIRTIO_GPU_CAPSET_VIRGL2,
             VIRTIO_GPU_CMD_CTX_CREATE,
         };
         let mut name = [0u8; 64];
@@ -2226,7 +2322,11 @@ impl VirtioGpuBackend {
     /// command stream on the control queue (one descriptor chain). The response
     /// is validated by `wait_complete` (RESP_OK_NODATA → Ok).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) fn ctrl_submit_header_tail<T>(&mut self, hdr: &T, tail: &[u8]) -> Result<(), GfxError> {
+    pub(crate) fn ctrl_submit_header_tail<T>(
+        &mut self,
+        hdr: &T,
+        tail: &[u8],
+    ) -> Result<(), GfxError> {
         let hdr_bytes = unsafe {
             core::slice::from_raw_parts((hdr as *const T).cast::<u8>(), core::mem::size_of::<T>())
         };
@@ -2382,7 +2482,11 @@ impl VirtioGpuBackend {
     /// the virgl context). Returns the backing VA for CPU access after
     /// TRANSFER_FROM_HOST_3D.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) fn virgl_attach_backing(&mut self, res_id: u32, byte_len: usize) -> Result<usize, GfxError> {
+    pub(crate) fn virgl_attach_backing(
+        &mut self,
+        res_id: u32,
+        byte_len: usize,
+    ) -> Result<usize, GfxError> {
         use crate::protocol::{
             VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
             VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
@@ -2549,7 +2653,12 @@ impl VirtioGpuBackend {
         let center = (32 * RT_W as usize + 32) * 4;
         let px = unsafe {
             let p = (backing_va + center) as *const u8;
-            [p.read_volatile(), p.add(1).read_volatile(), p.add(2).read_volatile(), p.add(3).read_volatile()]
+            [
+                p.read_volatile(),
+                p.add(1).read_volatile(),
+                p.add(2).read_volatile(),
+                p.add(3).read_volatile(),
+            ]
         };
         Ok(px)
     }
@@ -2715,9 +2824,8 @@ END\n";
         let top = read(4);
         let bottom = read(RT_H - 5);
         // BGRA: R is byte 2. One row should be red-dominant, the other blue.
-        let interpolated =
-            (i32::from(top[2]) - i32::from(bottom[2])).abs() > 32
-                || (i32::from(top[0]) - i32::from(bottom[0])).abs() > 32;
+        let interpolated = (i32::from(top[2]) - i32::from(bottom[2])).abs() > 32
+            || (i32::from(top[0]) - i32::from(bottom[0])).abs() > 32;
         Ok(interpolated)
     }
 
@@ -2995,44 +3103,43 @@ END\n";
         }
 
         // One-shot parity: snapshot the region and CPU-blur it for comparison.
-        let parity_buf: Option<(usize, usize)> = if !self.virgl_parity_done
-            && (w as usize) * (h as usize) * 4 <= 1024 * 1024
-        {
-            self.virgl_parity_done = true;
-            match self.virgl_alloc_scratch((w as usize) * (h as usize) * 4) {
-                Ok(va) => {
-                    // Tightly pack the region into the scratch and CPU-blur it.
-                    for row in 0..h as usize {
-                        let src_off = (y as usize + row) * fb_w * 4 + (x as usize) * 4;
-                        if src_off + (w as usize) * 4 > fb_len {
-                            break;
+        let parity_buf: Option<(usize, usize)> =
+            if !self.virgl_parity_done && (w as usize) * (h as usize) * 4 <= 1024 * 1024 {
+                self.virgl_parity_done = true;
+                match self.virgl_alloc_scratch((w as usize) * (h as usize) * 4) {
+                    Ok(va) => {
+                        // Tightly pack the region into the scratch and CPU-blur it.
+                        for row in 0..h as usize {
+                            let src_off = (y as usize + row) * fb_w * 4 + (x as usize) * 4;
+                            if src_off + (w as usize) * 4 > fb_len {
+                                break;
+                            }
+                            unsafe {
+                                core::ptr::copy_nonoverlapping(
+                                    fb.add(src_off),
+                                    (va + row * (w as usize) * 4) as *mut u8,
+                                    (w as usize) * 4,
+                                );
+                            }
                         }
-                        unsafe {
-                            core::ptr::copy_nonoverlapping(
-                                fb.add(src_off),
-                                (va + row * (w as usize) * 4) as *mut u8,
-                                (w as usize) * 4,
-                            );
-                        }
+                        let _ = blur_backdrop_separable_vmo(
+                            va as *mut u8,
+                            (w as usize) * (h as usize) * 4,
+                            w as usize,
+                            0,
+                            0,
+                            w,
+                            h,
+                            radius,
+                            0,
+                        );
+                        Some((va, (w as usize) * 4))
                     }
-                    let _ = blur_backdrop_separable_vmo(
-                        va as *mut u8,
-                        (w as usize) * (h as usize) * 4,
-                        w as usize,
-                        0,
-                        0,
-                        w,
-                        h,
-                        radius,
-                        0,
-                    );
-                    Some((va, (w as usize) * 4))
+                    Err(_) => None,
                 }
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         // Sync the region from the guest VMO into the GL texture.
         self.virgl_transfer_to_host(0xF8, x, y_rel, w, h, 5120)?;
@@ -3604,7 +3711,8 @@ impl CtrlQueue {
         second: &[u8],
     ) -> Result<RingSlot, GfxError> {
         let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
-        if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total {
+        if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total
+        {
             return Err(GfxError::CommandRejected);
         }
         let slot = self.alloc_free_slot()?;
@@ -4124,7 +4232,10 @@ fn blur_backdrop_separable_vmo(
             let di = row_start + i * 4;
             for c in 0..4 {
                 unsafe {
-                    core::ptr::write_volatile(fb.add(di + c), libm::roundf(acc[c]).clamp(0.0, 255.0) as u8);
+                    core::ptr::write_volatile(
+                        fb.add(di + c),
+                        libm::roundf(acc[c]).clamp(0.0, 255.0) as u8,
+                    );
                 }
             }
         }
@@ -4163,7 +4274,10 @@ fn blur_backdrop_separable_vmo(
             let di = (y as usize + i) * fb_w + col_off;
             for c in 0..4 {
                 unsafe {
-                    core::ptr::write_volatile(fb.add(di + c), libm::roundf(acc[c]).clamp(0.0, 255.0) as u8);
+                    core::ptr::write_volatile(
+                        fb.add(di + c),
+                        libm::roundf(acc[c]).clamp(0.0, 255.0) as u8,
+                    );
                 }
             }
         }

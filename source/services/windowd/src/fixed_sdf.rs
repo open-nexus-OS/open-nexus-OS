@@ -50,12 +50,8 @@ pub(crate) fn rounded_rect_sd(
     let inner_min_y = min_y.saturating_add(radius);
     let inner_max_x = max_x.saturating_sub(radius);
     let inner_max_y = max_y.saturating_sub(radius);
-    let dx = (inner_min_x.saturating_sub(point_x))
-        .max(point_x.saturating_sub(inner_max_x))
-        .max(0);
-    let dy = (inner_min_y.saturating_sub(point_y))
-        .max(point_y.saturating_sub(inner_max_y))
-        .max(0);
+    let dx = (inner_min_x.saturating_sub(point_x)).max(point_x.saturating_sub(inner_max_x)).max(0);
+    let dy = (inner_min_y.saturating_sub(point_y)).max(point_y.saturating_sub(inner_max_y)).max(0);
     let dist =
         isqrt_u64((dx as u64).saturating_mul(dx as u64) + (dy as u64).saturating_mul(dy as u64));
     (dist as i32).saturating_sub(radius)
@@ -93,11 +89,7 @@ pub(crate) fn fill_alpha(sd: i32) -> u32 {
 
 pub(crate) fn border_alpha(sd: i32, stroke_width: u32) -> u32 {
     let stroke = px_u32(stroke_width);
-    let outer = smoothstep(
-        stroke.saturating_add(FIXED_ONE),
-        stroke.saturating_sub(FIXED_ONE),
-        sd,
-    );
+    let outer = smoothstep(stroke.saturating_add(FIXED_ONE), stroke.saturating_sub(FIXED_ONE), sd);
     let inner = smoothstep(FIXED_ONE, -FIXED_ONE, sd);
     let alpha = outer.saturating_mul(FIXED_ONE.saturating_sub(inner)) / FIXED_ONE;
     (alpha as u32 * 255) / FIXED_ONE as u32
@@ -108,13 +100,8 @@ pub(crate) fn shadow_alpha_from_distance(distance: i32, blur_radius: u32, max_al
     if distance >= blur {
         return 0;
     }
-    let t = blur
-        .saturating_sub(distance.max(0))
-        .saturating_mul(FIXED_ONE)
-        / blur;
-    ((t as u32)
-        .saturating_mul(t as u32)
-        .saturating_mul(max_alpha))
+    let t = blur.saturating_sub(distance.max(0)).saturating_mul(FIXED_ONE) / blur;
+    ((t as u32).saturating_mul(t as u32).saturating_mul(max_alpha))
         / ((FIXED_ONE as u32).saturating_mul(FIXED_ONE as u32))
 }
 
@@ -130,23 +117,13 @@ mod tests {
         let rect = (56u32, 440u32, 826u32, 260u32);
         let radius = 12u32;
         let min = (rect.0 as f32, rect.1 as f32);
-        let max = (
-            rect.0.saturating_add(rect.2) as f32,
-            rect.1.saturating_add(rect.3) as f32,
-        );
+        let max = (rect.0.saturating_add(rect.2) as f32, rect.1.saturating_add(rect.3) as f32);
         let min_x = px_u32(rect.0);
         let min_y = px_u32(rect.1);
         let max_x = px_u32(rect.0.saturating_add(rect.2));
         let max_y = px_u32(rect.1.saturating_add(rect.3));
         let radius_fx = px_u32(radius);
-        for (x, y) in [
-            (56, 440),
-            (60, 440),
-            (62, 444),
-            (68, 452),
-            (100, 440),
-            (55, 439),
-        ] {
+        for (x, y) in [(56, 440), (60, 440), (62, 444), (68, 452), (100, 440), (55, 439)] {
             let sd = nexus_sdf::sd_rounded_rect(
                 (x as f32 + 0.5, y as f32 + 0.5),
                 min,
@@ -179,11 +156,7 @@ mod tests {
         for distance in [0, 1, 8, 15, 29, 30] {
             let fixed = shadow_alpha_from_distance(px_u32(distance), blur, max_alpha) as i32;
             let t = 1.0 - distance as f32 / blur as f32;
-            let expected = if distance >= blur {
-                0
-            } else {
-                (t * t * max_alpha as f32) as i32
-            };
+            let expected = if distance >= blur { 0 } else { (t * t * max_alpha as f32) as i32 };
             assert!(
                 (expected - fixed).abs() <= 1,
                 "distance {distance} expected {expected} actual {fixed}"

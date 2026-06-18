@@ -191,20 +191,13 @@ fn sample_wallpaper_pixel(
 ) -> Result<[u8; 4], WindowdError> {
     let x = x.min(mode.width.saturating_sub(1));
     let y = y.min(mode.height.saturating_sub(1));
-    let src_x = *source_x_lut
-        .get(x as usize)
-        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
-    let src_y = *source_y_lut
-        .get(y as usize)
-        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let src_x = *source_x_lut.get(x as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let src_y = *source_y_lut.get(y as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
     let src = src_y
         .checked_mul(source_frame.stride as usize)
         .and_then(|base| base.checked_add(src_x.checked_mul(4)?))
         .ok_or(WindowdError::ArithmeticOverflow)?;
-    let px = source_frame
-        .pixels
-        .get(src..src + 4)
-        .ok_or(WindowdError::BufferLengthMismatch)?;
+    let px = source_frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?;
     Ok([px[0], px[1], px[2], px[3]])
 }
 
@@ -220,12 +213,7 @@ fn ensure_glass_layer(
     glass_scratch: &mut [u8],
 ) -> Result<(), WindowdError> {
     let key = glass_layer_key(rect, quality);
-    let bounds = DamageRect {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-    };
+    let bounds = DamageRect { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     if layer.valid && layer.key == key && layer.rect == bounds {
         return Ok(());
     }
@@ -263,10 +251,8 @@ fn ensure_glass_layer(
     }
 
     if quality != GlassQuality::Opaque {
-        let blur_radius = DARK_GLASS_BLUR_RADIUS
-            .min(quality.blur_radius())
-            .div_ceil(GLASS_LAYER_SCALE)
-            .max(1);
+        let blur_radius =
+            DARK_GLASS_BLUR_RADIUS.min(quality.blur_radius()).div_ceil(GLASS_LAYER_SCALE).max(1);
         blur_separable_zero_alloc(
             &mut layer.pixels[..layer_len],
             cache_w,
@@ -353,24 +339,16 @@ pub(crate) fn draw_combined_panel_glass_row(
     )?;
     let row_pixels = (row.len() / 4) as u32;
     let start = rect.x.max(render_clip.start_x).min(row_pixels);
-    let end = rect
-        .x
-        .saturating_add(rect.width)
-        .min(render_clip.end_x)
-        .min(row_pixels);
+    let end = rect.x.saturating_add(rect.width).min(render_clip.end_x).min(row_pixels);
     if start >= end {
         return Ok(());
     }
     let tint_a = DARK_GLASS_TINT.a as u32;
     let inv_tint = 255u32.saturating_sub(tint_a);
     let interior_left = rect.x.saturating_add(DARK_GLASS_RADIUS);
-    let interior_right = rect
-        .x
-        .saturating_add(rect.width.saturating_sub(DARK_GLASS_RADIUS));
+    let interior_right = rect.x.saturating_add(rect.width.saturating_sub(DARK_GLASS_RADIUS));
     let interior_top = rect.y.saturating_add(DARK_GLASS_RADIUS);
-    let interior_bottom = rect
-        .y
-        .saturating_add(rect.height.saturating_sub(DARK_GLASS_RADIUS));
+    let interior_bottom = rect.y.saturating_add(rect.height.saturating_sub(DARK_GLASS_RADIUS));
     if start >= interior_left && end <= interior_right && y >= interior_top && y < interior_bottom {
         for px in start..end {
             let blurred = sample_glass_layer(glass_layer, px, y);
@@ -414,14 +392,7 @@ pub(crate) fn draw_combined_panel_glass_row(
         row[idx + 1] = ((final_g * mask + row[idx + 1] as u32 * inv_mask) / 255) as u8;
         row[idx + 2] = ((final_r * mask + row[idx + 2] as u32 * inv_mask) / 255) as u8;
     }
-    stroke_dark_glass_border_row(
-        y,
-        row,
-        rect,
-        render_clip,
-        1,
-        rgba_to_bgra(DARK_GLASS_BORDER),
-    )
+    stroke_dark_glass_border_row(y, row, rect, render_clip, 1, rgba_to_bgra(DARK_GLASS_BORDER))
 }
 
 pub(crate) fn saturate_bgra_segment(

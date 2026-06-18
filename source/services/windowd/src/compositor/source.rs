@@ -25,21 +25,15 @@ pub(crate) fn copy_scaled_systemui_row_clipped(
     if row.len() < rl || frame.width == 0 || frame.height == 0 {
         return Err(WindowdError::BufferLengthMismatch);
     }
-    let sy = *sy_lut
-        .get(y as usize)
-        .ok_or(WindowdError::BufferLengthMismatch)? as usize;
-    let srb = sy
-        .checked_mul(frame.stride as usize)
-        .ok_or(WindowdError::ArithmeticOverflow)?;
+    let sy = *sy_lut.get(y as usize).ok_or(WindowdError::BufferLengthMismatch)? as usize;
+    let srb = sy.checked_mul(frame.stride as usize).ok_or(WindowdError::ArithmeticOverflow)?;
     let mut x = rc.start_x.min(mode.width) as usize;
     let ex = rc.end_x.min(mode.width) as usize;
     while x < ex {
         let sx = *sx_lut.get(x).ok_or(WindowdError::BufferLengthMismatch)? as usize;
         let mut run = 1usize;
         while x + run < ex {
-            let n = *sx_lut
-                .get(x + run)
-                .ok_or(WindowdError::BufferLengthMismatch)? as usize;
+            let n = *sx_lut.get(x + run).ok_or(WindowdError::BufferLengthMismatch)? as usize;
             if n != sx.saturating_add(run) {
                 break;
             }
@@ -52,10 +46,7 @@ pub(crate) fn copy_scaled_systemui_row_clipped(
             let dst = x.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
             let bl = run.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
             row[dst..dst + bl].copy_from_slice(
-                frame
-                    .pixels
-                    .get(src..src + bl)
-                    .ok_or(WindowdError::BufferLengthMismatch)?,
+                frame.pixels.get(src..src + bl).ok_or(WindowdError::BufferLengthMismatch)?,
             );
             x += run;
             continue;
@@ -66,10 +57,7 @@ pub(crate) fn copy_scaled_systemui_row_clipped(
             .ok_or(WindowdError::ArithmeticOverflow)?;
         let dst = x.checked_mul(4).ok_or(WindowdError::ArithmeticOverflow)?;
         row[dst..dst + 4].copy_from_slice(
-            frame
-                .pixels
-                .get(src..src + 4)
-                .ok_or(WindowdError::BufferLengthMismatch)?,
+            frame.pixels.get(src..src + 4).ok_or(WindowdError::BufferLengthMismatch)?,
         );
         x += 1;
     }
@@ -82,10 +70,8 @@ pub(crate) fn build_scale_lut(dl: u32, sl: u32) -> Result<Vec<u32>, WindowdError
     }
     let mut lut = Vec::with_capacity(dl as usize);
     for d in 0..dl {
-        lut.push(
-            ((u64::from(d) * u64::from(sl)) / u64::from(dl)).min(sl.saturating_sub(1) as u64)
-                as u32,
-        );
+        lut.push(((u64::from(d) * u64::from(sl)) / u64::from(dl)).min(sl.saturating_sub(1) as u64)
+            as u32);
     }
     Ok(lut)
 }

@@ -141,18 +141,9 @@ mod tests {
     #[test]
     fn plane_offsets_are_contiguous() {
         assert_eq!(PLANE_WALLPAPER_OFFSET, 0);
-        assert_eq!(
-            PLANE_RETAINED_OFFSET,
-            PLANE_WALLPAPER_OFFSET + PLANE_WALLPAPER_BYTES
-        );
-        assert_eq!(
-            PLANE_SLOT_A_OFFSET,
-            PLANE_RETAINED_OFFSET + PLANE_RETAINED_BYTES
-        );
-        assert_eq!(
-            PLANE_SLOT_B_OFFSET,
-            PLANE_SLOT_A_OFFSET + PLANE_SLOT_A_BYTES
-        );
+        assert_eq!(PLANE_RETAINED_OFFSET, PLANE_WALLPAPER_OFFSET + PLANE_WALLPAPER_BYTES);
+        assert_eq!(PLANE_SLOT_A_OFFSET, PLANE_RETAINED_OFFSET + PLANE_RETAINED_BYTES);
+        assert_eq!(PLANE_SLOT_B_OFFSET, PLANE_SLOT_A_OFFSET + PLANE_SLOT_A_BYTES);
     }
 
     #[test]

@@ -2066,6 +2066,7 @@ dependencies = [
 name = "nexus-virtual-list"
 version = "0.1.0"
 dependencies = [
+ "animation",
  "nexus-layout",
  "nexus-layout-types",
 ]

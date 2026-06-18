@@ -43,8 +43,7 @@ fn test_reject_empty_tile_draw() {
         .try_begin_render_pass(RenderPassDesc { color_attachments: vec![], width: 64, height: 64 })
         .unwrap();
     assert_eq!(
-        enc.try_draw_tiles(&[], nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF))
-            .err(),
+        enc.try_draw_tiles(&[], nexus_gfx::command::buffer::RgbaColor::from_u32(0xFFFF_FFFF)).err(),
         Some(GfxError::InvalidArgument)
     );
 }

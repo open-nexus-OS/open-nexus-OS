@@ -188,8 +188,7 @@ impl CpuMockBackend {
             let denom = (h - 1).max(1);
             let mut rgba = [0u8; 4];
             for c in 0..4 {
-                rgba[c] =
-                    ((tc[c] as u32 * (denom - t_num) + bc[c] as u32 * t_num) / denom) as u8;
+                rgba[c] = ((tc[c] as u32 * (denom - t_num) + bc[c] as u32 * t_num) / denom) as u8;
             }
             if rgba[3] == 0 {
                 continue;

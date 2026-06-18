@@ -15,11 +15,7 @@ use pointer_state::{PointerPosition, PointerSpace, PointerTransform};
 
 fn count_changed_pixel_groups(before: &[u8], after: &[u8]) -> usize {
     assert_eq!(before.len(), after.len());
-    before
-        .chunks(4)
-        .zip(after.chunks(4))
-        .filter(|(a, b)| a != b)
-        .count()
+    before.chunks(4).zip(after.chunks(4)).filter(|(a, b)| a != b).count()
 }
 
 fn rect_has_changes(
@@ -67,20 +63,15 @@ fn damage_rect_only_changes_target_area_not_surrounding() {
         ..Default::default()
     };
 
-    let neutral = windowd::live_visible_state_handoff(VisibleState {
-        hover_visible: false,
-        ..base
-    })
-    .expect("neutral")
-    .materialize_frame()
-    .expect("neutral frame");
-    let hover = windowd::live_visible_state_handoff(VisibleState {
-        hover_visible: true,
-        ..base
-    })
-    .expect("hover")
-    .materialize_frame()
-    .expect("hover frame");
+    let neutral =
+        windowd::live_visible_state_handoff(VisibleState { hover_visible: false, ..base })
+            .expect("neutral")
+            .materialize_frame()
+            .expect("neutral frame");
+    let hover = windowd::live_visible_state_handoff(VisibleState { hover_visible: true, ..base })
+        .expect("hover")
+        .materialize_frame()
+        .expect("hover frame");
 
     let stride = mode.stride as usize;
 

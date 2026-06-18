@@ -108,7 +108,10 @@ impl NormalizeRouter {
         windowd::InputSeq::new(self.seq)
     }
 
-    fn deliver(&mut self, kind: windowd::InputEventKind) -> windowd::Result<windowd::InputDelivery> {
+    fn deliver(
+        &mut self,
+        kind: windowd::InputEventKind,
+    ) -> windowd::Result<windowd::InputDelivery> {
         let seq = self.next_seq();
         // Surface 0 = unrouted: the compositor (windowd) performs hit-testing.
         Ok(windowd::InputDelivery { seq, surface: windowd::SurfaceId::new(0), kind })

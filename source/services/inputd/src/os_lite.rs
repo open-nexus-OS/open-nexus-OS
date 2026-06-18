@@ -25,9 +25,9 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 use crate::route::NormalizeRouter;
 use crate::{
     decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
-    visible_display_start_position, InputDispatch,
-    InputdConfig, InputdService, WireBatchReject, LIVE_POINTER_DENOMINATOR,
-    LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR, LIVE_POINTER_THRESHOLD,
+    visible_display_start_position, InputDispatch, InputdConfig, InputdService, WireBatchReject,
+    LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
+    LIVE_POINTER_THRESHOLD,
 };
 
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
@@ -251,8 +251,7 @@ impl LiveRouteRuntime {
                 self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
                 // Input-chain hop I4 fail: the wire batch could not be decoded.
                 if !self.chain_normalize_fail_emitted {
-                    let _ =
-                        debug_println("inputd: chain I4 normalize FAIL (malformed wire batch)");
+                    let _ = debug_println("inputd: chain I4 normalize FAIL (malformed wire batch)");
                     self.chain_normalize_fail_emitted = true;
                 }
                 return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
@@ -430,7 +429,9 @@ impl LiveRouteRuntime {
         pointer_down_dispatched: bool,
         pointer_wheel_delta: i32,
         keyboard_dispatched: bool,
-        active_source: Option<PointerSource>,
+        // Pointer source is no longer needed here — absolute moves used to force an
+        // immediate push, but moves now always go through the 120 Hz budget.
+        _active_source: Option<PointerSource>,
     ) {
         let now_ns = nsec().unwrap_or(0);
         // Pure input normalization: inputd ships the display-space pointer plus
@@ -478,6 +479,10 @@ impl LiveRouteRuntime {
                 self.focus_debug_emitted = true;
             }
         }
+        // Carry the real signed wheel magnitude (0 when no wheel motion this
+        // update) so windowd scrolls by the actual notch count, not one quantized
+        // step. The pulse booleans below remain a latched direction indicator.
+        self.visible_state.wheel_delta_y = pointer_wheel_delta;
         if pointer_wheel_delta != 0 {
             self.visible_state.pointer_route_live = true;
             self.visible_state.input_visible_on = true;
@@ -504,20 +509,20 @@ impl LiveRouteRuntime {
             self.keyboard_marker_emitted = true;
         }
         self.sync_wheel_indicator(now_ns);
-        let absolute_pointer_source = matches!(
-            active_source,
-            Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
-        );
-        // Push immediately on a button edge (both press and release) so windowd
-        // sees clean click edges and can detect the next click's rising edge.
+        // Push immediately ONLY on discrete edges (button/key/focus) + wheel, so
+        // windowd sees clean click edges and low-latency scroll. Pointer MOVES —
+        // including absolute (tablet/touch) — go through the 120 Hz push budget
+        // (`should_push_visible_state`), NOT immediately: an absolute pointer can
+        // emit ~800 moves/s, and pushing each one floods windowd. Throttling moves
+        // to display rate is what every OS does (the cursor still tracks at 120 Hz),
+        // and windowd coalesces frame-aligned regardless.
         let button_changed = previous_launcher_click != self.visible_state.launcher_click_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
             || button_changed
-            || focus_changed
-            || (pointer_move_seen && absolute_pointer_source);
+            || focus_changed;
         self.push_visible_state_to_windowd(now_ns, immediate_push);
     }
 
@@ -819,4 +824,3 @@ fn fail(label: &'static str) -> &'static str {
     let _ = debug_println(label);
     label
 }
-

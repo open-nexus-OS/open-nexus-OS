@@ -523,10 +523,7 @@ impl SystemUiShell {
             Some(root_id),
             100,
             100,
-            Some(RenderPrimitive::Cursor {
-                hotspot_x: 0,
-                hotspot_y: 0,
-            }),
+            Some(RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 }),
             None,
         );
 
@@ -562,19 +559,11 @@ impl SystemUiShell {
         if slot >= 4 {
             return;
         }
-        let color = if active {
-            Rgba8::new(255, 255, 255, 255)
-        } else {
-            Rgba8::new(255, 255, 255, 180)
-        };
+        let color =
+            if active { Rgba8::new(255, 255, 255, 255) } else { Rgba8::new(255, 255, 255, 180) };
         self.graph.set_primitive(
             self.card_bg_ids[slot],
-            RenderPrimitive::Rect {
-                width: CARD_W,
-                height: CARD_H,
-                radius: CARD_RADIUS,
-                color,
-            },
+            RenderPrimitive::Rect { width: CARD_W, height: CARD_H, radius: CARD_RADIUS, color },
         );
     }
 
@@ -598,8 +587,7 @@ impl SystemUiShell {
     pub(crate) fn set_sidebar_slide(&mut self, translate_x: f32) {
         let base_x = (self.profile.display_width - SIDEBAR_WIDTH) as i32;
         let tx = (base_x as f32 + translate_x) as i32;
-        self.graph
-            .set_position(self.sidebar_id, tx, SIDEBAR_MARGIN_TOP as i32);
+        self.graph.set_position(self.sidebar_id, tx, SIDEBAR_MARGIN_TOP as i32);
     }
 
     /// Resolve an animation layer id to the scene node it animates.
@@ -714,22 +702,10 @@ mod tests {
     fn animation_targets_hit_the_intended_nodes() {
         let shell = SystemUiShell::new(DeviceProfile::qemu_default());
         // The explicit mapping — never the id-punned root/wallpaper nodes.
-        assert_eq!(
-            shell.animation_target(HOVER_LAYER_ID),
-            Some(shell.card_bg_ids[0])
-        );
-        assert_eq!(
-            shell.animation_target(CLICK_LAYER_ID),
-            Some(shell.card_bg_ids[1])
-        );
-        assert_eq!(
-            shell.animation_target(KEYBOARD_LAYER_ID),
-            Some(shell.card_bg_ids[2])
-        );
-        assert_eq!(
-            shell.animation_target(SIDEBAR_LAYER_ID),
-            Some(shell.sidebar_id)
-        );
+        assert_eq!(shell.animation_target(HOVER_LAYER_ID), Some(shell.card_bg_ids[0]));
+        assert_eq!(shell.animation_target(CLICK_LAYER_ID), Some(shell.card_bg_ids[1]));
+        assert_eq!(shell.animation_target(KEYBOARD_LAYER_ID), Some(shell.card_bg_ids[2]));
+        assert_eq!(shell.animation_target(SIDEBAR_LAYER_ID), Some(shell.sidebar_id));
         // Regression guard for the historical punning bug: the hover target
         // must not be the root node (LayerId(1) == SceneNodeId(1) == root).
         assert_ne!(shell.animation_target(HOVER_LAYER_ID), Some(shell.root_id));

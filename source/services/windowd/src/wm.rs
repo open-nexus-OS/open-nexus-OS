@@ -66,16 +66,16 @@ pub(crate) struct Window {
 impl Window {
     /// Title-bar rect (drag handle), excluding the close-button zone.
     pub(crate) fn title_bar_rect(&self) -> WmRect {
-        WmRect::new(self.bounds.x, self.bounds.y, (self.bounds.w - CLOSE_ZONE_W).max(0), TITLE_BAR_H)
+        WmRect::new(
+            self.bounds.x,
+            self.bounds.y,
+            (self.bounds.w - CLOSE_ZONE_W).max(0),
+            TITLE_BAR_H,
+        )
     }
     /// Close-button rect at the top-right of the title bar.
     pub(crate) fn close_rect(&self) -> WmRect {
-        WmRect::new(
-            self.bounds.right() - CLOSE_ZONE_W,
-            self.bounds.y,
-            CLOSE_ZONE_W,
-            TITLE_BAR_H,
-        )
+        WmRect::new(self.bounds.right() - CLOSE_ZONE_W, self.bounds.y, CLOSE_ZONE_W, TITLE_BAR_H)
     }
     /// Content rect below the title bar (where the chat list renders).
     pub(crate) fn content_rect(&self) -> WmRect {
@@ -205,7 +205,13 @@ impl WindowManager {
     /// Pointer move at (x, y). If dragging, move the window so the grab point
     /// stays under the pointer, clamped to the display. Returns true if a window
     /// moved (so the runtime damages old+new regions).
-    pub(crate) fn on_pointer_move(&mut self, x: i32, y: i32, display_w: i32, display_h: i32) -> bool {
+    pub(crate) fn on_pointer_move(
+        &mut self,
+        x: i32,
+        y: i32,
+        display_w: i32,
+        display_h: i32,
+    ) -> bool {
         let Some(drag) = self.drag else {
             return false;
         };

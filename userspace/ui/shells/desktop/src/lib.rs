@@ -128,6 +128,62 @@ pub fn build_desktop_scene(tokens: &dyn Tokens) -> LayoutNode {
         .build()
 }
 
+/// One target-test card: a rounded, themed tile with a centered label — built
+/// purely from the widget + style + theme-token components.
+fn target_card(tokens: &dyn Tokens, id: &'static str, text: &'static str, bg: ColorToken) -> LayoutNode {
+    Panel::column()
+        .id(id)
+        .style(
+            Style::new()
+                .background_token(tokens, bg)
+                .rounded_token(tokens, LengthToken::RadiusMedium),
+        )
+        .padding(tokens.length(LengthToken::SpacingMedium))
+        .child(label(text, tokens.color(ColorToken::OnSurface)))
+        .build()
+}
+
+/// The **target-test panel** — the proof UI ("wie im anderen"), rebuilt from the
+/// new components: a rounded, themed surface panel with a title + subtitle and a
+/// row of themed cards (hover / click / scroll / keyboard). Every color, radius,
+/// and spacing comes from `tokens`; no hardcoded values, no windowd-baked code.
+/// windowd lays this out (`nexus_layout`) and rasterizes it into an atlas layer;
+/// gpud composites it over the wallpaper.
+pub fn build_target_panel(tokens: &dyn Tokens) -> LayoutNode {
+    let on_surface = tokens.color(ColorToken::OnSurface);
+    let muted = tokens.color(ColorToken::OnSurfaceVariant);
+    let sp_sm = tokens.length(LengthToken::SpacingSmall);
+    let sp_md = tokens.length(LengthToken::SpacingMedium);
+
+    let cards = Panel::row()
+        .id("target_cards")
+        .gap(sp_sm)
+        .children(vec![
+            target_card(tokens, "card_hover", "hover", ColorToken::SurfaceVariant),
+            target_card(tokens, "card_click", "click", ColorToken::Accent),
+            target_card(tokens, "card_scroll", "scroll", ColorToken::SurfaceVariant),
+            target_card(tokens, "card_keyboard", "keyboard", ColorToken::SurfaceVariant),
+        ])
+        .build();
+
+    Panel::column()
+        .id("target_panel")
+        .style(
+            Style::new()
+                .background_token(tokens, ColorToken::Surface)
+                .rounded_token(tokens, LengthToken::RadiusLarge)
+                .border_token(tokens, LengthToken::BorderThin, ColorToken::Border),
+        )
+        .padding(sp_md)
+        .gap(sp_sm)
+        .children(vec![
+            label("Target Tests", on_surface),
+            label("rendered from ui/ components", muted),
+            cards,
+        ])
+        .build()
+}
+
 /// The chat cell: renders a [`ChatMessage`] as a themed bubble. This is the only
 /// "chat-specific" code — a data-source cell, living in the shell, not windowd.
 pub struct ChatItemView<'a> {
@@ -181,6 +237,26 @@ mod tests {
         assert_eq!(tb.id, Some("chat_titlebar"));
         let LayoutNode::Stack(close, _, _) = tb_kids.last().unwrap() else { panic!("close") };
         assert_eq!(close.id, Some("chat_close"));
+    }
+
+    #[test]
+    fn target_panel_is_themed_surface_with_card_row() {
+        let t = BaseTokens;
+        let scene = build_target_panel(&t);
+        let LayoutNode::Stack(root, visual, children) = scene else { panic!("root is a Stack") };
+        assert_eq!(root.id, Some("target_panel"));
+        assert_eq!(visual.background, Some(t.color(ColorToken::Surface)), "themed surface bg");
+        assert!(visual.border.top.is_some(), "themed border");
+        assert_ne!(visual.corner_radius, Default::default(), "rounded corners");
+        // title + subtitle + the card row.
+        let LayoutNode::Stack(cards, _, card_kids) = children.last().unwrap() else {
+            panic!("card row")
+        };
+        assert_eq!(cards.id, Some("target_cards"));
+        assert_eq!(card_kids.len(), 4, "hover/click/scroll/keyboard cards");
+        // The click card is themed differently (Accent) from the others.
+        assert_eq!(stack_bg(&card_kids[1]), Some(t.color(ColorToken::Accent)));
+        assert_eq!(stack_bg(&card_kids[0]), Some(t.color(ColorToken::SurfaceVariant)));
     }
 
     #[test]

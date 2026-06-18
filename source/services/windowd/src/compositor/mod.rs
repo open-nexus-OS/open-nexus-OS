@@ -163,8 +163,11 @@ pub(crate) const FILTER_INPUT_FONT_ADVANCE: u32 =
 pub(crate) const ROW_WRITE_CHUNK: usize = 40;
 #[cfg(not(nexus_env = "os"))]
 pub(crate) const ROW_WRITE_CHUNK: usize = 32;
-pub(crate) const IPC_BATCH_LIMIT: usize = 8;
-pub(crate) const VISIBLE_UPDATE_FLUSH_LIMIT: usize = 2;
+// Drain a generous burst of input/IPC per loop iteration so a flood of pointer
+// events (hidrawd can emit ~800/s during a drag) is consumed in one frame and the
+// queue can't grow stale — the wheel deltas among them are coalesced into a single
+// scroll step (`commit_scroll_input`), so a bigger batch costs no extra scrolling.
+pub(crate) const IPC_BATCH_LIMIT: usize = 64;
 pub(crate) const BACKDROP_CACHE_ENTRIES: usize = 4;
 pub(crate) const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
 pub(crate) const COMBINED_PANEL_WIDTH: usize = (crate::proof_panel_spec::PANEL_WIDTH
@@ -292,6 +295,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let mut last_anim_tick_ns: u64 = 0;
     loop {
         runtime.drain_gpud_replies();
+        // Stall watchdog: self-reports a "stopped responding" present stall to the
+        // UART log (build/logs/*/uart.log). Cheap — one nsec() + integer checks per
+        // iteration; only formats on an actual stall (rate-limited).
+        #[cfg(nexus_env = "os")]
+        runtime.watchdog_check(nexus_abi::nsec().unwrap_or(0));
         let _ = runtime.process_deferred_framebuffer_write();
         #[cfg(nexus_env = "os")]
         {
@@ -352,7 +360,6 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 pacer_timer_armed = false;
             }
         }
-        let mut visible_updates_since_flush = 0usize;
         for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
                 Ok((frame_len, _sid, mut moved_cap)) => {
@@ -381,25 +388,17 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             let _ = server.send(&response, Wait::Blocking);
                         }
                     } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
+                        // Frame-aligned coalescing: STAGE the update (latest sample
+                        // wins, wheel sums); the whole frame's input is applied ONCE
+                        // after this drain (apply_staged_input). Reply immediately so
+                        // inputd is never blocked.
                         let status = match decode_update_visible_state(&frame) {
-                            Some(state) => runtime.apply_input_state(state),
+                            Some(state) => runtime.stage_input_state(state),
                             None => STATUS_MALFORMED,
                         };
-                        if runtime.has_pending_damage() {
-                            visible_updates_since_flush =
-                                visible_updates_since_flush.saturating_add(1);
-                        }
                         if let Some(reply) = moved_cap.take() {
                             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
                             let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                        }
-                        if runtime.has_pending_damage()
-                            && visible_updates_since_flush >= VISIBLE_UPDATE_FLUSH_LIMIT
-                        {
-                            if let Err(err) = runtime.flush_pending_damage() {
-                                let _ = debug_println(flush_error_label(err));
-                            }
-                            visible_updates_since_flush = 0;
                         }
                     } else {
                         let op = frame.get(3).copied().unwrap_or(0);
@@ -418,6 +417,12 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Err(_) => {}
             }
         }
+        // Frame-aligned input: apply the staged sample (latest cursor/buttons +
+        // summed wheel) ONCE — one hit-test/hover/cursor-move/scroll per frame,
+        // independent of how many raw events arrived (the Android Choreographer
+        // model). Then commit the coalesced scroll step.
+        let _ = runtime.apply_staged_input();
+        let _ = runtime.commit_scroll_input();
         // Phase 4: skip present while handoff is pending — the VMO must arrive
         // at gpud before any present-damage frames.
         if !runtime.is_handoff_pending() {
@@ -475,8 +480,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         let _ = server.send(&response, Wait::Blocking);
                     }
                 } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
+                    // Stage (frame-aligned); applied once at the top of the next
+                    // iteration via apply_staged_input — same coalescing as the batch.
                     let status = match decode_update_visible_state(&frame) {
-                        Some(state) => runtime.apply_input_state(state),
+                        Some(state) => runtime.stage_input_state(state),
                         None => STATUS_MALFORMED,
                     };
                     if let Some(reply) = moved_cap.take() {

@@ -52,12 +52,7 @@ fn clamp_tile_to_extent(rect: TileRect, w: u32, h: u32) -> Option<TileRect> {
     if width == 0 || height == 0 {
         return None;
     }
-    Some(TileRect {
-        x: rect.x,
-        y: rect.y,
-        width,
-        height,
-    })
+    Some(TileRect { x: rect.x, y: rect.y, width, height })
 }
 
 /// Intersection of two tile rects, or `None` if they do not overlap.
@@ -194,28 +189,11 @@ impl InvalidationClass {
 #[derive(Debug, Clone)]
 pub enum RenderPrimitive {
     /// Filled rounded rectangle
-    Rect {
-        width: u32,
-        height: u32,
-        radius: u32,
-        color: Rgba8,
-    },
+    Rect { width: u32, height: u32, radius: u32, color: Rgba8 },
     /// Stroked rounded rectangle border
-    StrokeRect {
-        width: u32,
-        height: u32,
-        radius: u32,
-        stroke_width: u32,
-        color: Rgba8,
-    },
+    StrokeRect { width: u32, height: u32, radius: u32, stroke_width: u32, color: Rgba8 },
     /// Blit from a retained surface (atlas tile, backdrop snapshot, glyph cache)
-    Surface {
-        surface_handle: u32,
-        src_x: u32,
-        src_y: u32,
-        width: u32,
-        height: u32,
-    },
+    Surface { surface_handle: u32, src_x: u32, src_y: u32, width: u32, height: u32 },
     /// Bitmap text run (pre-shaped, pre-rasterized — text shaping is upstream)
     Text {
         /// Content string (borrowed from static assets or entry pool)
@@ -225,10 +203,7 @@ pub enum RenderPrimitive {
     },
     /// Backdrop blur filter — samples from a retained backdrop snapshot,
     /// not from live scanout memory
-    BackdropFilter {
-        blur_radius: u32,
-        saturation_percent: u32,
-    },
+    BackdropFilter { blur_radius: u32, saturation_percent: u32 },
     /// Group container — children rendered into this group with optional shadow
     Group { shadow: Option<BoxShadow> },
     /// Hardware or composited cursor
@@ -253,56 +228,32 @@ impl RenderPrimitive {
     fn hash(&self, seed: u64) -> u64 {
         let h = hash_u64(seed, self.tag());
         match self {
-            Self::Rect {
-                width,
-                height,
-                radius,
-                color,
-            } => {
+            Self::Rect { width, height, radius, color } => {
                 let h = hash_u32(h, *width);
                 let h = hash_u32(h, *height);
                 let h = hash_u32(h, *radius);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::StrokeRect {
-                width,
-                height,
-                radius,
-                stroke_width,
-                color,
-            } => {
+            Self::StrokeRect { width, height, radius, stroke_width, color } => {
                 let h = hash_u32(h, *width);
                 let h = hash_u32(h, *height);
                 let h = hash_u32(h, *radius);
                 let h = hash_u32(h, *stroke_width);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::Surface {
-                surface_handle,
-                src_x,
-                src_y,
-                width,
-                height,
-            } => {
+            Self::Surface { surface_handle, src_x, src_y, width, height } => {
                 let h = hash_u32(h, *surface_handle);
                 let h = hash_u32(h, *src_x);
                 let h = hash_u32(h, *src_y);
                 let h = hash_u32(h, *width);
                 hash_u32(h, *height)
             }
-            Self::Text {
-                content,
-                font_scale,
-                color,
-            } => {
+            Self::Text { content, font_scale, color } => {
                 let h = hash_u8s(h, content.as_bytes());
                 let h = hash_u32(h, *font_scale);
                 hash_u32(h, rgba_hash_value(*color))
             }
-            Self::BackdropFilter {
-                blur_radius,
-                saturation_percent,
-            } => {
+            Self::BackdropFilter { blur_radius, saturation_percent } => {
                 let h = hash_u32(h, *blur_radius);
                 hash_u32(h, *saturation_percent)
             }
@@ -316,10 +267,7 @@ impl RenderPrimitive {
                     h
                 }
             }
-            Self::Cursor {
-                hotspot_x,
-                hotspot_y,
-            } => {
+            Self::Cursor { hotspot_x, hotspot_y } => {
                 let h = hash_i32(h, *hotspot_x);
                 hash_i32(h, *hotspot_y)
             }
@@ -478,21 +426,14 @@ impl SceneGraph {
     /// Panics (in debug) if the id is already in use or exceeds MAX_NODES.
     pub fn insert(&mut self, mut node: SceneNode) -> SceneNodeId {
         let idx = node.id.0 as usize;
-        debug_assert!(
-            idx < Self::MAX_NODES,
-            "SceneGraph: node id exceeds MAX_NODES"
-        );
+        debug_assert!(idx < Self::MAX_NODES, "SceneGraph: node id exceeds MAX_NODES");
         debug_assert!(node.id.0 > 0, "SceneGraph: node id 0 is reserved");
 
         // Grow Vec if needed
         while self.nodes.len() <= idx {
             self.nodes.push(None);
         }
-        debug_assert!(
-            self.nodes[idx].is_none(),
-            "SceneGraph: duplicate node id {}",
-            node.id.0
-        );
+        debug_assert!(self.nodes[idx].is_none(), "SceneGraph: duplicate node id {}", node.id.0);
 
         // If no parent, add to roots
         if node.parent.is_none() {
@@ -627,10 +568,7 @@ impl SceneGraph {
     /// Iterate a node's children in insertion (z) order — allocation-free.
     pub fn children(&self, id: SceneNodeId) -> ChildIter<'_> {
         let first = self.find(id).map(|n| n.first_child).unwrap_or(NIL);
-        ChildIter {
-            graph: self,
-            next: first,
-        }
+        ChildIter { graph: self, next: first }
     }
 
     /// Number of children of `id` (O(children), allocation-free).
@@ -894,11 +832,7 @@ impl SceneGraph {
     /// Marks `PaintOnly`.
     pub fn set_text_content(&mut self, id: SceneNodeId, content: &'static str, color: Rgba8) {
         if let Some(node) = self.find_mut(id) {
-            node.primitive = Some(RenderPrimitive::Text {
-                content,
-                font_scale: 2,
-                color,
-            });
+            node.primitive = Some(RenderPrimitive::Text { content, font_scale: 2, color });
         }
         self.mark_dirty(id, InvalidationClass::PaintOnly);
     }
@@ -914,12 +848,7 @@ impl SceneGraph {
         color: Rgba8,
     ) {
         if let Some(node) = self.find_mut(id) {
-            node.primitive = Some(RenderPrimitive::Rect {
-                width,
-                height,
-                radius,
-                color,
-            });
+            node.primitive = Some(RenderPrimitive::Rect { width, height, radius, color });
         }
         self.mark_dirty(id, InvalidationClass::PaintOnly);
     }
@@ -1086,7 +1015,14 @@ impl SceneGraph {
                         None => Ok(0),
                     }
                 }
-                _ => Self::emit_primitive(node, prim, extent_w, extent_h, encoder, &mut tiles_scratch),
+                _ => Self::emit_primitive(
+                    node,
+                    prim,
+                    extent_w,
+                    extent_h,
+                    encoder,
+                    &mut tiles_scratch,
+                ),
             };
             match emit {
                 Ok(n) => count += n,
@@ -1120,18 +1056,8 @@ impl SceneGraph {
         let clamp = |r: TileRect| clamp_tile_to_extent(r, extent_w, extent_h);
 
         match prim {
-            RenderPrimitive::Rect {
-                width,
-                height,
-                radius,
-                color,
-            } => {
-                match clamp(TileRect {
-                    x,
-                    y,
-                    width: *width,
-                    height: *height,
-                }) {
+            RenderPrimitive::Rect { width, height, radius, color } => {
+                match clamp(TileRect { x, y, width: *width, height: *height }) {
                     Some(r) => {
                         encoder.try_fill_sdf_rounded_rect(
                             r,
@@ -1143,23 +1069,12 @@ impl SceneGraph {
                     None => Ok(0),
                 }
             }
-            RenderPrimitive::StrokeRect {
-                width,
-                height,
-                radius,
-                stroke_width,
-                color,
-            } => {
+            RenderPrimitive::StrokeRect { width, height, radius, stroke_width, color } => {
                 // Stroke rendered as filled rect in the border color;
                 // an interior fill covers the center when the caller
                 // emits a second Rect with a smaller radius.
                 let _ = stroke_width;
-                match clamp(TileRect {
-                    x,
-                    y,
-                    width: *width,
-                    height: *height,
-                }) {
+                match clamp(TileRect { x, y, width: *width, height: *height }) {
                     Some(r) => {
                         encoder.try_fill_sdf_rounded_rect(
                             r,
@@ -1171,21 +1086,11 @@ impl SceneGraph {
                     None => Ok(0),
                 }
             }
-            RenderPrimitive::Surface {
-                surface_handle: _,
-                src_x,
-                src_y,
-                width,
-                height,
-            } => {
+            RenderPrimitive::Surface { surface_handle: _, src_x, src_y, width, height } => {
                 encoder.try_blit_surface(*src_x, *src_y, x, y, *width, *height)?;
                 Ok(1)
             }
-            RenderPrimitive::Text {
-                content,
-                font_scale,
-                color,
-            } => {
+            RenderPrimitive::Text { content, font_scale, color } => {
                 // Rasterize the 5x7 bitmap font into solid tiles and emit one
                 // DrawTiles command per run (a single colored fill batch — well
                 // within the per-frame command budget). Text shaping is upstream;
@@ -1240,22 +1145,14 @@ impl SceneGraph {
                     .try_draw_tiles(&tiles, RgbaColor::new(color.r, color.g, color.b, color.a))?;
                 Ok(1)
             }
-            RenderPrimitive::BackdropFilter {
-                blur_radius,
-                saturation_percent,
-            } => {
+            RenderPrimitive::BackdropFilter { blur_radius, saturation_percent } => {
                 // BackdropFilter applies to the node's clipped region.
                 if let Some(clip) = node.clip {
                     let cx = clip.x.as_i32().max(0) as u32;
                     let cy = clip.y.as_i32().max(0) as u32;
                     let cw = clip.width.as_i32().max(0) as u32;
                     let ch = clip.height.as_i32().max(0) as u32;
-                    if let Some(r) = clamp(TileRect {
-                        x: cx,
-                        y: cy,
-                        width: cw,
-                        height: ch,
-                    }) {
+                    if let Some(r) = clamp(TileRect { x: cx, y: cy, width: cw, height: ch }) {
                         encoder.try_blur_backdrop(r, *blur_radius, *saturation_percent)?;
                         return Ok(1);
                     }
@@ -1288,12 +1185,7 @@ impl SceneGraph {
                             }
                         }
                         // Fill shadow rect at offset.
-                        if let Some(r) = clamp(TileRect {
-                            x: sx,
-                            y: sy,
-                            width: cw,
-                            height: ch,
-                        }) {
+                        if let Some(r) = clamp(TileRect { x: sx, y: sy, width: cw, height: ch }) {
                             encoder.try_fill_sdf_rounded_rect(
                                 r,
                                 4,
@@ -1307,10 +1199,7 @@ impl SceneGraph {
                     Ok(0)
                 }
             }
-            RenderPrimitive::Cursor {
-                hotspot_x: _,
-                hotspot_y: _,
-            } => {
+            RenderPrimitive::Cursor { hotspot_x: _, hotspot_y: _ } => {
                 // Cursor blending is handled outside the scene graph
                 // via `shell.update_cursor()` + explicit `BlendCursor`.
                 Ok(0)
@@ -1359,12 +1248,7 @@ mod tests {
     }
 
     fn rect_prim(w: u32, h: u32) -> RenderPrimitive {
-        RenderPrimitive::Rect {
-            width: w,
-            height: h,
-            radius: 4,
-            color: Rgba8::new(255, 0, 0, 255),
-        }
+        RenderPrimitive::Rect { width: w, height: h, radius: 4, color: Rgba8::new(255, 0, 0, 255) }
     }
 
     fn make_node(graph: &mut SceneGraph, parent: Option<SceneNodeId>) -> SceneNodeId {
@@ -1441,18 +1325,12 @@ mod tests {
         let id = make_node(&mut g, None);
 
         // Initially MeasureAndPlace (new node)
-        assert_eq!(
-            g.find(id).unwrap().invalidation,
-            InvalidationClass::MeasureAndPlace
-        );
+        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::MeasureAndPlace);
 
         // Mark clean, then move
         g.mark_all_clean();
         g.set_position(id, 10, 20);
-        assert_eq!(
-            g.find(id).unwrap().invalidation,
-            InvalidationClass::PlaceOnly
-        );
+        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::PlaceOnly);
     }
 
     #[test]
@@ -1461,10 +1339,7 @@ mod tests {
         let id = make_node(&mut g, None);
         g.mark_all_clean();
         g.set_opacity(id, 0.5);
-        assert_eq!(
-            g.find(id).unwrap().invalidation,
-            InvalidationClass::PaintOnly
-        );
+        assert_eq!(g.find(id).unwrap().invalidation, InvalidationClass::PaintOnly);
     }
 
     #[test]
@@ -1475,10 +1350,7 @@ mod tests {
 
         g.mark_all_clean();
         assert_eq!(g.find(root).unwrap().invalidation, InvalidationClass::Clean);
-        assert_eq!(
-            g.find(child).unwrap().invalidation,
-            InvalidationClass::Clean
-        );
+        assert_eq!(g.find(child).unwrap().invalidation, InvalidationClass::Clean);
 
         g.set_opacity(child, 0.5);
         let dirty = g.compute_dirty_set();
@@ -1498,10 +1370,7 @@ mod tests {
         g.compute_dirty_set();
         let hash_after = g.find(id).unwrap().subtree_hash;
 
-        assert_ne!(
-            hash_before, hash_after,
-            "hash should change when primitive changes"
-        );
+        assert_ne!(hash_before, hash_after, "hash should change when primitive changes");
     }
 
     #[test]
@@ -1606,10 +1475,7 @@ mod tests {
         let _root = make_node(&mut g, None);
         g.mark_all_clean();
         let dirty = g.compute_dirty_set();
-        assert!(
-            dirty.is_empty(),
-            "no nodes should be dirty after mark_all_clean"
-        );
+        assert!(dirty.is_empty(), "no nodes should be dirty after mark_all_clean");
     }
 
     #[test]
@@ -1632,13 +1498,8 @@ mod tests {
     fn render_primitive_tag_uniqueness() {
         // Each variant must have a unique tag
         let tags: Vec<u64> = vec![
-            RenderPrimitive::Rect {
-                width: 0,
-                height: 0,
-                radius: 0,
-                color: Rgba8::new(0, 0, 0, 0),
-            }
-            .tag(),
+            RenderPrimitive::Rect { width: 0, height: 0, radius: 0, color: Rgba8::new(0, 0, 0, 0) }
+                .tag(),
             RenderPrimitive::StrokeRect {
                 width: 0,
                 height: 0,
@@ -1647,31 +1508,13 @@ mod tests {
                 color: Rgba8::new(0, 0, 0, 0),
             }
             .tag(),
-            RenderPrimitive::Surface {
-                surface_handle: 0,
-                src_x: 0,
-                src_y: 0,
-                width: 0,
-                height: 0,
-            }
-            .tag(),
-            RenderPrimitive::Text {
-                content: "",
-                font_scale: 0,
-                color: Rgba8::new(0, 0, 0, 0),
-            }
-            .tag(),
-            RenderPrimitive::BackdropFilter {
-                blur_radius: 0,
-                saturation_percent: 0,
-            }
-            .tag(),
+            RenderPrimitive::Surface { surface_handle: 0, src_x: 0, src_y: 0, width: 0, height: 0 }
+                .tag(),
+            RenderPrimitive::Text { content: "", font_scale: 0, color: Rgba8::new(0, 0, 0, 0) }
+                .tag(),
+            RenderPrimitive::BackdropFilter { blur_radius: 0, saturation_percent: 0 }.tag(),
             RenderPrimitive::Group { shadow: None }.tag(),
-            RenderPrimitive::Cursor {
-                hotspot_x: 0,
-                hotspot_y: 0,
-            }
-            .tag(),
+            RenderPrimitive::Cursor { hotspot_x: 0, hotspot_y: 0 }.tag(),
         ];
         let mut seen = alloc::vec::Vec::new();
         for t in &tags {
@@ -1729,14 +1572,8 @@ mod tests {
         g.set_opacity(leaf, 0.5); // PaintOnly
         let dirty = g.compute_dirty_set();
         assert!(dirty.contains(&leaf) && dirty.contains(&mid) && dirty.contains(&root));
-        assert_eq!(
-            g.find(root).unwrap().invalidation,
-            InvalidationClass::PaintOnly
-        );
-        assert_eq!(
-            g.find(mid).unwrap().invalidation,
-            InvalidationClass::PaintOnly
-        );
+        assert_eq!(g.find(root).unwrap().invalidation, InvalidationClass::PaintOnly);
+        assert_eq!(g.find(mid).unwrap().invalidation, InvalidationClass::PaintOnly);
     }
 
     #[test]
@@ -1832,10 +1669,7 @@ mod tests {
         let a = TileRect { x: 0, y: 0, width: 100, height: 100 };
         let b = TileRect { x: 50, y: 50, width: 100, height: 100 };
         // Overlap.
-        assert_eq!(
-            intersect_tile(a, b),
-            Some(TileRect { x: 50, y: 50, width: 50, height: 50 })
-        );
+        assert_eq!(intersect_tile(a, b), Some(TileRect { x: 50, y: 50, width: 50, height: 50 }));
         // Disjoint → None.
         let far = TileRect { x: 200, y: 200, width: 10, height: 10 };
         assert_eq!(intersect_tile(a, far), None);

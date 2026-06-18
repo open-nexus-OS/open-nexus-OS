@@ -15,10 +15,12 @@ extern crate alloc;
 
 pub mod keyframe;
 pub mod property;
+pub mod scroll;
 pub mod spring;
 pub mod timeline;
 
 pub use keyframe::{Easing, KeyframeTrack};
 pub use property::{AnimProp, LayerId, SceneUpdate};
+pub use scroll::{ScrollConfig, ScrollMomentum};
 pub use spring::{SpringConfig, SpringSim};
 pub use timeline::AnimationDriver;

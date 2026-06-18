@@ -7,10 +7,10 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
 
-use nexus_abi::{debug_println, debug_write, mmio_map, nsec, yield_, AbiError};
-use nexus_ipc::{KernelServer, Server as _, Wait};
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
 use core::time::Duration;
+use nexus_abi::{debug_println, debug_write, mmio_map, nsec, yield_, AbiError};
+use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::traits::GfxBackend;
@@ -29,6 +29,11 @@ pub const OP_MOVE_CURSOR: u8 = 2;
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
 pub const OP_UPLOAD_CURSOR: u8 = 5;
+/// Scroll fast path: windowd sends the chat layer's new absolute atlas source row
+/// (5 bytes: op + u32). gpud re-samples the retained scrollable layer at that row
+/// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
+/// `OP_MOVE_CURSOR`.
+pub const OP_SET_CHAT_SCROLL: u8 = 6;
 /// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
 /// as the gpud server-recv timeout: an idle recv wakes here to re-present.
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
@@ -170,12 +175,6 @@ fn service_requests(
     let mut present_count: u32 = 0;
     let mut present_ns_sum: u64 = 0;
     let mut present_ns_max: u64 = 0;
-    // Debug pipeline-bisection: dump an ASCII thumbnail of our actual output (the
-    // windowd source plane and the GPU scanout readback) over the serial console.
-    // Headless — no host display. Fires once at an early settled frame, then
-    // periodically, so we can SEE what we render and where the frame breaks.
-    let mut total_presents: u32 = 0;
-    const THUMBNAIL_EVERY: u32 = 240;
     // Present-chain hop trace (graphical-output bisection): emit the per-frame
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
@@ -279,8 +278,9 @@ fn service_requests(
                                     match backend.present_committed(&scene_cb) {
                                         Ok(_) => {
                                             if trace {
-                                                let _ =
-                                                    debug_println(crate::markers::GPUD_CHAIN_EXEC_OK);
+                                                let _ = debug_println(
+                                                    crate::markers::GPUD_CHAIN_EXEC_OK,
+                                                );
                                             }
                                         }
                                         Err(e) => {
@@ -318,14 +318,6 @@ fn service_requests(
                                         present_ns_sum = 0;
                                         present_ns_max = 0;
                                     }
-                                    total_presents += 1;
-                                    // NOTE: the debug thumbnail did
-                                    // `transfer_from_host(GL_SCANOUT_RES)` (reading the
-                                    // scanout texture back) which desyncs QEMU's GL
-                                    // present → black display. It must NOT run in the
-                                    // live present path. Kept off; re-enable only for
-                                    // offline RT inspection that doesn't also present.
-                                    let _ = total_presents;
                                     st
                                 }
                                 Err(_) => {
@@ -720,6 +712,27 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
                 return STATUS_DEVICE_ERROR;
             }
             STATUS_OK
+        }
+        OP_SET_CHAT_SCROLL => {
+            if frame.len() < 5 {
+                return STATUS_MALFORMED;
+            }
+            let src_row = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+            // Re-sample the retained scrollable layer at the new atlas row + GPU
+            // re-composite (~54µs, no atlas re-upload). Decoupled from windowd's
+            // CPU compose — the scroll fast path, like OP_MOVE_CURSOR for the cursor.
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            {
+                return match backend.set_chat_scroll(src_row) {
+                    Ok(()) => STATUS_OK,
+                    Err(_) => STATUS_DEVICE_ERROR,
+                };
+            }
+            #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
+            {
+                let _ = (backend, src_row);
+                STATUS_OK
+            }
         }
         OP_PRESENT_DAMAGE => handle_present_damage(backend, frame),
         _ => STATUS_MALFORMED,

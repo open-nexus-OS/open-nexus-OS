@@ -37,12 +37,7 @@ pub(crate) fn cursor_damage_rect(
     if end_x <= start_x || end_y <= start_y {
         return None;
     }
-    Some(DamageRect {
-        x: start_x,
-        y: start_y,
-        width: end_x - start_x,
-        height: end_y - start_y,
-    })
+    Some(DamageRect { x: start_x, y: start_y, width: end_x - start_x, height: end_y - start_y })
 }
 
 pub(crate) fn inflate_effect_rect(rect: ProofBoxRect, mode: VisibleBootstrapMode) -> DamageRect {
@@ -51,22 +46,9 @@ pub(crate) fn inflate_effect_rect(rect: ProofBoxRect, mode: VisibleBootstrapMode
         .saturating_add(2);
     let x = rect.x.saturating_sub(pad);
     let y = rect.y.saturating_sub(pad);
-    let end_x = rect
-        .x
-        .saturating_add(rect.width)
-        .saturating_add(pad)
-        .min(mode.width);
-    let end_y = rect
-        .y
-        .saturating_add(rect.height)
-        .saturating_add(pad)
-        .min(mode.height);
-    DamageRect {
-        x,
-        y,
-        width: end_x.saturating_sub(x),
-        height: end_y.saturating_sub(y),
-    }
+    let end_x = rect.x.saturating_add(rect.width).saturating_add(pad).min(mode.width);
+    let end_y = rect.y.saturating_add(rect.height).saturating_add(pad).min(mode.height);
+    DamageRect { x, y, width: end_x.saturating_sub(x), height: end_y.saturating_sub(y) }
 }
 
 pub(crate) fn damage_rects_intersect(a: DamageRect, b: DamageRect) -> bool {

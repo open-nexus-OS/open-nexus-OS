@@ -227,6 +227,76 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_alpha: u32,
         backdrop_blur: u32,
     ) -> Result<(), GfxError> {
+        self.try_composite_layer_tagged(
+            src_row_abs,
+            src_x,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            opacity,
+            corner_radius,
+            shadow_blur,
+            shadow_offset_y,
+            shadow_alpha,
+            backdrop_blur,
+            false,
+        )
+    }
+
+    /// Composite a layer marked **scrollable** — the backend retains it and can
+    /// re-sample it at a new `src_row_abs` on a lightweight scroll command (the
+    /// GPU scroll fast path), instead of the embedder re-composing per frame.
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_composite_layer_scrollable(
+        &mut self,
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+        backdrop_blur: u32,
+    ) -> Result<(), GfxError> {
+        self.try_composite_layer_tagged(
+            src_row_abs,
+            src_x,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            opacity,
+            corner_radius,
+            shadow_blur,
+            shadow_offset_y,
+            shadow_alpha,
+            backdrop_blur,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_composite_layer_tagged(
+        &mut self,
+        src_row_abs: u32,
+        src_x: u32,
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        opacity: u32,
+        corner_radius: u32,
+        shadow_blur: u32,
+        shadow_offset_y: i32,
+        shadow_alpha: u32,
+        backdrop_blur: u32,
+        scrollable: bool,
+    ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
         }
@@ -243,6 +313,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
+            scrollable,
         })
     }
 
