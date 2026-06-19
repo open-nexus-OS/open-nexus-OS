@@ -157,10 +157,12 @@ pub(crate) struct ShellWindow {
     pub(crate) surface_dirty: bool,
     /// Cached blurred backdrop validity (blur once per open/move).
     pub(crate) blur_valid: bool,
-    /// Content surface (off-screen atlas) — the caller rasterizes the window into it.
-    pub(crate) atlas: AtlasSurface,
-    /// Cached blurred backdrop behind the window (atlas surface).
-    pub(crate) blur_cache: AtlasSurface,
+    /// Content surface (off-screen atlas) — `Some` only while the window is
+    /// *mounted* (shown). Acquired from the atlas allocator on show, released on
+    /// hide, so a closed window costs zero atlas rows (the pool model).
+    pub(crate) atlas: Option<AtlasSurface>,
+    /// Cached blurred backdrop behind the window — mounted alongside `atlas`.
+    pub(crate) blur_cache: Option<AtlasSurface>,
 }
 
 impl ShellWindow {
@@ -177,8 +179,6 @@ impl ShellWindow {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
-        atlas: AtlasSurface,
-        blur_cache: AtlasSurface,
     ) -> Self {
         Self {
             title,
@@ -198,8 +198,32 @@ impl ShellWindow {
             scroll: 0,
             surface_dirty: true,
             blur_valid: false,
-            atlas,
-            blur_cache,
+            atlas: None,
+            blur_cache: None,
+        }
+    }
+
+    /// True while the window holds its atlas surfaces (is shown).
+    pub(crate) fn is_mounted(&self) -> bool {
+        self.atlas.is_some() && self.blur_cache.is_some()
+    }
+
+    /// Attach freshly-allocated atlas surfaces (on show). Forces a re-render and
+    /// invalidates the blur cache so the new rows are painted before composite.
+    pub(crate) fn mount(&mut self, atlas: AtlasSurface, blur_cache: AtlasSurface) {
+        self.atlas = Some(atlas);
+        self.blur_cache = Some(blur_cache);
+        self.surface_dirty = true;
+        self.blur_valid = false;
+    }
+
+    /// Detach the atlas surfaces (on hide) so the caller can return them to the
+    /// allocator. Returns `(content, blur_cache)` when the window was mounted.
+    pub(crate) fn unmount(&mut self) -> Option<(AtlasSurface, AtlasSurface)> {
+        match (self.atlas.take(), self.blur_cache.take()) {
+            (Some(a), Some(b)) => Some((a, b)),
+            // Partial state can't occur (mount sets both), but stay total.
+            _ => None,
         }
     }
 
@@ -279,11 +303,12 @@ impl ShellWindow {
     }
 
     /// Snapshot the immutable values the glass composite needs, so the caller can
-    /// take them before borrowing the command buffer's encoder.
-    pub(crate) fn glass_params(&self) -> GlassCompositeParams {
-        GlassCompositeParams {
-            atlas_row: self.atlas.abs_row,
-            blur_cache_row: self.blur_cache.abs_row,
+    /// take them before borrowing the command buffer's encoder. `None` when the
+    /// window is unmounted (no surfaces → nothing to composite).
+    pub(crate) fn glass_params(&self) -> Option<GlassCompositeParams> {
+        Some(GlassCompositeParams {
+            atlas_row: self.atlas?.abs_row,
+            blur_cache_row: self.blur_cache?.abs_row,
             blur_valid: self.blur_valid,
             x: self.x.max(0) as u32,
             y: self.y.max(0) as u32,
@@ -293,7 +318,7 @@ impl ShellWindow {
             shadow_blur: self.shadow_blur,
             shadow_offset_y: self.shadow_offset_y,
             shadow_alpha: self.shadow_alpha,
-        }
+        })
     }
 
     /// Composite the glass window onto the display: restore + blur the backdrop

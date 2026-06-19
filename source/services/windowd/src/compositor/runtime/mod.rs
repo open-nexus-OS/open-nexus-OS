@@ -553,6 +553,10 @@ pub(crate) struct DisplayServerRuntime {
     search: super::shell_window::ShellWindow,
     /// Prefix-filtered words shown in the Search window body.
     search_filtered: Vec<&'static str>,
+    /// Atlas allocator, kept live so windows can acquire surfaces on show and
+    /// release them on hide (the on-demand surface pool — a closed window costs
+    /// zero atlas rows). The boot layers reserved their bands from it in `new`.
+    atlas_alloc: crate::atlas::AtlasAllocator,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -804,15 +808,11 @@ impl DisplayServerRuntime {
         let dropdown_atlas = atlas
             .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
-        // Movable Search window surface (reclaimed-sidebar budget covers it).
-        let search_h = super::desktop_layer::search_full_h();
-        let search_atlas = atlas
-            .alloc(super::desktop_layer::SEARCH_W, search_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
-        let search_blur_cache = atlas
-            .alloc(super::desktop_layer::SEARCH_W, search_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
         // The Search window as a ShellWindow instance (the reusable glass frame).
+        // Its atlas surfaces are NOT reserved at boot — they are acquired from the
+        // allocator on show and released on hide (on-demand pool). The boot path
+        // instead reserves a contiguous tail (`WINDOW_POOL_ROWS`) for them below.
+        let search_h = super::desktop_layer::search_full_h();
         let search = super::shell_window::ShellWindow::new(
             "Search",
             120,
@@ -825,15 +825,16 @@ impl DisplayServerRuntime {
             18,
             5,
             90,
-            search_atlas,
-            search_blur_cache,
         );
-        // Glass side panel surface — narrow, tall (clamped to the atlas budget).
+        // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
+        // left for the on-demand window pool (content + blur cache); without this
+        // reserve the panel's "take the rest" would starve a later search show.
+        const WINDOW_POOL_ROWS: u32 = 2 * super::desktop_layer::search_full_h() + 16;
         let sidepanel_h = mode
             .height
             .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
             .max(1)
-            .min(atlas.rows_remaining());
+            .min(atlas.rows_remaining().saturating_sub(WINDOW_POOL_ROWS).max(1));
         let sidepanel_atlas = atlas
             .alloc(super::desktop_layer::SIDEPANEL_W, sidepanel_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
@@ -944,6 +945,7 @@ impl DisplayServerRuntime {
                 super::desktop_layer::search_filter("", &mut v);
                 v
             },
+            atlas_alloc: atlas,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1390,9 +1392,7 @@ impl DisplayServerRuntime {
             match self.search.press(cursor_x, cursor_y) {
                 WindowPress::Close => {
                     window_consumed_press = true;
-                    self.search.visible = false;
-                    self.search.end_drag();
-                    self.queue_dirty_rect(self.search_window_rect());
+                    self.close_search();
                 }
                 WindowPress::TitleDrag => {
                     window_consumed_press = true;
@@ -1513,17 +1513,11 @@ impl DisplayServerRuntime {
                             }
                         }
                         DropdownItem::Search => {
-                            self.search.visible = !self.search.visible;
                             if self.search.visible {
-                                super::desktop_layer::search_filter(
-                                    self.state.text_input(),
-                                    &mut self.search_filtered,
-                                );
-                                self.search.scroll = 0;
-                                self.search.blur_valid = false;
+                                self.close_search();
+                            } else {
+                                self.open_search();
                             }
-                            self.search.surface_dirty = true;
-                            self.queue_dirty_rect(self.search_window_rect());
                         }
                     }
                 }
@@ -2286,6 +2280,45 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// Show the Search window: acquire its atlas surfaces from the pool, refresh
+    /// the filtered list, and damage its region. No-op if already open. If the
+    /// atlas pool can't satisfy the request the window simply stays closed (the
+    /// surfaces are released again), never a boot/handoff failure.
+    fn open_search(&mut self) {
+        if !self.search.is_mounted() {
+            let w = super::desktop_layer::SEARCH_W;
+            let h = self.search.h;
+            let Some(content) = self.atlas_alloc.alloc(w, h) else {
+                let _ = debug_println("windowd: search open — atlas pool full (content)");
+                return;
+            };
+            let Some(blur) = self.atlas_alloc.alloc(w, h) else {
+                self.atlas_alloc.free(content);
+                let _ = debug_println("windowd: search open — atlas pool full (blur)");
+                return;
+            };
+            self.search.mount(content, blur);
+        }
+        super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
+        self.search.scroll = 0;
+        self.search.visible = true;
+        self.search.surface_dirty = true;
+        self.queue_dirty_rect(self.search_window_rect());
+    }
+
+    /// Hide the Search window: release its atlas surfaces back to the pool so the
+    /// closed window costs zero atlas rows, and damage its (now vacated) region.
+    fn close_search(&mut self) {
+        self.search.visible = false;
+        self.search.end_drag();
+        let rect = self.search_window_rect();
+        if let Some((content, blur)) = self.search.unmount() {
+            self.atlas_alloc.free(content);
+            self.atlas_alloc.free(blur);
+        }
+        self.queue_dirty_rect(rect);
+    }
+
     /// Shell-P2b: render the Search window (title + close + filter field +
     /// filtered word list) into its atlas. Re-rendered when the filter text,
     /// close-hover, or visibility changes.
@@ -2297,7 +2330,10 @@ impl DisplayServerRuntime {
         if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
-        let abs_row = self.search.atlas.abs_row;
+        let Some(surface) = self.search.atlas else {
+            return Ok(()); // unmounted (hidden) — nothing to render
+        };
+        let abs_row = surface.abs_row;
         let h = self.search.h;
         let w = super::desktop_layer::SEARCH_W;
         let close_hover = self.search.close_hover;
@@ -2921,7 +2957,7 @@ impl DisplayServerRuntime {
         let dropdown_atlas_row = self.dropdown_atlas.abs_row;
         let dropdown_full_h = self.dropdown_h;
         let dropdown_progress = scene.apps_dropdown_progress;
-        let search_visible = self.search.visible;
+        // `Some` only while the Search window is mounted (shown) → composite it.
         let search_glass = self.search.glass_params();
         let mut built_search_blur = false;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
@@ -3142,10 +3178,10 @@ impl DisplayServerRuntime {
             // 1·search. Movable Search window — the reusable ShellWindow glass
             //     frame (rounded + cached blur + shadow); filterable word list
             //     inside. The glass recipe is shared with the chat window (W3).
-            if search_visible {
+            if let Some(p) = search_glass {
                 built_search_blur = crate::compositor::shell_window::ShellWindow::composite_glass(
                     &mut encoder,
-                    search_glass,
+                    p,
                     mode.width,
                     mode.height,
                 );
