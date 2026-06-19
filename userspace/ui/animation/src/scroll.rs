@@ -21,31 +21,48 @@
 //!     direction change is instant (no velocity to coast the wrong way).
 //!   - **Frame-rate independent** — the per-frame fraction is scaled by real `dt`.
 //!
-//! (Velocity/friction *fling* is Android's TOUCH model — velocity = the finger
-//! release speed the user controls. A wheel has no gesture velocity, so
-//! synthesising one is exactly what felt "random"; we don't.)
+//! TWO input models, ONE shared scroller — exactly like Android's `OverScroller`
+//! (which has both `startScroll` and `fling`):
+//!   - **Wheel / discrete** → [`ScrollMomentum::scroll_wheel`]: each notch extends
+//!     a fixed TARGET, the position eases toward it (decelerate, no overshoot).
+//!     Predictable (N notches = N×), the wheel's "in control" feel.
+//!   - **Touch / trackpad inertia** → [`ScrollMomentum::fling`]: a release
+//!     VELOCITY (px/s) that coasts and decelerates under viscous friction to a
+//!     clean stop, clamped at the edges — Android `OverScroller.fling`.
+//! Both feed the same `pos`, so the list/grid/search/text view all reuse one
+//! mechanism. (A new wheel notch during a fling cancels the coast and takes over
+//! the ease — direction changes stay instant.)
 
-/// Feel knob — how fast the position approaches the target (decelerate rate).
+/// Feel knobs — wheel ease rate + touch fling friction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollConfig {
-    /// Approach rate per second: the position closes ~`rate·dt` of the remaining
-    /// gap each frame. Higher = snappier. ~16 ⇒ a stop settles in ~0.3 s with a
-    /// strong immediate response on the first frame.
+    /// Wheel-ease approach rate per second: the position closes ~`rate·dt` of the
+    /// remaining gap each frame. Higher = snappier. ~16 ⇒ a stop settles in ~0.3 s
+    /// with a strong immediate response on the first frame.
     pub rate_per_s: f32,
+    /// Fling viscous friction (per second): a release velocity decays roughly like
+    /// `e^(-friction·t)`, so coast distance ≈ `velocity / friction`. Higher = a
+    /// shorter, snappier coast. ~4 ⇒ a brisk flick glides ~0.6–0.8 s — the Android
+    /// `OverScroller` touch feel.
+    pub fling_friction_per_s: f32,
 }
 
 impl Default for ScrollConfig {
     fn default() -> Self {
-        Self { rate_per_s: 16.0 }
+        Self { rate_per_s: 16.0, fling_friction_per_s: 4.0 }
     }
 }
 
-/// 1-D smooth scroller over a content extent. Each wheel notch extends the target
-/// by a fixed amount; `tick` eases the position toward it (decelerate).
+/// 1-D scroller over a content extent. Wheel notches extend a target the position
+/// eases toward; a fling injects a velocity that coasts under friction. `tick`
+/// advances whichever is active.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollMomentum {
     pos: f32,
     target: f32,
+    /// Live fling velocity (px/s). Non-zero ⇒ coasting; the ease branch is inert
+    /// while a fling is active (target tracks `pos`).
+    velocity: f32,
     min: f32,
     max: f32,
     config: ScrollConfig,
@@ -62,9 +79,19 @@ const SETTLE_EPS: f32 = 0.4;
 /// crawl regardless of how far you scrolled.
 const MAX_STEP_FRAC: f32 = 0.85;
 
+/// Below this speed (px/s) a fling snaps to a clean stop (no sub-pixel crawl tail).
+const FLING_V_MIN: f32 = 8.0;
+/// Fixed fling integration sub-step (seconds). The fling integrator sub-steps the
+/// frame's `dt` at this granularity so the coast is frame-rate independent (same
+/// `h` whether `tick` is called at 120 Hz or 60 Hz) without needing `exp`/`powf`.
+const FLING_SUBSTEP_S: f32 = 0.002;
+/// Cap on sub-steps per `tick` so a huge `dt` (a stall / very low FPS) can't spin
+/// a long loop; `h` just grows a little past `FLING_SUBSTEP_S` in that rare case.
+const FLING_MAX_SUBSTEPS: i32 = 64;
+
 impl ScrollMomentum {
     pub fn new(config: ScrollConfig) -> Self {
-        Self { pos: 0.0, target: 0.0, min: 0.0, max: 0.0, config }
+        Self { pos: 0.0, target: 0.0, velocity: 0.0, min: 0.0, max: 0.0, config }
     }
 
     pub fn with_defaults() -> Self {
@@ -77,6 +104,10 @@ impl ScrollMomentum {
         self.max = (content - viewport).max(0.0);
         self.pos = self.pos.clamp(self.min, self.max);
         self.target = self.target.clamp(self.min, self.max);
+        // A coast can't continue once clamped to an edge.
+        if self.pos <= self.min || self.pos >= self.max {
+            self.velocity = 0.0;
+        }
     }
 
     /// Current scroll offset (px from the top), always within `[0, max]`.
@@ -100,9 +131,10 @@ impl ScrollMomentum {
         self.max
     }
 
-    /// True while the position is still easing toward the target.
+    /// True while the position is still easing toward the target OR coasting from
+    /// a fling — i.e. the present pacer must keep ticking until motion settles.
     pub fn is_animating(&self) -> bool {
-        self.pos != self.target
+        self.pos != self.target || self.velocity != 0.0
     }
 
     /// Wheel/scroll input: extend the TARGET by a FIXED `notch_px` (positive =
@@ -112,15 +144,26 @@ impl ScrollMomentum {
     /// simply heads to the new (lower/higher) target from the next frame.
     pub fn scroll_wheel(&mut self, notch_px: f32) -> i32 {
         if notch_px.is_finite() && notch_px != 0.0 {
+            // A wheel notch cancels any in-flight coast and takes over the ease,
+            // so a deliberate notch (incl. a reversal) responds instantly.
+            self.velocity = 0.0;
             self.target = (self.target + notch_px).clamp(self.min, self.max);
         }
         self.offset_px()
     }
 
-    /// Alias for non-wheel callers (no gesture-velocity source) — extends the
-    /// target like a notch.
-    pub fn fling(&mut self, delta_px: f32) {
-        let _ = self.scroll_wheel(delta_px);
+    /// Android `OverScroller.fling`: inject a release **velocity** (px/s, positive
+    /// = down). The position coasts and decelerates under viscous friction to a
+    /// clean stop, clamped at the edges. Successive flings before the coast settles
+    /// **accumulate** velocity (a fast repeated flick travels farther). For
+    /// touch/trackpad inertia; wheel input uses [`Self::scroll_wheel`].
+    pub fn fling(&mut self, velocity_px_s: f32) {
+        if !velocity_px_s.is_finite() || velocity_px_s == 0.0 {
+            return;
+        }
+        // Fling is authoritative: cancel a pending ease so the coast owns `pos`.
+        self.target = self.pos;
+        self.velocity += velocity_px_s;
     }
 
     /// Jump immediately by `delta` px, motion stopped (programmatic scroll-to).
@@ -128,6 +171,7 @@ impl ScrollMomentum {
         let v = (self.pos + delta).clamp(self.min, self.max);
         self.pos = v;
         self.target = v;
+        self.velocity = 0.0;
     }
 
     /// Set the absolute position immediately, motion stopped.
@@ -135,6 +179,7 @@ impl ScrollMomentum {
         let v = offset.clamp(self.min, self.max);
         self.pos = v;
         self.target = v;
+        self.velocity = 0.0;
     }
 
     /// Advance the ease by real elapsed `dt_ns` (frame-rate independent): close a
@@ -143,10 +188,43 @@ impl ScrollMomentum {
     pub fn tick(&mut self, dt_ns: u64) -> bool {
         // Hardening: a non-finite state must never stick "animating" (else the
         // present pacer never idles → hang). Snap to a clean stop.
-        if !self.pos.is_finite() || !self.target.is_finite() {
+        if !self.pos.is_finite() || !self.target.is_finite() || !self.velocity.is_finite() {
             self.pos = self.min;
             self.target = self.min;
+            self.velocity = 0.0;
             return false;
+        }
+        let dt = (dt_ns as f64 * 1e-9) as f32;
+        // FLING: coast + viscous friction, integrated at a fixed sub-step so the
+        // distance is frame-rate independent (same `h` at 120 Hz or 60 Hz). Edge
+        // hit or sub-threshold speed → clean stop. Takes priority over the ease.
+        if self.velocity != 0.0 {
+            // Round the sub-step count up without `f32::ceil` (libm, not in
+            // no_std): truncating then +1 always over-covers `dt` (an exact
+            // multiple just gets one extra, finer sub-step — harmless).
+            let steps = ((dt / FLING_SUBSTEP_S) as i32 + 1).clamp(1, FLING_MAX_SUBSTEPS);
+            let h = dt / steps as f32;
+            for _ in 0..steps {
+                self.pos += self.velocity * h;
+                self.velocity *= 1.0 - (self.config.fling_friction_per_s * h).min(1.0);
+                if self.pos <= self.min {
+                    self.pos = self.min;
+                    self.velocity = 0.0;
+                    break;
+                }
+                if self.pos >= self.max {
+                    self.pos = self.max;
+                    self.velocity = 0.0;
+                    break;
+                }
+                if self.velocity.abs() < FLING_V_MIN {
+                    self.velocity = 0.0;
+                    break;
+                }
+            }
+            self.pos = self.pos.clamp(self.min, self.max);
+            self.target = self.pos; // keep the ease branch inert; target = landing
+            return self.velocity != 0.0;
         }
         if self.pos == self.target {
             return false;
@@ -302,6 +380,129 @@ mod tests {
         assert_eq!(s.offset_px(), 400, "clamps at bottom");
         s.set_extent(600.0, 700.0); // max_scroll = 100 (content shrank)
         assert_eq!(s.offset_px(), 100, "re-clamps stranded offset");
+    }
+
+    #[test]
+    fn fling_coasts_decelerates_and_settles() {
+        // A release velocity coasts forward, decelerates (ease-out: biggest step
+        // first), stays monotonic + in bounds, and stops cleanly (no crawl tail).
+        let mut s = ScrollMomentum::with_defaults();
+        s.set_extent(600.0, 1_000_000.0);
+        s.fling(3000.0); // brisk downward flick (px/s)
+        let (mut frames, mut prev, mut peak, mut peak_frame) = (0u32, 0.0f32, 0.0f32, 0u32);
+        while s.tick(FRAME_120) && frames < 5000 {
+            let p = s.offset();
+            let step = p - prev;
+            assert!(step >= -0.01, "monotonic down during a down-fling: {step}");
+            if step > peak {
+                peak = step;
+                peak_frame = frames;
+            }
+            prev = p;
+            frames += 1;
+        }
+        std::eprintln!("fling(3000): {frames}f, {}px, peak {peak}px @f{peak_frame}", s.offset());
+        assert!(frames >= 8, "coasts over many frames (a glide), not instant: {frames}");
+        assert!(frames <= 360, "settles in a sane time: {frames}f");
+        assert!(peak_frame <= frames / 3, "decelerates (ease-out): peak early");
+        assert!(!s.is_animating(), "stops cleanly");
+        assert!(s.offset() > 0.0, "actually moved");
+    }
+
+    #[test]
+    fn faster_fling_travels_farther() {
+        fn coast(v: f32) -> f32 {
+            let mut s = ScrollMomentum::with_defaults();
+            s.set_extent(600.0, 10_000_000.0);
+            s.fling(v);
+            let mut f = 0;
+            while s.tick(FRAME_120) && f < 5000 {
+                f += 1;
+            }
+            s.offset()
+        }
+        let slow = coast(1000.0);
+        let fast = coast(4000.0);
+        std::eprintln!("fling coast — 1000px/s={slow}px, 4000px/s={fast}px");
+        assert!(fast > slow * 3.0, "4× velocity must coast much farther: {fast} vs {slow}");
+    }
+
+    #[test]
+    fn fling_accumulates_before_settling() {
+        // Successive flicks before the coast settles add velocity (the wheel-spin /
+        // repeated-swipe case) → farther than a single flick.
+        let single = {
+            let mut s = ScrollMomentum::with_defaults();
+            s.set_extent(600.0, 10_000_000.0);
+            s.fling(1500.0);
+            while s.tick(FRAME_120) {}
+            s.offset()
+        };
+        let triple = {
+            let mut s = ScrollMomentum::with_defaults();
+            s.set_extent(600.0, 10_000_000.0);
+            s.fling(1500.0);
+            s.fling(1500.0);
+            s.fling(1500.0);
+            while s.tick(FRAME_120) {}
+            s.offset()
+        };
+        std::eprintln!("accumulate — 1×={single}px, 3×={triple}px");
+        assert!(triple > single * 2.0, "accumulated flings coast farther: {triple} vs {single}");
+    }
+
+    #[test]
+    fn fling_is_frame_rate_independent() {
+        fn coast(dt: u64) -> f32 {
+            let mut s = ScrollMomentum::with_defaults();
+            s.set_extent(600.0, 10_000_000.0);
+            s.fling(3000.0);
+            let mut f = 0;
+            while s.tick(dt) && f < 10_000 {
+                f += 1;
+            }
+            s.offset()
+        }
+        let a = coast(8_333_333); // 120 Hz
+        let b = coast(16_666_667); // 60 Hz
+        std::eprintln!("fling frame-rate: 120Hz={a}px 60Hz={b}px");
+        assert!((a - b).abs() <= a / 20.0 + 2.0, "same coast regardless of frame rate: {a} vs {b}");
+    }
+
+    #[test]
+    fn fling_clamps_and_stops_at_edge() {
+        let mut s = ScrollMomentum::with_defaults();
+        s.set_extent(600.0, 1_000.0); // max_scroll = 400
+        s.fling(50_000.0); // way more than enough to reach the bottom
+        let mut f = 0;
+        while s.tick(FRAME_120) && f < 5000 {
+            f += 1;
+        }
+        assert_eq!(s.offset_px(), 400, "stops clamped at the bottom edge");
+        assert!(!s.is_animating(), "no residual coast past the edge");
+    }
+
+    #[test]
+    fn wheel_notch_cancels_an_active_fling() {
+        // A deliberate wheel notch during a coast takes over (ease to the new
+        // target) — the coast does not keep dragging the position.
+        let mut s = ScrollMomentum::with_defaults();
+        s.set_extent(600.0, 1_000_000.0);
+        s.fling(4000.0);
+        s.tick(FRAME_120); // begin coasting
+        let p = s.offset();
+        s.scroll_wheel(-30.0); // reverse notch
+        assert!(s.target() < p + 1.0, "target heads to the notch, not the coast landing");
+        s.tick(FRAME_120);
+        // No residual downward velocity dragging us further down past the notch ease.
+        let settle_frames = {
+            let mut f = 0;
+            while s.tick(FRAME_120) && f < 5000 {
+                f += 1;
+            }
+            f
+        };
+        assert!(settle_frames < 200, "settles to the notch target promptly: {settle_frames}f");
     }
 
     #[test]

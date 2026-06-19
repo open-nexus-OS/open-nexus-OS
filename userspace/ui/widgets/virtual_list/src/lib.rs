@@ -343,10 +343,12 @@ impl<P: ItemProvider> VirtualList<P> {
         self.visible_range.clone()
     }
 
-    /// Pure momentum flick — inject a velocity impulse (no immediate step). For
-    /// touch-release/inertia; wheel input should use [`Self::scroll_wheel`].
-    pub fn fling(&mut self, delta: FxPx) {
-        self.scroll.fling(delta.as_i32() as f32);
+    /// Touch/trackpad inertia — inject a release **velocity** (px/s, positive =
+    /// down) that coasts and decelerates under the shared [`ScrollMomentum`]'s
+    /// Android-`OverScroller` friction. No immediate step; wheel input should use
+    /// [`Self::scroll_wheel`]. Successive flings before settling accumulate.
+    pub fn fling(&mut self, velocity: FxPx) {
+        self.scroll.fling(velocity.as_i32() as f32);
         self.state = ListState::Scrolling;
     }
 
@@ -858,10 +860,10 @@ mod tests {
         list.set_content_height(FxPx::new(5_000));
         assert_eq!(list.max_scroll(), 4_800, "max_scroll = content - viewport");
 
-        // Repeated downward flicks accumulate the target past the embedder bottom;
-        // it must clamp at max_scroll (no overshoot), and settle exactly there.
+        // A hard downward flick (release velocity) whose coast far exceeds the
+        // embedder bottom must clamp at max_scroll (stop at the edge), not overshoot.
         for _ in 0..20 {
-            list.fling(FxPx::new(500));
+            list.fling(FxPx::new(5_000)); // px/s — accumulates to a huge coast
         }
         let mut guard = 0;
         while list.is_animating() && guard < 5_000 {
