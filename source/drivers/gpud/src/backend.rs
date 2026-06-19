@@ -60,6 +60,20 @@ pub struct VirtioGpuBackend {
     pub(crate) cursor_sprite: alloc::vec::Vec<u8>,
     pub(crate) cursor_sprite_w: u32,
     pub(crate) cursor_sprite_h: u32,
+    /// Real icon sprite (premultiplied BGRA), rendered by windowd from an SVG via
+    /// the nexus-svg HiDPI pipeline and uploaded once. Composited as a GPU sprite
+    /// layer at (`icon_dst_x`,`icon_dst_y`) in the virgl buildup — the production
+    /// "real icon on the GPU compositor" path, reusing the cursor's layer plumbing.
+    /// Empty until uploaded.
+    pub(crate) icon_sprite: alloc::vec::Vec<u8>,
+    pub(crate) icon_sprite_w: u32,
+    pub(crate) icon_sprite_h: u32,
+    pub(crate) icon_dst_x: u32,
+    pub(crate) icon_dst_y: u32,
+    /// On-screen size (logical px) the icon is composited at. May be smaller than
+    /// the sprite (rendered at 2× → supersampled, GPU-downscaled when composited).
+    pub(crate) icon_dst_w: u32,
+    pub(crate) icon_dst_h: u32,
     /// Hardware cursor resource (64×64, cursor queue). `None` until a
     /// successful `upload_cursor` arms the overlay. Unused on display backends
     /// where the overlay is not composited into the captured/shown scanout —
@@ -131,6 +145,14 @@ pub struct VirtioGpuBackend {
     pub(crate) cursor_tex_w: u32,
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) cursor_tex_h: u32,
+    /// Icon sprite uploaded into its own GL sampler texture (same scheme as the
+    /// cursor). Backing VA + dims latched at the first `icon_tex_init`.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) icon_tex_va: usize,
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) icon_tex_w: u32,
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) icon_tex_h: u32,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -247,6 +269,13 @@ impl VirtioGpuBackend {
             cursor_sprite: alloc::vec::Vec::new(),
             cursor_sprite_w: 0,
             cursor_sprite_h: 0,
+            icon_sprite: alloc::vec::Vec::new(),
+            icon_sprite_w: 0,
+            icon_sprite_h: 0,
+            icon_dst_x: 0,
+            icon_dst_y: 0,
+            icon_dst_w: 0,
+            icon_dst_h: 0,
             cursor_resource_id: None,
             cursor_hot: (0, 0),
             cursor_owned: false,
@@ -283,6 +312,12 @@ impl VirtioGpuBackend {
             cursor_tex_w: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             cursor_tex_h: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            icon_tex_va: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            icon_tex_w: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            icon_tex_h: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_atlas_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -1417,6 +1452,36 @@ impl VirtioGpuBackend {
         self.cursor_sprite.extend_from_slice(&bgra[..needed]);
         self.cursor_sprite_w = width;
         self.cursor_sprite_h = height;
+        Ok(())
+    }
+
+    /// Store a real icon sprite (premultiplied BGRA) plus its target position.
+    /// Composited as a GPU sprite layer in the virgl buildup (`icon_tex_init` +
+    /// `composite_icon_rt`), the same plumbing the cursor uses.
+    #[allow(clippy::too_many_arguments)]
+    pub fn store_icon_sprite(
+        &mut self,
+        bgra: &[u8],
+        width: u32,
+        height: u32,
+        dst_x: u32,
+        dst_y: u32,
+        dst_w: u32,
+        dst_h: u32,
+    ) -> Result<(), GfxError> {
+        let needed = (width as usize).saturating_mul(height as usize).saturating_mul(4);
+        if needed == 0 || bgra.len() < needed {
+            return Err(GfxError::InvalidArgument);
+        }
+        self.icon_sprite.clear();
+        self.icon_sprite.extend_from_slice(&bgra[..needed]);
+        self.icon_sprite_w = width;
+        self.icon_sprite_h = height;
+        self.icon_dst_x = dst_x;
+        self.icon_dst_y = dst_y;
+        // Fall back to the sprite's native size when no explicit dest size given.
+        self.icon_dst_w = if dst_w == 0 { width } else { dst_w };
+        self.icon_dst_h = if dst_h == 0 { height } else { dst_h };
         Ok(())
     }
 

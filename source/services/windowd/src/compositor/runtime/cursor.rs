@@ -128,6 +128,58 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Upload the real Lucide icon sprite to gpud once (TASK #61 "real icon
+    /// layer"). gpud composites it as a GPU sprite layer on the virgl scanout,
+    /// reusing the cursor's texture/sprite-layer plumbing. Blocking send (a
+    /// one-shot at startup) + a brief reply drain so the 1-byte ack doesn't leak
+    /// into the present pipeline; positioned near the top-left of the desktop.
+    pub(super) fn upload_icon_to_gpud(&mut self) {
+        if !self.ensure_gpud_client() {
+            return;
+        }
+        let bitmap = crate::assets::SHELL_ICON_BGRA;
+        let w = crate::assets::SHELL_ICON_WIDTH;
+        let h = crate::assets::SHELL_ICON_HEIGHT;
+        let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+        if bgra_len == 0 || bgra_len > bitmap.len() {
+            return;
+        }
+        let dst_x: u32 = 48;
+        let dst_y: u32 = 48;
+        // On-screen size = the logical icon size; the texture is rendered at 2×
+        // (supersampled) and GPU-downscaled to this, so it's crisp.
+        let dst_w: u32 = crate::assets::SHELL_ICON_LOGICAL;
+        let dst_h: u32 = crate::assets::SHELL_ICON_LOGICAL;
+        // Frame: [op] + [tex_w] + [tex_h] + [dst_x] + [dst_y] + [dst_w] + [dst_h] + [bgra]
+        let total = 25usize.saturating_add(bgra_len);
+        let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
+        frame[0] = GPU_UPLOAD_ICON_OP;
+        frame[1..5].copy_from_slice(&w.to_le_bytes());
+        frame[5..9].copy_from_slice(&h.to_le_bytes());
+        frame[9..13].copy_from_slice(&dst_x.to_le_bytes());
+        frame[13..17].copy_from_slice(&dst_y.to_le_bytes());
+        frame[17..21].copy_from_slice(&dst_w.to_le_bytes());
+        frame[21..25].copy_from_slice(&dst_h.to_le_bytes());
+        frame[25..total].copy_from_slice(&bitmap[..bgra_len]);
+        self.drain_gpud_replies();
+        let Some(client) = self.gpud_client.as_ref() else {
+            return;
+        };
+        if client.send(&frame, Wait::Blocking).is_err() {
+            let _ = debug_println("windowd: shell icon upload failed");
+            return;
+        }
+        // Drain the 1-byte status ack (present acks seen meanwhile are accounted).
+        let mut reply = [0u8; 8];
+        for _ in 0..4 {
+            match client.recv_into(Wait::Blocking, &mut reply) {
+                Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => break,
+                _ => break,
+            }
+        }
+        let _ = debug_println("windowd: shell icon uploaded");
+    }
+
     /// Hardware-cursor hot path: ship the pointer position to gpud's cursor
     /// queue. Fire-and-forget — the 1-byte ack is drained asynchronously and
     /// never touches the present pipeline. No composite, no blit, no present.

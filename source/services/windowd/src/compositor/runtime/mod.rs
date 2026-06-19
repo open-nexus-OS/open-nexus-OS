@@ -69,6 +69,7 @@ const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
 const GPU_MOVE_CURSOR_OP: u8 = 2; // mirrors gpud::OP_MOVE_CURSOR
 const GPU_UPLOAD_CURSOR_OP: u8 = 5; // mirrors gpud::OP_UPLOAD_CURSOR
 const GPU_SET_CHAT_SCROLL_OP: u8 = 6; // mirrors gpud::OP_SET_CHAT_SCROLL
+const GPU_UPLOAD_ICON_OP: u8 = 7; // mirrors gpud::OP_UPLOAD_ICON
 const GPUD_STATUS_OK: u8 = 0;
 /// Extra chat content rows rendered above/below the on-screen viewport so scroll
 /// is a GPU composite offset, not a CPU re-render. Re-render only on overscan
@@ -1049,6 +1050,9 @@ impl DisplayServerRuntime {
         if self.state.cursor_svg_visible {
             self.upload_cursor_bitmap_to_gpud();
         }
+        // Upload the real Lucide icon sprite once; gpud composites it as a GPU
+        // sprite layer on the virgl scanout (TASK #61 "real icon layer").
+        self.upload_icon_to_gpud();
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }

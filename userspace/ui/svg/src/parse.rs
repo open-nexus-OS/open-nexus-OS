@@ -10,8 +10,8 @@ use core::str::Chars;
 use hashbrown::HashMap;
 
 use crate::elements::{
-    Color, FillRule, GradientStop, LineCap, LineJoin, Paint, PathCommand, PathData, StrokeStyle,
-    SvgDocument, SvgElement, Transform,
+    Color, FillRule, GradientStop, GradientUnits, LineCap, LineJoin, Paint, PathCommand, PathData,
+    StrokeStyle, SvgDocument, SvgElement, Transform,
 };
 use crate::error::{SvgError, SvgResult};
 use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES};
@@ -376,6 +376,7 @@ const ALLOWED_TAGS: &[&str] = &[
     "polygon",
     "defs",
     "lineargradient",
+    "radialgradient",
     "stop",
 ];
 
@@ -416,6 +417,8 @@ const KNOWN_ATTRS: &[&str] = &[
     "y1",
     "x2",
     "y2",
+    "fx",
+    "fy",
     "points",
     "transform",
     "offset",
@@ -562,75 +565,63 @@ fn parse_element(
             Ok(SvgElement::Polygon { points, fill, stroke, stroke_width, stroke_style, transform, opacity })
         }
         "lineargradient" => {
-            // LinearGradient is a defs entry — parsed inline
+            // LinearGradient is a defs entry — parsed inline. Defaults are the SVG
+            // initial values (a left→right horizontal axis over the unit box).
             let id_attr = get_attr(attrs, "id").unwrap_or("");
-            let x1 = parse_f32_attr(attrs, "x1").unwrap_or(0.0);
-            let y1 = parse_f32_attr(attrs, "y1").unwrap_or(0.0);
-            let x2 = parse_f32_attr(attrs, "x2").unwrap_or(1.0);
-            let y2 = parse_f32_attr(attrs, "y2").unwrap_or(0.0);
+            let x1 = parse_ratio_attr(attrs, "x1", 0.0);
+            let y1 = parse_ratio_attr(attrs, "y1", 0.0);
+            let x2 = parse_ratio_attr(attrs, "x2", 1.0);
+            let y2 = parse_ratio_attr(attrs, "y2", 0.0);
+            let units = parse_gradient_units(attrs);
 
-            // Collect <stop> children
-            let mut stops = AVec::new();
-            loop {
-                let child = tokenizer.next_token()?;
-                match child {
-                    XmlToken::OpenTag { name, attrs: child_attrs } => {
-                        if name.to_lowercase() == "stop" {
-                            let offset = parse_f32_attr(&child_attrs, "offset").unwrap_or(0.0);
-                            let color_str = get_attr(&child_attrs, "stop-color").unwrap_or("#000");
-                            let color = parse_color(color_str);
-                            let stop_opacity =
-                                parse_f32_attr(&child_attrs, "stop-opacity").unwrap_or(1.0);
-                            let mut c = color;
-                            c.a = (color.a as f32 * stop_opacity) as u8;
-                            stops.push(GradientStop { offset, color: c });
-                        } else {
-                            return Err(SvgError::UnsupportedElement {
-                                tag: name,
-                                line: tokenizer.line,
-                            });
-                        }
-                    }
-                    XmlToken::SelfCloseTag { name, attrs: child_attrs } => {
-                        if name.to_lowercase() == "stop" {
-                            let offset = parse_f32_attr(&child_attrs, "offset").unwrap_or(0.0);
-                            let color_str = get_attr(&child_attrs, "stop-color").unwrap_or("#000");
-                            let color = parse_color(color_str);
-                            let stop_opacity =
-                                parse_f32_attr(&child_attrs, "stop-opacity").unwrap_or(1.0);
-                            let mut c = color;
-                            c.a = (color.a as f32 * stop_opacity) as u8;
-                            stops.push(GradientStop { offset, color: c });
-                        }
-                    }
-                    XmlToken::CloseTag { name } => {
-                        if name.to_lowercase() == "lineargradient" {
-                            break;
-                        }
-                    }
-                    XmlToken::Eof => break,
-                    _ => continue,
-                }
-            }
+            let stops = collect_gradient_stops(tokenizer, "lineargradient")?;
 
             let grad =
-                SvgElement::LinearGradient { id: id_attr.to_string(), x1, y1, x2, y2, stops };
+                SvgElement::LinearGradient { id: id_attr.to_string(), x1, y1, x2, y2, stops, units };
+            if !id_attr.is_empty() {
+                defs.insert(id_attr.to_string(), grad.clone());
+            }
+            Ok(grad)
+        }
+        "radialgradient" => {
+            // RadialGradient defs entry. SVG initial values: centre + radius at 50%
+            // of the unit box; the focal point defaults to the centre.
+            let id_attr = get_attr(attrs, "id").unwrap_or("");
+            let cx = parse_ratio_attr(attrs, "cx", 0.5);
+            let cy = parse_ratio_attr(attrs, "cy", 0.5);
+            let r = parse_ratio_attr(attrs, "r", 0.5);
+            let fx = parse_ratio_attr(attrs, "fx", cx);
+            let fy = parse_ratio_attr(attrs, "fy", cy);
+            let units = parse_gradient_units(attrs);
+
+            let stops = collect_gradient_stops(tokenizer, "radialgradient")?;
+
+            let grad = SvgElement::RadialGradient {
+                id: id_attr.to_string(),
+                cx,
+                cy,
+                r,
+                fx,
+                fy,
+                stops,
+                units,
+            };
             if !id_attr.is_empty() {
                 defs.insert(id_attr.to_string(), grad.clone());
             }
             Ok(grad)
         }
         "stop" => {
-            let offset = parse_f32_attr(attrs, "offset").unwrap_or(0.0);
-            let color_str = get_attr(attrs, "stop-color").unwrap_or("#000");
-            let color = parse_color(color_str);
+            // A bare <stop> (outside a gradient) — degenerate; wrap it so the
+            // parser stays total. Not rendered on its own.
             Ok(SvgElement::LinearGradient {
                 id: AString::new(),
                 x1: 0.0,
                 y1: 0.0,
                 x2: 0.0,
                 y2: 0.0,
-                stops: vec![GradientStop { offset, color }],
+                stops: vec![parse_stop(attrs)],
+                units: GradientUnits::default(),
             })
         }
         _ => Err(SvgError::UnsupportedElement { tag: tag.to_string(), line: tokenizer.line }),
@@ -647,6 +638,79 @@ fn get_attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
 
 fn parse_f32_attr(attrs: &[(String, String)], name: &str) -> Option<f32> {
     get_attr(attrs, name).and_then(|v| v.parse::<f32>().ok())
+}
+
+/// Case-insensitive attribute lookup — for camelCase presentation attributes
+/// like `gradientUnits` that authors may write in varying case.
+fn get_attr_ci<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    attrs.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+}
+
+/// Parse a gradient ratio value: a plain number, or a percentage (`50%` → 0.5).
+fn parse_ratio(s: &str) -> Option<f32> {
+    let s = s.trim();
+    if let Some(p) = s.strip_suffix('%') {
+        p.trim().parse::<f32>().ok().map(|v| v / 100.0)
+    } else {
+        s.parse::<f32>().ok()
+    }
+}
+
+fn parse_ratio_attr(attrs: &[(String, String)], name: &str, default: f32) -> f32 {
+    get_attr(attrs, name).and_then(parse_ratio).unwrap_or(default)
+}
+
+/// `gradientUnits`, defaulting to the SVG initial value `objectBoundingBox`.
+fn parse_gradient_units(attrs: &[(String, String)]) -> GradientUnits {
+    match get_attr_ci(attrs, "gradientUnits") {
+        Some(v) if v.trim().eq_ignore_ascii_case("userSpaceOnUse") => GradientUnits::UserSpaceOnUse,
+        _ => GradientUnits::ObjectBoundingBox,
+    }
+}
+
+/// Parse one `<stop>` (offset/colour/opacity), tolerating percentage offsets.
+fn parse_stop(attrs: &[(String, String)]) -> GradientStop {
+    let offset = get_attr(attrs, "offset").and_then(parse_ratio).unwrap_or(0.0).clamp(0.0, 1.0);
+    let color_str = get_attr(attrs, "stop-color").unwrap_or("#000");
+    let color = parse_color(color_str);
+    let stop_opacity =
+        get_attr(attrs, "stop-opacity").and_then(parse_ratio).unwrap_or(1.0).clamp(0.0, 1.0);
+    let mut c = color;
+    c.a = (color.a as f32 * stop_opacity) as u8;
+    GradientStop { offset, color: c }
+}
+
+/// Consume `<stop>` children until the gradient's `close_tag`, returning the
+/// collected stops. Shared by `<linearGradient>` and `<radialGradient>`.
+fn collect_gradient_stops(
+    tokenizer: &mut Tokenizer,
+    close_tag: &str,
+) -> SvgResult<AVec<GradientStop>> {
+    let mut stops = AVec::new();
+    loop {
+        match tokenizer.next_token()? {
+            XmlToken::OpenTag { name, attrs } => {
+                if name.to_lowercase() == "stop" {
+                    stops.push(parse_stop(&attrs));
+                } else {
+                    return Err(SvgError::UnsupportedElement { tag: name, line: tokenizer.line });
+                }
+            }
+            XmlToken::SelfCloseTag { name, attrs } => {
+                if name.to_lowercase() == "stop" {
+                    stops.push(parse_stop(&attrs));
+                }
+            }
+            XmlToken::CloseTag { name } => {
+                if name.to_lowercase() == close_tag {
+                    break;
+                }
+            }
+            XmlToken::Eof => break,
+            _ => continue,
+        }
+    }
+    Ok(stops)
 }
 
 fn parse_opacity_attr(attrs: &[(String, String)]) -> f32 {

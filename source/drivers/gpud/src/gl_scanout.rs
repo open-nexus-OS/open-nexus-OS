@@ -694,6 +694,16 @@ impl VirtioGpuBackend {
         // the live UI shows in the buildup window (not just the synthetic scene).
         self.composite_pending_rt_layers();
 
+        // Real icon layer: composite windowd's uploaded icon sprite (rendered from
+        // an SVG via the nexus-svg HiDPI pipeline) as its own GPU sprite layer,
+        // above the panel/wallpaper and below the cursor. One-shot texture upload
+        // (outside the batch concern — its CREATE/transfer are ctrl commands, like
+        // the cursor's). No-op until windowd uploads it.
+        let _ = self.icon_tex_init();
+        if self.icon_tex_ready() {
+            let _ = self.composite_icon_rt();
+        }
+
         // INPUT — draw a GL cursor at gpud's current pointer position, ALWAYS, on
         // top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from windowd
         // as the mouse moves; windowd also sends OP_PRESENT_DAMAGE on move so this

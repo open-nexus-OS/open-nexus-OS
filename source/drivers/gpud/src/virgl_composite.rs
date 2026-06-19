@@ -79,6 +79,9 @@ const DISPLAY_PLANE_ROW: u32 = 1600;
 // sampler view 0x49 (free: 0x44/0x45 display/wallpaper, 0x48 atlas).
 const H_CURSOR_TEX: u32 = 0xE3;
 const H_CURSOR_SVIEW: u32 = 0x49;
+// Real icon sprite texture + sampler view (next free ids after the cursor's).
+const H_ICON_TEX: u32 = 0xE4;
+const H_ICON_SVIEW: u32 = 0x4A;
 
 /// Sample a content texture (fragcoord→UV) and modulate its alpha by an analytic
 /// rounded-rect SDF coverage and the layer opacity.
@@ -149,19 +152,65 @@ impl VirtioGpuBackend {
         opacity: u32,
         radius: u32,
     ) -> Result<(), GfxError> {
+        // 1:1 texel→pixel (the cursor/scroll/layer path): the src region and the
+        // dst rect are the same size, so it delegates with src==dst.
+        self.submit_layer_pass_scaled(
+            target_surface,
+            content_sview,
+            tex_w,
+            tex_h,
+            src_x,
+            src_row,
+            w,
+            h,
+            dst_x,
+            dst_y,
+            w,
+            h,
+            opacity,
+            radius,
+        )
+    }
+
+    /// Composite a `src_w×src_h` region of a texture (at `src_x`,`src_row`) into a
+    /// `dst_w×dst_h` rect at (`dst_x`,`dst_y`), with GPU bilinear scaling when the
+    /// sizes differ (downscale for supersampled/HiDPI sprites, upscale otherwise).
+    /// The UV step is per-DEST-pixel = src-texels / (tex · dst), so the sampled
+    /// region spreads across the dest rect; with `src==dst` this is exactly the
+    /// 1:1 blit. Rounded-corner mask + opacity use the dest geometry.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn submit_layer_pass_scaled(
+        &mut self,
+        target_surface: u32,
+        content_sview: u32,
+        tex_w: u32,
+        tex_h: u32,
+        src_x: u32,
+        src_row: u32,
+        src_w: u32,
+        src_h: u32,
+        dst_x: u32,
+        dst_y: u32,
+        dst_w: u32,
+        dst_h: u32,
+        opacity: u32,
+        radius: u32,
+    ) -> Result<(), GfxError> {
         self.composite_init()?;
-        if w == 0 || h == 0 || tex_w == 0 || tex_h == 0 {
+        if dst_w == 0 || dst_h == 0 || src_w == 0 || src_h == 0 || tex_w == 0 || tex_h == 0 {
             return Err(GfxError::InvalidArgument);
         }
-        let r = radius.min(w / 2).min(h / 2) as f32;
-        let cx = dst_x as f32 + w as f32 / 2.0;
-        let cy = dst_y as f32 + h as f32 / 2.0;
-        let bx = w as f32 / 2.0 - r;
-        let by = h as f32 / 2.0 - r;
-        let inv_tw = 1.0 / tex_w as f32;
-        let inv_th = 1.0 / tex_h as f32;
-        let uv_off_x = (src_x as f32 - dst_x as f32) * inv_tw;
-        let uv_off_y = (src_row as f32 - dst_y as f32) * inv_th;
+        let r = radius.min(dst_w / 2).min(dst_h / 2) as f32;
+        let cx = dst_x as f32 + dst_w as f32 / 2.0;
+        let cy = dst_y as f32 + dst_h as f32 / 2.0;
+        let bx = dst_w as f32 / 2.0 - r;
+        let by = dst_h as f32 / 2.0 - r;
+        // Per-dest-pixel UV advance: the src texel span over the dest pixel span.
+        let step_u = src_w as f32 / (tex_w as f32 * dst_w as f32);
+        let step_v = src_h as f32 / (tex_h as f32 * dst_h as f32);
+        // UV at the dst origin = the src origin (in normalized texels).
+        let uv_off_x = src_x as f32 / tex_w as f32 - dst_x as f32 * step_u;
+        let uv_off_y = src_row as f32 / tex_h as f32 - dst_y as f32 * step_v;
         let opacity01 = (opacity.min(255) as f32) / 255.0;
 
         let mut s = Submit3d::new();
@@ -170,13 +219,13 @@ impl VirtioGpuBackend {
         s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
         s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
         s.emit_set_framebuffer_state(0, &[target_surface]);
-        s.emit_set_viewport_box(dst_x as f32, dst_y as f32, w as f32, h as f32);
+        s.emit_set_viewport_box(dst_x as f32, dst_y as f32, dst_w as f32, dst_h as f32);
         s.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[content_sview]);
         s.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                inv_tw, inv_th, uv_off_x, uv_off_y, //
+                step_u, step_v, uv_off_x, uv_off_y, //
                 -cx, -cy, bx, by, //
                 r, opacity01, 0.0, 0.0,
             ],
@@ -524,6 +573,94 @@ impl VirtioGpuBackend {
         }
         let (w, h) = (self.cursor_tex_w, self.cursor_tex_h);
         self.composite_sprite_rt(H_CURSOR_SVIEW, w, h, dst_x, dst_y, 255, 0)
+    }
+
+    /// Upload the real icon sprite (set via `store_icon_sprite`) into its own GL
+    /// sampler texture, once. Mirrors `cursor_tex_init` exactly — a separate
+    /// texture/sampler-view so the icon composites as its own sprite layer. Returns
+    /// `Ok(false)` until windowd has uploaded the sprite.
+    pub(crate) fn icon_tex_init(&mut self) -> Result<bool, GfxError> {
+        let w = self.icon_sprite_w;
+        let h = self.icon_sprite_h;
+        if w == 0 || h == 0 || self.icon_sprite.is_empty() {
+            return Ok(false); // windowd hasn't uploaded the icon yet
+        }
+        if self.icon_tex_va != 0 {
+            return Ok(true); // already uploaded
+        }
+        self.composite_init()?;
+        let create = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: H_ICON_TEX,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_SAMPLER_VIEW,
+            width: w,
+            height: h,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create)?;
+        let ctx_attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: H_ICON_TEX,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach)?;
+        let byte_len = (w as usize) * (h as usize) * 4;
+        let va = self.virgl_attach_backing(H_ICON_TEX, byte_len)?;
+        let dst = va as *mut u8;
+        if !dst.is_null() && self.icon_sprite.len() >= byte_len {
+            unsafe {
+                core::ptr::copy_nonoverlapping(self.icon_sprite.as_ptr(), dst, byte_len);
+            }
+        }
+        self.virgl_transfer_to_host(H_ICON_TEX, 0, 0, w, h, w * 4)?;
+        let mut s = Submit3d::new();
+        s.emit_create_sampler_view(H_ICON_SVIEW, H_ICON_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
+        self.submit_composite_stream(&s)?;
+        self.icon_tex_va = va;
+        self.icon_tex_w = w;
+        self.icon_tex_h = h;
+        Ok(true)
+    }
+
+    /// True once the icon sprite has been uploaded into its GL texture.
+    pub(crate) fn icon_tex_ready(&self) -> bool {
+        self.icon_tex_va != 0
+    }
+
+    /// Composite the icon sprite as a layer at its stored position, GPU-scaled
+    /// from the (possibly 2×/supersampled) texture down to its on-screen size.
+    /// No-op until the sprite is uploaded. Square corners, fully opaque.
+    pub(crate) fn composite_icon_rt(&mut self) -> Result<(), GfxError> {
+        if self.icon_tex_va == 0 {
+            return Ok(());
+        }
+        let (tw, th) = (self.icon_tex_w, self.icon_tex_h);
+        let (dx, dy) = (self.icon_dst_x, self.icon_dst_y);
+        let dw = if self.icon_dst_w == 0 { tw } else { self.icon_dst_w };
+        let dh = if self.icon_dst_h == 0 { th } else { self.icon_dst_h };
+        self.submit_layer_pass_scaled(
+            crate::gl_scanout::H_GLS_SURF,
+            H_ICON_SVIEW,
+            tw,
+            th,
+            0,
+            0,
+            tw,
+            th,
+            dx,
+            dy,
+            dw,
+            dh,
+            255,
+            0,
+        )
     }
 
     /// Composite an uploaded BGRA sprite (`content_sview`, a `tex_w×tex_h`

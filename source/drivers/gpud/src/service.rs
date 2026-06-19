@@ -34,6 +34,11 @@ pub const OP_UPLOAD_CURSOR: u8 = 5;
 /// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
 /// `OP_MOVE_CURSOR`.
 pub const OP_SET_CHAT_SCROLL: u8 = 6;
+/// Upload a real icon sprite to composite as a GPU layer in the virgl buildup.
+/// Payload: op + tex_w(u32) + tex_h(u32) + dst_x(u32) + dst_y(u32) + dst_w(u32) +
+/// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
+/// is GPU-downscaled to dst_w×dst_h. Stored + composited like the cursor sprite.
+pub const OP_UPLOAD_ICON: u8 = 7;
 /// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
 /// as the gpud server-recv timeout: an idle recv wakes here to re-present.
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
@@ -358,6 +363,28 @@ fn service_requests(
                                 u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
                             let bgra = &frame[17..];
                             arm_cursor(&mut backend, bgra, w, h, hot_x, hot_y)
+                        }
+                    }
+                    OP_UPLOAD_ICON => {
+                        let _ = debug_println("gpud: recv OP_UPLOAD_ICON");
+                        // Frame: [op, tex_w(4), tex_h(4), dst_x(4), dst_y(4),
+                        // dst_w(4), dst_h(4), bgra]. dst_w/h is the on-screen size
+                        // (the texture may be 2× → GPU-downscaled when composited).
+                        if frame.len() < 25 {
+                            (STATUS_MALFORMED, None)
+                        } else {
+                            let w = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+                            let h = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+                            let dx = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
+                            let dy = u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
+                            let dw = u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]);
+                            let dh = u32::from_le_bytes([frame[21], frame[22], frame[23], frame[24]]);
+                            let bgra = &frame[25..];
+                            let status = match backend.store_icon_sprite(bgra, w, h, dx, dy, dw, dh) {
+                                Ok(()) => STATUS_OK,
+                                Err(_) => STATUS_MALFORMED,
+                            };
+                            (status, None)
                         }
                     }
                     _ => (handle_frame(&mut backend, frame), None),

@@ -96,7 +96,36 @@ pub enum SvgElement {
         x2: f32,
         y2: f32,
         stops: AVec<GradientStop>,
+        units: GradientUnits,
     },
+    RadialGradient {
+        id: AString,
+        cx: f32,
+        cy: f32,
+        r: f32,
+        /// Focal point (defaults to the centre when absent).
+        fx: f32,
+        fy: f32,
+        stops: AVec<GradientStop>,
+        units: GradientUnits,
+    },
+}
+
+/// Coordinate system a gradient's geometry is expressed in.
+///
+/// `ObjectBoundingBox` (the SVG default) treats coordinates as 0..1 fractions of
+/// the filled shape's bounding box; `UserSpaceOnUse` treats them as user-space
+/// coordinates subject to the element transform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientUnits {
+    ObjectBoundingBox,
+    UserSpaceOnUse,
+}
+
+impl Default for GradientUnits {
+    fn default() -> Self {
+        GradientUnits::ObjectBoundingBox
+    }
 }
 
 /// A gradient color stop.
@@ -228,6 +257,25 @@ impl Transform {
 
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
         (self.a * x + self.c * y + self.e, self.b * x + self.d * y + self.f)
+    }
+
+    /// Inverse affine, or `None` when the matrix is (near-)singular. Maps a
+    /// device-space point back into the source coordinate space — used to
+    /// evaluate `userSpaceOnUse` gradients per output pixel.
+    pub fn inverse(&self) -> Option<Transform> {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let inv = 1.0 / det;
+        Some(Transform {
+            a: self.d * inv,
+            b: -self.b * inv,
+            c: -self.c * inv,
+            d: self.a * inv,
+            e: (self.c * self.f - self.d * self.e) * inv,
+            f: (self.b * self.e - self.a * self.f) * inv,
+        })
     }
 
     pub fn compose(&self, other: &Transform) -> Transform {

@@ -97,12 +97,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
     let cursor_svg = normalized_mocu_cursor_svg();
-    let cursor = nexus_svg::render_svg(cursor_svg)
+    // The Mocu cursor's path geometry runs to y≈35.3 / x≈22.7, but its canvas was
+    // declared 32×32 — rendering at the intrinsic size clipped the bottom tail.
+    // The SVG now declares a 36×36 canvas that encloses the full artwork; render
+    // it *scaled into* a 32×32 square so the complete cursor fits, nothing clipped
+    // (nexus-svg maps the doc box onto the target — render-at-scale). Hotspot
+    // (the tip, ~user (2,2)) stays ≈(2,2) after the 32/36 scale.
+    const CURSOR_DIM: u32 = 32;
+    const CURSOR_SS: u32 = 4;
+    let cursor_hi = nexus_svg::render_svg_at(cursor_svg, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
         .map_err(|err| std::io::Error::other(format!("render Mocu cursor SVG: {err:?}")))?;
+    let cursor_bgra = box_average_downscale(&cursor_hi.buffer, cursor_hi.width, cursor_hi.height, CURSOR_SS);
     let cursor_path = out_dir.join("mocu_cursor.bgra");
-    fs::write(&cursor_path, &cursor.buffer)?;
-    writeln!(generated, "pub const MOCU_CURSOR_WIDTH: u32 = {};", cursor.width)?;
-    writeln!(generated, "pub const MOCU_CURSOR_HEIGHT: u32 = {};", cursor.height)?;
+    fs::write(&cursor_path, &cursor_bgra)?;
+    writeln!(generated, "pub const MOCU_CURSOR_WIDTH: u32 = {CURSOR_DIM};")?;
+    writeln!(generated, "pub const MOCU_CURSOR_HEIGHT: u32 = {CURSOR_DIM};")?;
     writeln!(
         generated,
         "pub const MOCU_CURSOR_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
@@ -111,6 +120,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_X: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;", cursor_svg)?;
+
+    // Real icon (TASK #61 "real icon layer"): render a Lucide icon through the
+    // nexus-svg render-at-scale pipeline (currentColor → tint) into a BGRA sprite.
+    // gpud composites it as a GPU sprite layer on the virgl scanout — the
+    // production "real SVG icon on the GPU compositor" path.
+    //
+    // The sprite is uploaded INLINE in one IPC frame, so the FINAL size must fit
+    // the kernel's 8 KiB MAX_FRAME_BYTES: 44×44×4 + a 25-byte header = 7769 B (~45²
+    // is the cap). Bigger uploads need the shared-VMO/atlas path (Shell-P3).
+    //
+    // To kill stroke-tessellation seams + jagged AA at this small size, render at
+    // 4× (176²) and box-average down to 44² — supersampling (the wallpaper
+    // downscale pattern). nexus-svg output is premultiplied, so averaging the
+    // (already alpha-weighted) channels is the correct, fringe-free downscale. The
+    // 176² render is build-time only; just the 44² result is uploaded.
+    const SHELL_ICON_LOGICAL: u32 = 44;
+    const SHELL_ICON_SS: u32 = 4;
+    let icon_svg = include_str!("../../../resources/icons/lucide/icons/house.svg");
+    let hi = nexus_svg::render_svg_tinted_at(
+        icon_svg,
+        (240, 244, 255),
+        SHELL_ICON_LOGICAL * SHELL_ICON_SS,
+        SHELL_ICON_LOGICAL * SHELL_ICON_SS,
+    )
+    .map_err(|err| std::io::Error::other(format!("render Lucide icon SVG: {err:?}")))?;
+    // Downscale in PREMULTIPLIED space (nexus-svg output) — correct, fringe-free.
+    let icon_premul = box_average_downscale(&hi.buffer, hi.width, hi.height, SHELL_ICON_SS);
+    // …then UN-premultiply to straight alpha: gpud composites the icon with a
+    // straight-alpha src-over blend (rgb·a + dst·(1−a)). A premultiplied sprite
+    // would be multiplied by alpha twice → a dark fringe on every AA edge (the
+    // "section borders in another colour"). Straight alpha matches the blend.
+    let icon_bgra = unpremultiply_bgra(&icon_premul);
+    assert!(
+        icon_bgra.len() + 25 <= 8 * 1024,
+        "shell icon ({}B) + header must fit the 8 KiB IPC frame",
+        icon_bgra.len()
+    );
+    let icon_path = out_dir.join("shell_icon.bgra");
+    fs::write(&icon_path, &icon_bgra)?;
+    writeln!(generated, "pub const SHELL_ICON_WIDTH: u32 = {};", SHELL_ICON_LOGICAL)?;
+    writeln!(generated, "pub const SHELL_ICON_HEIGHT: u32 = {};", SHELL_ICON_LOGICAL)?;
+    writeln!(generated, "pub const SHELL_ICON_LOGICAL: u32 = {SHELL_ICON_LOGICAL};")?;
+    writeln!(
+        generated,
+        "pub const SHELL_ICON_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+        icon_path.display()
+    )?;
     Ok(())
 }
 
@@ -207,8 +263,61 @@ fn const_prefix(id: &str) -> String {
         .collect()
 }
 
+/// Box-average downscale a premultiplied BGRA image by an integer `factor`
+/// (`sw`/`sh` must be divisible by it). Averaging the already alpha-weighted
+/// channels is the correct, fringe-free supersample downscale — it smooths
+/// stroke-tessellation seams and jagged AA before the icon is uploaded.
+fn box_average_downscale(src: &[u8], sw: u32, sh: u32, factor: u32) -> Vec<u8> {
+    let dw = sw / factor;
+    let dh = sh / factor;
+    let n = (factor * factor) as u32;
+    let mut out = vec![0u8; (dw * dh * 4) as usize];
+    for y in 0..dh {
+        for x in 0..dw {
+            let mut acc = [0u32; 4];
+            for sy in 0..factor {
+                for sx in 0..factor {
+                    let i = (((y * factor + sy) * sw + (x * factor + sx)) * 4) as usize;
+                    acc[0] += src[i] as u32;
+                    acc[1] += src[i + 1] as u32;
+                    acc[2] += src[i + 2] as u32;
+                    acc[3] += src[i + 3] as u32;
+                }
+            }
+            let o = ((y * dw + x) * 4) as usize;
+            for c in 0..4 {
+                out[o + c] = (acc[c] / n) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Convert a premultiplied BGRA buffer to straight (un-associated) alpha:
+/// `straight_rgb = premul_rgb · 255 / a` (rounded, clamped), alpha unchanged.
+/// Transparent pixels (a=0) stay zero. Matches gpud's straight-alpha layer blend.
+fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
+    let mut out = src.to_vec();
+    for px in out.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a == 0 {
+            px[0] = 0;
+            px[1] = 0;
+            px[2] = 0;
+        } else if a < 255 {
+            for c in 0..3 {
+                px[c] = (((px[c] as u32) * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    out
+}
+
 fn normalized_mocu_cursor_svg() -> &'static str {
-    "<svg width=\"32\" height=\"32\" xmlns=\"http://www.w3.org/2000/svg\">\
+    // Canvas is 36×36 (not 32) so it encloses the path geometry, which extends to
+    // y≈35.3 / x≈22.7 — a 32 canvas clipped the cursor's bottom tail. The build
+    // renders this scaled into the target cursor square.
+    "<svg width=\"36\" height=\"36\" xmlns=\"http://www.w3.org/2000/svg\">\
 <path d=\"M 1 1 L 1 30 L 9.3 26.6 L 12.9 35.3 L 18 33 L 14.4 24.3 L 22.7 20.9 Z\" fill=\"#0a0b0c\"/>\
 <path d=\"M 2 2 L 2 29.5 L 9.9 26.2 L 13.3 34.6 L 17 33 L 13.6 24.7 L 21.5 21.4 Z\" fill=\"#1a1b1c\"/>\
 <path d=\"M 4 4 L 4 25 L 10.4 22.4 L 13.8 30.6 L 15.2 30 L 11.9 21.9 L 18.4 19.2 Z\" fill=\"#fafbfc\"/>\

@@ -22,6 +22,7 @@ extern crate alloc;
 
 mod elements;
 mod error;
+mod gradient;
 mod limits;
 mod math;
 mod parse;

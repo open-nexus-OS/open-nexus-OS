@@ -16,6 +16,16 @@ pub const CURSOR_LEFT_PTR_HEIGHT: u32 = generated::MOCU_CURSOR_HEIGHT;
 pub const CURSOR_HOTSPOT_X: i32 = generated::MOCU_CURSOR_HOTSPOT_X;
 pub const CURSOR_HOTSPOT_Y: i32 = generated::MOCU_CURSOR_HOTSPOT_Y;
 
+/// Real Lucide icon (house), rendered via the nexus-svg HiDPI pipeline at build
+/// time. Uploaded to gpud once and composited as a GPU sprite layer on the virgl
+/// scanout — the "real icon layer" (TASK #61).
+pub const SHELL_ICON_BGRA: &[u8] = generated::SHELL_ICON_BGRA;
+pub const SHELL_ICON_WIDTH: u32 = generated::SHELL_ICON_WIDTH;
+pub const SHELL_ICON_HEIGHT: u32 = generated::SHELL_ICON_HEIGHT;
+/// On-screen (logical) size the icon composites at; the texture above is 2× this
+/// (supersampled) and GPU-downscaled to it.
+pub const SHELL_ICON_LOGICAL: u32 = generated::SHELL_ICON_LOGICAL;
+
 pub struct ProofTextAsset {
     pub width: u32,
     pub height: u32,

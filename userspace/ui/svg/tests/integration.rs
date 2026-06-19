@@ -227,3 +227,110 @@ fn test_stroke_on_rect() {
     let output = render_svg(svg).unwrap();
     assert_eq!(output.width, 100);
 }
+
+// ---------------------------------------------------------------------------
+// Gradients (A5): real per-pixel linear + radial fills
+// ---------------------------------------------------------------------------
+
+/// BGRA pixel accessor for a raster output.
+fn px(out: &nexus_svg::RasterOutput, x: usize, y: usize) -> (u8, u8, u8, u8) {
+    let w = out.width as usize;
+    let i = (y * w + x) * 4;
+    (out.buffer[i + 2], out.buffer[i + 1], out.buffer[i], out.buffer[i + 3]) // (r,g,b,a)
+}
+
+#[test]
+fn linear_gradient_objectbbox_is_a_horizontal_ramp() {
+    // Default units (objectBoundingBox): red→blue left to right across the rect.
+    let svg = r##"<svg width="100" height="40" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#ff0000" />
+                <stop offset="100%" stop-color="#0000ff" />
+            </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="100" height="40" fill="url(#g)" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let left = px(&out, 2, 20);
+    let right = px(&out, 97, 20);
+    let mid = px(&out, 50, 20);
+    assert!(left.0 > 200 && left.2 < 60, "left edge red, got {left:?}");
+    assert!(right.2 > 200 && right.0 < 60, "right edge blue, got {right:?}");
+    // Midpoint is a genuine blend of the two stops, not a flat single colour.
+    assert!(mid.0 > 60 && mid.0 < 200 && mid.2 > 60 && mid.2 < 200, "midpoint blended, got {mid:?}");
+}
+
+#[test]
+fn linear_gradient_userspaceonuse_axis() {
+    // userSpaceOnUse: a vertical (top→bottom) black→white axis in user coords.
+    let svg = r##"<svg width="40" height="100" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
+                <stop offset="0" stop-color="#000000" />
+                <stop offset="1" stop-color="#ffffff" />
+            </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="40" height="100" fill="url(#g)" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let top = px(&out, 20, 2);
+    let bottom = px(&out, 20, 97);
+    assert!(top.0 < 40, "top near black, got {top:?}");
+    assert!(bottom.0 > 215, "bottom near white, got {bottom:?}");
+    assert!(bottom.0 > top.0 + 100, "monotonic dark→light down the axis");
+}
+
+#[test]
+fn radial_gradient_center_to_edge() {
+    // Radial: white centre fading to black at the rim (objectBoundingBox default).
+    let svg = r##"<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <radialGradient id="g" cx="0.5" cy="0.5" r="0.5">
+                <stop offset="0%" stop-color="#ffffff" />
+                <stop offset="100%" stop-color="#000000" />
+            </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="100" height="100" fill="url(#g)" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let center = px(&out, 50, 50);
+    let corner = px(&out, 4, 4);
+    let edge = px(&out, 50, 96);
+    assert!(center.0 > 230, "centre near white, got {center:?}");
+    assert!(edge.0 < 30, "vertical rim near black, got {edge:?}");
+    // The corner is outside the r=0.5 circle → clamps to the last (black) stop.
+    assert!(corner.0 < 30, "corner clamps to last stop, got {corner:?}");
+    assert!(center.0 > edge.0 + 150, "bright centre, dark rim");
+}
+
+#[test]
+fn gradient_stop_opacity_is_honored() {
+    // A fully transparent first stop must leave the background untouched there.
+    let svg = r##"<svg width="100" height="20" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="1" />
+            </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="100" height="20" fill="url(#g)" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let left = px(&out, 1, 10);
+    let right = px(&out, 98, 10);
+    assert!(left.3 < 30, "left stop transparent, got alpha {}", left.3);
+    assert!(right.3 > 225, "right stop opaque, got alpha {}", right.3);
+}
+
+#[test]
+fn missing_gradient_ref_renders_nothing() {
+    // A fill referencing an undefined gradient resolves to no paint (transparent),
+    // never a panic or a stray flat colour.
+    let svg = r##"<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="40" height="40" fill="url(#nope)" />
+    </svg>"##;
+    let out = render_svg(svg).unwrap();
+    let opaque = out.buffer.chunks_exact(4).filter(|p| p[3] > 0).count();
+    assert_eq!(opaque, 0, "unresolved gradient ref paints nothing");
+}

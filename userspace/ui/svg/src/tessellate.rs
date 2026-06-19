@@ -6,19 +6,21 @@ use alloc::vec::Vec;
 use core::f32::consts;
 
 use crate::elements::{
-    Color, FillRule, LineCap, LineJoin, Paint, PathCommand, PathData, StrokeStyle, SvgDocument,
-    SvgElement, Transform,
+    FillRule, LineCap, LineJoin, PathCommand, PathData, StrokeStyle, SvgDocument, SvgElement,
+    Transform,
 };
+use crate::gradient::{resolve_shape_paint, BBox, ShapePaint};
 use crate::math::F32Math;
 
-/// A single line segment in screen space (y-sorted: y0 <= y1).
+/// A single line segment in screen space (y-sorted: y0 <= y1). Carries no colour:
+/// the fill (solid or gradient) lives in the shape's `ShapePaint`, indexed by
+/// `shape_id`, and is evaluated per pixel at raster time.
 #[derive(Debug, Clone, Copy)]
 pub struct Edge {
     pub x0: f32,
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
-    pub color: Color,
     pub shape_id: u32,
     /// Winding direction of the original (pre-y-sort) edge: +1 if it ran
     /// downward (y increasing), -1 if upward. Drives the nonzero winding rule.
@@ -30,15 +32,21 @@ pub struct Edge {
 /// Tessellate with a `root` transform applied to every element — used to render
 /// at an arbitrary scale (HiDPI/5K). Curve flattening sees the scaled transform,
 /// so geometry stays crisp at the target resolution.
-pub fn tessellate_document_with(doc: &SvgDocument, root: &Transform) -> Vec<Edge> {
+///
+/// Returns the edge list plus a parallel `paints` vector where `paints[shape_id]`
+/// is the resolved (device-space) paint for that shape — solid or gradient. The
+/// 1:1 indexing is maintained by [`append_shape`], which pushes exactly one paint
+/// per emitted shape.
+pub fn tessellate_document_with(doc: &SvgDocument, root: &Transform) -> (Vec<Edge>, Vec<ShapePaint>) {
     let mut edges = Vec::new();
+    let mut paints = Vec::new();
     let mut next_shape_id = 0;
 
     for elem in &doc.elements {
-        tessellate_element(elem, root, 1.0, &mut edges, &mut next_shape_id, doc);
+        tessellate_element(elem, root, 1.0, &mut edges, &mut paints, &mut next_shape_id, doc);
     }
 
-    edges
+    (edges, paints)
 }
 
 fn tessellate_element(
@@ -46,6 +54,7 @@ fn tessellate_element(
     parent_tf: &Transform,
     parent_opacity: f32,
     edges: &mut Vec<Edge>,
+    paints: &mut Vec<ShapePaint>,
     next_shape_id: &mut u32,
     doc: &SvgDocument,
 ) {
@@ -54,7 +63,7 @@ fn tessellate_element(
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
             for child in children {
-                tessellate_element(child, &tf, op, edges, next_shape_id, doc);
+                tessellate_element(child, &tf, op, edges, paints, next_shape_id, doc);
             }
         }
         SvgElement::Path { data, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
@@ -65,24 +74,28 @@ fn tessellate_element(
             // — e.g. a donut's outer + inner ring — never bridge, and their
             // windings combine under one shape for correct holes.
             let subpaths = path_to_subpaths(data, &tf);
-            if let Some(paint) = fill {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
+            // The geometry bbox (device space) anchors objectBoundingBox gradients.
+            let bbox = bbox_of_subpaths(&subpaths);
+            if let (Some(p), Some(bb)) = (fill, bbox) {
+                if let Some(paint) = resolve_shape_paint(p, doc, &tf, op, bb) {
                     let mut shape_edges = Vec::new();
                     for sub in &subpaths {
-                        shape_edges.extend(polygon_edges(sub, c, data.fill_rule));
+                        shape_edges.extend(polygon_edges(sub, data.fill_rule));
                     }
-                    append_shape(edges, next_shape_id, shape_edges);
+                    append_shape(edges, paints, next_shape_id, shape_edges, paint);
                 }
             }
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
+            if let (Some(p), Some(bb)) = (stroke, bbox) {
+                if let Some(paint) = resolve_shape_paint(p, doc, &tf, op, bb) {
+                    // Stroke width is in user units, but `sub` is already device
+                    // space — scale the width by the transform so the stroke keeps
+                    // its intended weight at any render scale (HiDPI/icon upscaling).
+                    let sw = *stroke_width * transform_scale(&tf);
                     let mut shape_edges = Vec::new();
                     for sub in &subpaths {
-                        shape_edges.extend(stroke_edges(sub, *stroke_width, *stroke_style, c, false));
+                        shape_edges.extend(stroke_edges(sub, sw, *stroke_style, false));
                     }
-                    append_shape(edges, next_shape_id, shape_edges);
+                    append_shape(edges, paints, next_shape_id, shape_edges, paint);
                 }
             }
         }
@@ -104,79 +117,50 @@ fn tessellate_element(
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = rect_segments(*x, *y, *width, *height, *rx, *ry, &tf);
-            if let Some(paint) = fill {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
-                }
-            }
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
-                }
-            }
+            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
+            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
         }
         SvgElement::Circle { cx, cy, r, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = circle_segments(*cx, *cy, *r, &tf);
-            if let Some(paint) = fill {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
-                }
-            }
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
-                }
-            }
+            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
+            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
         }
         SvgElement::Ellipse { cx, cy, rx, ry, fill, stroke, stroke_width, stroke_style, transform, opacity } => {
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let segments = ellipse_segments(*cx, *cy, *rx, *ry, &tf);
-            if let Some(paint) = fill {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&segments, c, FillRule::NonZero));
-                }
-            }
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&segments, *stroke_width, *stroke_style, c, true));
-                }
-            }
+            emit_filled_shape(fill, &segments, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
+            emit_stroked_shape(stroke, &segments, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
         }
         SvgElement::Line { x1, y1, x2, y2, stroke, stroke_width, stroke_style, transform, opacity } => {
             let _ = stroke_style;
             let tf = combine_transform(parent_tf, transform);
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    let (sx, sy) = tf.apply(*x1, *y1);
-                    let (ex, ey) = tf.apply(*x2, *y2);
-                    let half = stroke_width.max(0.5) / 2.0;
-                    // Approximate line as thin rectangle
-                    let dx = ex - sx;
-                    let dy = ey - sy;
-                    let len = (dx * dx + dy * dy).nexus_sqrt().max(0.001);
-                    let nx = -dy / len * half;
-                    let ny = dx / len * half;
-                    let pts = vec![
-                        (sx + nx, sy + ny),
-                        (ex + nx, ey + ny),
-                        (ex - nx, ey - ny),
-                        (sx - nx, sy - ny),
-                    ];
-                    append_shape(edges, next_shape_id, polygon_edges(&pts, c, FillRule::NonZero));
+            if let Some(p) = stroke {
+                let (sx, sy) = tf.apply(*x1, *y1);
+                let (ex, ey) = tf.apply(*x2, *y2);
+                if let Some(bb) = bbox_of_points(&[(sx, sy), (ex, ey)]) {
+                    if let Some(paint) = resolve_shape_paint(p, doc, &tf, op, bb) {
+                        let half = (*stroke_width * transform_scale(&tf)).max(0.5) / 2.0;
+                        // Approximate line as thin rectangle
+                        let dx = ex - sx;
+                        let dy = ey - sy;
+                        let len = (dx * dx + dy * dy).nexus_sqrt().max(0.001);
+                        let nx = -dy / len * half;
+                        let ny = dx / len * half;
+                        let pts = vec![
+                            (sx + nx, sy + ny),
+                            (ex + nx, ey + ny),
+                            (ex - nx, ey - ny),
+                            (sx - nx, sy - ny),
+                        ];
+                        append_shape(edges, paints, next_shape_id, polygon_edges(&pts, FillRule::NonZero), paint);
+                    }
                 }
             }
         }
@@ -185,22 +169,88 @@ fn tessellate_element(
             let op = parent_opacity * opacity.clamp(0.0, 1.0);
 
             let pts: Vec<(f32, f32)> = points.iter().map(|(x, y)| tf.apply(*x, *y)).collect();
-            if let Some(paint) = fill {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, polygon_edges(&pts, c, FillRule::NonZero));
-                }
-            }
-            if let Some(paint) = stroke {
-                if let Some(color) = resolve_paint(paint, doc) {
-                    let c = blend_opacity(color, op);
-                    append_shape(edges, next_shape_id, stroke_edges(&pts, *stroke_width, *stroke_style, c, true));
-                }
-            }
+            emit_filled_shape(fill, &pts, FillRule::NonZero, &tf, op, doc, edges, paints, next_shape_id);
+            emit_stroked_shape(stroke, &pts, *stroke_width * transform_scale(&tf), *stroke_style, true, &tf, op, doc, edges, paints, next_shape_id);
         }
-        // Defs entries are not rendered directly
-        SvgElement::LinearGradient { .. } => {}
+        // Defs entries (gradients) are not rendered directly.
+        SvgElement::LinearGradient { .. } | SvgElement::RadialGradient { .. } => {}
     }
+}
+
+/// Resolve `fill` over the polygon `points` (device space) and emit a filled shape.
+#[allow(clippy::too_many_arguments)]
+fn emit_filled_shape(
+    fill: &Option<crate::elements::Paint>,
+    points: &[(f32, f32)],
+    fill_rule: FillRule,
+    tf: &Transform,
+    opacity: f32,
+    doc: &SvgDocument,
+    edges: &mut Vec<Edge>,
+    paints: &mut Vec<ShapePaint>,
+    next_shape_id: &mut u32,
+) {
+    if let (Some(p), Some(bb)) = (fill, bbox_of_points(points)) {
+        if let Some(paint) = resolve_shape_paint(p, doc, tf, opacity, bb) {
+            append_shape(edges, paints, next_shape_id, polygon_edges(points, fill_rule), paint);
+        }
+    }
+}
+
+/// Resolve `stroke` over the outline `points` (device space) and emit a stroked shape.
+#[allow(clippy::too_many_arguments)]
+fn emit_stroked_shape(
+    stroke: &Option<crate::elements::Paint>,
+    points: &[(f32, f32)],
+    stroke_width: f32,
+    stroke_style: StrokeStyle,
+    closed: bool,
+    tf: &Transform,
+    opacity: f32,
+    doc: &SvgDocument,
+    edges: &mut Vec<Edge>,
+    paints: &mut Vec<ShapePaint>,
+    next_shape_id: &mut u32,
+) {
+    if let (Some(p), Some(bb)) = (stroke, bbox_of_points(points)) {
+        if let Some(paint) = resolve_shape_paint(p, doc, tf, opacity, bb) {
+            append_shape(
+                edges,
+                paints,
+                next_shape_id,
+                stroke_edges(points, stroke_width, stroke_style, closed),
+                paint,
+            );
+        }
+    }
+}
+
+/// Device-space bounding box of a point set, or `None` if fewer than 1 point.
+fn bbox_of_points(points: &[(f32, f32)]) -> Option<BBox> {
+    let mut it = points.iter();
+    let &(x0, y0) = it.next()?;
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (x0, y0, x0, y0);
+    for &(x, y) in it {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    Some((min_x, min_y, max_x, max_y))
+}
+
+/// Bounding box across all subpaths.
+fn bbox_of_subpaths(subpaths: &[Vec<(f32, f32)>]) -> Option<BBox> {
+    let mut acc: Option<BBox> = None;
+    for sub in subpaths {
+        if let Some((nx, ny, mx, my)) = bbox_of_points(sub) {
+            acc = Some(match acc {
+                None => (nx, ny, mx, my),
+                Some((ax, ay, bx, by)) => (ax.min(nx), ay.min(ny), bx.max(mx), by.max(my)),
+            });
+        }
+    }
+    acc
 }
 
 // ---------------------------------------------------------------------------
@@ -211,43 +261,6 @@ fn combine_transform(parent: &Transform, child: &Option<Transform>) -> Transform
     match child {
         Some(c) => parent.compose(c),
         None => *parent,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Paint resolution
-// ---------------------------------------------------------------------------
-
-fn resolve_paint(paint: &Paint, doc: &SvgDocument) -> Option<Color> {
-    match paint {
-        Paint::Color(c) => Some(*c),
-        Paint::GradientRef(id) => doc.defs.get(id).and_then(|elem| match elem {
-            SvgElement::LinearGradient { stops, .. } => {
-                // Use midpoint color of gradient
-                if stops.is_empty() {
-                    return Some(Color::BLACK);
-                }
-                // Find the stop at 0.5 or the middle stop
-                let mid = stops
-                    .iter()
-                    .min_by(|a, b| {
-                        (a.offset - 0.5).abs().partial_cmp(&(b.offset - 0.5).abs()).unwrap()
-                    })
-                    .unwrap();
-                Some(mid.color)
-            }
-            _ => None,
-        }),
-        Paint::None => None,
-    }
-}
-
-fn blend_opacity(color: Color, opacity: f32) -> Color {
-    Color {
-        r: color.r,
-        g: color.g,
-        b: color.b,
-        a: (color.a as f32 * opacity.clamp(0.0, 1.0)) as u8,
     }
 }
 
@@ -635,7 +648,11 @@ fn arc_segments(
     let vx = (-x1p - cxp) / rx;
     let vy = (-y1p - cyp) / ry;
     let theta1 = uy.nexus_atan2(ux);
-    let mut dtheta = (uy * vx - ux * vy).nexus_atan2(ux * vx + uy * vy);
+    // Δθ = angle from u to v. Its sign is the cross product u×v = ux·vy − uy·vx
+    // (W3C SVG F.6.5). Using the negated cross flips the sweep sign, so the
+    // `sweep`/`large` correction below then adds a full turn → a 270° loop where a
+    // 90° rounded corner was meant (the "bent nail" artifact on Lucide arcs).
+    let mut dtheta = (ux * vy - uy * vx).nexus_atan2(ux * vx + uy * vy);
     let two_pi = core::f32::consts::PI * 2.0;
     if !sweep && dtheta > 0.0 {
         dtheta -= two_pi;
@@ -773,19 +790,30 @@ fn transform_scale(tf: &Transform) -> f32 {
 // Polygon edge generation for scanline renderer
 // ---------------------------------------------------------------------------
 
-fn append_shape(edges: &mut Vec<Edge>, next_shape_id: &mut u32, mut shape_edges: Vec<Edge>) {
+/// Append one shape's edges under a fresh `shape_id` and push its paint so that
+/// `paints[shape_id]` lines up. An empty edge set emits nothing (and no paint),
+/// preserving the 1:1 invariant.
+fn append_shape(
+    edges: &mut Vec<Edge>,
+    paints: &mut Vec<ShapePaint>,
+    next_shape_id: &mut u32,
+    mut shape_edges: Vec<Edge>,
+    paint: ShapePaint,
+) {
     if shape_edges.is_empty() {
         return;
     }
     let shape_id = *next_shape_id;
     *next_shape_id = (*next_shape_id).saturating_add(1);
+    debug_assert_eq!(shape_id as usize, paints.len(), "paint index must track shape_id");
     for edge in &mut shape_edges {
         edge.shape_id = shape_id;
     }
     edges.extend(shape_edges);
+    paints.push(paint);
 }
 
-fn polygon_edges(points: &[(f32, f32)], color: Color, fill_rule: FillRule) -> Vec<Edge> {
+fn polygon_edges(points: &[(f32, f32)], fill_rule: FillRule) -> Vec<Edge> {
     if points.len() < 3 {
         return Vec::new();
     }
@@ -806,7 +834,7 @@ fn polygon_edges(points: &[(f32, f32)], color: Color, fill_rule: FillRule) -> Ve
         // Ensure y0 <= y1
         let (x0, y0, x1, y1) = if y0 <= y1 { (x0, y0, x1, y1) } else { (x1, y1, x0, y0) };
 
-        edges.push(Edge { x0, y0, x1, y1, color, shape_id: 0, dir, fill_rule });
+        edges.push(Edge { x0, y0, x1, y1, shape_id: 0, dir, fill_rule });
     }
 
     edges
@@ -821,7 +849,6 @@ fn stroke_edges(
     points: &[(f32, f32)],
     width: f32,
     style: StrokeStyle,
-    color: Color,
     closed: bool,
 ) -> Vec<Edge> {
     // Drop consecutive duplicates — zero-length segments have no normal.
@@ -847,7 +874,7 @@ fn stroke_edges(
 
     if pts.len() < 2 {
         if pts.len() == 1 && style.line_cap == LineCap::Round {
-            edges.extend(disc_edges(pts[0].0, pts[0].1, half, color));
+            edges.extend(disc_edges(pts[0].0, pts[0].1, half));
         }
         return edges;
     }
@@ -866,7 +893,7 @@ fn stroke_edges(
         let ny = dx / len * half;
         let quad =
             vec![(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)];
-        edges.extend(polygon_edges(&quad, color, FillRule::NonZero));
+        edges.extend(polygon_edges(&quad, FillRule::NonZero));
     }
 
     // Joins at interior vertices (plus the wrap vertex when closed).
@@ -876,13 +903,13 @@ fn stroke_edges(
         let prev = pts[(i + n - 1) % n];
         let cur = pts[i];
         let next = pts[(i + 1) % n];
-        edges.extend(join_edges(prev, cur, next, half, style, color));
+        edges.extend(join_edges(prev, cur, next, half, style));
     }
 
     // Caps at the two open ends.
     if !closed {
-        edges.extend(cap_edges(pts[1], pts[0], half, style.line_cap, color));
-        edges.extend(cap_edges(pts[n - 2], pts[n - 1], half, style.line_cap, color));
+        edges.extend(cap_edges(pts[1], pts[0], half, style.line_cap));
+        edges.extend(cap_edges(pts[n - 2], pts[n - 1], half, style.line_cap));
     }
 
     edges
@@ -909,14 +936,14 @@ fn line_intersect(p1: (f32, f32), d1: (f32, f32), p2: (f32, f32), d2: (f32, f32)
 }
 
 /// A filled disc (24-gon) — round joins and round caps.
-fn disc_edges(cx: f32, cy: f32, r: f32, color: Color) -> Vec<Edge> {
+fn disc_edges(cx: f32, cy: f32, r: f32) -> Vec<Edge> {
     let n = 24;
     let mut pts = Vec::with_capacity(n);
     for i in 0..n {
         let a = 2.0 * consts::PI * i as f32 / n as f32;
         pts.push((cx + r * a.nexus_cos(), cy + r * a.nexus_sin()));
     }
-    polygon_edges(&pts, color, FillRule::NonZero)
+    polygon_edges(&pts, FillRule::NonZero)
 }
 
 /// Join geometry at vertex `cur` between the incoming (`prev`→`cur`) and outgoing
@@ -928,7 +955,6 @@ fn join_edges(
     next: (f32, f32),
     half: f32,
     style: StrokeStyle,
-    color: Color,
 ) -> Vec<Edge> {
     let (din, dout) = match (normalize(cur.0 - prev.0, cur.1 - prev.1), normalize(next.0 - cur.0, next.1 - cur.1)) {
         (Some(a), Some(b)) => (a, b),
@@ -939,7 +965,7 @@ fn join_edges(
         return Vec::new(); // collinear — the segment quads already meet flush
     }
     if style.line_join == LineJoin::Round {
-        return disc_edges(cur.0, cur.1, half, color);
+        return disc_edges(cur.0, cur.1, half);
     }
     let nin = (-din.1, din.0);
     let nout = (-dout.1, dout.0);
@@ -950,8 +976,8 @@ fn join_edges(
     let mut e = Vec::new();
     // Bevel: fill both corner wedges (the outer is the visible gap; the inner is
     // interior and harmless under nonzero).
-    e.extend(polygon_edges(&[in_left, out_left, cur], color, FillRule::NonZero));
-    e.extend(polygon_edges(&[in_right, out_right, cur], color, FillRule::NonZero));
+    e.extend(polygon_edges(&[in_left, out_left, cur], FillRule::NonZero));
+    e.extend(polygon_edges(&[in_right, out_right, cur], FillRule::NonZero));
     if style.line_join == LineJoin::Miter {
         // The outer offset lines intersect farther from `cur` than the inner; pick
         // that side and extend to the miter tip if within the limit.
@@ -973,7 +999,7 @@ fn join_edges(
         if let Some((a, m, b)) = outer {
             let mlen = (dist2(m)).nexus_sqrt();
             if mlen <= style.miter_limit * half {
-                e.extend(polygon_edges(&[a, m, b], color, FillRule::NonZero));
+                e.extend(polygon_edges(&[a, m, b], FillRule::NonZero));
             }
         }
     }
@@ -988,11 +1014,10 @@ fn cap_edges(
     end: (f32, f32),
     half: f32,
     cap: LineCap,
-    color: Color,
 ) -> Vec<Edge> {
     match cap {
         LineCap::Butt => Vec::new(),
-        LineCap::Round => disc_edges(end.0, end.1, half, color),
+        LineCap::Round => disc_edges(end.0, end.1, half),
         LineCap::Square => {
             let Some(dir) = normalize(end.0 - from.0, end.1 - from.1) else {
                 return Vec::new();
@@ -1002,8 +1027,47 @@ fn cap_edges(
             let e_r = (end.0 - nrm.0 * half, end.1 - nrm.1 * half);
             let f_l = (e_l.0 + dir.0 * half, e_l.1 + dir.1 * half);
             let f_r = (e_r.0 + dir.0 * half, e_r.1 + dir.1 * half);
-            polygon_edges(&[e_l, f_l, f_r, e_r], color, FillRule::NonZero)
+            polygon_edges(&[e_l, f_l, f_r, e_r], FillRule::NonZero)
         }
+    }
+}
+
+#[cfg(test)]
+mod arc_tests {
+    use super::arc_segments;
+
+    // A top-right rounded corner: from (20,4) to (22,6), r=2, sweep=1. The correct
+    // arc is a 90° quarter-circle centred at (20,6), staying inside the box
+    // x∈[20,22], y∈[4,6]. The old Δθ sign bug swept 270° the other way (centre
+    // ±2 → x down to ~18, y up to ~8) → the "bent nail" loop. Guard the bounds.
+    #[test]
+    fn rounded_corner_arc_stays_in_quadrant() {
+        let pts = arc_segments(20.0, 4.0, 2.0, 2.0, 0.0, false, true, 22.0, 6.0, 1.0);
+        assert!(pts.len() >= 4, "arc flattens to several segments ({})", pts.len());
+        for &(x, y) in &pts {
+            assert!(
+                (19.9..=22.1).contains(&x) && (3.9..=6.1).contains(&y),
+                "arc point ({x},{y}) escaped the quarter-circle box — sweep went the wrong way"
+            );
+        }
+        let &(lx, ly) = pts.last().unwrap();
+        assert!((lx - 22.0).abs() < 0.05 && (ly - 6.0).abs() < 0.05, "arc ends at the endpoint");
+    }
+
+    // Sweep=0 (the other direction) bulges the opposite way — centre (22,4),
+    // staying inside x∈[20,22], y∈[4,6] as well but curving through the far side.
+    #[test]
+    fn arc_sweep_flag_picks_the_other_center() {
+        let cw = arc_segments(20.0, 4.0, 2.0, 2.0, 0.0, false, true, 22.0, 6.0, 1.0);
+        let ccw = arc_segments(20.0, 4.0, 2.0, 2.0, 0.0, false, false, 22.0, 6.0, 1.0);
+        // Midpoints differ (the two arcs bulge to opposite sides of the chord).
+        let mid = |v: &[(f32, f32)]| v[v.len() / 2];
+        let (ax, ay) = mid(&cw);
+        let (bx, by) = mid(&ccw);
+        assert!(
+            (ax - bx).abs() > 0.5 || (ay - by).abs() > 0.5,
+            "sweep flag must change the arc side ({ax},{ay} vs {bx},{by})"
+        );
     }
 }
 

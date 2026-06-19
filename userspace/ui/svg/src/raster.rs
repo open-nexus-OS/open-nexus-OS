@@ -4,6 +4,7 @@
 use alloc::vec::Vec;
 
 use crate::elements::{FillRule, SvgDocument, Transform};
+use crate::gradient::ShapePaint;
 use crate::limits::OUTPUT_BYTES_PER_PIXEL;
 use crate::math::F32Math;
 use crate::tessellate::{tessellate_document_with, Edge};
@@ -39,18 +40,19 @@ pub fn rasterize_document_at(
     let sy = out_h as f32 / doc.height.max(1e-3);
     let root = Transform { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 };
 
-    let edges = tessellate_document_with(doc, &root);
+    let (edges, paints) = tessellate_document_with(doc, &root);
 
     let size = (out_w as usize) * (out_h as usize) * OUTPUT_BYTES_PER_PIXEL;
     let mut buffer = vec![0u8; size];
 
-    scanline_fill(&edges, out_w as usize, out_h as usize, &mut buffer);
+    scanline_fill(&edges, &paints, out_w as usize, out_h as usize, &mut buffer);
 
     Ok(RasterOutput { width: out_w, height: out_h, buffer })
 }
 
-/// Simple scanline polygon fill with alpha blending.
-fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
+/// Simple scanline polygon fill with alpha blending. `paints[shape_id]` gives the
+/// fill (solid or gradient) for each shape; gradients are evaluated per pixel.
+fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buffer: &mut [u8]) {
     if edges.is_empty() {
         return;
     }
@@ -62,7 +64,9 @@ fn scanline_fill(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
         while end < edges.len() && edges[end].shape_id == shape_id {
             end += 1;
         }
-        scanline_fill_shape(&edges[start..end], w, h, buffer);
+        if let Some(paint) = paints.get(shape_id as usize) {
+            scanline_fill_shape(&edges[start..end], paint, w, h, buffer);
+        }
         start = end;
     }
 }
@@ -81,13 +85,14 @@ const SUBSAMPLES_Y: usize = 4;
 /// (exact fractional overlap at span endpoints). The shape colour is then
 /// alpha-composited scaled by that coverage. A shape's edges share one fill
 /// colour (the SVG fill model), so coverage is colour-independent.
-fn scanline_fill_shape(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
+fn scanline_fill_shape(edges: &[Edge], paint: &ShapePaint, w: usize, h: usize, buffer: &mut [u8]) {
     if edges.is_empty() || w == 0 {
         return;
     }
 
-    let color = edges[0].color;
-    if color.a == 0 {
+    // A fully transparent solid contributes nothing; gradients are evaluated
+    // per pixel below (individual stops may still be transparent).
+    if paint.is_fully_transparent() {
         return;
     }
 
@@ -150,10 +155,16 @@ fn scanline_fill_shape(edges: &[Edge], w: usize, h: usize, buffer: &mut [u8]) {
             }
         }
         let row = y * w;
+        let yc = y as f32 + 0.5;
         for (x, &c) in cov.iter().enumerate() {
             if c > 0.0009 {
+                // Solid shapes hit a constant; gradients sample at the pixel centre.
+                let px_color = paint.color_at(x as f32 + 0.5, yc);
+                if px_color.a == 0 {
+                    continue;
+                }
                 let idx = (row + x) * OUTPUT_BYTES_PER_PIXEL;
-                blend_pixel_cov(&mut buffer[idx..idx + 4], color, c.min(1.0));
+                blend_pixel_cov(&mut buffer[idx..idx + 4], px_color, c.min(1.0));
             }
         }
     }
@@ -190,13 +201,11 @@ mod tests {
     // centre is a hole (inside count 2 = even). This is the rule that makes real
     // icons render correctly.
     fn nested_squares(fill_rule: FillRule) -> Vec<Edge> {
-        let c = Color { r: 255, g: 255, b: 255, a: 255 };
         let v = |x: f32, y0: f32, y1: f32, dir: i32| Edge {
             x0: x,
             y0,
             x1: x,
             y1,
-            color: c,
             shape_id: 0,
             dir,
             fill_rule,
@@ -214,7 +223,9 @@ mod tests {
     fn center_alpha(fill_rule: FillRule) -> u8 {
         let (w, h) = (100usize, 100usize);
         let mut buf = vec![0u8; w * h * OUTPUT_BYTES_PER_PIXEL];
-        scanline_fill(&nested_squares(fill_rule), w, h, &mut buf);
+        // One shape (id 0), solid white.
+        let paints = [ShapePaint::Solid(Color { r: 255, g: 255, b: 255, a: 255 })];
+        scanline_fill(&nested_squares(fill_rule), &paints, w, h, &mut buf);
         buf[(50 * w + 50) * OUTPUT_BYTES_PER_PIXEL + 3]
     }
 
