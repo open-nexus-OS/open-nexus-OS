@@ -513,6 +513,14 @@ pub(crate) struct DisplayServerRuntime {
     sidebar_composite_cache_valid: bool,
     /// Set when the chat surface needs re-rendering (init, scroll, new message).
     chat_surface_dirty: bool,
+    /// Shell-P2b: the desktop shell scene as ONE opaque retained-surface LAYER
+    /// (atlas surface). Rendered once into `shell_atlas` and composited onto the
+    /// scanout via the GPU layer path every present (the path that reaches the
+    /// virgl scanout; Plane 1 does not). `shell_w`/`shell_h` are the root rect.
+    shell_atlas: crate::atlas::AtlasSurface,
+    shell_w: u32,
+    shell_h: u32,
+    shell_surface_dirty: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -657,6 +665,26 @@ impl DisplayServerRuntime {
                     mode.height,
                 )
             });
+        // P2b debug: confirm the desktop scene populated + sane geometry.
+        if let Some(first) = proof_layouts.as_ref().and_then(|l| l.first()) {
+            let tb = first.boxes.iter().find(|b| b.id == Some("topbar"));
+            let _ = debug_println(&alloc::format!(
+                "dbg: scene boxes={} origin=({},{}) mode={}x{} topbar={:?}",
+                first.boxes.len(),
+                SCENE_ORIGIN_X,
+                SCENE_ORIGIN_Y,
+                mode.width,
+                mode.height,
+                tb.map(|b| (
+                    b.rect.x.as_u32().unwrap_or(0),
+                    b.rect.y.as_u32().unwrap_or(0),
+                    b.rect.width.as_u32().unwrap_or(0),
+                    b.rect.height.as_u32().unwrap_or(0),
+                ))
+            ));
+        } else {
+            let _ = debug_println("dbg: scene layout EMPTY (build returned None)");
+        }
         let _ = debug_println(RUNTIME_INIT_OK);
         let _ = debug_println("dbg: windowd init self-build start");
         let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
@@ -742,6 +770,17 @@ impl DisplayServerRuntime {
         let sidebar_composite_cache = atlas
             .alloc(crate::interaction::SIDEBAR_WIDTH, mode.height)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Shell-P2b: reserve the desktop-shell layer surface (one opaque layer).
+        // Sized to the desktop_root rect; falls back to full display if absent.
+        let (shell_w, shell_h) = proof_layouts
+            .as_ref()
+            .and_then(|l| l.first())
+            .map(super::desktop_layer::shell_root_dims)
+            .filter(|&(w, h)| w > 0 && h > 0)
+            .map(|(w, h)| (w.min(crate::atlas::ATLAS_WIDTH), h.min(mode.height)))
+            .unwrap_or((mode.width.min(crate::atlas::ATLAS_WIDTH), mode.height));
+        let shell_atlas =
+            atlas.alloc(shell_w, shell_h).ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -829,6 +868,10 @@ impl DisplayServerRuntime {
             sidebar_composite_cache,
             sidebar_composite_cache_valid: false,
             chat_surface_dirty: true,
+            shell_atlas,
+            shell_w,
+            shell_h,
+            shell_surface_dirty: true,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1856,6 +1899,44 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// Shell-P2b: render the desktop shell scene into its atlas surface as one
+    /// opaque layer (rows `shell_atlas.abs_row..`, layout-local coords). Called
+    /// when the shell surface is dirty (init / scene change). Each band row is
+    /// cleared first so the area outside the opaque root never carries stale
+    /// pixels; the composite samples only the root rect.
+    fn render_shell_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let abs_row = self.shell_atlas.abs_row;
+        let shell_h = self.shell_h;
+        let active_idx = self.active_filter_idx;
+        // Disjoint field borrows: the layout (proof_layouts) and the scratch band.
+        let Some(layout) = self.proof_layouts.as_ref().and_then(|l| l.get(active_idx)) else {
+            return Ok(());
+        };
+        let band = &mut self.band_scratch;
+        let mut band_start = 0u32;
+        while band_start < shell_h {
+            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(shell_h);
+            let band_rows = (band_end - band_start) as usize;
+            for (i, ly) in (band_start..band_end).enumerate() {
+                let row = &mut band[i * stride..(i + 1) * stride];
+                row.fill(0);
+                super::desktop_layer::draw_desktop_shell_row(ly, row, layout)?;
+            }
+            let dst = (abs_row + band_start) as usize * stride;
+            vmo_write(handle, dst, &band[..band_rows * stride])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        Ok(())
+    }
+
     fn handle_scroll_input(&mut self) {
         if !self.scroll_marker_emitted {
             let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
@@ -2390,6 +2471,11 @@ impl DisplayServerRuntime {
             self.render_chat_surface()?;
             self.chat_surface_dirty = false;
         }
+        // Shell-P2b: (re)render the desktop shell layer surface when dirty.
+        if USE_DESKTOP_SHELL && self.shell_surface_dirty {
+            self.render_shell_surface()?;
+            self.shell_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -2413,6 +2499,9 @@ impl DisplayServerRuntime {
         // retained plane (step 1 blit) instead; chat/sidebar return as real
         // desktop layers in P3.
         let chat_atlas_row = self.chat_atlas.abs_row;
+        let shell_atlas_row = self.shell_atlas.abs_row;
+        let shell_w = self.shell_w;
+        let shell_h = self.shell_h;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
@@ -2497,6 +2586,28 @@ impl DisplayServerRuntime {
                         rect.height,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // 1·shell. Desktop shell layer (Shell-P2b): composite the opaque shell
+            //     atlas onto the display at the scene origin every present. This is
+            //     the GPU layer path that actually reaches the virgl scanout (the
+            //     retained Plane 1 does not), so the shell chrome is a layer like
+            //     the chat window — not a Plane-1 write.
+            if USE_DESKTOP_SHELL && shell_w > 0 && shell_h > 0 {
+                let _ = encoder.try_composite_layer(
+                    shell_atlas_row,
+                    0,
+                    shell_w,
+                    shell_h,
+                    SCENE_ORIGIN_X,
+                    SCENE_ORIGIN_Y,
+                    255,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                );
             }
 
             // 1a. Chat window layer: composite its cached opaque surface from the

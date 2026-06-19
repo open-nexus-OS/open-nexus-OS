@@ -42,6 +42,7 @@ mod blur;
 mod cache;
 mod chat;
 mod damage;
+mod desktop_layer;
 mod filter;
 pub(crate) mod font;
 mod path_cache;
