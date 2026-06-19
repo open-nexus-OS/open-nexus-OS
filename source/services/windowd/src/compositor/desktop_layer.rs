@@ -36,6 +36,26 @@ const ITEM_PAD_X: u32 = 14; // horizontal padding inside each hover cell
 const ITEM_GAP: u32 = 6; // gap between cells
 const TEXT_TOP: u32 = (TOPBAR_H - FONT_H * FONT_SCALE) / 2; // vertically centered
 
+/// Menu (hamburger) icon at the right of the bar — opens the side panel.
+const MENU_ICON_SIZE: u32 = 26;
+const MENU_ICON_PAD_R: u32 = 12;
+const MENU_BAR_W: u32 = 16;
+const MENU_BAR_H: u32 = 2;
+const MENU_BAR_GAP: u32 = 4;
+
+/// Bar-local x of the menu icon's left edge for a bar `bar_w` wide.
+fn menu_icon_x(bar_w: u32) -> u32 {
+    bar_w.saturating_sub(MENU_ICON_SIZE + MENU_ICON_PAD_R)
+}
+
+/// Menu-icon hit-test in **bar-local** coordinates (the caller offsets the
+/// cursor by the bar's on-screen origin). A generous square around the glyph.
+pub(crate) fn topbar_menu_icon_hit(local_x: u32, local_y: u32, bar_w: u32) -> bool {
+    let x0 = menu_icon_x(bar_w);
+    let y0 = (TOPBAR_H.saturating_sub(MENU_ICON_SIZE)) / 2;
+    local_x >= x0 && local_x < x0 + MENU_ICON_SIZE && local_y >= y0 && local_y < y0 + MENU_ICON_SIZE
+}
+
 /// Glass tint (cool dark, translucent) + brighter hover tint. Straight alpha —
 /// gpud's layer blend (H_BLEND_ALPHA) composites these over the blurred backdrop.
 const TINT: [u8; 4] = [40, 34, 30, 150]; // BGRA, ~59% — reads as frosted glass
@@ -97,6 +117,21 @@ pub(crate) fn draw_topbar_row(
             write_tint_span(row, s, e.min(bar_w), HOVER_TINT);
         }
     }
+    // Menu (hamburger) icon at the right — three white bars.
+    {
+        let icon_x = menu_icon_x(bar_w);
+        let icon_y0 = (TOPBAR_H.saturating_sub(MENU_ICON_SIZE)) / 2;
+        let bars_total = 3 * MENU_BAR_H + 2 * MENU_BAR_GAP;
+        let bars_top = icon_y0 + (MENU_ICON_SIZE.saturating_sub(bars_total)) / 2;
+        let bar_x = icon_x + (MENU_ICON_SIZE.saturating_sub(MENU_BAR_W)) / 2;
+        for i in 0..3u32 {
+            let by = bars_top + i * (MENU_BAR_H + MENU_BAR_GAP);
+            if local_y >= by && local_y < by + MENU_BAR_H {
+                fill_row_rect(local_y, row, bar_x, local_y, MENU_BAR_W, 1, TEXT_COLOR)?;
+            }
+        }
+    }
+
     // Labels — only on rows that intersect the text band.
     if local_y < TEXT_TOP || local_y >= TEXT_TOP + FONT_H * FONT_SCALE {
         return Ok(());

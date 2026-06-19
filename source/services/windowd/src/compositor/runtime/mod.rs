@@ -1316,6 +1316,20 @@ impl DisplayServerRuntime {
             let _ = self.wm.on_pointer_up();
         }
 
+        // Shell-P2b: the topbar menu icon (right) toggles the animated side
+        // panel — the same scene-graph-driven slide animation as the hamburger.
+        if primary_press && !window_consumed_press && SHELL_TOPBAR {
+            use crate::compositor::desktop_layer::{topbar_menu_icon_hit, TOPBAR_MARGIN_X, TOPBAR_TOP};
+            if cursor_x >= TOPBAR_MARGIN_X as i32 && cursor_y >= TOPBAR_TOP as i32 {
+                let lx = (cursor_x - TOPBAR_MARGIN_X as i32) as u32;
+                let ly = (cursor_y - TOPBAR_TOP as i32) as u32;
+                if topbar_menu_icon_hit(lx, ly, self.shell_w) {
+                    self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
+                    window_consumed_press = true;
+                }
+            }
+        }
+
         // Resolve the click against the rendered geometry (only if the window
         // manager did not consume it). The sidebar is the single click-driven
         // animation trigger.
@@ -2476,8 +2490,8 @@ impl DisplayServerRuntime {
             self.render_chat_surface()?;
             self.chat_surface_dirty = false;
         }
-        // Shell-P2b: (re)render the desktop shell layer surface when dirty.
-        if USE_DESKTOP_SHELL && self.shell_surface_dirty {
+        // Shell-P2b: (re)render the glass topbar layer surface when dirty.
+        if SHELL_TOPBAR && self.shell_surface_dirty {
             self.render_shell_surface()?;
             self.shell_surface_dirty = false;
         }
@@ -2803,7 +2817,10 @@ impl DisplayServerRuntime {
             // Incremental: only redraw the glass button when a damage rect overwrote
             // its region (hover spring / handoff / cache build all queue the button
             // rect). A far-away change leaves the button untouched on the display plane.
+            // The glass topbar carries the menu icon now, so the standalone
+            // hamburger button (which would overlap the topbar) is suppressed.
             if !USE_DESKTOP_SHELL
+                && !SHELL_TOPBAR
                 && button_blit_w > 0
                 && !button_covered
                 && (button_touched || !btn_blur_cache_valid)
