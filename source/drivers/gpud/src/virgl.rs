@@ -332,6 +332,32 @@ impl Submit3d {
         }
     }
 
+    /// "Over" blending for a PREMULTIPLIED-alpha source: rgb = src.rgb + dst.rgb·(1−src.a)
+    /// (rgb_src = ONE, not SRC_ALPHA). Use for sprites whose colour is already
+    /// alpha-weighted (nexus-svg cursor) — the straight-alpha variant would
+    /// multiply by alpha twice and dark-fringe the AA edges.
+    pub fn emit_create_blend_premult(&mut self, handle: u32) {
+        const PIPE_BLEND_ADD: u32 = 0;
+        const PIPE_BLENDFACTOR_ONE: u32 = 0x1;
+        const PIPE_BLENDFACTOR_INV_SRC_ALPHA: u32 = 0x13;
+        let rt0 = 1
+            | (PIPE_BLEND_ADD << 1)
+            | (PIPE_BLENDFACTOR_ONE << 4)
+            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 9)
+            | (PIPE_BLEND_ADD << 14)
+            | (PIPE_BLENDFACTOR_ONE << 17)
+            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 22)
+            | (0xF << 27);
+        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_BLEND, 11);
+        self.w(handle);
+        self.w(0); // S0
+        self.w(0); // S1
+        self.w(rt0);
+        for _ in 0..7 {
+            self.w(0xF << 27);
+        }
+    }
+
     /// `CREATE_OBJECT(DSA)` — depth/stencil/alpha all disabled.
     ///
     /// Payload (5 dwords): handle, S0, two stencil dwords, alpha_ref (f32).

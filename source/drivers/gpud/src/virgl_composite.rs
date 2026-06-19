@@ -46,6 +46,9 @@ use crate::virgl::{
 const H_FS_LAYER: u32 = 20;
 const H_SAMPLER: u32 = 0x47;
 const H_BLEND_ALPHA: u32 = 0x61;
+/// Premultiplied-alpha "over" blend (rgb_src = ONE) — for premultiplied sprites
+/// (the cursor). Straight-alpha content (atlas layers, icon) keeps H_BLEND_ALPHA.
+const H_BLEND_PREMUL: u32 = 0x62;
 // Reused from the boot draw self-test (persist for the gpud lifetime):
 const H_VS: u32 = 10; // passthrough vertex shader
 const H_DSA: u32 = 0x21;
@@ -126,6 +129,7 @@ impl VirtioGpuBackend {
         let mut s = Submit3d::new();
         s.emit_create_shader(H_FS_LAYER, PIPE_SHADER_FRAGMENT, FS_LAYER);
         s.emit_create_blend_alpha(H_BLEND_ALPHA);
+        s.emit_create_blend_premult(H_BLEND_PREMUL);
         s.emit_create_sampler_state_default(H_SAMPLER);
         self.submit_composite_stream(&s)?;
         self.virgl_composite_ready = true;
@@ -152,8 +156,9 @@ impl VirtioGpuBackend {
         opacity: u32,
         radius: u32,
     ) -> Result<(), GfxError> {
-        // 1:1 texel→pixel (the cursor/scroll/layer path): the src region and the
-        // dst rect are the same size, so it delegates with src==dst.
+        // 1:1 texel→pixel straight-alpha path (atlas layers / scroll): src==dst,
+        // standard alpha blend. Premultiplied sprites use `submit_layer_pass_scaled`
+        // with `H_BLEND_PREMUL` directly (see `composite_sprite_rt`).
         self.submit_layer_pass_scaled(
             target_surface,
             content_sview,
@@ -169,6 +174,7 @@ impl VirtioGpuBackend {
             h,
             opacity,
             radius,
+            H_BLEND_ALPHA,
         )
     }
 
@@ -195,6 +201,7 @@ impl VirtioGpuBackend {
         dst_h: u32,
         opacity: u32,
         radius: u32,
+        blend: u32,
     ) -> Result<(), GfxError> {
         self.composite_init()?;
         if dst_w == 0 || dst_h == 0 || src_w == 0 || src_h == 0 || tex_w == 0 || tex_h == 0 {
@@ -214,7 +221,7 @@ impl VirtioGpuBackend {
         let opacity01 = (opacity.min(255) as f32) / 255.0;
 
         let mut s = Submit3d::new();
-        s.emit_bind_object(VIRGL_OBJECT_BLEND, H_BLEND_ALPHA);
+        s.emit_bind_object(VIRGL_OBJECT_BLEND, blend);
         s.emit_bind_object(VIRGL_OBJECT_DSA, H_DSA);
         s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
         s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
@@ -572,7 +579,10 @@ impl VirtioGpuBackend {
             return Ok(());
         }
         let (w, h) = (self.cursor_tex_w, self.cursor_tex_h);
-        self.composite_sprite_rt(H_CURSOR_SVIEW, w, h, dst_x, dst_y, 255, 0)
+        // The cursor sprite is PREMULTIPLIED (nexus-svg) → premult-over blend, so
+        // its anti-aliased edges don't get a dark fringe (straight-alpha would
+        // multiply by alpha twice). Icon/atlas layers stay on H_BLEND_ALPHA.
+        self.composite_sprite_rt(H_CURSOR_SVIEW, w, h, dst_x, dst_y, 255, 0, H_BLEND_PREMUL)
     }
 
     /// Upload the real icon sprite (set via `store_icon_sprite`) into its own GL
@@ -660,6 +670,8 @@ impl VirtioGpuBackend {
             dh,
             255,
             0,
+            // Icon sprite is un-premultiplied (straight alpha) → standard blend.
+            H_BLEND_ALPHA,
         )
     }
 
@@ -677,8 +689,9 @@ impl VirtioGpuBackend {
         dst_y: u32,
         opacity: u32,
         radius: u32,
+        blend: u32,
     ) -> Result<(), GfxError> {
-        self.submit_layer_pass(
+        self.submit_layer_pass_scaled(
             crate::gl_scanout::H_GLS_SURF,
             content_sview,
             tex_w,
@@ -689,8 +702,11 @@ impl VirtioGpuBackend {
             tex_h,
             dst_x,
             dst_y,
+            tex_w,
+            tex_h,
             opacity,
             radius,
+            blend,
         )
     }
 
