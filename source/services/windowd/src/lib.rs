@@ -21,6 +21,7 @@ mod buffer;
 mod cli;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod compositor;
+mod desktop_scene;
 mod display_backend;
 mod error;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
