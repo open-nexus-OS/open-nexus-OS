@@ -37,8 +37,8 @@ use super::{
     DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X, USE_DESKTOP_SHELL,
-    WINDOWD_SHADOW_ARENA_SIZE,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SHELL_TOPBAR, SIDEBAR_REST_X,
+    USE_DESKTOP_SHELL, WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -521,6 +521,9 @@ pub(crate) struct DisplayServerRuntime {
     shell_w: u32,
     shell_h: u32,
     shell_surface_dirty: bool,
+    /// Index of the topbar item currently under the cursor (drives the hover
+    /// highlight; a change re-renders the topbar atlas).
+    topbar_hover: Option<usize>,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -665,26 +668,6 @@ impl DisplayServerRuntime {
                     mode.height,
                 )
             });
-        // P2b debug: confirm the desktop scene populated + sane geometry.
-        if let Some(first) = proof_layouts.as_ref().and_then(|l| l.first()) {
-            let tb = first.boxes.iter().find(|b| b.id == Some("topbar"));
-            let _ = debug_println(&alloc::format!(
-                "dbg: scene boxes={} origin=({},{}) mode={}x{} topbar={:?}",
-                first.boxes.len(),
-                SCENE_ORIGIN_X,
-                SCENE_ORIGIN_Y,
-                mode.width,
-                mode.height,
-                tb.map(|b| (
-                    b.rect.x.as_u32().unwrap_or(0),
-                    b.rect.y.as_u32().unwrap_or(0),
-                    b.rect.width.as_u32().unwrap_or(0),
-                    b.rect.height.as_u32().unwrap_or(0),
-                ))
-            ));
-        } else {
-            let _ = debug_println("dbg: scene layout EMPTY (build returned None)");
-        }
         let _ = debug_println(RUNTIME_INIT_OK);
         let _ = debug_println("dbg: windowd init self-build start");
         let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
@@ -770,17 +753,14 @@ impl DisplayServerRuntime {
         let sidebar_composite_cache = atlas
             .alloc(crate::interaction::SIDEBAR_WIDTH, mode.height)
             .ok_or(WindowdError::BufferLengthMismatch)?;
-        // Shell-P2b: reserve the desktop-shell layer surface (one opaque layer).
-        // Sized to the desktop_root rect; falls back to full display if absent.
-        let (shell_w, shell_h) = proof_layouts
-            .as_ref()
-            .and_then(|l| l.first())
-            .map(super::desktop_layer::shell_root_dims)
-            .filter(|&(w, h)| w > 0 && h > 0)
-            .map(|(w, h)| (w.min(crate::atlas::ATLAS_WIDTH), h.min(mode.height)))
-            .unwrap_or((mode.width.min(crate::atlas::ATLAS_WIDTH), mode.height));
-        let shell_atlas =
-            atlas.alloc(shell_w, shell_h).ok_or(WindowdError::BufferLengthMismatch)?;
+        // Shell-P2b: reserve the glass topbar layer surface — full-width, one
+        // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
+        // rounded corners + shadow each present.
+        let shell_w = mode.width.saturating_sub(2 * super::desktop_layer::TOPBAR_MARGIN_X).max(1);
+        let shell_h = super::desktop_layer::TOPBAR_H;
+        let shell_atlas = atlas
+            .alloc(mode.width.min(crate::atlas::ATLAS_WIDTH), shell_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -872,6 +852,7 @@ impl DisplayServerRuntime {
             shell_w,
             shell_h,
             shell_surface_dirty: true,
+            topbar_hover: None,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1380,6 +1361,34 @@ impl DisplayServerRuntime {
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
+        // Shell-P2b: topbar hover. Recompute the hovered item from the cursor and,
+        // on change, re-render the topbar atlas + damage its band so the present
+        // recomposites with the new hover highlight.
+        if SHELL_TOPBAR {
+            use crate::compositor::desktop_layer::{
+                topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let cx = self.state.cursor_x;
+            let cy = self.state.cursor_y;
+            let new_hover = if cy >= TOPBAR_TOP as i32
+                && cy < (TOPBAR_TOP + TOPBAR_H) as i32
+                && cx >= TOPBAR_MARGIN_X as i32
+            {
+                topbar_item_at((cx - TOPBAR_MARGIN_X as i32) as u32)
+            } else {
+                None
+            };
+            if new_hover != self.topbar_hover {
+                self.topbar_hover = new_hover;
+                self.shell_surface_dirty = true;
+                self.queue_dirty_rect(DamageRect {
+                    x: TOPBAR_MARGIN_X,
+                    y: TOPBAR_TOP,
+                    width: self.shell_w,
+                    height: TOPBAR_H,
+                });
+            }
+        }
         self.state.set_text_input(upstream.text_input());
         refill_filtered_words(&mut self.filtered_words, self.state.text_input());
         // The desktop scene has a single layout (no filter variants); keep the
@@ -1899,11 +1908,10 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    /// Shell-P2b: render the desktop shell scene into its atlas surface as one
-    /// opaque layer (rows `shell_atlas.abs_row..`, layout-local coords). Called
-    /// when the shell surface is dirty (init / scene change). Each band row is
-    /// cleared first so the area outside the opaque root never carries stale
-    /// pixels; the composite samples only the root rect.
+    /// Shell-P2b: render the glass topbar into its atlas surface (rows
+    /// `shell_atlas.abs_row..`, bar-local coords). Called when dirty (init /
+    /// hover change). Each row is cleared first; the composite applies the
+    /// rounded mask + backdrop blur + shadow.
     fn render_shell_surface(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
@@ -1914,11 +1922,8 @@ impl DisplayServerRuntime {
         }
         let abs_row = self.shell_atlas.abs_row;
         let shell_h = self.shell_h;
-        let active_idx = self.active_filter_idx;
-        // Disjoint field borrows: the layout (proof_layouts) and the scratch band.
-        let Some(layout) = self.proof_layouts.as_ref().and_then(|l| l.get(active_idx)) else {
-            return Ok(());
-        };
+        let bar_w = self.shell_w;
+        let hover = self.topbar_hover;
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < shell_h {
@@ -1927,7 +1932,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_desktop_shell_row(ly, row, layout)?;
+                super::desktop_layer::draw_topbar_row(ly, row, bar_w, hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -2588,25 +2593,27 @@ impl DisplayServerRuntime {
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
-            // 1·shell. Desktop shell layer (Shell-P2b): composite the opaque shell
-            //     atlas onto the display at the scene origin every present. This is
-            //     the GPU layer path that actually reaches the virgl scanout (the
-            //     retained Plane 1 does not), so the shell chrome is a layer like
-            //     the chat window — not a Plane-1 write.
-            if USE_DESKTOP_SHELL && shell_w > 0 && shell_h > 0 {
+            // 1·shell. Glass topbar layer (Shell-P2b): composite the topbar atlas
+            //     onto the display each present with backdrop blur + rounded
+            //     corners + a soft drop shadow — the GPU layer path that reaches
+            //     the virgl scanout (the retained Plane 1 does not). Rendered like
+            //     the chat window: translucent tint + opaque text in the atlas,
+            //     glass effects applied here by the composite.
+            if SHELL_TOPBAR && shell_w > 0 && shell_h > 0 {
+                use crate::compositor::desktop_layer::{TOPBAR_MARGIN_X, TOPBAR_RADIUS, TOPBAR_TOP};
                 let _ = encoder.try_composite_layer(
                     shell_atlas_row,
                     0,
                     shell_w,
                     shell_h,
-                    SCENE_ORIGIN_X,
-                    SCENE_ORIGIN_Y,
+                    TOPBAR_MARGIN_X,
+                    TOPBAR_TOP,
                     255,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
+                    TOPBAR_RADIUS,
+                    18,
+                    4,
+                    90,
+                    20,
                 );
             }
 
