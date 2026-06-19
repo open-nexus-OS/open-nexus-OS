@@ -36,8 +36,8 @@ use super::{
     DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET,
     DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
-    PROOF_PANEL_H, PROOF_PANEL_X, PROOF_PANEL_Y, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
-    ROUTE_NAME, ROW_WRITE_CHUNK, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X,
+    PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SIDEBAR_REST_X, USE_DESKTOP_SHELL,
     WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
@@ -638,13 +638,21 @@ impl DisplayServerRuntime {
         };
         let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
         refill_filtered_words(&mut filtered_words, initial_state.text_input());
-        let proof_layouts = build_live_proof_layouts(initial_state);
+        // Shell-P2b: source the composited scene from the desktop shell when
+        // enabled, else the baked proof+filter panel. The desktop scene is laid
+        // out to fit between the scene insets on both sides of the display.
+        let proof_layouts = if USE_DESKTOP_SHELL {
+            let content_width = mode.width.saturating_sub(2 * SCENE_ORIGIN_X).max(1);
+            crate::desktop_scene::build_live_desktop_layouts(content_width)
+        } else {
+            build_live_proof_layouts(initial_state)
+        };
         let proof_layout_index =
             proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
                 LayoutHotPathIndex::build(
                     layout,
-                    PROOF_PANEL_X,
-                    PROOF_PANEL_Y,
+                    SCENE_ORIGIN_X,
+                    SCENE_ORIGIN_Y,
                     mode.width,
                     mode.height,
                 )
@@ -1331,7 +1339,11 @@ impl DisplayServerRuntime {
         self.state.cursor_y = upstream.cursor_y;
         self.state.set_text_input(upstream.text_input());
         refill_filtered_words(&mut self.filtered_words, self.state.text_input());
-        self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
+        // The desktop scene has a single layout (no filter variants); keep the
+        // active index pinned at 0 so the single-element layout set stays valid.
+        if !USE_DESKTOP_SHELL {
+            self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
+        }
         if self.active_filter_idx != old_filter_idx {
             self.refresh_active_proof_hot_path();
         }
@@ -1888,8 +1900,8 @@ impl DisplayServerRuntime {
         if let Some(damage) = scroll_damage {
             self.refresh_active_proof_hot_path();
             for rect in damage.rects.into_iter().flatten() {
-                let x = PROOF_PANEL_X.saturating_add(rect.x.as_u32().unwrap_or(0));
-                let y = PROOF_PANEL_Y.saturating_add(rect.y.as_u32().unwrap_or(0));
+                let x = SCENE_ORIGIN_X.saturating_add(rect.x.as_u32().unwrap_or(0));
+                let y = SCENE_ORIGIN_Y.saturating_add(rect.y.as_u32().unwrap_or(0));
                 let w = rect.width.as_u32().unwrap_or(0);
                 let h = rect.height.as_u32().unwrap_or(0);
                 if w > 0 && h > 0 {
@@ -1923,8 +1935,8 @@ impl DisplayServerRuntime {
         let Some(new_index) = self.active_proof_layout().map(|layout| {
             LayoutHotPathIndex::build(
                 layout,
-                PROOF_PANEL_X,
-                PROOF_PANEL_Y,
+                SCENE_ORIGIN_X,
+                SCENE_ORIGIN_Y,
                 self.mode.width,
                 self.mode.height,
             )
@@ -2390,12 +2402,18 @@ impl DisplayServerRuntime {
         let blur_cache_valid = self.sidebar_blur_cache_valid;
         // Pre-blur pass rides the first handoff present (full-screen damage, so
         // the display plane holds the complete base scene to blur from).
-        let precache_sidebar_blur =
-            self.precache_blur_pending && !blur_cache_valid && scene.sidebar_opacity <= 0.01;
+        let precache_sidebar_blur = !USE_DESKTOP_SHELL
+            && self.precache_blur_pending
+            && !blur_cache_valid
+            && scene.sidebar_opacity <= 0.01;
         // Chat layer: source row of its cached surface + on-screen placement from
         // the window manager (so a drag just changes the blit destination).
+        // Shell-P2b: the proof/shell chat atlas, sidebar, and glass buttons are
+        // suppressed in desktop mode — the desktop chrome is composited into the
+        // retained plane (step 1 blit) instead; chat/sidebar return as real
+        // desktop layers in P3.
         let chat_atlas_row = self.chat_atlas.abs_row;
-        let chat_show = self.wm.chat_visible();
+        let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
         // GPU scroll-offset: the body samples the overscan surface shifted by the
@@ -2641,7 +2659,11 @@ impl DisplayServerRuntime {
             // Incremental: only redraw the glass button when a damage rect overwrote
             // its region (hover spring / handoff / cache build all queue the button
             // rect). A far-away change leaves the button untouched on the display plane.
-            if button_blit_w > 0 && !button_covered && (button_touched || !btn_blur_cache_valid) {
+            if !USE_DESKTOP_SHELL
+                && button_blit_w > 0
+                && !button_covered
+                && (button_touched || !btn_blur_cache_valid)
+            {
                 if btn_blur_cache_valid {
                     // Fast path: restore pre-blurred background from Plane 3 cache.
                     let _ = encoder.try_blit_absolute(
@@ -2762,7 +2784,7 @@ impl DisplayServerRuntime {
                 let covered = scene.sidebar_opacity > 0.01 && sidebar_x_for_btn <= cb.x;
                 // Incremental: only redraw when its region was overwritten (chat-visibility
                 // toggle queues the chat-button rect; handoff damages full screen).
-                if cb.width > 0 && !covered && chat_btn_touched {
+                if !USE_DESKTOP_SHELL && cb.width > 0 && !covered && chat_btn_touched {
                     let gt = crate::assets::GLASS_TINT;
                     let ge = crate::assets::GLASS_EDGE;
                     let cb_rect = TileRect { x: cb.x, y: cb.y, width: cb.width, height: cb.height };
@@ -2844,7 +2866,8 @@ impl DisplayServerRuntime {
             // sidebar rect each tick), when a damage rect overwrote it, or while a
             // blur/composite cache still needs building. A settled, cached, untouched
             // sidebar persists on the display plane — no per-present blur/SDF work.
-            if sidebar_opacity > 0.01
+            if !USE_DESKTOP_SHELL
+                && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {
                 let translate = scene.sidebar_translate_x.clamp(0.0, SIDEBAR_WIDTH as f32) as u32;

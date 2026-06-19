@@ -105,6 +105,15 @@ pub(crate) fn compute_desktop_layout_for_display() -> Result<LayoutResult, &'sta
     compute_desktop_layout(DESKTOP_LAYOUT_WIDTH)
 }
 
+/// Build the live desktop-shell layout set for the compositor's `proof_layouts`
+/// slot: a single `LayoutResult` (the desktop scene has no filter variants).
+/// `content_width` is the width available to the scene at its on-screen origin
+/// (display width minus the scene inset on both sides). Returns `None` only if
+/// layout fails, mirroring [`build_live_proof_layouts`].
+pub(crate) fn build_live_desktop_layouts(content_width: u32) -> Option<alloc::vec::Vec<LayoutResult>> {
+    Some(vec![compute_desktop_layout(content_width).ok()?])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

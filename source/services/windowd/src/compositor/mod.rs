@@ -149,6 +149,21 @@ pub(crate) const BUTTON_BLUR_CACHE_ABS_ROW: u32 = BLUR_CACHE_ROW_OFFSET;
 pub(crate) const PROOF_PANEL_X: u32 = 56;
 pub(crate) const PROOF_PANEL_Y: u32 = 440;
 pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
+
+/// Shell-P2b: select the desktop shell scene as windowd's composited content.
+/// When `true`, the runtime sources `proof_layouts` from
+/// `desktop_scene::build_live_desktop_layouts` (themed topbar + chat-window
+/// chrome from `nexus-shell-desktop`) instead of the baked proof+filter panel,
+/// and suppresses the proof-specific GPU overlays (chat atlas, sidebar,
+/// hamburger/chat glass buttons) so nothing stale paints over the shell.
+/// Flip to `false` to fall back to the proof UI. The chat VirtualList and a
+/// real shell sidebar return as dedicated desktop layers in P3.
+pub(crate) const USE_DESKTOP_SHELL: bool = true;
+
+/// On-screen origin of the composited scene. The desktop shell sits near the
+/// top-left with a small inset; the proof panel keeps its historic placement.
+pub(crate) const SCENE_ORIGIN_X: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_X };
+pub(crate) const SCENE_ORIGIN_Y: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_Y };
 pub(crate) const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
 pub(crate) const FILTER_LIST_PADDING_X: u32 = layout_panel::FILTER_LIST_PADDING;
 pub(crate) const FILTER_LIST_PADDING_Y: u32 = layout_panel::FILTER_LIST_PADDING;

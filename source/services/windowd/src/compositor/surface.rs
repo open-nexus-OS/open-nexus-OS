@@ -32,7 +32,7 @@ use super::{
     FILTER_INPUT_FONT_SCALE, FILTER_INPUT_FONT_W, FILTER_INPUT_PADDING_X, FILTER_LIST_PADDING_X,
     FILTER_LIST_PADDING_Y, FILTER_LIST_ROW_GAP, GLASS_LAYER_MAX_BYTES, GLASS_LAYER_MAX_HEIGHT,
     GLASS_LAYER_MAX_WIDTH, GLASS_LAYER_SCALE, LAYER_CACHE_MAX_BYTES, LAYER_CACHE_MAX_LAYER_BYTES,
-    PROOF_PANEL_X, PROOF_PANEL_Y, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SOFT_PANEL_SHADOW_BLUR_RADIUS, SOFT_PANEL_SHADOW_OFFSET_Y,
 };
 use crate::assets;
 use crate::error::WindowdError;
@@ -484,12 +484,12 @@ pub(crate) fn proof_box_rect(layout_box: &nexus_layout::LayoutBox) -> Option<Pro
     if width == 0 || height == 0 {
         return None;
     }
-    let x = PROOF_PANEL_X + layout_box.rect.x.as_u32().unwrap_or(0);
-    let y = PROOF_PANEL_Y + layout_box.rect.y.as_u32().unwrap_or(0);
+    let x = SCENE_ORIGIN_X + layout_box.rect.x.as_u32().unwrap_or(0);
+    let y = SCENE_ORIGIN_Y + layout_box.rect.y.as_u32().unwrap_or(0);
     // Clip to clip_rect: if the box has a scissor rect, intersect with it
     if let Some(clip) = layout_box.clip_rect {
-        let clip_x = PROOF_PANEL_X + clip.x.as_u32().unwrap_or(0);
-        let clip_y = PROOF_PANEL_Y + clip.y.as_u32().unwrap_or(0);
+        let clip_x = SCENE_ORIGIN_X + clip.x.as_u32().unwrap_or(0);
+        let clip_y = SCENE_ORIGIN_Y + clip.y.as_u32().unwrap_or(0);
         let clip_w = clip.width.as_u32().unwrap_or(0);
         let clip_h = clip.height.as_u32().unwrap_or(0);
         if clip_w == 0 || clip_h == 0 {
