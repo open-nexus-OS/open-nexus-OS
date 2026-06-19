@@ -245,14 +245,16 @@ pub(crate) fn draw_search_window_row(
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, w, TINT);
     if local_y < SEARCH_TITLE_H {
-        write_tint_span(row, 0, w, [56, 50, 46, 168]);
-        draw_label(local_y, row, "Search", SEARCH_PAD, (SEARCH_TITLE_H - FONT_H * FONT_SCALE) / 2, TEXT_COLOR)?;
-        let cx = w.saturating_sub(SEARCH_CLOSE_W);
-        if close_hover {
-            write_tint_span(row, cx, w, HOVER_TINT);
-        }
-        draw_label(local_y, row, "x", cx + (SEARCH_CLOSE_W - GLYPH_W) / 2, (SEARCH_TITLE_H - FONT_H * FONT_SCALE) / 2, TEXT_COLOR)?;
-        return Ok(());
+        // Shared window chrome (same title bar + close "x" as the chat window).
+        return super::shell_window::draw_title_bar_row(
+            local_y,
+            row,
+            w,
+            "Search",
+            SEARCH_TITLE_H,
+            SEARCH_CLOSE_W,
+            close_hover,
+        );
     }
     let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - FONT_H * FONT_SCALE) / 2;
     if local_y >= SEARCH_TITLE_H && local_y < SEARCH_TITLE_H + SEARCH_FILTER_H {

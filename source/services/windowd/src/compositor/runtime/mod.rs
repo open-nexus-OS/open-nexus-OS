@@ -3151,123 +3151,37 @@ impl DisplayServerRuntime {
                 );
             }
 
-            // 1a. Chat window layer: composite its cached opaque surface from the
-            //     VMO atlas onto the display at the window's current position.
-            //     One blit — dragging the window just changes the destination,
-            //     no content re-render. Drawn over the base, under the button/
-            //     sidebar overlays (z-order finalized in a later phase).
+            // 1a. Chat window — the SAME reusable ShellWindow glass frame as the
+            //     Search window (rounded corners + cached blur + drop shadow +
+            //     the shared title bar/close "x"), with the body scrolled by a
+            //     GPU source-row offset (render once, no per-frame re-render).
+            //     On virgl the scanout is rebuilt every present, so the chat layer
+            //     is re-composited each frame (the mmio damage-touch gate would
+            //     otherwise show the window only when the cursor passed over it).
             if chat_show {
                 use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
-                // Only recomposite the chat layer when a damage rect actually
-                // touches its shadow halo. The window + shadow persist on the
-                // display plane otherwise, so a cursor move far away keeps the
-                // cheap hot path (no halo flush). Without this gate the shadow
-                // would be redrawn on every present.
-                let pad = CHAT_SHADOW_BLUR.saturating_add(CHAT_SHADOW_OFFSET_Y.unsigned_abs());
-                let hx0 = chat_dx.saturating_sub(pad) as i32;
-                let hy0 = chat_dy.saturating_sub(pad) as i32;
-                let hx1 = (chat_dx + CHAT_PANEL_W + pad) as i32;
-                let hy1 = (chat_dy + CHAT_PANEL_H + pad) as i32;
-                // On virgl the scanout is rebuilt every present, so the chat
-                // layer must be re-composited each frame — the damage-touch gate
-                // (an mmio optimization where the display plane persists) would
-                // otherwise show the window only when the cursor passed over it.
-                let _touches_chat = rects.iter().take(rect_count).any(|r| {
-                    let rx1 = (r.x + r.width) as i32;
-                    let ry1 = (r.y + r.height) as i32;
-                    (r.x as i32) < hx1 && rx1 > hx0 && (r.y as i32) < hy1 && ry1 > hy0
-                });
-                if true {
-                    // Restore the full halo from the retained plane first so the
-                    // (translucent) shadow blends over a clean backdrop and never
-                    // accumulates — and the cursor hot path can't carve a trail
-                    // through it. Then composite the chat as ONE layer: gpud
-                    // GPU-composites it (shadow + content texture + rounded mask)
-                    // on virgl, or CPU-bakes it (shadow + opaque blit) on the 2D
-                    // path. The window's content lives in the atlas; moving it
-                    // just changes the layer's destination.
-                    let hx = chat_dx.saturating_sub(pad);
-                    let hy = chat_dy.saturating_sub(pad);
-                    let hw = (CHAT_PANEL_W + 2 * pad).min(mode.width.saturating_sub(hx));
-                    let hh = (CHAT_PANEL_H + 2 * pad).min(mode.height.saturating_sub(hy));
-                    let _ = encoder.try_blit_surface(hx, hy + RETAINED_ROW_OFFSET, hx, hy, hw, hh);
-                    // Backdrop-blur cache: the halo restore just put the clean
-                    // base into the window region. Blur it ONCE (on open/move)
-                    // into the cache; thereafter just blit the cache back —
-                    // zero per-frame blur for the glass.
-                    if !chat_blur_cache_valid {
-                        let _ = encoder.try_blur_backdrop(
-                            TileRect {
-                                x: chat_dx,
-                                y: chat_dy,
-                                width: CHAT_PANEL_W,
-                                height: CHAT_PANEL_H,
-                            },
-                            super::DARK_GLASS_BLUR_RADIUS,
-                            super::DARK_GLASS_SATURATION_PERCENT,
-                        );
-                        // Save the blurred backdrop (display window region) to
-                        // the off-screen cache surface.
-                        let _ = encoder.try_blit_absolute(
-                            chat_dx,
-                            DISPLAY_ROW_OFFSET + chat_dy,
-                            0,
-                            chat_blur_cache_row,
-                            CHAT_PANEL_W,
-                            CHAT_PANEL_H,
-                        );
-                        built_chat_blur_cache = true;
-                    } else {
-                        // Reuse the cached blurred backdrop (one blit, no blur).
-                        let _ = encoder.try_blit_absolute(
-                            0,
-                            chat_blur_cache_row,
-                            chat_dx,
-                            DISPLAY_ROW_OFFSET + chat_dy,
-                            CHAT_PANEL_W,
-                            CHAT_PANEL_H,
-                        );
-                    }
-                    // The backdrop is already blurred in the display window
-                    // region, so the layer composite does shadow + content blend
-                    // only (backdrop_blur = 0).
-                    // Body: the whole window (shadow + rounded), sampling the
-                    // overscan surface shifted by the scroll-within-window offset.
-                    // Marked SCROLLABLE so gpud retains it and can re-sample it at a
-                    // new source row on the lightweight `OP_SET_CHAT_SCROLL` fast
-                    // path (a 54µs GPU re-composite) — no CPU re-render per frame.
-                    let _ = encoder.try_composite_layer_scrollable(
-                        chat_atlas_row + chat_content_offset,
-                        0,
-                        CHAT_PANEL_W,
-                        CHAT_PANEL_H,
-                        chat_dx,
-                        chat_dy,
-                        255,
-                        super::DARK_GLASS_RADIUS,
-                        CHAT_SHADOW_BLUR,
-                        CHAT_SHADOW_OFFSET_Y,
-                        CHAT_SHADOW_ALPHA as u32,
-                        0,
-                    );
-                    // Title bar: composited FIXED on top (src row 0, no offset),
-                    // overdrawing the scrolled title region — so the title never
-                    // moves while the content scrolls underneath.
-                    let _ = encoder.try_composite_layer(
-                        chat_atlas_row,
-                        0,
-                        CHAT_PANEL_W,
+                let chat_glass = crate::compositor::shell_window::GlassCompositeParams {
+                    atlas_row: chat_atlas_row,
+                    blur_cache_row: chat_blur_cache_row,
+                    blur_valid: chat_blur_cache_valid,
+                    x: chat_dx,
+                    y: chat_dy,
+                    w: CHAT_PANEL_W,
+                    h: CHAT_PANEL_H,
+                    radius: super::desktop_layer::SEARCH_RADIUS,
+                    shadow_blur: CHAT_SHADOW_BLUR,
+                    shadow_offset_y: CHAT_SHADOW_OFFSET_Y,
+                    shadow_alpha: CHAT_SHADOW_ALPHA as u32,
+                };
+                built_chat_blur_cache =
+                    crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
+                        &mut encoder,
+                        chat_glass,
+                        chat_content_offset,
                         chat_title_h,
-                        chat_dx,
-                        chat_dy,
-                        255,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
+                        mode.width,
+                        mode.height,
                     );
-                }
             }
 
             // 1b. Pre-blur the sidebar backdrop at handoff (sidebar closed,

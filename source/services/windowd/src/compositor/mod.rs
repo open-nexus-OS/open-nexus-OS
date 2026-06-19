@@ -215,13 +215,14 @@ pub(crate) const DARK_GLASS_BORDER: Rgba8 = Rgba8::new(255, 255, 255, 26);
 pub(crate) const SOFT_PANEL_SHADOW_OFFSET_Y: i32 = 4;
 pub(crate) const SOFT_PANEL_SHADOW_BLUR_RADIUS: u32 = 30;
 pub(crate) const SOFT_PANEL_SHADOW_ALPHA: u32 = 128;
-/// Chat-window drop shadow (subtle, macOS-like floating panel): a soft, not
-/// heavy, penumbra offset slightly downward. The compositor restores this
-/// halo from the retained plane before each (translucent) redraw so it never
-/// accumulates. See `build_scene_cb_into` step 1a.
-pub(crate) const CHAT_SHADOW_BLUR: u32 = 22;
-pub(crate) const CHAT_SHADOW_OFFSET_Y: i32 = 10;
-pub(crate) const CHAT_SHADOW_ALPHA: u8 = 78;
+/// Shared window drop shadow (subtle, macOS-like floating panel): a soft, not
+/// heavy, penumbra offset slightly downward. Used by both the chat and search
+/// ShellWindow frames so they cast an identical shadow. The compositor restores
+/// this halo from the retained plane before each (translucent) redraw so it
+/// never accumulates. See `build_scene_cb_into` step 1a.
+pub(crate) const CHAT_SHADOW_BLUR: u32 = 18;
+pub(crate) const CHAT_SHADOW_OFFSET_Y: i32 = 5;
+pub(crate) const CHAT_SHADOW_ALPHA: u8 = 90;
 pub(crate) const PATH_CACHE_ENTRIES: usize = 2;
 pub(crate) const PATH_CACHE_MAX_SIDE: usize = 16;
 pub(crate) const PATH_CACHE_MAX_PIXELS: usize = PATH_CACHE_MAX_SIDE * PATH_CACHE_MAX_SIDE * 4;

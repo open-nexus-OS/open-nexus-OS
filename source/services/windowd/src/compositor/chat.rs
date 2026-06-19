@@ -30,9 +30,9 @@ use alloc::vec::Vec;
 use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
 
 // Colours (BGRA — the framebuffer is BGRA8888).
-// PANEL_BG is translucent so the compositor's backdrop blur shows through as
-// glass; message bubbles stay opaque for readability (iMessage/Telegram look).
-const PANEL_BG: [u8; 4] = [44, 38, 38, 168];
+// PANEL_BG matches the Search window's glass tint so both windows share one
+// look; message bubbles stay opaque for readability (iMessage/Telegram look).
+const PANEL_BG: [u8; 4] = [40, 34, 30, 150];
 const BUBBLE_INCOMING: [u8; 4] = [70, 64, 60, 255];
 const BUBBLE_FROM_ME: [u8; 4] = [180, 96, 44, 255];
 const TEXT_COLOR: [u8; 4] = [245, 245, 240, 255];
@@ -104,12 +104,6 @@ pub(crate) fn compute_visible_window(
     block_top
 }
 
-// Title bar colours (BGRA): subtle vertical gradient, separator, close X.
-const TITLE_BAR_TOP: [u8; 4] = [72, 64, 62, 255];
-const TITLE_BAR_BOTTOM: [u8; 4] = [52, 46, 45, 255];
-const TITLE_SEPARATOR: [u8; 4] = [30, 27, 27, 255];
-const TITLE_TEXT: [u8; 4] = [240, 238, 235, 255];
-
 /// Surface-local viewport rect (x, y, w, h). The chat surface top-left is (0,0);
 /// the on-screen position is applied only at composite time. Content starts
 /// below the title bar.
@@ -122,59 +116,6 @@ fn viewport() -> (u32, u32, u32, u32) {
     let vp_h =
         CHAT_PANEL_H.saturating_sub(CHAT_TITLE_BAR_H).saturating_sub(CHAT_PAD.saturating_mul(2));
     (vp_x, vp_y, vp_w, vp_h)
-}
-
-/// Render one row of the title bar: gradient background, bottom separator,
-/// "CHAT" label on the left, and an X glyph centered in the close zone.
-fn draw_title_bar_row(ly: u32, row: &mut [u8]) -> Result<(), WindowdError> {
-    // Vertical gradient (per-row lerp top → bottom).
-    let denom = (CHAT_TITLE_BAR_H - 1).max(1);
-    let mut bg = [0u8; 4];
-    for c in 0..4 {
-        let t = TITLE_BAR_TOP[c] as u32;
-        let b = TITLE_BAR_BOTTOM[c] as u32;
-        bg[c] = ((t * (denom - ly) + b * ly) / denom) as u8;
-    }
-    if ly == CHAT_TITLE_BAR_H - 1 {
-        bg = TITLE_SEPARATOR;
-    }
-    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, CHAT_TITLE_BAR_H, bg)?;
-
-    // Title label "CHAT" (5x7 bitmap font, 2x scale) vertically centered.
-    const TITLE: &str = "CHAT";
-    const TITLE_SCALE: u32 = 2;
-    let glyph_h = 7 * TITLE_SCALE;
-    let title_top = (CHAT_TITLE_BAR_H - glyph_h) / 2;
-    if ly >= title_top && ly < title_top + glyph_h {
-        let glyph_row = ((ly - title_top) / TITLE_SCALE) as usize;
-        let mut pen_x = CHAT_PAD;
-        for ch in TITLE.chars() {
-            let glyph = bitmap_font_5x7(ch);
-            let bits = glyph[glyph_row];
-            for col in 0..5u32 {
-                if bits & (1 << (4 - col)) != 0 {
-                    let px = pen_x + col * TITLE_SCALE;
-                    fill_row_rect(ly, row, px, ly, TITLE_SCALE, 1, TITLE_TEXT)?;
-                }
-            }
-            pen_x += (5 + 1) * TITLE_SCALE;
-        }
-    }
-
-    // Close X: two 2px diagonals in a 14x14 box centered in the close zone.
-    const X_SIZE: u32 = 14;
-    let zone_x = CHAT_PANEL_W - CHAT_CLOSE_ZONE_W;
-    let x0 = zone_x + (CHAT_CLOSE_ZONE_W - X_SIZE) / 2;
-    let y0 = (CHAT_TITLE_BAR_H - X_SIZE) / 2;
-    if ly >= y0 && ly < y0 + X_SIZE {
-        let dy = ly - y0;
-        // Down-right diagonal and down-left diagonal, 2px thick.
-        for (dx, w) in [(dy, 2u32), (X_SIZE - 1 - dy, 2u32)] {
-            let px = x0 + dx.min(X_SIZE - 2);
-            fill_row_rect(ly, row, px, ly, w, 1, TITLE_TEXT)?;
-        }
-    }
-    Ok(())
 }
 
 /// Render one *surface-local* row `ly` (0..CHAT_PANEL_H) of the chat panel into
@@ -194,9 +135,18 @@ pub(crate) fn draw_chat_panel_row(
     if ly >= surface_h {
         return Ok(());
     }
-    // Title bar rows render their own background + chrome (composited fixed).
+    // Title bar rows render the SHARED window chrome (same title bar + close
+    // "x" as the Search window), composited fixed on top of the scrolling body.
     if ly < CHAT_TITLE_BAR_H {
-        return draw_title_bar_row(ly, row);
+        return super::shell_window::draw_title_bar_row(
+            ly,
+            row,
+            CHAT_PANEL_W,
+            "Chat",
+            CHAT_TITLE_BAR_H,
+            CHAT_CLOSE_ZONE_W,
+            false,
+        );
     }
     // Panel background (full panel width, every row) — opaque, so no glass blur.
     fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, surface_h, PANEL_BG)?;

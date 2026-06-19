@@ -18,16 +18,98 @@
 //! OWNERS: @ui
 //! STATUS: In progress (unified-window refactor, W1)
 
+use super::font::bitmap_font_5x7;
+use super::primitives::fill_row_rect;
 use crate::atlas::AtlasSurface;
 use crate::compositor::{
     DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
 };
+use crate::error::WindowdError;
 use crate::live_runtime::DamageRect;
 use nexus_gfx::{RenderCommandEncoder, TileRect};
 
 /// Shadow-halo margin around the window when computing its damage rect, so the
 /// soft drop shadow is restored from the retained plane on move/close.
 const SHADOW_HALO_PAD: u32 = 24;
+
+// ── Shared window chrome: title bar tint + title text + close "x" ──
+// One title-bar renderer for every ShellWindow so the chat and search windows
+// share the exact same look (the user's "same close x / same frame" goal). The
+// glass body + corners + shadow come from the composite; this paints the atlas.
+const FONT_W: u32 = 5;
+const FONT_H: u32 = 7;
+const FONT_SCALE: u32 = 2;
+const GLYPH_W: u32 = FONT_W * FONT_SCALE;
+const GLYPH_ADVANCE: u32 = GLYPH_W + 2;
+/// Title-bar background tint (slightly lighter than the body for separation),
+/// hover highlight behind the close zone, and the chrome text colour. Straight
+/// alpha — gpud's layer blend composites these over the blurred backdrop.
+const TITLE_BG: [u8; 4] = [56, 50, 46, 168];
+const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
+const CHROME_TEXT: [u8; 4] = [255, 255, 255, 255];
+
+/// Draw one window-local row of the shared title bar: the header tint across the
+/// bar, the title on the left, and a hover-highlighted close "x" on the right.
+/// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
+pub(crate) fn draw_title_bar_row(
+    local_y: u32,
+    row: &mut [u8],
+    w: u32,
+    title: &str,
+    title_h: u32,
+    close_w: u32,
+    close_hover: bool,
+) -> Result<(), WindowdError> {
+    if local_y >= title_h {
+        return Ok(());
+    }
+    write_tint_span(row, 0, w, TITLE_BG);
+    let text_top = (title_h - FONT_H * FONT_SCALE) / 2;
+    draw_label(local_y, row, title, 14, text_top, CHROME_TEXT)?;
+    let cx = w.saturating_sub(close_w);
+    if close_hover {
+        write_tint_span(row, cx, w, HOVER_TINT);
+    }
+    draw_label(local_y, row, "x", cx + (close_w - GLYPH_W) / 2, text_top, CHROME_TEXT)?;
+    Ok(())
+}
+
+/// Draw a label at window-local `(x0, top)` in `color`, only on rows within the
+/// glyph band (5×7 bitmap font, 2× scale).
+fn draw_label(
+    local_y: u32,
+    row: &mut [u8],
+    text: &str,
+    x0: u32,
+    top: u32,
+    color: [u8; 4],
+) -> Result<(), WindowdError> {
+    if local_y < top || local_y >= top + FONT_H * FONT_SCALE {
+        return Ok(());
+    }
+    let glyph_row = ((local_y - top) / FONT_SCALE).min(FONT_H - 1) as usize;
+    let mut pen_x = x0;
+    for ch in text.chars() {
+        let bits = bitmap_font_5x7(ch)[glyph_row];
+        for col in 0..FONT_W {
+            if bits & (1 << (FONT_W - 1 - col)) != 0 {
+                fill_row_rect(local_y, row, pen_x + col * FONT_SCALE, local_y, FONT_SCALE, 1, color)?;
+            }
+        }
+        pen_x += GLYPH_ADVANCE;
+    }
+    Ok(())
+}
+
+/// Write one straight-alpha BGRA span (gpud's layer blend does the SRC_ALPHA
+/// compositing over the blurred backdrop).
+fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
+    let rp = (row.len() / 4) as u32;
+    for px in x0.min(rp)..x1.min(rp) {
+        let idx = px as usize * 4;
+        row[idx..idx + 4].copy_from_slice(&c);
+    }
+}
 
 /// What a primary press landed on inside a window (window-local resolution).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -270,6 +352,64 @@ impl ShellWindow {
             p.shadow_alpha,
             0,
         );
+        built_blur
+    }
+
+    /// Composite a glass window whose body **scrolls** by a GPU source-row offset
+    /// while the title bar stays fixed — the chat mechanism, now shared so the
+    /// chat and search windows scroll identically (render once, GPU offset, no
+    /// per-frame re-render). The halo is restored from the retained plane each
+    /// present so the soft shadow never accumulates (virgl rebuilds the scanout
+    /// every present). `content_offset` is the body's scroll-within-surface in
+    /// rows; `header_h` is the fixed title-bar height. Returns true when the blur
+    /// cache was (re)built this present.
+    pub(crate) fn composite_scrollable_glass(
+        encoder: &mut RenderCommandEncoder<'_>,
+        p: GlassCompositeParams,
+        content_offset: u32,
+        header_h: u32,
+        mode_w: u32,
+        mode_h: u32,
+    ) -> bool {
+        if p.x >= mode_w || p.y >= mode_h {
+            return false;
+        }
+        // Restore the full halo (window + shadow pad) from the retained plane so
+        // the translucent shadow blends over a clean backdrop and never trails.
+        let pad = p.shadow_blur.saturating_add(p.shadow_offset_y.unsigned_abs());
+        let hx = p.x.saturating_sub(pad);
+        let hy = p.y.saturating_sub(pad);
+        let hw = (p.w + 2 * pad).min(mode_w.saturating_sub(hx));
+        let hh = (p.h + 2 * pad).min(mode_h.saturating_sub(hy));
+        let _ = encoder.try_blit_surface(hx, hy + RETAINED_ROW_OFFSET, hx, hy, hw, hh);
+
+        let mut built_blur = false;
+        let rect = TileRect { x: p.x, y: p.y, width: p.w, height: p.h };
+        if !p.blur_valid {
+            let _ = encoder.try_blur_backdrop(rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
+            let _ = encoder.try_blit_absolute(p.x, DISPLAY_ROW_OFFSET + p.y, 0, p.blur_cache_row, p.w, p.h);
+            built_blur = true;
+        } else {
+            let _ = encoder.try_blit_absolute(0, p.blur_cache_row, p.x, DISPLAY_ROW_OFFSET + p.y, p.w, p.h);
+        }
+        // Body: sample the surface shifted by the scroll-within-window offset
+        // (SCROLLABLE → gpud retains it for the cheap re-sample fast path).
+        let _ = encoder.try_composite_layer_scrollable(
+            p.atlas_row + content_offset,
+            0,
+            p.w,
+            p.h,
+            p.x,
+            p.y,
+            255,
+            p.radius,
+            p.shadow_blur,
+            p.shadow_offset_y,
+            p.shadow_alpha,
+            0,
+        );
+        // Title bar: composited FIXED on top (src row 0) so it never scrolls.
+        let _ = encoder.try_composite_layer(p.atlas_row, 0, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
         built_blur
     }
 }
