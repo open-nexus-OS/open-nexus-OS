@@ -96,10 +96,49 @@ pub(crate) const SIDEPANEL_MARGIN: u32 = 16;
 pub(crate) const SIDEPANEL_RADIUS: u32 = 18;
 /// Top of the panel (below the topbar).
 pub(crate) const SIDEPANEL_TOP: u32 = TOPBAR_TOP + TOPBAR_H + 10;
-const SIDEPANEL_ITEMS: [&str; 4] = ["Apps", "Files", "Settings", "About"];
 const SIDEPANEL_TITLE: &str = "Menu";
 const SIDEPANEL_PAD: u32 = 18;
 const SIDEPANEL_ROW_H: u32 = 34;
+const SIDEPANEL_SUB_INDENT: u32 = 20;
+
+/// A clickable row in the side panel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SidepanelItem {
+    Apps,
+    Chat,
+    Search,
+}
+
+/// Y (panel-local) of the list's first row.
+fn sidepanel_list_top() -> u32 {
+    SIDEPANEL_PAD + FONT_H * FONT_SCALE + 16
+}
+
+/// Panel-local `[top, bottom)` of an item's row, given whether Apps is expanded.
+/// Sub-items (Chat/Search) only exist while expanded.
+fn sidepanel_row_span(item: SidepanelItem, expanded: bool) -> Option<(u32, u32)> {
+    let lt = sidepanel_list_top();
+    let idx = match item {
+        SidepanelItem::Apps => 0,
+        SidepanelItem::Chat if expanded => 1,
+        SidepanelItem::Search if expanded => 2,
+        _ => return None,
+    };
+    let top = lt + idx * SIDEPANEL_ROW_H;
+    Some((top, top + SIDEPANEL_ROW_H))
+}
+
+/// Which side-panel item a panel-local point falls in.
+pub(crate) fn sidepanel_item_at(local_y: u32, expanded: bool) -> Option<SidepanelItem> {
+    for item in [SidepanelItem::Apps, SidepanelItem::Chat, SidepanelItem::Search] {
+        if let Some((t, b)) = sidepanel_row_span(item, expanded) {
+            if local_y >= t && local_y < b {
+                return Some(item);
+            }
+        }
+    }
+    None
+}
 
 /// Draw a label at `(x0, top)` (bar/panel-local) in `color`, only on rows that
 /// intersect the glyph band.
@@ -127,16 +166,31 @@ pub(crate) fn draw_sidepanel_row(
     local_y: u32,
     row: &mut [u8],
     panel_w: u32,
+    apps_expanded: bool,
+    hover: Option<SidepanelItem>,
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, panel_w, TINT);
     // Title near the top.
     draw_label(local_y, row, SIDEPANEL_TITLE, SIDEPANEL_PAD, SIDEPANEL_PAD, TEXT_COLOR)?;
-    // Item list.
-    let list_top = SIDEPANEL_PAD + FONT_H * FONT_SCALE + 16;
-    for (i, item) in SIDEPANEL_ITEMS.iter().enumerate() {
-        let row_top = list_top + i as u32 * SIDEPANEL_ROW_H;
-        let text_top = row_top + (SIDEPANEL_ROW_H - FONT_H * FONT_SCALE) / 2;
-        draw_label(local_y, row, item, SIDEPANEL_PAD, text_top, TEXT_COLOR)?;
+
+    let mut draw_item = |item: SidepanelItem,
+                         label: &str,
+                         indent: u32|
+     -> Result<(), WindowdError> {
+        let Some((top, _)) = sidepanel_row_span(item, apps_expanded) else { return Ok(()) };
+        // Hover cell behind the row.
+        if hover == Some(item) && local_y >= top && local_y < top + SIDEPANEL_ROW_H {
+            write_tint_span(row, SIDEPANEL_PAD / 2, panel_w.saturating_sub(SIDEPANEL_PAD / 2), HOVER_TINT);
+        }
+        let text_top = top + (SIDEPANEL_ROW_H - FONT_H * FONT_SCALE) / 2;
+        draw_label(local_y, row, label, SIDEPANEL_PAD + indent, text_top, TEXT_COLOR)
+    };
+
+    // "Apps" header with a ▸/▾ caret (drawn as text to keep the bitmap font).
+    draw_item(SidepanelItem::Apps, if apps_expanded { "- Apps" } else { "+ Apps" }, 0)?;
+    if apps_expanded {
+        draw_item(SidepanelItem::Chat, "Chat", SIDEPANEL_SUB_INDENT)?;
+        draw_item(SidepanelItem::Search, "Search", SIDEPANEL_SUB_INDENT)?;
     }
     Ok(())
 }

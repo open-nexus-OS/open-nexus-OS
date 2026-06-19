@@ -530,6 +530,9 @@ pub(crate) struct DisplayServerRuntime {
     sidepanel_atlas: crate::atlas::AtlasSurface,
     sidepanel_h: u32,
     sidepanel_surface_dirty: bool,
+    /// Side-panel "Apps" dropdown expanded, and the hovered row.
+    sidepanel_apps_expanded: bool,
+    sidepanel_hover: Option<crate::compositor::desktop_layer::SidepanelItem>,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -872,6 +875,8 @@ impl DisplayServerRuntime {
             sidepanel_atlas,
             sidepanel_h,
             sidepanel_surface_dirty: true,
+            sidepanel_apps_expanded: false,
+            sidepanel_hover: None,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1354,6 +1359,57 @@ impl DisplayServerRuntime {
             }
         }
 
+        // Side-panel item clicks: Apps expands the dropdown; Chat opens the chat
+        // window; Search opens the search window (next phase).
+        if primary_press && !window_consumed_press && SHELL_SIDEPANEL && self.state.sidebar_open_visible
+        {
+            use crate::compositor::desktop_layer::{
+                sidepanel_item_at, SidepanelItem, SIDEPANEL_MARGIN, SIDEPANEL_TOP, SIDEPANEL_W,
+            };
+            let slide =
+                self.animated_scene.sidebar_translate_x.clamp(0.0, SIDEPANEL_W as f32 + 32.0) as u32;
+            let base_x =
+                self.mode.width.saturating_sub(SIDEPANEL_MARGIN + SIDEPANEL_W).saturating_add(slide);
+            if cursor_x >= base_x as i32
+                && cursor_y >= SIDEPANEL_TOP as i32
+                && (cursor_x as u32) < base_x + SIDEPANEL_W
+                && (cursor_y as u32) < SIDEPANEL_TOP + self.sidepanel_h
+            {
+                if let Some(item) =
+                    sidepanel_item_at((cursor_y - SIDEPANEL_TOP as i32) as u32, self.sidepanel_apps_expanded)
+                {
+                    window_consumed_press = true;
+                    let panel_damage = DamageRect {
+                        x: base_x,
+                        y: SIDEPANEL_TOP,
+                        width: SIDEPANEL_W.min(self.mode.width.saturating_sub(base_x)),
+                        height: self.sidepanel_h,
+                    };
+                    match item {
+                        SidepanelItem::Apps => {
+                            self.sidepanel_apps_expanded = !self.sidepanel_apps_expanded;
+                            self.sidepanel_surface_dirty = true;
+                            self.queue_dirty_rect(panel_damage);
+                        }
+                        SidepanelItem::Chat => {
+                            let now = self.wm.toggle(crate::wm::WindowId::Chat);
+                            if now {
+                                self.chat_blur_cache_valid = false;
+                                let b = self.wm.chat_window().bounds;
+                                self.erase_chat_region(b.x, b.y);
+                                self.note_chat_button_dirty();
+                            } else {
+                                self.on_chat_window_closed(crate::wm::WindowId::Chat);
+                            }
+                        }
+                        SidepanelItem::Search => {
+                            let _ = debug_println("dbg: sidepanel Search (window — next phase)");
+                        }
+                    }
+                }
+            }
+        }
+
         // Resolve the click against the rendered geometry (only if the window
         // manager did not consume it). The sidebar is the single click-driven
         // animation trigger.
@@ -1427,6 +1483,36 @@ impl DisplayServerRuntime {
                     y: TOPBAR_TOP,
                     width: self.shell_w,
                     height: TOPBAR_H,
+                });
+            }
+        }
+        // Side-panel row hover (only while the panel is open).
+        if SHELL_SIDEPANEL && self.state.sidebar_open_visible {
+            use crate::compositor::desktop_layer::{
+                sidepanel_item_at, SIDEPANEL_MARGIN, SIDEPANEL_TOP, SIDEPANEL_W,
+            };
+            let slide =
+                self.animated_scene.sidebar_translate_x.clamp(0.0, SIDEPANEL_W as f32 + 32.0) as u32;
+            let base_x = self.mode.width.saturating_sub(SIDEPANEL_MARGIN + SIDEPANEL_W).saturating_add(slide);
+            let cx = self.state.cursor_x;
+            let cy = self.state.cursor_y;
+            let new_hover = if cx >= base_x as i32
+                && cy >= SIDEPANEL_TOP as i32
+                && (cx as u32) < base_x + SIDEPANEL_W
+                && (cy as u32) < SIDEPANEL_TOP + self.sidepanel_h
+            {
+                sidepanel_item_at((cy - SIDEPANEL_TOP as i32) as u32, self.sidepanel_apps_expanded)
+            } else {
+                None
+            };
+            if new_hover != self.sidepanel_hover {
+                self.sidepanel_hover = new_hover;
+                self.sidepanel_surface_dirty = true;
+                self.queue_dirty_rect(DamageRect {
+                    x: base_x,
+                    y: SIDEPANEL_TOP,
+                    width: SIDEPANEL_W.min(self.mode.width.saturating_sub(base_x)),
+                    height: self.sidepanel_h,
                 });
             }
         }
@@ -1998,6 +2084,8 @@ impl DisplayServerRuntime {
         let abs_row = self.sidepanel_atlas.abs_row;
         let panel_h = self.sidepanel_h;
         let panel_w = super::desktop_layer::SIDEPANEL_W;
+        let expanded = self.sidepanel_apps_expanded;
+        let hover = self.sidepanel_hover;
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < panel_h {
@@ -2006,7 +2094,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w)?;
+                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w, expanded, hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
