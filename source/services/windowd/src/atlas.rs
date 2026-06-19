@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Surface atlas allocator for the retained-surface GPU compositor
-//! (TASK #8). Cached layer surfaces (base UI, sidebar, chat window, buttons)
+//! CONTEXT: Surface atlas allocator for the retained-surface GPU compositor.
+//! Cached layer surfaces (base UI, sidebar, chat window, shell windows, buttons)
 //! live in the framebuffer VMO beyond the four display planes, so the compositor
-//! can blit a layer to the display at any position without re-rendering it.
+//! can blit/composite a layer at any position without re-rendering it.
 //!
 //! Framebuffer VMO row layout (1280 px wide, BGRA8888):
 //!   rows    0.. 799  Plane 0 — wallpaper source
@@ -13,164 +13,185 @@
 //!   rows 2400..3199  Plane 3 — blur cache (ring slot B)
 //!   rows 3200..6399  Atlas   — cached layer surfaces  ← this module
 //!
-//! Pure logic, no OS deps → host-testable. Surfaces are addressed by absolute
-//! VMO row, consumed by the existing `BlitAbsolute` GPU command + `vmo_write`.
+//! **2D packing.** The atlas is a 1280-wide × `ATLAS_ROWS`-tall region packed by a
+//! free-rectangle allocator (guillotine split on alloc, axis-aligned coalescing on
+//! free). A narrow surface (e.g. a 360-wide window) no longer wastes a whole
+//! 1280-wide row band — several pack side-by-side in one band — which is what
+//! lets the same VMO host many windows / HiDPI surfaces (the macOS/OHOS model).
+//! Surfaces are addressed by absolute VMO row **and column** (`x`); gpud samples
+//! `src_x`/`src_row_abs` natively on both the CPU and virgl paths.
+//!
+//! Two allocation shapes:
+//!   - [`AtlasAllocator::alloc_band`] — a FULL-WIDTH band (`x = 0`). Required by
+//!     surfaces whose CPU renderer writes full-stride rows in `vmo_write` bands
+//!     (chat, base): nothing packs beside them, so the banded write is safe.
+//!   - [`AtlasAllocator::alloc`] — a 2D-PACKED sub-region (`x` may be > 0). Its
+//!     renderer must write per-row at column `x` (sub-stride). For small surfaces
+//!     rendered on infrequent events (window content/blur), that cost is fine.
+//!
+//! Pure logic, no OS deps → host-testable.
 //!
 //! OWNERS: @ui
-//! STATUS: TASK #8 — retained-surface compositor
+//! STATUS: retained-surface compositor — 2D pack
 //! API_STABILITY: Unstable
 
 /// Display width in pixels (atlas surfaces share the framebuffer stride).
 pub(crate) const ATLAS_WIDTH: u32 = 1280;
 /// First atlas row (immediately after the four display planes, each 800 rows).
 pub(crate) const ATLAS_ROW_OFFSET: u32 = 3200;
-/// Atlas height in rows. Sized to hold all cached layers full-width with slack:
-/// base ~260 + sidebar ~764 + chat ~560 + buttons ~56 ≈ 1640 rows used.
+/// Atlas height in rows.
 pub(crate) const ATLAS_ROWS: u32 = 3200;
 /// Total framebuffer-resource height including the atlas. windowd sizes the VMO
 /// to this; gpud's `RESOURCE_HEIGHT` MUST match (separate crate, no shared dep).
 pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 6400
 
-/// A cached layer surface: a full-width row band in the atlas region.
+/// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AtlasSurface {
-    /// Absolute VMO start row of the surface (use as `src_y_abs` for BlitAbsolute).
+    /// Absolute VMO column of the surface's left edge (`src_x` for BlitAbsolute /
+    /// CompositeLayer). 0 for full-width band surfaces.
+    pub(crate) x: u32,
+    /// Absolute VMO start row of the surface (`src_y_abs` for BlitAbsolute).
     pub(crate) abs_row: u32,
+    /// Reserved width in columns (full atlas width for band surfaces).
     pub(crate) width: u32,
     pub(crate) height: u32,
 }
 
 impl AtlasSurface {
-    /// Byte offset of the surface's first pixel within the framebuffer VMO.
+    /// Byte offset of the surface's top-left pixel within the framebuffer VMO.
     pub(crate) fn byte_offset(self, stride_bytes: usize) -> usize {
-        self.abs_row as usize * stride_bytes
+        self.abs_row as usize * stride_bytes + self.x as usize * 4
     }
 }
 
-/// A freed row band available for reuse: `[row, row + rows)` in the atlas.
+/// A free rectangle available for allocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FreeSpan {
-    row: u32,
-    rows: u32,
+struct FreeRect {
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
 }
 
-/// Max distinct freed bands tracked at once. Windows acquire/release surfaces on
-/// show/hide, so only a handful of bands are ever free simultaneously; freed
-/// bands are coalesced (and the high-water tail reclaimed) on every `free`, so
-/// fragmentation stays bounded well under this cap.
-const MAX_FREE_SPANS: usize = 16;
+/// Max free rectangles tracked. Guillotine split adds ≤2 per alloc; coalescing on
+/// free keeps the count bounded well under this for the handful of live surfaces.
+const MAX_FREE_RECTS: usize = 48;
 
-/// Row allocator over the atlas region. Each surface gets a full-width row band.
-/// A high-water bump pointer (`next_row`) hands out fresh bands; freed bands go
-/// to a small free list that `alloc` reuses (first-fit + split) before bumping.
-/// On `free`, adjacent free bands are coalesced and any band touching the
-/// high-water mark is folded back into the bump tail — so a window can be shown,
-/// hidden, and shown again without permanently consuming atlas rows, and the
-/// boot sequence (all `alloc`s before any `free`) behaves exactly like the old
-/// pure-bump allocator.
+/// Free-rectangle (guillotine) allocator over the atlas region. `alloc`/`alloc_band`
+/// best-fit a free rect and split the remainder; `free` returns the rect and
+/// coalesces it with axis-aligned neighbours. The boot sequence (only `alloc_band`,
+/// all before any `free`) degenerates to simple vertical stacking — byte-for-byte
+/// the old row-bump layout — so existing surfaces keep their exact positions.
 pub(crate) struct AtlasAllocator {
-    next_row: u32,
-    free: [FreeSpan; MAX_FREE_SPANS],
+    free: [FreeRect; MAX_FREE_RECTS],
     free_len: usize,
 }
 
 impl AtlasAllocator {
-    pub(crate) const fn new() -> Self {
-        Self {
-            next_row: ATLAS_ROW_OFFSET,
-            free: [FreeSpan { row: 0, rows: 0 }; MAX_FREE_SPANS],
-            free_len: 0,
-        }
+    pub(crate) fn new() -> Self {
+        let mut free = [FreeRect { x: 0, y: 0, w: 0, h: 0 }; MAX_FREE_RECTS];
+        free[0] = FreeRect { x: 0, y: ATLAS_ROW_OFFSET, w: ATLAS_WIDTH, h: ATLAS_ROWS };
+        Self { free, free_len: 1 }
     }
 
-    /// Reserve a surface `height` rows tall (full atlas width). Reuses a freed
-    /// band when one fits (first-fit, splitting the remainder back onto the free
-    /// list); otherwise bumps the high-water mark. Returns `None` if neither a
-    /// free band nor the remaining tail can satisfy the request.
+    /// Reserve a FULL-WIDTH band `height` rows tall (`x = 0`). For surfaces whose
+    /// CPU renderer writes full-stride `vmo_write` bands (nothing packs beside it).
+    pub(crate) fn alloc_band(&mut self, height: u32) -> Option<AtlasSurface> {
+        self.alloc(ATLAS_WIDTH, height)
+    }
+
+    /// Reserve a 2D-packed `width × height` sub-region (`x` may be > 0). Best-fit +
+    /// guillotine split. Returns `None` if no free rect fits.
     pub(crate) fn alloc(&mut self, width: u32, height: u32) -> Option<AtlasSurface> {
-        if height == 0 || width == 0 || width > ATLAS_WIDTH {
+        if width == 0 || height == 0 || width > ATLAS_WIDTH || height > ATLAS_ROWS {
             return None;
         }
-        // First-fit over the free list (reuse before growing the high-water mark).
+        // Best-area-fit: the free rect that fits with the least leftover area, so
+        // a full-width band prefers the full-width tail and a narrow surface tucks
+        // into a side gap rather than carving up a fresh band.
+        let mut best: Option<usize> = None;
+        let mut best_leftover = u64::MAX;
         for i in 0..self.free_len {
-            if self.free[i].rows >= height {
-                let row = self.free[i].row;
-                if self.free[i].rows == height {
-                    self.remove_span(i);
-                } else {
-                    // Split: keep the remainder as a free band below the surface.
-                    self.free[i].row += height;
-                    self.free[i].rows -= height;
+            let r = self.free[i];
+            if r.w >= width && r.h >= height {
+                let leftover = r.w as u64 * r.h as u64 - width as u64 * height as u64;
+                if leftover < best_leftover {
+                    best_leftover = leftover;
+                    best = Some(i);
                 }
-                return Some(AtlasSurface { abs_row: row, width, height });
             }
         }
-        // Bump the high-water mark.
-        let end = self.next_row.checked_add(height)?;
-        if end > ATLAS_ROW_OFFSET + ATLAS_ROWS {
-            return None;
+        let i = best?;
+        let r = self.free[i];
+        self.remove_rect(i);
+        // Guillotine split: a strip to the right (same height) + the rest below.
+        if r.w > width {
+            self.push_rect(FreeRect { x: r.x + width, y: r.y, w: r.w - width, h: height });
         }
-        let surface = AtlasSurface { abs_row: self.next_row, width, height };
-        self.next_row = end;
-        Some(surface)
+        if r.h > height {
+            self.push_rect(FreeRect { x: r.x, y: r.y + height, w: r.w, h: r.h - height });
+        }
+        Some(AtlasSurface { x: r.x, abs_row: r.y, width, height })
     }
 
-    /// Return a surface's rows to the allocator. Coalesces with adjacent free
-    /// bands and reclaims the high-water tail, so the freed rows are fully
-    /// reusable (no fragmentation creep across show/hide cycles).
+    /// Return a surface's rectangle to the allocator, coalescing it with adjacent
+    /// free rects so packed/banded space is fully recovered across show/hide.
     pub(crate) fn free(&mut self, surface: AtlasSurface) {
-        if surface.height == 0 {
+        if surface.width == 0 || surface.height == 0 {
             return;
         }
-        // Drop the band on the floor only if the (tiny) free list is somehow full
-        // AND it can't be merged — extremely unlikely given coalescing runs first.
-        if self.free_len < MAX_FREE_SPANS {
-            self.free[self.free_len] = FreeSpan { row: surface.abs_row, rows: surface.height };
-            self.free_len += 1;
-        }
+        self.push_rect(FreeRect {
+            x: surface.x,
+            y: surface.abs_row,
+            w: surface.width,
+            h: surface.height,
+        });
         self.coalesce();
     }
 
-    /// Largest contiguous tail still unallocated by the bump pointer. Used by the
-    /// boot path to clamp a "take the rest" allocation; at boot the free list is
-    /// empty so this equals the total free space.
+    /// Tallest FULL-WIDTH free band still available (`x == 0`, spans the stride).
+    /// The boot "take the rest" side-panel clamp uses this; at boot the free list
+    /// is a single full-width tail, so it equals the remaining rows.
     pub(crate) fn rows_remaining(&self) -> u32 {
-        (ATLAS_ROW_OFFSET + ATLAS_ROWS).saturating_sub(self.next_row)
-    }
-
-    /// Total free rows including coalesced free bands and the bump tail.
-    pub(crate) fn total_free_rows(&self) -> u32 {
-        let mut total = self.rows_remaining();
+        let mut tallest = 0;
         for i in 0..self.free_len {
-            total += self.free[i].rows;
+            let r = self.free[i];
+            if r.x == 0 && r.w == ATLAS_WIDTH && r.h > tallest {
+                tallest = r.h;
+            }
         }
-        total
+        tallest
     }
 
-    /// Remove free-list entry `i` (order-independent compaction).
-    fn remove_span(&mut self, i: usize) {
+    /// Total free area expressed in full-width row-equivalents (telemetry / leak
+    /// checks): `Σ(w·h) / ATLAS_WIDTH`.
+    pub(crate) fn total_free_rows(&self) -> u32 {
+        let mut area = 0u64;
+        for i in 0..self.free_len {
+            area += self.free[i].w as u64 * self.free[i].h as u64;
+        }
+        (area / ATLAS_WIDTH as u64) as u32
+    }
+
+    fn remove_rect(&mut self, i: usize) {
         self.free_len -= 1;
         self.free[i] = self.free[self.free_len];
     }
 
-    /// Merge adjacent free bands and fold any band touching the high-water mark
-    /// back into the bump tail. O(n²) over a list capped at `MAX_FREE_SPANS`.
-    fn coalesce(&mut self) {
-        // Fold bands that abut the high-water tail back into `next_row`, repeating
-        // until none touch (a chain of freed-from-the-top windows collapses fully).
-        let mut folded = true;
-        while folded {
-            folded = false;
-            for i in 0..self.free_len {
-                if self.free[i].row + self.free[i].rows == self.next_row {
-                    self.next_row = self.free[i].row;
-                    self.remove_span(i);
-                    folded = true;
-                    break;
-                }
-            }
+    fn push_rect(&mut self, r: FreeRect) {
+        if r.w == 0 || r.h == 0 {
+            return;
         }
-        // Merge any two adjacent interior bands into one, repeating until stable.
+        if self.free_len < MAX_FREE_RECTS {
+            self.free[self.free_len] = r;
+            self.free_len += 1;
+        }
+    }
+
+    /// Merge axis-aligned adjacent free rects (same column-span & touching rows, or
+    /// same row-span & touching columns) until stable. O(n²) over a small list.
+    fn coalesce(&mut self) {
         let mut merged = true;
         while merged {
             merged = false;
@@ -179,9 +200,21 @@ impl AtlasAllocator {
                     if a == b {
                         continue;
                     }
-                    if self.free[a].row + self.free[a].rows == self.free[b].row {
-                        self.free[a].rows += self.free[b].rows;
-                        self.remove_span(b);
+                    let ra = self.free[a];
+                    let rb = self.free[b];
+                    // Vertically adjacent, same x-span → stack into one.
+                    let vstack = ra.x == rb.x && ra.w == rb.w && ra.y + ra.h == rb.y;
+                    // Horizontally adjacent, same y-span → join side-by-side.
+                    let hjoin = ra.y == rb.y && ra.h == rb.h && ra.x + ra.w == rb.x;
+                    if vstack {
+                        self.free[a].h += rb.h;
+                        self.remove_rect(b);
+                        merged = true;
+                        break 'outer;
+                    }
+                    if hjoin {
+                        self.free[a].w += rb.w;
+                        self.remove_rect(b);
                         merged = true;
                         break 'outer;
                     }
@@ -198,27 +231,78 @@ mod tests {
     #[test]
     fn resource_height_matches_layout() {
         assert_eq!(RESOURCE_HEIGHT, 6400);
-        // Atlas starts right after the 4 display planes (4 × 800).
         assert_eq!(ATLAS_ROW_OFFSET, 4 * 800);
     }
 
     #[test]
-    fn allocations_stack_and_stay_in_region() {
+    fn bands_stack_like_the_old_bump_allocator() {
+        // Boot path: only full-width bands, allocated before any free → identical
+        // vertical stacking + positions to the historical row-bump allocator.
         let mut a = AtlasAllocator::new();
-        let s0 = a.alloc(826, 260).expect("base");
-        let s1 = a.alloc(320, 764).expect("sidebar");
-        assert_eq!(s0.abs_row, ATLAS_ROW_OFFSET);
-        assert_eq!(s1.abs_row, ATLAS_ROW_OFFSET + 260);
-        // No overlap; both inside the atlas.
-        assert!(s1.abs_row >= s0.abs_row + s0.height);
-        assert!(s1.abs_row + s1.height <= ATLAS_ROW_OFFSET + ATLAS_ROWS);
+        let s0 = a.alloc_band(260).unwrap();
+        let s1 = a.alloc_band(764).unwrap();
+        assert_eq!((s0.x, s0.abs_row), (0, ATLAS_ROW_OFFSET));
+        assert_eq!((s1.x, s1.abs_row), (0, ATLAS_ROW_OFFSET + 260));
+        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 260 - 764);
+    }
+
+    #[test]
+    fn narrow_surfaces_pack_side_by_side_in_one_band() {
+        // The 2D win: three 360-wide surfaces share ONE 374-row band (3×360=1080 ≤
+        // 1280) instead of consuming three full-width bands.
+        let mut a = AtlasAllocator::new();
+        let c = a.alloc(360, 374).unwrap();
+        let blur = a.alloc(360, 374).unwrap();
+        let third = a.alloc(360, 374).unwrap();
+        assert_eq!((c.x, c.abs_row), (0, ATLAS_ROW_OFFSET));
+        assert_eq!((blur.x, blur.abs_row), (360, ATLAS_ROW_OFFSET));
+        assert_eq!((third.x, third.abs_row), (720, ATLAS_ROW_OFFSET));
+        // Only 374 rows of full-width capacity were consumed (one band), not 3×374.
+        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 374);
+    }
+
+    #[test]
+    fn free_and_realloc_reuses_the_same_slot() {
+        let mut a = AtlasAllocator::new();
+        let c = a.alloc(360, 374).unwrap();
+        let blur = a.alloc(360, 374).unwrap();
+        a.free(blur);
+        let reused = a.alloc(360, 374).unwrap();
+        assert_eq!((reused.x, reused.abs_row), (blur.x, blur.abs_row));
+        let _ = c;
+    }
+
+    #[test]
+    fn freeing_both_packed_surfaces_coalesces_back_to_full_width() {
+        // Two side-by-side surfaces freed → their band coalesces back into the
+        // full-width tail, so a later full-width band can use those rows again.
+        let mut a = AtlasAllocator::new();
+        let c = a.alloc(360, 374).unwrap();
+        let blur = a.alloc(360, 374).unwrap();
+        assert!(a.rows_remaining() < ATLAS_ROWS); // band carved out
+        a.free(c);
+        a.free(blur);
+        assert_eq!(a.rows_remaining(), ATLAS_ROWS, "band fully reclaimed for full-width use");
+        // And a full-width band now fits at the very top again.
+        let band = a.alloc_band(374).unwrap();
+        assert_eq!((band.x, band.abs_row), (0, ATLAS_ROW_OFFSET));
+    }
+
+    #[test]
+    fn band_then_free_reclaims_for_full_width() {
+        let mut a = AtlasAllocator::new();
+        let _base = a.alloc_band(500).unwrap();
+        let b = a.alloc_band(374).unwrap();
+        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 874);
+        a.free(b);
+        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 500, "band rows returned to the tail");
     }
 
     #[test]
     fn exhaustion_returns_none() {
         let mut a = AtlasAllocator::new();
-        assert!(a.alloc(1280, ATLAS_ROWS).is_some());
-        assert!(a.alloc(1280, 1).is_none());
+        assert!(a.alloc_band(ATLAS_ROWS).is_some());
+        assert!(a.alloc_band(1).is_none());
         assert_eq!(a.rows_remaining(), 0);
     }
 
@@ -227,82 +311,27 @@ mod tests {
         let mut a = AtlasAllocator::new();
         assert!(a.alloc(ATLAS_WIDTH + 1, 10).is_none());
         assert!(a.alloc(100, 0).is_none());
+        assert!(a.alloc(0, 10).is_none());
     }
 
     #[test]
-    fn byte_offset_uses_absolute_row() {
-        let s = AtlasSurface { abs_row: ATLAS_ROW_OFFSET, width: 100, height: 10 };
-        assert_eq!(s.byte_offset(ATLAS_WIDTH as usize * 4), 3200 * 1280 * 4);
+    fn byte_offset_accounts_for_row_and_column() {
+        let s = AtlasSurface { x: 360, abs_row: ATLAS_ROW_OFFSET, width: 360, height: 10 };
+        let stride = ATLAS_WIDTH as usize * 4;
+        assert_eq!(s.byte_offset(stride), ATLAS_ROW_OFFSET as usize * stride + 360 * 4);
     }
 
     #[test]
-    fn free_of_interior_band_is_reused_by_a_fitting_alloc() {
+    fn show_hide_show_cycles_do_not_leak() {
         let mut a = AtlasAllocator::new();
-        let s0 = a.alloc(360, 100).unwrap();
-        let s1 = a.alloc(360, 100).unwrap();
-        let _s2 = a.alloc(360, 100).unwrap();
-        // Free the middle band, then a same-size alloc must reuse its rows.
-        a.free(s1);
-        let reused = a.alloc(360, 100).unwrap();
-        assert_eq!(reused.abs_row, s1.abs_row);
-        // The high-water mark did not advance (we reused, not bumped).
-        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 300);
-        assert_ne!(reused.abs_row, s0.abs_row);
-    }
-
-    #[test]
-    fn free_splits_a_larger_band_and_keeps_the_remainder() {
-        let mut a = AtlasAllocator::new();
-        let s0 = a.alloc(360, 200).unwrap();
-        let _s1 = a.alloc(360, 50).unwrap();
-        a.free(s0); // 200-row band free
-        let small = a.alloc(360, 60).unwrap(); // takes 60, leaves 140
-        assert_eq!(small.abs_row, s0.abs_row);
-        let rest = a.alloc(360, 140).unwrap(); // exactly the remainder
-        assert_eq!(rest.abs_row, s0.abs_row + 60);
-        // Nothing bumped beyond the original high-water mark.
-        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 250);
-    }
-
-    #[test]
-    fn freeing_the_top_band_reclaims_the_high_water_tail() {
-        let mut a = AtlasAllocator::new();
-        let _s0 = a.alloc(360, 100).unwrap();
-        let s1 = a.alloc(360, 100).unwrap();
-        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 200);
-        a.free(s1); // top band → folded back into the bump tail
-        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 100);
-        assert_eq!(a.total_free_rows(), ATLAS_ROWS - 100);
-    }
-
-    #[test]
-    fn adjacent_freed_bands_coalesce_into_one_big_band() {
-        let mut a = AtlasAllocator::new();
-        let s0 = a.alloc(360, 100).unwrap();
-        let s1 = a.alloc(360, 100).unwrap();
-        let _guard = a.alloc(360, 100).unwrap(); // keep the tail away
-        // Free two adjacent interior bands in either order; they must merge so a
-        // single 200-row alloc fits in the hole (not just two 100-row allocs).
-        a.free(s1);
-        a.free(s0);
-        let big = a.alloc(360, 200).unwrap();
-        assert_eq!(big.abs_row, s0.abs_row);
-        assert_eq!(a.rows_remaining(), ATLAS_ROWS - 300);
-    }
-
-    #[test]
-    fn show_hide_show_cycles_do_not_leak_rows() {
-        let mut a = AtlasAllocator::new();
-        let base = a.alloc(1280, 500).unwrap();
-        let _ = base;
-        let start_free = a.total_free_rows();
-        // Open + close a window surface many times; free rows must stay constant.
+        let _base = a.alloc_band(500).unwrap();
+        let start = a.total_free_rows();
         for _ in 0..1000 {
             let content = a.alloc(360, 374).unwrap();
             let blur = a.alloc(360, 374).unwrap();
             a.free(blur);
             a.free(content);
-            assert_eq!(a.total_free_rows(), start_free);
+            assert_eq!(a.total_free_rows(), start, "no fragmentation creep across cycles");
         }
     }
 }

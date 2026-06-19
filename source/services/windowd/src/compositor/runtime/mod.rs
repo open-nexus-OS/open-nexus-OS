@@ -767,17 +767,14 @@ impl DisplayServerRuntime {
         // Overscan-tall surface: viewport + CHAT_OVERSCAN extra content rows, so
         // scroll within the window is a composite source-row offset, not a re-render.
         let chat_atlas = atlas
-            .alloc(
-                crate::interaction::CHAT_PANEL_W,
-                crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN,
-            )
+            .alloc_band(crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Cache of the BLURRED backdrop behind the chat window. The backdrop is
         // the static base, so we blur it once per window move and reuse it every
         // present (Task #17 pattern) — zero per-frame blur for glass, the key to
         // running several glass layers at 120Hz.
         let chat_blur_cache = atlas
-            .alloc(crate::interaction::CHAT_PANEL_W, crate::interaction::CHAT_PANEL_H)
+            .alloc_band(crate::interaction::CHAT_PANEL_H)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Cache of the FULLY COMPOSITED sidebar (blurred backdrop + glass tint +
         // border + icons). When the sidebar is settled (fully open, static), it's
@@ -788,10 +785,7 @@ impl DisplayServerRuntime {
         // rows for the shell windows (topbar/panel/dropdown/search) instead of a
         // dead allocation. A 1-row dummy keeps the field valid.
         let sidebar_composite_cache = atlas
-            .alloc(
-                crate::interaction::SIDEBAR_WIDTH,
-                if SHELL_SIDEPANEL { 1 } else { mode.height },
-            )
+            .alloc_band(if SHELL_SIDEPANEL { 1 } else { mode.height })
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Shell-P2b: reserve the glass topbar layer surface — full-width, one
         // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
@@ -799,14 +793,14 @@ impl DisplayServerRuntime {
         let shell_w = mode.width.saturating_sub(2 * super::desktop_layer::TOPBAR_MARGIN_X).max(1);
         let shell_h = super::desktop_layer::TOPBAR_H;
         let shell_atlas = atlas
-            .alloc(mode.width.min(crate::atlas::ATLAS_WIDTH), shell_h)
+            .alloc_band(shell_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Topbar Apps dropdown surface — small, fixed. Reserved BEFORE the side
         // panel so the side panel's "take the rest" clamp can't starve it (that
         // exhausted the atlas → new() Err → no handoff after the bootsplash).
         let dropdown_h = super::desktop_layer::dropdown_full_h();
         let dropdown_atlas = atlas
-            .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
+            .alloc_band(dropdown_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // The Search window as a ShellWindow instance (the reusable glass frame).
         // Its atlas surfaces are NOT reserved at boot — they are acquired from the
@@ -836,7 +830,7 @@ impl DisplayServerRuntime {
             .max(1)
             .min(atlas.rows_remaining().saturating_sub(WINDOW_POOL_ROWS).max(1));
         let sidepanel_atlas = atlas
-            .alloc(super::desktop_layer::SIDEPANEL_W, sidepanel_h)
+            .alloc_band(sidepanel_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
@@ -2286,13 +2280,15 @@ impl DisplayServerRuntime {
     /// surfaces are released again), never a boot/handoff failure.
     fn open_search(&mut self) {
         if !self.search.is_mounted() {
-            let w = super::desktop_layer::SEARCH_W;
+            // Full-width bands for now (the search CPU renderer writes full-stride
+            // rows); packing content + blur side-by-side in one band is the next
+            // increment (needs the per-row sub-stride render).
             let h = self.search.h;
-            let Some(content) = self.atlas_alloc.alloc(w, h) else {
+            let Some(content) = self.atlas_alloc.alloc_band(h) else {
                 let _ = debug_println("windowd: search open — atlas pool full (content)");
                 return;
             };
-            let Some(blur) = self.atlas_alloc.alloc(w, h) else {
+            let Some(blur) = self.atlas_alloc.alloc_band(h) else {
                 self.atlas_alloc.free(content);
                 let _ = debug_println("windowd: search open — atlas pool full (blur)");
                 return;
