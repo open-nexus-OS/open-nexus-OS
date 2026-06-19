@@ -557,6 +557,13 @@ pub(crate) struct DisplayServerRuntime {
     search_y: i32,
     search_drag: Option<(i32, i32)>,
     search_close_hover: bool,
+    /// Prefix-filtered words shown in the Search window + scroll offset (rows).
+    search_filtered: Vec<&'static str>,
+    search_scroll: u32,
+    /// Cached blurred backdrop behind the Search window — blurred once per
+    /// open/move, then blitted each present (no per-frame blur → no perf drop).
+    search_blur_cache: crate::atlas::AtlasSurface,
+    search_blur_valid: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -813,6 +820,9 @@ impl DisplayServerRuntime {
         let search_atlas = atlas
             .alloc(super::desktop_layer::SEARCH_W, search_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        let search_blur_cache = atlas
+            .alloc(super::desktop_layer::SEARCH_W, search_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Glass side panel surface — narrow, tall (clamped to the atlas budget).
         let sidepanel_h = mode
             .height
@@ -931,6 +941,14 @@ impl DisplayServerRuntime {
             search_y: 110,
             search_drag: None,
             search_close_hover: false,
+            search_filtered: {
+                let mut v = Vec::new();
+                super::desktop_layer::search_filter("", &mut v);
+                v
+            },
+            search_scroll: 0,
+            search_blur_cache,
+            search_blur_valid: false,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1426,6 +1444,7 @@ impl DisplayServerRuntime {
             let max_y = mode.height.saturating_sub(self.search_h) as i32;
             self.search_x = (cursor_x - gx).clamp(0, max_x.max(0));
             self.search_y = (cursor_y - gy).clamp(0, max_y.max(0));
+            self.search_blur_valid = false; // backdrop under the window changed
             self.queue_dirty_rect(old);
             self.queue_dirty_rect(self.search_window_rect());
         }
@@ -1508,6 +1527,14 @@ impl DisplayServerRuntime {
                         }
                         DropdownItem::Search => {
                             self.search_visible = !self.search_visible;
+                            if self.search_visible {
+                                super::desktop_layer::search_filter(
+                                    self.state.text_input(),
+                                    &mut self.search_filtered,
+                                );
+                                self.search_scroll = 0;
+                                self.search_blur_valid = false;
+                            }
                             self.search_surface_dirty = true;
                             self.queue_dirty_rect(self.search_window_rect());
                         }
@@ -1626,6 +1653,9 @@ impl DisplayServerRuntime {
         refill_filtered_words(&mut self.filtered_words, self.state.text_input());
         // Re-render the Search window's filtered list when the typed text changes.
         if self.search_visible && text_changed {
+            super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
+            let max_scroll = super::desktop_layer::search_max_scroll(self.search_filtered.len());
+            self.search_scroll = self.search_scroll.min(max_scroll);
             self.search_surface_dirty = true;
             self.queue_dirty_rect(self.search_window_rect());
         }
@@ -1642,6 +1672,26 @@ impl DisplayServerRuntime {
                 self.search_close_hover = new_close_hover;
                 self.search_surface_dirty = true;
                 self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
+        // Wheel over the Search window scrolls its filtered list.
+        if self.search_visible && upstream.wheel_delta_y != 0 {
+            use crate::compositor::desktop_layer::{search_max_scroll, SEARCH_W};
+            let wx = self.search_x;
+            let wy = self.search_y;
+            let over = self.state.cursor_x >= wx
+                && self.state.cursor_x < wx + SEARCH_W as i32
+                && self.state.cursor_y >= wy
+                && self.state.cursor_y < wy + self.search_h as i32;
+            if over {
+                let max_scroll = search_max_scroll(self.search_filtered.len()) as i32;
+                let dir = if upstream.wheel_delta_y > 0 { 1 } else { -1 };
+                let new = (self.search_scroll as i32 + dir).clamp(0, max_scroll) as u32;
+                if new != self.search_scroll {
+                    self.search_scroll = new;
+                    self.search_surface_dirty = true;
+                    self.queue_dirty_rect(self.search_window_rect());
+                }
             }
         }
         // The desktop scene has a single layout (no filter variants); keep the
@@ -2275,9 +2325,13 @@ impl DisplayServerRuntime {
         let h = self.search_h;
         let w = super::desktop_layer::SEARCH_W;
         let close_hover = self.search_close_hover;
-        // Disjoint field borrows: filter text (state), word list, scratch band.
+        let scroll = self.search_scroll;
+        let total = self.search_filtered.len();
+        let visible_end = (scroll as usize + super::desktop_layer::SEARCH_VISIBLE_ROWS as usize).min(total);
+        let visible_start = (scroll as usize).min(visible_end);
+        // Disjoint field borrows: filter text (state), filtered words, scratch band.
         let filter_text = self.state.text_input();
-        let words = self.filtered_words.as_slice();
+        let visible = &self.search_filtered[visible_start..visible_end];
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < h {
@@ -2286,7 +2340,9 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_search_window_row(ly, row, w, filter_text, words, close_hover)?;
+                super::desktop_layer::draw_search_window_row(
+                    ly, row, w, filter_text, visible, scroll, total, close_hover,
+                )?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -2902,6 +2958,9 @@ impl DisplayServerRuntime {
         let search_visible = self.search_visible;
         let search_x = self.search_x.max(0) as u32;
         let search_y = self.search_y.max(0) as u32;
+        let search_blur_cache_row = self.search_blur_cache.abs_row;
+        let search_blur_valid = self.search_blur_valid;
+        let mut built_search_blur = false;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
@@ -3124,19 +3183,41 @@ impl DisplayServerRuntime {
                 let w = SEARCH_W.min(mode.width.saturating_sub(search_x));
                 let h = search_h.min(mode.height.saturating_sub(search_y));
                 let rect = TileRect { x: search_x, y: search_y, width: w, height: h };
-                let _ = encoder.try_blit_surface(
-                    search_x,
-                    search_y + RETAINED_ROW_OFFSET,
-                    search_x,
-                    search_y,
-                    w,
-                    h,
-                );
-                let _ = encoder.try_blur_backdrop(
-                    rect,
-                    DARK_GLASS_BLUR_RADIUS,
-                    DARK_GLASS_SATURATION_PERCENT,
-                );
+                if !search_blur_valid {
+                    // Blur once: restore clean backdrop, blur in place, save to cache.
+                    let _ = encoder.try_blit_surface(
+                        search_x,
+                        search_y + RETAINED_ROW_OFFSET,
+                        search_x,
+                        search_y,
+                        w,
+                        h,
+                    );
+                    let _ = encoder.try_blur_backdrop(
+                        rect,
+                        DARK_GLASS_BLUR_RADIUS,
+                        DARK_GLASS_SATURATION_PERCENT,
+                    );
+                    let _ = encoder.try_blit_absolute(
+                        search_x,
+                        DISPLAY_ROW_OFFSET + search_y,
+                        0,
+                        search_blur_cache_row,
+                        w,
+                        h,
+                    );
+                    built_search_blur = true;
+                } else {
+                    // Reuse: blit the cached blurred backdrop (no per-frame blur).
+                    let _ = encoder.try_blit_absolute(
+                        0,
+                        search_blur_cache_row,
+                        search_x,
+                        DISPLAY_ROW_OFFSET + search_y,
+                        w,
+                        h,
+                    );
+                }
                 let _ = encoder.try_composite_layer(
                     search_atlas_row,
                     0,
@@ -3730,6 +3811,9 @@ impl DisplayServerRuntime {
         }
         if built_chat_blur_cache {
             self.chat_blur_cache_valid = true;
+        }
+        if built_search_blur {
+            self.search_blur_valid = true;
         }
         // Sidebar composite cache: valid once built on a settled frame; dropped
         // whenever the sidebar is animating (slide/fade) so the animation draws

@@ -192,32 +192,61 @@ pub(crate) const SEARCH_TITLE_H: u32 = 36;
 pub(crate) const SEARCH_CLOSE_W: u32 = 40;
 pub(crate) const SEARCH_RADIUS: u32 = 16;
 const SEARCH_PAD: u32 = 14;
-const SEARCH_ROW_H: u32 = 26;
+const SEARCH_ROW_H: u32 = 28;
 const SEARCH_FILTER_H: u32 = 30;
-/// Max word rows the window shows (the list fits without scrolling).
-pub(crate) const SEARCH_MAX_ROWS: u32 = 15;
+/// Visible word rows in the window (the filtered list scrolls within these).
+pub(crate) const SEARCH_VISIBLE_ROWS: u32 = 10;
 
-/// Full window height (title + filter field + up to SEARCH_MAX_ROWS rows).
-pub(crate) const fn search_full_h() -> u32 {
-    SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD + SEARCH_ROW_H * SEARCH_MAX_ROWS + SEARCH_PAD
+/// A longer demo word list so the filtered result actually scrolls.
+pub(crate) const SEARCH_WORDS: &[&str] = &[
+    "apple", "application", "apt", "arrow", "asset", "atom", "audio", "batch", "binary", "block",
+    "buffer", "build", "cache", "canvas", "channel", "clock", "cluster", "codec", "compile",
+    "component", "config", "context", "cursor", "daemon", "device", "display", "driver", "engine",
+    "event", "filter", "fragment", "frame", "gradient", "handle", "kernel", "layer", "module",
+    "neuron", "packet", "pipeline", "pointer", "process", "render", "scanout", "scene", "shader",
+    "shell", "socket", "surface", "texture", "thread", "vector", "vertex", "widget", "window",
+];
+
+/// Words from [`SEARCH_WORDS`] whose name starts with `prefix` (case-insensitive).
+pub(crate) fn search_filter<'a>(prefix: &str, out: &mut alloc::vec::Vec<&'static str>) {
+    out.clear();
+    for w in SEARCH_WORDS {
+        let hit = prefix.is_empty()
+            || (w.len() >= prefix.len()
+                && w.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes()));
+        if hit {
+            out.push(w);
+        }
+    }
 }
 
-/// Draw one window-local row of the Search window: glass body, title bar with
-/// a close "x", the current filter text, and the filtered word list.
+/// Full window height (title + filter field + SEARCH_VISIBLE_ROWS rows).
+pub(crate) const fn search_full_h() -> u32 {
+    SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD + SEARCH_ROW_H * SEARCH_VISIBLE_ROWS + SEARCH_PAD
+}
+
+/// Max scroll offset (in rows) for a filtered list of `count` words.
+pub(crate) fn search_max_scroll(count: usize) -> u32 {
+    (count as u32).saturating_sub(SEARCH_VISIBLE_ROWS)
+}
+
+/// Draw one window-local row of the Search window: glass body, title bar with a
+/// close "x", the filter text, and the visible slice of the filtered list
+/// (already scrolled by the caller). A scrollbar marks position when scrollable.
 pub(crate) fn draw_search_window_row(
     local_y: u32,
     row: &mut [u8],
     w: u32,
     filter_text: &str,
-    words: &[&'static str],
+    visible_words: &[&'static str],
+    scroll: u32,
+    total: usize,
     close_hover: bool,
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, w, TINT);
-    // Title bar (slightly brighter), label + close x.
     if local_y < SEARCH_TITLE_H {
         write_tint_span(row, 0, w, [56, 50, 46, 168]);
         draw_label(local_y, row, "Search", SEARCH_PAD, (SEARCH_TITLE_H - FONT_H * FONT_SCALE) / 2, TEXT_COLOR)?;
-        // Close "x" cell at the top-right.
         let cx = w.saturating_sub(SEARCH_CLOSE_W);
         if close_hover {
             write_tint_span(row, cx, w, HOVER_TINT);
@@ -225,7 +254,6 @@ pub(crate) fn draw_search_window_row(
         draw_label(local_y, row, "x", cx + (SEARCH_CLOSE_W - GLYPH_W) / 2, (SEARCH_TITLE_H - FONT_H * FONT_SCALE) / 2, TEXT_COLOR)?;
         return Ok(());
     }
-    // Filter field: show the typed prefix (or a hint).
     let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - FONT_H * FONT_SCALE) / 2;
     if local_y >= SEARCH_TITLE_H && local_y < SEARCH_TITLE_H + SEARCH_FILTER_H {
         write_tint_span(row, SEARCH_PAD, w.saturating_sub(SEARCH_PAD), [30, 28, 26, 150]);
@@ -236,12 +264,22 @@ pub(crate) fn draw_search_window_row(
         }
         return Ok(());
     }
-    // Word list.
     let list_top = SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD;
-    for (i, word) in words.iter().take(SEARCH_MAX_ROWS as usize).enumerate() {
+    for (i, word) in visible_words.iter().take(SEARCH_VISIBLE_ROWS as usize).enumerate() {
         let rt = list_top + i as u32 * SEARCH_ROW_H;
         let text_top = rt + (SEARCH_ROW_H - FONT_H * FONT_SCALE) / 2;
         draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
+    }
+    // Scrollbar thumb on the right when the list overflows.
+    let max_scroll = search_max_scroll(total);
+    if max_scroll > 0 {
+        let track_top = list_top;
+        let track_h = SEARCH_ROW_H * SEARCH_VISIBLE_ROWS;
+        let thumb_h = (track_h * SEARCH_VISIBLE_ROWS / total.max(1) as u32).clamp(16, track_h);
+        let thumb_y = track_top + (track_h - thumb_h) * scroll / max_scroll;
+        if local_y >= thumb_y && local_y < thumb_y + thumb_h {
+            write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), [200, 200, 200, 180]);
+        }
     }
     Ok(())
 }
