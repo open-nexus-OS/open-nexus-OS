@@ -547,6 +547,16 @@ pub(crate) struct DisplayServerRuntime {
     dropdown_atlas: crate::atlas::AtlasSurface,
     dropdown_h: u32,
     dropdown_surface_dirty: bool,
+    /// Self-contained movable/closable Search window (own drag + render; not
+    /// routed through the single-window `wm`). Position is the window origin.
+    search_atlas: crate::atlas::AtlasSurface,
+    search_h: u32,
+    search_surface_dirty: bool,
+    search_visible: bool,
+    search_x: i32,
+    search_y: i32,
+    search_drag: Option<(i32, i32)>,
+    search_close_hover: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -773,8 +783,15 @@ impl DisplayServerRuntime {
         // border + icons). When the sidebar is settled (fully open, static), it's
         // composited once and then blitted each present — so a cursor move over
         // the sidebar costs one blit, not 4 full-height SDF fills.
+        // When the new glass side panel is on, the old proof-sidebar (and its
+        // full-height composite cache) is suppressed — reclaim those ~800 atlas
+        // rows for the shell windows (topbar/panel/dropdown/search) instead of a
+        // dead allocation. A 1-row dummy keeps the field valid.
         let sidebar_composite_cache = atlas
-            .alloc(crate::interaction::SIDEBAR_WIDTH, mode.height)
+            .alloc(
+                crate::interaction::SIDEBAR_WIDTH,
+                if SHELL_SIDEPANEL { 1 } else { mode.height },
+            )
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Shell-P2b: reserve the glass topbar layer surface — full-width, one
         // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
@@ -790,6 +807,11 @@ impl DisplayServerRuntime {
         let dropdown_h = super::desktop_layer::dropdown_full_h();
         let dropdown_atlas = atlas
             .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Movable Search window surface (reclaimed-sidebar budget covers it).
+        let search_h = super::desktop_layer::search_full_h();
+        let search_atlas = atlas
+            .alloc(super::desktop_layer::SEARCH_W, search_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Glass side panel surface — narrow, tall (clamped to the atlas budget).
         let sidepanel_h = mode
@@ -901,6 +923,14 @@ impl DisplayServerRuntime {
             dropdown_atlas,
             dropdown_h,
             dropdown_surface_dirty: true,
+            search_atlas,
+            search_h,
+            search_surface_dirty: true,
+            search_visible: false,
+            search_x: 120,
+            search_y: 110,
+            search_drag: None,
+            search_close_hover: false,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1340,7 +1370,32 @@ impl DisplayServerRuntime {
         // press on the close button closes it. Both consume the press so it does
         // not also hit the panel/sidebar logic below.
         let mut window_consumed_press = false;
-        if primary_press {
+        // Search window (on top): title-bar drag / close / body all consume the
+        // press before the chat wm + sidebar logic below.
+        if primary_press && self.search_visible {
+            use crate::compositor::desktop_layer::{SEARCH_CLOSE_W, SEARCH_TITLE_H, SEARCH_W};
+            let wx = self.search_x;
+            let wy = self.search_y;
+            let in_window = cursor_x >= wx
+                && cursor_x < wx + SEARCH_W as i32
+                && cursor_y >= wy
+                && cursor_y < wy + self.search_h as i32;
+            if in_window {
+                window_consumed_press = true;
+                if cursor_y < wy + SEARCH_TITLE_H as i32 {
+                    if cursor_x >= wx + (SEARCH_W - SEARCH_CLOSE_W) as i32 {
+                        // Close button.
+                        self.search_visible = false;
+                        self.search_drag = None;
+                        self.queue_dirty_rect(self.search_window_rect());
+                    } else {
+                        // Begin dragging by the title bar.
+                        self.search_drag = Some((cursor_x - wx, cursor_y - wy));
+                    }
+                }
+            }
+        }
+        if primary_press && !window_consumed_press {
             use crate::wm::PointerAction;
             match self.wm.on_pointer_down(cursor_x, cursor_y) {
                 PointerAction::DragStarted(_) => {
@@ -1362,6 +1417,20 @@ impl DisplayServerRuntime {
         }
         if primary_release {
             let _ = self.wm.on_pointer_up();
+        }
+        // Continue dragging the Search window.
+        if let Some((gx, gy)) = self.search_drag {
+            use crate::compositor::desktop_layer::SEARCH_W;
+            let old = self.search_window_rect();
+            let max_x = mode.width.saturating_sub(SEARCH_W) as i32;
+            let max_y = mode.height.saturating_sub(self.search_h) as i32;
+            self.search_x = (cursor_x - gx).clamp(0, max_x.max(0));
+            self.search_y = (cursor_y - gy).clamp(0, max_y.max(0));
+            self.queue_dirty_rect(old);
+            self.queue_dirty_rect(self.search_window_rect());
+        }
+        if primary_release {
+            self.search_drag = None;
         }
 
         // Shell-P2b: the topbar menu icon (right) toggles the animated side
@@ -1438,7 +1507,9 @@ impl DisplayServerRuntime {
                             }
                         }
                         DropdownItem::Search => {
-                            let _ = debug_println("dbg: dropdown Search (window — next phase)");
+                            self.search_visible = !self.search_visible;
+                            self.search_surface_dirty = true;
+                            self.queue_dirty_rect(self.search_window_rect());
                         }
                     }
                 }
@@ -1550,8 +1621,29 @@ impl DisplayServerRuntime {
                 });
             }
         }
+        let text_changed = old_state.text_input() != upstream.text_input();
         self.state.set_text_input(upstream.text_input());
         refill_filtered_words(&mut self.filtered_words, self.state.text_input());
+        // Re-render the Search window's filtered list when the typed text changes.
+        if self.search_visible && text_changed {
+            self.search_surface_dirty = true;
+            self.queue_dirty_rect(self.search_window_rect());
+        }
+        // Search window close-button hover (re-render the title bar on change).
+        if self.search_visible {
+            use crate::compositor::desktop_layer::{SEARCH_CLOSE_W, SEARCH_TITLE_H, SEARCH_W};
+            let wx = self.search_x;
+            let wy = self.search_y;
+            let new_close_hover = self.state.cursor_x >= wx + (SEARCH_W - SEARCH_CLOSE_W) as i32
+                && self.state.cursor_x < wx + SEARCH_W as i32
+                && self.state.cursor_y >= wy
+                && self.state.cursor_y < wy + SEARCH_TITLE_H as i32;
+            if new_close_hover != self.search_close_hover {
+                self.search_close_hover = new_close_hover;
+                self.search_surface_dirty = true;
+                self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
         // The desktop scene has a single layout (no filter variants); keep the
         // active index pinned at 0 so the single-element layout set stays valid.
         if !USE_DESKTOP_SHELL {
@@ -2168,6 +2260,55 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// Shell-P2b: render the Search window (title + close + filter field +
+    /// filtered word list) into its atlas. Re-rendered when the filter text,
+    /// close-hover, or visibility changes.
+    fn render_search_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let abs_row = self.search_atlas.abs_row;
+        let h = self.search_h;
+        let w = super::desktop_layer::SEARCH_W;
+        let close_hover = self.search_close_hover;
+        // Disjoint field borrows: filter text (state), word list, scratch band.
+        let filter_text = self.state.text_input();
+        let words = self.filtered_words.as_slice();
+        let band = &mut self.band_scratch;
+        let mut band_start = 0u32;
+        while band_start < h {
+            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(h);
+            let band_rows = (band_end - band_start) as usize;
+            for (i, ly) in (band_start..band_end).enumerate() {
+                let row = &mut band[i * stride..(i + 1) * stride];
+                row.fill(0);
+                super::desktop_layer::draw_search_window_row(ly, row, w, filter_text, words, close_hover)?;
+            }
+            let dst = (abs_row + band_start) as usize * stride;
+            vmo_write(handle, dst, &band[..band_rows * stride])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        Ok(())
+    }
+
+    /// Damage rect of the Search window (with a shadow-halo margin).
+    fn search_window_rect(&self) -> DamageRect {
+        const PAD: u32 = 24;
+        let x = (self.search_x.max(0) as u32).saturating_sub(PAD);
+        let y = (self.search_y.max(0) as u32).saturating_sub(PAD);
+        DamageRect {
+            x,
+            y,
+            width: (super::desktop_layer::SEARCH_W + 2 * PAD).min(self.mode.width.saturating_sub(x)),
+            height: (self.search_h + 2 * PAD).min(self.mode.height.saturating_sub(y)),
+        }
+    }
+
     fn handle_scroll_input(&mut self) {
         if !self.scroll_marker_emitted {
             let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
@@ -2717,6 +2858,11 @@ impl DisplayServerRuntime {
             self.render_dropdown_surface()?;
             self.dropdown_surface_dirty = false;
         }
+        // Shell-P2b: (re)render the Search window surface when visible + dirty.
+        if self.search_visible && self.search_surface_dirty {
+            self.render_search_surface()?;
+            self.search_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -2751,6 +2897,11 @@ impl DisplayServerRuntime {
         let dropdown_atlas_row = self.dropdown_atlas.abs_row;
         let dropdown_full_h = self.dropdown_h;
         let dropdown_progress = scene.apps_dropdown_progress;
+        let search_atlas_row = self.search_atlas.abs_row;
+        let search_h = self.search_h;
+        let search_visible = self.search_visible;
+        let search_x = self.search_x.max(0) as u32;
+        let search_y = self.search_y.max(0) as u32;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
@@ -2964,6 +3115,42 @@ impl DisplayServerRuntime {
                         0,
                     );
                 }
+            }
+
+            // 1·search. Movable Search window — glass window (rounded + blur +
+            //     shadow) at its current position; filterable word list inside.
+            if search_visible && search_x < mode.width && search_y < mode.height {
+                use crate::compositor::desktop_layer::{SEARCH_RADIUS, SEARCH_W};
+                let w = SEARCH_W.min(mode.width.saturating_sub(search_x));
+                let h = search_h.min(mode.height.saturating_sub(search_y));
+                let rect = TileRect { x: search_x, y: search_y, width: w, height: h };
+                let _ = encoder.try_blit_surface(
+                    search_x,
+                    search_y + RETAINED_ROW_OFFSET,
+                    search_x,
+                    search_y,
+                    w,
+                    h,
+                );
+                let _ = encoder.try_blur_backdrop(
+                    rect,
+                    DARK_GLASS_BLUR_RADIUS,
+                    DARK_GLASS_SATURATION_PERCENT,
+                );
+                let _ = encoder.try_composite_layer(
+                    search_atlas_row,
+                    0,
+                    w,
+                    h,
+                    search_x,
+                    search_y,
+                    255,
+                    SEARCH_RADIUS,
+                    18,
+                    5,
+                    90,
+                    0,
+                );
             }
 
             // 1a. Chat window layer: composite its cached opaque surface from the
