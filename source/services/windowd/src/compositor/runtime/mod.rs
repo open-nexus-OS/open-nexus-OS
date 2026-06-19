@@ -784,6 +784,13 @@ impl DisplayServerRuntime {
         let shell_atlas = atlas
             .alloc(mode.width.min(crate::atlas::ATLAS_WIDTH), shell_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Topbar Apps dropdown surface — small, fixed. Reserved BEFORE the side
+        // panel so the side panel's "take the rest" clamp can't starve it (that
+        // exhausted the atlas → new() Err → no handoff after the bootsplash).
+        let dropdown_h = super::desktop_layer::dropdown_full_h();
+        let dropdown_atlas = atlas
+            .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Glass side panel surface — narrow, tall (clamped to the atlas budget).
         let sidepanel_h = mode
             .height
@@ -792,11 +799,6 @@ impl DisplayServerRuntime {
             .min(atlas.rows_remaining());
         let sidepanel_atlas = atlas
             .alloc(super::desktop_layer::SIDEPANEL_W, sidepanel_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
-        // Topbar Apps dropdown surface.
-        let dropdown_h = super::desktop_layer::dropdown_full_h();
-        let dropdown_atlas = atlas
-            .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
