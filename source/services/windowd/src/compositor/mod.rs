@@ -51,6 +51,7 @@ mod runtime;
 mod scene;
 mod sdf;
 mod shadow;
+mod shell_window;
 mod source;
 mod surface;
 #[cfg(test)]
