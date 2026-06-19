@@ -163,6 +163,11 @@ pub(crate) const USE_DESKTOP_SHELL: bool = false;
 /// of the rich proof/glass UI.
 pub(crate) const SHELL_TOPBAR: bool = true;
 
+/// Shell-P2b: the topbar menu icon opens a glass **side panel** that slides in
+/// from the right (rounded + blur + shadow), driven by the sidebar spring.
+/// Replaces the old proof-sidebar strip, which is suppressed when this is on.
+pub(crate) const SHELL_SIDEPANEL: bool = true;
+
 /// On-screen origin of the composited scene. The desktop shell sits near the
 /// top-left with a small inset; the proof panel keeps its historic placement.
 pub(crate) const SCENE_ORIGIN_X: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_X };

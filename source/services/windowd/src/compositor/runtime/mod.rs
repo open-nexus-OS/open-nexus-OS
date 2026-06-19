@@ -37,8 +37,8 @@ use super::{
     DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SHELL_TOPBAR, SIDEBAR_REST_X,
-    USE_DESKTOP_SHELL, WINDOWD_SHADOW_ARENA_SIZE,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SHELL_SIDEPANEL, SHELL_TOPBAR,
+    SIDEBAR_REST_X, USE_DESKTOP_SHELL, WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -526,6 +526,10 @@ pub(crate) struct DisplayServerRuntime {
     topbar_hover: Option<usize>,
     /// Whether the cursor is over the topbar menu (hamburger) icon.
     topbar_menu_hover: bool,
+    /// Glass side panel layer (slides in from the right on the menu toggle).
+    sidepanel_atlas: crate::atlas::AtlasSurface,
+    sidepanel_h: u32,
+    sidepanel_surface_dirty: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -763,6 +767,15 @@ impl DisplayServerRuntime {
         let shell_atlas = atlas
             .alloc(mode.width.min(crate::atlas::ATLAS_WIDTH), shell_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Glass side panel surface — narrow, tall (clamped to the atlas budget).
+        let sidepanel_h = mode
+            .height
+            .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
+            .max(1)
+            .min(atlas.rows_remaining());
+        let sidepanel_atlas = atlas
+            .alloc(super::desktop_layer::SIDEPANEL_W, sidepanel_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -856,6 +869,9 @@ impl DisplayServerRuntime {
             shell_surface_dirty: true,
             topbar_hover: None,
             topbar_menu_hover: false,
+            sidepanel_atlas,
+            sidepanel_h,
+            sidepanel_surface_dirty: true,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1968,6 +1984,38 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// Shell-P2b: render the glass side panel into its atlas surface (rows
+    /// `sidepanel_atlas.abs_row..`, panel-local coords). Rendered once; the
+    /// composite slides it in from the right and applies blur/rounding/shadow.
+    fn render_sidepanel_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let abs_row = self.sidepanel_atlas.abs_row;
+        let panel_h = self.sidepanel_h;
+        let panel_w = super::desktop_layer::SIDEPANEL_W;
+        let band = &mut self.band_scratch;
+        let mut band_start = 0u32;
+        while band_start < panel_h {
+            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(panel_h);
+            let band_rows = (band_end - band_start) as usize;
+            for (i, ly) in (band_start..band_end).enumerate() {
+                let row = &mut band[i * stride..(i + 1) * stride];
+                row.fill(0);
+                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w)?;
+            }
+            let dst = (abs_row + band_start) as usize * stride;
+            vmo_write(handle, dst, &band[..band_rows * stride])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        Ok(())
+    }
+
     fn handle_scroll_input(&mut self) {
         if !self.scroll_marker_emitted {
             let _ = debug_println(crate::markers::SCROLL_ON_MARKER);
@@ -2507,6 +2555,11 @@ impl DisplayServerRuntime {
             self.render_shell_surface()?;
             self.shell_surface_dirty = false;
         }
+        // Shell-P2b: (re)render the glass side panel surface when dirty.
+        if SHELL_SIDEPANEL && self.sidepanel_surface_dirty {
+            self.render_sidepanel_surface()?;
+            self.sidepanel_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -2533,6 +2586,11 @@ impl DisplayServerRuntime {
         let shell_atlas_row = self.shell_atlas.abs_row;
         let shell_w = self.shell_w;
         let shell_h = self.shell_h;
+        let sidepanel_atlas_row = self.sidepanel_atlas.abs_row;
+        let sidepanel_h = self.sidepanel_h;
+        // Slide: sidebar_translate_x animates SIDEBAR_WIDTH(closed) -> 0(open).
+        let sidepanel_slide = scene.sidebar_translate_x;
+        let sidepanel_opacity = scene.sidebar_opacity;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
@@ -2663,6 +2721,52 @@ impl DisplayServerRuntime {
                     60,
                     0,
                 );
+            }
+
+            // 1·panel. Glass side panel — slides in from the right, driven by the
+            //     sidebar spring. Same proven recipe as the topbar: restore +
+            //     pre-blur the panel's current rect, then composite the atlas with
+            //     rounded corners + drop shadow on top (backdrop_blur=0).
+            if SHELL_SIDEPANEL && sidepanel_opacity > 0.01 {
+                use crate::compositor::desktop_layer::{
+                    SIDEPANEL_MARGIN, SIDEPANEL_RADIUS, SIDEPANEL_TOP, SIDEPANEL_W,
+                };
+                let base_x = mode
+                    .width
+                    .saturating_sub(SIDEPANEL_MARGIN + SIDEPANEL_W)
+                    .saturating_add(sidepanel_slide.clamp(0.0, SIDEPANEL_W as f32 + 32.0) as u32);
+                if base_x < mode.width {
+                    let w = SIDEPANEL_W.min(mode.width.saturating_sub(base_x));
+                    let alpha = (sidepanel_opacity.clamp(0.0, 1.0) * 255.0) as u32;
+                    let panel = TileRect { x: base_x, y: SIDEPANEL_TOP, width: w, height: sidepanel_h };
+                    let _ = encoder.try_blit_surface(
+                        base_x,
+                        SIDEPANEL_TOP + RETAINED_ROW_OFFSET,
+                        base_x,
+                        SIDEPANEL_TOP,
+                        w,
+                        sidepanel_h,
+                    );
+                    let _ = encoder.try_blur_backdrop(
+                        panel,
+                        DARK_GLASS_BLUR_RADIUS,
+                        DARK_GLASS_SATURATION_PERCENT,
+                    );
+                    let _ = encoder.try_composite_layer(
+                        sidepanel_atlas_row,
+                        0,
+                        w,
+                        sidepanel_h,
+                        base_x,
+                        SIDEPANEL_TOP,
+                        alpha,
+                        SIDEPANEL_RADIUS,
+                        16,
+                        4,
+                        80,
+                        0,
+                    );
+                }
             }
 
             // 1a. Chat window layer: composite its cached opaque surface from the
@@ -3040,6 +3144,7 @@ impl DisplayServerRuntime {
             // blur/composite cache still needs building. A settled, cached, untouched
             // sidebar persists on the display plane — no per-present blur/SDF work.
             if !USE_DESKTOP_SHELL
+                && !SHELL_SIDEPANEL
                 && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {

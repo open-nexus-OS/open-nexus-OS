@@ -90,6 +90,57 @@ pub(crate) fn topbar_item_at(local_x: u32) -> Option<usize> {
     (0..TOPBAR_ITEMS.len()).find(|&i| item_cell(i).is_some_and(|(s, e)| local_x >= s && local_x < e))
 }
 
+/// Side panel that slides in from the right when the topbar menu is tapped.
+pub(crate) const SIDEPANEL_W: u32 = 300;
+pub(crate) const SIDEPANEL_MARGIN: u32 = 16;
+pub(crate) const SIDEPANEL_RADIUS: u32 = 18;
+/// Top of the panel (below the topbar).
+pub(crate) const SIDEPANEL_TOP: u32 = TOPBAR_TOP + TOPBAR_H + 10;
+const SIDEPANEL_ITEMS: [&str; 4] = ["Apps", "Files", "Settings", "About"];
+const SIDEPANEL_TITLE: &str = "Menu";
+const SIDEPANEL_PAD: u32 = 18;
+const SIDEPANEL_ROW_H: u32 = 34;
+
+/// Draw a label at `(x0, top)` (bar/panel-local) in `color`, only on rows that
+/// intersect the glyph band.
+fn draw_label(local_y: u32, row: &mut [u8], text: &str, x0: u32, top: u32, color: [u8; 4]) -> Result<(), WindowdError> {
+    if local_y < top || local_y >= top + FONT_H * FONT_SCALE {
+        return Ok(());
+    }
+    let glyph_row = ((local_y - top) / FONT_SCALE).min(FONT_H - 1) as usize;
+    let mut pen_x = x0;
+    for ch in text.chars() {
+        let bits = bitmap_font_5x7(ch)[glyph_row];
+        for col in 0..FONT_W {
+            if bits & (1 << (FONT_W - 1 - col)) != 0 {
+                fill_row_rect(local_y, row, pen_x + col * FONT_SCALE, local_y, FONT_SCALE, 1, color)?;
+            }
+        }
+        pen_x += GLYPH_ADVANCE;
+    }
+    Ok(())
+}
+
+/// Draw one panel-local row of the glass side panel: translucent body, a title,
+/// and a vertical list of items. Corners/shadow/blur applied by the composite.
+pub(crate) fn draw_sidepanel_row(
+    local_y: u32,
+    row: &mut [u8],
+    panel_w: u32,
+) -> Result<(), WindowdError> {
+    write_tint_span(row, 0, panel_w, TINT);
+    // Title near the top.
+    draw_label(local_y, row, SIDEPANEL_TITLE, SIDEPANEL_PAD, SIDEPANEL_PAD, TEXT_COLOR)?;
+    // Item list.
+    let list_top = SIDEPANEL_PAD + FONT_H * FONT_SCALE + 16;
+    for (i, item) in SIDEPANEL_ITEMS.iter().enumerate() {
+        let row_top = list_top + i as u32 * SIDEPANEL_ROW_H;
+        let text_top = row_top + (SIDEPANEL_ROW_H - FONT_H * FONT_SCALE) / 2;
+        draw_label(local_y, row, item, SIDEPANEL_PAD, text_top, TEXT_COLOR)?;
+    }
+    Ok(())
+}
+
 /// Write one straight-alpha BGRA span (no premultiply); gpud's layer blend does
 /// the SRC_ALPHA compositing over the (blurred) backdrop.
 fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
