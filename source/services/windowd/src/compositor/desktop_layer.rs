@@ -96,48 +96,65 @@ pub(crate) const SIDEPANEL_MARGIN: u32 = 16;
 pub(crate) const SIDEPANEL_RADIUS: u32 = 18;
 /// Top of the panel (below the topbar).
 pub(crate) const SIDEPANEL_TOP: u32 = TOPBAR_TOP + TOPBAR_H + 10;
-const SIDEPANEL_TITLE: &str = "Menu";
-const SIDEPANEL_PAD: u32 = 18;
-const SIDEPANEL_ROW_H: u32 = 34;
-const SIDEPANEL_SUB_INDENT: u32 = 20;
+// ── Topbar "Apps" dropdown — a small reusable glass menu, animated open. ──
+//
+// A self-contained dropdown "component": its items + geometry + per-row
+// rendering live here so the scene graph can later own/optimize it. For now
+// windowd rasterizes it into an atlas and composites it as one animated layer.
 
-/// A clickable row in the side panel.
+/// A clickable row in the Apps dropdown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum SidepanelItem {
-    Apps,
+pub(crate) enum DropdownItem {
     Chat,
     Search,
 }
 
-/// Y (panel-local) of the list's first row.
-fn sidepanel_list_top() -> u32 {
-    SIDEPANEL_PAD + FONT_H * FONT_SCALE + 16
+const DROPDOWN_ITEMS: [(DropdownItem, &str); 2] =
+    [(DropdownItem::Chat, "Chat"), (DropdownItem::Search, "Search")];
+
+pub(crate) const DROPDOWN_W: u32 = 156;
+pub(crate) const DROPDOWN_PAD: u32 = 8;
+pub(crate) const DROPDOWN_ROW_H: u32 = 30;
+pub(crate) const DROPDOWN_RADIUS: u32 = 12;
+
+/// Full (open) height of the dropdown.
+pub(crate) const fn dropdown_full_h() -> u32 {
+    DROPDOWN_PAD * 2 + DROPDOWN_ROW_H * DROPDOWN_ITEMS.len() as u32
 }
 
-/// Panel-local `[top, bottom)` of an item's row, given whether Apps is expanded.
-/// Sub-items (Chat/Search) only exist while expanded.
-fn sidepanel_row_span(item: SidepanelItem, expanded: bool) -> Option<(u32, u32)> {
-    let lt = sidepanel_list_top();
-    let idx = match item {
-        SidepanelItem::Apps => 0,
-        SidepanelItem::Chat if expanded => 1,
-        SidepanelItem::Search if expanded => 2,
-        _ => return None,
-    };
-    let top = lt + idx * SIDEPANEL_ROW_H;
-    Some((top, top + SIDEPANEL_ROW_H))
+/// Bar-local x of the "Apps" topbar item (the dropdown anchors under it).
+pub(crate) fn apps_item_x() -> u32 {
+    item_cell(0).map(|(s, _)| s).unwrap_or(TOPBAR_MARGIN_X)
 }
 
-/// Which side-panel item a panel-local point falls in.
-pub(crate) fn sidepanel_item_at(local_y: u32, expanded: bool) -> Option<SidepanelItem> {
-    for item in [SidepanelItem::Apps, SidepanelItem::Chat, SidepanelItem::Search] {
-        if let Some((t, b)) = sidepanel_row_span(item, expanded) {
-            if local_y >= t && local_y < b {
-                return Some(item);
-            }
+/// Which dropdown item a dropdown-local point falls in.
+pub(crate) fn dropdown_item_at(local_y: u32) -> Option<DropdownItem> {
+    for (i, (item, _)) in DROPDOWN_ITEMS.iter().enumerate() {
+        let top = DROPDOWN_PAD + i as u32 * DROPDOWN_ROW_H;
+        if local_y >= top && local_y < top + DROPDOWN_ROW_H {
+            return Some(*item);
         }
     }
     None
+}
+
+/// Draw one dropdown-local row: glass tint, hover cell, item label.
+pub(crate) fn draw_dropdown_row(
+    local_y: u32,
+    row: &mut [u8],
+    w: u32,
+    hover: Option<DropdownItem>,
+) -> Result<(), WindowdError> {
+    write_tint_span(row, 0, w, TINT);
+    for (i, (item, label)) in DROPDOWN_ITEMS.iter().enumerate() {
+        let top = DROPDOWN_PAD + i as u32 * DROPDOWN_ROW_H;
+        if hover == Some(*item) && local_y >= top && local_y < top + DROPDOWN_ROW_H {
+            write_tint_span(row, 4, w.saturating_sub(4), HOVER_TINT);
+        }
+        let text_top = top + (DROPDOWN_ROW_H - FONT_H * FONT_SCALE) / 2;
+        draw_label(local_y, row, label, DROPDOWN_PAD + 6, text_top, TEXT_COLOR)?;
+    }
+    Ok(())
 }
 
 /// Draw a label at `(x0, top)` (bar/panel-local) in `color`, only on rows that
@@ -162,36 +179,10 @@ fn draw_label(local_y: u32, row: &mut [u8], text: &str, x0: u32, top: u32, color
 
 /// Draw one panel-local row of the glass side panel: translucent body, a title,
 /// and a vertical list of items. Corners/shadow/blur applied by the composite.
-pub(crate) fn draw_sidepanel_row(
-    local_y: u32,
-    row: &mut [u8],
-    panel_w: u32,
-    apps_expanded: bool,
-    hover: Option<SidepanelItem>,
-) -> Result<(), WindowdError> {
+pub(crate) fn draw_sidepanel_row(local_y: u32, row: &mut [u8], panel_w: u32) -> Result<(), WindowdError> {
+    let _ = local_y;
+    // Empty glass body for now (content TBD); the composite rounds + shadows it.
     write_tint_span(row, 0, panel_w, TINT);
-    // Title near the top.
-    draw_label(local_y, row, SIDEPANEL_TITLE, SIDEPANEL_PAD, SIDEPANEL_PAD, TEXT_COLOR)?;
-
-    let mut draw_item = |item: SidepanelItem,
-                         label: &str,
-                         indent: u32|
-     -> Result<(), WindowdError> {
-        let Some((top, _)) = sidepanel_row_span(item, apps_expanded) else { return Ok(()) };
-        // Hover cell behind the row.
-        if hover == Some(item) && local_y >= top && local_y < top + SIDEPANEL_ROW_H {
-            write_tint_span(row, SIDEPANEL_PAD / 2, panel_w.saturating_sub(SIDEPANEL_PAD / 2), HOVER_TINT);
-        }
-        let text_top = top + (SIDEPANEL_ROW_H - FONT_H * FONT_SCALE) / 2;
-        draw_label(local_y, row, label, SIDEPANEL_PAD + indent, text_top, TEXT_COLOR)
-    };
-
-    // "Apps" header with a ▸/▾ caret (drawn as text to keep the bitmap font).
-    draw_item(SidepanelItem::Apps, if apps_expanded { "- Apps" } else { "+ Apps" }, 0)?;
-    if apps_expanded {
-        draw_item(SidepanelItem::Chat, "Chat", SIDEPANEL_SUB_INDENT)?;
-        draw_item(SidepanelItem::Search, "Search", SIDEPANEL_SUB_INDENT)?;
-    }
     Ok(())
 }
 

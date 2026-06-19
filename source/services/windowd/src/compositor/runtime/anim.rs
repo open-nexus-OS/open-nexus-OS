@@ -52,14 +52,29 @@ impl DisplayServerRuntime {
         let mut panel_dirty = false;
         let mut sidebar_dirty = false;
         let mut button_dirty = false;
+        let mut dropdown_dirty = false;
         for update in updates {
             match update.layer_id {
                 SIDEBAR_LAYER_ID => sidebar_dirty = true,
+                DROPDOWN_LAYER_ID => dropdown_dirty = true,
                 // HOVER drives the glass button's alpha (hover highlight), which
                 // sits at the top-right — not in the left panel rect.
                 HOVER_LAYER_ID => button_dirty = true,
                 _ => panel_dirty = true,
             }
+        }
+        if dropdown_dirty {
+            use crate::compositor::desktop_layer::{
+                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dy = TOPBAR_TOP + TOPBAR_H + 4;
+            self.queue_gpu_blit_rect(DamageRect {
+                x: dx,
+                y: dy,
+                width: DROPDOWN_W.min(self.mode.width.saturating_sub(dx)),
+                height: self.dropdown_h,
+            });
         }
         if panel_dirty {
             let panel_damage = DamageRect {
@@ -137,6 +152,9 @@ impl DisplayServerRuntime {
                 }
                 (SIDEBAR_LAYER_ID, AnimProp::Opacity) => {
                     self.animated_scene.sidebar_opacity = update.value.clamp(0.0, 1.0);
+                }
+                (DROPDOWN_LAYER_ID, AnimProp::Opacity) => {
+                    self.animated_scene.apps_dropdown_progress = update.value.clamp(0.0, 1.0);
                 }
                 _ => {}
             }

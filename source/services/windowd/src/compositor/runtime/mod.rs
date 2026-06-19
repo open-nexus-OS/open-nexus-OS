@@ -83,6 +83,10 @@ const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
+
+/// Animation layer for the topbar Apps dropdown reveal (not in the shell's
+/// scene-graph layer map; handled directly in `apply_scene_updates`).
+const DROPDOWN_LAYER_ID: LayerId = LayerId(70);
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
 use crate::interaction::{
@@ -150,11 +154,18 @@ struct AnimatedSceneState {
     hover_opacity: f32,
     sidebar_translate_x: f32,
     sidebar_opacity: f32,
+    /// Topbar Apps dropdown reveal: 0 = closed, 1 = fully open.
+    apps_dropdown_progress: f32,
 }
 
 impl AnimatedSceneState {
     const fn new() -> Self {
-        Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
+        Self {
+            hover_opacity: 0.0,
+            sidebar_translate_x: 320.0,
+            sidebar_opacity: 0.0,
+            apps_dropdown_progress: 0.0,
+        }
     }
 }
 
@@ -530,9 +541,12 @@ pub(crate) struct DisplayServerRuntime {
     sidepanel_atlas: crate::atlas::AtlasSurface,
     sidepanel_h: u32,
     sidepanel_surface_dirty: bool,
-    /// Side-panel "Apps" dropdown expanded, and the hovered row.
-    sidepanel_apps_expanded: bool,
-    sidepanel_hover: Option<crate::compositor::desktop_layer::SidepanelItem>,
+    /// Topbar "Apps" dropdown: open state, hovered row, atlas + render dirty.
+    apps_dropdown_open: bool,
+    dropdown_hover: Option<crate::compositor::desktop_layer::DropdownItem>,
+    dropdown_atlas: crate::atlas::AtlasSurface,
+    dropdown_h: u32,
+    dropdown_surface_dirty: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -779,6 +793,11 @@ impl DisplayServerRuntime {
         let sidepanel_atlas = atlas
             .alloc(super::desktop_layer::SIDEPANEL_W, sidepanel_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
+        // Topbar Apps dropdown surface.
+        let dropdown_h = super::desktop_layer::dropdown_full_h();
+        let dropdown_atlas = atlas
+            .alloc(super::desktop_layer::DROPDOWN_W, dropdown_h)
+            .ok_or(WindowdError::BufferLengthMismatch)?;
         // Window manager. The chat window starts open at the panel's current
         // position (a dedicated chat button will toggle it in a later step).
         let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
@@ -875,8 +894,11 @@ impl DisplayServerRuntime {
             sidepanel_atlas,
             sidepanel_h,
             sidepanel_surface_dirty: true,
-            sidepanel_apps_expanded: false,
-            sidepanel_hover: None,
+            apps_dropdown_open: false,
+            dropdown_hover: None,
+            dropdown_atlas,
+            dropdown_h,
+            dropdown_surface_dirty: true,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1359,39 +1381,50 @@ impl DisplayServerRuntime {
             }
         }
 
-        // Side-panel item clicks: Apps expands the dropdown; Chat opens the chat
-        // window; Search opens the search window (next phase).
-        if primary_press && !window_consumed_press && SHELL_SIDEPANEL && self.state.sidebar_open_visible
-        {
-            use crate::compositor::desktop_layer::{
-                sidepanel_item_at, SidepanelItem, SIDEPANEL_MARGIN, SIDEPANEL_TOP, SIDEPANEL_W,
-            };
-            let slide =
-                self.animated_scene.sidebar_translate_x.clamp(0.0, SIDEPANEL_W as f32 + 32.0) as u32;
-            let base_x =
-                self.mode.width.saturating_sub(SIDEPANEL_MARGIN + SIDEPANEL_W).saturating_add(slide);
-            if cursor_x >= base_x as i32
-                && cursor_y >= SIDEPANEL_TOP as i32
-                && (cursor_x as u32) < base_x + SIDEPANEL_W
-                && (cursor_y as u32) < SIDEPANEL_TOP + self.sidepanel_h
+        // Topbar "Apps" item click → toggle the animated dropdown.
+        if primary_press && !window_consumed_press && SHELL_TOPBAR {
+            use crate::compositor::desktop_layer::{topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP};
+            if cursor_y >= TOPBAR_TOP as i32
+                && cursor_y < (TOPBAR_TOP + TOPBAR_H) as i32
+                && cursor_x >= TOPBAR_MARGIN_X as i32
+                && topbar_item_at((cursor_x - TOPBAR_MARGIN_X as i32) as u32) == Some(0)
             {
-                if let Some(item) =
-                    sidepanel_item_at((cursor_y - SIDEPANEL_TOP as i32) as u32, self.sidepanel_apps_expanded)
-                {
+                window_consumed_press = true;
+                self.apps_dropdown_open = !self.apps_dropdown_open;
+                let spring = animation::SpringConfig {
+                    stiffness: 240.0,
+                    damping: 24.0,
+                    mass: 1.0,
+                    initial_velocity: 0.0,
+                };
+                self.animation_driver.spring_to(
+                    DROPDOWN_LAYER_ID,
+                    AnimProp::Opacity,
+                    self.animated_scene.apps_dropdown_progress,
+                    if self.apps_dropdown_open { 1.0 } else { 0.0 },
+                    spring,
+                );
+            }
+        }
+
+        // Apps dropdown item clicks: Chat opens the chat window; Search opens the
+        // search window (next phase).
+        if primary_press && !window_consumed_press && SHELL_TOPBAR && self.apps_dropdown_open {
+            use crate::compositor::desktop_layer::{
+                apps_item_x, dropdown_item_at, DropdownItem, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X,
+                TOPBAR_TOP,
+            };
+            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dy = TOPBAR_TOP + TOPBAR_H + 4;
+            if cursor_x >= dx as i32
+                && cursor_y >= dy as i32
+                && (cursor_x as u32) < dx + DROPDOWN_W
+                && (cursor_y as u32) < dy + self.dropdown_h
+            {
+                if let Some(item) = dropdown_item_at((cursor_y - dy as i32) as u32) {
                     window_consumed_press = true;
-                    let panel_damage = DamageRect {
-                        x: base_x,
-                        y: SIDEPANEL_TOP,
-                        width: SIDEPANEL_W.min(self.mode.width.saturating_sub(base_x)),
-                        height: self.sidepanel_h,
-                    };
                     match item {
-                        SidepanelItem::Apps => {
-                            self.sidepanel_apps_expanded = !self.sidepanel_apps_expanded;
-                            self.sidepanel_surface_dirty = true;
-                            self.queue_dirty_rect(panel_damage);
-                        }
-                        SidepanelItem::Chat => {
+                        DropdownItem::Chat => {
                             let now = self.wm.toggle(crate::wm::WindowId::Chat);
                             if now {
                                 self.chat_blur_cache_valid = false;
@@ -1402,8 +1435,8 @@ impl DisplayServerRuntime {
                                 self.on_chat_window_closed(crate::wm::WindowId::Chat);
                             }
                         }
-                        SidepanelItem::Search => {
-                            let _ = debug_println("dbg: sidepanel Search (window — next phase)");
+                        DropdownItem::Search => {
+                            let _ = debug_println("dbg: dropdown Search (window — next phase)");
                         }
                     }
                 }
@@ -1486,33 +1519,32 @@ impl DisplayServerRuntime {
                 });
             }
         }
-        // Side-panel row hover (only while the panel is open).
-        if SHELL_SIDEPANEL && self.state.sidebar_open_visible {
+        // Apps dropdown row hover (only while the dropdown is open).
+        if SHELL_TOPBAR && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
-                sidepanel_item_at, SIDEPANEL_MARGIN, SIDEPANEL_TOP, SIDEPANEL_W,
+                apps_item_x, dropdown_item_at, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
-            let slide =
-                self.animated_scene.sidebar_translate_x.clamp(0.0, SIDEPANEL_W as f32 + 32.0) as u32;
-            let base_x = self.mode.width.saturating_sub(SIDEPANEL_MARGIN + SIDEPANEL_W).saturating_add(slide);
+            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dy = TOPBAR_TOP + TOPBAR_H + 4;
             let cx = self.state.cursor_x;
             let cy = self.state.cursor_y;
-            let new_hover = if cx >= base_x as i32
-                && cy >= SIDEPANEL_TOP as i32
-                && (cx as u32) < base_x + SIDEPANEL_W
-                && (cy as u32) < SIDEPANEL_TOP + self.sidepanel_h
+            let new_hover = if cx >= dx as i32
+                && cy >= dy as i32
+                && (cx as u32) < dx + DROPDOWN_W
+                && (cy as u32) < dy + self.dropdown_h
             {
-                sidepanel_item_at((cy - SIDEPANEL_TOP as i32) as u32, self.sidepanel_apps_expanded)
+                dropdown_item_at((cy - dy as i32) as u32)
             } else {
                 None
             };
-            if new_hover != self.sidepanel_hover {
-                self.sidepanel_hover = new_hover;
-                self.sidepanel_surface_dirty = true;
+            if new_hover != self.dropdown_hover {
+                self.dropdown_hover = new_hover;
+                self.dropdown_surface_dirty = true;
                 self.queue_dirty_rect(DamageRect {
-                    x: base_x,
-                    y: SIDEPANEL_TOP,
-                    width: SIDEPANEL_W.min(self.mode.width.saturating_sub(base_x)),
-                    height: self.sidepanel_h,
+                    x: dx,
+                    y: dy,
+                    width: DROPDOWN_W.min(self.mode.width.saturating_sub(dx)),
+                    height: self.dropdown_h,
                 });
             }
         }
@@ -2084,8 +2116,6 @@ impl DisplayServerRuntime {
         let abs_row = self.sidepanel_atlas.abs_row;
         let panel_h = self.sidepanel_h;
         let panel_w = super::desktop_layer::SIDEPANEL_W;
-        let expanded = self.sidepanel_apps_expanded;
-        let hover = self.sidepanel_hover;
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < panel_h {
@@ -2094,7 +2124,39 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w, expanded, hover)?;
+                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w)?;
+            }
+            let dst = (abs_row + band_start) as usize * stride;
+            vmo_write(handle, dst, &band[..band_rows * stride])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
+        }
+        Ok(())
+    }
+
+    /// Shell-P2b: render the Apps dropdown into its atlas (Chat/Search rows +
+    /// hover). Composited below the topbar "Apps" item with an animated reveal.
+    fn render_dropdown_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else {
+            return Ok(());
+        };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let abs_row = self.dropdown_atlas.abs_row;
+        let h = self.dropdown_h;
+        let w = super::desktop_layer::DROPDOWN_W;
+        let hover = self.dropdown_hover;
+        let band = &mut self.band_scratch;
+        let mut band_start = 0u32;
+        while band_start < h {
+            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(h);
+            let band_rows = (band_end - band_start) as usize;
+            for (i, ly) in (band_start..band_end).enumerate() {
+                let row = &mut band[i * stride..(i + 1) * stride];
+                row.fill(0);
+                super::desktop_layer::draw_dropdown_row(ly, row, w, hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -2648,6 +2710,11 @@ impl DisplayServerRuntime {
             self.render_sidepanel_surface()?;
             self.sidepanel_surface_dirty = false;
         }
+        // Shell-P2b: (re)render the Apps dropdown surface when dirty.
+        if SHELL_TOPBAR && self.dropdown_surface_dirty {
+            self.render_dropdown_surface()?;
+            self.dropdown_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -2679,6 +2746,9 @@ impl DisplayServerRuntime {
         // Slide: sidebar_translate_x animates SIDEBAR_WIDTH(closed) -> 0(open).
         let sidepanel_slide = scene.sidebar_translate_x;
         let sidepanel_opacity = scene.sidebar_opacity;
+        let dropdown_atlas_row = self.dropdown_atlas.abs_row;
+        let dropdown_full_h = self.dropdown_h;
+        let dropdown_progress = scene.apps_dropdown_progress;
         let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
         let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
         let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
@@ -2809,6 +2879,43 @@ impl DisplayServerRuntime {
                     60,
                     0,
                 );
+            }
+
+            // 1·dropdown. Apps dropdown — a small glass menu under the topbar
+            //     "Apps" item, revealed (roll-down + fade) by the dropdown spring.
+            if SHELL_TOPBAR && dropdown_progress > 0.01 {
+                use crate::compositor::desktop_layer::{
+                    apps_item_x, DROPDOWN_RADIUS, DROPDOWN_W, TOPBAR_MARGIN_X, TOPBAR_TOP, TOPBAR_H,
+                };
+                let dx = TOPBAR_MARGIN_X + apps_item_x();
+                let dy = TOPBAR_TOP + TOPBAR_H + 4;
+                let reveal_h = ((dropdown_progress.clamp(0.0, 1.0) * dropdown_full_h as f32) as u32).max(1);
+                let alpha = (dropdown_progress.clamp(0.0, 1.0) * 255.0) as u32;
+                if dx < mode.width && dy < mode.height {
+                    let w = DROPDOWN_W.min(mode.width.saturating_sub(dx));
+                    let h = reveal_h.min(mode.height.saturating_sub(dy));
+                    let rect = TileRect { x: dx, y: dy, width: w, height: h };
+                    let _ = encoder.try_blit_surface(dx, dy + RETAINED_ROW_OFFSET, dx, dy, w, h);
+                    let _ = encoder.try_blur_backdrop(
+                        rect,
+                        DARK_GLASS_BLUR_RADIUS,
+                        DARK_GLASS_SATURATION_PERCENT,
+                    );
+                    let _ = encoder.try_composite_layer(
+                        dropdown_atlas_row,
+                        0,
+                        w,
+                        h,
+                        dx,
+                        dy,
+                        alpha,
+                        DROPDOWN_RADIUS,
+                        14,
+                        4,
+                        80,
+                        0,
+                    );
+                }
             }
 
             // 1·panel. Glass side panel — slides in from the right, driven by the
