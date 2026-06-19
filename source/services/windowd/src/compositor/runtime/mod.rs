@@ -2280,15 +2280,18 @@ impl DisplayServerRuntime {
     /// surfaces are released again), never a boot/handoff failure.
     fn open_search(&mut self) {
         if !self.search.is_mounted() {
-            // Full-width bands for now (the search CPU renderer writes full-stride
-            // rows); packing content + blur side-by-side in one band is the next
-            // increment (needs the per-row sub-stride render).
+            // 2D-PACKED: content + blur are each SEARCH_W wide, so they pack
+            // side-by-side in ONE band (content x=0, blur x=SEARCH_W) instead of
+            // two full-width bands — half the rows when the window is open. The
+            // content surface is then CPU-rendered per-row at its column; gpud
+            // fills the blur surface (it samples src_x natively).
+            let w = super::desktop_layer::SEARCH_W;
             let h = self.search.h;
-            let Some(content) = self.atlas_alloc.alloc_band(h) else {
+            let Some(content) = self.atlas_alloc.alloc(w, h) else {
                 let _ = debug_println("windowd: search open — atlas pool full (content)");
                 return;
             };
-            let Some(blur) = self.atlas_alloc.alloc_band(h) else {
+            let Some(blur) = self.atlas_alloc.alloc(w, h) else {
                 self.atlas_alloc.free(content);
                 let _ = debug_println("windowd: search open — atlas pool full (blur)");
                 return;
@@ -2330,8 +2333,10 @@ impl DisplayServerRuntime {
             return Ok(()); // unmounted (hidden) — nothing to render
         };
         let abs_row = surface.abs_row;
+        let col_off = surface.x as usize * 4; // packed column → byte offset into each row
         let h = self.search.h;
         let w = super::desktop_layer::SEARCH_W;
+        let row_bytes = w as usize * 4;
         let close_hover = self.search.close_hover;
         let scroll = self.search.scroll;
         let total = self.search_filtered.len();
@@ -2341,21 +2346,19 @@ impl DisplayServerRuntime {
         let filter_text = self.state.text_input();
         let visible = &self.search_filtered[visible_start..visible_end];
         let band = &mut self.band_scratch;
-        let mut band_start = 0u32;
-        while band_start < h {
-            let band_end = (band_start + ROW_WRITE_CHUNK as u32).min(h);
-            let band_rows = (band_end - band_start) as usize;
-            for (i, ly) in (band_start..band_end).enumerate() {
-                let row = &mut band[i * stride..(i + 1) * stride];
-                row.fill(0);
-                super::desktop_layer::draw_search_window_row(
-                    ly, row, w, filter_text, visible, scroll, total, close_hover,
-                )?;
-            }
-            let dst = (abs_row + band_start) as usize * stride;
-            vmo_write(handle, dst, &band[..band_rows * stride])
+        // The Search surface is 2D-PACKED (sub-stride, at column `surface.x`), so
+        // its rows are NOT contiguous in the VMO — write per-row (the window's
+        // `w*4` bytes at column `x`). Re-render only fires on open/filter/scroll,
+        // so the per-row syscall count is fine (not a per-frame hot path).
+        for ly in 0..h {
+            let row = &mut band[0..stride];
+            row[..row_bytes].fill(0);
+            super::desktop_layer::draw_search_window_row(
+                ly, row, w, filter_text, visible, scroll, total, close_hover,
+            )?;
+            let dst = (abs_row + ly) as usize * stride + col_off;
+            vmo_write(handle, dst, &row[..row_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
-            band_start = band_end;
         }
         Ok(())
     }
@@ -3194,7 +3197,9 @@ impl DisplayServerRuntime {
                 use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
                 let chat_glass = crate::compositor::shell_window::GlassCompositeParams {
                     atlas_row: chat_atlas_row,
+                    atlas_x: 0, // chat is a full-width band
                     blur_cache_row: chat_blur_cache_row,
+                    blur_cache_x: 0,
                     blur_valid: chat_blur_cache_valid,
                     x: chat_dx,
                     y: chat_dy,

@@ -308,7 +308,9 @@ impl ShellWindow {
     pub(crate) fn glass_params(&self) -> Option<GlassCompositeParams> {
         Some(GlassCompositeParams {
             atlas_row: self.atlas?.abs_row,
+            atlas_x: self.atlas?.x,
             blur_cache_row: self.blur_cache?.abs_row,
+            blur_cache_x: self.blur_cache?.x,
             blur_valid: self.blur_valid,
             x: self.x.max(0) as u32,
             y: self.y.max(0) as u32,
@@ -340,13 +342,14 @@ impl ShellWindow {
         let mut built_blur = false;
         let rect = TileRect { x: p.x, y: p.y, width: w, height: h };
         if !p.blur_valid {
-            // Blur once: restore clean backdrop, blur in place, save to cache.
+            // Blur once: restore clean backdrop, blur in place, save to the cache
+            // surface (at its packed column `blur_cache_x`).
             let _ = encoder.try_blit_surface(p.x, p.y + RETAINED_ROW_OFFSET, p.x, p.y, w, h);
             let _ = encoder.try_blur_backdrop(rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
             let _ = encoder.try_blit_absolute(
                 p.x,
                 DISPLAY_ROW_OFFSET + p.y,
-                0,
+                p.blur_cache_x,
                 p.blur_cache_row,
                 w,
                 h,
@@ -355,7 +358,7 @@ impl ShellWindow {
         } else {
             // Reuse: blit the cached blurred backdrop (no per-frame blur).
             let _ = encoder.try_blit_absolute(
-                0,
+                p.blur_cache_x,
                 p.blur_cache_row,
                 p.x,
                 DISPLAY_ROW_OFFSET + p.y,
@@ -365,7 +368,7 @@ impl ShellWindow {
         }
         let _ = encoder.try_composite_layer(
             p.atlas_row,
-            0,
+            p.atlas_x,
             w,
             h,
             p.x,
@@ -412,16 +415,16 @@ impl ShellWindow {
         let rect = TileRect { x: p.x, y: p.y, width: p.w, height: p.h };
         if !p.blur_valid {
             let _ = encoder.try_blur_backdrop(rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
-            let _ = encoder.try_blit_absolute(p.x, DISPLAY_ROW_OFFSET + p.y, 0, p.blur_cache_row, p.w, p.h);
+            let _ = encoder.try_blit_absolute(p.x, DISPLAY_ROW_OFFSET + p.y, p.blur_cache_x, p.blur_cache_row, p.w, p.h);
             built_blur = true;
         } else {
-            let _ = encoder.try_blit_absolute(0, p.blur_cache_row, p.x, DISPLAY_ROW_OFFSET + p.y, p.w, p.h);
+            let _ = encoder.try_blit_absolute(p.blur_cache_x, p.blur_cache_row, p.x, DISPLAY_ROW_OFFSET + p.y, p.w, p.h);
         }
         // Body: sample the surface shifted by the scroll-within-window offset
         // (SCROLLABLE → gpud retains it for the cheap re-sample fast path).
         let _ = encoder.try_composite_layer_scrollable(
             p.atlas_row + content_offset,
-            0,
+            p.atlas_x,
             p.w,
             p.h,
             p.x,
@@ -434,7 +437,7 @@ impl ShellWindow {
             0,
         );
         // Title bar: composited FIXED on top (src row 0) so it never scrolls.
-        let _ = encoder.try_composite_layer(p.atlas_row, 0, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
+        let _ = encoder.try_composite_layer(p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
         built_blur
     }
 }
@@ -443,8 +446,12 @@ impl ShellWindow {
 /// before the per-frame command-buffer encoder borrows the runtime.
 #[derive(Clone, Copy)]
 pub(crate) struct GlassCompositeParams {
+    /// Atlas content surface row + column (`src_x` — non-zero when 2D-packed).
     pub(crate) atlas_row: u32,
+    pub(crate) atlas_x: u32,
+    /// Blur-cache surface row + column.
     pub(crate) blur_cache_row: u32,
+    pub(crate) blur_cache_x: u32,
     pub(crate) blur_valid: bool,
     pub(crate) x: u32,
     pub(crate) y: u32,
