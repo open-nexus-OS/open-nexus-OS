@@ -108,6 +108,7 @@ pub(crate) fn draw_topbar_row(
     row: &mut [u8],
     bar_w: u32,
     hover: Option<usize>,
+    menu_hover: bool,
 ) -> Result<(), WindowdError> {
     // Base glass tint across the whole bar (corner mask applied at composite).
     write_tint_span(row, 0, bar_w, TINT);
@@ -121,6 +122,10 @@ pub(crate) fn draw_topbar_row(
     {
         let icon_x = menu_icon_x(bar_w);
         let icon_y0 = (TOPBAR_H.saturating_sub(MENU_ICON_SIZE)) / 2;
+        // Hover highlight cell behind the icon.
+        if menu_hover && local_y >= icon_y0 && local_y < icon_y0 + MENU_ICON_SIZE {
+            write_tint_span(row, icon_x, (icon_x + MENU_ICON_SIZE).min(bar_w), HOVER_TINT);
+        }
         let bars_total = 3 * MENU_BAR_H + 2 * MENU_BAR_GAP;
         let bars_top = icon_y0 + (MENU_ICON_SIZE.saturating_sub(bars_total)) / 2;
         let bar_x = icon_x + (MENU_ICON_SIZE.saturating_sub(MENU_BAR_W)) / 2;

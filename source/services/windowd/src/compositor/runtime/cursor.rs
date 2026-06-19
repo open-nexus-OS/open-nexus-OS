@@ -133,6 +133,7 @@ impl DisplayServerRuntime {
     /// reusing the cursor's texture/sprite-layer plumbing. Blocking send (a
     /// one-shot at startup) + a brief reply drain so the 1-byte ack doesn't leak
     /// into the present pipeline; positioned near the top-left of the desktop.
+    #[allow(dead_code)] // retained for the P3 topbar app icon; test sprite retired
     pub(super) fn upload_icon_to_gpud(&mut self) {
         if !self.ensure_gpud_client() {
             return;

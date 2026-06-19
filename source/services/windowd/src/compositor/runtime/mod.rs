@@ -524,6 +524,8 @@ pub(crate) struct DisplayServerRuntime {
     /// Index of the topbar item currently under the cursor (drives the hover
     /// highlight; a change re-renders the topbar atlas).
     topbar_hover: Option<usize>,
+    /// Whether the cursor is over the topbar menu (hamburger) icon.
+    topbar_menu_hover: bool,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
     /// source of truth for scroll *physics* (Apple-style eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
@@ -853,6 +855,7 @@ impl DisplayServerRuntime {
             shell_h,
             shell_surface_dirty: true,
             topbar_hover: None,
+            topbar_menu_hover: false,
             chat_list,
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
@@ -1082,9 +1085,9 @@ impl DisplayServerRuntime {
         if self.state.cursor_svg_visible {
             self.upload_cursor_bitmap_to_gpud();
         }
-        // Upload the real Lucide icon sprite once; gpud composites it as a GPU
-        // sprite layer on the virgl scanout (TASK #61 "real icon layer").
-        self.upload_icon_to_gpud();
+        // The standalone test icon sprite (TASK #61) is retired — the shell's
+        // chrome (topbar + chat) is the real UI now. `upload_icon_to_gpud`
+        // remains available for when the topbar hosts a real app icon (P3).
         self.framebuffer_pending_first_write = false;
         STATUS_OK
     }
@@ -1326,6 +1329,11 @@ impl DisplayServerRuntime {
                 if topbar_menu_icon_hit(lx, ly, self.shell_w) {
                     self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
                     window_consumed_press = true;
+                    let _ = debug_println(if self.state.sidebar_open_visible {
+                        "dbg: topbar menu -> sidebar OPEN"
+                    } else {
+                        "dbg: topbar menu -> sidebar CLOSE"
+                    });
                 }
             }
         }
@@ -1380,20 +1388,23 @@ impl DisplayServerRuntime {
         // recomposites with the new hover highlight.
         if SHELL_TOPBAR {
             use crate::compositor::desktop_layer::{
-                topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+                topbar_item_at, topbar_menu_icon_hit, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
             let cx = self.state.cursor_x;
             let cy = self.state.cursor_y;
-            let new_hover = if cy >= TOPBAR_TOP as i32
+            let in_bar = cy >= TOPBAR_TOP as i32
                 && cy < (TOPBAR_TOP + TOPBAR_H) as i32
-                && cx >= TOPBAR_MARGIN_X as i32
-            {
-                topbar_item_at((cx - TOPBAR_MARGIN_X as i32) as u32)
+                && cx >= TOPBAR_MARGIN_X as i32;
+            let (new_hover, new_menu_hover) = if in_bar {
+                let lx = (cx - TOPBAR_MARGIN_X as i32) as u32;
+                let ly = (cy - TOPBAR_TOP as i32) as u32;
+                (topbar_item_at(lx), topbar_menu_icon_hit(lx, ly, self.shell_w))
             } else {
-                None
+                (None, false)
             };
-            if new_hover != self.topbar_hover {
+            if new_hover != self.topbar_hover || new_menu_hover != self.topbar_menu_hover {
                 self.topbar_hover = new_hover;
+                self.topbar_menu_hover = new_menu_hover;
                 self.shell_surface_dirty = true;
                 self.queue_dirty_rect(DamageRect {
                     x: TOPBAR_MARGIN_X,
@@ -1938,6 +1949,7 @@ impl DisplayServerRuntime {
         let shell_h = self.shell_h;
         let bar_w = self.shell_w;
         let hover = self.topbar_hover;
+        let menu_hover = self.topbar_menu_hover;
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < shell_h {
@@ -1946,7 +1958,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_topbar_row(ly, row, bar_w, hover)?;
+                super::desktop_layer::draw_topbar_row(ly, row, bar_w, hover, menu_hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
