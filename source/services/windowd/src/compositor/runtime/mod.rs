@@ -2601,6 +2601,28 @@ impl DisplayServerRuntime {
             //     glass effects applied here by the composite.
             if SHELL_TOPBAR && shell_w > 0 && shell_h > 0 {
                 use crate::compositor::desktop_layer::{TOPBAR_MARGIN_X, TOPBAR_RADIUS, TOPBAR_TOP};
+                // Proven glass recipe (same as the glass buttons): restore the
+                // clean backdrop from the retained plane, blur it in place, THEN
+                // composite the topbar atlas (translucent tint + crisp text) on
+                // top with backdrop_blur=0. Passing backdrop_blur to the composite
+                // smears the layer content (text) into a gray blob — this keeps
+                // the text sharp over a frosted backdrop.
+                let bar = TileRect {
+                    x: TOPBAR_MARGIN_X,
+                    y: TOPBAR_TOP,
+                    width: shell_w,
+                    height: shell_h,
+                };
+                let _ = encoder.try_blit_surface(
+                    TOPBAR_MARGIN_X,
+                    TOPBAR_TOP + RETAINED_ROW_OFFSET,
+                    TOPBAR_MARGIN_X,
+                    TOPBAR_TOP,
+                    shell_w,
+                    shell_h,
+                );
+                let _ =
+                    encoder.try_blur_backdrop(bar, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
                 let _ = encoder.try_composite_layer(
                     shell_atlas_row,
                     0,
@@ -2610,10 +2632,10 @@ impl DisplayServerRuntime {
                     TOPBAR_TOP,
                     255,
                     TOPBAR_RADIUS,
-                    18,
-                    4,
-                    90,
-                    20,
+                    10,
+                    3,
+                    60,
+                    0,
                 );
             }
 
@@ -2634,12 +2656,16 @@ impl DisplayServerRuntime {
                 let hy0 = chat_dy.saturating_sub(pad) as i32;
                 let hx1 = (chat_dx + CHAT_PANEL_W + pad) as i32;
                 let hy1 = (chat_dy + CHAT_PANEL_H + pad) as i32;
-                let touches_chat = rects.iter().take(rect_count).any(|r| {
+                // On virgl the scanout is rebuilt every present, so the chat
+                // layer must be re-composited each frame — the damage-touch gate
+                // (an mmio optimization where the display plane persists) would
+                // otherwise show the window only when the cursor passed over it.
+                let _touches_chat = rects.iter().take(rect_count).any(|r| {
                     let rx1 = (r.x + r.width) as i32;
                     let ry1 = (r.y + r.height) as i32;
                     (r.x as i32) < hx1 && rx1 > hx0 && (r.y as i32) < hy1 && ry1 > hy0
                 });
-                if touches_chat {
+                if true {
                     // Restore the full halo from the retained plane first so the
                     // (translucent) shadow blends over a clean backdrop and never
                     // accumulates — and the cursor hot path can't carve a trail
