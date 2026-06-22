@@ -3,7 +3,7 @@ title: TASK-0063 UI v5b: virtualized list + scene graph wiring + dual-panel blur
 status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-06-12 (scope: scene graph wiring, virgl blur, dual-panel, 120 Hz pacing, lazy-loading provider, chat mockup)
+updated: 2026-06-22 (closed: scene graph wiring + virtual list + theme tokens + virgl GPU pipeline + soft-real-time pacing all landed and boot-verified over virgl)
 depends-on: [TASK-0059, TASK-0062]
 follow-up-tasks: [TASK-0275, TASK-0064]
 links:
@@ -25,6 +25,30 @@ links:
   - Testing contract: scripts/qemu-test.sh
   - Design contract (RFC): docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
 ---
+
+## Closure (2026-06-22) — ist-zustand
+
+DONE and boot-verified over `GPU_MODE=virgl just start`:
+
+- **Scene graph wired**: `flush_pending_damage` drives the retained scene; the old CPU row-compositor
+  monoliths were deleted and the path refactored into `compositor/` submodules (ShellWindow +
+  `window_frame`). OS build green for `riscv64`.
+- **Virtual list**: `nexus-virtual-list` (`VirtualList<P: ItemProvider>`) backs the live chat scroll
+  with stable visible range, recycling, and the shared Android `ScrollMomentum` fling/tick physics.
+- **Theme tokens**: `nexus-theme` registry with 2PC-ready switching; glass tint/edge tokens consumed
+  by the compositor.
+- **Dual-panel glass + GPU blur**: glass panels composite over a cached blurred backdrop
+  (`composite_scrollable_glass`); the blur runs on the GPU via the virgl 3D pipeline
+  (`gl_scanout`/`virgl_composite`, `submit_layer_pass`), CPU box-blur is the runtime-selected fallback.
+- **Pacing**: soft-real-time spine landed (RFC-0033: waitset + timeline fence + kernel timer IRQ,
+  syscalls 38–43); the windowd timer-capped present path is 120 Hz-capable. virgl present quirk
+  contained by the multi-entry command ring + batched present (`RING_SLOTS=16`).
+
+The original RED flag (120 Hz honestly requires virgl) is satisfied: the virgl GPU profile is
+functional; the CPU profile honestly targets 60 Hz with `gpud: cpu fallback`. Follow-ups that are NOT
+part of this task's DoD: chat scroll freeze polish (#72), systemui-as-boot-service (#83), full-frame
+`gl_present_damage` black-screen debug (#69) — tracked separately. WM + scene transitions continue in
+TASK-0064.
 
 ## Context
 

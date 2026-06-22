@@ -1,9 +1,9 @@
 # RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract
 
-- Status: In Progress
+- Status: Complete
 - Owners: @ui
 - Created: 2026-06-12
-- Last Updated: 2026-06-12 (initial seed: Chat-Window als erste WM-Implementierung)
+- Last Updated: 2026-06-22 (complete: ShellWindow N-window WM landed — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl. Scene transitions → RFC-0064B/TASK-0064B)
 - Links:
   - Tasks: `tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md` (execution + proof — SSOT for stop conditions)
   - Depends on: `docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md` (scene graph rendering authority)
@@ -13,9 +13,13 @@
 
 ## Status at a Glance
 
-- **Phase 0 (Chat-Button + Window Model)**: ⬜ — Chat-Button neben Hamburger, `Window`/`WindowManager` structs
-- **Phase 1 (Title-Bar + X-Button + Drag)**: ⬜ — Drag über Title-Bar, X schließt Window
-- **Phase 2 (Integration + Proof)**: ⬜ — WM in CompositorState, Host-Tests, QEMU-Marker
+- **Phase 0 (Chat-Button + Window Model)**: 🟢 — Chat-Button neben Hamburger; das `Window`/`WindowManager`-Modell wurde als reusable `ShellWindow` + host-getestete `window_frame::Frame`-Geometrie umgesetzt (statt `wm.rs`). Chat ist eine Window-Instanz.
+- **Phase 1 (Title-Bar + X-Button + Drag)**: 🟢 — Glas-Title-Bar mit echtem Lucide-X, Drag über `Frame::press`/`clamp_pos` (bounds-clamped), Z-Order; bewegte Fenster hinterlassen keine Spur (GPU re-blit, kein CPU-Recomposite).
+- **Phase 2 (Integration + Proof)**: 🟢 — WM in `CompositorState`; Host-Tests (`window_frame.rs` + `interaction.rs` + `scene_graph.rs`, 106 windowd-Tests grün); QEMU-Marker `windowd: wm on` / `chat button click ok` / `chat window open|close|drag ok` / `SELFTEST: ui v6 wm ok`. Über virgl boot-verifiziert.
+
+**Hinweis (ist-zustand):** Die Implementierung ging über das ursprüngliche „nur Chat"-Non-Goal hinaus —
+der WM ist auf **N Fenster** generalisiert (Chat + Suche teilen sich `ShellWindow`). `wm.rs` wurde
+entfernt und in `window_frame` + `ShellWindow` gefaltet.
 
 Definition: "Complete" means the **contract** is defined and the **proof gates** are green (tests/markers). It does not mean "never changes again".
 

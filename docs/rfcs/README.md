@@ -233,7 +233,7 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 - RFC-0062: Kernel timer capability — host-first timer infrastructure contract (Complete; kernel timer API + capability model locked)
   - docs/rfcs/RFC-0062-kernel-timer-capability.md
-- RFC-0063: UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract (Complete; Phase 0/1/2 done, Phase 3 architecture done, TASK-0063 Done)
+- RFC-0063: UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract (Complete; Phase 0/1/2/3 done — virgl GPU pipeline + soft-real-time pacing landed; TASK-0063 Done)
   - docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
-- RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract (Draft; design seed for TASK-0064, Chat als erstes Window)
+- RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract (Complete; ShellWindow N-window WM, chat instance + title-bar/X/drag/z-order, TASK-0064 Done)
   - docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md

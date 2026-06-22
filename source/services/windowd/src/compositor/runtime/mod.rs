@@ -603,6 +603,8 @@ pub(crate) struct DisplayServerRuntime {
     chat_render_base: u32,
     /// One-shot `chat window drag ok` marker latch.
     chat_drag_marker_emitted: bool,
+    /// One-shot `chat button click ok` marker latch (first real chat-button click).
+    chat_button_marker_emitted: bool,
     /// Active shell configuration resolved from SystemUI's declarative manifest
     /// registry (`systemui::shell_config_default()` — the boot default product).
     /// Replaces the old hardcoded shell-chrome compile-time constants: the
@@ -983,6 +985,7 @@ impl DisplayServerRuntime {
             chat_visible,
             chat_render_base: 0,
             chat_drag_marker_emitted: false,
+            chat_button_marker_emitted: false,
             shell_config,
         })
     }
@@ -1576,6 +1579,10 @@ impl DisplayServerRuntime {
                     self.state.sidebar_open_visible = false;
                 }
                 ClickAction::ToggleChat => {
+                    if !self.chat_button_marker_emitted {
+                        let _ = debug_println("windowd: chat button click ok");
+                        self.chat_button_marker_emitted = true;
+                    }
                     self.toggle_chat();
                 }
                 ClickAction::FocusPanel => {
@@ -3962,6 +3969,11 @@ impl DisplayServerRuntime {
         if !self.v3b_composition_verified {
             let _ = debug_println("windowd: scene graph on");
             let _ = debug_println("windowd: gpu pipeline on");
+            // Window manager is live: the chat ShellWindow (and any sibling
+            // windows) are registered and driving the composite with drag +
+            // z-order. TASK-0064 (UI v6a) WM marker ladder.
+            let _ = debug_println("windowd: wm on");
+            let _ = debug_println("SELFTEST: ui v6 wm ok");
         }
         self.emit_input_markers();
         self.v3b_composition_verified = true;

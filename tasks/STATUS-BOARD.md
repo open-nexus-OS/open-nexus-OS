@@ -227,9 +227,11 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0058 | UI v3a: layout wrapping + deterministic box model | Done | Flex/grid/stack layout, text wrapping, host goldens; production-grade windowd integration |
 | ✅ TASK-0059 | UI v3b: clip + scroll + backdrop effects + shadow pipeline + IME + MSDF/SDF rendering | Done | ShadowArena, per-box caching, compositor/ module refactor; host/reject/QEMU proofs green |
 | ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | Done | Animation engine, NexusGfx SDK, gpud, windowd integration; all phases 0-6e proven; RFC-0059 Complete |
+| ✅ TASK-0063 | UI v5b: virtualized list + scene graph + dual-panel GPU blur + virgl pipeline + theme tokens | Done | `nexus-virtual-list` + `nexus-theme`, scene-graph compositor, virgl 3D GPU blur (CPU fallback), soft-real-time pacing (RFC-0033 spine); boot-verified over `GPU_MODE=virgl just start`; RFC-0063 Complete |
+| ✅ TASK-0064 | UI v6a: window management v1 — ShellWindow N-window WM (chat instance + title-bar/X/drag/z-order) | Done | `ShellWindow` + host-tested `window_frame::Frame`, N-window WM (chat + search instances), drag/bounds-clamp/z-order, Lucide X-close; marker ladder (`windowd: wm on`, `chat button click ok`, `chat window open/close/drag ok`, `SELFTEST: ui v6 wm ok`); boot-verified over virgl. Scene-transitions (Crossfade/Slide) → TASK-0064B |
 
-Current queue head: `TASK-0063` / UI v5b virtualized list + theme tokens (next Fast-Lane task after 0062).
-Current contract status: `RFC-0058` is `Done`; `RFC-0059` is `Complete`; `TASK-0062` all phases 0-6e proven.
+Current queue head: `TASK-0065` / UI v6b app lifecycle + notifications + navigation (next Fast-Lane task after 0064).
+Current contract status: `RFC-0058` is `Done`; `RFC-0059` is `Complete`; `RFC-0063` is `Complete`; `RFC-0064` is `Complete`; `TASK-0064` WM v1 proven (Crossfade/Slide deferred to TASK-0064B).
 
 ---
 

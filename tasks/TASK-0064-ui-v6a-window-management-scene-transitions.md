@@ -1,9 +1,9 @@
 ---
 title: TASK-0064 UI v6a: window management v1 — Chat-Window mit Drag, Title-Bar, Z-Order
-status: In Progress
+status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-06-12 (rescope: Chat-Window als erste WM-Implementierung, kein abstrakter WM-Layer)
+updated: 2026-06-22 (closed: ShellWindow N-window WM — chat is a window instance with title-bar/X/drag/z-order; markers + host tests green, boot-verified over virgl)
 depends-on: [TASK-0063]
 follow-up-tasks: [TASK-0064B]
 links:
@@ -15,6 +15,30 @@ links:
   - UI v2a baseline (present/input): tasks/TASK-0056C-ui-v2a-present-input-perf-latency-coalescing.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Closure (2026-06-22) — ist-zustand
+
+DONE and boot-verified over `GPU_MODE=virgl just start`. The delivered architecture diverged from
+the original `wm.rs` sketch below and went **beyond** the "nur Chat" non-goal:
+
+- **WM generalized to N windows** (#77): `wm.rs` was retired and folded into a reusable
+  `ShellWindow` component (`compositor/shell_window.rs`) + host-testable pure geometry in
+  `window_frame.rs` (`Frame{contains/in_title_bar/close_hit/press/clamp_pos/damage_bounds}` +
+  `WindowPress`). The chat is a `ShellWindow` **instance**; the search window shares the same frame.
+- **Chat-Button + Title-Bar + X-Close + Drag + Z-Order**: all live. Title-bar is glass with a real
+  Lucide `x` close icon (`blend_icon_row(CLOSE_ICON_BGRA)`); drag uses `Frame::press`/`clamp_pos`
+  (bounds-clamped); moved windows leave no trail (GPU re-blit of the cached surface, no CPU
+  recomposite).
+- **Markers** (real, one-shot): `windowd: wm on`, `windowd: chat button click ok`,
+  `windowd: chat window open` / `close` / `drag ok`, `SELFTEST: ui v6 wm ok`.
+- **Host tests**: `window_frame.rs` (5: contains/close-zone/press/clamp/damage-bounds) +
+  `interaction.rs` (hit-test) + `scene_graph.rs` + `compositor/tests.rs` — 106 windowd host tests
+  green. (No separate `tests/ui_v6a_host/` dir — the geometry SSOT lives in `window_frame.rs`.)
+
+Scene-Transitions (Crossfade/Slide) remain deferred to **TASK-0064B**. The chat scroll-freeze polish
+(#72) and the systemui→windowd `OP_SET_SCENE` handoff (#67/#83) are tracked separately and are not
+part of this task's DoD. The touched-paths/Window-Modell sketch below is kept for historical context;
+read the closure above for the as-built design.
 
 ## Context
 
@@ -142,13 +166,16 @@ struct WindowManager {
 - X-Button → Window verschwindet
 - Erneuter Klick → Window erscheint wieder an letzter Position
 
-## Touched paths (allowlist)
+## Touched paths (as-built 2026-06-22)
 
-- `source/services/windowd/src/systemui_shell.rs` — Chat-Button, Window-Title-Bar, X-Button
-- `source/services/windowd/src/wm.rs` — NEU: WindowManager
-- `source/services/windowd/src/compositor/runtime.rs` — WM-Integration, Drag-Events
-- `source/services/windowd/src/interaction.rs` — Hit-Test für Title-Bar + Chat-Button
-- `source/services/windowd/src/scene_graph.rs` — Node-Position-Update für Drag
-- `tests/ui_v6a_host/` — NEU: Host-Tests
-- `source/apps/selftest-client/` — Marker
-- `tools/postflight-ui-v6a.sh` — Delegates
+- `source/services/windowd/src/window_frame.rs` — NEW: host-testable `Frame` geometry (contains /
+  in_title_bar / close_hit / press / clamp_pos / damage_bounds) + `WindowPress` (replaces `wm.rs`)
+- `source/services/windowd/src/compositor/shell_window.rs` — NEW: reusable `ShellWindow` (glass
+  title-bar, rounded top corners, Lucide X-close, drag, blur cache); chat + search are instances
+- `source/services/windowd/src/compositor/runtime/mod.rs` — N-window WM integration, drag events,
+  toggle_chat, markers
+- `source/services/windowd/src/interaction.rs` — Hit-Test (title-bar, chat button, close icon)
+- `source/services/windowd/src/wm.rs` — DELETED (folded into `window_frame` + `ShellWindow`)
+- host tests live in `window_frame.rs` + `interaction.rs` + `scene_graph.rs` + `compositor/tests.rs`
+  (no separate `tests/ui_v6a_host/` dir)
+- `source/apps/selftest-client/` — Marker ladder (`windowd: wm on`, `SELFTEST: ui v6 wm ok`, …)

@@ -113,6 +113,8 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 | ✅ TASK-0058 | UI v3a: layout engine (flex/grid/stack) + text wrapping + host goldens — production-grade windowd integration | 2026-05-17 |
 | ✅ TASK-0059 | UI v3b: clip + scroll + backdrop effects + shadow pipeline + IME + MSDF/SDF rendering | 2026-06-05 |
 | ✅ TASK-0062 | UI v5a: Deterministic Animation + NexusGfx 2D Pipeline + GPU Driver Contract | 2026-06-10 |
+| ✅ TASK-0063 | UI v5b: virtualized list + scene graph + dual-panel GPU blur + virgl pipeline + theme tokens | 2026-06-22 |
+| ✅ TASK-0064 | UI v6a: window management v1 — ShellWindow N-window WM (chat instance + title-bar/X/drag/z-order) | 2026-06-22 |
 
 ---
 
@@ -220,8 +222,8 @@ muessen die entsprechenden Test-Targets sichtbar auf dieser Proof-Surface ersche
 | TASK-0147 | IME/Text v2 Part 1b: OSK overlay + focus routing + OS/QEMU proofs (pulled forward after 0146) |
 | TASK-0061 | UI v4b: gestures + a11y semantics |
 | TASK-0062 | UI v5a: reactive runtime + animation/transitions |
-| TASK-0063 | UI v5b: virtualized list + theme tokens |
-| TASK-0064 | UI v6a: window management + scene transitions |
+| ✅ TASK-0063 | UI v5b: virtualized list + theme tokens (Done; scene graph + virgl GPU blur + soft-real-time pacing, boot-verified) |
+| ✅ TASK-0064 | UI v6a: window management + scene transitions (Done; ShellWindow N-window WM, chat instance + drag/z-order, boot-verified; Crossfade/Slide → TASK-0064B) |
 | TASK-0065 | UI v6b: app lifecycle + notifications + navigation |
 | TASK-0065B | Session/Login v0: greeter/dev-session + SystemUI shell handoff |
 
