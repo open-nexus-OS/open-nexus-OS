@@ -1,0 +1,14 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The DEFAULT product SystemUI boots when nothing else is selected —
+# the desktop profile + desktop shell. A fork/product overrides "which shell
+# starts" by shipping its own product manifest (see tablet/ and kiosk/) without
+# patching core SystemUI logic.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "default"
+profile = "desktop"
+shell = "desktop"
+theme = "nexus-default"

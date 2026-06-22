@@ -22,6 +22,21 @@ pub enum SystemUiError {
     IncompatibleShell,
     InvalidFrameDimensions,
     ArithmeticOverflow,
+    /// A referenced profile/shell/product id is not present in the manifest
+    /// registry (deterministic reject for unknown ids — see [`crate::registry`]).
+    ManifestNotFound,
+}
+
+/// Well-known value domains for profile display defaults. IDs themselves are NOT
+/// a closed enum — a profile/shell is "known" iff its manifest is in the registry
+/// (so forks add a manifest, not a core enum arm). These are the value vocabularies
+/// the runtime understands.
+pub const KNOWN_ORIENTATIONS: &[&str] = &["portrait", "landscape"];
+pub const KNOWN_DPI_CLASSES: &[&str] = &["low", "normal", "high"];
+pub const KNOWN_SIZE_CLASSES: &[&str] = &["compact", "regular", "wide"];
+
+fn is_known(value: &str, set: &[&str]) -> bool {
+    set.iter().any(|v| *v == value)
 }
 
 pub type Result<T> = core::result::Result<T, SystemUiError>;
@@ -87,16 +102,24 @@ pub fn parse_profile_manifest(input: &str) -> Result<ProfileManifest> {
     Ok(manifest)
 }
 
+/// Generic profile schema validation (NOT hardcoded to one profile id, so any
+/// registered profile — desktop/tablet/tv/kiosk/fork — passes on its own merits):
+/// non-empty identity, a non-empty `allowed_shells` that contains `default_shell`,
+/// and display defaults drawn from the known value domains. Unknown ids are caught
+/// later by the registry; incompatible profile↔shell pairings by
+/// [`crate::shell::validate_profile_shell`].
 pub fn validate_profile(manifest: &ProfileManifest) -> Result<()> {
-    if manifest.id != "desktop" {
-        return Err(SystemUiError::UnsupportedProfile);
+    if manifest.id.is_empty() || manifest.label.is_empty() {
+        return Err(SystemUiError::InvalidManifest);
     }
-    if manifest.default_shell != "desktop" || !contains_str(&manifest.allowed_shells, "desktop") {
+    if manifest.allowed_shells.is_empty()
+        || !contains_str(&manifest.allowed_shells, &manifest.default_shell)
+    {
         return Err(SystemUiError::UnsupportedShell);
     }
-    if manifest.display_defaults.orientation != "landscape"
-        || manifest.display_defaults.dpi_class != "normal"
-        || manifest.display_defaults.size_class != "wide"
+    if !is_known(&manifest.display_defaults.orientation, KNOWN_ORIENTATIONS)
+        || !is_known(&manifest.display_defaults.dpi_class, KNOWN_DPI_CLASSES)
+        || !is_known(&manifest.display_defaults.size_class, KNOWN_SIZE_CLASSES)
     {
         return Err(SystemUiError::InvalidManifest);
     }
@@ -146,6 +169,21 @@ pub(crate) fn string_field(entries: &[TomlEntry], section: &str, key: &str) -> R
         return Err(SystemUiError::InvalidManifest);
     }
     Ok(inner.to_string())
+}
+
+/// Like [`string_field`] but returns `None` when the key is absent (optional
+/// fields, e.g. a product's `theme`/`policy_preset`). A present-but-malformed
+/// value is still an error.
+pub(crate) fn optional_string_field(
+    entries: &[TomlEntry],
+    section: &str,
+    key: &str,
+) -> Result<Option<String>> {
+    if entries.iter().any(|e| e.section == section && e.key == key) {
+        Ok(Some(string_field(entries, section, key)?))
+    } else {
+        Ok(None)
+    }
 }
 
 pub(crate) fn string_array_field(

@@ -1,0 +1,21 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: SystemUI tablet shell — touch-first posture, single canonical root.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "tablet"
+kind = "tablet"
+dsl_root = "ui/shells/tablet"
+supported_profiles = ["tablet"]
+
+[first_frame]
+width = 1280
+height = 800
+
+[features]
+launcher = true
+multiwindow = false
+quick_settings = true
+settings_entry = true

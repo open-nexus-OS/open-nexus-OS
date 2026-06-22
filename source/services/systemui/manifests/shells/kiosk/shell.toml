@@ -1,0 +1,24 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: SystemUI kiosk shell — a single locked surface, no launcher / no
+# multiwindow / no settings entry. The example a company forks for a floor
+# terminal; the `locked-down` policy preset (set on the product) plus the kiosk
+# kind suppress switch/launcher affordances at runtime.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "kiosk"
+kind = "kiosk"
+dsl_root = "ui/shells/kiosk"
+supported_profiles = ["tablet", "desktop"]
+
+[first_frame]
+width = 1280
+height = 800
+
+[features]
+launcher = false
+multiwindow = false
+quick_settings = true
+settings_entry = false

@@ -1,0 +1,17 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Example locked-down KIOSK product (the "company configures a complete
+# kiosk" case) — tablet hardware profile, kiosk shell, locked-down policy. The
+# kiosk kind + locked-down policy suppress launcher/switch affordances at runtime
+# even though the profile structurally allows other shells. A fork edits ONLY this
+# manifest (profile/shell/theme/policy/deployment) — no core code changes.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "kiosk"
+profile = "tablet"
+shell = "kiosk"
+theme = "acme-industrial"
+policy_preset = "locked-down"
+deployment = "warehouse-floor"

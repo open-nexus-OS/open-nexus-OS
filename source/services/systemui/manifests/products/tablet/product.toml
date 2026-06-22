@@ -1,0 +1,13 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: A tablet/convertible product — boots the tablet profile + tablet shell.
+# Because the tablet profile allows the `desktop` shell too, the runtime can offer
+# a desktop↔tablet switch (the convertible toggle) on this product.
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "tablet"
+profile = "tablet"
+shell = "tablet"
+theme = "nexus-default"

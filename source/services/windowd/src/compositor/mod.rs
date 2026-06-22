@@ -155,19 +155,15 @@ pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u
 /// Shell-P2b: when `true`, source `proof_layouts` from the flat desktop-shell
 /// scene and suppress the rich proof/glass overlays. The flat-rect render was a
 /// regression (no glass/shadow/rounding), so this is `false`: we keep the rich
-/// glass UI (chat window + buttons + sidebar) and add a real glass **topbar**
-/// (see `SHELL_TOPBAR`) instead. Kept as a switch for the layout-driven path.
+/// glass UI (chat window + buttons + sidebar) and add a real glass topbar instead.
+/// Kept as a switch for the layout-driven path.
 pub(crate) const USE_DESKTOP_SHELL: bool = false;
 
-/// Shell-P2b: composite the glass topbar layer (blur + rounded + shadow + hover
-/// + text) over the scene. Independent of `USE_DESKTOP_SHELL` so it rides on top
-/// of the rich proof/glass UI.
-pub(crate) const SHELL_TOPBAR: bool = true;
-
-/// Shell-P2b: the topbar menu icon opens a glass **side panel** that slides in
-/// from the right (rounded + blur + shadow), driven by the sidebar spring.
-/// Replaces the old proof-sidebar strip, which is suppressed when this is on.
-pub(crate) const SHELL_SIDEPANEL: bool = true;
+// The former `SHELL_TOPBAR` / `SHELL_SIDEPANEL` compile-time constants are gone:
+// the glass topbar + side panel chrome is now driven at runtime by the shell
+// configuration resolved from SystemUI's manifest registry
+// (`DisplayServerRuntime.shell_config.desktop_chrome`), so the active shell —
+// not a hardcoded constant — decides whether the desktop chrome is composited.
 
 /// On-screen origin of the composited scene. The desktop shell sits near the
 /// top-left with a small inset; the proof panel keeps its historic placement.

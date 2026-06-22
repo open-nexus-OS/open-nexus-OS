@@ -37,7 +37,7 @@ use super::{
     DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES, SHELL_SIDEPANEL, SHELL_TOPBAR,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES,
     SIDEBAR_REST_X, USE_DESKTOP_SHELL, WINDOWD_SHADOW_ARENA_SIZE,
 };
 use crate::error::WindowdError;
@@ -603,6 +603,12 @@ pub(crate) struct DisplayServerRuntime {
     chat_render_base: u32,
     /// One-shot `chat window drag ok` marker latch.
     chat_drag_marker_emitted: bool,
+    /// Active shell configuration resolved from SystemUI's declarative manifest
+    /// registry (`systemui::shell_config_default()` — the boot default product).
+    /// Replaces the old hardcoded shell-chrome compile-time constants: the
+    /// compositor chrome is now config-driven, so a later runtime shell switch
+    /// (tablet/kiosk) just swaps this. Desktop default ⇒ chrome on.
+    shell_config: systemui::ShellConfig,
 }
 
 #[derive(Default)]
@@ -629,6 +635,21 @@ impl DisplayServerRuntime {
     pub(crate) fn new() -> Result<Self, WindowdError> {
         let _ = debug_println(RUNTIME_INIT_START);
         let mode = VisibleBootstrapMode::fixed()?.validate()?;
+
+        // Resolve the active shell from SystemUI's declarative manifest registry
+        // (the boot default product). This drives the compositor chrome instead of
+        // the old hardcoded shell-chrome constants — the first step of "the shell
+        // is set in SystemUI". Infallible (desktop fallback).
+        let shell_config = systemui::shell_config_default();
+        let _ = debug_println(&alloc::format!(
+            "windowd: shell config product={} profile={} shell={} kind={} chrome={} locked={}",
+            shell_config.product_id,
+            shell_config.profile_id,
+            shell_config.shell_id,
+            shell_config.shell_kind,
+            shell_config.desktop_chrome,
+            shell_config.locked,
+        ));
 
         // Wallpaper: prefer JPEG, fall back to solid dark color on failure.
         // Production-grade: the compositor must start even without wallpaper assets.
@@ -788,7 +809,7 @@ impl DisplayServerRuntime {
         // rows for the shell windows (topbar/panel/dropdown/search) instead of a
         // dead allocation. A 1-row dummy keeps the field valid.
         let sidebar_composite_cache = atlas
-            .alloc_band(if SHELL_SIDEPANEL { 1 } else { mode.height })
+            .alloc_band(if shell_config.desktop_chrome { 1 } else { mode.height })
             .ok_or(WindowdError::BufferLengthMismatch)?;
         // Shell-P2b: reserve the glass topbar layer surface — full-width, one
         // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
@@ -962,6 +983,7 @@ impl DisplayServerRuntime {
             chat_visible,
             chat_render_base: 0,
             chat_drag_marker_emitted: false,
+            shell_config,
         })
     }
 
@@ -1390,9 +1412,22 @@ impl DisplayServerRuntime {
         // press on the close button closes it. Both consume the press so it does
         // not also hit the panel/sidebar logic below.
         let mut window_consumed_press = false;
+        // Shell switcher hotspot: a fixed bottom-left corner (always wallpaper, no
+        // chrome conflict) cycles the active shell via SystemUI's resolver
+        // (desktop → tablet → kiosk → …). Reachable in EVERY shell — even a kiosk
+        // with no topbar — so the runtime switch is always demonstrable. Checked
+        // first so it consumes the press before the windows/chrome below.
+        if primary_press
+            && cursor_x >= 0
+            && cursor_x < 28
+            && cursor_y >= (mode.height as i32 - 28)
+        {
+            window_consumed_press = true;
+            self.cycle_shell();
+        }
         // Search window (on top): title-bar drag / close / body all consume the
         // press before the chat wm + sidebar logic below.
-        if primary_press && self.search.visible {
+        if primary_press && !window_consumed_press && self.search.visible {
             use crate::compositor::shell_window::WindowPress;
             match self.search.press(cursor_x, cursor_y) {
                 WindowPress::Close => {
@@ -1453,7 +1488,7 @@ impl DisplayServerRuntime {
 
         // Shell-P2b: the topbar menu icon (right) toggles the animated side
         // panel — the same scene-graph-driven slide animation as the hamburger.
-        if primary_press && !window_consumed_press && SHELL_TOPBAR {
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
             use crate::compositor::desktop_layer::{topbar_menu_icon_hit, TOPBAR_MARGIN_X, TOPBAR_TOP};
             if cursor_x >= TOPBAR_MARGIN_X as i32 && cursor_y >= TOPBAR_TOP as i32 {
                 let lx = (cursor_x - TOPBAR_MARGIN_X as i32) as u32;
@@ -1471,7 +1506,7 @@ impl DisplayServerRuntime {
         }
 
         // Topbar "Apps" item click → toggle the animated dropdown.
-        if primary_press && !window_consumed_press && SHELL_TOPBAR {
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
             use crate::compositor::desktop_layer::{topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP};
             if cursor_y >= TOPBAR_TOP as i32
                 && cursor_y < (TOPBAR_TOP + TOPBAR_H) as i32
@@ -1498,7 +1533,7 @@ impl DisplayServerRuntime {
 
         // Apps dropdown item clicks: Chat opens the chat window; Search opens the
         // search window (next phase).
-        if primary_press && !window_consumed_press && SHELL_TOPBAR && self.apps_dropdown_open {
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
                 apps_item_x, dropdown_item_at, DropdownItem, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X,
                 TOPBAR_TOP,
@@ -1563,7 +1598,7 @@ impl DisplayServerRuntime {
         // Shell-P2b: topbar hover. Recompute the hovered item from the cursor and,
         // on change, re-render the topbar atlas + damage its band so the present
         // recomposites with the new hover highlight.
-        if SHELL_TOPBAR {
+        if self.shell_config.desktop_chrome {
             use crate::compositor::desktop_layer::{
                 topbar_item_at, topbar_menu_icon_hit, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
@@ -1592,7 +1627,7 @@ impl DisplayServerRuntime {
             }
         }
         // Apps dropdown row hover (only while the dropdown is open).
-        if SHELL_TOPBAR && self.apps_dropdown_open {
+        if self.shell_config.desktop_chrome && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
                 apps_item_x, dropdown_item_at, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
@@ -2068,11 +2103,72 @@ impl DisplayServerRuntime {
         still
     }
 
+    /// Apply a new shell configuration at runtime (the SystemUI-driven shell
+    /// switch). Updates `shell_config`, re-renders + re-composites the chrome
+    /// (topbar / side panel appear or disappear with `desktop_chrome`), closes the
+    /// Apps dropdown (its topbar may vanish), and damages the chrome regions so
+    /// both the virgl (rebuild-every-present) and mmio (damage-driven) paths show
+    /// the new shell. Emits a marker for boot verification.
+    fn apply_shell_config(&mut self, cfg: systemui::ShellConfig) {
+        let _ = debug_println(&alloc::format!(
+            "windowd: shell switch product={} shell={} kind={} chrome={} locked={}",
+            cfg.product_id, cfg.shell_id, cfg.shell_kind, cfg.desktop_chrome, cfg.locked,
+        ));
+        self.shell_config = cfg;
+        self.apps_dropdown_open = false;
+        self.shell_surface_dirty = true;
+        self.sidepanel_surface_dirty = true;
+        self.dropdown_surface_dirty = true;
+        // Kiosk lockdown: a locked shell suppresses the launcher windows entirely
+        // (the "company configures a complete kiosk" policy) — close any open chat /
+        // search so only the locked surface remains. `toggle_chat`/`open_search`
+        // also refuse to open while locked.
+        if self.shell_config.locked {
+            if self.chat.visible {
+                self.chat.visible = false;
+                self.on_chat_window_closed();
+            }
+            if self.search.visible {
+                self.close_search();
+            }
+        }
+        use crate::compositor::desktop_layer::{
+            SIDEPANEL_MARGIN, SIDEPANEL_W, TOPBAR_H, TOPBAR_TOP,
+        };
+        let w = self.mode.width;
+        let h = self.mode.height;
+        // Top strip (topbar) + right strip (side panel) — generous enough to cover
+        // the chrome + its shadow halo so a removed chrome leaves no trail.
+        self.queue_gpu_blit_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: w,
+            height: (TOPBAR_TOP + TOPBAR_H + 24).min(h),
+        });
+        let panel_w = (SIDEPANEL_W + SIDEPANEL_MARGIN + 48).min(w);
+        self.queue_gpu_blit_rect(DamageRect {
+            x: w.saturating_sub(panel_w),
+            y: 0,
+            width: panel_w,
+            height: h,
+        });
+    }
+
+    /// Cycle to the next registered product's shell (desktop → tablet → kiosk → …)
+    /// via SystemUI's resolver, and apply it. The shell switcher's one action.
+    fn cycle_shell(&mut self) {
+        let next = systemui::shell_config_next(&self.shell_config.product_id);
+        self.apply_shell_config(next);
+    }
+
     /// Toggle the chat window open/closed (shared by the dropdown item + the
     /// proof-panel chat button). On open: rebuild the blur cache (the backdrop may
     /// be stale from a prior position) and damage the window region. On close:
     /// cancel any drag and erase the vacated region.
     fn toggle_chat(&mut self) {
+        if self.shell_config.locked {
+            return; // kiosk lockdown: no launcher windows
+        }
         let now = !self.chat.visible;
         self.chat.visible = now;
         if now {
@@ -2306,6 +2402,9 @@ impl DisplayServerRuntime {
     /// atlas pool can't satisfy the request the window simply stays closed (the
     /// surfaces are released again), never a boot/handoff failure.
     fn open_search(&mut self) {
+        if self.shell_config.locked {
+            return; // kiosk lockdown: no launcher windows
+        }
         if !self.search.is_mounted() {
             // 2D-PACKED: content + blur are each SEARCH_W wide, so they pack
             // side-by-side in ONE band (content x=0, blur x=SEARCH_W) instead of
@@ -2983,17 +3082,17 @@ impl DisplayServerRuntime {
             self.chat.surface_dirty = false;
         }
         // Shell-P2b: (re)render the glass topbar layer surface when dirty.
-        if SHELL_TOPBAR && self.shell_surface_dirty {
+        if self.shell_config.desktop_chrome && self.shell_surface_dirty {
             self.render_shell_surface()?;
             self.shell_surface_dirty = false;
         }
         // Shell-P2b: (re)render the glass side panel surface when dirty.
-        if SHELL_SIDEPANEL && self.sidepanel_surface_dirty {
+        if self.shell_config.desktop_chrome && self.sidepanel_surface_dirty {
             self.render_sidepanel_surface()?;
             self.sidepanel_surface_dirty = false;
         }
         // Shell-P2b: (re)render the Apps dropdown surface when dirty.
-        if SHELL_TOPBAR && self.dropdown_surface_dirty {
+        if self.shell_config.desktop_chrome && self.dropdown_surface_dirty {
             self.render_dropdown_surface()?;
             self.dropdown_surface_dirty = false;
         }
@@ -3134,7 +3233,7 @@ impl DisplayServerRuntime {
             //     the virgl scanout (the retained Plane 1 does not). Rendered like
             //     the chat window: translucent tint + opaque text in the atlas,
             //     glass effects applied here by the composite.
-            if SHELL_TOPBAR && shell_w > 0 && shell_h > 0 {
+            if self.shell_config.desktop_chrome && shell_w > 0 && shell_h > 0 {
                 use crate::compositor::desktop_layer::{TOPBAR_MARGIN_X, TOPBAR_RADIUS, TOPBAR_TOP};
                 // Proven glass recipe (same as the glass buttons): restore the
                 // clean backdrop from the retained plane, blur it in place, THEN
@@ -3176,7 +3275,7 @@ impl DisplayServerRuntime {
 
             // 1·dropdown. Apps dropdown — a small glass menu under the topbar
             //     "Apps" item, revealed (roll-down + fade) by the dropdown spring.
-            if SHELL_TOPBAR && dropdown_progress > 0.01 {
+            if self.shell_config.desktop_chrome && dropdown_progress > 0.01 {
                 use crate::compositor::desktop_layer::{
                     apps_item_x, DROPDOWN_RADIUS, DROPDOWN_W, TOPBAR_MARGIN_X, TOPBAR_TOP, TOPBAR_H,
                 };
@@ -3215,7 +3314,7 @@ impl DisplayServerRuntime {
             //     sidebar spring. Same proven recipe as the topbar: restore +
             //     pre-blur the panel's current rect, then composite the atlas with
             //     rounded corners + drop shadow on top (backdrop_blur=0).
-            if SHELL_SIDEPANEL && sidepanel_opacity > 0.01 {
+            if self.shell_config.desktop_chrome && sidepanel_opacity > 0.01 {
                 use crate::compositor::desktop_layer::{
                     SIDEPANEL_MARGIN, SIDEPANEL_RADIUS, SIDEPANEL_TOP, SIDEPANEL_W,
                 };
@@ -3352,7 +3451,7 @@ impl DisplayServerRuntime {
             // The glass topbar carries the menu icon now, so the standalone
             // hamburger button (which would overlap the topbar) is suppressed.
             if !USE_DESKTOP_SHELL
-                && !SHELL_TOPBAR
+                && !self.shell_config.desktop_chrome
                 && button_blit_w > 0
                 && !button_covered
                 && (button_touched || !btn_blur_cache_valid)
@@ -3560,7 +3659,7 @@ impl DisplayServerRuntime {
             // blur/composite cache still needs building. A settled, cached, untouched
             // sidebar persists on the display plane — no per-present blur/SDF work.
             if !USE_DESKTOP_SHELL
-                && !SHELL_SIDEPANEL
+                && !self.shell_config.desktop_chrome
                 && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {

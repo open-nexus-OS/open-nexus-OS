@@ -4,7 +4,35 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+# NOTE: `kind = "library"` so scripts/discover-services.sh does NOT build/embed
+# systemui as a boot service yet. windowd consumes systemui purely as a LIBRARY
+# (the shell-config resolver), so the desktop UI is already systemui-declared
+# over virgl without booting the service. Spawning systemui as a real boot service
+# stalled the init orchestrator's spawn→`init: ready`→responder sequence (so the
+# bootsplash→windowd handoff never fired). Re-enable (kind="service") only once the
+# orchestrator's per-service cap/route wiring is extended for systemui + verified
+# on boot. The os_entry/service_boot code stays (dormant) for that work.
+[package.metadata.nexus-service]
+kind = "library"
+stack_pages = 0
+
+[features]
+# Enabled when building the standalone OS service bin (scripts/build.sh passes
+# --features os-lite). Pulls the service entry glue + ABI for the boot path.
+# windowd depends on this crate WITHOUT os-lite (pure resolver lib), so the
+# no_std gate stays on `nexus_env = "os"`, not on this feature.
+os-lite = ["dep:nexus-service-entry", "dep:nexus-abi"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "systemui"
+path = "src/main.rs"
+
 [dependencies]
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 
 [build-dependencies]
 jpeg-decoder = { version = "0.3.2", default-features = false }

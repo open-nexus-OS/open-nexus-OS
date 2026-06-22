@@ -8,7 +8,9 @@
 id = "desktop"
 kind = "desktop"
 dsl_root = "ui/shells/desktop"
-supported_profiles = ["desktop"]
+# Also valid as the desktop posture of a convertible (tablet profile), so a
+# desktop↔tablet runtime switch can resolve this shell.
+supported_profiles = ["desktop", "tablet"]
 
 [first_frame]
 width = 1280

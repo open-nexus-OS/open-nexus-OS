@@ -3391,6 +3391,8 @@ name = "systemui"
 version = "0.1.0"
 dependencies = [
  "jpeg-decoder",
+ "nexus-abi",
+ "nexus-service-entry",
 ]
 
 [[package]]

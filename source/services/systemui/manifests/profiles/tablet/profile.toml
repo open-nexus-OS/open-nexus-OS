@@ -1,0 +1,25 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: SystemUI tablet/convertible profile. Default shell is the tablet shell;
+# `allowed_shells` also lists `desktop` (the convertible desktop↔tablet toggle)
+# and `kiosk` (so a locked-down deployment can target this device class).
+# OWNERS: @ui
+# STATUS: Experimental
+
+id = "tablet"
+label = "Tablet"
+default_shell = "tablet"
+allowed_shells = ["tablet", "desktop", "kiosk"]
+
+[input]
+touch = true
+mouse = false
+kbd = false
+remote = false
+rotary = false
+
+[display_defaults]
+orientation = "portrait"
+dpi_class = "high"
+size_class = "regular"

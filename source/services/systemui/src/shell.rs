@@ -18,6 +18,11 @@ use crate::profile::{
 
 pub const DESKTOP_SHELL_TOML: &str = include_str!("../manifests/shells/desktop/shell.toml");
 
+/// Shell `kind`s the runtime understands (the shell's *posture*; the shell `id`
+/// is open-ended and validated by registry presence, but the kind drives generic
+/// behaviour like launcher/multiwindow defaults and the windowd posture later).
+pub const KNOWN_SHELL_KINDS: &[&str] = &["desktop", "tablet", "phone", "tv", "kiosk", "auto"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FirstFrameSpec {
     pub width: u32,
@@ -81,12 +86,19 @@ pub fn parse_shell_manifest(input: &str) -> Result<ShellManifest> {
     Ok(manifest)
 }
 
+/// Generic shell schema validation (NOT hardcoded to one shell id): non-empty
+/// identity, a `kind` from [`KNOWN_SHELL_KINDS`], a non-empty `supported_profiles`,
+/// and a positive first-frame size. A custom fork shell id passes as long as its
+/// kind is known and its fields are well-formed.
 pub fn validate_shell(manifest: &ShellManifest) -> Result<()> {
-    if manifest.id != "desktop" || manifest.kind != "desktop" {
+    if manifest.id.is_empty() || manifest.dsl_root.is_empty() {
+        return Err(SystemUiError::InvalidManifest);
+    }
+    if !KNOWN_SHELL_KINDS.iter().any(|k| *k == manifest.kind) {
         return Err(SystemUiError::UnsupportedShell);
     }
-    if !contains_str(&manifest.supported_profiles, "desktop") {
-        return Err(SystemUiError::IncompatibleShell);
+    if manifest.supported_profiles.is_empty() {
+        return Err(SystemUiError::UnsupportedProfile);
     }
     if manifest.first_frame.width == 0 || manifest.first_frame.height == 0 {
         return Err(SystemUiError::InvalidFrameDimensions);
@@ -94,9 +106,15 @@ pub fn validate_shell(manifest: &ShellManifest) -> Result<()> {
     Ok(())
 }
 
+/// A profile and shell are compatible iff the profile *allows* that shell
+/// (`allowed_shells` ∋ shell.id) AND the shell *supports* that profile
+/// (`supported_profiles` ∋ profile.id). NOTE: it need NOT be the profile's
+/// `default_shell` — that lets a profile resolve to any of its allowed shells,
+/// which is exactly what a runtime shell switch (e.g. convertible desktop↔tablet)
+/// relies on.
 pub fn validate_profile_shell(profile: &ProfileManifest, shell: &ShellManifest) -> Result<()> {
-    if profile.default_shell != shell.id || !contains_str(&profile.allowed_shells, &shell.id) {
-        return Err(SystemUiError::IncompatibleShell);
+    if !contains_str(&profile.allowed_shells, &shell.id) {
+        return Err(SystemUiError::UnsupportedShell);
     }
     if !contains_str(&shell.supported_profiles, &profile.id) {
         return Err(SystemUiError::IncompatibleShell);
