@@ -1,20 +1,28 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Modular SystemUI seed for profile-backed first-frame composition.
+//! CONTEXT: SystemUI = the **declarative shell configuration resolver**. It parses
+//! profile/shell/product TOML manifests from a registry, resolves a product into a
+//! profile + shell + `DeviceEnvironment`, and flattens that to a `ShellConfig` the
+//! compositor (windowd) consumes — "the shell is set in SystemUI, not hardcoded".
+//! Also keeps the deterministic first-frame seed. Today windowd consumes this as a
+//! LIBRARY (resolver in-process); booting SystemUI as a service is deferred (it
+//! stalled the init handoff — see ADR-0035).
 //! OWNERS: @ui
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `cargo test -p systemui -- --nocapture`
 //!
 //! PUBLIC API:
-//!   - `compose_first_frame()`: builds the deterministic SystemUI seed frame.
-//!   - `desktop_profile()` / `desktop_shell()`: parse the initial TOML manifests.
+//!   - `resolve_default()` / `resolve_product(id)` → `ResolvedConfig`; `shell_config_default()` /
+//!     `shell_config_next(current)` → `ShellConfig` (the compositor-facing config).
+//!   - `available_shells()` / `switch_shell()` / `next_product_id()` — runtime shell switching.
+//!   - `compose_first_frame()` — the deterministic SystemUI seed frame.
+//!   - `service_boot()` (os-lite, dormant) — the would-be boot-service entry.
 //!
-//! DEPENDENCIES:
-//!   - `alloc`: no_std-compatible strings and frame buffers.
-//!
-//! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
+//! ADR: docs/adr/0035-systemui-declarative-shell-configuration.md (this crate's architecture),
+//!      docs/adr/0028 (windowd present / visible-bootstrap).
+//! SPEC: docs/dev/ui/foundations/layout/profiles.md
 
 #![cfg_attr(all(nexus_env = "os", target_os = "none"), no_std)]
 #![forbid(unsafe_code)]

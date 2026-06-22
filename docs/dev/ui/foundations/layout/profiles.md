@@ -5,6 +5,17 @@
 
 We aim for one UI language across devices. Differences are in **affordances**, not in “desktop vs tablet visual identity”.
 
+> **Implementation status (2026-06-22).** The declarative model below is implemented: SystemUI parses
+> profile/shell/**product** TOML manifests from a registry, resolves a product → profile + shell +
+> `DeviceEnvironment`, and flattens it to a `ShellConfig` the compositor (windowd) consumes — the
+> hardcoded `SHELL_TOPBAR`/`USE_DESKTOP_SHELL` constants are gone. Runtime shell switching
+> (desktop↔tablet↔kiosk) and kiosk lockdown work. Shipped manifests: profiles `desktop`/`tablet`;
+> shells `desktop`/`tablet`/`kiosk`; products `default`/`tablet`/`kiosk`. **Caveats:** only the
+> `desktop` shell has a real renderer (tablet/kiosk currently render as “chrome off” + lockdown);
+> SystemUI runs as a **library** resolver inside windowd, not yet as a booted service (see
+> ADR-0035). Architecture + how it works: **`docs/adr/0035-systemui-declarative-shell-configuration.md`**.
+> Code: `source/services/systemui/` (resolver + manifests), `source/services/windowd/` (consumer).
+
 ## Profiles
 
 - phone / tablet / desktop / tv / auto / foldable / convertible
