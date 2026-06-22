@@ -1,42 +1,40 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Ability Manager daemon domain library – service API and CLI handlers
-//! OWNERS: @runtime
-//! STATUS: Functional
-//! API_STABILITY: Stable
-//! TEST_COVERAGE: 2 unit tests (help_message, execute_help)
-//! ADR: docs/adr/0017-service-architecture.md
-pub fn help() -> &'static str {
-    "abilitymgr manages ability lifecycle. Usage: abilitymgr [--help]"
-}
+//! CONTEXT: Ability Manager daemon — the ability-lifecycle broker (OHOS AMS / Apple FrontBoard role).
+//! OWNERS: @runtime @ui
+//! STATUS: Functional (lifecycle core + OS-lite service loop)
+//! API_STABILITY: Unstable (v6b bring-up)
+//! TEST_COVERAGE: Host unit tests (lifecycle state machine + wire dispatch) + QEMU `abilitymgr: ready` marker
+//!
+//! PUBLIC API: `lifecycle::Broker`, `wire::dispatch`, `service_main_loop()` (OS), `execute()` (CLI)
+//! DEPENDS_ON: nexus_ipc, nexus_abi (OS only)
+//! INVARIANTS:
+//!   - Deterministic, bounded lifecycle ordering (Created→Started→Foreground/Background→Suspend/Resume→Stop).
+//!   - This service is the ONLY app spawner (RFC-0065 / ADR-0036). Spawn-via-execd + resolve-via-bundlemgrd
+//!     are wired in P3 (live launch handoff); P2 ships the broker core + service shell + markers.
+//!   - No `unwrap`/`expect` in production paths; no blanket `allow(dead_code)`.
+//! ADR: docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
 
-pub fn execute(args: &[&str]) -> String {
-    if args.contains(&"--help") {
-        help().to_string()
-    } else {
-        "ability manager ready".to_string()
-    }
-}
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"),
+    no_std
+)]
 
-pub fn run() {
-    let owned: Vec<String> = std::env::args().skip(1).collect();
-    let refs: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
-    println!("{}", execute(&refs));
-}
+extern crate alloc;
 
-#[cfg(test)]
-mod tests {
-    use super::{execute, help};
+pub mod handoff;
+pub mod lifecycle;
+pub mod protocol;
+pub mod wire;
 
-    #[test]
-    fn help_message() {
-        assert!(help().contains("abilitymgr"));
-    }
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+mod os_lite;
+#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+pub use os_lite::*;
 
-    #[test]
-    fn execute_help() {
-        let output = execute(&["--help"]);
-        assert!(output.contains("Usage"));
-    }
-}
+#[cfg(feature = "std")]
+mod std_impl;
+#[cfg(feature = "std")]
+pub use std_impl::*;

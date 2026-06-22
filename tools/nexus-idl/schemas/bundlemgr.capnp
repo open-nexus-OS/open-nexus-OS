@@ -14,3 +14,13 @@ struct QueryRequest { name @0 :Text; }
 struct QueryResponse { installed @0 :Bool; version @1 :Text; requiredCaps @2 :List(Text); }
 struct GetPayloadRequest { name @0 :Text; }
 struct GetPayloadResponse { ok @0 :Bool; bytes @1 :Data; }
+# RFC-0065: app registry enumeration — the "which apps exist" listing the
+# launcher/SystemUI query instead of hardcoding an app list.
+struct AppRecord {
+  id @0 :Text;
+  displayName @1 :Text;
+  launchAbility @2 :Text;
+  requiredCaps @3 :List(Text);
+}
+struct EnumerateRequest {}
+struct EnumerateResponse { apps @0 :List(AppRecord); }

@@ -1,0 +1,20 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Search app bundle manifest (RFC-0065 — search as a real app).
+# Compiled to `manifest.nxb` (Cap'n Proto) by `tools/nxb-pack` and installed into
+# the `bundlemgrd` registry; `abilitymgr` resolves the launch ability from here.
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+#
+# NOTE: `publisher`/`sig` are zero placeholders (unsigned bring-up bundle); real
+# signing lands with the supply-chain pipeline (RFC-0039). `payload.elf` is a
+# placeholder until the search app crate ships its own ELF (TASK-0065 P4).
+
+name = "search"
+version = "1.0.0"
+min_sdk = "1.0.0"
+bundle_type = "app"
+abilities = ["search.MainAbility"]
+caps = ["nexus.permission.WINDOW"]
+provides = []
+resources = []

@@ -76,6 +76,7 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         "packagefsd",
         "vfsd",
         "execd",
+        "abilitymgr",
         "netstackd",
         "dsoftbusd",
         "hidrawd",

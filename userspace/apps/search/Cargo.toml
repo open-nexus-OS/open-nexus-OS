@@ -1,0 +1,19 @@
+[package]
+name = "search-app"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# RFC-0065: search as a real app. The app owns its data (word list), its filter
+# logic, and renders its own surface content (its own buffer) — windowd hosts that
+# surface as a per-app layer (ADR-0037). Pure + dependency-free so it is fully
+# host-tested; the windowd present path is wired with the compositor swap (P4b).
+
+[lib]
+name = "search_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "search-app"
+path = "src/main.rs"

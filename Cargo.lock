@@ -5,6 +5,12 @@ version = 4
 [[package]]
 name = "abilitymgr"
 version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "thiserror",
+]
 
 [[package]]
 name = "accessibilityd"
@@ -3051,6 +3057,10 @@ dependencies = [
 
 [[package]]
 name = "search"
+version = "0.1.0"
+
+[[package]]
+name = "search-app"
 version = "0.1.0"
 
 [[package]]

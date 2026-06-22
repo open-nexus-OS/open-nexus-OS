@@ -305,6 +305,20 @@ impl WindowServer {
         Ok(id)
     }
 
+    /// Frees a client surface and its buffer (free-on-close).
+    ///
+    /// RFC-0065: each app owns its surface VMO; when the app is closed/stopped its
+    /// surface is destroyed and its memory reclaimed, rather than persisting in a
+    /// shared plane. Owner-gated; idempotent-friendly (`StaleSurfaceId` if gone).
+    pub fn destroy_surface(&mut self, caller: CallerCtx, surface_id: SurfaceId) -> Result<()> {
+        let surface = self.surface(surface_id).ok_or(WindowdError::StaleSurfaceId)?;
+        if surface.owner != caller.caller_id() {
+            return Err(WindowdError::Unauthorized);
+        }
+        self.surfaces.retain(|s| s.id != surface_id);
+        Ok(())
+    }
+
     pub fn queue_buffer(
         &mut self,
         caller: CallerCtx,
@@ -1126,6 +1140,22 @@ mod rfc0055_tests {
         server.commit_scene(caller, CommitSeq::new(1), &[layer]).expect("commit scene");
         let damage = solid_damage_rect();
         server.queue_buffer(caller, sid, buf2, &[damage]).expect("queue buffer");
+    }
+
+    #[test]
+    fn destroy_surface_frees_and_is_owner_gated() {
+        let mut server = new_test_server();
+        let owner = crate::CallerCtx::system();
+        let buf = solid_test_buffer(owner, 64, 48);
+        let sid = server.create_surface(owner, buf).expect("create surface");
+
+        // A different caller cannot destroy someone else's surface.
+        let intruder = crate::CallerCtx::from_service_metadata(0xBEEF);
+        assert_eq!(server.destroy_surface(intruder, sid), Err(WindowdError::Unauthorized));
+
+        // The owner frees it; a second free is a stale id (reclaimed).
+        server.destroy_surface(owner, sid).expect("destroy");
+        assert_eq!(server.destroy_surface(owner, sid), Err(WindowdError::StaleSurfaceId));
     }
 
     #[test]

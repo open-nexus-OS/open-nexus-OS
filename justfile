@@ -288,6 +288,26 @@ test-host:
     @echo "==> Running host test suite (exclude kernel)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +stable test --workspace --exclude neuron --exclude neuron-boot
 
+# Pack the app bundles (`bundles/<app>/manifest.toml` → `target/bundles/<app>.nxb`).
+# RFC-0065: chat/search/notes ship as real `.nxb` bundles with Cap'n Proto manifests;
+# bundlemgrd enumerates them and abilitymgr resolves the launch ability.
+# NOTE: payload is the demo-exit0 ELF placeholder until each app crate ships its own
+# ELF (TASK-0065 P4); the manifest is the canonical, signable artifact.
+pack-bundles:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> Packing app bundles (RFC-0065)"
+    out="target/bundles"
+    mkdir -p "$out"
+    placeholder="$out/.placeholder.elf"
+    printf '\x7fELF nexus app payload placeholder' > "$placeholder"
+    for app in chat search notes; do
+        echo "--- $app ---"
+        cargo run -q -p nxb-pack -- --toml "bundles/$app/manifest.toml" "$placeholder" "$out/$app.nxb"
+        echo "    -> $out/$app.nxb/manifest.nxb"
+    done
+    echo "[ok] bundles packed under $out/"
+
 test-e2e:
     @echo "==> Running host E2E tests"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +stable test -p nexus-e2e -p remote_e2e -p logd-e2e -p vfs-e2e -p e2e_policy
@@ -357,7 +377,7 @@ diag-os:
     @echo "==> userspace payload (init-lite)"
     @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> OS services (os-lite feature set)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd -p timed -p metricsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p netstackd -p dsoftbusd -p keystored -p policyd -p samgrd -p bundlemgrd -p packagefsd -p vfsd -p execd -p abilitymgr -p timed -p metricsd --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
@@ -400,7 +420,7 @@ dep-gate: arch-gate
     echo "    Target: riscv64imac-unknown-none-elf (OS/QEMU slice)"
     echo ""
     # OS services to check (must match justfile diag-os and Makefile)
-    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd timed metricsd"
+    services="dsoftbusd netstackd keystored policyd samgrd bundlemgrd packagefsd vfsd execd abilitymgr timed metricsd"
     found_forbidden=0
     for svc in $services; do
         echo "--- Checking $svc ---"

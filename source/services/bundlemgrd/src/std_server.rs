@@ -39,8 +39,8 @@ use capnp::message::{Builder, HeapAllocator, ReaderOptions};
 use capnp::serialize;
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::bundlemgr_capnp::{
-    get_payload_request, get_payload_response, install_request, install_response, query_request,
-    query_response, InstallError,
+    enumerate_request, enumerate_response, get_payload_request, get_payload_response,
+    install_request, install_response, query_request, query_response, InstallError,
 };
 #[cfg(feature = "idl-capnp")]
 use nexus_idl_runtime::keystored_capnp::{
@@ -57,6 +57,7 @@ use sha2::Digest;
 const OPCODE_INSTALL: u8 = 1;
 const OPCODE_QUERY: u8 = 2;
 const OPCODE_GET_PAYLOAD: u8 = 3;
+const OPCODE_ENUMERATE: u8 = 4;
 #[cfg(feature = "idl-capnp")]
 const KEYSTORE_OPCODE_VERIFY: u8 = 2;
 #[cfg(feature = "idl-capnp")]
@@ -582,6 +583,7 @@ impl Server {
             OPCODE_INSTALL => self.handle_install(payload),
             OPCODE_QUERY => self.handle_query(payload),
             OPCODE_GET_PAYLOAD => self.handle_get_payload(payload),
+            OPCODE_ENUMERATE => self.handle_enumerate(payload),
             other => Err(ServerError::Decode(format!("unknown opcode {other}"))),
         }
     }
@@ -946,6 +948,40 @@ impl Server {
             }
         }
         Self::encode_response(OPCODE_QUERY, &response)
+    }
+
+    /// RFC-0065 app registry: enumerate all installed apps as `AppRecord`s.
+    /// `EnumerateRequest` is empty; the response carries the registry listing the
+    /// launcher/SystemUI build on instead of hardcoding an app list.
+    #[cfg(feature = "idl-capnp")]
+    fn handle_enumerate(&mut self, payload: &[u8]) -> Result<Vec<u8>, ServerError> {
+        // Decode (and thereby validate) the empty request envelope.
+        let mut cursor = Cursor::new(payload);
+        let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+            .map_err(|err| ServerError::Decode(format!("enumerate read: {err}")))?;
+        message
+            .get_root::<enumerate_request::Reader<'_>>()
+            .map_err(|err| ServerError::Decode(format!("enumerate root: {err}")))?;
+
+        let apps = self.service.enumerate_apps().map_err(ServerError::from)?;
+
+        let mut response = Builder::new_default();
+        {
+            let builder = response.init_root::<enumerate_response::Builder<'_>>();
+            let mut list = builder.init_apps(apps.len() as u32);
+            for (idx, app) in apps.iter().enumerate() {
+                let mut rec = list.reborrow().get(idx as u32);
+                rec.set_id(&app.id);
+                rec.set_display_name(&app.display_name);
+                rec.set_launch_ability(&app.launch_ability);
+                let mut caps = rec.reborrow().init_required_caps(app.required_caps.len() as u32);
+                for (cidx, cap) in app.required_caps.iter().enumerate() {
+                    caps.set(cidx as u32, cap);
+                }
+            }
+        }
+        println!("bundlemgrd: enumerate ok (n={})", apps.len());
+        Self::encode_response(OPCODE_ENUMERATE, &response)
     }
 
     #[cfg(feature = "idl-capnp")]
@@ -1329,7 +1365,9 @@ pub fn loopback_transport() -> (nexus_ipc::LoopbackClient, IpcTransport<nexus_ip
 mod tests {
     use super::*;
     use capnp::message::Builder;
-    use nexus_idl_runtime::bundlemgr_capnp::{install_request, install_response};
+    use nexus_idl_runtime::bundlemgr_capnp::{
+        enumerate_request, enumerate_response, install_request, install_response,
+    };
     use nexus_idl_runtime::manifest_capnp::bundle_manifest;
     use std::sync::Mutex;
 
@@ -1736,6 +1774,88 @@ mod tests {
         let err = sbom::generate_bundle_sbom_json(&input).expect_err("secret leak must fail");
         assert!(matches!(err, sbom::SbomError::SecretLeak { .. }));
     }
+
+    // --- RFC-0065 app registry enumeration ---
+
+    fn build_enumerate_payload() -> Vec<u8> {
+        let mut message = Builder::new_default();
+        message.init_root::<enumerate_request::Builder<'_>>();
+        let mut payload = Vec::new();
+        capnp::serialize::write_message(&mut payload, &message).expect("serialize enumerate req");
+        payload
+    }
+
+    /// Decodes an `EnumerateResponse` frame body into `(id, display_name, launch_ability, caps)`.
+    fn parse_enumerate_response(frame: &[u8]) -> Vec<(String, String, String, Vec<String>)> {
+        let mut cursor = Cursor::new(frame);
+        let message = capnp::serialize::read_message(&mut cursor, ReaderOptions::new())
+            .expect("read enumerate response");
+        let response =
+            message.get_root::<enumerate_response::Reader<'_>>().expect("enumerate response root");
+        let apps = response.get_apps().expect("apps list");
+        let mut out = Vec::with_capacity(apps.len() as usize);
+        for i in 0..apps.len() {
+            let app = apps.get(i);
+            let caps_reader = app.get_required_caps().expect("required caps");
+            let mut caps = Vec::with_capacity(caps_reader.len() as usize);
+            for j in 0..caps_reader.len() {
+                caps.push(caps_reader.get(j).expect("cap").to_str().expect("cap utf8").to_string());
+            }
+            out.push((
+                app.get_id().expect("id").to_str().expect("id utf8").to_string(),
+                app.get_display_name().expect("name").to_str().expect("name utf8").to_string(),
+                app.get_launch_ability().expect("ability").to_str().expect("ability utf8").to_string(),
+                caps,
+            ));
+        }
+        out
+    }
+
+    #[test]
+    fn enumerate_empty_registry_ok() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        let mut server = Server::new(Service::new(), ArtifactStore::new(), None, None);
+        let frame = server.handle_enumerate(&build_enumerate_payload()).expect("enumerate");
+        // Frame is [opcode, capnp...]; decode the body.
+        assert_eq!(frame[0], OPCODE_ENUMERATE);
+        let apps = parse_enumerate_response(&frame[1..]);
+        assert!(apps.is_empty(), "fresh registry enumerates to nothing");
+    }
+
+    #[test]
+    fn enumerate_lists_installed_app() {
+        let _guard = TEST_LOCK.lock().expect("test lock");
+        std::env::remove_var("NEXUS_BUNDLEMGRD_AUDIT_FAIL");
+        let publisher = [0u8; 16];
+        let publisher_hex = hex::encode(publisher);
+        let manifest = build_manifest(publisher, &[0x11; 64]);
+        let payload = vec![0xde, 0xad, 0xbe, 0xef];
+        let (manifest, sbom, repro_json) = sbom_and_repro(&manifest, &payload, &publisher_hex);
+
+        let artifacts = ArtifactStore::new();
+        artifacts.insert(7, manifest.clone());
+        artifacts.stage_payload(7, payload.clone());
+        artifacts.stage_asset(7, "meta/sbom.json", sbom);
+        artifacts.stage_asset(7, "meta/repro.env.json", repro_json);
+
+        let keystore = FakeKeystore { verify_ok: true, allowed: true, reason: "allow" };
+        let mut server = Server::new(Service::new(), artifacts, Some(Box::new(keystore)), None);
+
+        // Install, then enumerate on the SAME server so the registry is populated.
+        let install_payload = build_install_payload("demo.bundle", 7, manifest.len() as u32);
+        let install_frame = server.handle_install(&install_payload).expect("handle install");
+        let (ok, _err) = parse_install_response(&install_frame[1..]);
+        assert!(ok, "install must succeed for enumerate to list it");
+
+        let enum_frame = server.handle_enumerate(&build_enumerate_payload()).expect("enumerate");
+        let apps = parse_enumerate_response(&enum_frame[1..]);
+        assert_eq!(apps.len(), 1, "one installed app is enumerated");
+        let (id, display_name, launch_ability, caps) = &apps[0];
+        assert_eq!(id, "demo.bundle");
+        assert_eq!(display_name, "demo.bundle"); // falls back to id (no manifest label yet)
+        assert_eq!(launch_ability, "demo"); // the manifest's first ability
+        assert!(caps.is_empty()); // build_manifest declares no capabilities
+    }
 }
 
 /// Touches Cap'n Proto schemas to keep generated code linked.
@@ -1748,5 +1868,7 @@ pub fn touch_schemas() {
         let _ = core::any::type_name::<query_response::Reader<'static>>();
         let _ = core::any::type_name::<get_payload_request::Reader<'static>>();
         let _ = core::any::type_name::<get_payload_response::Reader<'static>>();
+        let _ = core::any::type_name::<enumerate_request::Reader<'static>>();
+        let _ = core::any::type_name::<enumerate_response::Reader<'static>>();
     }
 }

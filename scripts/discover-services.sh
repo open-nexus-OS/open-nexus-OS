@@ -60,6 +60,7 @@ ORDER = [
     'packagefsd',
     'vfsd',
     'execd',
+    'abilitymgr',
     'netstackd',
     'dsoftbusd',
     'hidrawd',

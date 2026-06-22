@@ -10,6 +10,7 @@ members = [
     "source/apps/selftest-client",
     "source/apps/init-lite",
     "userspace/apps/launcher",
+    "userspace/apps/search",
     "source/drivers/net/virtio",
     "source/drivers/storage/virtio-blk",
     "source/drivers/gpud",
