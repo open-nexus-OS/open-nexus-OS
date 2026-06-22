@@ -33,7 +33,8 @@ use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
 // PANEL_BG matches the Search window's glass tint so both windows share one
 // look; message bubbles stay opaque for readability (iMessage/Telegram look).
 const PANEL_BG: [u8; 4] = [40, 34, 30, 150];
-const BUBBLE_INCOMING: [u8; 4] = [70, 64, 60, 255];
+// Only our own messages get a (blue) bubble; incoming messages render directly on
+// the glass body, so there is no incoming-bubble colour.
 const BUBBLE_FROM_ME: [u8; 4] = [180, 96, 44, 255];
 const TEXT_COLOR: [u8; 4] = [245, 245, 240, 255];
 const SCROLL_TRACK: [u8; 4] = [34, 30, 30, 200];
@@ -146,10 +147,17 @@ pub(crate) fn draw_chat_panel_row(
             CHAT_TITLE_BAR_H,
             CHAT_CLOSE_ZONE_W,
             false,
+            super::desktop_layer::SEARCH_RADIUS,
         );
     }
-    // Panel background (full panel width, every row) — opaque, so no glass blur.
-    fill_row_rect(ly, row, 0, 0, CHAT_PANEL_W, surface_h, PANEL_BG)?;
+    // Panel background (full panel width, every row). STRAIGHT-ALPHA COPY (not a
+    // blend): `band_scratch` is reused across bands without clearing, and a
+    // translucent `fill_row_rect` would BLEND `PANEL_BG` over the stale rows left by
+    // the previous band → ghost copies of the list ("three stacked layers"). A
+    // straight copy overwrites the stale pixels AND keeps alpha 150 so the body
+    // composites as real frosted glass (matching the Search window's `write_tint_span`).
+    let _ = surface_h;
+    fill_row_straight(row, 0, CHAT_PANEL_W, PANEL_BG);
 
     let (vp_x, vp_y, vp_w, _vp_h) = viewport();
     // Content fills from below the title to the bottom of the (overscan) surface.
@@ -162,20 +170,23 @@ pub(crate) fn draw_chat_panel_row(
 
     for m in visible {
         let height = chat_message_height(m.lines);
-        // Bubble background, clipped to the viewport vertically.
-        let bub_top = m.top.max(vp_y as i32);
-        let bub_bottom = (m.top + height as i32).min(vp_bottom as i32);
-        if bub_bottom > bub_top && yi >= bub_top && yi < bub_bottom {
-            let bubble_bg = if m.from_me { BUBBLE_FROM_ME } else { BUBBLE_INCOMING };
-            fill_row_rect(
-                ly,
-                row,
-                vp_x.saturating_add(BUBBLE_INSET),
-                bub_top as u32,
-                vp_w.saturating_sub(BUBBLE_INSET.saturating_mul(2)),
-                (bub_bottom - bub_top) as u32,
-                bubble_bg,
-            )?;
+        // Bubble background ONLY for our own (from_me) messages — incoming messages
+        // read directly on the glass window body (the colored bubble is fine, the
+        // rest must not overlay the window background). Clipped to the viewport.
+        if m.from_me {
+            let bub_top = m.top.max(vp_y as i32);
+            let bub_bottom = (m.top + height as i32).min(vp_bottom as i32);
+            if bub_bottom > bub_top && yi >= bub_top && yi < bub_bottom {
+                fill_row_rect(
+                    ly,
+                    row,
+                    vp_x.saturating_add(BUBBLE_INSET),
+                    bub_top as u32,
+                    vp_w.saturating_sub(BUBBLE_INSET.saturating_mul(2)),
+                    (bub_bottom - bub_top) as u32,
+                    BUBBLE_FROM_ME,
+                )?;
+            }
         }
         // Text lines.
         let text_top = m.top + CHAT_MSG_PAD as i32;
@@ -204,6 +215,18 @@ pub(crate) fn draw_chat_panel_row(
     }
 
     Ok(())
+}
+
+/// Write one straight-alpha BGRA span (a raw copy, NOT an alpha blend) into `row`
+/// over `[x0, x1)`. Used for the glass body tint so it (a) overwrites the stale
+/// `band_scratch` rows reused across bands — no ghosting — and (b) keeps its real
+/// alpha for the composite's glass blend (gpud blends it over the blurred backdrop).
+fn fill_row_straight(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
+    let rp = (row.len() / 4) as u32;
+    for px in x0.min(rp)..x1.min(rp) {
+        let idx = px as usize * 4;
+        row[idx..idx + 4].copy_from_slice(&c);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -44,13 +44,18 @@ const GLYPH_ADVANCE: u32 = GLYPH_W + 2;
 /// Title-bar background tint (slightly lighter than the body for separation),
 /// hover highlight behind the close zone, and the chrome text colour. Straight
 /// alpha — gpud's layer blend composites these over the blurred backdrop.
-const TITLE_BG: [u8; 4] = [56, 50, 46, 168];
+// OPAQUE (alpha 255): the title bar is composited FIXED on top of the scrollable
+// window body, so it must fully occlude scrolled rows passing underneath — a
+// translucent bar would let them bleed through. Content therefore clips cleanly at
+// the bar's bottom edge.
+const TITLE_BG: [u8; 4] = [56, 50, 46, 255];
 const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
 const CHROME_TEXT: [u8; 4] = [255, 255, 255, 255];
 
 /// Draw one window-local row of the shared title bar: the header tint across the
 /// bar, the title on the left, and a hover-highlighted close "x" on the right.
 /// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_title_bar_row(
     local_y: u32,
     row: &mut [u8],
@@ -59,6 +64,7 @@ pub(crate) fn draw_title_bar_row(
     title_h: u32,
     close_w: u32,
     close_hover: bool,
+    radius: u32,
 ) -> Result<(), WindowdError> {
     if local_y >= title_h {
         return Ok(());
@@ -71,7 +77,44 @@ pub(crate) fn draw_title_bar_row(
         write_tint_span(row, cx, w, HOVER_TINT);
     }
     draw_label(local_y, row, "x", cx + (close_w - GLYPH_W) / 2, text_top, CHROME_TEXT)?;
+    // Round the TOP corners at the surface level: clear (make transparent) the
+    // pixels of the top-left/top-right `radius`×`radius` squares that fall OUTSIDE
+    // the corner arc. The window body underneath is rounded by the composite SDF
+    // with the same radius, so the cleared corners reveal it — giving rounded top
+    // corners with a straight bottom edge (the title bar is composited square).
+    round_top_corners(local_y, row, w, radius);
     Ok(())
+}
+
+/// Clear the out-of-arc pixels of the two TOP corners (transparent), so a
+/// square-composited title bar still presents rounded top corners.
+fn round_top_corners(local_y: u32, row: &mut [u8], w: u32, radius: u32) {
+    if radius == 0 || local_y >= radius {
+        return;
+    }
+    let rp = (row.len() / 4) as u32;
+    let r = radius;
+    // Vertical distance from the arc centre (at y = r), squared.
+    let dy = r - 1 - local_y; // local_y in [0, r)
+    let dy2 = dy as u32 * dy as u32;
+    let r2 = r * r;
+    // Top-left: arc centre at x = r. Clear x in [0, r) outside the arc.
+    for x in 0..r.min(rp) {
+        let dx = r - 1 - x;
+        if dx as u32 * dx as u32 + dy2 > r2 {
+            let idx = x as usize * 4;
+            row[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
+        }
+    }
+    // Top-right: arc centre at x = w - r. Clear x in [w - r, w) outside the arc.
+    let start = w.saturating_sub(r);
+    for x in start..w.min(rp) {
+        let dx = x - start;
+        if dx * dx + dy2 > r2 {
+            let idx = x as usize * 4;
+            row[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
+        }
+    }
 }
 
 /// Draw a label at window-local `(x0, top)` in `color`, only on rows within the
@@ -111,18 +154,10 @@ fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
     }
 }
 
-/// What a primary press landed on inside a window (window-local resolution).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum WindowPress {
-    /// The close "x" in the title bar.
-    Close,
-    /// The title bar (outside the close button) — begins a drag.
-    TitleDrag,
-    /// The window body (below the title bar).
-    Body,
-    /// Outside the window.
-    Miss,
-}
+// Window hit-testing geometry lives in the host-tested `window_frame` module so
+// every `ShellWindow` (chat + search) shares one implementation; re-export the
+// press enum so existing `shell_window::WindowPress` call sites keep working.
+pub(crate) use crate::window_frame::{Frame, WindowPress};
 
 /// A movable/closable glass window. The content list is supplied by the caller
 /// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
@@ -227,36 +262,25 @@ impl ShellWindow {
         }
     }
 
+    /// The pure-geometry frame (host-tested hit-testing / clamp / damage live in
+    /// [`crate::window_frame::Frame`]; this component owns only the presentation).
+    pub(crate) fn frame(&self) -> Frame {
+        Frame { x: self.x, y: self.y, w: self.w, h: self.h, title_h: self.title_h, close_w: self.close_w }
+    }
+
     /// True if `(cx, cy)` is anywhere inside the window.
     pub(crate) fn contains(&self, cx: i32, cy: i32) -> bool {
-        cx >= self.x
-            && cx < self.x + self.w as i32
-            && cy >= self.y
-            && cy < self.y + self.h as i32
+        self.frame().contains(cx, cy)
     }
 
     /// True if `(cx, cy)` is over the close "x" in the title bar.
     pub(crate) fn close_hit(&self, cx: i32, cy: i32) -> bool {
-        cx >= self.x + (self.w - self.close_w) as i32
-            && cx < self.x + self.w as i32
-            && cy >= self.y
-            && cy < self.y + self.title_h as i32
+        self.frame().close_hit(cx, cy)
     }
 
     /// Resolve a primary press to a window region.
     pub(crate) fn press(&self, cx: i32, cy: i32) -> WindowPress {
-        if !self.contains(cx, cy) {
-            return WindowPress::Miss;
-        }
-        if cy < self.y + self.title_h as i32 {
-            if self.close_hit(cx, cy) {
-                WindowPress::Close
-            } else {
-                WindowPress::TitleDrag
-            }
-        } else {
-            WindowPress::Body
-        }
+        self.frame().press(cx, cy)
     }
 
     /// Begin a title-bar drag at the press point.
@@ -277,10 +301,7 @@ impl ShellWindow {
     pub(crate) fn drag_to(&mut self, cx: i32, cy: i32, mode_w: u32, mode_h: u32) -> Option<DamageRect> {
         let (gx, gy) = self.drag?;
         let old = self.damage_rect(mode_w, mode_h);
-        let max_x = mode_w.saturating_sub(self.w) as i32;
-        let max_y = mode_h.saturating_sub(self.h) as i32;
-        let nx = (cx - gx).clamp(0, max_x.max(0));
-        let ny = (cy - gy).clamp(0, max_y.max(0));
+        let (nx, ny) = self.frame().clamp_pos(cx - gx, cy - gy, mode_w, mode_h);
         if nx == self.x && ny == self.y {
             return None;
         }
@@ -292,14 +313,8 @@ impl ShellWindow {
 
     /// Damage rect of the window plus its shadow halo.
     pub(crate) fn damage_rect(&self, mode_w: u32, mode_h: u32) -> DamageRect {
-        let x = (self.x.max(0) as u32).saturating_sub(SHADOW_HALO_PAD);
-        let y = (self.y.max(0) as u32).saturating_sub(SHADOW_HALO_PAD);
-        DamageRect {
-            x,
-            y,
-            width: (self.w + 2 * SHADOW_HALO_PAD).min(mode_w.saturating_sub(x)),
-            height: (self.h + 2 * SHADOW_HALO_PAD).min(mode_h.saturating_sub(y)),
-        }
+        let (x, y, width, height) = self.frame().damage_bounds(SHADOW_HALO_PAD, mode_w, mode_h);
+        DamageRect { x, y, width, height }
     }
 
     /// Snapshot the immutable values the glass composite needs, so the caller can
@@ -436,7 +451,16 @@ impl ShellWindow {
             p.shadow_alpha,
             0,
         );
-        // Title bar: composited FIXED on top (src row 0) so it never scrolls.
+        // Title bar: composited FIXED on top (src row 0) so it never scrolls. It
+        // must be OPAQUE (see `draw_title_bar_row`) so it occludes the scrollable
+        // body that covers the whole window underneath — otherwise scrolled rows
+        // bleed through it. `header_h` is exactly the title bar (no translucent pad),
+        // so content clips cleanly at the bar's bottom edge. Works on both the VMO
+        // (mmio) and the layer (virgl) paths because occlusion is at the layer level.
+        // Composited SQUARE (radius 0): the title bar's TOP corners are rounded at
+        // the SURFACE level instead (transparent corner pixels, see
+        // `draw_title_bar_row`), so the top corners reveal the body's rounded corners
+        // underneath while the bottom edge stays straight — no all-corner "notch".
         let _ = encoder.try_composite_layer(p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
         built_blur
     }

@@ -382,12 +382,6 @@ mod tests {
     }
 
     #[test]
-    fn title_bar_constants_match_wm_zones() {
-        assert_eq!(CHAT_TITLE_BAR_H as i32, crate::wm::TITLE_BAR_H);
-        assert_eq!(CHAT_CLOSE_ZONE_W as i32, crate::wm::CLOSE_ZONE_W);
-    }
-
-    #[test]
     fn click_close_icon_closes_when_open() {
         let open = sidebar_rect(mode(), 0.0);
         let icon = sidebar_close_icon_rect(mode(), open);

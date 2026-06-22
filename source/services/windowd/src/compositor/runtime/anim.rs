@@ -15,9 +15,11 @@ use super::*;
 
 impl DisplayServerRuntime {
     pub(crate) fn has_active_animations(&self) -> bool {
-        // Springs (sidebar/hover) OR the chat scroll momentum — either keeps the
+        // Springs (sidebar/hover) OR either window's scroll momentum — any keeps the
         // present-loop pacer ticking until motion settles, then windowd goes idle.
-        self.animation_driver.active_count() > 0 || self.chat_list.is_animating()
+        self.animation_driver.active_count() > 0
+            || self.chat_list.is_animating()
+            || (self.search.visible && self.search_scroll.is_animating())
     }
 
     /// Record one empty NonBlocking poll wake-up (busy-poll spin) for telemetry.
@@ -36,6 +38,8 @@ impl DisplayServerRuntime {
         // even when no spring is active (the spring block early-returns below), so
         // a pure scroll flick still advances every frame.
         self.tick_chat_scroll(now_ns);
+        // Search window scroll momentum: the SAME engine, eased the same way (E2).
+        self.tick_search_scroll(now_ns);
 
         let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
         let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);

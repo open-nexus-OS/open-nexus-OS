@@ -49,7 +49,7 @@ mod systemui_shell;
 mod telemetry;
 mod visible_state;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod wm;
+mod window_frame;
 
 pub use assets::{
     proof_text_asset, ProofTextAsset, CURSOR_HOTSPOT_X, CURSOR_HOTSPOT_Y, CURSOR_LEFT_PTR_BGRA,

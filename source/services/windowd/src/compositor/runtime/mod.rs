@@ -51,7 +51,7 @@ use crate::smoke::VisibleBootstrapMode;
 use crate::systemui_shell::{DeviceProfile, SystemUiShell};
 use crate::telemetry::WindowdDisplayTelemetryReport;
 use alloc::vec::Vec;
-use animation::{AnimProp, AnimationDriver, LayerId, SceneUpdate};
+use animation::{AnimProp, AnimationDriver, LayerId, ScrollConfig, ScrollMomentum, SceneUpdate};
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
@@ -509,21 +509,20 @@ pub(crate) struct DisplayServerRuntime {
     /// Cursor over the top-right glass button (highlight only — windowd-internal,
     /// independent of the proof-panel hover test card in `state.hover_visible`).
     button_hover: bool,
-    /// Chat panel as a retained-surface LAYER. Content is rendered once (on
-    /// change) into `chat_atlas` (an off-screen VMO atlas surface) and the
-    /// compositor blits that surface to the on-screen position. Moving the
-    /// window is just a different blit destination — no content re-render.
-    chat_atlas: crate::atlas::AtlasSurface,
-    /// Cached blurred backdrop behind the chat window (atlas surface). Rebuilt
-    /// only when `chat_blur_cache_valid` is false (window opened/moved); reused
-    /// every present so glass costs one blit, not a blur, per frame.
-    chat_blur_cache: crate::atlas::AtlasSurface,
-    chat_blur_cache_valid: bool,
+    /// Chat window — the SECOND instance of the reusable `ShellWindow` glass
+    /// frame (the first is `search`). Owns the chat window's geometry, drag/close
+    /// state, visibility, cached blurred backdrop (`blur_valid`) and the
+    /// off-screen atlas content surface (`atlas`) — rendered once on change and
+    /// composited at the window's current position, so moving it is just a
+    /// different blit destination (no content re-render). The scroll *physics*
+    /// live in `chat_list` (the message provider + momentum) below; this frame
+    /// supplies geometry + chrome + glass. E1 retired the old single-window
+    /// `wm::WindowManager`: both windows are now `ShellWindow` instances whose
+    /// pure geometry lives in the host-tested `window_frame::Frame`.
+    chat: super::shell_window::ShellWindow,
     /// Cached fully-composited sidebar (valid only while it's settled/static).
     sidebar_composite_cache: crate::atlas::AtlasSurface,
     sidebar_composite_cache_valid: bool,
-    /// Set when the chat surface needs re-rendering (init, scroll, new message).
-    chat_surface_dirty: bool,
     /// Shell-P2b: the desktop shell scene as ONE opaque retained-surface LAYER
     /// (atlas surface). Rendered once into `shell_atlas` and composited onto the
     /// scanout via the GPU layer path every present (the path that reaches the
@@ -553,6 +552,14 @@ pub(crate) struct DisplayServerRuntime {
     search: super::shell_window::ShellWindow,
     /// Prefix-filtered words shown in the Search window body.
     search_filtered: Vec<&'static str>,
+    /// Search window scroll engine — the SAME shared `animation::ScrollMomentum`
+    /// that backs the chat window's `VirtualList` (E2: one Android-style eased
+    /// momentum engine, not two implementations). Pixel offset; the whole filtered
+    /// list is rendered once into a tall surface and this offset scrolls it via a
+    /// GPU source-row offset (E3), so a flick coasts smoothly with zero re-render.
+    search_scroll: ScrollMomentum,
+    /// `nsec()` of the last search-momentum tick (frame-rate-independent integrate).
+    search_scroll_last_ns: u64,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
     /// release them on hide (the on-demand surface pool — a closed window costs
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
@@ -594,10 +601,6 @@ pub(crate) struct DisplayServerRuntime {
     /// (`chat_scroll_y - chat_render_base`), NOT a CPU re-render. We only re-render
     /// (recenter the base) when the scroll leaves the overscan window.
     chat_render_base: u32,
-    /// Window manager: owns the chat window's bounds/visibility/drag. The
-    /// compositor blits the chat surface at `wm.chat_window().bounds`, so moving
-    /// the window is just a different blit destination (no content re-render).
-    wm: crate::wm::WindowManager,
     /// One-shot `chat window drag ok` marker latch.
     chat_drag_marker_emitted: bool,
 }
@@ -832,15 +835,25 @@ impl DisplayServerRuntime {
         let sidepanel_atlas = atlas
             .alloc_band(sidepanel_h)
             .ok_or(WindowdError::BufferLengthMismatch)?;
-        // Window manager. The chat window starts open at the panel's current
-        // position (a dedicated chat button will toggle it in a later step).
-        let mut wm = crate::wm::WindowManager::new(crate::wm::WmRect::new(
+        // The Chat window as a ShellWindow instance (the SAME reusable glass frame
+        // as Search). It mounts the overscan content band + blur cache reserved
+        // above and starts open at the panel's default position. E1 retired the
+        // single-window `wm::WindowManager`; geometry now lives in `window_frame`.
+        let mut chat = super::shell_window::ShellWindow::new(
+            "Chat",
             crate::interaction::CHAT_PANEL_X as i32,
             crate::interaction::CHAT_PANEL_Y as i32,
-            crate::interaction::CHAT_PANEL_W as i32,
-            crate::interaction::CHAT_PANEL_H as i32,
-        ));
-        wm.open(crate::wm::WindowId::Chat);
+            crate::interaction::CHAT_PANEL_W,
+            crate::interaction::CHAT_PANEL_H,
+            crate::interaction::CHAT_TITLE_BAR_H,
+            crate::interaction::CHAT_CLOSE_ZONE_W,
+            super::desktop_layer::SEARCH_RADIUS,
+            CHAT_SHADOW_BLUR,
+            CHAT_SHADOW_OFFSET_Y,
+            CHAT_SHADOW_ALPHA as u32,
+        );
+        chat.mount(chat_atlas, chat_blur_cache);
+        chat.visible = true;
         let _ = debug_println("dbg: windowd init chat ok");
         Ok(Self {
             mode,
@@ -913,12 +926,9 @@ impl DisplayServerRuntime {
             gl_cursor_active: false,
             precache_blur_pending: true,
             button_hover: false,
-            chat_atlas,
-            chat_blur_cache,
-            chat_blur_cache_valid: false,
+            chat,
             sidebar_composite_cache,
             sidebar_composite_cache_valid: false,
-            chat_surface_dirty: true,
             shell_atlas,
             shell_w,
             shell_h,
@@ -939,6 +949,8 @@ impl DisplayServerRuntime {
                 super::desktop_layer::search_filter("", &mut v);
                 v
             },
+            search_scroll: ScrollMomentum::new(ScrollConfig::default()),
+            search_scroll_last_ns: 0,
             atlas_alloc: atlas,
             chat_list,
             chat_scroll_y: 0,
@@ -949,7 +961,6 @@ impl DisplayServerRuntime {
             chat_content_h,
             chat_visible,
             chat_render_base: 0,
-            wm,
             chat_drag_marker_emitted: false,
         })
     }
@@ -1399,28 +1410,34 @@ impl DisplayServerRuntime {
                 WindowPress::Miss => {}
             }
         }
-        if primary_press && !window_consumed_press {
-            use crate::wm::PointerAction;
-            match self.wm.on_pointer_down(cursor_x, cursor_y) {
-                PointerAction::DragStarted(_) => {
+        // Chat window: the SAME ShellWindow press path as Search (close / title
+        // drag / body), now that chat is a ShellWindow instance (E1 — the old
+        // single-window `wm` is gone). Consumed only if Search didn't take it.
+        if primary_press && !window_consumed_press && self.chat.visible {
+            use crate::compositor::shell_window::WindowPress;
+            match self.chat.press(cursor_x, cursor_y) {
+                WindowPress::Close => {
+                    window_consumed_press = true;
+                    self.chat.visible = false;
+                    self.on_chat_window_closed();
+                }
+                WindowPress::TitleDrag => {
+                    window_consumed_press = true;
+                    self.chat.begin_drag(cursor_x, cursor_y);
+                }
+                WindowPress::Body => {
                     window_consumed_press = true;
                 }
-                PointerAction::Closed(id) => {
-                    window_consumed_press = true;
-                    self.on_chat_window_closed(id);
-                }
-                PointerAction::None => {}
+                WindowPress::Miss => {}
             }
         }
-        // Continue an in-progress drag: move the window and damage old+new regions.
-        if self.wm.is_dragging() {
-            let old_bounds = self.wm.chat_window().bounds;
-            if self.wm.on_pointer_move(cursor_x, cursor_y, mode.width as i32, mode.height as i32) {
-                self.note_chat_window_moved(old_bounds);
+        // Continue an in-progress chat drag: `ShellWindow::drag_to` clamps to the
+        // display and invalidates the blur cache; we erase the vacated region
+        // (incl. the shadow halo) so a moved window leaves no trail.
+        if self.chat.is_dragging() {
+            if let Some(old) = self.chat.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.note_chat_window_moved(old);
             }
-        }
-        if primary_release {
-            let _ = self.wm.on_pointer_up();
         }
         // Continue dragging the Search window.
         if self.search.is_dragging() {
@@ -1430,6 +1447,7 @@ impl DisplayServerRuntime {
             }
         }
         if primary_release {
+            self.chat.end_drag();
             self.search.end_drag();
         }
 
@@ -1496,15 +1514,7 @@ impl DisplayServerRuntime {
                     window_consumed_press = true;
                     match item {
                         DropdownItem::Chat => {
-                            let now = self.wm.toggle(crate::wm::WindowId::Chat);
-                            if now {
-                                self.chat_blur_cache_valid = false;
-                                let b = self.wm.chat_window().bounds;
-                                self.erase_chat_region(b.x, b.y);
-                                self.note_chat_button_dirty();
-                            } else {
-                                self.on_chat_window_closed(crate::wm::WindowId::Chat);
-                            }
+                            self.toggle_chat();
                         }
                         DropdownItem::Search => {
                             if self.search.visible {
@@ -1531,20 +1541,7 @@ impl DisplayServerRuntime {
                     self.state.sidebar_open_visible = false;
                 }
                 ClickAction::ToggleChat => {
-                    let now_visible = self.wm.toggle(crate::wm::WindowId::Chat);
-                    if now_visible {
-                        let _ = debug_println("windowd: chat window open");
-                        // Surface content is retained in the atlas — just
-                        // damage the window region (plus shadow halo) so the
-                        // composite draws it at the current bounds. Rebuild the
-                        // blurred-backdrop cache (it may be stale from a prior pos).
-                        self.chat_blur_cache_valid = false;
-                        let b = self.wm.chat_window().bounds;
-                        self.erase_chat_region(b.x, b.y);
-                        self.note_chat_button_dirty();
-                    } else {
-                        self.on_chat_window_closed(crate::wm::WindowId::Chat);
-                    }
+                    self.toggle_chat();
                 }
                 ClickAction::FocusPanel => {
                     self.state.focus_visible = true;
@@ -1629,6 +1626,9 @@ impl DisplayServerRuntime {
         // Re-render the Search window's filtered list when the typed text changes.
         if self.search.visible && text_changed {
             super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
+            // The row count changed → re-clamp the shared momentum extent, then
+            // mirror its (clamped) offset back to the row slice.
+            self.search_set_extent();
             let max_scroll = super::desktop_layer::search_max_scroll(self.search_filtered.len());
             self.search.scroll = self.search.scroll.min(max_scroll);
             self.search.surface_dirty = true;
@@ -1643,19 +1643,19 @@ impl DisplayServerRuntime {
                 self.queue_dirty_rect(self.search_window_rect());
             }
         }
-        // Wheel over the Search window scrolls its filtered list.
+        // Wheel over the Search window scrolls its filtered list via the SHARED
+        // momentum engine (eased + coasting, the same feel as chat — E2). A notch
+        // extends the target by a few rows; `tick_search_scroll` eases the offset
+        // and `commit_search_scroll_position` maps it to the row slice.
         if self.search.visible && upstream.wheel_delta_y != 0 {
             let over = self.search.contains(self.state.cursor_x, self.state.cursor_y);
             if over {
-                let max_scroll =
-                    super::desktop_layer::search_max_scroll(self.search_filtered.len()) as i32;
-                let dir = if upstream.wheel_delta_y > 0 { 1 } else { -1 };
-                let new = (self.search.scroll as i32 + dir).clamp(0, max_scroll) as u32;
-                if new != self.search.scroll {
-                    self.search.scroll = new;
-                    self.search.surface_dirty = true;
-                    self.queue_dirty_rect(self.search_window_rect());
-                }
+                use super::desktop_layer::SEARCH_LIST_ROW_H;
+                // Positive wheel scrolls down (later words), matching the prior
+                // discrete behaviour; 3 rows per notch (≈ the chat "3 lines/notch").
+                let dir = if upstream.wheel_delta_y > 0 { 1.0 } else { -1.0 };
+                self.search_scroll.scroll_wheel(dir * 3.0 * SEARCH_LIST_ROW_H as f32);
+                self.commit_search_scroll_position();
             }
         }
         // The desktop scene has a single layout (no filter variants); keep the
@@ -1834,15 +1834,12 @@ impl DisplayServerRuntime {
             use crate::interaction::{resolve_wheel_target, HitRect, WheelTarget};
             // Wheel routing follows the chat window's live bounds (None when
             // closed) — a dragged window keeps scrolling under the cursor.
-            let chat_bounds = {
-                let w = self.wm.chat_window();
-                w.visible.then(|| HitRect {
-                    x: w.bounds.x.max(0) as u32,
-                    y: w.bounds.y.max(0) as u32,
-                    width: w.bounds.w.max(0) as u32,
-                    height: w.bounds.h.max(0) as u32,
-                })
-            };
+            let chat_bounds = self.chat.visible.then(|| HitRect {
+                x: self.chat.x.max(0) as u32,
+                y: self.chat.y.max(0) as u32,
+                width: self.chat.w,
+                height: self.chat.h,
+            });
             let target =
                 resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds);
             // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
@@ -1857,7 +1854,7 @@ impl DisplayServerRuntime {
                     if matches!(target, WheelTarget::Chat) { "chat" } else { "filter" },
                     self.state.cursor_x,
                     self.state.cursor_y,
-                    self.wm.chat_window().visible,
+                    self.chat.visible,
                     self.chat_scroll_y,
                     self.chat_list.scroll_offset().as_i32(),
                     self.chat_list.scroll_target(),
@@ -2007,14 +2004,14 @@ impl DisplayServerRuntime {
             // retained chat layer at the new atlas row and GPU-re-composite (~54µs)
             // — NO windowd CPU compose, just like the cursor's OP_MOVE_CURSOR. This
             // is what lets scroll run at gpud's rate instead of windowd's compose rate.
-            self.send_chat_scroll_to_gpud(self.chat_atlas.abs_row + offset);
+            self.send_chat_scroll_to_gpud(self.chat_atlas_row() + offset);
         } else {
             // Left the prerendered window (new content needed) OR the 2D/mmio path
             // (no GL layer re-sample): recenter + re-render as needed, then a normal
             // present carries the fresh layer (which also clears gpud's scroll override).
             if !within_overscan {
                 self.chat_render_base = new.saturating_sub(CHAT_OVERSCAN / 2);
-                self.chat_surface_dirty = true;
+                self.chat.surface_dirty = true;
             }
             self.queue_gpu_blit_rect(DamageRect {
                 x: crate::interaction::CHAT_PANEL_X,
@@ -2071,18 +2068,38 @@ impl DisplayServerRuntime {
         still
     }
 
+    /// Toggle the chat window open/closed (shared by the dropdown item + the
+    /// proof-panel chat button). On open: rebuild the blur cache (the backdrop may
+    /// be stale from a prior position) and damage the window region. On close:
+    /// cancel any drag and erase the vacated region.
+    fn toggle_chat(&mut self) {
+        let now = !self.chat.visible;
+        self.chat.visible = now;
+        if now {
+            let _ = debug_println("windowd: chat window open");
+            // Surface content is retained in the atlas — just damage the window
+            // region (plus shadow halo) so the composite draws it at the current
+            // bounds. The blurred-backdrop cache may be stale from a prior pos.
+            self.chat.blur_valid = false;
+            self.erase_chat_region(self.chat.x, self.chat.y);
+            self.note_chat_button_dirty();
+        } else {
+            self.chat.end_drag();
+            self.on_chat_window_closed();
+        }
+    }
+
     /// Damage the chat window's last region so the base shows through after the
     /// window is closed (the composite no longer draws it).
-    fn on_chat_window_closed(&mut self, _id: crate::wm::WindowId) {
+    fn on_chat_window_closed(&mut self) {
         let _ = debug_println("windowd: chat window close");
-        let b = self.wm.chat_window().bounds;
-        self.erase_chat_region(b.x, b.y);
+        self.erase_chat_region(self.chat.x, self.chat.y);
         self.note_chat_button_dirty();
     }
 
     /// Damage the chat toggle button's rect so the incremental composite redraws its
     /// active-state tint after a chat-visibility change (its body alpha tracks
-    /// `chat_window().visible`). Without this the gated button block would keep the
+    /// `self.chat.visible`). Without this the gated button block would keep the
     /// stale tint until another damage rect happened to touch it.
     fn note_chat_button_dirty(&mut self) {
         let cb = crate::interaction::chat_button_rect(self.mode.width, self.mode.height);
@@ -2098,15 +2115,16 @@ impl DisplayServerRuntime {
     /// the base from Plane 1 — the chat was never baked there), and the
     /// compositor re-blits the cached chat surface at the new bounds. No CPU
     /// recomposite, no content re-render → GPU-bound drag.
-    fn note_chat_window_moved(&mut self, old_bounds: crate::wm::WmRect) {
+    fn note_chat_window_moved(&mut self, old: DamageRect) {
         if !self.chat_drag_marker_emitted {
             let _ = debug_println("windowd: chat window drag ok");
             self.chat_drag_marker_emitted = true;
         }
-        // The backdrop behind the window changed → the blurred-backdrop cache
-        // is stale; rebuild it at the new position next composite.
-        self.chat_blur_cache_valid = false;
-        self.erase_chat_region(old_bounds.x, old_bounds.y);
+        // `ShellWindow::drag_to` already invalidated the blur cache (the backdrop
+        // behind the window changed). Erase the vacated region (window + shadow
+        // halo, already padded by `drag_to`) so the moved window leaves no trail;
+        // the composite re-blits the cached chat surface at the new position.
+        self.queue_gpu_blit_rect(old);
     }
 
     /// Refresh the display from the (cursor-free, chat-free) base in Plane 1 for
@@ -2123,13 +2141,22 @@ impl DisplayServerRuntime {
         });
     }
 
+    /// Absolute atlas row of the chat content surface (`0` if somehow unmounted —
+    /// chat mounts at boot and only hides, never unmounts, so this is always set).
+    fn chat_atlas_row(&self) -> u32 {
+        self.chat.atlas.map(|s| s.abs_row).unwrap_or(0)
+    }
+
     /// Render the full chat layer content into its off-screen atlas surface
-    /// (rows `chat_atlas.abs_row..`, x 0..CHAT_PANEL_W). Called when the surface
+    /// (rows `chat.atlas.abs_row..`, x 0..CHAT_PANEL_W). Called when the surface
     /// is dirty (init / scroll / new message), never per move — moving the
     /// window only changes the composite blit destination.
     fn render_chat_surface(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
+        };
+        let Some(surface) = self.chat.atlas else {
+            return Ok(()); // unmounted — nothing to render
         };
         let stride = self.mode.stride as usize;
         if self.band_scratch.len() < stride * ROW_WRITE_CHUNK {
@@ -2151,7 +2178,7 @@ impl DisplayServerRuntime {
         // Keep the component's height authority in sync so momentum clamps to the
         // real bottom (re-render happens on data change / overscan exhaustion).
         self.chat_list.set_content_height(FxPx::new(self.chat_content_h as i32));
-        let abs_row = self.chat_atlas.abs_row;
+        let abs_row = surface.abs_row;
         let render_base = self.chat_render_base;
         let content_h = self.chat_content_h;
         let visible = &self.chat_visible;
@@ -2300,9 +2327,62 @@ impl DisplayServerRuntime {
         }
         super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
         self.search.scroll = 0;
+        self.search_scroll.set_offset(0.0);
+        self.search_set_extent();
+        self.search_scroll_last_ns = 0;
         self.search.visible = true;
         self.search.surface_dirty = true;
         self.queue_dirty_rect(self.search_window_rect());
+    }
+
+    /// Feed the shared momentum engine the Search list's scrollable extent (px):
+    /// `viewport` = the visible list rows, `content` = all filtered rows. Called on
+    /// open + whenever the filter changes the row count (re-clamps position).
+    fn search_set_extent(&mut self) {
+        use super::desktop_layer::{SEARCH_LIST_ROW_H, SEARCH_LIST_VIEWPORT_H};
+        let content = self.search_filtered.len() as u32 * SEARCH_LIST_ROW_H;
+        self.search_scroll.set_extent(SEARCH_LIST_VIEWPORT_H as f32, content as f32);
+    }
+
+    /// Map the momentum engine's pixel offset to a whole-row list slice and, if the
+    /// row changed, mark the Search surface dirty + damage its region. Returns true
+    /// if the visible slice moved (so the pacer keeps ticking). The packed surface
+    /// stays window-height (atlas-budget friendly — a full-list render-once surface
+    /// would not fit beside chat's overscan), so scroll is a cheap re-render on the
+    /// row boundary, driven by the SAME eased momentum as the chat window (E2).
+    fn commit_search_scroll_position(&mut self) -> bool {
+        use super::desktop_layer::{search_max_scroll, SEARCH_LIST_ROW_H};
+        let row = (self.search_scroll.offset_px().max(0) as u32 / SEARCH_LIST_ROW_H)
+            .min(search_max_scroll(self.search_filtered.len()));
+        if row == self.search.scroll {
+            return false;
+        }
+        self.search.scroll = row;
+        self.search.surface_dirty = true;
+        self.queue_dirty_rect(self.search_window_rect());
+        true
+    }
+
+    /// Advance the Search scroll momentum one frame (mirror of `tick_chat_scroll`):
+    /// integrate the eased/coasting offset over real elapsed time, then commit the
+    /// row slice. Returns true while still moving so the present pacer keeps ticking.
+    pub(crate) fn tick_search_scroll(&mut self, now_ns: u64) -> bool {
+        if !self.search.visible || !self.search_scroll.is_animating() {
+            self.search_scroll_last_ns = 0;
+            return false;
+        }
+        let dt_ns = if self.search_scroll_last_ns == 0 || now_ns <= self.search_scroll_last_ns {
+            8_333_333
+        } else {
+            now_ns - self.search_scroll_last_ns
+        };
+        self.search_scroll_last_ns = now_ns;
+        let still = self.search_scroll.tick(dt_ns);
+        if !still {
+            self.search_scroll_last_ns = 0;
+        }
+        self.commit_search_scroll_position();
+        still
     }
 
     /// Hide the Search window: release its atlas surfaces back to the pool so the
@@ -2898,9 +2978,9 @@ impl DisplayServerRuntime {
     ) -> Result<usize, WindowdError> {
         // Re-render the chat layer's cached surface (off-screen atlas) if its
         // content changed. Done before the encoder borrows `self.scene_cb`.
-        if self.chat_surface_dirty {
+        if self.chat.surface_dirty {
             self.render_chat_surface()?;
-            self.chat_surface_dirty = false;
+            self.chat.surface_dirty = false;
         }
         // Shell-P2b: (re)render the glass topbar layer surface when dirty.
         if SHELL_TOPBAR && self.shell_surface_dirty {
@@ -2944,7 +3024,7 @@ impl DisplayServerRuntime {
         // suppressed in desktop mode — the desktop chrome is composited into the
         // retained plane (step 1 blit) instead; chat/sidebar return as real
         // desktop layers in P3.
-        let chat_atlas_row = self.chat_atlas.abs_row;
+        let chat_atlas_row = self.chat_atlas_row();
         let shell_atlas_row = self.shell_atlas.abs_row;
         let shell_w = self.shell_w;
         let shell_h = self.shell_h;
@@ -2959,9 +3039,9 @@ impl DisplayServerRuntime {
         // `Some` only while the Search window is mounted (shown) → composite it.
         let search_glass = self.search.glass_params();
         let mut built_search_blur = false;
-        let chat_show = !USE_DESKTOP_SHELL && self.wm.chat_visible();
-        let chat_dx = self.wm.chat_window().bounds.x.max(0) as u32;
-        let chat_dy = self.wm.chat_window().bounds.y.max(0) as u32;
+        let chat_show = !USE_DESKTOP_SHELL && self.chat.visible;
+        let chat_dx = self.chat.x.max(0) as u32;
+        let chat_dy = self.chat.y.max(0) as u32;
         // GPU scroll-offset: the body samples the overscan surface shifted by the
         // scroll-within-window; the title bar is composited fixed on top.
         // HARDENING: clamp to [0, CHAT_OVERSCAN]. The surface is only
@@ -2973,9 +3053,12 @@ impl DisplayServerRuntime {
         // Clamping shows the window edge for one frame instead of corrupting.
         let chat_content_offset =
             self.chat_scroll_y.saturating_sub(self.chat_render_base).min(CHAT_OVERSCAN);
-        let chat_title_h = crate::interaction::CHAT_TITLE_BAR_H + crate::interaction::CHAT_PAD;
-        let chat_blur_cache_row = self.chat_blur_cache.abs_row;
-        let chat_blur_cache_valid = self.chat_blur_cache_valid;
+        // Fixed-header height for the scrollable composite = the title bar ONLY
+        // (no translucent pad), so the opaque bar occludes scrolled rows and content
+        // clips right at its bottom edge — not partway down a translucent strip.
+        let chat_title_h = crate::interaction::CHAT_TITLE_BAR_H;
+        let chat_blur_cache_row = self.chat.blur_cache.map(|s| s.abs_row).unwrap_or(0);
+        let chat_blur_cache_valid = self.chat.blur_valid;
         let mut built_chat_blur_cache = false;
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
@@ -3409,7 +3492,7 @@ impl DisplayServerRuntime {
                         cb.width,
                         cb.height,
                     );
-                    let chat_open = self.wm.chat_window().visible;
+                    let chat_open = self.chat.visible;
                     // Slightly brighter while the chat window is open (active state).
                     let body_alpha: u8 = if chat_open { 200 } else { 128 };
                     let _ = encoder.try_fill_sdf_gradient(
@@ -3678,7 +3761,7 @@ impl DisplayServerRuntime {
             self.button_blur_cache_valid = true;
         }
         if built_chat_blur_cache {
-            self.chat_blur_cache_valid = true;
+            self.chat.blur_valid = true;
         }
         if built_search_blur {
             self.search.blur_valid = true;
@@ -3829,7 +3912,7 @@ impl DisplayServerRuntime {
                     self.last_completed_seq,
                     self.chat_scroll_y,
                     self.chat_list.is_animating(),
-                    self.chat_surface_dirty,
+                    self.chat.surface_dirty,
                 ));
                 self.stall_reported = true;
             }

@@ -230,6 +230,12 @@ pub(crate) fn search_max_scroll(count: usize) -> u32 {
     (count as u32).saturating_sub(SEARCH_VISIBLE_ROWS)
 }
 
+/// Height in px of one list row + the visible list viewport — so the shared
+/// `ScrollMomentum` engine (the same one backing the chat window) can run in
+/// pixels and the runtime maps its offset to a whole-row slice for the render.
+pub(crate) const SEARCH_LIST_ROW_H: u32 = SEARCH_ROW_H;
+pub(crate) const SEARCH_LIST_VIEWPORT_H: u32 = SEARCH_ROW_H * SEARCH_VISIBLE_ROWS;
+
 /// Draw one window-local row of the Search window: glass body, title bar with a
 /// close "x", the filter text, and the visible slice of the filtered list
 /// (already scrolled by the caller). A scrollbar marks position when scrollable.
@@ -254,6 +260,7 @@ pub(crate) fn draw_search_window_row(
             SEARCH_TITLE_H,
             SEARCH_CLOSE_W,
             close_hover,
+            SEARCH_RADIUS,
         );
     }
     let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - FONT_H * FONT_SCALE) / 2;
