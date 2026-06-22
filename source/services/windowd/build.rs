@@ -167,6 +167,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "pub const SHELL_ICON_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
         icon_path.display()
     )?;
+
+    // Topbar chrome icons: the REAL Lucide `menu` + `x` icons (currentColor → white
+    // tint), rendered at 4× supersample then box-downscaled fringe-free — the same
+    // proven path as the shell icon above. windowd blends these straight-alpha
+    // sprites into the topbar / title-bar surfaces, replacing the hand-drawn
+    // approximations. `_DIM` is the on-surface size (must match the placement
+    // constants: MENU_ICON_SIZE=26, the title-bar close glyph ≈20).
+    for (name, dim, svg) in [
+        ("MENU_ICON", 26u32, include_str!("../../../resources/icons/lucide/icons/menu.svg")),
+        ("CLOSE_ICON", 20u32, include_str!("../../../resources/icons/lucide/icons/x.svg")),
+    ] {
+        const SS: u32 = 4;
+        let hi = nexus_svg::render_svg_tinted_at(svg, (255, 255, 255), dim * SS, dim * SS)
+            .map_err(|err| std::io::Error::other(format!("render Lucide {name}: {err:?}")))?;
+        let premul = box_average_downscale(&hi.buffer, hi.width, hi.height, SS);
+        let bgra = unpremultiply_bgra(&premul);
+        let path = out_dir.join(format!("{}.bgra", name.to_lowercase()));
+        fs::write(&path, &bgra)?;
+        writeln!(generated, "pub const {name}_DIM: u32 = {dim};")?;
+        writeln!(
+            generated,
+            "pub const {name}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+            path.display()
+        )?;
+    }
     Ok(())
 }
 

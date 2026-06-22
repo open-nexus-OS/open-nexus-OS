@@ -76,7 +76,21 @@ pub(crate) fn draw_title_bar_row(
     if close_hover {
         write_tint_span(row, cx, w, HOVER_TINT);
     }
-    draw_label(local_y, row, "x", cx + (close_w - GLYPH_W) / 2, text_top, CHROME_TEXT)?;
+    // Close glyph — the REAL Lucide `x` icon (white, straight-alpha) blended in,
+    // centred in the close zone, replacing the bitmap-font "x".
+    let cdim = crate::assets::CLOSE_ICON_DIM;
+    let cy0 = title_h.saturating_sub(cdim) / 2;
+    if local_y >= cy0 && local_y < cy0 + cdim {
+        let cix = cx + close_w.saturating_sub(cdim) / 2;
+        super::desktop_layer::blend_icon_row(
+            row,
+            cix,
+            crate::assets::CLOSE_ICON_BGRA,
+            cdim,
+            local_y - cy0,
+            255,
+        );
+    }
     // Round the TOP corners at the surface level: clear (make transparent) the
     // pixels of the top-left/top-right `radius`×`radius` squares that fall OUTSIDE
     // the corner arc. The window body underneath is rounded by the composite SDF

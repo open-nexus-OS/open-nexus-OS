@@ -36,12 +36,10 @@ const ITEM_PAD_X: u32 = 14; // horizontal padding inside each hover cell
 const ITEM_GAP: u32 = 6; // gap between cells
 const TEXT_TOP: u32 = (TOPBAR_H - FONT_H * FONT_SCALE) / 2; // vertically centered
 
-/// Menu (hamburger) icon at the right of the bar — opens the side panel.
+/// Menu icon at the right of the bar (the real Lucide `menu` icon) — opens the
+/// side panel.
 const MENU_ICON_SIZE: u32 = 26;
 const MENU_ICON_PAD_R: u32 = 12;
-const MENU_BAR_W: u32 = 16;
-const MENU_BAR_H: u32 = 2;
-const MENU_BAR_GAP: u32 = 4;
 
 /// Bar-local x of the menu icon's left edge for a bar `bar_w` wide.
 fn menu_icon_x(bar_w: u32) -> u32 {
@@ -293,6 +291,37 @@ pub(crate) fn draw_search_window_row(
     Ok(())
 }
 
+/// Alpha-blend one row of a straight-alpha BGRA icon sprite into `row` at column
+/// `dst_x`. `icon_row` is the sprite's row index; `alpha_mul` (0..=255) scales the
+/// sprite alpha (hover / brightness). src-over in straight alpha; the destination
+/// keeps its own alpha (the surface composites over the backdrop later).
+pub(crate) fn blend_icon_row(row: &mut [u8], dst_x: u32, icon: &[u8], dim: u32, icon_row: u32, alpha_mul: u8) {
+    if icon_row >= dim {
+        return;
+    }
+    let rp = (row.len() / 4) as u32;
+    let src_off = (icon_row * dim) as usize * 4;
+    for ix in 0..dim {
+        let px = dst_x + ix;
+        if px >= rp {
+            break;
+        }
+        let s = src_off + ix as usize * 4;
+        if s + 4 > icon.len() {
+            break;
+        }
+        let a = u32::from(icon[s + 3]) * u32::from(alpha_mul) / 255;
+        if a == 0 {
+            continue;
+        }
+        let inv = 255 - a;
+        let d = px as usize * 4;
+        for ch in 0..3 {
+            row[d + ch] = ((u32::from(icon[s + ch]) * a + u32::from(row[d + ch]) * inv) / 255) as u8;
+        }
+    }
+}
+
 /// Write one straight-alpha BGRA span (no premultiply); gpud's layer blend does
 /// the SRC_ALPHA compositing over the (blurred) backdrop.
 fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
@@ -321,22 +350,23 @@ pub(crate) fn draw_topbar_row(
             write_tint_span(row, s, e.min(bar_w), HOVER_TINT);
         }
     }
-    // Menu (hamburger) icon at the right — three white bars.
+    // Menu icon at the right — the REAL Lucide `menu` icon (rasterized white,
+    // straight-alpha) blended in, over a hover-highlight cell.
     {
         let icon_x = menu_icon_x(bar_w);
         let icon_y0 = (TOPBAR_H.saturating_sub(MENU_ICON_SIZE)) / 2;
-        // Hover highlight cell behind the icon.
         if menu_hover && local_y >= icon_y0 && local_y < icon_y0 + MENU_ICON_SIZE {
             write_tint_span(row, icon_x, (icon_x + MENU_ICON_SIZE).min(bar_w), HOVER_TINT);
         }
-        let bars_total = 3 * MENU_BAR_H + 2 * MENU_BAR_GAP;
-        let bars_top = icon_y0 + (MENU_ICON_SIZE.saturating_sub(bars_total)) / 2;
-        let bar_x = icon_x + (MENU_ICON_SIZE.saturating_sub(MENU_BAR_W)) / 2;
-        for i in 0..3u32 {
-            let by = bars_top + i * (MENU_BAR_H + MENU_BAR_GAP);
-            if local_y >= by && local_y < by + MENU_BAR_H {
-                fill_row_rect(local_y, row, bar_x, local_y, MENU_BAR_W, 1, TEXT_COLOR)?;
-            }
+        if local_y >= icon_y0 && local_y < icon_y0 + crate::assets::MENU_ICON_DIM {
+            blend_icon_row(
+                row,
+                icon_x,
+                crate::assets::MENU_ICON_BGRA,
+                crate::assets::MENU_ICON_DIM,
+                local_y - icon_y0,
+                255,
+            );
         }
     }
 

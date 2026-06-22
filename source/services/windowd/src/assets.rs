@@ -26,6 +26,14 @@ pub const SHELL_ICON_HEIGHT: u32 = generated::SHELL_ICON_HEIGHT;
 /// (supersampled) and GPU-downscaled to it.
 pub const SHELL_ICON_LOGICAL: u32 = generated::SHELL_ICON_LOGICAL;
 
+/// Real Lucide topbar/title-bar chrome icons (`menu`, `x`), rendered straight-alpha
+/// white via the same HiDPI pipeline. Square `*_DIM`×`*_DIM` BGRA; blended into the
+/// topbar / title-bar surfaces in place of the hand-drawn approximations.
+pub const MENU_ICON_BGRA: &[u8] = generated::MENU_ICON_BGRA;
+pub const MENU_ICON_DIM: u32 = generated::MENU_ICON_DIM;
+pub const CLOSE_ICON_BGRA: &[u8] = generated::CLOSE_ICON_BGRA;
+pub const CLOSE_ICON_DIM: u32 = generated::CLOSE_ICON_DIM;
+
 pub struct ProofTextAsset {
     pub width: u32,
     pub height: u32,
