@@ -77,7 +77,34 @@ const OP_LIST: u8 = nexus_abi::bundlemgrd::OP_LIST;
 const OP_ROUTE_STATUS: u8 = nexus_abi::bundlemgrd::OP_ROUTE_STATUS;
 const OP_FETCH_IMAGE: u8 = nexus_abi::bundlemgrd::OP_FETCH_IMAGE;
 const OP_SET_ACTIVE_SLOT: u8 = nexus_abi::bundlemgrd::OP_SET_ACTIVE_SLOT;
+const OP_LIST_APPS: u8 = nexus_abi::bundlemgrd::OP_LIST_APPS;
 const OP_LOG_PROBE: u8 = 0x7f;
+
+/// Installed apps the registry serves to the launcher / Apps menu (RFC-0065).
+/// `(id, display label)`. These mirror the shipped `.nxb` app bundles; the full
+/// install pipeline will replace this seed with the installed-bundle set.
+const APP_REGISTRY: [(&str, &str); 3] =
+    [("chat", "Chat"), ("search", "Search"), ("notes", "Notes")];
+
+/// Builds the `OP_LIST_APPS` response:
+/// `[B,N,ver,OP_LIST_APPS|0x80, STATUS_OK, count:u16le, (id_len,id,label_len,label)*]`.
+fn build_list_apps_response() -> alloc::vec::Vec<u8> {
+    use alloc::vec::Vec;
+    let mut out = Vec::new();
+    out.push(MAGIC0);
+    out.push(MAGIC1);
+    out.push(VERSION);
+    out.push(OP_LIST_APPS | 0x80);
+    out.push(STATUS_OK);
+    out.extend_from_slice(&(APP_REGISTRY.len() as u16).to_le_bytes());
+    for (id, label) in APP_REGISTRY.iter() {
+        out.push(id.len() as u8);
+        out.extend_from_slice(id.as_bytes());
+        out.push(label.len() as u8);
+        out.extend_from_slice(label.as_bytes());
+    }
+    out
+}
 
 const STATUS_OK: u8 = nexus_abi::bundlemgrd::STATUS_OK;
 const STATUS_MALFORMED: u8 = nexus_abi::bundlemgrd::STATUS_MALFORMED;
@@ -339,6 +366,14 @@ fn handle_frame_vec(frame: &[u8]) -> alloc::vec::Vec<u8> {
     use alloc::vec::Vec;
 
     if frame.len() >= 4 && frame[0] == MAGIC0 && frame[1] == MAGIC1 && frame[2] == VERSION {
+        if frame[3] == OP_LIST_APPS {
+            if frame.len() != 4 {
+                let rsp = rsp(OP_LIST_APPS, STATUS_MALFORMED, 0);
+                return rsp.to_vec();
+            }
+            metrics_counter_inc_best_effort("bundlemgrd.list_apps.ok");
+            return build_list_apps_response();
+        }
         if frame[3] == OP_FETCH_IMAGE {
             let slot = active_slot_label();
             let version = if slot == b'a' { b"1.0.0-a" } else { b"1.0.0-b" };
@@ -412,7 +447,15 @@ fn is_allowed_sender(sender_service_id: u64) -> bool {
     let selftest = nexus_abi::service_id_from_name(b"selftest-client");
     let updated = nexus_abi::service_id_from_name(b"updated");
     let samgrd = nexus_abi::service_id_from_name(b"samgrd");
-    sender_service_id == selftest || sender_service_id == updated || sender_service_id == samgrd
+    // windowd queries the registry for the Apps menu (OP_LIST_APPS); abilitymgr
+    // resolves launch abilities (RFC-0065).
+    let windowd = nexus_abi::service_id_from_name(b"windowd");
+    let abilitymgr = nexus_abi::service_id_from_name(b"abilitymgr");
+    sender_service_id == selftest
+        || sender_service_id == updated
+        || sender_service_id == samgrd
+        || sender_service_id == windowd
+        || sender_service_id == abilitymgr
 }
 
 fn denied_frame_response(frame: &[u8]) -> alloc::vec::Vec<u8> {
@@ -572,6 +615,21 @@ mod tests {
         v.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, op]);
         v.extend_from_slice(payload);
         v
+    }
+
+    #[test]
+    fn test_list_apps_returns_seeded_registry() {
+        let rsp = handle_frame_vec(&build_req(OP_LIST_APPS, &[]));
+        // Header: [B,N,ver,OP|0x80, STATUS_OK, count:u16le]
+        assert_eq!(rsp[0], MAGIC0);
+        assert_eq!(rsp[3], OP_LIST_APPS | 0x80);
+        assert_eq!(rsp[4], STATUS_OK);
+        let count = u16::from_le_bytes([rsp[5], rsp[6]]);
+        assert_eq!(count, APP_REGISTRY.len() as u16);
+        // First entry id is "chat".
+        let id_len = rsp[7] as usize;
+        let id = core::str::from_utf8(&rsp[8..8 + id_len]).unwrap();
+        assert_eq!(id, "chat");
     }
 
     #[test]

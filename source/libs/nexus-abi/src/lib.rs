@@ -618,6 +618,40 @@ pub mod bundlemgrd {
         Some((status, slot))
     }
 
+    /// List installed apps for the launcher / Apps menu (RFC-0065 dynamic apps menu).
+    pub const OP_LIST_APPS: u8 = 5;
+
+    /// Byte offset where LIST_APPS response entries begin (after status + count).
+    pub const LIST_APPS_BODY_OFFSET: usize = 7;
+
+    /// Encodes a LIST_APPS request: `[B, N, ver, OP_LIST_APPS]`.
+    pub fn encode_list_apps(out: &mut [u8; 4]) {
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_LIST_APPS;
+    }
+
+    /// Decodes the LIST_APPS response header → `(status, count)`.
+    ///
+    /// Response frame:
+    /// `[B, N, ver, OP_LIST_APPS|0x80, status:u8, count:u16le, entries...]`
+    /// where each entry is `[id_len:u8, id..., label_len:u8, label...]` (UTF-8).
+    /// Entry parsing (which needs allocation) lives in the consumer.
+    pub fn decode_list_apps_header(frame: &[u8]) -> Option<(u8, u16)> {
+        if frame.len() < LIST_APPS_BODY_OFFSET
+            || frame[0] != MAGIC0
+            || frame[1] != MAGIC1
+            || frame[2] != VERSION
+        {
+            return None;
+        }
+        if frame[3] != (OP_LIST_APPS | 0x80) {
+            return None;
+        }
+        Some((frame[4], u16::from_le_bytes([frame[5], frame[6]])))
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -638,6 +672,21 @@ pub mod bundlemgrd {
             const GOLDEN: [u8; 4] = [b'B', b'N', 1, 3];
             assert_eq!(req, GOLDEN);
             assert_eq!(decode_request_op(&req).unwrap(), OP_FETCH_IMAGE);
+        }
+
+        #[test]
+        fn list_apps_req_and_header_golden() {
+            let mut req = [0u8; 4];
+            encode_list_apps(&mut req);
+            assert_eq!(req, [b'B', b'N', 1, OP_LIST_APPS]);
+            assert_eq!(decode_request_op(&req).unwrap(), OP_LIST_APPS);
+
+            // A response header for 2 apps decodes to (OK, 2).
+            let rsp = [b'B', b'N', 1, OP_LIST_APPS | 0x80, STATUS_OK, 2, 0];
+            assert_eq!(decode_list_apps_header(&rsp), Some((STATUS_OK, 2)));
+            // Wrong opcode rejected.
+            let bad = [b'B', b'N', 1, OP_LIST | 0x80, STATUS_OK, 2, 0];
+            assert_eq!(decode_list_apps_header(&bad), None);
         }
 
         #[test]
