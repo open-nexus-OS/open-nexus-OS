@@ -17,6 +17,14 @@ extern crate alloc;
 // not a hardcoded const). Host-tested + consumed by the os compositor.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod app_menu;
+// Live registry fetch (RFC-0065): windowd → bundlemgrd OP_LIST_APPS over CAP_MOVE,
+// parsed into `app_menu::AppMenu`. OS-only (IPC); the parser it feeds is host-tested.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod registry_client;
+// Pure window-composition decisions (which windows show + z-order) extracted from
+// the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod window_scene;
 // Per-app surface lifecycle model (RFC-0065 — own VMO per app, lazy load/free).
 // Host-proven now; the gate widens to the OS build when the compositor runtime
 // drives it from the abilitymgr launch handoff (TASK-0065 P4b).

@@ -289,7 +289,7 @@ test-host:
     @env RUSTFLAGS='{{host_rustflags}}' cargo +stable test --workspace --exclude neuron --exclude neuron-boot
 
 # Pack the app bundles (`bundles/<app>/manifest.toml` → `target/bundles/<app>.nxb`).
-# RFC-0065: chat/search/notes ship as real `.nxb` bundles with Cap'n Proto manifests;
+# RFC-0065: chat/search ship as real `.nxb` bundles with Cap'n Proto manifests;
 # bundlemgrd enumerates them and abilitymgr resolves the launch ability.
 # NOTE: payload is the demo-exit0 ELF placeholder until each app crate ships its own
 # ELF (TASK-0065 P4); the manifest is the canonical, signable artifact.
@@ -301,7 +301,7 @@ pack-bundles:
     mkdir -p "$out"
     placeholder="$out/.placeholder.elf"
     printf '\x7fELF nexus app payload placeholder' > "$placeholder"
-    for app in chat search notes; do
+    for app in chat search; do
         echo "--- $app ---"
         cargo run -q -p nxb-pack -- --toml "bundles/$app/manifest.toml" "$placeholder" "$out/$app.nxb"
         echo "    -> $out/$app.nxb/manifest.nxb"

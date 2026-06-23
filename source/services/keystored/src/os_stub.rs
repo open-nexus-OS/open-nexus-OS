@@ -674,110 +674,13 @@ fn handle_sign(
     rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
 }
 
-fn policyd_allows(pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8]) -> bool {
-    const MAGIC0: u8 = b'P';
-    const MAGIC1: u8 = b'O';
-    const VERSION_V2: u8 = 2;
-    // Delegated check: keystored is an enforcement point; policyd validates that keystored is allowed
-    // to query policy for another subject id.
-    const OP_CHECK_CAP_DELEGATED: u8 = 5;
-    const STATUS_ALLOW: u8 = 0;
-
-    // init-lite deterministic slots for keystored:
-    // - reply inbox: recv=5, send=6
-    // - policyd send cap: 9 (after log_req at slot 8)
-    const POL_SEND_SLOT: u32 = 0x09;
-    const REPLY_RECV_SLOT: u32 = 0x05;
-    const REPLY_SEND_SLOT: u32 = 0x06;
-
-    if cap.is_empty() || cap.len() > 48 {
-        return false;
-    }
-    // v2 delegated CAP check request (nonce-correlated):
-    // [P, O, ver=2, OP_CHECK_CAP_DELEGATED, nonce:u32le, subject_id:u64le, cap_len:u8, cap...]
-    static NONCE: AtomicU32 = AtomicU32::new(1);
-    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-    let mut frame = Vec::with_capacity(17 + cap.len());
-    frame.push(MAGIC0);
-    frame.push(MAGIC1);
-    frame.push(VERSION_V2);
-    frame.push(OP_CHECK_CAP_DELEGATED);
-    frame.extend_from_slice(&nonce.to_le_bytes());
-    frame.extend_from_slice(&subject_id.to_le_bytes());
-    frame.push(cap.len() as u8);
-    frame.extend_from_slice(cap);
-    let send_slot = POL_SEND_SLOT;
-    let reply_send_slot = REPLY_SEND_SLOT;
-    let reply_recv_slot = REPLY_RECV_SLOT;
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    let clock = OsClock;
-    let deadline_ns = match deadline_after(&clock, Duration::from_millis(500)) {
-        Ok(v) => v,
-        Err(_) => {
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            return false;
-        }
-    };
-    if nexus_ipc::budget::raw::send_budgeted(&clock, send_slot, &hdr, &frame, deadline_ns).is_err()
-    {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return false;
-    }
-    // Best-effort close: keep local cap table bounded even though the cap was moved.
-    let _ = nexus_abi::cap_close(reply_send_clone);
-
-    struct ReplyInboxV1 {
-        recv_slot: u32,
-    }
-    impl nexus_ipc::Client for ReplyInboxV1 {
-        fn send(&self, _frame: &[u8], _wait: Wait) -> nexus_ipc::Result<()> {
-            Err(nexus_ipc::IpcError::Unsupported)
-        }
-        fn recv(&self, _wait: Wait) -> nexus_ipc::Result<Vec<u8>> {
-            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 512];
-            match nexus_abi::ipc_recv_v1(
-                self.recv_slot,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => Ok(buf[..core::cmp::min(n as usize, buf.len())].to_vec()),
-                Err(nexus_abi::IpcError::QueueEmpty) => Err(nexus_ipc::IpcError::WouldBlock),
-                Err(other) => Err(nexus_ipc::IpcError::Kernel(other)),
-            }
-        }
-    }
-
-    let clock = OsClock;
-    let deadline_ns = match deadline_after(&clock, Duration::from_millis(500)) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let inbox = ReplyInboxV1 { recv_slot: reply_recv_slot };
-    let rsp = match recv_match_until(
-        &clock,
-        &inbox,
-        pending,
-        nonce as u64,
-        deadline_ns,
-        extract_shared_nonce_u32,
-    ) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    crate::decode_delegated_cap_decision(&rsp, nonce) == Some(STATUS_ALLOW)
+fn policyd_allows(_pending: &mut ReplyBuffer<16, 512>, subject_id: u64, cap: &[u8]) -> bool {
+    // RFC-0066: the shared CAP_MOVE policy check over keystored's init-wired slots
+    // (policyd send=9, @reply recv=5/send=6). The ~100-line hand-rolled copy was removed.
+    matches!(
+        nexus_ipc::policyd::check_cap_on(0x09, 0x06, 0x05, subject_id, cap),
+        nexus_ipc::policyd::CapDecision::Allow
+    )
 }
 
 fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {

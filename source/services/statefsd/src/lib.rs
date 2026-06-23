@@ -27,24 +27,6 @@ mod std_server;
 #[cfg(not(all(feature = "os-lite", nexus_env = "os")))]
 pub use std_server::*;
 
-/// Decodes a policyd delegated-capability v2 response with nonce correlation.
-///
-/// Returns `Some(status)` only when the response shape is valid and nonce matches.
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
-pub(crate) fn decode_delegated_cap_decision(frame: &[u8], expected_nonce: u32) -> Option<u8> {
-    if frame.len() != 10 || frame[0] != b'P' || frame[1] != b'O' || frame[2] != 2 {
-        return None;
-    }
-    if frame[3] != (5 | 0x80) {
-        return None;
-    }
-    let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
-    if nonce != expected_nonce {
-        return None;
-    }
-    Some(frame[8])
-}
-
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 const SID_METRICSD_ALT: u64 = 0xed20_5ae1_e47c_393d;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
@@ -74,25 +56,11 @@ pub(crate) fn canonical_policy_subject_for_statefs(
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_policy_subject_for_statefs, decode_delegated_cap_decision};
+    use super::canonical_policy_subject_for_statefs;
 
-    #[test]
-    fn test_decode_delegated_cap_decision_accepts_matching_nonce() {
-        let nonce = 0xA1B2_C3D4;
-        let rsp = [b'P', b'O', 2, 5 | 0x80, 0xD4, 0xC3, 0xB2, 0xA1, 0, 0];
-        assert_eq!(decode_delegated_cap_decision(&rsp, nonce), Some(0));
-    }
-
-    #[test]
-    fn test_decode_delegated_cap_decision_rejects_malformed() {
-        assert_eq!(decode_delegated_cap_decision(&[0u8; 4], 1), None);
-    }
-
-    #[test]
-    fn test_decode_delegated_cap_decision_rejects_nonce_mismatch() {
-        let rsp = [b'P', b'O', 2, 5 | 0x80, 1, 0, 0, 0, 0, 0];
-        assert_eq!(decode_delegated_cap_decision(&rsp, 2), None);
-    }
+    // The delegated-cap decode is now the shared, host-tested
+    // `nexus_ipc::policyd::decode_decision` (RFC-0066) — statefsd's local copy +
+    // its tests were removed with the duplicated `policyd_allows`.
 
     #[test]
     fn test_canonical_policy_subject_maps_only_exact_task0018_child_put() {

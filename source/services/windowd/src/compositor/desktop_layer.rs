@@ -100,24 +100,22 @@ pub(crate) const SIDEPANEL_TOP: u32 = TOPBAR_TOP + TOPBAR_H + 10;
 // rendering live here so the scene graph can later own/optimize it. For now
 // windowd rasterizes it into an atlas and composites it as one animated layer.
 
-/// A clickable row in the Apps dropdown.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum DropdownItem {
-    Chat,
-    Search,
-}
-
-const DROPDOWN_ITEMS: [(DropdownItem, &str); 2] =
-    [(DropdownItem::Chat, "Chat"), (DropdownItem::Search, "Search")];
+// The dropdown's *contents* are no longer a hardcoded const — they come from the
+// bundle registry via [`crate::app_menu::AppMenu`] (RFC-0065). This module keeps
+// only the visual geometry + per-row rendering; rows are driven by the menu the
+// runtime fetched (`bundlemgrd` OP_LIST_APPS), with a seed fallback.
 
 pub(crate) const DROPDOWN_W: u32 = 156;
-pub(crate) const DROPDOWN_PAD: u32 = 8;
-pub(crate) const DROPDOWN_ROW_H: u32 = 30;
+/// Dropdown row geometry SSOT lives in `app_menu` (host-tested hit-testing must
+/// agree with rendering). Re-export so this module's renderer uses the same values.
+pub(crate) use crate::app_menu::{DROPDOWN_PAD, DROPDOWN_ROW_H};
 pub(crate) const DROPDOWN_RADIUS: u32 = 12;
 
-/// Full (open) height of the dropdown.
-pub(crate) const fn dropdown_full_h() -> u32 {
-    DROPDOWN_PAD * 2 + DROPDOWN_ROW_H * DROPDOWN_ITEMS.len() as u32
+/// Atlas band height reserved for the dropdown — sized for the maximum registry
+/// list (`app_menu::MAX_MENU_APPS`) so any fetched menu fits without re-reserving.
+/// The *open* (animated) height is dynamic: `AppMenu::dropdown_full_h()`.
+pub(crate) const fn dropdown_band_h() -> u32 {
+    DROPDOWN_PAD * 2 + DROPDOWN_ROW_H * crate::app_menu::MAX_MENU_APPS as u32
 }
 
 /// Bar-local x of the "Apps" topbar item (the dropdown anchors under it).
@@ -125,32 +123,23 @@ pub(crate) fn apps_item_x() -> u32 {
     item_cell(0).map(|(s, _)| s).unwrap_or(TOPBAR_MARGIN_X)
 }
 
-/// Which dropdown item a dropdown-local point falls in.
-pub(crate) fn dropdown_item_at(local_y: u32) -> Option<DropdownItem> {
-    for (i, (item, _)) in DROPDOWN_ITEMS.iter().enumerate() {
-        let top = DROPDOWN_PAD + i as u32 * DROPDOWN_ROW_H;
-        if local_y >= top && local_y < top + DROPDOWN_ROW_H {
-            return Some(*item);
-        }
-    }
-    None
-}
-
-/// Draw one dropdown-local row: glass tint, hover cell, item label.
+/// Draw one dropdown-local row from the dynamic [`crate::app_menu::AppMenu`]:
+/// glass tint, hover cell, and the registry-sourced label per row.
 pub(crate) fn draw_dropdown_row(
+    menu: &crate::app_menu::AppMenu,
     local_y: u32,
     row: &mut [u8],
     w: u32,
-    hover: Option<DropdownItem>,
+    hover: Option<usize>,
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, w, TINT);
-    for (i, (item, label)) in DROPDOWN_ITEMS.iter().enumerate() {
+    for (i, entry) in menu.entries().iter().enumerate() {
         let top = DROPDOWN_PAD + i as u32 * DROPDOWN_ROW_H;
-        if hover == Some(*item) && local_y >= top && local_y < top + DROPDOWN_ROW_H {
+        if hover == Some(i) && local_y >= top && local_y < top + DROPDOWN_ROW_H {
             write_tint_span(row, 4, w.saturating_sub(4), HOVER_TINT);
         }
         let text_top = top + (DROPDOWN_ROW_H - FONT_H * FONT_SCALE) / 2;
-        draw_label(local_y, row, label, DROPDOWN_PAD + 6, text_top, TEXT_COLOR)?;
+        draw_label(local_y, row, &entry.label, DROPDOWN_PAD + 6, text_top, TEXT_COLOR)?;
     }
     Ok(())
 }

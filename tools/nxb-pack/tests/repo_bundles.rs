@@ -4,7 +4,7 @@
 // CONTEXT: Proves the repo app bundles (`bundles/<app>/manifest.toml`) pack into
 // a real `.nxb` with a valid Cap'n Proto `manifest.nxb` carrying the app id +
 // launch ability — the data `bundlemgrd` enumerates and `abilitymgr` resolves
-// from (RFC-0065 — chat/search/notes as real apps).
+// from (RFC-0065 — chat/search as real apps).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -72,11 +72,4 @@ fn search_bundle_packs_with_launch_ability() {
     let (name, abilities, _caps) = pack_and_read("search");
     assert_eq!(name, "search");
     assert_eq!(abilities, vec!["search.MainAbility".to_string()]);
-}
-
-#[test]
-fn notes_bundle_packs_with_launch_ability() {
-    let (name, abilities, _caps) = pack_and_read("notes");
-    assert_eq!(name, "notes");
-    assert_eq!(abilities, vec!["notes.MainAbility".to_string()]);
 }

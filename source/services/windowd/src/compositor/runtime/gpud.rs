@@ -67,7 +67,8 @@ impl DisplayServerRuntime {
                 false
             }
             Err(err) => {
-                log_gpud_ipc_error("windowd: gpud present send failed", err);
+                let send_slot = self.gpud_client.as_ref().map(|c| c.slots().0).unwrap_or(0);
+                log_gpud_cap_error("windowd: gpud present send failed", err, send_slot);
                 self.reset_gpud_client();
                 false
             }
@@ -159,7 +160,8 @@ impl DisplayServerRuntime {
             client.send(frame, Wait::Blocking)
         };
         if let Err(err) = send_result {
-            log_gpud_ipc_error("windowd: gpud request send failed", err);
+            let send_slot = self.gpud_client.as_ref().map(|c| c.slots().0).unwrap_or(0);
+            log_gpud_cap_error("windowd: gpud request send failed", err, send_slot);
             self.gpud_client = None;
             return Err(WindowdError::InvalidDamage);
         }

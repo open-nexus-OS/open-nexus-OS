@@ -28,110 +28,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 use nexus_abi::Rights;
 
-/// Compact service identifier — maps 1:1 to the service name used in routing.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[repr(u8)]
-pub enum ServiceId {
-    /// Virtual file system daemon.
-    Vfsd = 1,
-    /// Package file system daemon.
-    Packagefsd = 2,
-    /// Policy enforcement daemon.
-    Policyd = 3,
-    /// Bundle manager daemon.
-    Bundlemgrd = 4,
-    /// Update daemon.
-    Updated = 5,
-    /// System ability manager daemon.
-    Samgrd = 6,
-    /// Exec daemon.
-    Execd = 7,
-    /// Key store daemon.
-    Keystored = 8,
-    /// State file system daemon.
-    Statefsd = 9,
-    /// Random number generator daemon.
-    Rngd = 10,
-    /// Timer daemon.
-    Timed = 11,
-    /// Window manager / compositor daemon.
-    Windowd = 12,
-    /// Input routing daemon.
-    Inputd = 13,
-    /// GPU driver daemon.
-    Gpud = 15,
-    /// Network stack daemon.
-    Netstackd = 16,
-    /// Metrics daemon.
-    Metricsd = 17,
-    /// Log daemon.
-    Logd = 18,
-    /// Distributed soft bus daemon.
-    Dsoftbusd = 19,
-    /// HID raw input daemon.
-    Hidrawd = 20,
-    /// Touch input daemon.
-    Touchd = 21,
-    /// Selftest client.
-    SelftestClient = 22,
-}
-
-impl ServiceId {
-    /// Look up a service by its canonical name. Returns None for unknown names.
-    pub fn from_name(name: &[u8]) -> Option<Self> {
-        match name {
-            b"vfsd" => Some(Self::Vfsd),
-            b"packagefsd" => Some(Self::Packagefsd),
-            b"policyd" => Some(Self::Policyd),
-            b"bundlemgrd" => Some(Self::Bundlemgrd),
-            b"updated" => Some(Self::Updated),
-            b"samgrd" => Some(Self::Samgrd),
-            b"execd" => Some(Self::Execd),
-            b"keystored" => Some(Self::Keystored),
-            b"statefsd" => Some(Self::Statefsd),
-            b"rngd" => Some(Self::Rngd),
-            b"timed" => Some(Self::Timed),
-            b"windowd" => Some(Self::Windowd),
-            b"inputd" => Some(Self::Inputd),
-            b"gpud" => Some(Self::Gpud),
-            b"netstackd" => Some(Self::Netstackd),
-            b"metricsd" => Some(Self::Metricsd),
-            b"logd" => Some(Self::Logd),
-            b"dsoftbusd" => Some(Self::Dsoftbusd),
-            b"hidrawd" => Some(Self::Hidrawd),
-            b"touchd" => Some(Self::Touchd),
-            b"selftest-client" => Some(Self::SelftestClient),
-            _ => None,
-        }
-    }
-
-    /// Returns the canonical service name.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Vfsd => "vfsd",
-            Self::Packagefsd => "packagefsd",
-            Self::Policyd => "policyd",
-            Self::Bundlemgrd => "bundlemgrd",
-            Self::Updated => "updated",
-            Self::Samgrd => "samgrd",
-            Self::Execd => "execd",
-            Self::Keystored => "keystored",
-            Self::Statefsd => "statefsd",
-            Self::Rngd => "rngd",
-            Self::Timed => "timed",
-            Self::Windowd => "windowd",
-            Self::Inputd => "inputd",
-            Self::Gpud => "gpud",
-            Self::Netstackd => "netstackd",
-            Self::Metricsd => "metricsd",
-            Self::Logd => "logd",
-            Self::Dsoftbusd => "dsoftbusd",
-            Self::Hidrawd => "hidrawd",
-            Self::Touchd => "touchd",
-            Self::SelftestClient => "selftest-client",
-        }
-    }
-}
+/// Re-exported from the host-testable declarative topology (RFC-0066).
+pub use crate::service_topology::{ServiceId, REQUIRED_ROUTES};
 
 /// A typed capability slot with associated rights.
 #[must_use = "capability slots must be explicitly used or closed"]
@@ -235,6 +133,7 @@ impl RouteTable {
         self.routes.is_empty()
     }
 }
+
 
 #[cfg(test)]
 mod tests {

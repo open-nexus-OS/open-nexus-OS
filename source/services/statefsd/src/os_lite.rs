@@ -17,10 +17,8 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use core::fmt;
-use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
-use nexus_ipc::budget::{deadline_after, OsClock};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use statefs::protocol::{self as proto, Request};
@@ -437,101 +435,13 @@ fn required_cap(op: u8, path: &str) -> &'static str {
 }
 
 fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
-    const MAGIC0: u8 = b'P';
-    const MAGIC1: u8 = b'O';
-    const VERSION_V2: u8 = 2;
-    const OP_CHECK_CAP_DELEGATED: u8 = 5;
-    const STATUS_ALLOW: u8 = 0;
-
-    if cap.is_empty() || cap.len() > 48 {
-        return false;
-    }
-    // v2 delegated CAP check request (nonce-correlated):
-    // [P, O, ver=2, OP_CHECK_CAP_DELEGATED, nonce:u32le, subject_id:u64le, cap_len:u8, cap...]
-    static NONCE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
-    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    let mut frame = Vec::with_capacity(17 + cap.len());
-    frame.push(MAGIC0);
-    frame.push(MAGIC1);
-    frame.push(VERSION_V2);
-    frame.push(OP_CHECK_CAP_DELEGATED);
-    frame.extend_from_slice(&nonce.to_le_bytes());
-    frame.extend_from_slice(&subject_id.to_le_bytes());
-    frame.push(cap.len() as u8);
-    frame.extend_from_slice(cap);
-
-    // init-lite deterministic slots for statefsd:
-    // - reply inbox: recv=5, send=6
-    // - policyd send cap: 7
-    const POL_SEND_SLOT: u32 = 0x07;
-    const REPLY_RECV_SLOT: u32 = 0x05;
-    const REPLY_SEND_SLOT: u32 = 0x06;
-    let reply_send_clone = match nexus_abi::cap_clone(REPLY_SEND_SLOT) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    let clock = OsClock;
-    let deadline = match deadline_after(&clock, Duration::from_secs(2)) {
-        Ok(v) => v,
-        Err(_) => {
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            return false;
-        }
-    };
-
-    if nexus_ipc::budget::raw::send_budgeted(&clock, POL_SEND_SLOT, &hdr, &frame, deadline).is_err()
-    {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return false;
-    }
-    // Best-effort close: keep local cap table bounded even though the cap was moved.
-    let _ = nexus_abi::cap_close(reply_send_clone);
-
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 16];
-    let mut j: usize = 0;
-    loop {
-        if (j & 0x7f) == 0 {
-            let now = match nexus_abi::nsec() {
-                Ok(value) => value,
-                Err(_) => return false,
-            };
-            if now >= deadline {
-                return false;
-            }
-        }
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n != 10 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION_V2 {
-                    continue;
-                }
-                if buf[3] != (OP_CHECK_CAP_DELEGATED | 0x80) {
-                    continue;
-                }
-                return crate::decode_delegated_cap_decision(&buf[..n], nonce)
-                    == Some(STATUS_ALLOW);
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return false,
-        }
-        j = j.wrapping_add(1);
-    }
+    // RFC-0066: the shared CAP_MOVE policy check (nexus_ipc::policyd::check_cap_on)
+    // over statefsd's init-wired policyd slots (send=7, @reply recv=5/send=6) —
+    // behaviour-preserving; the ~90-line hand-rolled copy was removed.
+    matches!(
+        nexus_ipc::policyd::check_cap_on(0x07, 0x06, 0x05, subject_id, cap),
+        nexus_ipc::policyd::CapDecision::Allow
+    )
 }
 
 fn emit_access_denied(path: &str, sender_service_id: u64) {

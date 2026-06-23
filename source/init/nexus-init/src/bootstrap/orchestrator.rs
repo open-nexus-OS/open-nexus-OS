@@ -551,6 +551,11 @@ where
                     .map_err(InitError::Abi)?,
             );
             debug_write_bytes(b"init: windowd priority-wired\n");
+            // NOTE: windowd's registry reply-inbox + bundlemgrd route caps are
+            // provisioned LATE (after the gpud caps land at the fallback slots
+            // 5/6 the display handoff hardcodes) — see the windowd block after the
+            // wiring loop. Provisioning them HERE shifted gpud to slots 8/9 and
+            // broke the present handoff with kernel-permission-denied.
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
             let pid = chan.pid;
@@ -1442,6 +1447,12 @@ where
                         chan.gpud_send_slot = Some(gpud_send);
                         chan.gpud_recv_slot = Some(gpud_recv);
                     }
+                    // RFC-0065 dynamic Apps menu: provision the registry reply-inbox
+                    // + bundlemgrd route caps HERE — AFTER the gpud caps, so gpud
+                    // keeps the hardcoded fallback slots (5/6) the present handoff
+                    // relies on. (Doing this in the priority-wire block shifted gpud
+                    // to 8/9 → present handoff `kernel-permission-denied`.)
+                    provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -1459,6 +1470,9 @@ where
                     chan.gpud_send_slot = Some(gpud_send);
                     chan.gpud_recv_slot = Some(gpud_recv);
                 }
+                // Registry reply-inbox + bundlemgrd route AFTER gpud (slot-order
+                // contract — see the skip path above).
+                provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
                 debug_write_bytes(b"init: windowd slots recv=0x");
                 debug_write_hex(recv_slot as usize);
                 debug_write_bytes(b" send=0x");
@@ -1763,6 +1777,58 @@ where
                 chan.timed_send_slot = Some(send_slot);
                 chan.timed_recv_slot = Some(recv_slot);
             }
+            // RFC-0066 Phase 3 (incremental): services whose wiring is just "a
+            // server endpoint" are provisioned **data-driven** from the declarative
+            // `ServiceSpec` (host-tested) via the generic helper below — not a
+            // bespoke arm. abilitymgr is the first such service; the complex
+            // services keep their bespoke arms until they are migrated too.
+            name if crate::service_topology::exposes_server(name.as_bytes())
+                && !is_bespoke_wired(name) =>
+            {
+                use crate::service_topology::ServiceId;
+                provision_server_endpoint(ENDPOINT_FACTORY_CAP_SLOT, pid, name.as_bytes());
+
+                // RFC-0066 P3: provision this service's outbound routes **from its
+                // declarative `ServiceSpec.routes_to`** (not a bespoke arm). Each
+                // route = a CAP_MOVE reply inbox + a send cap to the target's
+                // request endpoint; the existing `build_route_table` fields register
+                // it. Best-effort: a failure leaves the route unwired, never bricks.
+                if let Some(spec) = crate::service_topology::spec_for(name.as_bytes()) {
+                    if !spec.routes_to.is_empty() && spec.reply_inbox {
+                        if let Ok(reply_ep) =
+                            nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                        {
+                            let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
+                            let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
+                            let _ = nexus_abi::cap_close(reply_ep);
+                            if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
+                                chan.reply_recv_slot = Some(reply_recv);
+                                chan.reply_send_slot = Some(reply_send);
+                                for &to in spec.routes_to {
+                                    // Bridge ServiceId → the target's request cap +
+                                    // the matching channel field (uniform routing is
+                                    // a later refactor; this reuses what exists).
+                                    match to {
+                                        ServiceId::Bundlemgrd => {
+                                            if let Ok(s) =
+                                                nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
+                                            {
+                                                chan.bnd_send_slot = Some(s);
+                                                chan.bnd_recv_slot = Some(reply_recv);
+                                                debug_write_bytes(b"init: ");
+                                                debug_write_bytes(name.as_bytes());
+                                                debug_write_bytes(b" route->bundlemgrd ok\n");
+                                            }
+                                        }
+                                        // execd route wires with the launch path (later).
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1831,4 +1897,101 @@ where
         upd_reply_recv: pol_ctl_route_rsp,
         upd_pending,
     })
+}
+
+/// Provisions windowd's RFC-0065 dynamic-Apps-menu route caps: a CAP_MOVE reply
+/// inbox + a SEND cap to bundlemgrd's request endpoint, so windowd's
+/// `route_blocking("bundlemgrd")` / `route_blocking("@reply")` resolve (declared in
+/// `service_topology` as Windowd→Bundlemgrd; granted `bundle.query`+`ipc.core` in
+/// base.toml). MUST be called AFTER windowd's gpud caps are transferred so the
+/// present handoff's hardcoded fallback slots (5/6 = gpud) are not displaced.
+/// Best-effort: a failure leaves the route unwired (the menu falls back to its
+/// seed), never bricks boot.
+fn provision_windowd_registry_route(
+    factory_slot: u32,
+    pid: u32,
+    bnd_req: u32,
+    chan: &mut CtrlChannel,
+) {
+    let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) else {
+        return;
+    };
+    let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
+    let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
+    let _ = nexus_abi::cap_close(reply_ep);
+    if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
+        chan.reply_recv_slot = Some(reply_recv);
+        chan.reply_send_slot = Some(reply_send);
+        if let Ok(s) = nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND) {
+            chan.bnd_send_slot = Some(s);
+            chan.bnd_recv_slot = Some(reply_recv);
+            debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
+        }
+    }
+}
+
+/// `true` if `name` has a bespoke wiring arm in the orchestrator (complex
+/// services with routes/reply-inboxes). RFC-0066 Phase 3: services NOT in this set
+/// whose `ServiceSpec.exposes_server` is true are provisioned generically from the
+/// declarative topology instead of a hand-written arm. As bespoke services are
+/// migrated to `ServiceSpec`, they are removed from this set.
+fn is_bespoke_wired(name: &str) -> bool {
+    matches!(
+        name,
+        "netstackd"
+            | "dsoftbusd"
+            | "vfsd"
+            | "packagefsd"
+            | "policyd"
+            | "bundlemgrd"
+            | "updated"
+            | "samgrd"
+            | "execd"
+            | "keystored"
+            | "statefsd"
+            | "rngd"
+            | "timed"
+            | "hidrawd"
+            | "gpud"
+            | "windowd"
+            | "inputd"
+            | "metricsd"
+            | "logd"
+            | "selftest-client"
+    )
+}
+
+/// Provisions a plain server endpoint for a service (recv/send land at the
+/// deterministic fallback slots 3/4 the service expects), driven by the
+/// declarative [`crate::service_topology::ServiceSpec`]. Best-effort: a failure
+/// leaves the service unwired rather than aborting init — it must never brick boot.
+fn provision_server_endpoint(factory_slot: u32, pid: u32, name: &[u8]) {
+    match nexus_abi::ipc_endpoint_create_for(factory_slot, pid, 8) {
+        Ok(ep) => {
+            let recv = nexus_abi::cap_transfer(pid, ep, Rights::RECV);
+            let send = nexus_abi::cap_transfer(pid, ep, Rights::SEND);
+            let _ = nexus_abi::cap_close(ep);
+            match (recv, send) {
+                (Ok(recv_slot), Ok(send_slot)) => {
+                    debug_write_bytes(b"init: ");
+                    debug_write_bytes(name);
+                    debug_write_bytes(b" slots recv=0x");
+                    debug_write_hex(recv_slot as usize);
+                    debug_write_bytes(b" send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_byte(b'\n');
+                }
+                _ => {
+                    debug_write_bytes(b"init: ");
+                    debug_write_bytes(name);
+                    debug_write_bytes(b" slot xfer skip\n");
+                }
+            }
+        }
+        Err(_) => {
+            debug_write_bytes(b"init: ");
+            debug_write_bytes(name);
+            debug_write_bytes(b" endpoint skip\n");
+        }
+    }
 }

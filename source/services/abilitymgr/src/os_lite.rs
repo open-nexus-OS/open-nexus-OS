@@ -62,6 +62,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     notifier.notify();
     emit_line("abilitymgr: ready");
 
+    // RFC-0065: prove the live resolve hop — ask the registry (bundlemgrd) for the
+    // installed app list. Best-effort: any failure just logs and is non-fatal.
+    probe_registry();
+
     let server = route_abilitymgr_blocking().ok_or(AbilitymgrError::Ipc("route failed"))?;
 
     // The broker owns lifecycle state for the life of the service.
@@ -90,6 +94,124 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
             Err(_) => {
                 emit_line("abilitymgr: recv error");
                 return Err(AbilitymgrError::Ipc("recv"));
+            }
+        }
+    }
+}
+
+/// Best-effort: query the registry (`bundlemgrd` `OP_LIST_APPS`) for the installed
+/// app list and report the count — the live half of the launch resolve path.
+///
+/// Uses the production CAP_MOVE request/reply over the init-provisioned
+/// `abilitymgr→bundlemgrd` route (RFC-0066 P3): route to bundlemgrd's request
+/// endpoint + our `@reply` inbox, move a reply cap so bundlemgrd answers us, then
+/// receive the response. Bounded + non-fatal — any failure emits a skip marker and
+/// the service continues.
+fn probe_registry() {
+    let (send_slot, _recv) = match route_blocking(b"bundlemgrd") {
+        Some(slots) => slots,
+        None => {
+            emit_line("abilitymgr: registry unreachable");
+            return;
+        }
+    };
+    let (reply_send_slot, reply_recv_slot) = match route_blocking(b"@reply") {
+        Some(slots) => slots,
+        None => {
+            emit_line("abilitymgr: registry no reply inbox");
+            return;
+        }
+    };
+
+    let mut req = [0u8; 4];
+    nexus_abi::bundlemgrd::encode_list_apps(&mut req);
+
+    // Move a clone of our reply-send cap into the request so bundlemgrd replies to
+    // our @reply inbox (CAP_MOVE).
+    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
+        Ok(c) => c,
+        Err(_) => {
+            emit_line("abilitymgr: registry cap clone fail");
+            return;
+        }
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+
+    let start = nexus_abi::nsec().unwrap_or(0);
+    let deadline = start.saturating_add(500_000_000); // 500ms bound
+
+    // Send (bounded, non-blocking).
+    let mut sent = false;
+    let mut spins: u32 = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => {
+                sent = true;
+                break;
+            }
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
+                    break;
+                }
+                spins = spins.saturating_add(1);
+                let _ = yield_();
+            }
+            Err(_) => break,
+        }
+    }
+    let _ = nexus_abi::cap_close(reply_send_clone);
+    if !sent {
+        emit_line("abilitymgr: registry send fail");
+        return;
+    }
+
+    // Receive the reply on our @reply inbox (bounded).
+    loop {
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 256];
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if let Some((status, count)) =
+                    nexus_abi::bundlemgrd::decode_list_apps_header(&buf[..n])
+                {
+                    if status == nexus_abi::bundlemgrd::STATUS_OK {
+                        emit_prefix(b"abilitymgr: registry ok (n=");
+                        emit_u32(count as u32);
+                        emit_prefix(b")");
+                        emit_newline();
+                        return;
+                    }
+                }
+                // Unrelated frame on the shared inbox: keep waiting until deadline.
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    emit_line("abilitymgr: registry timeout");
+                    return;
+                }
+                let _ = yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    emit_line("abilitymgr: registry timeout");
+                    return;
+                }
+                let _ = yield_();
+            }
+            Err(_) => {
+                emit_line("abilitymgr: registry recv err");
+                return;
             }
         }
     }

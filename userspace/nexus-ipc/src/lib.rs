@@ -141,8 +141,17 @@ pub mod logd_wire;
 /// policyd v2/v3 wire helpers (host-testable parsers).
 pub mod policyd_wire;
 
+/// Capability namespace — typed SSOT for capability names (RFC-0066).
+pub mod capabilities;
+
+/// Reusable policyd capability-check client (RFC-0066): one delegated cap check.
+pub mod policyd;
+
 /// Request/reply correlation helpers (nonce + bounded reply buffer).
 pub mod reqrep;
+
+/// One reusable typed request/reply client over a pluggable transport (RFC-0066).
+pub mod connection;
 
 #[cfg(all(nexus_env = "host", feature = "std"))]
 mod host;

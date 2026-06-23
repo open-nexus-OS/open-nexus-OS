@@ -11,11 +11,20 @@ execd = ["proc.spawn", "ipc.core", "fs.read"]
 updated = ["crypto.verify", "ipc.core", "statefs.boot"]
 dsoftbusd = ["ipc.core", "statefs.read", "statefs.write"]
 metricsd = ["ipc.core", "statefs.write"]
+# timed routes to metricsd to report timer metrics — surfaced by the new
+# !route-deny marker as a previously-silent denial (it lacked ipc.core).
+timed = ["ipc.core"]
 netstackd = ["device.mmio.net", "ipc.core"]
 virtioblkd = ["device.mmio.blk", "ipc.core"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]
 "gpud" = ["device.mmio.gpu", "ipc.core"]
+# RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
+# and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the
+# registry for the dynamic Apps menu. Without `ipc.core` here, their route requests
+# are policy-denied → "unreachable" (the bug this fixes).
+"abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn"]
+"windowd" = ["ipc.core", "bundle.query"]
 "selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
 

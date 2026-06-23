@@ -125,6 +125,28 @@ fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
     let _ = debug_println(&alloc::format!("{prefix} {label}"));
 }
 
+/// Like [`log_gpud_ipc_error`] but for the cap-sensitive gpud sends (the VMO
+/// cap-move handoff + present). On a `kernel-permission-denied` — the classic
+/// "the cap at this slot lacks SEND, or the send slot points at the wrong cap" —
+/// it names the gpud SEND slot and the slot contract, so a future cap regression
+/// (e.g. init displacing the gpud caps off slots 5/6) is diagnosable from one
+/// boot line instead of a log dig. Other errors defer to the generic logger.
+fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
+    if matches!(
+        err,
+        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)
+    ) {
+        let _ = debug_println(&alloc::format!(
+            "{prefix} kernel-permission-denied (gpud send_slot={send_slot}: cap lacks SEND or slot \
+             points at the wrong cap — windowd→gpud handoff contract is slots \
+             {GPUD_FALLBACK_SEND_SLOT}/{GPUD_FALLBACK_RECV_SLOT}; check init cap-transfer order \
+             didn't displace them)"
+        ));
+    } else {
+        log_gpud_ipc_error(prefix, err);
+    }
+}
+
 fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
     let mut frame = [0u8; 17];
     frame[0] = GPU_PRESENT_DAMAGE_OP;
@@ -542,10 +564,18 @@ pub(crate) struct DisplayServerRuntime {
     sidepanel_surface_dirty: bool,
     /// Topbar "Apps" dropdown: open state, hovered row, atlas + render dirty.
     apps_dropdown_open: bool,
-    dropdown_hover: Option<crate::compositor::desktop_layer::DropdownItem>,
+    dropdown_hover: Option<usize>,
     dropdown_atlas: crate::atlas::AtlasSurface,
+    /// Open (animated) height of the dropdown = `app_menu.dropdown_full_h()`. The
+    /// reserved atlas band (`dropdown_atlas`) is sized for the max list; this is
+    /// the height of the *current* registry-sourced menu.
     dropdown_h: u32,
     dropdown_surface_dirty: bool,
+    /// Dynamic Apps menu (RFC-0065): built from the `bundlemgrd` registry
+    /// (`OP_LIST_APPS`), seeded until the lazy fetch on first open succeeds.
+    app_menu: crate::app_menu::AppMenu,
+    /// Whether the live registry fetch has been attempted (one-shot, lazy).
+    app_menu_fetched: bool,
     /// The Search window — the first instance of the reusable `ShellWindow`
     /// glass-frame component (drag/close/scroll/cached-blur live in the component;
     /// the filtered word list below is the body content the runtime supplies).
@@ -631,6 +661,28 @@ struct InputMarkerState {
     visible_input_summary: bool,
     visible_wheel_summary: bool,
     v2b_assets_summary: bool,
+}
+
+/// Reserve a full-width atlas band, emitting a precise OOM marker (which surface,
+/// rows needed, rows remaining) on failure. Without this, a starved atlas makes
+/// `new()` return a generic error → `windowd: init fail display-server` with no
+/// hint which surface overflowed → the bootsplash stays and the cause is a hunt.
+/// This turns it into one actionable log line (RFC-0066 "actionable errors").
+fn alloc_band_or_log(
+    atlas: &mut crate::atlas::AtlasAllocator,
+    rows: u32,
+    label: &str,
+) -> Result<crate::atlas::AtlasSurface, WindowdError> {
+    let remaining = atlas.rows_remaining();
+    match atlas.alloc_band(rows) {
+        Some(s) => Ok(s),
+        None => {
+            let _ = debug_println(&alloc::format!(
+                "windowd: atlas OOM surface={label} need={rows} rem={remaining}"
+            ));
+            Err(WindowdError::BufferLengthMismatch)
+        }
+    }
 }
 
 impl DisplayServerRuntime {
@@ -792,16 +844,14 @@ impl DisplayServerRuntime {
         let mut atlas = crate::atlas::AtlasAllocator::new();
         // Overscan-tall surface: viewport + CHAT_OVERSCAN extra content rows, so
         // scroll within the window is a composite source-row offset, not a re-render.
-        let chat_atlas = atlas
-            .alloc_band(crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        let chat_atlas =
+            alloc_band_or_log(&mut atlas, crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN, "chat")?;
         // Cache of the BLURRED backdrop behind the chat window. The backdrop is
         // the static base, so we blur it once per window move and reuse it every
         // present (Task #17 pattern) — zero per-frame blur for glass, the key to
         // running several glass layers at 120Hz.
-        let chat_blur_cache = atlas
-            .alloc_band(crate::interaction::CHAT_PANEL_H)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        let chat_blur_cache =
+            alloc_band_or_log(&mut atlas, crate::interaction::CHAT_PANEL_H, "chat_blur")?;
         // Cache of the FULLY COMPOSITED sidebar (blurred backdrop + glass tint +
         // border + icons). When the sidebar is settled (fully open, static), it's
         // composited once and then blitted each present — so a cursor move over
@@ -810,24 +860,28 @@ impl DisplayServerRuntime {
         // full-height composite cache) is suppressed — reclaim those ~800 atlas
         // rows for the shell windows (topbar/panel/dropdown/search) instead of a
         // dead allocation. A 1-row dummy keeps the field valid.
-        let sidebar_composite_cache = atlas
-            .alloc_band(if shell_config.desktop_chrome { 1 } else { mode.height })
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        let sidebar_composite_cache = alloc_band_or_log(
+            &mut atlas,
+            if shell_config.desktop_chrome { 1 } else { mode.height },
+            "sidebar_cache",
+        )?;
         // Shell-P2b: reserve the glass topbar layer surface — full-width, one
         // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
         // rounded corners + shadow each present.
         let shell_w = mode.width.saturating_sub(2 * super::desktop_layer::TOPBAR_MARGIN_X).max(1);
         let shell_h = super::desktop_layer::TOPBAR_H;
-        let shell_atlas = atlas
-            .alloc_band(shell_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        let shell_atlas = alloc_band_or_log(&mut atlas, shell_h, "topbar")?;
         // Topbar Apps dropdown surface — small, fixed. Reserved BEFORE the side
         // panel so the side panel's "take the rest" clamp can't starve it (that
         // exhausted the atlas → new() Err → no handoff after the bootsplash).
-        let dropdown_h = super::desktop_layer::dropdown_full_h();
-        let dropdown_atlas = atlas
-            .alloc_band(dropdown_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        // The band is sized for the bounded MAX displayed list (`MAX_MENU_APPS`,
+        // small) so a later registry fetch fits without re-reserving — and kept
+        // small enough that the side-panel/search-pool tail survives (the atlas is
+        // tight; the dropdown grew from 2 rows to this, the side panel absorbs it).
+        let dropdown_band_h = super::desktop_layer::dropdown_band_h();
+        let app_menu = crate::app_menu::AppMenu::seed();
+        let dropdown_h = app_menu.dropdown_full_h();
+        let dropdown_atlas = alloc_band_or_log(&mut atlas, dropdown_band_h, "dropdown")?;
         // The Search window as a ShellWindow instance (the reusable glass frame).
         // Its atlas surfaces are NOT reserved at boot — they are acquired from the
         // allocator on show and released on hide (on-demand pool). The boot path
@@ -855,9 +909,7 @@ impl DisplayServerRuntime {
             .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
             .max(1)
             .min(atlas.rows_remaining().saturating_sub(WINDOW_POOL_ROWS).max(1));
-        let sidepanel_atlas = atlas
-            .alloc_band(sidepanel_h)
-            .ok_or(WindowdError::BufferLengthMismatch)?;
+        let sidepanel_atlas = alloc_band_or_log(&mut atlas, sidepanel_h, "sidepanel")?;
         // The Chat window as a ShellWindow instance (the SAME reusable glass frame
         // as Search). It mounts the overscan content band + blur cache reserved
         // above and starts open at the panel's default position. E1 retired the
@@ -876,8 +928,11 @@ impl DisplayServerRuntime {
             CHAT_SHADOW_ALPHA as u32,
         );
         chat.mount(chat_atlas, chat_blur_cache);
-        chat.visible = true;
-        let _ = debug_println("dbg: windowd init chat ok");
+        // RFC-0065: the desktop starts clean — chat is NOT auto-shown. It opens on
+        // demand (chat button / "Chat" in the Apps dropdown via `toggle_chat`),
+        // the first visible step away from a baked-open window toward a launched app.
+        chat.visible = false;
+        let _ = debug_println("dbg: windowd init chat hidden ok");
         Ok(Self {
             mode,
             source_frame,
@@ -966,6 +1021,8 @@ impl DisplayServerRuntime {
             dropdown_atlas,
             dropdown_h,
             dropdown_surface_dirty: true,
+            app_menu,
+            app_menu_fetched: false,
             search,
             search_filtered: {
                 let mut v = Vec::new();
@@ -1235,7 +1292,7 @@ impl DisplayServerRuntime {
             match client.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
                 Ok(()) => true,
                 Err(e) => {
-                    log_gpud_ipc_error("windowd: handoff cap-move send failed", e);
+                    log_gpud_cap_error("windowd: handoff cap-move send failed", e, client.slots().0);
                     self.gpud_client = None;
                     false
                 }
@@ -1518,6 +1575,11 @@ impl DisplayServerRuntime {
             {
                 window_consumed_press = true;
                 self.apps_dropdown_open = !self.apps_dropdown_open;
+                // Lazily populate the menu from the live registry the first time the
+                // user opens it (IPC is well past boot here). Failure keeps the seed.
+                if self.apps_dropdown_open {
+                    self.ensure_app_menu();
+                }
                 let spring = animation::SpringConfig {
                     stiffness: 240.0,
                     damping: 24.0,
@@ -1538,8 +1600,7 @@ impl DisplayServerRuntime {
         // search window (next phase).
         if primary_press && !window_consumed_press && self.shell_config.desktop_chrome && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
-                apps_item_x, dropdown_item_at, DropdownItem, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X,
-                TOPBAR_TOP,
+                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
             let dx = TOPBAR_MARGIN_X + apps_item_x();
             let dy = TOPBAR_TOP + TOPBAR_H + 4;
@@ -1548,19 +1609,25 @@ impl DisplayServerRuntime {
                 && (cursor_x as u32) < dx + DROPDOWN_W
                 && (cursor_y as u32) < dy + self.dropdown_h
             {
-                if let Some(item) = dropdown_item_at((cursor_y - dy as i32) as u32) {
+                if let Some(idx) = self.app_menu.item_at((cursor_y - dy as i32) as u32) {
                     window_consumed_press = true;
-                    match item {
-                        DropdownItem::Chat => {
-                            self.toggle_chat();
-                        }
-                        DropdownItem::Search => {
+                    // Copy the id out first so the dispatch arms can take `&mut self`
+                    // (the borrow of `self.app_menu` must end before `toggle_chat`).
+                    let id = self.app_menu.id_at(idx).map(alloc::string::String::from);
+                    // Dispatch by the registry app id (RFC-0065). Known apps map to
+                    // their windowd-hosted windows; any other installed app is
+                    // launched via the lifecycle broker (logged for now).
+                    match id.as_deref() {
+                        Some("chat") => self.toggle_chat(),
+                        Some("search") => {
                             if self.search.visible {
                                 self.close_search();
                             } else {
                                 self.open_search();
                             }
                         }
+                        Some(other) => self.launch_app(other),
+                        None => {}
                     }
                 }
             }
@@ -1636,7 +1703,7 @@ impl DisplayServerRuntime {
         // Apps dropdown row hover (only while the dropdown is open).
         if self.shell_config.desktop_chrome && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
-                apps_item_x, dropdown_item_at, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
             let dx = TOPBAR_MARGIN_X + apps_item_x();
             let dy = TOPBAR_TOP + TOPBAR_H + 4;
@@ -1647,7 +1714,7 @@ impl DisplayServerRuntime {
                 && (cx as u32) < dx + DROPDOWN_W
                 && (cy as u32) < dy + self.dropdown_h
             {
-                dropdown_item_at((cy - dy as i32) as u32)
+                self.app_menu.item_at((cy - dy as i32) as u32)
             } else {
                 None
             };
@@ -2161,6 +2228,40 @@ impl DisplayServerRuntime {
         });
     }
 
+    /// One-shot lazy fetch of the Apps menu from the bundle registry
+    /// (`bundlemgrd` OP_LIST_APPS). Runs at most once (first dropdown open); on
+    /// success it replaces the seed menu, resizes the open height, and re-renders
+    /// the dropdown surface. On any failure the seed (Chat/Search) persists so the
+    /// menu never regresses. Emits `windowd: apps ok (n=N)` / `windowd: apps seed`.
+    fn ensure_app_menu(&mut self) {
+        if self.app_menu_fetched {
+            return;
+        }
+        self.app_menu_fetched = true;
+        match crate::registry_client::fetch_app_menu() {
+            Some(menu) => {
+                let n = menu.len();
+                self.app_menu = menu;
+                self.dropdown_h = self.app_menu.dropdown_full_h();
+                self.dropdown_hover = None;
+                self.dropdown_surface_dirty = true;
+                let _ = debug_println(&alloc::format!("windowd: apps ok (n={n})"));
+            }
+            None => {
+                let _ = debug_println("windowd: apps seed (registry unreachable)");
+            }
+        }
+    }
+
+    /// Launch an installed app that windowd does not host directly (e.g. a real
+    /// `.nxb` bundle app). The ability lifecycle broker (`abilitymgr`) owns spawn;
+    /// windowd only requests it. For now this records the intent via a marker — the
+    /// abilitymgr launch handoff lands with the per-app-surface compositor path
+    /// (TASK-0065 P4b). Named app so the chain is observable end-to-end.
+    fn launch_app(&mut self, app_id: &str) {
+        let _ = debug_println(&alloc::format!("windowd: launch request app={app_id}"));
+    }
+
     /// Cycle to the next registered product's shell (desktop → tablet → kiosk → …)
     /// via SystemUI's resolver, and apply it. The shell switcher's one action.
     fn cycle_shell(&mut self) {
@@ -2394,7 +2495,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_dropdown_row(ly, row, w, hover)?;
+                super::desktop_layer::draw_dropdown_row(&self.app_menu, ly, row, w, hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -3145,7 +3246,9 @@ impl DisplayServerRuntime {
         // `Some` only while the Search window is mounted (shown) → composite it.
         let search_glass = self.search.glass_params();
         let mut built_search_blur = false;
-        let chat_show = !USE_DESKTOP_SHELL && self.chat.visible;
+        // Routed through the host-tested SSOT (window_scene) instead of an inline
+        // `!USE_DESKTOP_SHELL && visible` — same decision, now covered by tests.
+        let chat_show = crate::window_scene::should_show(self.chat.visible, USE_DESKTOP_SHELL);
         let chat_dx = self.chat.x.max(0) as u32;
         let chat_dy = self.chat.y.max(0) as u32;
         // GPU scroll-offset: the body samples the overscan surface shifted by the

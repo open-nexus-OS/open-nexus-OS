@@ -34,8 +34,12 @@ pub struct AppEntry {
     pub label: String,
 }
 
-/// Max apps shown in the dropdown (bounded).
-pub const MAX_MENU_APPS: usize = 12;
+/// Max apps shown in the dropdown (bounded). Kept small on purpose: the dropdown
+/// reserves a fixed atlas band of this many rows at boot, and the windowd surface
+/// atlas is tight (chat overscan + blur + search pool). 5 rows comfortably holds
+/// the installed registry (chat/search today) with headroom while leaving the
+/// on-demand search-window pool reserve intact — growing it starves that pool.
+pub const MAX_MENU_APPS: usize = 5;
 
 /// Dropdown geometry (kept in sync with the compositor's glass dropdown).
 pub const DROPDOWN_PAD: u32 = 8;

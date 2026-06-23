@@ -211,8 +211,17 @@ pub(crate) fn run_responder_loop(
                     .unwrap_or(true)
             };
             if !allowed {
-                if name == b"vfsd" {
-                    debug_write_bytes(b"init: route vfsd DENIED by policy\n");
+                // Direct, greppable route-denial error (RFC-0066): a policy-denied
+                // route used to fail silently as a downstream "unreachable" that had
+                // to be hunted. Now it names the requester + target at the source —
+                // and only ONCE per (from -> to) pair, so a retrying client does not
+                // bury the log in identical lines.
+                if route_deny_first_time(chan.svc_name, name) {
+                    debug_write_bytes(b"!route-deny: ");
+                    debug_write_str(chan.svc_name);
+                    debug_write_bytes(b" -> ");
+                    debug_write_bytes(name);
+                    debug_write_bytes(b" (policy: missing ipc.core grant in base.toml?)\n");
                 }
                 if let Some(nonce) = route_nonce {
                     let base = nexus_abi::routing::encode_route_rsp(
@@ -323,4 +332,45 @@ pub(crate) fn run_responder_loop(
             }
         }
     }
+}
+
+/// Returns `true` only the first time a given `(svc -> target)` route denial is
+/// seen, so the `!route-deny` marker logs once per pair instead of once per retry
+/// (RFC-0066 "clean errors"). Bounded, lock-free, fail-open (logs if the table is
+/// full — better a little extra noise than a swallowed error).
+fn route_deny_first_time(svc: &str, target: &[u8]) -> bool {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    const N: usize = 64;
+    static SEEN: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
+
+    // FNV-1a of `svc` + '>' + `target`.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in svc.as_bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h ^= b'>' as u64;
+    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    for &b in target {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    if h == 0 {
+        h = 1; // 0 is the "empty slot" sentinel
+    }
+
+    for slot in SEEN.iter() {
+        let v = slot.load(Ordering::Relaxed);
+        if v == h {
+            return false; // already logged this pair
+        }
+        if v == 0 {
+            match slot.compare_exchange(0, h, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => return true,                       // claimed → first time
+                Err(claimed) if claimed == h => return false, // raced, same pair
+                Err(_) => {} // claimed by a different pair → keep probing
+            }
+        }
+    }
+    true // table full → log anyway (fail-open)
 }
