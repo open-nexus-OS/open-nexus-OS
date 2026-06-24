@@ -239,3 +239,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md
 - RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract (Done 2026-06-23 — abilitymgr lifecycle broker + manifest-caps launch authority + bundlemgrd registry generated from real manifests + chat/search as real bundles; service split per ADR-0036; SSOT was TASK-0065; spawned-process/per-app-surface runtime → TASK-0080D)
   - docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
+- RFC-0067: windowd — clean compositor-service boundary (Draft 2026-06-24; gated multi-phase — retire windowd's inline 2D rasterizer into NexusGfx cpu2d, extract app/shell UI to userspace/apps + userspace/ui, collapse parallel scene models; P0 = this RFC + safety net, P5 = full backend seam last; aligns TASK-0169/0170/0170B)
+  - docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md

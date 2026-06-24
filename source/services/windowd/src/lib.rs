@@ -49,7 +49,6 @@ mod ids;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod interaction;
 mod layout_panel;
-mod legacy;
 #[cfg(any(test, target_os = "none"))]
 mod live_runtime;
 mod markers;
@@ -91,7 +90,6 @@ pub use layout_panel::{
     ProofTextMeasure, FILTER_LIST_PADDING, FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_MIN_THUMB,
     FILTER_SCROLLBAR_WIDTH,
 };
-pub use legacy::render_frame;
 pub use markers::{
     damage_rects_marker,
     focus_marker,
