@@ -1,0 +1,680 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+//! CONTEXT: windowd compositor runtime — per-frame input staging + `apply_input_state` routing (hover, filter text, focus/click dispatch).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (behavior covered via windowd QEMU smoke + host integration)
+//!
+//! Split out of `runtime/mod.rs` (TASK-0063 modularization). A child module of
+//! `runtime`, so these `impl DisplayServerRuntime` methods read the runtime's
+//! private fields directly; previously-private methods are widened to
+//! `pub(super)` so the parent and sibling submodules can still call them.
+
+use super::*;
+
+impl DisplayServerRuntime {
+    /// STAGE one upstream input update into the frame-aligned sample instead of
+    /// applying it now. The latest cursor/button/text snapshot wins (we only render
+    /// the newest position); wheel deltas SUM (no scroll notch is lost). Replies
+    /// can be sent immediately by the caller — staging always "accepts". This is
+    /// the consumer half of the Android frame-aligned input model.
+    pub(crate) fn stage_input_state(&mut self, mut state: VisibleState) -> u8 {
+        if let Some(prev) = self.pending_input.take() {
+            // Carry the accumulated wheel forward (sum), keep the newest of all else.
+            state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
+        }
+        self.pending_input = Some(state);
+        STATUS_OK
+    }
+
+    /// Apply the frame's staged input sample ONCE (called from the present loop
+    /// after draining the IPC batch). Returns true if there was input to apply.
+    /// This collapses N raw events/frame into a single hit-test + hover + cursor
+    /// move + scroll — the work is bounded by frame rate, not input rate.
+    pub(crate) fn apply_staged_input(&mut self) -> bool {
+        match self.pending_input.take() {
+            Some(state) => {
+                self.apply_input_state(state);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
+        if !self.input_state_debug_emitted {
+            let _ = debug_println("dbg: windowd input state applied");
+            // Input-chain hop I6: input reached windowd and was applied. The
+            // present chain (gpud G1..G4) takes over from here to put it onscreen.
+            let _ = debug_println("windowd: chain I6 input recv (state applied)");
+            self.input_state_debug_emitted = true;
+        }
+        let old_state = self.state;
+        let old_cursor_x = self.state.cursor_x;
+        let old_cursor_y = self.state.cursor_y;
+        let old_filter_idx = self.active_filter_idx;
+        self.state.virtio_raw_seen |= upstream.virtio_raw_seen;
+        self.state.hid_normalized_seen |= upstream.hid_normalized_seen;
+        self.state.pointer_route_live |= upstream.pointer_route_live;
+        self.state.keyboard_route_live |= upstream.keyboard_route_live;
+        self.state.input_visible_on |= upstream.input_visible_on
+            || upstream.pointer_route_live
+            || upstream.keyboard_route_live;
+        self.state.cursor_move_visible |=
+            upstream.cursor_move_visible || upstream.pointer_route_live;
+        // ── windowd-owned hit-testing (compositor model) ──
+        // inputd ships a raw display-space pointer + raw button/wheel/key facts;
+        // windowd resolves all UI intent against its own rendered geometry, so a
+        // control's hit area is exactly its rendered rect (interaction::*).
+        let cursor_x = upstream.cursor_x;
+        let cursor_y = upstream.cursor_y;
+        let mode = self.mode;
+
+        // Two independent hover signals, both from real rendered geometry:
+        //  - hover_visible: cursor over the HOVER TEST CARD in the proof panel
+        //    (its border recolors — the actual "hover test"). The card rect
+        //    comes from the live layout index, so hit area == rendered rect.
+        //  - button_hover: cursor over the top-right glass button (highlight
+        //    only; the sidebar animation stays click-driven — user requirement:
+        //    "nur der button rechts oben soll die animation auslösen").
+        let old_button_hover = self.button_hover;
+        self.button_hover = crate::interaction::hover_over_button(mode, cursor_x, cursor_y);
+        self.state.hover_visible = self
+            .active_proof_layout_index()
+            .and_then(|idx| idx.target_rect(TargetDamage::Hover))
+            .map(|r| {
+                cursor_x >= r.x as i32
+                    && cursor_y >= r.y as i32
+                    && (cursor_x as u32) < r.x.saturating_add(r.width)
+                    && (cursor_y as u32) < r.y.saturating_add(r.height)
+            })
+            .unwrap_or(false);
+
+        // Raw primary-button level from inputd; rising/falling edges are click/release.
+        let primary_down = upstream.launcher_click_visible;
+        let primary_press = primary_down && !old_state.launcher_click_visible;
+        let primary_release = !primary_down && old_state.launcher_click_visible;
+        self.state.launcher_click_visible = primary_down;
+
+        // Window manager first: a press on the chat title bar starts a drag, a
+        // press on the close button closes it. Both consume the press so it does
+        // not also hit the panel/sidebar logic below.
+        let mut window_consumed_press = false;
+        // Shell switcher hotspot: a fixed bottom-left corner (always wallpaper, no
+        // chrome conflict) cycles the active shell via SystemUI's resolver
+        // (desktop → tablet → kiosk → …). Reachable in EVERY shell — even a kiosk
+        // with no topbar — so the runtime switch is always demonstrable. Checked
+        // first so it consumes the press before the windows/chrome below.
+        if primary_press
+            && cursor_x >= 0
+            && cursor_x < 28
+            && cursor_y >= (mode.height as i32 - 28)
+        {
+            window_consumed_press = true;
+            self.cycle_shell();
+        }
+        // Search window (on top): title-bar drag / close / body all consume the
+        // press before the chat wm + sidebar logic below.
+        if primary_press && !window_consumed_press && self.search.visible {
+            use crate::compositor::shell_window::WindowPress;
+            match self.search.press(cursor_x, cursor_y) {
+                WindowPress::Close => {
+                    window_consumed_press = true;
+                    self.close_search();
+                }
+                WindowPress::TitleDrag => {
+                    window_consumed_press = true;
+                    self.search.begin_drag(cursor_x, cursor_y);
+                }
+                WindowPress::Body => {
+                    // Press inside the body still consumes (window is on top).
+                    window_consumed_press = true;
+                }
+                WindowPress::Miss => {}
+            }
+        }
+        // Chat window: the SAME ShellWindow press path as Search (close / title
+        // drag / body), now that chat is a ShellWindow instance (E1 — the old
+        // single-window `wm` is gone). Consumed only if Search didn't take it.
+        if primary_press && !window_consumed_press && self.chat.visible {
+            use crate::compositor::shell_window::WindowPress;
+            match self.chat.press(cursor_x, cursor_y) {
+                WindowPress::Close => {
+                    window_consumed_press = true;
+                    self.chat.visible = false;
+                    self.on_chat_window_closed();
+                }
+                WindowPress::TitleDrag => {
+                    window_consumed_press = true;
+                    self.chat.begin_drag(cursor_x, cursor_y);
+                }
+                WindowPress::Body => {
+                    window_consumed_press = true;
+                }
+                WindowPress::Miss => {}
+            }
+        }
+        // Continue an in-progress chat drag: `ShellWindow::drag_to` clamps to the
+        // display and invalidates the blur cache; we erase the vacated region
+        // (incl. the shadow halo) so a moved window leaves no trail.
+        if self.chat.is_dragging() {
+            if let Some(old) = self.chat.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.note_chat_window_moved(old);
+            }
+        }
+        // Continue dragging the Search window.
+        if self.search.is_dragging() {
+            if let Some(old) = self.search.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.queue_dirty_rect(old);
+                self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
+        if primary_release {
+            self.chat.end_drag();
+            self.search.end_drag();
+        }
+
+        // Shell-P2b: the topbar menu icon (right) toggles the animated side
+        // panel — the same scene-graph-driven slide animation as the hamburger.
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
+            use crate::compositor::desktop_layer::{topbar_menu_icon_hit, TOPBAR_MARGIN_X, TOPBAR_TOP};
+            if cursor_x >= TOPBAR_MARGIN_X as i32 && cursor_y >= TOPBAR_TOP as i32 {
+                let lx = (cursor_x - TOPBAR_MARGIN_X as i32) as u32;
+                let ly = (cursor_y - TOPBAR_TOP as i32) as u32;
+                if topbar_menu_icon_hit(lx, ly, self.shell_w) {
+                    self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
+                    window_consumed_press = true;
+                    let _ = debug_println(if self.state.sidebar_open_visible {
+                        "dbg: topbar menu -> sidebar OPEN"
+                    } else {
+                        "dbg: topbar menu -> sidebar CLOSE"
+                    });
+                }
+            }
+        }
+
+        // Topbar "Apps" item click → toggle the animated dropdown.
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
+            use crate::compositor::desktop_layer::{topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP};
+            if cursor_y >= TOPBAR_TOP as i32
+                && cursor_y < (TOPBAR_TOP + TOPBAR_H) as i32
+                && cursor_x >= TOPBAR_MARGIN_X as i32
+                && topbar_item_at((cursor_x - TOPBAR_MARGIN_X as i32) as u32) == Some(0)
+            {
+                window_consumed_press = true;
+                self.apps_dropdown_open = !self.apps_dropdown_open;
+                // Lazily populate the menu from the live registry the first time the
+                // user opens it (IPC is well past boot here). Failure keeps the seed.
+                if self.apps_dropdown_open {
+                    self.ensure_app_menu();
+                }
+                let spring = animation::SpringConfig {
+                    stiffness: 240.0,
+                    damping: 24.0,
+                    mass: 1.0,
+                    initial_velocity: 0.0,
+                };
+                self.animation_driver.spring_to(
+                    DROPDOWN_LAYER_ID,
+                    AnimProp::Opacity,
+                    self.animated_scene.apps_dropdown_progress,
+                    if self.apps_dropdown_open { 1.0 } else { 0.0 },
+                    spring,
+                );
+            }
+        }
+
+        // Apps dropdown item clicks: Chat opens the chat window; Search opens the
+        // search window (next phase).
+        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome && self.apps_dropdown_open {
+            use crate::compositor::desktop_layer::{
+                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dy = TOPBAR_TOP + TOPBAR_H + 4;
+            if cursor_x >= dx as i32
+                && cursor_y >= dy as i32
+                && (cursor_x as u32) < dx + DROPDOWN_W
+                && (cursor_y as u32) < dy + self.dropdown_h
+            {
+                if let Some(idx) = self.app_menu.item_at((cursor_y - dy as i32) as u32) {
+                    window_consumed_press = true;
+                    // Copy the id out first so the dispatch arms can take `&mut self`
+                    // (the borrow of `self.app_menu` must end before `toggle_chat`).
+                    let id = self.app_menu.id_at(idx).map(alloc::string::String::from);
+                    // Dispatch by the registry app id (RFC-0065). Known apps map to
+                    // their windowd-hosted windows; any other installed app is
+                    // launched via the lifecycle broker (logged for now).
+                    match id.as_deref() {
+                        Some("chat") => self.toggle_chat(),
+                        Some("search") => {
+                            if self.search.visible {
+                                self.close_search();
+                            } else {
+                                self.open_search();
+                            }
+                        }
+                        Some(other) => self.launch_app(other),
+                        None => {}
+                    }
+                }
+            }
+        }
+
+        // Resolve the click against the rendered geometry (only if the window
+        // manager did not consume it). The sidebar is the single click-driven
+        // animation trigger.
+        if primary_press && !window_consumed_press {
+            use crate::interaction::{resolve_click, ClickAction};
+            match resolve_click(mode, self.state.sidebar_open_visible, cursor_x, cursor_y) {
+                ClickAction::ToggleSidebar => {
+                    self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
+                }
+                ClickAction::CloseSidebar => {
+                    self.state.sidebar_open_visible = false;
+                }
+                ClickAction::ToggleChat => {
+                    if !self.chat_button_marker_emitted {
+                        let _ = debug_println("windowd: chat button click ok");
+                        self.chat_button_marker_emitted = true;
+                    }
+                    self.toggle_chat();
+                }
+                ClickAction::FocusPanel => {
+                    self.state.focus_visible = true;
+                }
+                ClickAction::None => {}
+            }
+        }
+        self.state.focus_visible |= upstream.focus_visible;
+        // Reflect the momentary key-held state from inputd (which already sends
+        // `keyboard_visible = keyboard_held`). Must NOT be OR-latched with
+        // `keyboard_route_live` — that flag stays true forever once the keyboard
+        // is seen, which would pin the "key pressed" highlight on permanently.
+        // The once-only proof marker is latched separately in observer_state.
+        self.state.keyboard_visible = upstream.keyboard_visible;
+        self.state.wheel_up_visible = upstream.wheel_up_visible;
+        self.state.wheel_down_visible = upstream.wheel_down_visible;
+        self.state.cursor_x = upstream.cursor_x;
+        self.state.cursor_y = upstream.cursor_y;
+        // Shell-P2b: topbar hover. Recompute the hovered item from the cursor and,
+        // on change, re-render the topbar atlas + damage its band so the present
+        // recomposites with the new hover highlight.
+        if self.shell_config.desktop_chrome {
+            use crate::compositor::desktop_layer::{
+                topbar_item_at, topbar_menu_icon_hit, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let cx = self.state.cursor_x;
+            let cy = self.state.cursor_y;
+            let in_bar = cy >= TOPBAR_TOP as i32
+                && cy < (TOPBAR_TOP + TOPBAR_H) as i32
+                && cx >= TOPBAR_MARGIN_X as i32;
+            let (new_hover, new_menu_hover) = if in_bar {
+                let lx = (cx - TOPBAR_MARGIN_X as i32) as u32;
+                let ly = (cy - TOPBAR_TOP as i32) as u32;
+                (topbar_item_at(lx), topbar_menu_icon_hit(lx, ly, self.shell_w))
+            } else {
+                (None, false)
+            };
+            if new_hover != self.topbar_hover || new_menu_hover != self.topbar_menu_hover {
+                self.topbar_hover = new_hover;
+                self.topbar_menu_hover = new_menu_hover;
+                self.shell_surface_dirty = true;
+                self.queue_dirty_rect(DamageRect {
+                    x: TOPBAR_MARGIN_X,
+                    y: TOPBAR_TOP,
+                    width: self.shell_w,
+                    height: TOPBAR_H,
+                });
+            }
+        }
+        // Apps dropdown row hover (only while the dropdown is open).
+        if self.shell_config.desktop_chrome && self.apps_dropdown_open {
+            use crate::compositor::desktop_layer::{
+                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dy = TOPBAR_TOP + TOPBAR_H + 4;
+            let cx = self.state.cursor_x;
+            let cy = self.state.cursor_y;
+            let new_hover = if cx >= dx as i32
+                && cy >= dy as i32
+                && (cx as u32) < dx + DROPDOWN_W
+                && (cy as u32) < dy + self.dropdown_h
+            {
+                self.app_menu.item_at((cy - dy as i32) as u32)
+            } else {
+                None
+            };
+            if new_hover != self.dropdown_hover {
+                self.dropdown_hover = new_hover;
+                self.dropdown_surface_dirty = true;
+                self.queue_dirty_rect(DamageRect {
+                    x: dx,
+                    y: dy,
+                    width: DROPDOWN_W.min(self.mode.width.saturating_sub(dx)),
+                    height: self.dropdown_h,
+                });
+            }
+        }
+        let text_changed = old_state.text_input() != upstream.text_input();
+        self.state.set_text_input(upstream.text_input());
+        refill_filtered_words(&mut self.filtered_words, self.state.text_input());
+        // Re-render the Search window's filtered list when the typed text changes.
+        if self.search.visible && text_changed {
+            super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
+            // The row count changed → re-clamp the shared momentum extent, then
+            // mirror its (clamped) offset back to the row slice.
+            self.search_set_extent();
+            let max_scroll = super::desktop_layer::search_max_scroll(self.search_filtered.len());
+            self.search.scroll = self.search.scroll.min(max_scroll);
+            self.search.surface_dirty = true;
+            self.queue_dirty_rect(self.search_window_rect());
+        }
+        // Search window close-button hover (re-render the title bar on change).
+        if self.search.visible {
+            let new_close_hover = self.search.close_hit(self.state.cursor_x, self.state.cursor_y);
+            if new_close_hover != self.search.close_hover {
+                self.search.close_hover = new_close_hover;
+                self.search.surface_dirty = true;
+                self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
+        // Wheel over the Search window scrolls its filtered list via the SHARED
+        // momentum engine (eased + coasting, the same feel as chat — E2). A notch
+        // extends the target by a few rows; `tick_search_scroll` eases the offset
+        // and `commit_search_scroll_position` maps it to the row slice.
+        if self.search.visible && upstream.wheel_delta_y != 0 {
+            let over = self.search.contains(self.state.cursor_x, self.state.cursor_y);
+            if over {
+                use super::desktop_layer::SEARCH_LIST_ROW_H;
+                // Positive wheel scrolls down (later words), matching the prior
+                // discrete behaviour; 3 rows per notch (≈ the chat "3 lines/notch").
+                let dir = if upstream.wheel_delta_y > 0 { 1.0 } else { -1.0 };
+                self.search_scroll.scroll_wheel(dir * 3.0 * SEARCH_LIST_ROW_H as f32);
+                self.commit_search_scroll_position();
+            }
+        }
+        // The desktop scene has a single layout (no filter variants); keep the
+        // active index pinned at 0 so the single-element layout set stays valid.
+        if !USE_DESKTOP_SHELL {
+            self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
+        }
+        if self.active_filter_idx != old_filter_idx {
+            self.refresh_active_proof_hot_path();
+        }
+        self.refresh_observer_state();
+        let button_hover_changed = old_button_hover != self.button_hover;
+        if self.state == old_state && self.active_filter_idx == old_filter_idx {
+            if button_hover_changed {
+                self.note_button_hover_changed();
+            }
+            return STATUS_OK;
+        }
+        // ── Phase 0: Scene graph updates instead of damage rect queueing ──
+        // Card active states: hover → slot 0, click → slot 1, keyboard → slot 2
+        let hover_changed = old_state.hover_visible != self.state.hover_visible;
+        let click_changed = old_state.launcher_click_visible != self.state.launcher_click_visible;
+        let key_changed = old_state.keyboard_visible != self.state.keyboard_visible;
+        if hover_changed {
+            self.shell.set_card_active(0, self.state.hover_visible);
+        }
+        if click_changed {
+            self.shell.set_card_active(1, self.state.launcher_click_visible);
+        }
+        if key_changed {
+            self.shell.set_card_active(2, self.state.keyboard_visible);
+        }
+        if button_hover_changed {
+            self.note_button_hover_changed();
+        }
+        // CPU repaint of the test cards whose state flags flipped — this is what
+        // recolors the card borders (proof_box_border reads these flags).
+        self.queue_target_damage(old_state, self.state);
+        // Sidebar visibility
+        if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+            self.shell.set_sidebar_visible(self.state.sidebar_open_visible);
+        }
+        // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
+        let cursor_changed =
+            old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
+        let text_changed = old_state.text_input() != self.state.text_input();
+        let filter_changed = old_filter_idx != self.active_filter_idx;
+        let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
+            || old_state.sidebar_open_visible != self.state.sidebar_open_visible
+            || old_state.launcher_click_visible != self.state.launcher_click_visible
+            || old_state.keyboard_visible != self.state.keyboard_visible;
+
+        // Implicit transitions (RFC-0059 Phase 4): when paint flags change,
+        // trigger spring animation for opacity/transform on the affected proof cards.
+        if paint_flags_changed && !self.animation_driver.reduced_motion() {
+            if !self.animation_proof.runtime_marker {
+                let _ = debug_println(UIRUNTIME_ON);
+                self.animation_proof.runtime_marker = true;
+            }
+            if !self.animation_proof.implicit_marker {
+                let _ = debug_println(WINDOWD_IMPLICIT_TRANSITIONS_ON);
+                self.animation_proof.implicit_marker = true;
+            }
+            let spring = animation::SpringConfig {
+                stiffness: 200.0,
+                damping: 20.0,
+                mass: 1.0,
+                initial_velocity: 0.0,
+            };
+            // (The HOVER_LAYER spring is the glass-button highlight and is driven
+            // by `note_button_hover_changed`, not by the hover test card.)
+            // Sidebar open/close uses a dedicated state so close actions are not
+            // coupled to hover leave.
+            if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+                let sidebar_from =
+                    if old_state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                let sidebar_to =
+                    if self.state.sidebar_open_visible { 0.0 } else { SIDEBAR_WIDTH as f32 };
+                self.animation_driver.spring_to(
+                    SIDEBAR_LAYER_ID,
+                    AnimProp::TranslateX,
+                    sidebar_from,
+                    sidebar_to,
+                    spring,
+                );
+                self.animation_driver.spring_to(
+                    SIDEBAR_LAYER_ID,
+                    AnimProp::Opacity,
+                    self.animated_scene.sidebar_opacity,
+                    if self.state.sidebar_open_visible { 1.0 } else { 0.0 },
+                    spring,
+                );
+                if !self.animation_proof.timeline_marker {
+                    let _ = debug_println(UIANIM_TIMELINE_ON);
+                    self.animation_proof.timeline_marker = true;
+                }
+            }
+            // Click card opacity
+            if old_state.launcher_click_visible != self.state.launcher_click_visible {
+                let from = if old_state.launcher_click_visible { 1.0 } else { 0.0 };
+                let to = if self.state.launcher_click_visible { 1.0 } else { 0.0 };
+                self.animation_driver.spring_to(
+                    CLICK_LAYER_ID,
+                    AnimProp::Opacity,
+                    from,
+                    to,
+                    spring,
+                );
+            }
+            // Keyboard card opacity
+            if old_state.keyboard_visible != self.state.keyboard_visible {
+                let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
+                let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
+                self.animation_driver.spring_to(
+                    KEYBOARD_LAYER_ID,
+                    AnimProp::Opacity,
+                    from,
+                    to,
+                    spring,
+                );
+            }
+        }
+        if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
+            let _ = debug_println(if self.state.sidebar_open_visible {
+                SIDEBAR_OPEN_MARKER
+            } else {
+                SIDEBAR_CLOSE_MARKER
+            });
+            // Sidebar is a GPU overlay — no CPU content in P1 changes on open/close.
+            // Cache invalidation is deferred until the close animation completes.
+            self.queue_gpu_blit_rect(self.sidebar_damage_rect());
+        }
+        self.paint_only_damage =
+            paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
+        // Cursor hot path. Hardware overlay: the move is a 9-byte message to
+        // gpud's cursor queue — the host repositions the overlay, no composite,
+        // no blit, no present. The frame pipeline is not involved at all.
+        // Software fallback: queue the merged old+new cursor rect — flush blits
+        // that region from the retained Plane 1 and overlays BlendCursor.
+        if self.hw_cursor_active {
+            if cursor_changed {
+                self.send_cursor_move_to_gpud();
+            }
+        } else if self.gl_cursor_active {
+            // virgl procedural cursor: update gpud's pointer pos AND damage the
+            // cursor rect so a present is scheduled — the build-up present
+            // redraws the procedural arrow at the new spot (its VMO BlendCursor
+            // is ignored while the GL build-up owns the scanout).
+            if cursor_changed {
+                self.send_cursor_move_to_gpud();
+                self.queue_cursor_damage(
+                    old_cursor_x,
+                    old_cursor_y,
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                );
+            }
+        } else {
+            self.queue_cursor_damage(
+                old_cursor_x,
+                old_cursor_y,
+                self.state.cursor_x,
+                self.state.cursor_y,
+            );
+        }
+
+        // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
+        if old_state.text_input() != self.state.text_input() {
+            self.note_filter_text_changed();
+        }
+
+        // ── v3b: scroll on wheel events, routed to the control under the cursor ──
+        // Gate on the real signed delta (edge-accurate per update) rather than the
+        // latched pulse booleans, so each notch is applied once with its magnitude.
+        if upstream.wheel_delta_y != 0 {
+            use crate::interaction::{resolve_wheel_target, HitRect, WheelTarget};
+            // Wheel routing follows the chat window's live bounds (None when
+            // closed) — a dragged window keeps scrolling under the cursor.
+            let chat_bounds = self.chat.visible.then(|| HitRect {
+                x: self.chat.x.max(0) as u32,
+                y: self.chat.y.max(0) as u32,
+                width: self.chat.w,
+                height: self.chat.h,
+            });
+            let target =
+                resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds);
+            // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
+            // even when nothing moves — the routing target + full scroll state, so a
+            // "scrolled but nothing happened" freeze is explained by VALUES, not guesses.
+            let now = nsec().unwrap_or(0);
+            if now.saturating_sub(self.chat_scroll_diag_ns) >= 200_000_000 {
+                self.chat_scroll_diag_ns = now;
+                let _ = debug_println(&alloc::format!(
+                    "scroll-diag: in={} tgt={} cur=({},{}) chat_vis={} y={} pos={} target={} max={} base={} gl={}",
+                    upstream.wheel_delta_y,
+                    if matches!(target, WheelTarget::Chat) { "chat" } else { "filter" },
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                    self.chat.visible,
+                    self.chat_scroll_y,
+                    self.chat_list.scroll_offset().as_i32(),
+                    self.chat_list.scroll_target(),
+                    self.chat_list.max_scroll(),
+                    self.chat_render_base,
+                    self.gl_cursor_active,
+                ));
+            }
+            match target {
+                // Coalesce: accumulate this event's notches; `commit_scroll_input`
+                // applies the frame's total ONCE (reactive, no per-event replay).
+                WheelTarget::Chat => {
+                    self.pending_chat_wheel =
+                        self.pending_chat_wheel.saturating_add(upstream.wheel_delta_y);
+                }
+                // Filter is the fallback so a wheel anywhere off the chat still
+                // scrolls the proof list (and emits the scroll markers).
+                _ => {
+                    if self.active_proof_layout().is_some() {
+                        self.handle_scroll_input();
+                    }
+                }
+            }
+        }
+
+        // ── v3b: selftest summary markers (once) ──
+        if !self.selftest_v3b_emitted
+            && self.live_scroll_marker_emitted
+            && self.clipping_marker_emitted
+            && self.filter_cycle > 0
+        {
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_SCROLL_OK_MARKER);
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_FILTER_OK_MARKER);
+            let _ = debug_println(crate::markers::SELFTEST_UI_V3_IME_OK_MARKER);
+            self.selftest_v3b_emitted = true;
+        }
+
+        STATUS_OK
+    }
+
+    /// Glass-button hover highlight: spring the button alpha (HOVER_LAYER drives
+    /// `hover_opacity` in the GPU CB) and present the button rect. Independent of
+    /// the proof-panel hover test card.
+    pub(super) fn note_button_hover_changed(&mut self) {
+        if !self.animation_driver.reduced_motion() {
+            let spring = animation::SpringConfig {
+                stiffness: 200.0,
+                damping: 20.0,
+                mass: 1.0,
+                initial_velocity: 0.0,
+            };
+            let from = self.animated_scene.hover_opacity;
+            let to = if self.button_hover { 1.0 } else { 0.0 };
+            self.animation_driver.spring_to(HOVER_LAYER_ID, AnimProp::Opacity, from, to, spring);
+        }
+        let b = crate::interaction::button_rect(self.mode.width);
+        self.queue_gpu_blit_rect(DamageRect { x: b.x, y: b.y, width: b.width, height: b.height });
+    }
+
+    pub(super) fn note_filter_text_changed(&mut self) {
+        self.filter_cycle = self.filter_cycle.wrapping_add(1);
+
+        if !self.clipping_marker_emitted {
+            let _ = debug_println(crate::markers::CLIPPING_ON_MARKER);
+            self.clipping_marker_emitted = true;
+        }
+        let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
+        let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
+
+        let filter_rects: [Option<DamageRect>; 3] =
+            if let Some(index) = self.active_proof_layout_index() {
+                [
+                    index.target_rect(TargetDamage::FilterPanel),
+                    index.target_rect(TargetDamage::FilterList),
+                    index.target_rect(TargetDamage::FilterInput),
+                ]
+            } else {
+                [None, None, None]
+            };
+        for rect in filter_rects.into_iter().flatten() {
+            self.queue_dirty_rect(rect);
+        }
+    }
+}
