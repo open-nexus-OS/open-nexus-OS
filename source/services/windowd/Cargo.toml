@@ -41,6 +41,10 @@ nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
 # owned by the real search app crate, not duplicated in the compositor. windowd
 # keeps only the window chrome + rendering; the app owns its data.
 search-app = { path = "../../../userspace/apps/search" }
+# RFC-0067 P2.4: the chat message model/provider is owned by the chat app, not
+# the generic list widget. windowd consumes the provider's data; the widget stays
+# content-free.
+chat-app = { path = "../../../userspace/apps/chat", default-features = false }
 
 [build-dependencies]
 fontdue = "0.9"

@@ -1,23 +1,24 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Chat message provider — the canonical mixed-height stress collection for the
-//! virtual list.
+//! CONTEXT: Chat app data — the message model + deterministic provider. The chat
+//! owns its content; the generic `nexus-virtual-list` widget consumes it through
+//! the `ItemProvider` trait (RFC-0067 P2.4, moved out of the widget crate).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 7 tests
 //!
 //! Generates a deterministic set of chat messages whose rendered heights vary
-//! from a single line ("ok") to multi-paragraph blocks, drawn from a fixed
-//! pool of `&'static` bodies. This is the worst-case workload for the virtual
-//! list (recycling + anchor stability under mixed heights) and for the pretext
-//! line-layout cache: heights are estimated here from a wrap width and re-used
-//! by `VirtualList` so only the visible window is ever laid out for real.
-//!
-//! Part of TASK-0063 (UI v5b) — the chat-mockup item provider.
-
-extern crate alloc;
+//! from a single line ("ok") to multi-paragraph blocks, drawn from a fixed pool
+//! of `&'static` bodies. This is the worst-case workload for the virtual list
+//! (recycling + anchor stability under mixed heights): heights are estimated
+//! here from a wrap width and re-used by `VirtualList` so only the visible window
+//! is ever laid out for real.
 
 use alloc::vec::Vec;
 
-use crate::ItemProvider;
+use nexus_virtual_list::ItemProvider;
 
 /// A single chat message. `text` is borrowed from a static pool, so the whole
 /// collection is `Copy` and allocation-free per item.
@@ -209,8 +210,8 @@ impl ItemProvider for ChatMessageProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{VirtualList, VirtualListConfig};
     use nexus_layout_types::FxPx;
+    use nexus_virtual_list::{VirtualList, VirtualListConfig};
 
     #[test]
     fn synthetic_has_requested_count() {

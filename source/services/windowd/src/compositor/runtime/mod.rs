@@ -61,7 +61,8 @@ use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
-use nexus_virtual_list::{ChatMessageProvider, VirtualList, VirtualListConfig};
+use chat_app::ChatMessageProvider;
+use nexus_virtual_list::{VirtualList, VirtualListConfig};
 
 const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
 const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO

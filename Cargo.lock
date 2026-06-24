@@ -402,6 +402,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chat-app"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-virtual-list",
+ "nexus-widget-panel",
+]
+
+[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2010,7 +2021,6 @@ dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
- "nexus-virtual-list",
  "nexus-widget-button",
  "nexus-widget-panel",
  "nexus-widget-text-field",
@@ -4063,6 +4073,7 @@ name = "windowd"
 version = "0.1.0"
 dependencies = [
  "animation",
+ "chat-app",
  "fontdue",
  "input-live-protocol",
  "nexus-abi",

@@ -10,6 +10,14 @@
 //! pool reuses off-screen node slots. Anchor-by-key ensures stable scroll
 //! position across content changes.
 //!
+//! Both `List` (finite) and `VirtualList` (lazy) sit on one shared
+//! [`ListCore`] — the scroll + windowing SSOT. The scroll *physics* is
+//! `animation::ScrollMomentum` (an Android `OverScroller` analog); the
+//! *windowing* (measured-row prefix-sum + O(log n) visible-range search) lives
+//! in `ListCore`. A list flavor is then just that core + a data source
+//! (a materialized slice vs a lazy `ItemProvider`), so scroll feel + windowing
+//! are defined in exactly one place (RFC-0067 P2: layout → List → VirtualList).
+//!
 //! Part of TASK-0063 (UI v5b).
 
 extern crate alloc;
@@ -22,9 +30,6 @@ use nexus_layout_types::{LayoutNode, MeasureText};
 // lists through this one crate without also depending on `nexus-layout-types`.
 pub use nexus_layout_types::FxPx;
 
-pub mod chat;
-pub use chat::{ChatMessage, ChatMessageProvider};
-
 // ---------------------------------------------------------------------------
 // ItemView — the app-supplied cell builder (Apple's data-source/cell config)
 // ---------------------------------------------------------------------------
@@ -36,9 +41,9 @@ pub use chat::{ChatMessage, ChatMessageProvider};
 /// the app describes each item as a `LayoutNode` tree (boxes + `VisualStyle` +
 /// text), the layout engine (`nexus_layout`) measures/places it, and windowd
 /// paints the resulting `LayoutBox`es generically — the compositor has **no**
-/// item-type knowledge. A "chat" is then just an `ItemProvider<Item = ChatMessage>`
-/// plus an `ItemView` that renders a `ChatMessage` as a bubble, assembled by the
-/// app/target-test — not baked into windowd.
+/// item-type knowledge. A "chat", for example, is just an `ItemProvider` of chat
+/// messages plus an `ItemView` that renders one as a bubble, assembled by the
+/// app (e.g. `chat-app`) — not baked into the widget or windowd.
 ///
 /// This mirrors Apple's split of `UICollectionViewDataSource` (data) from the
 /// cell registration/configuration (view), keeping the framework generic.
@@ -85,21 +90,50 @@ pub trait ItemProvider {
 // List — non-virtualized, filterable list of a small/bounded collection
 // ---------------------------------------------------------------------------
 
-/// A non-virtualized list: builds one `LayoutNode` per item via an [`ItemView`],
-/// optionally restricted by a **filter** predicate. For small/bounded
-/// collections (e.g. a settings list, a filtered word list); use [`VirtualList`]
-/// for large/streaming data. Pure — produces the item rows; the caller wraps
-/// them in a container (`Panel`). Shares the `ItemView` cell contract + the
-/// filter capability with `VirtualList`, so "list" and "virtual list" are the
-/// same component family, both filterable.
+/// A **finite** list: all `items` are materialized (no lazy paging). The finite
+/// sibling of [`VirtualList`] — both sit on the same [`ListCore`] (the scroll +
+/// windowing SSOT), so scroll feel and viewport windowing are identical; `List`
+/// simply drops the lazy `ItemProvider`/recycling/prefetch. For small/bounded
+/// collections (a settings list, a filtered search result); use [`VirtualList`]
+/// for large/streaming data.
+///
+/// Two modes:
+/// - **row builder** ([`List::new`]) — pure `rows()`/`filtered_rows()` for a
+///   non-scrolling container (e.g. a `Panel` that lays out all rows itself);
+/// - **scrollable** ([`List::scrollable`]) — a viewport over all items, measured
+///   by the layout engine and scrolled through the shared `ScrollMomentum`,
+///   exposing the same `scroll_wheel`/`fling`/`tick`/`visible_boxes` surface as
+///   `VirtualList`.
+///
+/// Shares the `ItemView` cell contract + the filter capability with
+/// `VirtualList`, so "list" and "virtual list" are one component family.
 pub struct List<'a, I, V: ItemView<Item = I>> {
     items: &'a [I],
     view: &'a V,
+    /// Shared scroll + windowing core (the SSOT). Empty/zero-viewport in the
+    /// row-builder mode; populated in the scrollable mode.
+    core: ListCore,
 }
 
 impl<'a, I, V: ItemView<Item = I>> List<'a, I, V> {
+    /// Row-builder mode: produces item rows for a container that does its own
+    /// layout/scroll. No viewport, no measured heights — `rows()`/`filtered_rows()`.
     pub fn new(items: &'a [I], view: &'a V) -> Self {
-        Self { items, view }
+        Self { items, view, core: ListCore::new(FxPx::ZERO, Vec::new(), 0, 0) }
+    }
+
+    /// Scrollable mode: a `viewport_height` window over all `items`, scrolled by
+    /// the shared `ScrollMomentum` SSOT. Heights start as placeholders; call
+    /// [`Self::measure_with`] to fill real per-item heights from the layout engine.
+    pub fn scrollable(
+        items: &'a [I],
+        view: &'a V,
+        viewport_height: FxPx,
+        overscan: usize,
+    ) -> Self {
+        let measured = (0..items.len()).map(|_| MeasuredRow::placeholder()).collect();
+        let core = ListCore::new(viewport_height, measured, overscan, items.len());
+        Self { items, view, core }
     }
 
     /// All item rows (no filter).
@@ -117,6 +151,108 @@ impl<'a, I, V: ItemView<Item = I>> List<'a, I, V> {
             .filter(|(_, item)| pred(item))
             .map(|(i, item)| self.view.build_item(i, item))
             .collect()
+    }
+
+    /// Measure every item's real height via the layout engine (`nexus_layout`) —
+    /// finite, so all items are measured (no lazy estimate). Recomputes content
+    /// height + visible range. Call after data/width changes, not per scroll.
+    pub fn measure_with(&mut self, measure: &dyn MeasureText, width: FxPx) {
+        if self.core.measured.is_empty() {
+            return;
+        }
+        let engine = LayoutEngine::new();
+        for (i, item) in self.items.iter().enumerate() {
+            let node = self.view.build_item(i, item);
+            if let Ok(result) = engine.layout(&node, width, measure) {
+                if let Some(row) = self.core.measured.get_mut(i) {
+                    row.height = result.content_height;
+                    row.estimated = false;
+                }
+            }
+        }
+        self.core.recompute_content_height();
+        self.core.recompute_visible_range();
+    }
+
+    /// Positioned `LayoutBox`es for the visible viewport window — O(window), the
+    /// same windowed paint as `VirtualList` but over the finite slice. Call
+    /// [`Self::measure_with`] first so heights are real.
+    pub fn visible_boxes(&self, measure: &dyn MeasureText, width: FxPx) -> Vec<LayoutBox> {
+        let range = self.core.visible_range.clone();
+        let mut out = Vec::new();
+        if range.start >= self.items.len() {
+            return out;
+        }
+        let engine = LayoutEngine::new();
+        let mut top: i32 =
+            self.core.measured[..range.start].iter().map(|m| m.height.as_i32()).sum();
+        let scroll = self.core.scroll_offset.as_i32();
+        for idx in range.clone() {
+            let item_h = self.core.measured.get(idx).map(|m| m.height.as_i32()).unwrap_or(0);
+            if let Some(item) = self.items.get(idx) {
+                let node = self.view.build_item(idx, item);
+                if let Ok(result) = engine.layout(&node, width, measure) {
+                    let dy = top - scroll;
+                    for mut b in result.boxes {
+                        b.rect.y = FxPx::new(b.rect.y.as_i32() + dy);
+                        out.push(b);
+                    }
+                }
+            }
+            top += item_h;
+        }
+        out
+    }
+
+    // ── scroll surface (delegates to the shared ListCore SSOT) ───────────────
+
+    /// Wheel input: immediate 1:1 step + accumulating momentum (see `VirtualList`).
+    pub fn scroll_wheel(&mut self, notch_px: FxPx) -> core::ops::Range<usize> {
+        self.core.scroll_wheel(notch_px)
+    }
+    /// Touch/trackpad inertia: a release velocity that coasts under friction.
+    pub fn fling(&mut self, velocity: FxPx) {
+        self.core.fling(velocity);
+    }
+    /// Advance the momentum glide by real elapsed time; returns true while gliding.
+    pub fn tick(&mut self, dt_ns: u64) -> bool {
+        self.core.tick(dt_ns)
+    }
+    /// Immediate jump by `delta` (no momentum).
+    pub fn scroll_by(&mut self, delta: FxPx) -> core::ops::Range<usize> {
+        self.core.scroll_by(delta)
+    }
+    /// True while a momentum glide is still in motion.
+    pub fn is_animating(&self) -> bool {
+        self.core.is_animating()
+    }
+    /// Update the viewport height (e.g. the window was resized).
+    pub fn set_viewport_height(&mut self, height: FxPx) {
+        self.core.set_viewport_height(height);
+    }
+    /// Override the content height (embedder is the height authority).
+    pub fn set_content_height(&mut self, height: FxPx) {
+        self.core.set_content_height(height);
+    }
+    /// Maximum scroll offset (content beyond the viewport).
+    pub fn max_scroll(&self) -> i32 {
+        self.core.max_scroll()
+    }
+    /// Current scroll offset.
+    pub fn scroll_offset(&self) -> FxPx {
+        self.core.scroll_offset
+    }
+    /// The scroll target the position is easing toward (a wheel notch extends it).
+    pub fn scroll_target(&self) -> i32 {
+        self.core.scroll_target()
+    }
+    /// Current visible range (inclusive start, exclusive end).
+    pub fn visible_range(&self) -> core::ops::Range<usize> {
+        self.core.visible_range.clone()
+    }
+    /// Total content height.
+    pub fn content_height(&self) -> FxPx {
+        self.core.content_height
     }
 }
 
@@ -166,7 +302,7 @@ impl ScrollAnchor {
 }
 
 // ---------------------------------------------------------------------------
-// VirtualList
+// VirtualListConfig
 // ---------------------------------------------------------------------------
 
 /// Configuration knobs for a `VirtualList`.
@@ -185,6 +321,190 @@ impl Default for VirtualListConfig {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ListCore — the scroll + windowing SSOT shared by List and VirtualList
+// ---------------------------------------------------------------------------
+
+/// The scroll + windowing core shared by [`List`] (finite) and [`VirtualList`]
+/// (lazy). Owns the **scroll SSOT** ([`animation::ScrollMomentum`] — wheel +
+/// fling physics) plus the measured-row prefix-sum windowing (the O(log n)
+/// visible-range binary search). Data-source-agnostic on purpose: a list flavor
+/// is this core + a data source, so scroll feel + windowing live in exactly one
+/// place. Fields are `pub(crate)` so the list flavors (and in-crate tests) read
+/// them directly without a wall of accessors.
+pub(crate) struct ListCore {
+    /// Viewport height in FxPx.
+    pub(crate) viewport_height: FxPx,
+    /// Whole-pixel mirror of `scroll.offset_px()`, refreshed after every scroll
+    /// op so the render/range code reads a stable `FxPx`. The authoritative
+    /// position + physics live in `scroll`.
+    pub(crate) scroll_offset: FxPx,
+    /// Shared momentum-scroll physics — the SAME reusable mechanism any
+    /// scrollable surface uses. Owns velocity + friction + the immediate 1:1
+    /// wheel step; the windowing just mirrors its offset + re-windows.
+    pub(crate) scroll: ScrollMomentum,
+    /// Cached row measurements.
+    pub(crate) measured: Vec<MeasuredRow>,
+    /// Prefix sum of measured item heights: `cumulative[i]` = pixel top of item
+    /// `i`, `cumulative[len]` = total height. Lets `recompute_visible_range` find
+    /// the first visible item by **binary search (O(log n))** instead of walking
+    /// from the top every frame (which was O(scroll-depth) — the 120 Hz killer).
+    pub(crate) cumulative: Vec<i32>,
+    /// Total estimated content height.
+    pub(crate) content_height: FxPx,
+    /// Extra items rendered beyond the viewport (top + bottom).
+    pub(crate) overscan: usize,
+    /// Maximum cached row measurements.
+    pub(crate) max_measured: usize,
+    /// Currently visible item range (start..end).
+    pub(crate) visible_range: core::ops::Range<usize>,
+    /// Perf introspection: items the LAST `recompute_visible_range` touched
+    /// (binary-search steps + window walk). Must stay ~O(log n + window).
+    pub(crate) last_scan_ops: u32,
+    /// Set by `recompute_visible_range`: the visible window (incl. overscan)
+    /// reached the end of the measured set. Lazy embedders read this to trigger
+    /// prefetch — kept out of the windowing math so the core stays data-agnostic.
+    pub(crate) reached_end: bool,
+}
+
+impl ListCore {
+    fn new(
+        viewport_height: FxPx,
+        measured: Vec<MeasuredRow>,
+        overscan: usize,
+        max_measured: usize,
+    ) -> Self {
+        let mut core = Self {
+            viewport_height,
+            scroll_offset: FxPx::ZERO,
+            scroll: ScrollMomentum::with_defaults(),
+            measured,
+            cumulative: Vec::new(),
+            content_height: FxPx::ZERO,
+            overscan,
+            max_measured,
+            visible_range: 0..0,
+            last_scan_ops: 0,
+            reached_end: false,
+        };
+        core.recompute_content_height(); // also syncs the scroller's extent
+        core.recompute_visible_range();
+        core
+    }
+
+    /// Push the current viewport/content extent into the shared scroller so its
+    /// `max_scroll`/clamping match the measured layout.
+    fn sync_scroll_extent(&mut self) {
+        self.scroll
+            .set_extent(self.viewport_height.as_i32() as f32, self.content_height.as_i32() as f32);
+        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+    }
+
+    fn max_scroll(&self) -> i32 {
+        (self.content_height.as_i32() - self.viewport_height.as_i32()).max(0)
+    }
+
+    fn scroll_target(&self) -> i32 {
+        self.scroll.target() as i32
+    }
+
+    fn set_content_height(&mut self, height: FxPx) {
+        self.content_height = FxPx::new(height.as_i32().max(0));
+        self.sync_scroll_extent();
+    }
+
+    fn set_viewport_height(&mut self, height: FxPx) {
+        self.viewport_height = FxPx::new(height.as_i32().max(0));
+        self.sync_scroll_extent();
+    }
+
+    fn scroll_by(&mut self, delta: FxPx) -> core::ops::Range<usize> {
+        self.scroll.scroll_by(delta.as_i32() as f32);
+        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        self.recompute_visible_range();
+        self.visible_range.clone()
+    }
+
+    fn scroll_wheel(&mut self, notch_px: FxPx) -> core::ops::Range<usize> {
+        self.scroll.scroll_wheel(notch_px.as_i32() as f32);
+        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        self.recompute_visible_range();
+        self.visible_range.clone()
+    }
+
+    fn fling(&mut self, velocity: FxPx) {
+        self.scroll.fling(velocity.as_i32() as f32);
+    }
+
+    fn is_animating(&self) -> bool {
+        self.scroll.is_animating()
+    }
+
+    fn tick(&mut self, dt_ns: u64) -> bool {
+        let still = self.scroll.tick(dt_ns);
+        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        self.recompute_visible_range();
+        still
+    }
+
+    fn recompute_content_height(&mut self) {
+        // Rebuild the prefix sum (top of each item) + total height. O(measured),
+        // but only on data/width changes — NOT per scroll frame.
+        self.cumulative.clear();
+        self.cumulative.push(0);
+        let mut h = 0i32;
+        for m in &self.measured {
+            h += m.height.as_i32();
+            self.cumulative.push(h);
+        }
+        self.content_height = FxPx::new(h);
+        self.sync_scroll_extent();
+    }
+
+    fn recompute_visible_range(&mut self) {
+        let n = self.measured.len();
+        if n == 0 || self.cumulative.len() != n + 1 {
+            self.visible_range = 0..0;
+            self.reached_end = false;
+            return;
+        }
+        let overscan_px = self.overscan as i32 * 48;
+        let top = (self.scroll_offset.as_i32() - overscan_px).max(0);
+        let bottom = self.scroll_offset.as_i32() + self.viewport_height.as_i32() + overscan_px;
+
+        // O(log n): first item whose BOTTOM (cumulative[i+1]) is below `top`,
+        // via binary search on the ascending prefix sum (counts its steps).
+        let mut ops = 0u32;
+        let (mut lo, mut hi) = (1usize, self.cumulative.len());
+        while lo < hi {
+            ops += 1;
+            let mid = (lo + hi) / 2;
+            if self.cumulative[mid] > top {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        let start = (lo - 1).min(n - 1);
+        // O(window): walk forward only across the visible window + overscan.
+        let mut end = start;
+        while end < n && self.cumulative[end] <= bottom {
+            end += 1;
+            ops += 1;
+        }
+        self.last_scan_ops = ops;
+        let end = end.max(start + 1).min(n);
+        self.visible_range = start..end;
+        // Lazy-prefetch trigger (data-agnostic): the window approached the end of
+        // the loaded/measured set. The lazy flavor acts on it via the provider.
+        self.reached_end = end + self.overscan >= n;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// VirtualList
+// ---------------------------------------------------------------------------
+
 /// State of the virtual list render pass.
 enum ListState {
     /// Initial state — needs full mount.
@@ -202,45 +522,20 @@ enum ListState {
 /// Manages a viewport window over a potentially large collection.
 /// Only the visible range plus overscan has active scene graph nodes.
 /// Off-screen nodes are recycled instead of deallocated.
+///
+/// Scroll + windowing are delegated to the shared [`ListCore`]; this type adds
+/// the lazy [`ItemProvider`] data source, recycling pool, and prefetch.
 pub struct VirtualList<P: ItemProvider> {
     /// The data provider.
     provider: P,
-    /// Viewport height in FxPx.
-    viewport_height: FxPx,
-    /// Whole-pixel mirror of `scroll.offset_px()`, refreshed after every scroll
-    /// op so the render/range code reads a stable `FxPx`. The authoritative
-    /// position + physics live in `scroll`.
-    scroll_offset: FxPx,
-    /// Shared momentum-scroll physics ([`animation::ScrollMomentum`]) — the SAME
-    /// reusable mechanism any scrollable surface uses. Owns velocity + friction +
-    /// the immediate 1:1 wheel step; the list just mirrors its offset + re-windows.
-    scroll: ScrollMomentum,
-    /// Stable scroll anchor.
-    anchor: ScrollAnchor,
-    /// Currently visible item range (start..end).
-    visible_range: core::ops::Range<usize>,
-    /// Cached row measurements.
-    measured: Vec<MeasuredRow>,
+    /// Shared scroll + windowing core (the SSOT).
+    core: ListCore,
     /// Recycling pool: reused node ids.
     recycled: Vec<u64>,
     /// Currently active node ids (in display order).
     active_nodes: Vec<u64>,
-    /// Configuration.
-    config: VirtualListConfig,
     /// Internal state tracker.
     state: ListState,
-    /// Total estimated content height.
-    content_height: FxPx,
-    /// Prefix sum of measured item heights: `cumulative[i]` = pixel top of item
-    /// `i`, `cumulative[len]` = total height. Lets `recompute_visible_range` find
-    /// the first visible item by **binary search (O(log n))** instead of walking
-    /// from the top every frame (which was O(scroll-depth) — the 120 Hz killer).
-    cumulative: Vec<i32>,
-    /// Perf introspection: number of items the LAST `recompute_visible_range`
-    /// touched (binary-search steps + window walk). The defining virtlist metric
-    /// — it must stay bounded (~O(log n + window)) regardless of total count and
-    /// scroll depth. Asserted by the perf tests so regressions are caught.
-    last_scan_ops: u32,
 }
 
 impl<P: ItemProvider> VirtualList<P> {
@@ -253,43 +548,35 @@ impl<P: ItemProvider> VirtualList<P> {
                 MeasuredRow { height: FxPx::new(h as i32), width_bucket: 0, estimated: true }
             })
             .collect();
+        let core = ListCore::new(viewport_height, measured, config.overscan, config.max_measured);
         let mut list = Self {
             provider,
-            viewport_height,
-            scroll_offset: FxPx::ZERO,
-            scroll: ScrollMomentum::with_defaults(),
-            anchor: ScrollAnchor::new(0),
-            visible_range: 0..0,
-            measured,
+            core,
             recycled: Vec::new(),
             active_nodes: Vec::new(),
-            config,
             state: ListState::Unmounted,
-            content_height: FxPx::ZERO,
-            cumulative: Vec::new(),
-            last_scan_ops: 0,
         };
-        list.recompute_content_height(); // also syncs the scroller's extent
-        list.recompute_visible_range();
+        list.maybe_prefetch();
         list
     }
 
-    /// Push the current viewport/content extent into the shared scroller so its
-    /// `max_scroll`/clamping match this list's measured layout.
-    fn sync_scroll_extent(&mut self) {
-        self.scroll
-            .set_extent(self.viewport_height.as_i32() as f32, self.content_height.as_i32() as f32);
-        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+    /// Lazy prefetch (Apple/OHOS-style): when the visible window approaches the
+    /// end of the loaded set, ask the provider to load the next page — so deep
+    /// scrolling never blocks on data. Guarded by `has_inflight` (no dup loads).
+    fn maybe_prefetch(&mut self) {
+        if self.core.reached_end && !self.provider.has_inflight() {
+            self.provider.request_more(self.core.visible_range.end);
+        }
     }
 
     /// Maximum scroll offset (content beyond the viewport). 0 if it all fits.
     pub fn max_scroll(&self) -> i32 {
-        (self.content_height.as_i32() - self.viewport_height.as_i32()).max(0)
+        self.core.max_scroll()
     }
 
     /// The scroll target the position is easing toward (diagnostics / embedders).
     pub fn scroll_target(&self) -> i32 {
-        self.scroll.target() as i32
+        self.core.scroll_target()
     }
 
     /// Override the content height directly (embedder is the height authority).
@@ -302,14 +589,12 @@ impl<P: ItemProvider> VirtualList<P> {
     /// the shared [`ScrollMomentum`] still owns the physics. Re-clamps the live
     /// offset so an external shrink can't strand it past the new bottom.
     pub fn set_content_height(&mut self, height: FxPx) {
-        self.content_height = FxPx::new(height.as_i32().max(0));
-        self.sync_scroll_extent();
+        self.core.set_content_height(height);
     }
 
     /// Update the viewport height (e.g. the chat window was resized).
     pub fn set_viewport_height(&mut self, height: FxPx) {
-        self.viewport_height = FxPx::new(height.as_i32().max(0));
-        self.sync_scroll_extent();
+        self.core.set_viewport_height(height);
     }
 
     /// Mutable access to the provider (e.g. to prepend/append data). After a
@@ -323,11 +608,10 @@ impl<P: ItemProvider> VirtualList<P> {
     /// kills any glide. Positive = down. Returns the new visible range. For
     /// programmatic jumps (scroll-to-index, key Home/End), not wheel input.
     pub fn scroll_by(&mut self, delta: FxPx) -> core::ops::Range<usize> {
-        self.scroll.scroll_by(delta.as_i32() as f32);
-        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        let range = self.core.scroll_by(delta);
         self.state = ListState::Scrolling;
-        self.recompute_visible_range();
-        self.visible_range.clone()
+        self.maybe_prefetch();
+        range
     }
 
     /// Wheel/trackpad input → the production scroll feel: an IMMEDIATE 1:1 step
@@ -336,11 +620,10 @@ impl<P: ItemProvider> VirtualList<P> {
     /// [`ScrollMomentum`]. Returns the new visible range so the caller can
     /// present the instant move on the same frame.
     pub fn scroll_wheel(&mut self, notch_px: FxPx) -> core::ops::Range<usize> {
-        self.scroll.scroll_wheel(notch_px.as_i32() as f32);
-        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        let range = self.core.scroll_wheel(notch_px);
         self.state = ListState::Scrolling;
-        self.recompute_visible_range();
-        self.visible_range.clone()
+        self.maybe_prefetch();
+        range
     }
 
     /// Touch/trackpad inertia — inject a release **velocity** (px/s, positive =
@@ -348,24 +631,23 @@ impl<P: ItemProvider> VirtualList<P> {
     /// Android-`OverScroller` friction. No immediate step; wheel input should use
     /// [`Self::scroll_wheel`]. Successive flings before settling accumulate.
     pub fn fling(&mut self, velocity: FxPx) {
-        self.scroll.fling(velocity.as_i32() as f32);
+        self.core.fling(velocity);
         self.state = ListState::Scrolling;
     }
 
     /// True while a momentum glide is still in motion (the present loop keeps
     /// ticking + presenting); false once it has settled (idle/reactive).
     pub fn is_animating(&self) -> bool {
-        self.scroll.is_animating()
+        self.core.is_animating()
     }
 
     /// Advance the momentum glide by the real elapsed time `dt_ns` (frame-rate
     /// independent) via the shared [`ScrollMomentum`] integrator, then re-window.
     /// Returns true while still gliding. O(window) — only the visible range moves.
     pub fn tick(&mut self, dt_ns: u64) -> bool {
-        let still = self.scroll.tick(dt_ns);
-        self.scroll_offset = FxPx::new(self.scroll.offset_px());
+        let still = self.core.tick(dt_ns);
         self.state = ListState::Scrolling;
-        self.recompute_visible_range();
+        self.maybe_prefetch();
         still
     }
 
@@ -379,12 +661,12 @@ impl<P: ItemProvider> VirtualList<P> {
     where
         V: ItemView<Item = P::Item>,
     {
-        let n = self.measured.len();
+        let n = self.core.measured.len();
         if n == 0 {
             return;
         }
         let engine = LayoutEngine::new();
-        // Disjoint field borrows: `provider` (read for items) + `measured` (write).
+        // Disjoint field borrows: `provider` (read for items) + `core` (write).
         let items = self.provider.get(0..n);
         for i in 0..items.len() {
             let Some(item) = items[i].as_ref() else {
@@ -392,30 +674,31 @@ impl<P: ItemProvider> VirtualList<P> {
             };
             let node = view.build_item(i, item);
             if let Ok(result) = engine.layout(&node, width, measure) {
-                if let Some(row) = self.measured.get_mut(i) {
+                if let Some(row) = self.core.measured.get_mut(i) {
                     row.height = result.content_height;
                     row.estimated = false;
                 }
             }
         }
-        self.recompute_content_height();
-        self.recompute_visible_range();
+        self.core.recompute_content_height();
+        self.core.recompute_visible_range();
+        self.maybe_prefetch();
     }
 
     /// Notify the list that a new page of data has arrived.
     pub fn page_arrived(&mut self) {
         self.state = ListState::DataArrived;
-        let hint = self.provider.len_hint().unwrap_or(self.measured.len());
-        while self.measured.len() < hint.min(self.config.max_measured) {
-            let i = self.measured.len();
+        let hint = self.provider.len_hint().unwrap_or(self.core.measured.len());
+        while self.core.measured.len() < hint.min(self.core.max_measured) {
+            let i = self.core.measured.len();
             let h = self.provider.height_hint(i);
-            self.measured.push(MeasuredRow {
+            self.core.measured.push(MeasuredRow {
                 height: FxPx::new(h as i32),
                 width_bucket: 0,
                 estimated: true,
             });
         }
-        self.recompute_content_height();
+        self.core.recompute_content_height();
     }
 
     /// Positioned `LayoutBox`es for the **visible window only** (visible range +
@@ -433,19 +716,20 @@ impl<P: ItemProvider> VirtualList<P> {
     where
         V: ItemView<Item = P::Item>,
     {
-        let range = self.visible_range.clone();
+        let range = self.core.visible_range.clone();
         let mut out = Vec::new();
-        if range.start >= self.measured.len() {
+        if range.start >= self.core.measured.len() {
             return out;
         }
         let engine = LayoutEngine::new();
         // On-screen y of the first visible item's top.
-        let mut top: i32 = self.measured[..range.start].iter().map(|m| m.height.as_i32()).sum();
-        let scroll = self.scroll_offset.as_i32();
+        let mut top: i32 =
+            self.core.measured[..range.start].iter().map(|m| m.height.as_i32()).sum();
+        let scroll = self.core.scroll_offset.as_i32();
         let items = self.provider.get(range.clone());
         for (off, slot) in items.iter().enumerate() {
             let idx = range.start + off;
-            let item_h = self.measured.get(idx).map(|m| m.height.as_i32()).unwrap_or(0);
+            let item_h = self.core.measured.get(idx).map(|m| m.height.as_i32()).unwrap_or(0);
             if let Some(item) = slot {
                 let node = view.build_item(idx, item);
                 if let Ok(result) = engine.layout(&node, width, measure) {
@@ -463,12 +747,12 @@ impl<P: ItemProvider> VirtualList<P> {
 
     /// Current visible range (inclusive start, exclusive end).
     pub fn visible_range(&self) -> core::ops::Range<usize> {
-        self.visible_range.clone()
+        self.core.visible_range.clone()
     }
 
     /// Current scroll offset.
     pub fn scroll_offset(&self) -> FxPx {
-        self.scroll_offset
+        self.core.scroll_offset
     }
 
     /// The data provider (read-only) — for inspecting lazy-load state.
@@ -481,12 +765,12 @@ impl<P: ItemProvider> VirtualList<P> {
     /// bounded at ~O(log n + window) regardless of total item count OR scroll
     /// depth — it must NOT grow with the list size or how far down you've scrolled.
     pub fn last_scan_ops(&self) -> u32 {
-        self.last_scan_ops
+        self.core.last_scan_ops
     }
 
-    /// Stable scroll anchor.
+    /// Stable scroll anchor (the leading visible item).
     pub fn anchor(&self) -> ScrollAnchor {
-        self.anchor
+        ScrollAnchor::new(self.core.visible_range.start)
     }
 
     /// True when the list is scrolling (PlaceOnly invalidation).
@@ -521,67 +805,7 @@ impl<P: ItemProvider> VirtualList<P> {
 
     /// Total estimated content height.
     pub fn content_height(&self) -> FxPx {
-        self.content_height
-    }
-
-    // ── internal ────────────────────────────────────────────────
-
-    fn recompute_visible_range(&mut self) {
-        let n = self.measured.len();
-        if n == 0 || self.cumulative.len() != n + 1 {
-            self.visible_range = 0..0;
-            self.anchor = ScrollAnchor { leading_index: 0, offset: FxPx::ZERO };
-            return;
-        }
-        let overscan_px = self.config.overscan as i32 * 48;
-        let top = (self.scroll_offset.as_i32() - overscan_px).max(0);
-        let bottom = self.scroll_offset.as_i32() + self.viewport_height.as_i32() + overscan_px;
-
-        // O(log n): first item whose BOTTOM (cumulative[i+1]) is below `top`,
-        // via binary search on the ascending prefix sum (counts its steps).
-        let mut ops = 0u32;
-        let (mut lo, mut hi) = (1usize, self.cumulative.len());
-        while lo < hi {
-            ops += 1;
-            let mid = (lo + hi) / 2;
-            if self.cumulative[mid] > top {
-                hi = mid;
-            } else {
-                lo = mid + 1;
-            }
-        }
-        let start = (lo - 1).min(n - 1);
-        // O(window): walk forward only across the visible window + overscan.
-        let mut end = start;
-        while end < n && self.cumulative[end] <= bottom {
-            end += 1;
-            ops += 1;
-        }
-        self.last_scan_ops = ops;
-        let end = end.max(start + 1).min(n);
-        self.visible_range = start..end;
-        self.anchor = ScrollAnchor { leading_index: start, offset: FxPx::ZERO };
-
-        // Lazy prefetch (Apple/OHOS-style): when the visible window approaches the
-        // end of the loaded set, ask the provider to load the next page — so deep
-        // scrolling never blocks on data. Guarded by `has_inflight` (no dup loads).
-        if end + self.config.overscan >= n && !self.provider.has_inflight() {
-            self.provider.request_more(end);
-        }
-    }
-
-    fn recompute_content_height(&mut self) {
-        // Rebuild the prefix sum (top of each item) + total height. O(measured),
-        // but only on data/width changes — NOT per scroll frame.
-        self.cumulative.clear();
-        self.cumulative.push(0);
-        let mut h = 0i32;
-        for m in &self.measured {
-            h += m.height.as_i32();
-            self.cumulative.push(h);
-        }
-        self.content_height = FxPx::new(h);
-        self.sync_scroll_extent();
+        self.core.content_height
     }
 }
 
@@ -634,8 +858,8 @@ mod tests {
     fn virtual_list_initializes() {
         let p = make_provider(100);
         let list = VirtualList::new(p, FxPx::new(400), VirtualListConfig::default());
-        assert_eq!(list.viewport_height, FxPx::new(400));
-        assert_eq!(list.scroll_offset, FxPx::ZERO);
+        assert_eq!(list.core.viewport_height, FxPx::new(400));
+        assert_eq!(list.core.scroll_offset, FxPx::ZERO);
         assert_eq!(list.recycled.len(), 0);
     }
 
@@ -918,9 +1142,9 @@ mod tests {
     fn page_arrived_extends_measurements() {
         let p = make_provider(50);
         let mut list = VirtualList::new(p, FxPx::new(200), VirtualListConfig::default());
-        let before = list.measured.len();
+        let before = list.core.measured.len();
         list.page_arrived();
-        assert!(list.measured.len() >= before);
+        assert!(list.core.measured.len() >= before);
     }
 
     #[test]
@@ -975,7 +1199,7 @@ mod tests {
             }
         }
         let list = VirtualList::new(UnknownProvider, FxPx::new(200), VirtualListConfig::default());
-        assert_eq!(list.measured.len(), 0);
+        assert_eq!(list.core.measured.len(), 0);
     }
 
     #[test]
@@ -1021,6 +1245,93 @@ mod tests {
         // Filter (query "ap") → only matching items get rows. O(items) build.
         let filtered = list.filtered_rows(|s| s.starts_with("ap"));
         assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn scrollable_list_shares_the_core_and_scrolls() {
+        use nexus_layout_types::measure::{LineLayout, PreparedTextHandle};
+        use nexus_layout_types::node::TextContent;
+        use nexus_layout_types::{
+            Align, Direction, EdgeInsets, FlexItem, Justify, MeasureText, Overflow, Rgba8, Stack,
+            TextStyle, VisualStyle,
+        };
+
+        struct StubMeasure;
+        impl MeasureText for StubMeasure {
+            fn prepare(&self, _c: &TextContent, _s: &TextStyle) -> PreparedTextHandle {
+                PreparedTextHandle(0)
+            }
+            fn measure_width(&self, _h: &PreparedTextHandle) -> FxPx {
+                FxPx::new(40)
+            }
+            fn layout_lines(
+                &self,
+                _h: &PreparedTextHandle,
+                _w: FxPx,
+                _m: Option<u32>,
+            ) -> LineLayout {
+                LineLayout { lines: Vec::new(), natural_width: FxPx::new(40) }
+            }
+        }
+        // Fixed 30px rows.
+        struct RowView;
+        impl ItemView for RowView {
+            type Item = u32;
+            fn build_item(&self, _i: usize, _item: &u32) -> LayoutNode {
+                LayoutNode::Stack(
+                    Stack {
+                        id: None,
+                        direction: Direction::Column,
+                        gap: FxPx::ZERO,
+                        padding: EdgeInsets::all(FxPx::ZERO),
+                        align: Align::Start,
+                        justify: Justify::Start,
+                        overflow: Overflow::Visible,
+                        flex_wrap: false,
+                        min_width: None,
+                        max_width: None,
+                        min_height: Some(FxPx::new(30)),
+                        max_height: None,
+                        item: FlexItem::default(),
+                    },
+                    VisualStyle {
+                        background: Some(Rgba8::new(20, 24, 32, 255)),
+                        ..Default::default()
+                    },
+                    Vec::new(),
+                )
+            }
+        }
+
+        // 100 rows at the 48px placeholder height in a 120px viewport → finite,
+        // scrollable, windowed. (Per-item measurement is covered by the
+        // VirtualList measure test; here we exercise the shared scroll core.)
+        let items: Vec<u32> = (0..100).collect();
+        let mut list = List::scrollable(&items, &RowView, FxPx::new(120), 2);
+        let bottom = list.max_scroll();
+        assert!(list.content_height().as_i32() > 120, "content exceeds the viewport");
+        assert_eq!(bottom, list.content_height().as_i32() - 120, "max_scroll = content - viewport");
+
+        // The SAME ScrollMomentum SSOT drives it: an immediate jump moves the
+        // offset, and the visible window stays O(window) — not all 100 items.
+        list.scroll_by(FxPx::new(300));
+        assert!(list.scroll_offset().as_i32() > 0, "scrolled via the shared core");
+        // A wheel notch sets the ease target (lands on tick, not instantly).
+        list.scroll_wheel(FxPx::new(60));
+        assert!(list.scroll_target() > list.scroll_offset().as_i32(), "wheel extends the target");
+        let boxes = list.visible_boxes(&StubMeasure, FxPx::new(300));
+        assert!(!boxes.is_empty() && boxes.len() < 20, "windowed paint: {} boxes", boxes.len());
+
+        // A hard fling clamps at the finite bottom (SSOT clamping), never past it.
+        for _ in 0..40 {
+            list.fling(FxPx::new(5_000));
+        }
+        let mut guard = 0;
+        while list.is_animating() && guard < 5_000 {
+            list.tick(FRAME_NS);
+            guard += 1;
+        }
+        assert_eq!(list.scroll_offset().as_i32(), bottom, "fling clamps at the finite bottom");
     }
 
     #[test]
@@ -1070,11 +1381,11 @@ mod tests {
 
         let mut list =
             VirtualList::new(make_provider(20), FxPx::new(100), VirtualListConfig::default());
-        assert!(list.measured.iter().take(20).all(|m| m.estimated), "start estimated");
+        assert!(list.core.measured.iter().take(20).all(|m| m.estimated), "start estimated");
         list.measure_with(&RowView, &StubMeasure, FxPx::new(200));
         // Loaded items now carry an engine-measured (non-estimated) height.
         assert!(
-            list.measured.iter().take(20).all(|m| !m.estimated),
+            list.core.measured.iter().take(20).all(|m| !m.estimated),
             "all loaded items measured by the layout engine"
         );
     }

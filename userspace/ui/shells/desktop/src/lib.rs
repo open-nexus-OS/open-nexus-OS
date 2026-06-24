@@ -8,14 +8,14 @@
 //! by `manifests/shells/desktop/shell.toml` for the `desktop` profile and hands
 //! its scene to windowd, which composites it on the **virgl/GPU** path.
 //!
-//! This crate is *pure*: `build_desktop_scene(tokens) -> LayoutNode` and a chat
-//! `ItemView`. No app state, no rendering, no compositor knowledge — the
-//! framework/app split, and a 1:1 target for the future DSL. A different shell
-//! (tablet/kiosk) is a different crate selected by a different manifest; the same
-//! widgets + theme, different composition + affordances.
+//! This crate is *pure*: `build_desktop_scene(tokens) -> LayoutNode`. No app
+//! state, no rendering, no compositor knowledge — the framework/app split, and a
+//! 1:1 target for the future DSL. A different shell (tablet/kiosk) is a different
+//! crate selected by a different manifest; the same widgets + theme, different
+//! composition + affordances.
 //!
-//! The "chat" is just a `VirtualList<ChatMessageProvider>` + [`ChatItemView`]
-//! placed in the window's list viewport — content of the shell, not windowd.
+//! The chat *content* (message model + cell view) lives in `chat-app`
+//! (RFC-0067 P2.4); this shell only lays out the window that hosts it.
 
 extern crate alloc;
 
@@ -25,7 +25,6 @@ use nexus_layout_types::{
 };
 use nexus_style::Style;
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
-use nexus_virtual_list::{ChatMessage, ItemView};
 use nexus_widget_button::Button;
 use nexus_widget_panel::Panel;
 use nexus_widget_text_field::TextField;
@@ -184,32 +183,8 @@ pub fn build_target_panel(tokens: &dyn Tokens) -> LayoutNode {
         .build()
 }
 
-/// The chat cell: renders a [`ChatMessage`] as a themed bubble. This is the only
-/// "chat-specific" code — a data-source cell, living in the shell, not windowd.
-pub struct ChatItemView<'a> {
-    pub tokens: &'a dyn Tokens,
-}
-
-impl ItemView for ChatItemView<'_> {
-    type Item = ChatMessage;
-
-    fn build_item(&self, _index: usize, msg: &ChatMessage) -> LayoutNode {
-        let (bubble, text) = if msg.from_me {
-            (ColorToken::Accent, ColorToken::OnAccent)
-        } else {
-            (ColorToken::SurfaceVariant, ColorToken::OnSurface)
-        };
-        Panel::row()
-            .style(
-                Style::new()
-                    .background_token(self.tokens, bubble)
-                    .rounded_token(self.tokens, LengthToken::RadiusMedium),
-            )
-            .padding(self.tokens.length(LengthToken::SpacingSmall))
-            .child(label(msg.text, self.tokens.color(text)))
-            .build()
-    }
-}
+// The chat cell (`ChatItemView`) moved to `chat-app` (RFC-0067 P2.4): the chat
+// app owns its message model + cell view; this shell crate stays content-free.
 
 #[cfg(test)]
 mod tests {
@@ -259,13 +234,4 @@ mod tests {
         assert_eq!(stack_bg(&card_kids[0]), Some(t.color(ColorToken::SurfaceVariant)));
     }
 
-    #[test]
-    fn chat_bubbles_are_themed_by_direction() {
-        let t = BaseTokens;
-        let view = ChatItemView { tokens: &t };
-        let mine = view.build_item(0, &ChatMessage { text: "hi", from_me: true });
-        let theirs = view.build_item(1, &ChatMessage { text: "yo", from_me: false });
-        assert_ne!(stack_bg(&mine), stack_bg(&theirs), "outgoing vs incoming differ");
-        assert_eq!(stack_bg(&mine), Some(t.color(ColorToken::Accent)));
-    }
 }

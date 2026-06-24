@@ -27,7 +27,8 @@ use crate::interaction::{
     CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W, CHAT_TITLE_BAR_H,
 };
 use alloc::vec::Vec;
-use nexus_virtual_list::{ChatMessageProvider, ItemProvider};
+use chat_app::ChatMessageProvider;
+use nexus_virtual_list::ItemProvider;
 
 // Colours (BGRA — the framebuffer is BGRA8888).
 // PANEL_BG matches the Search window's glass tint so both windows share one

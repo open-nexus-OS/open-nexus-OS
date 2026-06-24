@@ -16,4 +16,3 @@ nexus-widget-panel = { path = "../../widgets/panel" }
 nexus-widget-button = { path = "../../widgets/button" }
 nexus-widget-window = { path = "../../widgets/window" }
 nexus-widget-text-field = { path = "../../widgets/text_field" }
-nexus-virtual-list = { path = "../../widgets/virtual_list" }
