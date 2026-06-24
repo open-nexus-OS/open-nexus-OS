@@ -10,7 +10,14 @@
 //! TEST_COVERAGE: model (filter/geometry) + render (owned surface) host tests
 //! ADR: docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
 
+// `no_std` for the non-test build so the OS compositor (windowd, no_std) can link
+// the app's data/logic directly as a per-app surface source (ADR-0037 step 1);
+// host tests keep `std`. `alloc` provides `Vec`/`String` in both.
+#![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
+
+#[macro_use]
+extern crate alloc;
 
 pub mod model;
 pub mod render;

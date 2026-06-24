@@ -1,11 +1,20 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Search app data + filter + geometry — the app owns its content, not
+//! the compositor (RFC-0065 / ADR-0037).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 4 tests
+//!
 //! Search app data + filter + geometry — the app's own logic (RFC-0065).
 //!
 //! Ported from windowd's baked search window so the app, not the compositor, owns
 //! its content. windowd keeps only the window chrome (title bar / close / drag);
 //! the app owns the word list, the filter, and its content layout.
+
+use alloc::vec::Vec;
 
 /// Content width of the search window (matches the shell window chrome width).
 pub const SEARCH_W: u32 = 360;

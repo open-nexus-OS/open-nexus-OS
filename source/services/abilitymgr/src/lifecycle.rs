@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Pure ability-lifecycle state machine + recents + launch caps gate —
+//! the broker core, host-tested SSOT for transition ordering (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 9 tests
+//!
 //! Pure ability-lifecycle state machine + recents — the broker core.
 //!
 //! Host-testable and `no_std` (alloc only). This is the SSOT for lifecycle
@@ -64,6 +71,9 @@ pub enum LifecycleError {
     InvalidTransition { from: AbilityState, to: AbilityState },
     /// The instance table is at `MAX_INSTANCES`.
     TooManyInstances,
+    /// The app's manifest declares a capability the platform does not recognize;
+    /// the launch is denied (fail-closed). RFC-0065 launch authority.
+    UnsupportedCapability,
 }
 
 /// A launched ability instance.
@@ -77,6 +87,9 @@ pub struct AbilityInstance {
     pub launch_ability: String,
     /// Current lifecycle state.
     pub state: AbilityState,
+    /// The manifest-declared, validated capabilities granted to this instance —
+    /// the exact set the per-app spawn will request (RFC-0065 launch authority).
+    pub granted_caps: Vec<String>,
 }
 
 /// Maximum concurrently-tracked instances (bounded resource).
@@ -118,13 +131,34 @@ impl Broker {
         Self { instances: BTreeMap::new(), next_id: 1, recents: Vec::new() }
     }
 
-    /// Launches a new instance in `Created`. Returns its instance id.
+    /// Launches a new instance in `Created` with no declared capabilities.
+    /// Convenience for callers that do not gate on caps (e.g. host CLI demos);
+    /// the live OS path uses [`launch_with_caps`](Self::launch_with_caps).
+    pub fn launch(&mut self, app_id: &str, launch_ability: &str) -> Result<u32, LifecycleError> {
+        self.launch_with_caps(app_id, launch_ability, &[])
+    }
+
+    /// Launches a new instance in `Created`, enforcing the app's manifest-declared
+    /// capabilities: every `required_cap` must be a known platform permission or
+    /// the launch is DENIED (`UnsupportedCapability`, fail-closed). This is the
+    /// RFC-0065 launch authority — an ability never runs while requesting a
+    /// permission the system does not recognize. The validated set is recorded on
+    /// the instance as `granted_caps` (the spawn requests exactly these).
     ///
     /// The caller drives `Started` next (and, in the OS path, the execd spawn +
     /// windowd surface bind around it).
-    pub fn launch(&mut self, app_id: &str, launch_ability: &str) -> Result<u32, LifecycleError> {
+    pub fn launch_with_caps(
+        &mut self,
+        app_id: &str,
+        launch_ability: &str,
+        required_caps: &[&str],
+    ) -> Result<u32, LifecycleError> {
         if self.instances.len() >= MAX_INSTANCES {
             return Err(LifecycleError::TooManyInstances);
+        }
+        // Fail-closed permission check against the known set.
+        if crate::caps::first_unknown(required_caps).is_some() {
+            return Err(LifecycleError::UnsupportedCapability);
         }
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
@@ -135,6 +169,7 @@ impl Broker {
                 app_id: String::from(app_id),
                 launch_ability: String::from(launch_ability),
                 state: AbilityState::Created,
+                granted_caps: required_caps.iter().map(|c| String::from(*c)).collect(),
             },
         );
         self.touch_recent(id);

@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: windowd→bundlemgrd registry client — fetches `OP_LIST_APPS` over
+//! CAP_MOVE to populate the dynamic Apps menu (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (OS-only IPC; the response parser is host-tested in `app_menu`)
+//!
 //! Registry client (RFC-0065 dynamic Apps menu): windowd queries `bundlemgrd`'s
 //! `OP_LIST_APPS` to populate the topbar Apps dropdown from the **installed bundle
 //! registry** instead of a hardcoded list.

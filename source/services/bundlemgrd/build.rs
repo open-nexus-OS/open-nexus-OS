@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Build script — generates `APP_REGISTRY` from the real bundle
+//! manifests so the Apps menu reflects installed bundles, not a const (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (build script; the registry is exercised by bundlemgrd `os_lite` tests)
+//!
 //! Build script: generates the installed-app registry (`APP_REGISTRY`) from the
 //! REAL app bundle manifests (`bundles/<app>/manifest.toml`) instead of a
 //! hand-maintained const in source (RFC-0065). The manifests are the single

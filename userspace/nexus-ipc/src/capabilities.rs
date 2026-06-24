@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Capability namespace — the typed SSOT for capability names so gating
+//! is never a magic string scattered across services (RFC-0066).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 tests
+//!
 //! Capability namespace — the single source of truth for capability names
 //! (RFC-0066). Every capability the system gates on is a **typed** [`Capability`]
 //! here, not a magic string scattered across services.

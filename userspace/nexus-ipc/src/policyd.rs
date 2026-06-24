@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: One reusable policyd capability-check client — shared by every
+//! enforcement point (bundlemgrd, abilitymgr, …) (RFC-0066).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 tests
+//!
 //! One reusable policyd capability-check client (RFC-0066).
 //!
 //! Enforcement points (bundlemgrd, abilitymgr, …) authorize a caller through a

@@ -16,6 +16,7 @@ links:
   - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
   - QuerySpec v3 lazy data surfaces: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
   - DSL v0.3a AOT/codegen: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - DSL app runtime + lifecycle/surface contract: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
   - UI design system primitives: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
   - Zero-copy app platform (pro workloads): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
   - Zero-copy VMOs (keystone data plane): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md

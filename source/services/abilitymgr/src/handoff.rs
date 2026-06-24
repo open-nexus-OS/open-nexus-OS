@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Launch-handoff orchestrator — the pure authority sequence behind a
+//! launcher click (resolve → caps → spawn → surface), host-tested (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 4 tests
+//!
 //! Launch-handoff orchestrator — the pure authority sequence behind a launcher
 //! click. RFC-0065 §Launch handoff contract:
 //!

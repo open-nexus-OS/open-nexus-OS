@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Declarative service topology — host-testable SSOT for service
+//! identity + the required route graph, cross-validated against policy (RFC-0066).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 6 tests
+//!
 //! Declarative service topology (RFC-0066) — the host-testable SSOT for *who
 //! exists* and *who may talk to whom*, decoupled from the OS capability binding.
 //!

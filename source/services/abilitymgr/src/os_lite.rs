@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: OS-lite backend for abilitymgr — the broker service loop, live
+//! registry probe, and manifest-caps startup self-check (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (OS service loop; broker/wire/caps logic host-tested in their modules)
+//!
 //! OS-lite backend for abilitymgr — the ability-lifecycle broker service loop.
 //!
 //! Routes its endpoint, receives request frames, drives the pure [`Broker`] via
@@ -65,6 +72,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // RFC-0065: prove the live resolve hop — ask the registry (bundlemgrd) for the
     // installed app list. Best-effort: any failure just logs and is non-fatal.
     probe_registry();
+
+    // RFC-0065 launch authority: validate each installed app's manifest-declared
+    // capabilities against the known permission set at startup, so a bad manifest
+    // is caught here (a clear marker) rather than silently at launch.
+    validate_manifest_caps();
 
     let server = route_abilitymgr_blocking().ok_or(AbilitymgrError::Ipc("route failed"))?;
 
@@ -275,6 +287,35 @@ fn emit_inst_line(prefix: &[u8], id: u32) {
 fn emit_line(message: &str) {
     emit_str(message);
     emit_newline();
+}
+
+/// RFC-0065 launch authority self-check: validate each installed app's
+/// manifest-declared capabilities (build-time table from `bundles/<app>/
+/// manifest.toml`) against the known permission set. Emits one marker per app —
+/// `abilitymgr: caps ok app=<id> (n=<count>)` when every permission is
+/// recognized, or `abilitymgr: caps reject app=<id> cap=<perm>` naming the first
+/// unrecognized permission. Makes a bad manifest a boot-visible failure instead
+/// of a silent launch denial later.
+fn validate_manifest_caps() {
+    for (app, caps) in crate::caps::APP_MANIFEST_CAPS.iter().copied() {
+        match crate::caps::first_unknown(caps) {
+            None => {
+                emit_prefix(b"abilitymgr: caps ok app=");
+                emit_str(app);
+                emit_prefix(b" (n=");
+                emit_u32(caps.len() as u32);
+                emit_prefix(b")");
+                emit_newline();
+            }
+            Some(bad) => {
+                emit_prefix(b"abilitymgr: caps reject app=");
+                emit_str(app);
+                emit_prefix(b" cap=");
+                emit_str(bad);
+                emit_newline();
+            }
+        }
+    }
 }
 
 fn emit_str(s: &str) {

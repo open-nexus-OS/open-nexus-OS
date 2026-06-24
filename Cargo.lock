@@ -4086,6 +4086,7 @@ dependencies = [
  "nexus-theme-tokens",
  "nexus-virtual-list",
  "pointer-state",
+ "search-app",
  "systemui",
 ]
 

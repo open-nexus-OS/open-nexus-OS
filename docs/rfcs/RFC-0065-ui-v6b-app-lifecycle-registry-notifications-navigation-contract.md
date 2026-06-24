@@ -1,9 +1,9 @@
 # RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract
 
-- Status: Draft (seed contract — execution truth lives in TASK-0065)
+- Status: Done (contract satisfied — TASK-0065 closed 2026-06-23; spawned-process/per-app-surface runtime continues under TASK-0080D + the SystemUI DSL phases)
 - Owners: @ui @runtime
 - Created: 2026-06-22
-- Last Updated: 2026-06-22 (seed)
+- Last Updated: 2026-06-23 (done)
 - Links:
   - Tasks: `tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md` (execution + proof — **SSOT** for stop conditions)
   - Depends on: `docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md` (WM baseline — ShellWindow N-window model + focus)
@@ -16,6 +16,16 @@
   - Follow-up: `tasks/TASK-0065B-session-login-greeter-v0.md` (session/login authority — kept separate from lifecycle)
 
 ## Status at a Glance
+
+> **CLOSURE (2026-06-23): RFC DONE.** The lifecycle/registry/caps spine shipped and is proven (TASK-0065
+> closed). Beyond the phase notes below, the registry became **generated from the real
+> `bundles/<app>/manifest.toml`** (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)`),
+> and **abilitymgr now enforces manifest-declared caps at launch** (fail-closed `STATUS_DENIED`;
+> `abilitymgr: caps ok app=<id>`). The remaining ambition — chat/search as **separately spawned processes**
+> with their own surfaces, plus notifications/navigation — is descoped to **TASK-0080D** (the DSL App
+> Runtime: app-host + lifecycle/registry/caps bridge + per-app surface), since `execd` today only runs
+> hand-assembled stubs (a real userspace app runtime is a prerequisite), and to the SystemUI DSL phases +
+> `TASK-0234`/`0235`. The per-phase state below is preserved as history.
 
 - **Phase 0 (Registry enumeration)**: 🟢 (host/std path) — `bundlemgr` domain gained `enumerate()`/`enumerate_apps()` + the `AppRecord` projection; `bundlemgrd` exposes capnp `OPCODE_ENUMERATE` (marker `bundlemgrd: enumerate ok (n=…)`). Host-tested (domain + opcode roundtrip). The OS-lite binary-frame `enumerate` (real boot app source for the launcher) is deferred to P5/boot — the os-lite registry is still a placeholder.
 - **Phase 1 (Lifecycle broker)**: 🟢 (broker core + real service) — `abilitymgr` was promoted from a CLI stub to a **real service like the others** (rngd-shaped: `lib`/`os_lite`/`std_impl` + `[package.metadata.nexus-service]`, auto-discovered into the boot-order SSOT). Ships the pure host-tested lifecycle state machine (Create→Start→FG/BG→Suspend/Resume→Stop) + recents + a wire dispatch + the OS service loop emitting `abilitymgr: ready` / `launch` / `fg` / `bg` markers. **Live resolve-via-bundlemgrd + spawn-via-execd + windowd surface bind is P2 (WM mediation) — deferred there to keep authorities' wiring in one place.**

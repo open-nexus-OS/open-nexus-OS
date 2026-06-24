@@ -1,9 +1,9 @@
 ---
 title: TASK-0065 UI v6b: appmgrd ability-lite lifecycle + SystemUI navigation + notifd toasts/notifications
-status: Draft
+status: Done
 owner: @ui
 created: 2025-12-23
-updated: 2026-06-22
+updated: 2026-06-23
 depends-on:
   - tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md   # WM baseline (ShellWindow N-window + focus)
   - docs/rfcs/RFC-0002-process-per-service-architecture.md          # process-per-service; execd is the spawner
@@ -29,6 +29,30 @@ links:
   - Updates (future integration): tasks/TASK-0036-ota-ab-v2-userspace-healthmux-rollback-softreboot.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Closure (2026-06-23) — DONE
+
+The v6b lifecycle spine shipped and is proven on QEMU + host tests:
+
+- **Registry, not hardcoded:** `bundlemgrd` serves the installed-app set from `OP_LIST_APPS`, generated
+  at build time from the real `bundles/<app>/manifest.toml` (`bundlemgrd/build.rs` → `APP_REGISTRY`; no
+  hand-maintained list, no phantom apps — `notes` placeholder removed). windowd builds the dynamic Apps
+  menu from it (`windowd: apps ok (n=…)`).
+- **Lifecycle broker is a real service:** `abilitymgr` (not a new `appmgrd`) — live registry probe
+  (`abilitymgr: registry ok (n=…)`), lifecycle state machine, recents.
+- **Launch authority enforces manifest caps:** `abilitymgr::caps` + `Broker::launch_with_caps` fail closed
+  on an unknown permission (`STATUS_DENIED`); boot self-check `abilitymgr: caps ok app=<id> (n=…)`.
+- **Capability-gated routing:** registry access goes through `policyd` (`BundleQuery`); declarative policy
+  SSOT in `policies/base.toml`; greppable `!route-deny` / `!cap-deny` markers.
+- **Real `.nxb` bundles + Cap'n Proto manifests** for chat/search; per-app-surface model (ADR-0037)
+  host-proven; `search-app` owns its data (no_std), windowd hosts it.
+
+**Descoped to follow-ups (not v6b):** apps as separately *spawned processes* with their own surfaces
+needs a userspace app runtime (today `execd` only runs hand-assembled stubs) + the surface handoff. That
+is now the DSL App Runtime track — **`TASK-0080D`** (app-host + lifecycle/registry/caps bridge + per-app
+surface) — plus `TASK-0234`/`TASK-0235` (lifecycle v1.1 / OS extension) and the SystemUI DSL phases.
+notifd toasts/navigation transitions likewise continue under their own tasks. Design contract
+**RFC-0065 is Done** (seed satisfied; SSOT was this task).
 
 ## Context
 

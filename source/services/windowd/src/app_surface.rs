@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Per-app surface lifecycle — the lazy "own VMO per app" model; each
+//! app owns its surface, windowd composites it as a layer (RFC-0065 / ADR-0037).
+//! OWNERS: @ui
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 8 tests
+//!
 //! Per-app surface lifecycle — the lazy "own VMO per app" model (RFC-0065).
 //!
 //! Each app owns its **own** surface (its own VMO/buffer via `create_surface`),

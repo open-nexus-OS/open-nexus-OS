@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: One reusable typed request/reply IPC client — the single correct
+//! cross-service call path (RFC-0066).
+//! OWNERS: @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 tests
+//!
 //! One reusable typed request/reply client (RFC-0066).
 //!
 //! This is the single correct cross-service call path — the OHOS proxy / Fuchsia

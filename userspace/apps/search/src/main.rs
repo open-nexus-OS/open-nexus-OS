@@ -3,6 +3,9 @@
 
 //! CONTEXT: search app entry — composes its own surface and reports readiness.
 //! OWNERS: @ui
+//! STATUS: Experimental
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (thin entry; logic host-tested in `search_app` lib)
 //! ADR: docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
 
 #![forbid(unsafe_code)]

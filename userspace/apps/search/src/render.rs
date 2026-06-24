@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Search app surface rendering — the app composes its own BGRA surface
+//! buffer; windowd hosts it as a per-app layer (RFC-0065 / ADR-0037).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 5 tests
+//!
 //! Search app surface rendering — the app composes its **own** surface buffer.
 //!
 //! The app renders its content (filter field + result rows) into a BGRA buffer it
@@ -10,6 +17,7 @@
 //! distinct bands so layout + state (results vs. empty) are verifiable now.
 
 use crate::model;
+use alloc::vec::Vec;
 
 /// BGRA pixel (windowd surface byte order).
 type Bgra = [u8; 4];

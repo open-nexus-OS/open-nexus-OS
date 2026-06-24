@@ -237,5 +237,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
 - RFC-0064: UI v6a — Window Management v1 (Chat-Window + Drag) Contract (Complete; ShellWindow N-window WM, chat instance + title-bar/X/drag/z-order, TASK-0064 Done)
   - docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md
-- RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract (Draft; seed — abilitymgr lifecycle broker + bundlemgrd enumerate registry + chat/search as real apps; service split per ADR-0036; SSOT = TASK-0065)
+- RFC-0065: UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract (Done 2026-06-23 — abilitymgr lifecycle broker + manifest-caps launch authority + bundlemgrd registry generated from real manifests + chat/search as real bundles; service split per ADR-0036; SSOT was TASK-0065; spawned-process/per-app-surface runtime → TASK-0080D)
   - docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md

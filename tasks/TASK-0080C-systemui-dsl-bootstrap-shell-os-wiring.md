@@ -3,11 +3,13 @@ title: TASK-0080C SystemUI DSL bootstrap shell (OS/QEMU): visible launcher mount
 status: Draft
 owner: @ui
 created: 2026-03-28
-depends-on: []
+depends-on:
+  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md  # the app runtime the launch path mounts through
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
+  - App runtime + lifecycle/surface contract: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
   - Bootstrap shell host phase: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
   - Dev display/profile presets follow-up: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
   - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md

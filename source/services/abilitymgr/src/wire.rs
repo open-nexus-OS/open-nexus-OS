@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Pure frame dispatch for abilitymgr — decode request → drive the
+//! `Broker` (with manifest-caps gate) → response + lifecycle event (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 5 tests
+//!
 //! Pure frame dispatch for abilitymgr — decodes a request, drives the [`Broker`],
 //! and produces a response plus an optional [`Event`] the service loop turns into
 //! a UART marker. Shared by the OS-lite loop and host tests (no IPC here).
@@ -56,7 +63,10 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
     let Some((abil, _)) = take_lp_str(rest) else {
         return Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None };
     };
-    match broker.launch(&app, &abil) {
+    // RFC-0065 launch authority: resolve the app's manifest-declared capabilities
+    // and enforce them — a bundle requesting an unknown permission is denied.
+    let required_caps = crate::caps::required_caps(&app);
+    match broker.launch_with_caps(&app, &abil, required_caps) {
         Ok(id) => {
             let state = broker.state(id).unwrap_or(AbilityState::Created);
             Dispatched {
@@ -66,6 +76,9 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         }
         Err(LifecycleError::TooManyInstances) => {
             Dispatched { response: resp_status(OP_LAUNCH, STATUS_FULL), event: None }
+        }
+        Err(LifecycleError::UnsupportedCapability) => {
+            Dispatched { response: resp_status(OP_LAUNCH, STATUS_DENIED), event: None }
         }
         Err(_) => Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None },
     }
@@ -94,6 +107,11 @@ fn dispatch_transition(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         },
         Err(LifecycleError::TooManyInstances) => {
             Dispatched { response: resp_status(OP_TRANSITION, STATUS_FULL), event: None }
+        }
+        // Not reachable from `transition` (only `launch` gates caps), but keep the
+        // match exhaustive so adding a lifecycle error is a compile error here.
+        Err(LifecycleError::UnsupportedCapability) => {
+            Dispatched { response: resp_status(OP_TRANSITION, STATUS_DENIED), event: None }
         }
     }
 }

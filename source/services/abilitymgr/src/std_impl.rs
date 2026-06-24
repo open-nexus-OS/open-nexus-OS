@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Host/std backend for abilitymgr — CLI parity + host-testable helpers
+//! over the same broker/wire core as the OS path (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 tests
+//!
 //! Host/std backend for abilitymgr — CLI parity + host-testable helpers.
 //!
 //! The lifecycle state machine and wire dispatch live in [`crate::lifecycle`] and

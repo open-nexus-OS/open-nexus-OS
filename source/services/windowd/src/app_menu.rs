@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Apps menu model — parses the bundlemgrd `OP_LIST_APPS` response into
+//! the topbar dropdown entries + owns its geometry/hit-test (RFC-0065).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 5 tests
+//!
 //! Apps menu model (RFC-0065 dynamic apps menu).
 //!
 //! The Apps dropdown is no longer a hardcoded `const` list in the compositor — it

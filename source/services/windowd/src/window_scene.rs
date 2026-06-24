@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: Pure window-composition decisions — host-tested SSOT for which
+//! windows show + their z-order, extracted from the compositor monolith (RFC-0066).
+//! OWNERS: @ui
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 6 tests
+//!
 //! Pure window-composition decisions — the host-tested SSOT for *which windows
 //! show and in what z-order* (RFC-0066), extracted from the 4055-line compositor
 //! runtime monolith.

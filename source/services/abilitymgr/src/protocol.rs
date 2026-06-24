@@ -1,6 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! CONTEXT: abilitymgr wire protocol constants — ops + status codes for the
+//! lifecycle broker IPC (RFC-0065).
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: No tests (constants; exercised by `wire.rs` dispatch tests)
+//!
 //! abilitymgr wire protocol constants (RFC-0065 lifecycle broker IPC).
 //!
 //! Frame layout mirrors the other services' hand-rolled binary protocol so the
@@ -41,6 +48,10 @@ pub const STATUS_UNKNOWN: u8 = 2;
 pub const STATUS_INVALID_TRANSITION: u8 = 3;
 /// The instance table is full.
 pub const STATUS_FULL: u8 = 4;
+
+/// Launch denied: the app's manifest declares a capability the platform does not
+/// recognize (fail-closed permission check). RFC-0065 launch authority.
+pub const STATUS_DENIED: u8 = 5;
 
 /// Minimum frame length: `MAGIC0 + MAGIC1 + VERSION + OP`.
 pub const MIN_FRAME_LEN: usize = 4;

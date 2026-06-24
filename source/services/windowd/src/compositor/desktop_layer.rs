@@ -184,17 +184,15 @@ const SEARCH_FILTER_H: u32 = 30;
 /// Visible word rows in the window (the filtered list scrolls within these).
 pub(crate) const SEARCH_VISIBLE_ROWS: u32 = 10;
 
-/// A longer demo word list so the filtered result actually scrolls.
-pub(crate) const SEARCH_WORDS: &[&str] = &[
-    "apple", "application", "apt", "arrow", "asset", "atom", "audio", "batch", "binary", "block",
-    "buffer", "build", "cache", "canvas", "channel", "clock", "cluster", "codec", "compile",
-    "component", "config", "context", "cursor", "daemon", "device", "display", "driver", "engine",
-    "event", "filter", "fragment", "frame", "gradient", "handle", "kernel", "layer", "module",
-    "neuron", "packet", "pipeline", "pointer", "process", "render", "scanout", "scene", "shader",
-    "shell", "socket", "surface", "texture", "thread", "vector", "vertex", "widget", "window",
-];
+/// The search word list — owned by the real `search-app` crate (RFC-0065 /
+/// ADR-0037), not duplicated here. windowd renders it; the app owns the data.
+pub(crate) use search_app::model::SEARCH_WORDS;
 
 /// Words from [`SEARCH_WORDS`] whose name starts with `prefix` (case-insensitive).
+///
+/// Mirrors the app's `search_app::model::filter` predicate, but fills a caller-
+/// reused buffer (alloc-free per keystroke) instead of returning a fresh `Vec` —
+/// windowd's hot path must not allocate per frame. The data is the app's.
 pub(crate) fn search_filter<'a>(prefix: &str, out: &mut alloc::vec::Vec<&'static str>) {
     out.clear();
     for w in SEARCH_WORDS {
