@@ -2021,6 +2021,7 @@ dependencies = [
 name = "nexus-shell-desktop"
 version = "0.1.0"
 dependencies = [
+ "nexus-layout",
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
@@ -4092,6 +4093,7 @@ dependencies = [
  "nexus-theme",
  "nexus-theme-tokens",
  "nexus-virtual-list",
+ "nexus-widget-window",
  "pointer-state",
  "search-app",
  "systemui",

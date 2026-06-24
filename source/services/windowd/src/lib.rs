@@ -38,7 +38,8 @@ mod buffer;
 mod cli;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod compositor;
-mod desktop_scene;
+// RFC-0067 P3: the desktop-scene adapter moved to `nexus-shell-desktop`
+// (`desktop_scene`); windowd consumes it as a client.
 mod display_backend;
 mod error;
 // RFC-0067 P5: the fixed-point AA SDF math moved into `nexus-sdf` (the one SDF
@@ -67,8 +68,8 @@ mod smoke;
 mod systemui_shell;
 mod telemetry;
 mod visible_state;
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod window_frame;
+// RFC-0067 P3: window-frame geometry moved to `nexus-widget-window` (`frame`);
+// windowd consumes it as a client (re-exported in `compositor::shell_window`).
 
 pub use assets::{
     proof_text_asset, ProofTextAsset, CURSOR_HOTSPOT_X, CURSOR_HOTSPOT_Y, CURSOR_LEFT_PTR_BGRA,

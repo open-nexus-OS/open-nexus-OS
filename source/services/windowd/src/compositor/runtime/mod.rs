@@ -782,7 +782,7 @@ impl DisplayServerRuntime {
         // out to fit between the scene insets on both sides of the display.
         let proof_layouts = if USE_DESKTOP_SHELL {
             let content_width = mode.width.saturating_sub(2 * SCENE_ORIGIN_X).max(1);
-            crate::desktop_scene::build_live_desktop_layouts(content_width)
+            nexus_shell_desktop::desktop_scene::build_live_desktop_layouts(content_width)
         } else {
             build_live_proof_layouts(initial_state)
         };

@@ -168,10 +168,11 @@ fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
     }
 }
 
-// Window hit-testing geometry lives in the host-tested `window_frame` module so
-// every `ShellWindow` (chat + search) shares one implementation; re-export the
-// press enum so existing `shell_window::WindowPress` call sites keep working.
-pub(crate) use crate::window_frame::{Frame, WindowPress};
+// Window hit-testing geometry lives in the host-tested `nexus-widget-window`
+// crate (`frame`) so every `ShellWindow` (chat + search) shares one
+// implementation; re-export so existing `shell_window::{Frame,WindowPress}` call
+// sites keep working (RFC-0067 P3: window geometry is a widget concern).
+pub(crate) use nexus_widget_window::{Frame, WindowPress};
 
 /// A movable/closable glass window. The content list is supplied by the caller
 /// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
@@ -277,7 +278,7 @@ impl ShellWindow {
     }
 
     /// The pure-geometry frame (host-tested hit-testing / clamp / damage live in
-    /// [`crate::window_frame::Frame`]; this component owns only the presentation).
+    /// [`Frame`] in `nexus-widget-window`; this component owns only the presentation).
     pub(crate) fn frame(&self) -> Frame {
         Frame { x: self.x, y: self.y, w: self.w, h: self.h, title_h: self.title_h, close_w: self.close_w }
     }

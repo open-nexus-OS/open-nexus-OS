@@ -1,23 +1,23 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: pure window-frame geometry shared by every `ShellWindow` (the chat
-//! and search windows are both instances). This is the host-testable SSOT for
-//! hit-testing, drag clamping and damage rects — the logic that used to live in
-//! the single-window `wm.rs` `WindowManager`, generalized to "any window frame"
-//! so N windows reuse one implementation (E1). The OS-only `ShellWindow` owns the
-//! glass/blur/atlas (which need the compositor); it delegates all geometry here.
+//! CONTEXT: pure window-frame geometry shared by every window instance — the
+//! host-testable SSOT for hit-testing, drag clamping, and damage rects. Window
+//! *state* (glass/blur/atlas, present) is a compositor concern and lives in the
+//! display server; this is only the geometry, so a window manager and N windows
+//! reuse one implementation (RFC-0067 P3: window geometry is a widget concern,
+//! not a compositor one).
 //!
-//! Pure logic, no OS or rendering deps → fully host-testable (gated `any(test,
-//! os)` unlike the OS-only `compositor` module).
+//! Pure logic, no OS or rendering deps → fully host-testable.
 //!
 //! OWNERS: @ui
-//! STATUS: unified-window refactor — E1 (one frame for N windows)
+//! STATUS: Functional
 //! API_STABILITY: Unstable
+//! TEST_COVERAGE: 5 tests
 
 /// What a primary press landed on inside a window (window-local resolution).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum WindowPress {
+pub enum WindowPress {
     /// The close "x" in the title bar.
     Close,
     /// The title bar (outside the close button) — begins a drag.
@@ -31,29 +31,29 @@ pub(crate) enum WindowPress {
 /// A window's display-space rectangle plus its chrome geometry. Signed origin so a
 /// window dragged partly off-screen is representable before clamping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Frame {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
-    pub(crate) w: u32,
-    pub(crate) h: u32,
+pub struct Frame {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
     /// Title-bar height (drag handle) and close-button zone width.
-    pub(crate) title_h: u32,
-    pub(crate) close_w: u32,
+    pub title_h: u32,
+    pub close_w: u32,
 }
 
 impl Frame {
     /// True if `(cx, cy)` is anywhere inside the window.
-    pub(crate) fn contains(&self, cx: i32, cy: i32) -> bool {
+    pub fn contains(&self, cx: i32, cy: i32) -> bool {
         cx >= self.x && cx < self.x + self.w as i32 && cy >= self.y && cy < self.y + self.h as i32
     }
 
     /// True if `cy` falls within the title-bar band.
-    pub(crate) fn in_title_bar(&self, cy: i32) -> bool {
+    pub fn in_title_bar(&self, cy: i32) -> bool {
         cy >= self.y && cy < self.y + self.title_h as i32
     }
 
     /// True if `(cx, cy)` is over the close "x" at the title bar's right edge.
-    pub(crate) fn close_hit(&self, cx: i32, cy: i32) -> bool {
+    pub fn close_hit(&self, cx: i32, cy: i32) -> bool {
         cx >= self.x + (self.w.saturating_sub(self.close_w)) as i32
             && cx < self.x + self.w as i32
             && self.in_title_bar(cy)
@@ -61,7 +61,7 @@ impl Frame {
 
     /// Resolve a primary press to a window region. Close wins over the title bar;
     /// the title bar begins a drag; the rest is the body; outside is a miss.
-    pub(crate) fn press(&self, cx: i32, cy: i32) -> WindowPress {
+    pub fn press(&self, cx: i32, cy: i32) -> WindowPress {
         if !self.contains(cx, cy) {
             return WindowPress::Miss;
         }
@@ -78,7 +78,7 @@ impl Frame {
 
     /// Clamp a dragged top-left (`nx, ny`) so the window stays fully on the
     /// display. Returns the clamped origin.
-    pub(crate) fn clamp_pos(&self, nx: i32, ny: i32, mode_w: u32, mode_h: u32) -> (i32, i32) {
+    pub fn clamp_pos(&self, nx: i32, ny: i32, mode_w: u32, mode_h: u32) -> (i32, i32) {
         let max_x = mode_w.saturating_sub(self.w) as i32;
         let max_y = mode_h.saturating_sub(self.h) as i32;
         (nx.clamp(0, max_x.max(0)), ny.clamp(0, max_y.max(0)))
@@ -86,7 +86,7 @@ impl Frame {
 
     /// Damage rect `(x, y, w, h)` of the window grown by `pad` on every side (the
     /// soft drop-shadow halo), clipped to the display.
-    pub(crate) fn damage_bounds(&self, pad: u32, mode_w: u32, mode_h: u32) -> (u32, u32, u32, u32) {
+    pub fn damage_bounds(&self, pad: u32, mode_w: u32, mode_h: u32) -> (u32, u32, u32, u32) {
         let x = (self.x.max(0) as u32).saturating_sub(pad);
         let y = (self.y.max(0) as u32).saturating_sub(pad);
         let w = (self.w + 2 * pad).min(mode_w.saturating_sub(x));

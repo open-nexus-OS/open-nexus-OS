@@ -19,6 +19,10 @@
 
 extern crate alloc;
 
+/// Host-tested adapter: the desktop scene → positioned `LayoutBox`es via
+/// `nexus_layout`, for the compositor to rasterize (RFC-0067 P3).
+pub mod desktop_scene;
+
 use alloc::{vec, vec::Vec};
 use nexus_layout_types::{
     FlexItem, FxPx, LayoutNode, Rgba8, TextContent, TextNode, TextStyle, VisualStyle,

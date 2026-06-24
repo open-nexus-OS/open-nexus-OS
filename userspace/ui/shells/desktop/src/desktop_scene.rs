@@ -1,52 +1,44 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Shell-P2a — host-tested adapter that turns the pure desktop-shell
-//! scene (`nexus_shell_desktop::build_desktop_scene`) into positioned, themed
-//! `LayoutBox`es via `nexus_layout`, ready for the compositor to rasterize.
+//! CONTEXT: host-tested adapter that turns the pure desktop-shell scene
+//! ([`crate::build_desktop_scene`]) into positioned, themed `LayoutBox`es via
+//! `nexus_layout`, ready for the compositor to rasterize. Lives in the desktop
+//! shell crate (not the compositor) so windowd consumes it as a client
+//! (RFC-0067 P3).
 //! OWNERS: @ui
-//! STATUS: In progress (P2a — adapter + tests only; no live swap yet)
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 4 tests
 //! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
-//!
-//! This is the bounded first step of the desktop-shell-on-virgl track: it adds
-//! the `nexus-shell-desktop` + `nexus-theme-tokens` deps and produces a
-//! `LayoutResult` from the shell scene, mirroring `layout_panel::compute_*`.
-//! The live swap that routes the compositor's present through these boxes (and
-//! retires the baked `SystemUiShell`) is P2b. Nothing here is wired into the
-//! render loop yet — it is pure and host-testable.
-
-// P2a delivers the adapter + tests only; the render loop starts calling these
-// in P2b (live swap). Until then they are intentionally unreferenced.
-#![allow(dead_code)]
 
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
     FxPx, LineHeight, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent,
     TextStyle,
 };
-use nexus_shell_desktop::build_desktop_scene;
 use nexus_theme_tokens::BaseTokens;
 
+use crate::build_desktop_scene;
 use alloc::vec;
 use alloc::vec::Vec;
 
 /// The live display width windowd composites at (matches `compositor::DESKTOP_LAYOUT_WIDTH`).
-/// Kept here so this module stays host-compilable — the `compositor` module is
-/// gated to the OS target only. The P2b live swap passes the compositor's own
-/// constant into [`compute_desktop_layout`]; this default backs host tests.
-pub(crate) const DESKTOP_LAYOUT_WIDTH: u32 = 1280;
+/// The live caller passes the compositor's own constant into
+/// [`compute_desktop_layout`]; this default backs host tests.
+pub const DESKTOP_LAYOUT_WIDTH: u32 = 1280;
 
 /// Approximate per-character advance as a fraction of the font size (in 1/100).
 /// The shell's chrome text (`menu`, `Search…`, `chat`, `Chat`, `x`) is not in
-/// the pre-rendered proof asset table, so P2a estimates widths geometrically —
-/// good enough to produce sane rects for layout tests. Real glyph metrics land
-/// when the shell text is rasterized in a later phase.
+/// the pre-rendered proof asset table, so widths are estimated geometrically —
+/// good enough to produce sane rects for layout. Real glyph metrics land when
+/// the shell text is rasterized.
 const ADVANCE_PER_CHAR_PCT: i32 = 55;
 
 /// A deterministic, font-asset-free text measurer for the shell scene. Encodes
 /// the estimated `(width, line_height)` into the opaque [`PreparedTextHandle`]
 /// so `measure_width`/`layout_lines` can recover them without the content.
-pub(crate) struct EstimateTextMeasure;
+pub struct EstimateTextMeasure;
 
 impl EstimateTextMeasure {
     fn estimate(content: &TextContent, style: &TextStyle) -> (i32, i32) {
@@ -90,10 +82,8 @@ impl MeasureText for EstimateTextMeasure {
 }
 
 /// Lay out the desktop shell scene at the given available width, returning the
-/// positioned + styled `LayoutBox`es. Mirrors `layout_panel::compute_proof_layout`.
-pub(crate) fn compute_desktop_layout(
-    available_width: u32,
-) -> Result<LayoutResult, &'static str> {
+/// positioned + styled `LayoutBox`es.
+pub fn compute_desktop_layout(available_width: u32) -> Result<LayoutResult, &'static str> {
     let scene = build_desktop_scene(&BaseTokens);
     LayoutEngine::new()
         .layout(&scene, FxPx::new(available_width as i32), &EstimateTextMeasure)
@@ -101,7 +91,7 @@ pub(crate) fn compute_desktop_layout(
 }
 
 /// Lay out the desktop shell scene at the default live display width.
-pub(crate) fn compute_desktop_layout_for_display() -> Result<LayoutResult, &'static str> {
+pub fn compute_desktop_layout_for_display() -> Result<LayoutResult, &'static str> {
     compute_desktop_layout(DESKTOP_LAYOUT_WIDTH)
 }
 
@@ -109,8 +99,8 @@ pub(crate) fn compute_desktop_layout_for_display() -> Result<LayoutResult, &'sta
 /// slot: a single `LayoutResult` (the desktop scene has no filter variants).
 /// `content_width` is the width available to the scene at its on-screen origin
 /// (display width minus the scene inset on both sides). Returns `None` only if
-/// layout fails, mirroring [`build_live_proof_layouts`].
-pub(crate) fn build_live_desktop_layouts(content_width: u32) -> Option<alloc::vec::Vec<LayoutResult>> {
+/// layout fails.
+pub fn build_live_desktop_layouts(content_width: u32) -> Option<Vec<LayoutResult>> {
     Some(vec![compute_desktop_layout(content_width).ok()?])
 }
 
@@ -118,10 +108,7 @@ pub(crate) fn build_live_desktop_layouts(content_width: u32) -> Option<alloc::ve
 mod tests {
     use super::*;
 
-    fn box_with_id<'a>(
-        result: &'a LayoutResult,
-        id: &str,
-    ) -> Option<&'a nexus_layout::LayoutBox> {
+    fn box_with_id<'a>(result: &'a LayoutResult, id: &str) -> Option<&'a nexus_layout::LayoutBox> {
         result.boxes.iter().find(|b| b.id == Some(id))
     }
 
@@ -153,7 +140,7 @@ mod tests {
             assert!(b.rect.width > FxPx::ZERO, "{id} has a non-empty rect");
         }
         // The chat viewport region must exist; it collapses to zero extent until
-        // the VirtualList fills it at runtime (P2b), so we only assert presence.
+        // the VirtualList fills it at runtime, so we only assert presence.
         assert!(box_with_id(&result, "chat_viewport").is_some(), "chat_viewport region present");
     }
 

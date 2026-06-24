@@ -9,6 +9,7 @@ name = "nexus_shell_desktop"
 path = "src/lib.rs"
 
 [dependencies]
+nexus-layout = { path = "../../layout" }
 nexus-layout-types = { path = "../../layout-types" }
 nexus-style = { path = "../../style" }
 nexus-theme-tokens = { path = "../../theme-tokens" }

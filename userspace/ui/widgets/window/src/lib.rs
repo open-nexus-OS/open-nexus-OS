@@ -15,6 +15,11 @@
 
 extern crate alloc;
 
+/// Pure window-frame geometry (hit-testing / drag clamp / damage) — the
+/// host-tested SSOT shared by every window instance (RFC-0067 P3).
+pub mod frame;
+pub use frame::{Frame, WindowPress};
+
 use alloc::vec::Vec;
 use nexus_layout_types::{Align, FlexItem, FxPx, LayoutNode, Spacer};
 use nexus_style::Style;
