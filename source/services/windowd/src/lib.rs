@@ -41,8 +41,11 @@ mod compositor;
 mod desktop_scene;
 mod display_backend;
 mod error;
+// RFC-0067 P5: the fixed-point AA SDF math moved into `nexus-sdf` (the one SDF
+// math SSOT — float + fixed-point), not the compositor. Re-exported under the
+// same cfg so existing `crate::fixed_sdf::…` call sites resolve unchanged.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod fixed_sdf;
+pub(crate) use nexus_sdf::fixed as fixed_sdf;
 mod frame;
 mod geometry;
 mod ids;

@@ -11,8 +11,8 @@
 //! A theme is any [`Tokens`] implementation; widgets/shells resolve
 //! `tokens.color(ColorToken::Surface)` etc. and feed concrete values into the
 //! `Style` modifier builder. Swapping the theme (light/dark, an enterprise brand)
-//! = swapping the `Tokens` impl — no widget code changes. This mirrors Apple's
-//! semantic colors and ArkUI's resource tokens.
+//! = swapping the `Tokens` impl — no widget code changes. This is the
+//! semantic-color / resource-token model.
 //!
 //! The authoring side (`.nxtheme.toml`, the `nexus-theme` std crate) resolves to
 //! one of these `Tokens` snapshots (build-time generated or runtime-selected);

@@ -290,7 +290,7 @@ Deliverable: `source/services/windowd/src/os_lite.rs` (~300 lines net change), `
 - `scroll_damage_rows`, `merge_optional_ranges`, `target_state_bits`
 - `fill_circle_row`, `stroke_circle_row`, `stroke_row_rect`
 
-## Production-Grade Delta: What Remains for OHOS/Fuchsia-Level Performance
+## Production-Grade Delta: What Remains for Production-Level Performance
 
 **P0 — Mouse Flicker (Cursor Update Atomicity)**
 - Symptom: 3-frame flicker on cursor move (restore → old rect → new rect).
@@ -315,7 +315,7 @@ Deliverable: `source/services/windowd/src/os_lite.rs` (~300 lines net change), `
 **P2 — Zero-Alloc Separable 2D Blur on OS**
 - Symptom: Blur is 1D horizontal only (inline). `nexus-effects::blur_separable` allocates → unusable.
 - Fix: Port separable blur to zero-allocation (pre-allocated row + column buffers).
-- Gain: True 2D blur quality matching OHOS/Fuchsia.
+- Gain: True 2D blur quality matching production compositors.
 
 **P2 — Double-Buffer / VSync**
 - Symptom: `fbdevd` polls VMO mid-write → partial frames visible.

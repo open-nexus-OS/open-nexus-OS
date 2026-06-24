@@ -30,7 +30,7 @@ Definition:
 This RFC is a **design seed / contract**. Implementation planning and proofs live in tasks.
 
 - **This RFC owns**:
-  - resource directory layout (OHOS qualifiers + freedesktop icon spec)
+  - resource directory layout (locale/density qualifiers + freedesktop icon spec)
   - theme token schema (`.nxtheme.toml`) and qualifier resolution rules
   - SVG rich subset grammar (allowed elements, attributes, transforms; what is rejected)
   - PNG/JPG decode + scale pipeline with bounded memory contract
@@ -84,7 +84,7 @@ Current implementation state:
 
 ## Goals
 
-1. OHOS-aligned resource directory with qualifier-based layout
+1. Qualifier-based resource directory layout
 2. Theme token engine: `.nxtheme.toml` parser → runtime token resolver with qualifier resolution
 3. SVG rich subset: parse → tessellate → BGRA8888 rasterizer (reject scripts, external refs, filters)
 4. PNG/JPG decode + scale pipeline with decompression bomb detection

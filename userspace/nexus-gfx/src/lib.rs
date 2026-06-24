@@ -3,7 +3,7 @@
 
 #![allow(clippy::expect_used, clippy::needless_lifetimes, clippy::too_many_arguments)]
 
-//! CONTEXT: NexusGfx SDK — Metal-like graphics API for Open Nexus OS.
+//! CONTEXT: NexusGfx SDK — explicit, command-based graphics API for Open Nexus OS.
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable

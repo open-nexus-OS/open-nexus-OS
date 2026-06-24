@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Ability Manager daemon — the ability-lifecycle broker (OHOS AMS / Apple FrontBoard role).
+//! CONTEXT: Ability Manager daemon — the ability-lifecycle broker — the system app-lifecycle authority.
 //! OWNERS: @runtime @ui
 //! STATUS: Functional (lifecycle core + OS-lite service loop)
 //! API_STABILITY: Unstable (v6b bring-up)

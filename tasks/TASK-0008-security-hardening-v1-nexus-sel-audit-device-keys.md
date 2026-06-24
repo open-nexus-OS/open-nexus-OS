@@ -36,7 +36,7 @@ links:
 
 ## Context
 
-The OS already follows a seL4/Fuchsia-style security posture for bring-up:
+The OS already follows a capability-based microkernel security posture for bring-up:
 
 - kernel enforces capability rights (RFC-0005),
 - userland services must not trust requester identity inside payload bytes; use channel-bound identity (`sender_service_id`),

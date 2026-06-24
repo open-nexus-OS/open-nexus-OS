@@ -46,7 +46,7 @@ contains the required evidence.
 
 ## GPU-only Display Architecture (RFC-0059 Phase 6)
 
-The display path follows the OHOS/Fuchsia/Android pattern — one owner, one path:
+The display path follows a one-owner/one-path compositor pattern:
 
 ```
 windowd (sole display owner)
@@ -88,7 +88,7 @@ never turns it into cursor pixels. `windowd` remains hit-test/focus and
 composition authority; the visible framebuffer consumes only rows composed by
 the DisplayServer.
 
-This intentionally mirrors the OpenHarmony/OHOS split: pointer events carry a
+This intentionally uses a split: pointer events carry a
 screen/display-relative position for global routing and a window/component
 relative position for delivery. Our current minimal version now keeps the
 canonical state in display space, maps absolute devices across the full visible
@@ -99,7 +99,7 @@ scale-back shortcut.
 
 ## DisplayServer v0 Asset Pipeline (TASK-0057)
 
-The cursor rendering follows the OHOS hardware-cursor model mapped to software,
+The cursor rendering follows a hardware-cursor model mapped to software,
 with `windowd` as the single display-scene authority:
 
 1. **windowd** (DisplayServer authority): composes the root scene.

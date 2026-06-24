@@ -237,7 +237,7 @@ checks and QEMU UART markers.
 
 | System | Signature Required | Self-Signed OK | Sideloading | Local Builds |
 | ------ | ------------------ | -------------- | ----------- | ------------ |
-| **iOS** | Yes (Apple cert) | No | Very limited | Dev account required |
+| **Closed mobile platform** | Yes (vendor cert) | No | Very limited | Dev account required |
 | **Android** | Yes | Yes | Yes (with warning) | Yes (easy) |
 | **Linux** | Optional (distro) | N/A | Yes (standard) | Yes (standard) |
 | **Open Nexus** | **Yes** | **Yes (dev mode)** | **Yes (with consent)** | **Yes (explicit support)** |

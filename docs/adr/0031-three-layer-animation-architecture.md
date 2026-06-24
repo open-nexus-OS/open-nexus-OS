@@ -11,7 +11,7 @@ TASK-0059 delivered a production-grade CPU compositor with ShadowArena, TileMap,
 and the `compositor/` module structure. Property changes were immediately visible — no animation
 timeline, no spring physics, no keyframe interpolation.
 
-To reach OHOS/Fuchsia-level animation quality on RISC-V without a GPU, we needed three layers:
+To reach production-level animation quality on RISC-V without a GPU, we needed three layers:
 
 1. **Animation engine** that interpolates layer properties per vsync tick, producing minimal dirty regions
 2. **NexusGfx SDK** — a Metal-like API vocabulary (Device, Queue, CommandBuffer) to express rendering as commands

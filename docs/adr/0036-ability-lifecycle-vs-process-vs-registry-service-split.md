@@ -28,15 +28,15 @@ producing a double structure with unclear ownership of "who spawns" and "who own
 
 Both reference architectures keep three distinct authorities, which our tree already mirrors:
 
-| Concern | OpenHarmony | Apple | **Open Nexus** |
+| Concern | Reference system A | Reference system B | **Open Nexus** |
 |---|---|---|---|
 | Static registry — which apps/abilities exist; enumerate | BMS (`bundlemgr`) | LaunchServices / `lsd` | **`bundlemgrd`** |
 | Ability lifecycle — running abilities, FG/BG, recents, focus mediation | AMS (`AbilityManagerService`) | FrontBoard / SpringBoard | **`abilitymgr`** |
 | Process lifecycle — spawn/kill the OS process | AppMgrService + `appspawn` | `launchd` + `xpcproxy` | **`execd`** |
 
-Crucially, OpenHarmony's **AppMgr** is the *process* layer (≈ our `execd`/appspawn), **not** a third
+Crucially, a reference system's **app-manager** is the *process* layer (≈ our `execd`/spawn), **not** a third
 app-management daemon. The thing the draft called "appmgrd ability-lite lifecycle" is, line for line,
-OpenHarmony's **AMS** and Apple's **FrontBoard** scene-lifecycle role — i.e. **our `abilitymgr`**.
+the **scene-lifecycle** role in reference systems — i.e. **our `abilitymgr`**.
 
 ## Decision
 
@@ -55,7 +55,7 @@ OpenHarmony's **AMS** and Apple's **FrontBoard** scene-lifecycle role — i.e. *
 
 ## Consequences
 
-- **Positive**: matches the OHOS/Apple production split; no duplicated spawn logic; clear handoff
+- **Positive**: matches the reference-system production split; no duplicated spawn logic; clear handoff
   chain (SystemUI request → abilitymgr lifecycle → bundlemgrd resolve → execd spawn → windowd surface
   → abilitymgr focus) that the `tools/nx` chain test can assert by hop order.
 - **Positive**: the existing `abilitymgr` and `notifd` slots are filled rather than duplicated; the

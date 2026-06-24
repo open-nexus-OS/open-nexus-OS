@@ -24,8 +24,8 @@ the cursor was composited.
 
 The cursor is a **dedicated top-most layer composited by the display hardware cursor plane,
 off the application frame scheduler** — the universal production model: macOS (IOFramebuffer HW
-cursor), Fuchsia (the display coordinator drives the HW cursor plane independently of Scenic/
-Flatland frame scheduling), KMS/Wayland (`DRM_PLANE_TYPE_CURSOR` + `drmModeMoveCursor`), OHOS
+cursor), display-coordinator designs (the coordinator drives the HW cursor plane independently of
+frame scheduling), kernel mode-setting (a hardware cursor plane + move-cursor op),
 (RenderService pointer layer). For virtio-gpu the equivalent is the **cursor virtqueue**
 (`UPDATE_CURSOR` to upload a 64×64 sprite once, `MOVE_CURSOR` to reposition, no response).
 
@@ -60,7 +60,7 @@ cache when a scene present overlaps the cursor rect (this fixes the historical f
 ### Phase 3 — Spine integration + observability — planned
 
 The cursor move is a high-priority fire-and-forget side-channel, never a present-scheduler
-(waitset) event — Fuchsia's split of the display coordinator from the frame scheduler. Markers
+(waitset) event — the split of the display coordinator from the frame scheduler. Markers
 `gpud: hw cursor armed` / `windowd: hw cursor on` (and `windowd: cursor sw blit` on the fallback)
 make the active path visible in a headless run; an nx cursor chain hop asserts a cursor-only move
 costs ≤ cursor area / triggers no scene present.

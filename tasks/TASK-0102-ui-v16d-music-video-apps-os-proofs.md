@@ -31,9 +31,9 @@ Scope note:
 
 - Media UX v1 provides a deterministic “sample player” app and media controls proof earlier (`TASK-0156`).
   This task focuses on **quick players** and decoder/mixer integration.
-- The Apple Music-style **Music library app** (Listen Now/Browse/Library/Search + provider sign-in) is tracked in
+- The **Music library app** (Listen Now/Browse/Library/Search + provider sign-in) is tracked in
   `tasks/TRACK-MEDIA-APPS.md` and is intentionally **out of scope** here.
-- The Apple TV-style **TV hub app** (Watch Now/Library/Providers/Search + curated library) is tracked in
+- The **TV hub app** (Watch Now/Library/Providers/Search + curated library) is tracked in
   `tasks/TRACK-MEDIA-APPS.md` and is intentionally **out of scope** here.
 
 ## Goal

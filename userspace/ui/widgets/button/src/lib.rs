@@ -9,7 +9,7 @@
 //! content node (a label/icon `LayoutNode`). The `id` is the **interaction id**:
 //! the widget carries no click handler (no app state in widgets) — the compositor
 //! hit-tests the button's rendered rect by `id` and the app maps the id to an
-//! action. This is the framework/app split (Apple's target-action / data-source
+//! action. This is the framework/app split (the target-action / data-source
 //! model) and keeps the widget DSL-emittable.
 
 extern crate alloc;

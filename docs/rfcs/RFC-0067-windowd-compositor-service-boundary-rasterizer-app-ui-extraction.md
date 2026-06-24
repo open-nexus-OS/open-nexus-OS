@@ -19,22 +19,27 @@ A display server should be a **thin compositor service**: own surfaces, damage, 
 
 The result: changing one pixel can mean touching a rasterizer, an app, and a scene model that all live in the "window server". That is the opposite of debuggable.
 
-## What Apple, OHOS, and Fuchsia do
+## Design principles (the boundary)
 
-| Concern | Fuchsia | OpenHarmony | Apple | What we adopt |
-|---|---|---|---|---|
-| Compositor scope | **Scenic/Flatland** composites client-owned image surfaces; it does **not** rasterize app content | RenderService/RSurface composites; UI drawing is in ArkUI/`Drawing` (Skia), not the compositor | WindowServer composites layers; drawing is Core Graphics/Core Animation in-app | windowd composites surfaces + drives present; it does **not** own a rasterizer |
-| Rasterization home | Skia / client GPU contexts | `Drawing`/Skia 2D lib | Core Graphics / Metal | **NexusGfx** SDK: one backend (cpu2d now, GPU later) behind `CommandBuffer` |
-| App UI | Apps build their own scenes/surfaces | Abilities own their pages | Apps own their views/layers | App content lives in `userspace/apps/<app>` (model + render) |
-| Reusable widgets | Flutter/Carnelian toolkits | ArkUI components | UIKit/AppKit | `userspace/ui/widgets` + `userspace/ui/shells/*` |
-| The seam | Image pipe / present | Surface + RS command | IOSurface + CA transactions | VMO surface + `nexus-gfx` `CommandBuffer` + the gpud present spine |
+The throughline across mature display stacks: **the compositor is not the renderer, and not the app.** What we adopt:
 
-The throughline: **the compositor is not the renderer, and not the app.** We already have every destination crate; they are just used inconsistently.
+- **Compositor scope:** windowd composites client-owned surfaces + drives present; it does **not** rasterize app content.
+- **Rasterization home:** the NexusGfx SDK — one backend (cpu2d now, GPU later) behind `CommandBuffer`.
+- **App UI:** app content lives in `userspace/apps/<app>` (model + render).
+- **Reusable widgets:** `userspace/ui/widgets` + `userspace/ui/shells/*`.
+- **The seam:** VMO surface + `nexus-gfx` `CommandBuffer` + the gpud present spine.
+
+We already have every destination crate; they are just used inconsistently.
 
 ## Target boundary — "what belongs where"
 
 - **windowd (service, stays):** IPC server/protocol (`server.rs`), present scheduling/pacing + gpud client (`runtime/{gpud,present,framebuffer}.rs`), damage/tile/cache (`tile_map`, `damage`, `cache`), atlas/VMO surface lifecycle (`atlas`, `app_surface`, `buffer`, `resource_pool`), input routing + hit-test SSOT (`interaction`, `runtime/input.rs`), window management (`runtime/{chat_window,search,shell,scroll,cursor,anim}.rs`), and **per-frame Scene build → backend submit** (`runtime/scene.rs`). Markers/telemetry/smoke. Nothing else.
-- **NexusGfx (`userspace/nexus-gfx`):** ALL rasterization, behind `CommandBuffer` + the cpu2d backend. Consolidates `ui/sdf`, `ui/effects`, and windowd's inline copies.
+- **The rasterization stack (layered — *revised after the P5 audit*):**
+  - **`nexus-sdf`** = the one **SDF math SSOT** (float analytic + the fixed-point/no-FPU sibling, now relocated here from windowd). Definitions only.
+  - **`nexus-effects`** = the one **effects math SSOT** (blur / drop-shadow / 9-slice).
+  - **`nexus-gfx`** = the portable **command contract** (`Command{FillSdfGradient, DropShadow, BlurBackdrop, …}`) + **one** CPU command-executor (derived from `nexus-sdf`/`nexus-effects`).
+  - **`gpud` virgl shaders** = the **primary** renderer — SDF/gradient/shadow as GPU fragment shaders, executing the same commands.
+  - windowd **emits** the command buffer; it does **not** CPU-rasterize the UI. This is finishing RFC-0063 ("scene graph is the only rendering authority"), which deleted the CPU compositor on paper but never in code.
 - **`userspace/apps/<app>`:** app content. `search` already there → `chat` joins it.
 - **`userspace/ui/`:** the reusable glass-window component (→ `ui/widgets`) and desktop shell chrome (→ `ui/shells/desktop`, already a dep as `nexus-shell-desktop`).
 
@@ -67,7 +72,12 @@ The throughline: **the compositor is not the renderer, and not the app.** We alr
   - **P2.4** — chat content → new `userspace/apps/chat` (full consolidation: `ChatMessage` + `ChatMessageProvider` + message `POOL` + `ChatItemView` moved out of the generic `nexus-virtual-list` widget and `nexus-shell-desktop`); `virtual_list` becomes purely generic; windowd/shell consume `chat-app`. windowd keeps only window chrome + surface upload (the OwnedSurface present swap stays parked under ADR-0037, same as search).
 - **P3 — Window component + shell chrome → `userspace/ui`.** `shell_window`/`window_frame`/`window_scene` → `ui/widgets`; `desktop_layer`/`app_menu`/`desktop_scene` → `ui/shells/desktop`.
 - **P4 — Collapse the scene-model parallel.** Lock the canonical per-frame path (`nexus-gfx` `CommandBuffer` Scene, per TASK-0170) and retire the dead parallel (`scene_graph.rs` and/or the `proof_panel`/`layout_panel` demo), keeping the live desktop-shell scene.
-- **P5 — Full backend seam (rasterization → NexusGfx).** One primitive at a time (sdf → shadow → blur/backdrop → surface row-compositing): windowd emits the `nexus-gfx` command; cpu2d backend executes; delete windowd's inline copy; prove byte-identical via goldens. The only hot-path-risky phase, deliberately last.
+- **P5 — Finish RFC-0063: GPU-command-primary + collapse the CPU rasterizers (rasterization SSOT).** *Revised after the P5 audit found SDF/effects computed in **six** places (gpud virgl shaders, windowd inline CPU, gpud `cpu_vector`, nexus-gfx `cpu_mock`, `nexus-sdf`, `nexus-effects`) — and that nexus-gfx's `cpu_mock` is a **coarse no-AA reference**, while windowd's inline path is the production AA one. A blind swap regresses to jagged edges; the direction reverses.* The target:
+  - **Math SSOT** in `nexus-sdf` (float + fixed-point) + `nexus-effects`; the GPU shaders and the CPU executor both derive from them.
+  - **GPU/virgl shaders are the primary renderer**; windowd emits `Command{FillSdfGradient, DropShadow, BlurBackdrop, …}` for the whole UI instead of CPU-rasterizing into the VMO.
+  - **One** CPU command-executor (collapse gpud `cpu_vector` + nexus-gfx `cpu_mock` + windowd's inline rasterizer into a single nexus-sdf/effects-derived fallback for mmio/host/golden).
+  - **Delete** windowd `compositor/{sdf,shadow,backdrop,surface,source,scene,primitives}` + `fixed_sdf` (the CPU compositor RFC-0063 condemned).
+  - **P5.1 DONE:** relocated windowd's fixed-point AA SDF math → `nexus-sdf::fixed` (windowd is now a client; 3 parity tests vs the float reference, in the SDF crate). The only hot-path-risky phase — boot-iterated, small reversible steps with markers (I can't repro the live path host-side).
 - **P6 — Final shape + docs.** Refresh `//! CONTEXT` headers + `compositor/mod.rs` doc; confirm the slimmed tree; mark this RFC Done. *Gate: full green + boot.*
 
 ## Verification (per phase)

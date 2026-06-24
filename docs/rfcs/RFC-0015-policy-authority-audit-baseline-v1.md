@@ -43,7 +43,7 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
 
 ## Context
 
-The OS follows a seL4/Fuchsia-style security posture:
+The OS follows a capability-based microkernel security posture:
 
 - Kernel enforces capability rights (RFC-0005)
 - Userland services use channel-bound identity (`sender_service_id`)

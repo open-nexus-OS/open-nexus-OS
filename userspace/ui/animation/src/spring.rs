@@ -3,7 +3,7 @@
 
 /// Configuration for spring-based animation.
 ///
-/// Default values match Apple's default spring: stiffness=100, damping=10, mass=1.
+/// Default values use a standard UI spring: stiffness=100, damping=10, mass=1.
 /// This produces a critically-damped response with no overshoot.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpringConfig {

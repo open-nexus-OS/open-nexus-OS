@@ -9,7 +9,7 @@ This document defines the security standards, guidelines, and best practices for
 
 ## Core Security Philosophy
 
-Open Nexus OS follows a **security-by-design** approach inspired by seL4 and Fuchsia:
+Open Nexus OS follows a **security-by-design** approach inspired by capability-based microkernels:
 
 1. **Kernel minimal**: Policy, crypto, and complex logic stay in userspace
 2. **Capability-based access**: No ambient authority; all access requires explicit capabilities

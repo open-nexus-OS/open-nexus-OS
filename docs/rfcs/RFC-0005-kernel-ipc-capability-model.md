@@ -93,7 +93,7 @@ provenance. Kernel IPC endpoint routing exists, IPC v1 payload syscalls are avai
 os-lite bring-up path is now wired cross-process via `userspace/nexus-ipc`'s kernel backend plus an
 init-lite routing responder.
 
-This RFC should be read alongside the project vision lens (Rust-first, RISC‑V-first, HarmonyOS-like
+This RFC should be read alongside the project vision lens (Rust-first, RISC‑V-first, capability-service-oriented
 device mesh via `softbusd` layering):
 
 - `docs/agents/VISION.md`
@@ -234,7 +234,7 @@ This RFC is designed to fit the architecture we already have today:
   **VMO-backed buffers** and are referenced from the Cap’n Proto control message by a handle id
   (e.g. `vmoHandle :UInt32` in `bundlemgr.capnp`).
 
-This is deliberately similar in spirit to **Fuchsia channels + VMOs** (small typed messages plus
+This is deliberately based on **typed channels + VMOs** (small typed messages plus
 separate transferable memory objects), and compatible with seL4’s “everything is capabilities”
 discipline, while staying ergonomic for Rust.
 
@@ -329,7 +329,7 @@ This is the standard pattern for “IDL references bulk bytes”:
    - length/offset metadata (`bytesLen`, etc.)
 3. Producer ensures the **consumer holds the VMO capability**:
    - **Today**: via `cap_transfer` (explicit transfer), or by prior bootstrap distribution.
-   - **Future**: may be integrated as “handles attached to messages” (Fuchsia-style), but only if
+   - **Future**: may be integrated as “handles attached to messages” (handle-attached messages), but only if
      it stays capability-safe and Rust-friendly.
 4. Producer sends the Cap’n Proto frame via endpoint IPC.
 5. **Consumer** validates:
@@ -340,12 +340,12 @@ This is the standard pattern for “IDL references bulk bytes”:
 7. Consumer drops/returns the capability per service policy (revocation/close rules are a follow-up).
 
 This protocol is intentionally simple and explicit: it reuses the existing cap system and matches
-our current OHOS-like “service graph” approach (RFC‑0002) without importing seL4/Fuchsia mechanisms
+our current “service graph” approach (RFC‑0002) without importing external microkernel mechanisms
 that do not fit our Rust/no_std constraints.
 
-### OHOS alignment + future `softbusd` note
+### Service-graph alignment + future `softbusd` note
 
-This RFC focuses on **local (same-kernel) IPC**. It is aligned with the OHOS-style architecture
+This RFC focuses on **local (same-kernel) IPC**. It is aligned with the service-graph architecture
 we’re building: services communicate via a small, typed control plane (IDL) and a separate bulk
 data plane (VMO/filebuffer).
 
@@ -392,7 +392,7 @@ cap set through a single well-known bootstrap path.
   - Owns: registry of named services → endpoints.
   - Provides to clients (per policy): `EP(target_service)` with `SEND` (and `RECV` if the protocol is bidirectional).
 
-Rationale: OHOS-like “system ability manager” role, but with explicit caps instead of ambient names.
+Rationale: a “system ability manager” role, but with explicit caps instead of ambient names.
 
 #### Stage C: policyd enforces capability decisions
 
@@ -553,7 +553,7 @@ This RFC uses the **current kernel syscall IDs** and register layout as implemen
 Inspiration:
 
 - **seL4**: syscalls return explicit error codes; userland does not rely on “task killed on error”.
-- **Fuchsia (Zircon)**: syscalls return a status; success returns data, failure returns a code.
+- **A capability microkernel**: syscalls return a status; success returns data, failure returns a code.
 
 Contract:
 
@@ -1027,7 +1027,7 @@ security, RISC‑V friendliness, and a future `softbusd` distributed layer.
 - IPC v1 uses copy-in/out for small frames. This is fine for control-plane payload sizes.
 - For “ultra fast”, we rely on the VMO/filebuffer data plane rather than prematurely building a
   complicated shared-memory message transport.
-- If/when we introduce handle-attached messages (Fuchsia-like), it MUST preserve the same cap-slot
+- If/when we introduce handle-attached messages (handle-attached messages), it MUST preserve the same cap-slot
   authority model and must not reintroduce ambient authority.
 
 Rationale (why not “handles attached to messages” as MVP):
@@ -1046,7 +1046,7 @@ Criteria (when to consider message-attached handles later):
 - We have **fuzz/property coverage** for IPC+caps interactions (including backpressure + timeouts).
 - Profiling shows `cap_transfer` overhead or extra round-trips are a measurable bottleneck in real
   workloads (not synthetic microbenchmarks).
-- The required semantics align with our OHOS-style service graph and future `softbusd` layering
+- The required semantics align with our service graph and future `softbusd` layering
   (i.e., no need to expose “remote handles” in the kernel ABI).
 
 ### Scheduler + blocking (avoid busy loops)

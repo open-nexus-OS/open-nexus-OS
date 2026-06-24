@@ -55,7 +55,7 @@ Adopt and enforce the architecture contract in `tasks/TRACK-AUTHORITY-NAMING.md`
 These are the binding decisions (see registry for full list):
 
 - `policyd` is the single policy authority.
-- `samgrd` is the single service registry authority (OHOS-aligned).
+- `samgrd` is the single service registry authority.
 - `windowd` is the single compositor/present authority (no parallel compositor daemon).
 - `imed` is the canonical IME authority (no parallel `ime` daemon).
 - `powerd` and `batteryd` are canonical (no `*mgr` authorities).

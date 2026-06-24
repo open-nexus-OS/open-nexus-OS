@@ -18,14 +18,14 @@ Every time a service↔service link is added, three hand-written, boot-only thin
 
 This is a classic non-declarative, non-brokered, untyped chain. It is unstable by construction: the source of truth for *who-talks-to-whom* is scattered across imperative init code, and correctness is only observable at boot.
 
-## What Apple, OHOS, and Fuchsia do
+## What mature service frameworks do
 
-| Concern | Fuchsia | OpenHarmony | Apple | What we should adopt |
-|---|---|---|---|---|
-| Who-talks-to-whom | **Declarative capability routes** in component manifests (`.cml`), statically **route-validated** | samgr registry; abilities declare needed SAs | launchd plist + `MachServices`; bootstrap server | **One declarative route SSOT**, validated by a host test (no hand-wired god-match) |
-| Getting a connection | Component manager hands you a typed **channel** to the capability | `samgr->GetSystemAbility(id)` returns a **proxy** | `xpc_connection_create_mach_service(name)` brokered by launchd | **Name-based brokered connection** via `samgrd` — clients ask by name, broker mints the channel |
-| The wire | **FIDL** typed bindings (request/reply correlation, errors, generated) | IPC proxy/stub marshalling | XPC typed messages | **One reusable typed `Connection::call`** (correlation + reply built on `reqrep`), not per-client CAP_MOVE |
-| Testing the chain | **Realm Builder** builds the topology in-process; protocols tested without booting | component/IPC unit tests | XPC unit tests | **In-process chain tests** (`tools/nx` `Contract`/`Hop` + `loopback_channel`) asserting hop order + route existence host-side |
+| Concern | What we should adopt |
+|---|---|
+| Who-talks-to-whom | **One declarative route SSOT**, validated by a host test (no hand-wired god-match) |
+| Getting a connection | **Name-based brokered connection** via `samgrd` — clients ask by name, broker mints the channel |
+| The wire | **One reusable typed `Connection::call`** (correlation + reply built on `reqrep`), not per-client CAP_MOVE |
+| Testing the chain | **In-process chain tests** (`tools/nx` `Contract`/`Hop` + `loopback_channel`) asserting hop order + route existence host-side |
 
 The throughline: **declarative routing + a broker + one typed client + in-process testability.** We already have every primitive; they are just used inconsistently.
 
@@ -43,8 +43,8 @@ We do **not** rewrite the kernel IPC or rip out the working orchestrator in one 
 
 ### Phase 1 (this RFC's implementation) — the seams, host-tested, zero boot risk
 
-- **`nexus_ipc::Connection`** — one reusable typed request/reply client over a `Transport` trait (`loopback` for host tests, kernel CAP_MOVE for OS), built on `reqrep`. Host-tested via `loopback_channel`. This is the OHOS-proxy / Fuchsia-channel / XPC-connection equivalent.
-- **`route_table::REQUIRED_ROUTES`** — the declarative route SSOT + a host test asserting the route builder and the SSOT agree (the Fuchsia "route validation" equivalent). Adding a service without its route is now a **host-test failure**.
+- **`nexus_ipc::Connection`** — one reusable typed request/reply client over a `Transport` trait (`loopback` for host tests, kernel CAP_MOVE for OS), built on `reqrep`. Host-tested via `loopback_channel`. This is the brokered typed-connection equivalent.
+- **`route_table::REQUIRED_ROUTES`** — the declarative route SSOT + a host test asserting the route builder and the SSOT agree (declarative route validation). Adding a service without its route is now a **host-test failure**.
 - **`tools/nx` registry/lifecycle chain test** — an in-process `Contract`/`Hop` chain for `bundlemgrd → abilitymgr → windowd` asserting marker order (the Realm-Builder equivalent).
 
 > **Finding (testability gap):** `nexus-init::route_table` is currently gated
@@ -74,7 +74,7 @@ Generate request/reply types from the IDL (`nexus-idl`/capnp) for the lifecycle/
 ## Alternatives considered
 
 - **Keep hand-wiring, just add the missing arm** — rejected: it fixes one instance of a structural bug class that will recur on every new service/route.
-- **Full Fuchsia-style component framework now** — rejected for stability: too large a single change. We adopt the *principles* (declarative routes, broker, typed client, in-process tests) incrementally on the primitives we already have.
+- **A full external-style component framework now** — rejected for stability: too large a single change. We adopt the *principles* (declarative routes, broker, typed client, in-process tests) incrementally on the primitives we already have.
 
 ## Phasing summary
 

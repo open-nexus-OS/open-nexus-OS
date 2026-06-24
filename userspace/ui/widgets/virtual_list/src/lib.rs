@@ -31,7 +31,7 @@ use nexus_layout_types::{LayoutNode, MeasureText};
 pub use nexus_layout_types::FxPx;
 
 // ---------------------------------------------------------------------------
-// ItemView — the app-supplied cell builder (Apple's data-source/cell config)
+// ItemView — the app-supplied cell builder (the data-source / cell-config split)
 // ---------------------------------------------------------------------------
 
 /// Builds the layout subtree ("cell") for one item.
@@ -45,8 +45,8 @@ pub use nexus_layout_types::FxPx;
 /// messages plus an `ItemView` that renders one as a bubble, assembled by the
 /// app (e.g. `chat-app`) — not baked into the widget or windowd.
 ///
-/// This mirrors Apple's split of `UICollectionViewDataSource` (data) from the
-/// cell registration/configuration (view), keeping the framework generic.
+/// This splits the data source (data) from the cell configuration (view),
+/// keeping the framework generic.
 pub trait ItemView {
     /// The item type — matches the paired `ItemProvider::Item`.
     type Item;
@@ -560,7 +560,7 @@ impl<P: ItemProvider> VirtualList<P> {
         list
     }
 
-    /// Lazy prefetch (Apple/OHOS-style): when the visible window approaches the
+    /// Lazy prefetch (lazy-load style): when the visible window approaches the
     /// end of the loaded set, ask the provider to load the next page — so deep
     /// scrolling never blocks on data. Guarded by `has_inflight` (no dup loads).
     fn maybe_prefetch(&mut self) {
@@ -941,8 +941,8 @@ mod tests {
     }
 
     #[test]
-    fn apple_feel_fast_flick_travels_farther_and_decelerates() {
-        // THE Apple property: scroll SPEED matters, not just distance. A fast
+    fn momentum_fast_flick_travels_farther_and_decelerates() {
+        // THE momentum property: scroll SPEED matters, not just distance. A fast
         // flick (rapid notches accumulating velocity) must coast meaningfully
         // farther than a single slow notch, and both must DECELERATE (ease-out),
         // not move at constant speed. Frame-rate-independent (time-integrated).

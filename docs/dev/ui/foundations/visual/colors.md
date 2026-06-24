@@ -9,7 +9,7 @@ Goals:
 
 - Keep the UI **modern and friendly** without letting users pick arbitrary “bad” colors.
 - Make apps **follow the OS theme by default** via semantic tokens (`accent`, `bg`, `fg`, ...).
-- Provide a small set of **curated presets** (like iOS/One UI/HarmonyOS in spirit, without copying).
+- Provide a small set of **curated presets** (curated in spirit, without copying any vendor palette).
 
 ## Principles
 

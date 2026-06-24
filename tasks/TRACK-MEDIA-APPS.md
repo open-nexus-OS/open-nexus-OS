@@ -29,9 +29,9 @@ links:
 
 Deliver a first-party Media Apps suite that proves the ecosystem story:
 
-- **Photos** (like Apple Photos): library-first, timeline/albums/faces, smart search, iCloud-style sync,
-- **Music** (like Apple Music): **Listen Now** start page + local library + streaming (Tidal/SoundCloud/Netease) + search,
-- **TV** (like Apple TV): **Watch Now** hub + curated local library + provider “channels” + device casting/streaming,
+- **Photos**: library-first, timeline/albums/faces, smart search, cloud sync,
+- **Music**: **Listen Now** start page + local library + streaming (Tidal/SoundCloud/Netease) + search,
+- **TV**: **Watch Now** hub + curated local library + provider “channels” + device casting/streaming,
 - **double strategy**: click a file → lightweight viewer/player; browse library → full-featured app with indexing/metadata/cloud,
 - **always-on sync** (optional cloud backends; local-first by default),
 - and a shared core so that "it feels like someone else built it" (consistent UX + primitives).
@@ -57,7 +57,7 @@ The suite shares a common foundation (library and/or service boundaries):
 - **Media indexer service (`mediad`)**: scans local storage (Photos/Music), extracts metadata, provides a query API (by artist/album/date/etc.).
 - **Streaming connectors**: pluggable **providers** for Music and TV via NexusNet SDK (OAuth2/account model; typed stubs preferred).
 - **Provider “store” surfaces**:
-  - Music: provider login/enablement inside the app (Apple Music style).
+  - Music: provider login/enablement inside the app.
   - TV: “Channels” store inside the app (install/enable providers like Rakuten, ZDF, Mubi, Red Bull TV).
 - **Global media UX surfaces (system-wide)**:
   - `mediasessd` (now-playing + focus + control routing),
@@ -93,7 +93,7 @@ Media apps should prefer intent-based delegation for user-mediated flows:
 
 ---
 
-### 2. Photos (library app, like Apple Photos)
+### 2. Photos (library app)
 
 **Scope**: index ALL photos/images on the device + optional cloud sync.
 
@@ -142,9 +142,9 @@ Media apps should prefer intent-based delegation for user-mediated flows:
 
 ---
 
-### 4. Music (library app, like Apple Music)
+### 4. Music (library app)
 
-**Scope**: Apple Music-style app with **Listen Now**, provider streaming, and a local library.
+**Scope**: a music app with **Listen Now**, provider streaming, and a local library.
 
 **Features**:
 
@@ -200,9 +200,9 @@ Media apps should prefer intent-based delegation for user-mediated flows:
 
 ---
 
-### 6. TV (hub app, like Apple TV)
+### 6. TV (hub app)
 
-**Scope**: Apple TV-style hub with **Watch Now**, **Library (curated)**, **Providers**, and **Search**.
+**Scope**: a TV hub with **Watch Now**, **Library (curated)**, **Providers**, and **Search**.
 
 **Features**:
 - **Tabs / IA**:
@@ -395,7 +395,7 @@ enum ReceiverKind {
   - conflict resolution (explicit; no silent merges)
   - bounded retry budget (no unbounded exponential backoff)
 - **Sync providers** (pluggable):
-  - iCloud-style (Apple)
+  - first-party cloud sync
   - Google Drive-style (Google)
   - self-hosted (WebDAV/S3-compatible)
 - **Capability gates**:

@@ -23,7 +23,7 @@
 - Phase 6b (Reactive gpud IPC loop — Wait::Blocking): ✅
 - Phase 6c (GPU-first rendering pipeline — control/data plane separation): ✅ CLOSED (2026-06-05)
   - `VirtioGpuBackend::submit()` executes all 6 command types against VMO
-  - OHOS-style data plane: 8MB VMO split bottom(wallpaper)/top(display)
+  - Split data plane: 8MB VMO split bottom(wallpaper)/top(display)
   - gpud SET_SCANOUT offset (0,800,1280,800)
   - `send_blit_surface_cb()` builds BlitSurface commands for wallpaper damage
   - `DISPLAY_OFFSET_BYTES` on all display vmo_write calls

@@ -78,8 +78,8 @@ impl RouteTarget for windowd::WindowServer {
     }
 }
 
-/// Production-grade input architecture (Fuchsia Scenic / Apple WindowServer /
-/// OHOS MMI+WMS): inputd is a **pure input pipeline** — it normalizes HID
+/// Production-grade input architecture (a pure input pipeline feeding a
+/// compositor window-server): inputd is a **pure input pipeline** — it normalizes HID
 /// (pointer transform, accel, coalescing, keymap) and forwards normalized events
 /// to the compositor; it does **no hit-testing and owns no window server**. The
 /// compositor (windowd, `interaction.rs` SSOT since A1) resolves which surface an

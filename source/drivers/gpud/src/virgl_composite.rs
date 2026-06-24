@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: GPU layer compositor (G2) — the production-grade composite op, the
-//! OHOS RenderService RSRenderNode / Apple Core Animation CALayer / Fuchsia
-//! Flatland model: a layer = a content texture + a transform + per-layer GPU
+//! retained render-node / compositor-layer model: a layer = a content texture + a transform + per-layer GPU
 //! effects (opacity, rounded-corner mask, soft drop shadow), composited on the
 //! GPU into the scanout render target.
 //! OWNERS: @ui @runtime

@@ -25,7 +25,7 @@ links:
   - Colors/tokens: docs/dev/ui/foundations/visual/colors.md
   - Materials: docs/dev/ui/foundations/visual/materials.md
   - Freedesktop icon spec: https://specifications.freedesktop.org/icon-theme-spec/
-  - OHOS reference: docs/architecture/display-output-service-chain.md
+  - Reference: docs/architecture/display-output-service-chain.md
 ---
 
 ## Context
@@ -44,7 +44,7 @@ Current implementation state:
 - `selftest-client` remains observer-only and may only summarize evidence already
   present in service-owned state.
 
-RFC-0056 defines the architecture contract: OHOS-aligned resource qualifier model,
+RFC-0056 defines the architecture contract: qualifier-based resource model,
 freedesktop icon structure, Mocu cursor pipeline, theme token engine.
 
 This task is the complete asset/theme/cursor/text stack — everything needed for a real
@@ -55,7 +55,7 @@ Launcher by end of the UI fast lane.
 Deliver:
 
 1. **Resource directory structure** (RFC-0056):
-   - OHOS-aligned qualifier-based layout: `resources/themes/`, `icons/`, `cursors/`, `wallpapers/`, `fonts/`
+   - Qualifier-based layout: `resources/themes/`, `icons/`, `cursors/`, `wallpapers/`, `fonts/`
    - freedesktop icon theme spec: `<ThemeName>/scalable/`, `<size>/`, `index.theme`
 
 2. **Theme token engine** (`userspace/ui/theme/`):

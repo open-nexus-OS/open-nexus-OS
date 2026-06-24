@@ -10,8 +10,8 @@
 //!
 //! One reusable typed request/reply client (RFC-0066).
 //!
-//! This is the single correct cross-service call path — the OHOS proxy / Fuchsia
-//! channel / Apple XPC-connection equivalent. Every client (abilitymgr, windowd,
+//! This is the single correct cross-service call path — the brokered typed
+//! connection. Every client (abilitymgr, windowd,
 //! …) calls a service through a [`Connection`] instead of hand-rolling the
 //! nonce-correlated CAP_MOVE request/reply at each call site (the copy-paste that
 //! made the chain fragile).

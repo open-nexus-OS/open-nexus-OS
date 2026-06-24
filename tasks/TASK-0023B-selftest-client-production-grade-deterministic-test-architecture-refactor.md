@@ -334,7 +334,7 @@ Phase-3 proof floor:
 
 ### Phase 4 — Marker-Manifest as Single Source of Truth + profile-aware harness
 
-Scope (Apple-grade evidence foundation, A1):
+Scope (production-grade evidence foundation, A1):
 
 - Introduce `source/apps/selftest-client/proof-manifest.toml` as the **single source of truth** for: phase list, marker ladder, profile membership, run configuration.
 - Generate Rust constants for marker emission and the harness expectation list from the manifest at build time (no two truths).
@@ -422,7 +422,7 @@ Phase-4 hard gates (mechanically enforced):
 
 ### Phase 5 — Signed evidence bundle per QEMU run (✅ done, 2026-04-17)
 
-Scope (Apple-grade evidence foundation, A2):
+Scope (production-grade evidence foundation, A2):
 
 - Each `just test-os PROFILE=…` run writes `target/evidence/<utc>-<profile>-<git-sha>.tar.gz` containing:
   - `manifest.tar` (deterministic tar of the `proof-manifest/` v2 directory tree used for the run),
@@ -463,7 +463,7 @@ Phase-5 hard gates (mechanically enforced at closure):
 
 ### Phase 6 — Replay capability
 
-Scope (Apple-grade evidence foundation, A3):
+Scope (production-grade evidence foundation, A3):
 
 - `tools/replay-evidence.sh <bundle>`: re-builds from the bundle's recorded git-SHA, replays under the recorded profile + env + QEMU args, captures a fresh trace.
 - `tools/diff-traces.sh <original-trace> <replay-trace>`: produces a deterministic diff (phase-by-phase, order-aware). Empty diff = exact replay; bounded diff = drift report; structural diff = regression candidate.

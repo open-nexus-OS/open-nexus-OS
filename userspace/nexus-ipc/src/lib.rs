@@ -169,7 +169,7 @@ mod os_kernel;
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
 pub use os_kernel::{set_default_target, supports_service_routing, KernelClient, KernelServer};
 
-// no_std OS-lite backend (OpenHarmony LiteIPC-like), enabled via feature flag
+// no_std OS-lite backend (a lightweight in-kernel IPC), enabled via feature flag
 #[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]
 mod os_lite;
 #[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]

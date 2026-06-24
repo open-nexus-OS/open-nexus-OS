@@ -3,7 +3,7 @@
 
 //! CONTEXT: Single source of truth for windowd's interactive geometry and the
 //! pure hit-test logic over it. This is the compositor-owned hit-testing model
-//! (OHOS HWC / Fuchsia Flatland / Apple): the window server resolves
+//! (the compositor window-server): the window server resolves
 //! hover/click/scroll against the *same* rects its live renderer paints, so a
 //! control's hit area is always identical to its rendered rect. inputd no longer
 //! hit-tests — it ships a display-space pointer plus raw button/wheel/key facts,

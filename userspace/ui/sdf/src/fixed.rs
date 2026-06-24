@@ -1,25 +1,39 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Fixed-point SDF helpers for OS-lite CPU rendering hot paths.
-//! OWNERS: @ui
-//! STATUS: Experimental
-//! API_STABILITY: Internal
-//! TEST_COVERAGE: Host unit tests compare representative alpha values with float SDF output.
+//! CONTEXT: Fixed-point (no-FPU) implementation of the SDF coverage math — the
+//! integer sibling of this crate's float analytic SDF, for the riscv OS hot path
+//! where the float path is undesirable. Same definitions (rounded-rect / circle
+//! distance, AA fill / border / shadow coverage), evaluated in 8.8 fixed-point.
+//! This is the production anti-aliased rasterization math (alpha edges via a
+//! smoothstep band), parity-tested against the float reference in this crate.
+//! `nexus-sdf` is the single SDF math SSOT (RFC-0067 P5); the nexus-gfx CPU
+//! executor and the gpud GPU shaders both derive from these definitions.
+//! OWNERS: @ui @runtime
+//! STATUS: Functional
+//! API_STABILITY: Unstable
+//! TEST_COVERAGE: 3 tests (alpha parity vs this crate's float reference)
+//!
+//! Moved out of windowd (`fixed_sdf.rs`, via nexus-gfx) so the rasterization math
+//! lives with its analytic definition, not in the compositor service. Pure
+//! integer math — no allocation, no FPU — identical on host and the riscv target.
 
 const FIXED_SHIFT: i32 = 8;
 const FIXED_ONE: i32 = 1 << FIXED_SHIFT;
 const FIXED_HALF: i32 = FIXED_ONE / 2;
 
-pub(crate) fn px_u32(value: u32) -> i32 {
+/// Convert a `u32` pixel coordinate to the fixed-point domain.
+pub fn px_u32(value: u32) -> i32 {
     (value.min(i32::MAX as u32) as i32) << FIXED_SHIFT
 }
 
-pub(crate) fn px_i32(value: i32) -> i32 {
+/// Convert an `i32` pixel coordinate to the fixed-point domain (saturating).
+pub fn px_i32(value: i32) -> i32 {
     value.saturating_mul(FIXED_ONE)
 }
 
-pub(crate) fn pixel_center(value: u32) -> i32 {
+/// Fixed-point coordinate of a pixel's center (`value + 0.5`).
+pub fn pixel_center(value: u32) -> i32 {
     px_u32(value).saturating_add(FIXED_HALF)
 }
 
@@ -36,7 +50,9 @@ fn isqrt_u64(value: u64) -> u32 {
     x.min(u64::from(u32::MAX)) as u32
 }
 
-pub(crate) fn rounded_rect_sd(
+/// Signed distance (fixed-point) from `(point_x, point_y)` to a rounded rect.
+#[allow(clippy::too_many_arguments)]
+pub fn rounded_rect_sd(
     point_x: i32,
     point_y: i32,
     min_x: i32,
@@ -59,7 +75,7 @@ pub(crate) fn rounded_rect_sd(
 
 /// Fixed-point circle SDF: distance from (px, py) to center (cx, cy) minus radius.
 #[allow(dead_code)]
-pub(crate) fn circle_sd(px: i32, py: i32, cx: i32, cy: i32, radius: i32) -> i32 {
+pub fn circle_sd(px: i32, py: i32, cx: i32, cy: i32, radius: i32) -> i32 {
     let dx = px.saturating_sub(cx);
     let dy = py.saturating_sub(cy);
     let dist_sq = (dx as i64).saturating_mul(dx as i64) + (dy as i64).saturating_mul(dy as i64);
@@ -82,12 +98,15 @@ fn smoothstep(edge0: i32, edge1: i32, value: i32) -> i32 {
     smoothstep_unit(x)
 }
 
-pub(crate) fn fill_alpha(sd: i32) -> u32 {
+/// Anti-aliased fill coverage (0..255) for a signed distance — alpha edges via a
+/// 1px smoothstep band (the production AA, not a binary inside/outside test).
+pub fn fill_alpha(sd: i32) -> u32 {
     let alpha = smoothstep(FIXED_ONE, -FIXED_ONE, sd);
     (alpha as u32 * 255) / FIXED_ONE as u32
 }
 
-pub(crate) fn border_alpha(sd: i32, stroke_width: u32) -> u32 {
+/// Anti-aliased border coverage (0..255) at `stroke_width` around the edge.
+pub fn border_alpha(sd: i32, stroke_width: u32) -> u32 {
     let stroke = px_u32(stroke_width);
     let outer = smoothstep(stroke.saturating_add(FIXED_ONE), stroke.saturating_sub(FIXED_ONE), sd);
     let inner = smoothstep(FIXED_ONE, -FIXED_ONE, sd);
@@ -95,7 +114,9 @@ pub(crate) fn border_alpha(sd: i32, stroke_width: u32) -> u32 {
     (alpha as u32 * 255) / FIXED_ONE as u32
 }
 
-pub(crate) fn shadow_alpha_from_distance(distance: i32, blur_radius: u32, max_alpha: u32) -> u32 {
+/// Soft-shadow coverage (0..`max_alpha`) at `distance` from the edge of a shape,
+/// falling off quadratically over `blur_radius`.
+pub fn shadow_alpha_from_distance(distance: i32, blur_radius: u32, max_alpha: u32) -> u32 {
     let blur = px_u32(blur_radius).max(1);
     if distance >= blur {
         return 0;
@@ -124,13 +145,10 @@ mod tests {
         let max_y = px_u32(rect.1.saturating_add(rect.3));
         let radius_fx = px_u32(radius);
         for (x, y) in [(56, 440), (60, 440), (62, 444), (68, 452), (100, 440), (55, 439)] {
-            let sd = nexus_sdf::sd_rounded_rect(
-                (x as f32 + 0.5, y as f32 + 0.5),
-                min,
-                max,
-                radius as f32,
-            );
-            let expected = (nexus_sdf::fill_alpha(sd, 1.0) * 255.0) as i32;
+            // Float reference lives in this same crate (the SDF math SSOT).
+            let sd =
+                crate::sd_rounded_rect((x as f32 + 0.5, y as f32 + 0.5), min, max, radius as f32);
+            let expected = (crate::fill_alpha(sd, 1.0) * 255.0) as i32;
             let fixed_sd = rounded_rect_sd(
                 pixel_center(x),
                 pixel_center(y),

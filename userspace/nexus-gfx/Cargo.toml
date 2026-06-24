@@ -3,10 +3,13 @@ name = "nexus-gfx"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "NexusGfx SDK v1: Metal-like graphics API"
+description = "NexusGfx SDK v1: explicit command-based graphics API"
 
 [lib]
 name = "nexus_gfx"
 path = "src/lib.rs"
 
 [dependencies]
+# The one SDF math SSOT — the cpu2d backend rasterizes via its fixed-point AA
+# coverage so the reference output matches the live compositor (RFC-0067 P5).
+nexus-sdf = { path = "../ui/sdf" }

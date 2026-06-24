@@ -16,6 +16,11 @@
 
 #![no_std]
 
+/// Fixed-point (no-FPU) implementation of the same SDF coverage math, for the
+/// riscv OS hot path. The integer sibling of the float functions in this crate;
+/// both are the one SDF math SSOT (RFC-0067 P5).
+pub mod fixed;
+
 /// Signed distance to a circle.
 ///
 /// `p`: test point.

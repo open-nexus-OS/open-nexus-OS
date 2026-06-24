@@ -93,16 +93,15 @@ pub enum Command {
         offset_y: i32,
         color: RgbaColor,
     },
-    /// GPU-composited layer (production-grade compositor op, OHOS RSRenderNode /
-    /// Apple CALayer model): sample the layer's content texture — a region of
+    /// GPU-composited layer (production-grade compositor op, a retained
+    /// compositor-layer model): sample the layer's content texture — a region of
     /// the shared framebuffer atlas at absolute row `src_row_abs`, `src_x` —
     /// and composite it into the scanout render target at (`dst_x`, `dst_y`)
     /// with per-layer GPU effects: `opacity` (0..255), `corner_radius` (rounded
     /// mask), an optional soft drop shadow (`shadow_blur`>0), and an optional
     /// **backdrop blur** (`backdrop_blur`>0) — the destination region is blurred
     /// before the (translucent) content is composited over it, the glass /
-    /// background-blur material (Apple CALayer backgroundFilters / OHOS
-    /// background blur). The backend GPU-composites this on virgl or CPU-bakes
+    /// background-blur material (a background-filter blur). The backend GPU-composites this on virgl or CPU-bakes
     /// it on the 2D path.
     CompositeLayer {
         src_row_abs: u32,

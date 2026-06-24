@@ -60,7 +60,7 @@ With a WM in place (v6a), we can implement a minimal “Ability-Lite” lifecycl
 SystemUI navigation and notifications.
 
 > **Service split (ADR-0036 / RFC-0065):** the lifecycle broker lives in the existing **`abilitymgr`**
-> service (today a stub), **not** a new `appmgrd`. OpenHarmony's *AppMgr* is the process layer
+> service (today a stub), **not** a new `appmgrd`. A reference system's *app-manager* is the process layer
 > (≈ our `execd`/appspawn); the ability-lifecycle layer is *AMS* = our `abilitymgr`. The static
 > "which apps exist" registry is **`bundlemgrd`** (gains an enumerate op so the launcher/SystemUI
 > learn the app set at runtime — never hardcoded). One authority per service: registry

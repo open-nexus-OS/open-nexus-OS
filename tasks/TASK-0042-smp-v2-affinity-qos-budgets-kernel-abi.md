@@ -210,6 +210,6 @@ Work-Stealing ist in `selftest_try_steal()` bereits implementiert, wird aber nur
 fuer `QosClass::Idle` aufgerufen (wenn CPU sonst idle waere). Fuer echte SMP-Last
 muss Work-Stealing auch fuer hoehere QoS-Klassen aktiviert werden.
 
-IPC Priority-Inheritance (OHOS-Pattern): Wenn Task A (niedrige Prio) eine IPC an
+IPC Priority-Inheritance: Wenn Task A (niedrige Prio) eine IPC an
 Task B sendet und blockiert, erbt B temporaer A's QoS. Verhindert Priority-Inversion
 in IPC-Ketten. RFC-0022 (SMP v1b hardening) deckt die Vertragsgrundlage bereits ab.

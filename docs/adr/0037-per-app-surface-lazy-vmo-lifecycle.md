@@ -13,7 +13,7 @@ sidebar + search whether or not those windows are open). This is the opposite of
 manages app surfaces, and it has concrete costs: the atlas is permanently sized for the worst case,
 closed apps still consume budget, and an app's pixels are entangled with the shell's.
 
-OpenHarmony (WindowManagerService + each ability's own `Surface`/`BufferQueue`) and Apple (the window
+mature window servers (a window-manager service + each ability's own surface/buffer-queue, and a window
 server compositing each app's IOSurface) both give **each app its own buffer**, composited as its own
 layer, allocated when the scene becomes active and released when it goes away.
 
@@ -43,7 +43,7 @@ into a shared plane with the shell or other apps.
 
 - **Positive**: closed apps cost nothing; the shared atlas no longer has to be sized for every possible
   window; an app's pixels are isolated in its own VMO (cleaner, and a prerequisite for chat/search
-  becoming real app processes). Matches the OHOS/Apple model.
+  becoming real app processes). Matches the mature window-server model.
 - **Positive**: `destroy_surface` (free-on-close) + the lazy `app_surface` registry are host-tested in
   isolation before the risky compositor rewrite.
 - **Cost / sequencing**: the compositor runtime must stop baking chat/search into the atlas and instead

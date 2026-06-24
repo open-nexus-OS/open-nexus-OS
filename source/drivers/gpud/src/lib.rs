@@ -34,7 +34,7 @@ pub mod gl_scanout;
 pub mod virgl_vector;
 
 /// GPU layer compositor (G2): the CompositeLayer draw op (content texture +
-/// transform + opacity + rounded mask + shadow), the OHOS/Fuchsia/Apple model.
+/// transform + opacity + rounded mask + shadow), a retained-layer compositor model.
 #[cfg(feature = "virgl")]
 pub mod virgl_composite;
 

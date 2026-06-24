@@ -612,7 +612,7 @@ pub(crate) struct DisplayServerRuntime {
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
     atlas_alloc: crate::atlas::AtlasAllocator,
     /// Chat scroll engine: the `nexus-virtual-list` component is the single
-    /// source of truth for scroll *physics* (Apple-style eased momentum via
+    /// source of truth for scroll *physics* (eased momentum via
     /// `fling`/`tick`) and owns the message provider. windowd remains the height
     /// authority (its bitmap hard-wrap measures the real surface) and feeds that
     /// in via `set_content_height`; the component clamps + eases. `chat_scroll_y`

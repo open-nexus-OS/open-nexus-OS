@@ -27,7 +27,7 @@ Two structural refactorings with zero functional change:
 - Selftest-client currently IS the test harness, not an observer — it actively calls service IPC
 - Adding a new service test requires modifying a centralized test client
 - Cannot run `cargo test -p keystored` independently — all tests are coupled
-- Per-service contract tests are the OHOS/Fuchsia gold standard
+- Per-service contract tests are the industry gold standard
 
 ## Architecture: Per-Service Contract Tests
 

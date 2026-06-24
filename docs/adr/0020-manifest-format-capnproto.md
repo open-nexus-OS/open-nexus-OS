@@ -231,7 +231,7 @@ struct BundleManifest {
 
 ## Alternatives Considered
 
-### 1. **JSON (like Fuchsia)**
+### 1. **JSON**
 
 **Rejected**: Not deterministic (whitespace, key order). Would need "canonical JSON" hacks.
 
@@ -271,7 +271,7 @@ struct BundleManifest {
 - Cap'n Proto: <https://capnproto.org/>
 - Cap'n Proto Rust: <https://github.com/capnproto/capnproto-rust>
 - Android AXML: <https://android.googlesource.com/platform/frameworks/base/+/master/tools/aapt2/>
-- Fuchsia packages: <https://fuchsia.dev/fuchsia-src/concepts/packages/package>
+- Component package manifests (prior art, general)
 
 ---
 

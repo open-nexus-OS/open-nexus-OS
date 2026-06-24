@@ -165,7 +165,7 @@ enum WheelIndicatorDirection {
 impl LiveRouteRuntime {
     fn new() -> Result<Self, &'static str> {
         let launcher = windowd::CallerCtx::from_service_metadata(0x55);
-        // Production-grade input pipeline (Fuchsia/Apple/OHOS): inputd owns NO
+        // Production-grade input pipeline: inputd owns NO
         // window server and does NO hit-testing. A pure NormalizeRouter handles
         // pointer transform + coalescing; windowd (the compositor, interaction.rs
         // SSOT since A1) resolves all hover/click/focus against its own rendered

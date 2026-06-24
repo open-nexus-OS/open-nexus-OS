@@ -70,8 +70,8 @@ cargo run -p nxb-pack -- path/to/app.elf out/demo.hello.nxb
 ```toml
 name = "demo.hello"
 version = "1.0.0"
-abilities = ["ohos.ability.MainAbility"]
-caps = ["ohos.permission.INTERNET"]
+abilities = ["nexus.ability.MainAbility"]
+caps = ["nexus.permission.INTERNET"]
 min_sdk = "1.0.0"
 publisher = "00000000000000000000000000000000"
 sig = "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"

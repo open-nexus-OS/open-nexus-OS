@@ -174,7 +174,7 @@ statt ein separates Runtime-Subsystem neben der Fast Lane aufzubauen.
 ### Orbital-Level UX Gate (vor 0119/0120)
 
 `Orbital-Level` ist hier ein UX-Mindestniveau, nicht die Orbital-Architektur. Die
-Architektur bleibt service-/capability-orientiert nach Open-Nexus/OHOS/Zircon-Linie:
+Architektur bleibt service-/capability-orientiert nach der Open-Nexus-Linie:
 `inputd` normalisiert Events, `windowd` besitzt Hit-Test/Hover/Focus/Click,
 SystemUI besitzt Shell/Launcher/Session-Flächen, Apps bekommen nur eigene Surfaces und Events.
 

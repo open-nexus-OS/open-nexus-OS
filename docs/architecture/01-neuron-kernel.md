@@ -7,7 +7,7 @@ surface for early user tasks.
 
 ## Security north star (system-level)
 
-NEURON is the kernel core of a HarmonyOS-like, Rust-first, RISC‑V-first system.
+NEURON is the kernel core of a capability-service-oriented, Rust-first, RISC‑V-first system.
 The system security roadmap is intentionally hybrid:
 
 - Verified boot + signed bundles/packages + capability-based isolation as the MVP root.

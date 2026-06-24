@@ -5,7 +5,7 @@
 //! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
 //! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,
 //! paint-only fast-path, and GPU-first rendering pipeline (Phase 6c).
-//! OHOS-style control/data plane separation: windowd heap = control plane,
+//! control/data-plane separation: windowd heap = control plane,
 //! shared 16MB VMO = data plane (4-plane: wallpaper / retained-scene / slot-A / slot-B).
 //! gpud executes BlitSurface/FillSdfRoundedRect/BlurBackdrop/DrawTiles commands.
 //! Part of TASK-0055/0056/0058/0059/0062.
@@ -114,7 +114,7 @@ use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
 pub(crate) const ROUTE_NAME: &str = "windowd";
-// Phase 6c: OHOS-style control-plane / data-plane separation.
+// Phase 6c: control-plane / data-plane separation.
 // Data plane: all pixel data lives in shared VMOs, rendered by gpud.
 //   VMO layout (16MB, 1280x3200, 4-plane):
 //     Plane 0: rows    0.. 799 — wallpaper source  (offset 0x000000)

@@ -326,45 +326,41 @@ impl CpuMockBackend {
 
     fn fill_sdf_rounded(&mut self, x: u32, y: u32, w: u32, h: u32, radius: u32, color: RgbaColor) {
         let rgba = color.as_array();
-        if rgba[3] == 0 {
+        if rgba[3] == 0 || w == 0 || h == 0 {
             return;
         }
         let fw = self.width as usize;
         let end_x = x.saturating_add(w).min(self.width);
         let end_y = y.saturating_add(h).min(self.height);
-        let r = radius.min(w / 2).min(h / 2) as i32;
-        let cx = x as i32 + r;
-        let cy = y as i32 + r;
-        let cx2 = x as i32 + w as i32 - r - 1;
-        let cy2 = y as i32 + h as i32 - r - 1;
+        // Production anti-aliased coverage via the SDF math SSOT
+        // (`nexus_sdf::fixed`) — the SAME fixed-point rounded-rect coverage the
+        // live compositor uses, so this reference output matches the live path
+        // (RFC-0067 P5: one rasterization math, derived from nexus-sdf).
+        use nexus_sdf::fixed;
+        let r = radius.min(w / 2).min(h / 2);
+        let min_x = fixed::px_u32(x);
+        let min_y = fixed::px_u32(y);
+        let max_x = fixed::px_u32(x.saturating_add(w));
+        let max_y = fixed::px_u32(y.saturating_add(h));
+        let rad = fixed::px_u32(r);
         for py in y..end_y {
             let row = py as usize * fw;
+            let pcy = fixed::pixel_center(py);
             for px in x..end_x {
                 let i = (row + px as usize) * 4;
                 if i + 4 > self.framebuffer.len() {
                     continue;
                 }
-                let inside = if r <= 0 {
-                    true
-                } else {
-                    let px = px as i32;
-                    let py = py as i32;
-                    let d = if px <= cx && py <= cy {
-                        corner_dist(px, py, cx, cy, r)
-                    } else if px >= cx2 && py <= cy {
-                        corner_dist(px, py, cx2, cy, r)
-                    } else if px <= cx && py >= cy2 {
-                        corner_dist(px, py, cx, cy2, r)
-                    } else if px >= cx2 && py >= cy2 {
-                        corner_dist(px, py, cx2, cy2, r)
-                    } else {
-                        0
-                    };
-                    d <= 0
-                };
-                if inside {
-                    blend_pixel(&mut self.framebuffer[i..i + 4], &rgba);
+                let sd = fixed::rounded_rect_sd(fixed::pixel_center(px), pcy, min_x, min_y, max_x, max_y, rad);
+                let cov = fixed::fill_alpha(sd); // 0..255 anti-aliased coverage
+                if cov == 0 {
+                    continue;
                 }
+                let a = (rgba[3] as u32 * cov / 255) as u8;
+                if a == 0 {
+                    continue;
+                }
+                blend_pixel(&mut self.framebuffer[i..i + 4], &[rgba[0], rgba[1], rgba[2], a]);
             }
         }
     }

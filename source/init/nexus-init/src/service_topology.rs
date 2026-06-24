@@ -11,8 +11,8 @@
 //! Declarative service topology (RFC-0066) — the host-testable SSOT for *who
 //! exists* and *who may talk to whom*, decoupled from the OS capability binding.
 //!
-//! This is the `.cml`-equivalent (Fuchsia) / samgr-catalog (OHOS) / launchd-plist
-//! (Apple) for our chain: pure data, no syscall types, so it is validated on the
+//! This is the declarative service-topology manifest
+//! for our chain: pure data, no syscall types, so it is validated on the
 //! host. `route_table` (OS-only) binds these routes to capability slots; here we
 //! only declare identity, the route graph, and per-service expectations — and a
 //! host test cross-validates them so adding a service without its route/endpoint

@@ -681,7 +681,7 @@ For each task category, we analyze:
 
 1. **seL4 Approach** (C, formally verified, minimal TCB)
 
-2. **Zircon Approach** (C++, Fuchsia, capability-based)
+2. **Zircon Approach** (C++, capability-based reference kernel)
 
 3. **Linux Approach** (C, monolithic, mature ecosystem)
 
@@ -727,7 +727,7 @@ For each task category, we analyze:
 
 **Architecture**:
 
-- Microkernel for Fuchsia (~170K LOC)
+- A production capability microkernel (~170K LOC)
 
 - Capability-based (handles, rights)
 
@@ -1573,7 +1573,7 @@ let fence = device.submit_dma(vmo); // vmo consumed
 
 #### Concept
 
-**Metal Model** (Apple):
+**Explicit command-buffer model**:
 
 - Thin driver (command submission, synchronization)
 - Rich SDK (shader compiler, pipeline state, resource management)
@@ -1699,7 +1699,7 @@ let fence = device.submit_dma(vmo); // vmo consumed
 
 **Open Nexus Improvement**: Rust ownership eliminates manual capability management
 
-#### Zircon (Fuchsia)
+#### Zircon (reference kernel)
 
 **Driver Model**: Userspace drivers with DriverKit SDK
 

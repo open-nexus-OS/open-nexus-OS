@@ -3,8 +3,8 @@
 
 #![cfg_attr(not(test), no_std)]
 
-//! Composable visual **modifiers** for the UI framework (Apple/SwiftUI-,
-//! ArkUI-style): a chainable [`Style`] builder that produces a
+//! Composable visual **modifiers** for the UI framework (a declarative,
+//! chainable-modifier style): a chainable [`Style`] builder that produces a
 //! `nexus_layout_types::VisualStyle`, plus the one modifier that is not a
 //! `VisualStyle` field — backdrop blur — carried alongside so a single chain
 //! expresses every visual property.

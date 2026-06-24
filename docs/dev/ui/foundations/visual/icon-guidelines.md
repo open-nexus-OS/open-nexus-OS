@@ -5,7 +5,7 @@
 
 This document defines **how icons are designed, packaged, themed, and used** in Open Nexus OS.
 
-We use Apple’s icon guidance as a reference for clarity and rigor (not as a style mandate): see [Apple HIG – Icons](https://developer.apple.com/design/human-interface-guidelines/icons).
+We follow established platform icon-guidance principles for clarity and rigor (not as a style mandate): consistent grid, optical balance, and minimal detail at small sizes.
 
 ## Goals
 

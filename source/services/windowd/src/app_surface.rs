@@ -13,8 +13,8 @@
 //! Each app owns its **own** surface (its own VMO/buffer via `create_surface`),
 //! composited as its **own layer** with z-order — never baked into a shared plane
 //! with everything else. A surface is **lazily allocated when the app becomes
-//! active** (launched/foregrounded) and **freed when it closes/stops** — the OHOS
-//! scene / Apple window-server model, where an inactive app holds no surface VMO.
+//! active** (launched/foregrounded) and **freed when it closes/stops** — a
+//! window-server model where an inactive app holds no surface VMO.
 //!
 //! This module is the pure, host-tested bookkeeping: it maps app **instance ids**
 //! (from `abilitymgr`) to their surface id + z-order and the residency state. The

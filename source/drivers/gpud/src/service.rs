@@ -109,7 +109,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     //
     // Reactive GPU completion: route the device's ring-buffer IRQ to our idle
     // control-reply endpoint so command waits BLOCK on the interrupt instead of
-    // busy-polling the used-ring (Apple/Fuchsia-style driver IRQ port). Bound after
+    // busy-polling the used-ring (an interrupt-driven driver port). Bound after
     // the bootstrap scanout so early init keeps the simple spin path; best-effort —
     // a denied bind leaves the queues on spin+yield (never a hang). The shared
     // virtio-gpu IRQ covers both the control and cursor queues.

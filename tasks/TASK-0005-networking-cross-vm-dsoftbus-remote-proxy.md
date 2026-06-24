@@ -304,7 +304,7 @@ Marker ownership rules (to keep the harness deterministic):
 
 - OS-lite frames are undocumented byte formats
 - Cap'n Proto provides schema evolution, versioning, and tooling
-- OpenHarmony and Fuchsia both use stable IDL (DSoftBus IDL / FIDL)
+- Mature distributed systems use a stable IDL
 
 **Migration trigger:**
 

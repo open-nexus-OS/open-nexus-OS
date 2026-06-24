@@ -73,7 +73,7 @@ state each running app is in*.
 Two production OSes already solved this exact split, and our service tree already mirrors them —
 the v6b job is to **fill the existing slots**, not invent a new service:
 
-| Concern | OpenHarmony | Apple | **Open Nexus (this tree)** |
+| Concern | Reference system A | Reference system B | **Open Nexus (this tree)** |
 |---|---|---|---|
 | Static registry — *which apps exist*, abilities, icons, install/query/**enumerate** | BMS (`bundlemgr`) | LaunchServices / `lsd` | **`bundlemgrd`** (functional; needs enumerate) |
 | Ability lifecycle — running abilities, FG/BG, recents/mission, focus mediation | AMS (`AbilityManagerService`) | FrontBoard / SpringBoard | **`abilitymgr`** (stub → broker) |
@@ -83,7 +83,7 @@ the v6b job is to **fill the existing slots**, not invent a new service:
 | System-service registry (not apps) | samgr | bootstrap/launchd | **`samgrd`** |
 
 The TASK-0065 draft called the lifecycle broker "`appmgrd` (new)". That name collides with two
-things we already have: OpenHarmony's *AppMgr* is the **process** layer (our `execd`/appspawn), and
+things we already have: a reference system's *app-manager* is the **process** layer (our `execd`/spawn), and
 the *ability lifecycle* layer is **AMS = our `abilitymgr`**. Creating a new `appmgrd` would overlap
 both → double structure. The decision (ADR-0036) is: **lifecycle broker lives in `abilitymgr`; the
 registry stays in `bundlemgrd`; process spawn stays in `execd`.**
@@ -255,7 +255,7 @@ as a real window; toast + nav changes are visible — not marker-only.
 ## Alternatives considered
 
 - **New `appmgrd` service (per the draft)** — rejected. Overlaps `abilitymgr` (lifecycle) and `execd`
-  (spawn) → double structure. OpenHarmony/Apple both keep lifecycle (AMS/FrontBoard) separate from
+  (spawn) → double structure. Reference systems both keep lifecycle separate from
   process-spawn (appspawn/launchd) and from the registry (BMS/LaunchServices); we already have those
   three services. See ADR-0036.
 - **Keep chat/search baked in windowd** — rejected. The whole point of v6b is real app processes;

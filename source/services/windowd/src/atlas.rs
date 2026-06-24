@@ -17,7 +17,7 @@
 //! free-rectangle allocator (guillotine split on alloc, axis-aligned coalescing on
 //! free). A narrow surface (e.g. a 360-wide window) no longer wastes a whole
 //! 1280-wide row band — several pack side-by-side in one band — which is what
-//! lets the same VMO host many windows / HiDPI surfaces (the macOS/OHOS model).
+//! lets the same VMO host many windows / HiDPI surfaces (a shared multi-surface atlas model).
 //! Surfaces are addressed by absolute VMO row **and column** (`x`); gpud samples
 //! `src_x`/`src_row_abs` natively on both the CPU and virgl paths.
 //!

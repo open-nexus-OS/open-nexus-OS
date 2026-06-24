@@ -1822,6 +1822,9 @@ dependencies = [
 [[package]]
 name = "nexus-gfx"
 version = "0.1.0"
+dependencies = [
+ "nexus-sdf",
+]
 
 [[package]]
 name = "nexus-hal"

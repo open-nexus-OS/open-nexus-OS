@@ -15,7 +15,7 @@
 use super::*;
 
 impl DisplayServerRuntime {
-    /// Wheel over the chat viewport → an Apple-style **flick**. The signed wheel
+    /// Wheel over the chat viewport → an inertial **flick**. The signed wheel
     /// delta (real notch count from inputd, no longer a quantized boolean) moves
     /// the virtual-list's scroll *target*; `tick_chat_scroll` then eases the
     /// position toward it over subsequent frames (momentum). One notch animates

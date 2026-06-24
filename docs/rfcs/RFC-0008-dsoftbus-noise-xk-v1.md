@@ -409,7 +409,7 @@ This keeps identity binding explicit without requiring a full attestation stack.
   - **Goals**:
     - DTLS hybrid option (for PKI validation + Noise efficiency)
     - Web-of-Trust (Tier 3, decentralized)
-    - Cross-ecosystem interop (OpenHarmony adapter)
+    - Cross-ecosystem interop (external-ecosystem adapter)
   - **Tracking**: Future tasks
 
 ## Security considerations

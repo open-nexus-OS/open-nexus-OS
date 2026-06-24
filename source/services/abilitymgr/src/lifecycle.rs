@@ -18,7 +18,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-/// Lifecycle state of a running ability instance (OHOS Ability / Apple scene).
+/// Lifecycle state of a running ability instance (a managed UI scene).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbilityState {
     /// Allocated, not yet started.
