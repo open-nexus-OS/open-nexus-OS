@@ -26,7 +26,7 @@ use crate::compositor::{
 };
 use crate::error::WindowdError;
 use crate::live_runtime::DamageRect;
-use nexus_gfx::{RenderCommandEncoder, TileRect};
+use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandEncoder};
 
 /// Shadow-halo margin around the window when computing its damage rect, so the
 /// soft drop shadow is restored from the retained plane on move/close.
@@ -369,48 +369,36 @@ impl ShellWindow {
         }
         let w = p.w.min(mode_w.saturating_sub(p.x));
         let h = p.h.min(mode_h.saturating_sub(p.y));
-        let mut built_blur = false;
-        let rect = TileRect { x: p.x, y: p.y, width: w, height: h };
-        if !p.blur_valid {
-            // Blur once: restore clean backdrop, blur in place, save to the cache
-            // surface (at its packed column `blur_cache_x`).
-            let _ = encoder.try_blit_surface(p.x, p.y + RETAINED_ROW_OFFSET, p.x, p.y, w, h);
-            let _ = encoder.try_blur_backdrop(rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
-            let _ = encoder.try_blit_absolute(
-                p.x,
-                DISPLAY_ROW_OFFSET + p.y,
-                p.blur_cache_x,
-                p.blur_cache_row,
-                w,
-                h,
-            );
-            built_blur = true;
-        } else {
-            // Reuse: blit the cached blurred backdrop (no per-frame blur).
-            let _ = encoder.try_blit_absolute(
-                p.blur_cache_x,
-                p.blur_cache_row,
-                p.x,
-                DISPLAY_ROW_OFFSET + p.y,
-                w,
-                h,
-            );
-        }
-        let _ = encoder.try_composite_layer(
-            p.atlas_row,
-            p.atlas_x,
-            w,
-            h,
-            p.x,
-            p.y,
-            255,
-            p.radius,
-            p.shadow_blur,
-            p.shadow_offset_y,
-            p.shadow_alpha,
-            0,
+        // A static glass window: no shadow halo (pad 0), blur cached after the
+        // first settled present. Routed through the layer SSOT.
+        let _ = encoder.composite_layer_full(
+            &Layer {
+                src_row_abs: p.atlas_row,
+                src_x: p.atlas_x,
+                width: w,
+                height: h,
+                dst_x: p.x,
+                dst_y: p.y,
+                opacity: 255,
+                corner_radius: p.radius,
+                scrollable: false,
+                shadow: Some(LayerShadow {
+                    blur: p.shadow_blur,
+                    offset_y: p.shadow_offset_y,
+                    alpha: p.shadow_alpha,
+                }),
+                backdrop: Some(LayerBackdrop {
+                    blur_radius: DARK_GLASS_BLUR_RADIUS,
+                    saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                    restore_halo_pad: 0,
+                    retained_src_y_offset: RETAINED_ROW_OFFSET,
+                    cache: glass_cache(&p),
+                }),
+            },
+            (mode_w, mode_h),
         );
-        built_blur
+        // `built_blur`: the cache was (re)built this present iff it was invalid.
+        !p.blur_valid
     }
 
     /// Composite a glass window whose body **scrolls** by a GPU source-row offset
@@ -432,39 +420,37 @@ impl ShellWindow {
         if p.x >= mode_w || p.y >= mode_h {
             return false;
         }
-        // Restore the full halo (window + shadow pad) from the retained plane so
-        // the translucent shadow blends over a clean backdrop and never trails.
+        // Body layer: restores the window + shadow-pad halo from the retained plane
+        // (so the soft shadow never trails), blurs/caches the window rect, and
+        // composites the surface SCROLLABLE (sampled at the scroll offset so gpud
+        // retains it for the cheap re-sample fast path). Routed through the layer
+        // SSOT, which owns the halo math + the cached-with-halo restore.
         let pad = p.shadow_blur.saturating_add(p.shadow_offset_y.unsigned_abs());
-        let hx = p.x.saturating_sub(pad);
-        let hy = p.y.saturating_sub(pad);
-        let hw = (p.w + 2 * pad).min(mode_w.saturating_sub(hx));
-        let hh = (p.h + 2 * pad).min(mode_h.saturating_sub(hy));
-        let _ = encoder.try_blit_surface(hx, hy + RETAINED_ROW_OFFSET, hx, hy, hw, hh);
-
-        let mut built_blur = false;
-        let rect = TileRect { x: p.x, y: p.y, width: p.w, height: p.h };
-        if !p.blur_valid {
-            let _ = encoder.try_blur_backdrop(rect, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
-            let _ = encoder.try_blit_absolute(p.x, DISPLAY_ROW_OFFSET + p.y, p.blur_cache_x, p.blur_cache_row, p.w, p.h);
-            built_blur = true;
-        } else {
-            let _ = encoder.try_blit_absolute(p.blur_cache_x, p.blur_cache_row, p.x, DISPLAY_ROW_OFFSET + p.y, p.w, p.h);
-        }
-        // Body: sample the surface shifted by the scroll-within-window offset
-        // (SCROLLABLE → gpud retains it for the cheap re-sample fast path).
-        let _ = encoder.try_composite_layer_scrollable(
-            p.atlas_row + content_offset,
-            p.atlas_x,
-            p.w,
-            p.h,
-            p.x,
-            p.y,
-            255,
-            p.radius,
-            p.shadow_blur,
-            p.shadow_offset_y,
-            p.shadow_alpha,
-            0,
+        let _ = encoder.composite_layer_full(
+            &Layer {
+                src_row_abs: p.atlas_row + content_offset,
+                src_x: p.atlas_x,
+                width: p.w,
+                height: p.h,
+                dst_x: p.x,
+                dst_y: p.y,
+                opacity: 255,
+                corner_radius: p.radius,
+                scrollable: true,
+                shadow: Some(LayerShadow {
+                    blur: p.shadow_blur,
+                    offset_y: p.shadow_offset_y,
+                    alpha: p.shadow_alpha,
+                }),
+                backdrop: Some(LayerBackdrop {
+                    blur_radius: DARK_GLASS_BLUR_RADIUS,
+                    saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                    restore_halo_pad: pad,
+                    retained_src_y_offset: RETAINED_ROW_OFFSET,
+                    cache: glass_cache(&p),
+                }),
+            },
+            (mode_w, mode_h),
         );
         // Title bar: composited FIXED on top (src row 0) so it never scrolls. It
         // must be OPAQUE (see `draw_title_bar_row`) so it occludes the scrollable
@@ -477,7 +463,26 @@ impl ShellWindow {
         // `draw_title_bar_row`), so the top corners reveal the body's rounded corners
         // underneath while the bottom edge stays straight — no all-corner "notch".
         let _ = encoder.try_composite_layer(p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
-        built_blur
+        // `built_blur`: the cache was (re)built this present iff it was invalid.
+        !p.blur_valid
+    }
+}
+
+/// Map a window's blur-cache state to the layer SSOT's cache mode: build + write
+/// the blurred backdrop on the first settled present, reuse it thereafter.
+fn glass_cache(p: &GlassCompositeParams) -> BackdropCache {
+    if p.blur_valid {
+        BackdropCache::Read {
+            cache_x: p.blur_cache_x,
+            cache_row_abs: p.blur_cache_row,
+            display_row_offset: DISPLAY_ROW_OFFSET,
+        }
+    } else {
+        BackdropCache::Write {
+            cache_x: p.blur_cache_x,
+            cache_row_abs: p.blur_cache_row,
+            display_row_offset: DISPLAY_ROW_OFFSET,
+        }
     }
 }
 

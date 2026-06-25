@@ -55,7 +55,10 @@ use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
 use nexus_effects::ShadowArena;
 use nexus_gfx::command::buffer::RgbaColor;
-use nexus_gfx::{CommandBuffer, PipelineTimer, RenderPassDesc, TileRect};
+use nexus_gfx::{
+    BackdropCache, CommandBuffer, Layer, LayerBackdrop, LayerShadow, PipelineTimer, RenderPassDesc,
+    TileRect,
+};
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};

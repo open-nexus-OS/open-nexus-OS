@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::command::buffer::{Command, CommandBuffer, RgbaColor};
+use crate::command::layer::{BackdropCache, Layer};
 use crate::core::error::GfxError;
 use crate::core::types::TileRect;
 
@@ -315,6 +316,96 @@ impl<'a> RenderCommandEncoder<'a> {
             backdrop_blur,
             scrollable,
         })
+    }
+
+    // ── Composited layer SSOT ─────────────────────────────────
+
+    /// Emit the one canonical command sequence for a [`Layer`]: restore the
+    /// clean backdrop (and blur it, fresh or cached) when the layer is glass,
+    /// then composite the content with its shadow/opacity/corner-radius effects.
+    /// This is the SSOT every compositor element routes through instead of
+    /// hand-rolling the blit→blur→composite recipe.
+    ///
+    /// The composite's own `backdrop_blur` is always 0 — the frosted blur is the
+    /// explicit `BlurBackdrop` above, which keeps the layer's own content (text)
+    /// sharp over the blurred backdrop rather than smearing it.
+    ///
+    /// `bounds` is the display extent `(width, height)`, used to clamp the restore
+    /// halo (`LayerBackdrop::restore_halo_pad`) inside the framebuffer.
+    pub fn composite_layer_full(
+        &mut self,
+        layer: &Layer,
+        bounds: (u32, u32),
+    ) -> Result<(), GfxError> {
+        let rect = TileRect {
+            x: layer.dst_x,
+            y: layer.dst_y,
+            width: layer.width,
+            height: layer.height,
+        };
+        if let Some(bd) = layer.backdrop {
+            // Restore halo: grow the restore blit by `pad` on every side (clamped
+            // to the display) so a soft shadow blends over a clean backdrop. The
+            // blur + cache still cover only the layer rect.
+            let pad = bd.restore_halo_pad;
+            let hx = layer.dst_x.saturating_sub(pad);
+            let hy = layer.dst_y.saturating_sub(pad);
+            let hw = (layer.width + 2 * pad).min(bounds.0.saturating_sub(hx));
+            let hh = (layer.height + 2 * pad).min(bounds.1.saturating_sub(hy));
+            match bd.cache {
+                BackdropCache::None => {
+                    self.try_blit_surface(hx, hy + bd.retained_src_y_offset, hx, hy, hw, hh)?;
+                    self.try_blur_backdrop(rect, bd.blur_radius, bd.saturation_percent)?;
+                }
+                BackdropCache::Write { cache_x, cache_row_abs, display_row_offset } => {
+                    self.try_blit_surface(hx, hy + bd.retained_src_y_offset, hx, hy, hw, hh)?;
+                    self.try_blur_backdrop(rect, bd.blur_radius, bd.saturation_percent)?;
+                    self.try_blit_absolute(
+                        layer.dst_x,
+                        display_row_offset + layer.dst_y,
+                        cache_x,
+                        cache_row_abs,
+                        layer.width,
+                        layer.height,
+                    )?;
+                }
+                BackdropCache::Read { cache_x, cache_row_abs, display_row_offset } => {
+                    // The cache only repaints the layer rect; when there is a shadow
+                    // halo, restore the surrounding pad from the retained plane first
+                    // so the shadow blends over a clean backdrop.
+                    if pad > 0 {
+                        self.try_blit_surface(hx, hy + bd.retained_src_y_offset, hx, hy, hw, hh)?;
+                    }
+                    self.try_blit_absolute(
+                        cache_x,
+                        cache_row_abs,
+                        layer.dst_x,
+                        display_row_offset + layer.dst_y,
+                        layer.width,
+                        layer.height,
+                    )?;
+                }
+            }
+        }
+        let (shadow_blur, shadow_offset_y, shadow_alpha) = match layer.shadow {
+            Some(s) => (s.blur, s.offset_y, s.alpha),
+            None => (0, 0, 0),
+        };
+        self.try_composite_layer_tagged(
+            layer.src_row_abs,
+            layer.src_x,
+            layer.width,
+            layer.height,
+            layer.dst_x,
+            layer.dst_y,
+            layer.opacity,
+            layer.corner_radius,
+            shadow_blur,
+            shadow_offset_y,
+            shadow_alpha,
+            0,
+            layer.scrollable,
+        )
     }
 
     // ── Backdrop blur ─────────────────────────────────────────

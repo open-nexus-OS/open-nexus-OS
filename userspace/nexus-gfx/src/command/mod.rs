@@ -9,6 +9,7 @@
 pub mod blit_encoder;
 pub mod buffer;
 pub mod compute_encoder;
+pub mod layer;
 pub mod pass;
 pub mod render_encoder;
 pub mod validation;

@@ -208,35 +208,14 @@ impl DisplayServerRuntime {
                 // top with backdrop_blur=0. Passing backdrop_blur to the composite
                 // smears the layer content (text) into a gray blob — this keeps
                 // the text sharp over a frosted backdrop.
-                let bar = TileRect {
-                    x: TOPBAR_MARGIN_X,
-                    y: TOPBAR_TOP,
-                    width: shell_w,
-                    height: shell_h,
-                };
-                let _ = encoder.try_blit_surface(
-                    TOPBAR_MARGIN_X,
-                    TOPBAR_TOP + RETAINED_ROW_OFFSET,
-                    TOPBAR_MARGIN_X,
-                    TOPBAR_TOP,
-                    shell_w,
-                    shell_h,
-                );
-                let _ =
-                    encoder.try_blur_backdrop(bar, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT);
-                let _ = encoder.try_composite_layer(
-                    shell_atlas_row,
-                    0,
-                    shell_w,
-                    shell_h,
-                    TOPBAR_MARGIN_X,
-                    TOPBAR_TOP,
-                    255,
-                    TOPBAR_RADIUS,
-                    10,
-                    3,
-                    60,
-                    0,
+                let _ = encoder.composite_layer_full(
+                    &Layer {
+                        corner_radius: TOPBAR_RADIUS,
+                        shadow: Some(LayerShadow { blur: 10, offset_y: 3, alpha: 60 }),
+                        backdrop: Some(chrome_glass_backdrop()),
+                        ..Layer::opaque(shell_atlas_row, 0, shell_w, shell_h, TOPBAR_MARGIN_X, TOPBAR_TOP)
+                    },
+                    (mode.width, mode.height),
                 );
             }
 
@@ -253,26 +232,15 @@ impl DisplayServerRuntime {
                 if dx < mode.width && dy < mode.height {
                     let w = DROPDOWN_W.min(mode.width.saturating_sub(dx));
                     let h = reveal_h.min(mode.height.saturating_sub(dy));
-                    let rect = TileRect { x: dx, y: dy, width: w, height: h };
-                    let _ = encoder.try_blit_surface(dx, dy + RETAINED_ROW_OFFSET, dx, dy, w, h);
-                    let _ = encoder.try_blur_backdrop(
-                        rect,
-                        DARK_GLASS_BLUR_RADIUS,
-                        DARK_GLASS_SATURATION_PERCENT,
-                    );
-                    let _ = encoder.try_composite_layer(
-                        dropdown_atlas_row,
-                        0,
-                        w,
-                        h,
-                        dx,
-                        dy,
-                        alpha,
-                        DROPDOWN_RADIUS,
-                        14,
-                        4,
-                        80,
-                        0,
+                    let _ = encoder.composite_layer_full(
+                        &Layer {
+                            opacity: alpha,
+                            corner_radius: DROPDOWN_RADIUS,
+                            shadow: Some(LayerShadow { blur: 14, offset_y: 4, alpha: 80 }),
+                            backdrop: Some(chrome_glass_backdrop()),
+                            ..Layer::opaque(dropdown_atlas_row, 0, w, h, dx, dy)
+                        },
+                        (mode.width, mode.height),
                     );
                 }
             }
@@ -292,33 +260,15 @@ impl DisplayServerRuntime {
                 if base_x < mode.width {
                     let w = SIDEPANEL_W.min(mode.width.saturating_sub(base_x));
                     let alpha = (sidepanel_opacity.clamp(0.0, 1.0) * 255.0) as u32;
-                    let panel = TileRect { x: base_x, y: SIDEPANEL_TOP, width: w, height: sidepanel_h };
-                    let _ = encoder.try_blit_surface(
-                        base_x,
-                        SIDEPANEL_TOP + RETAINED_ROW_OFFSET,
-                        base_x,
-                        SIDEPANEL_TOP,
-                        w,
-                        sidepanel_h,
-                    );
-                    let _ = encoder.try_blur_backdrop(
-                        panel,
-                        DARK_GLASS_BLUR_RADIUS,
-                        DARK_GLASS_SATURATION_PERCENT,
-                    );
-                    let _ = encoder.try_composite_layer(
-                        sidepanel_atlas_row,
-                        0,
-                        w,
-                        sidepanel_h,
-                        base_x,
-                        SIDEPANEL_TOP,
-                        alpha,
-                        SIDEPANEL_RADIUS,
-                        16,
-                        4,
-                        80,
-                        0,
+                    let _ = encoder.composite_layer_full(
+                        &Layer {
+                            opacity: alpha,
+                            corner_radius: SIDEPANEL_RADIUS,
+                            shadow: Some(LayerShadow { blur: 16, offset_y: 4, alpha: 80 }),
+                            backdrop: Some(chrome_glass_backdrop()),
+                            ..Layer::opaque(sidepanel_atlas_row, 0, w, sidepanel_h, base_x, SIDEPANEL_TOP)
+                        },
+                        (mode.width, mode.height),
                     );
                 }
             }
@@ -841,5 +791,19 @@ impl DisplayServerRuntime {
             self.sidebar_composite_cache_valid = false;
         }
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
+    }
+}
+
+/// The frosted-glass backdrop shared by the desktop chrome panels (topbar, side
+/// panel, dropdown): re-blur the live backdrop every frame (no cache — they
+/// animate or sit over changing content), no shadow halo. Restored from the
+/// retained plane. Routed through the layer SSOT.
+fn chrome_glass_backdrop() -> LayerBackdrop {
+    LayerBackdrop {
+        blur_radius: DARK_GLASS_BLUR_RADIUS,
+        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+        restore_halo_pad: 0,
+        retained_src_y_offset: RETAINED_ROW_OFFSET,
+        cache: BackdropCache::None,
     }
 }
