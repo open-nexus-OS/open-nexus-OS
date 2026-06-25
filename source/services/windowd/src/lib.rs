@@ -52,11 +52,9 @@ mod geometry;
 mod ids;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod interaction;
-mod layout_panel;
 #[cfg(any(test, target_os = "none"))]
 mod live_runtime;
 mod markers;
-mod proof_panel_spec;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;
 #[cfg(any(test, target_os = "none"))]
@@ -87,12 +85,6 @@ pub use geometry::Rect;
 pub use ids::{
     CallerCtx, CallerId, CommitSeq, FenceId, FrameIndex, InputSeq, PresentSeq, SurfaceId,
     VmoHandleId,
-};
-pub use layout_panel::{
-    build_combined_tree, build_filter_panel_tree, build_proof_panel_tree, compute_proof_layout,
-    filter_scrollbar_strip_x, filter_scrollbar_thumb_bounds, filter_scrollbar_track_x,
-    ProofTextMeasure, FILTER_LIST_PADDING, FILTER_SCROLLBAR_GUTTER, FILTER_SCROLLBAR_MIN_THUMB,
-    FILTER_SCROLLBAR_WIDTH,
 };
 pub use markers::{
     damage_rects_marker,
@@ -161,11 +153,6 @@ pub use markers::{
     VISIBLE_BACKEND_MARKER,
     WALLPAPER_VISIBLE_MARKER,
     WHEEL_VISIBLE_MARKER,
-};
-pub use proof_panel_spec::{
-    filter_words, ProofTextSpec, ALL_TEXT_SPECS, FILTER_WORDS, TOKEN_CARD_ACTIVE_BG, TOKEN_CARD_BG,
-    TOKEN_CARD_BORDER, TOKEN_CLICK, TOKEN_GLASS_EDGE, TOKEN_GLASS_TINT, TOKEN_HOVER, TOKEN_ICON_BG,
-    TOKEN_ICON_FG, TOKEN_KEYBOARD, TOKEN_PANEL_BG, TOKEN_PANEL_BORDER, TOKEN_SCROLL,
 };
 pub use server::{
     BackBufferLease, InputDelivery, InputEventKind, InputStubStatus, PointerPosition, PresentAck,

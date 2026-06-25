@@ -110,7 +110,6 @@ use nexus_effects::{blur_separable_zero_alloc, ShadowArena};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, Rgba8};
 
-use crate::layout_panel;
 use crate::smoke::VisibleBootstrapMode;
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
@@ -151,7 +150,7 @@ pub(crate) const BUTTON_BLUR_CACHE_ABS_X: u32 = 0;
 pub(crate) const BUTTON_BLUR_CACHE_ABS_ROW: u32 = BLUR_CACHE_ROW_OFFSET;
 pub(crate) const PROOF_PANEL_X: u32 = 56;
 pub(crate) const PROOF_PANEL_Y: u32 = 440;
-pub(crate) const PROOF_PANEL_H: u32 = crate::proof_panel_spec::PANEL_HEIGHT as u32;
+pub(crate) const PROOF_PANEL_H: u32 = 260;
 
 /// Shell-P2b: when `true`, source `proof_layouts` from the flat desktop-shell
 /// scene and suppress the rich proof/glass overlays. The flat-rect render was a
@@ -171,8 +170,8 @@ pub(crate) const USE_DESKTOP_SHELL: bool = false;
 pub(crate) const SCENE_ORIGIN_X: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_X };
 pub(crate) const SCENE_ORIGIN_Y: u32 = if USE_DESKTOP_SHELL { 24 } else { PROOF_PANEL_Y };
 pub(crate) const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
-pub(crate) const FILTER_LIST_PADDING_X: u32 = layout_panel::FILTER_LIST_PADDING;
-pub(crate) const FILTER_LIST_PADDING_Y: u32 = layout_panel::FILTER_LIST_PADDING;
+pub(crate) const FILTER_LIST_PADDING_X: u32 = 4;
+pub(crate) const FILTER_LIST_PADDING_Y: u32 = 4;
 pub(crate) const FILTER_LIST_ROW_GAP: u32 = 2;
 pub(crate) const FILTER_INPUT_PADDING_X: u32 = 8;
 pub(crate) const FILTER_INPUT_FONT_W: u32 = 5;
@@ -190,12 +189,12 @@ pub(crate) const ROW_WRITE_CHUNK: usize = 32;
 // scroll step (`commit_scroll_input`), so a bigger batch costs no extra scrolling.
 pub(crate) const IPC_BATCH_LIMIT: usize = 64;
 pub(crate) const BACKDROP_CACHE_ENTRIES: usize = 4;
-pub(crate) const BACKDROP_CACHE_MAX_WIDTH: usize = crate::proof_panel_spec::PANEL_WIDTH as usize;
-pub(crate) const COMBINED_PANEL_WIDTH: usize = (crate::proof_panel_spec::PANEL_WIDTH
-    + crate::proof_panel_spec::PANEL_GAP
-    + crate::proof_panel_spec::FILTER_PANEL_WIDTH)
-    as usize;
-pub(crate) const COMBINED_PANEL_HEIGHT: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
+// C1: dimensions inlined (was `proof_panel_spec` PANEL_WIDTH 610 / PANEL_HEIGHT
+// 260 / +GAP 16 +FILTER_PANEL_WIDTH 200 = 826). These now size the backdrop/
+// layer caches only; the proof panel itself is deleted.
+pub(crate) const BACKDROP_CACHE_MAX_WIDTH: usize = 610;
+pub(crate) const COMBINED_PANEL_WIDTH: usize = 826;
+pub(crate) const COMBINED_PANEL_HEIGHT: usize = 260;
 #[cfg(nexus_env = "os")]
 pub(crate) const GLASS_LAYER_SCALE: u32 = 8;
 #[cfg(not(nexus_env = "os"))]

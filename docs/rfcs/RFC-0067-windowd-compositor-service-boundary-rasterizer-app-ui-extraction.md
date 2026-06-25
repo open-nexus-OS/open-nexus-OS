@@ -1,6 +1,6 @@
 # RFC-0067: windowd — clean compositor-service boundary (rasterizer → NexusGfx, app/shell UI → userspace)
 
-- Status: Draft (plan + P0; gated multi-phase execution)
+- Status: **Done** (2026-06-25) — windowd is a layer-compositor service; the inline CPU shadow, the demo content, and the CPU base-scene bake are gone. See **Outcome** below for what shipped and the small deferred residue.
 - Owners: @ui @runtime
 - Created: 2026-06-24
 - Links:
@@ -90,6 +90,26 @@ Strict gates (each: host + riscv green; **owner boots `GPU_MODE=virgl just start
 - **G-text (separate track, the real blocker):** a GPU glyph/text command so text rasterizes on the GPU; only then can the CPU content path (and the last of the CPU compositor) be retired. Out of P5-Final scope — flagged.
 - **Outcome:** windowd's compositor = content source + present + GPU commands; the redundant CPU glass rasterizers gone; CPU reduced to content (text/wallpaper) pending G-text.
 - **P6 — Final shape + docs.** Refresh `//! CONTEXT` headers + `compositor/mod.rs` doc; confirm the slimmed tree; mark this RFC Done. *Gate: full green + boot.*
+
+## Outcome — DONE (2026-06-25)
+
+windowd is now a **layer-compositor service**: the CPU only rasterizes content into surfaces; the GPU composites every visual element as a layer. The boundary the RFC set out to draw is in place.
+
+**Shipped (host + riscv green, boot-verified by the owner):**
+
+- **P0–P2 — done.** RFC + safety net; `legacy.rs` and the `compositor` crate deleted; chat/search content extracted to `userspace/apps/*`; the scroll SSOT landed (`animation::ScrollMomentum`; chat/search unified on `VirtualList`).
+- **P4 — done.** The CPU base-scene parallel is collapsed: **Plane 1 holds only the wallpaper.** The proof panel + its shadow are gone; `compute_shadow_row` and the per-row CPU content bake are deleted. No more "change one pixel, touch a rasterizer + an app + a scene model."
+- **P5 / P5-Final — done.** SDF math relocated to `nexus-sdf` (float + fixed-point sibling); the **layer-compositor SSOT** landed in `nexus-gfx` (`command/layer.rs` `Layer` + `composite_layer_full`, 9 host tests) and **every** glass surface (chat, search, topbar, side panel, dropdown, and the now-deleted proof panel) routes through it — the 5-way copy-pasted glass recipe collapsed to one. **Real frosted blur** runs on the virgl scanout (`gl_scanout.rs::blur_rt_backdrop`, the build-up RT FS_BLUR gaussian per glass layer) instead of the old opacity tint.
+- **Demo-content teardown (the "closure" pass) — done.** The proof/target-test subsystem is fully deleted from windowd: render, input/scroll/hit-test wiring, `runtime/scroll.rs`, the `proof_layouts`/`filtered_words` runtime state, `compositor/surface.rs`'s rasterizer (gutted to the live layer-cache fns), `compositor/filter.rs` (gutted to the marker-counter), and `src/layout_panel.rs` (deleted). Dimension constants were inlined; lib exports + obsolete tests removed.
+
+**Deferred residue (small, tracked — not blocking the boundary):**
+
+- **P3 (shell UI → `userspace/ui`):** `compositor/shell_window.rs` + `compositor/desktop_layer.rs` still live in windowd (they're coupled to `AtlasSurface`/`WindowdError`). Moving them is the last "windowd contains app/shell UI render code" item — a clean follow-up, not a regression.
+- **`src/proof_panel_spec.rs` kept** as **build-time data only**: `build.rs` `include!`s it to pre-render Inter-font text glyphs (asset data + colour tokens). It is no longer in the lib module tree and contains no live proof logic; gutting the build-time text-atlas pipeline is a separate pass.
+- **Blur refinements** (separable H+V pass, 140% saturation, blurring layered content vs the wallpaper texture) live in gpud, not windowd.
+- Pre-existing bugs (#72/#74 scroll, #69 full-frame black) and the systemui→windowd scene handoff (#67/#83) are independent tracks.
+
+**Net:** windowd = IPC server + present/pacing + damage/atlas + input routing + per-frame Scene→`nexus-gfx` layers. No inline CPU shadow, no demo panel, no CPU base-scene bake. The RFC's boundary is reached; the residue above is follow-up polish, not the conflation this RFC removed.
 
 ## Verification (per phase)
 

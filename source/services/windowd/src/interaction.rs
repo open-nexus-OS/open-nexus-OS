@@ -234,18 +234,6 @@ fn sidebar_close_hit_rect(mode: VisibleBootstrapMode, sidebar: HitRect) -> HitRe
     }
 }
 
-/// Left proof/test panel (target tests + filter list). Wheel here scrolls the
-/// filter list; a click here focuses the filter input.
-pub(crate) fn proof_panel_rect() -> HitRect {
-    HitRect {
-        x: PROOF_PANEL_X,
-        y: PROOF_PANEL_Y,
-        width: crate::proof_panel_spec::PANEL_WIDTH as u32
-            + crate::proof_panel_spec::PANEL_GAP as u32
-            + crate::proof_panel_spec::FILTER_PANEL_WIDTH as u32,
-        height: crate::proof_panel_spec::PANEL_HEIGHT as u32,
-    }
-}
 
 /// Right-hand chat panel viewport (the scrollable message list). Kept distinct
 /// from the proof panel so wheel events route to the control under the cursor.
@@ -286,9 +274,7 @@ pub(crate) fn resolve_click(
     if rect_contains(chat_button_rect(mode.width, mode.height), x, y) {
         return ClickAction::ToggleChat;
     }
-    if rect_contains(proof_panel_rect(), x, y) {
-        return ClickAction::FocusPanel;
-    }
+    // C1: the proof/target-test panel was deleted — no panel to focus.
     ClickAction::None
 }
 
@@ -308,11 +294,8 @@ pub(crate) fn resolve_wheel_target(
             return WheelTarget::Chat;
         }
     }
-    if rect_contains(proof_panel_rect(), x, y) {
-        WheelTarget::Filter
-    } else {
-        WheelTarget::None
-    }
+    // C1: the proof/target-test panel (the old wheel "Filter" target) is gone.
+    WheelTarget::None
 }
 
 #[cfg(test)]
@@ -397,30 +380,13 @@ mod tests {
     }
 
     #[test]
-    fn click_proof_panel_focuses_when_closed() {
-        let p = proof_panel_rect();
-        let cx = (p.x + p.width / 2) as i32;
-        let cy = (p.y + p.height / 2) as i32;
-        assert_eq!(resolve_click(mode(), false, cx, cy), ClickAction::FocusPanel);
-    }
-
-    #[test]
-    fn wheel_routes_to_control_under_cursor() {
+    fn wheel_routes_to_chat_under_cursor_else_none() {
         let chat = chat_viewport_rect();
-        let p = proof_panel_rect();
         assert_eq!(
             resolve_wheel_target(mode(), (chat.x + 5) as i32, (chat.y + 5) as i32, Some(chat)),
             WheelTarget::Chat
         );
-        assert_eq!(
-            resolve_wheel_target(
-                mode(),
-                (p.x + 5) as i32,
-                (p.y + 5) as i32,
-                Some(chat_viewport_rect())
-            ),
-            WheelTarget::Filter
-        );
+        // C1: off the chat window there is no proof panel — nothing to scroll.
         assert_eq!(
             resolve_wheel_target(mode(), 5, 5, Some(chat_viewport_rect())),
             WheelTarget::None
@@ -491,11 +457,4 @@ mod tests {
         assert_eq!(chat_message_lines(1, chat_chars_per_line()), 1);
     }
 
-    #[test]
-    fn chat_and_proof_panels_do_not_overlap() {
-        let chat = chat_viewport_rect();
-        let p = proof_panel_rect();
-        let p_right = p.x + p.width;
-        assert!(chat.x >= p_right, "chat {} should start past panel right {}", chat.x, p_right);
-    }
 }

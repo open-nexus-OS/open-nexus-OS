@@ -8,7 +8,7 @@
 
 use nexus_layout::{LayoutResult, ScrollDamage};
 
-const PANEL_BAND_ROWS: usize = crate::proof_panel_spec::PANEL_HEIGHT as usize;
+const PANEL_BAND_ROWS: usize = 260; // C1: was proof_panel_spec::PANEL_HEIGHT
 const DAMAGE_MERGE_AREA_PERCENT: u64 = 125;
 const DAMAGE_MERGE_NEAR_GAP: u32 = 64;
 
@@ -172,7 +172,7 @@ impl LayoutHotPathIndex {
     ) -> Self {
         let band_start_y = base_y.min(mode_height);
         let band_end_y =
-            base_y.saturating_add(crate::proof_panel_spec::PANEL_HEIGHT as u32).min(mode_height);
+            base_y.saturating_add(260).min(mode_height);
         let mut row_masks = [0u64; PANEL_BAND_ROWS];
         let mut row_has_shadow = [false; PANEL_BAND_ROWS];
         let mut overflow_boxes = false;
@@ -447,45 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_hot_path_indexes_target_rows() {
-        let layout = crate::layout_panel::compute_proof_layout(VisibleState::default(), "")
-            .expect("proof layout");
-        let index = LayoutHotPathIndex::build(&layout, 56, 440, 1280, 800);
-        let hover_rows = index.target_rows(TargetDamage::Hover).expect("hover rows");
-        let hover_rect = index.target_rect(TargetDamage::Hover).expect("hover rect");
-        let filter_rows = index.target_rows(TargetDamage::FilterList).expect("filter rows");
-        assert!(hover_rows.0 >= 440);
-        assert!(hover_rows.1 > hover_rows.0);
-        assert_eq!(hover_rows, (hover_rect.y, hover_rect.end_y()));
-        assert!(hover_rect.x >= 56);
-        assert!(hover_rect.width > 0);
-        assert!(filter_rows.1 > filter_rows.0);
-        assert_ne!(index.row_mask(hover_rows.0), 0);
-        assert_eq!(index.row_mask(100), 0);
-        assert!(!index.row_has_shadow(100));
-        assert!(!index.overflow_boxes());
-    }
-
-    #[test]
-    fn target_damage_variants_have_stable_rect_queries() {
-        let layout = crate::layout_panel::compute_proof_layout(VisibleState::default(), "")
-            .expect("proof layout");
-        let index = LayoutHotPathIndex::build(&layout, 56, 440, 1280, 800);
-        for target in [
-            TargetDamage::Hover,
-            TargetDamage::Click,
-            TargetDamage::Scroll,
-            TargetDamage::Key,
-            TargetDamage::FilterPanel,
-            TargetDamage::FilterList,
-            TargetDamage::FilterInput,
-        ] {
-            let _ = index.target_rect(target);
-            let _ = index.target_rows(target);
-        }
-    }
-
-    #[test]
     fn damage_rect_merge_bounds_small_target_updates() {
         let left = DamageRect { x: 10, y: 20, width: 30, height: 40 };
         let right = DamageRect { x: 32, y: 10, width: 20, height: 12 };
@@ -505,16 +466,4 @@ mod tests {
         assert!(rects[..count].iter().any(|rect| rect.x == 400 && rect.y == 400));
     }
 
-    #[test]
-    fn target_rect_write_budget_stays_below_full_width_row_span() {
-        let layout = crate::layout_panel::compute_proof_layout(VisibleState::default(), "")
-            .expect("proof layout");
-        let index = LayoutHotPathIndex::build(&layout, 56, 440, 1280, 800);
-        let hover_rows = index.target_rows(TargetDamage::Hover).expect("hover rows");
-        let hover_rect = index.target_rect(TargetDamage::Hover).expect("hover rect");
-
-        let full_row_bytes = row_span_write_bytes(hover_rows, 1280 * 4);
-        let rect_bytes = damage_rect_write_bytes(hover_rect);
-        assert!(rect_bytes < full_row_bytes / 4);
-    }
 }
