@@ -8,10 +8,9 @@
 //! TEST_COVERAGE: 13 unit tests
 
 use super::{
-    apply_backdrop_cache_row, backdrop_cache_slot, build_scale_lut, cursor_damage_rect,
-    layer_cache_key, path_cache_slot, path_id_hash, record_layer_cache_row, shadow_cache_key,
-    shadow_cache_scale, BackdropCacheEntry, LayerCache, ProofBoxRect, TileMap, TILES_X, TILES_Y,
-    TILE_SIZE,
+    build_scale_lut, cursor_damage_rect, layer_cache_key, path_cache_slot, path_id_hash,
+    record_layer_cache_row, shadow_cache_key, shadow_cache_scale, LayerCache, ProofBoxRect,
+    TileMap, TILES_X, TILES_Y, TILE_SIZE,
 };
 use crate::live_runtime::{DamageRect, GlassQuality};
 use nexus_layout_types::Rgba8;
@@ -22,15 +21,6 @@ fn scale_lut_is_monotonic_and_clamped() {
     assert_eq!(lut, vec![0, 0, 0, 1, 1, 1, 2, 2]);
     assert!(lut.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(*lut.last().unwrap_or(&u32::MAX), 2);
-}
-
-#[test]
-fn backdrop_cache_slot_is_stable_for_same_segment() {
-    let a = backdrop_cache_slot(440, 56, 610, GlassQuality::High, 16);
-    let b = backdrop_cache_slot(440, 56, 610, GlassQuality::High, 16);
-    let c = backdrop_cache_slot(441, 56, 610, GlassQuality::High, 16);
-    assert_eq!(a, b);
-    assert_ne!(a, c);
 }
 
 #[test]
@@ -63,21 +53,6 @@ fn damage_premerge_merges_only_bounded_area_growth() {
     assert_eq!(count, 2);
     assert!(rects[..count].iter().any(|rect| rect.width == 35 && rect.height == 20));
     assert!(rects[..count].iter().any(|rect| rect.x == 400 && rect.y == 400));
-}
-
-#[test]
-fn backdrop_cache_preserves_same_segment_key() {
-    let mut row = vec![0u8, 0, 0, 255, 20, 20, 20, 255, 40, 40, 40, 255, 60, 60, 60, 255];
-    let mut cache = [BackdropCacheEntry::new(); 4];
-    let mut scratch = vec![0u8; row.len()];
-    apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
-        .expect("first cache fill");
-    let cached = row.clone();
-
-    row.fill(255);
-    apply_backdrop_cache_row(&mut row, 440, 0, 4, GlassQuality::High, &mut cache, &mut scratch)
-        .expect("cache hit");
-    assert_eq!(row, cached);
 }
 
 #[test]

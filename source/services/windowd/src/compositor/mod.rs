@@ -37,7 +37,8 @@
 //!
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
-mod backdrop;
+// RFC-0067 P5-Final G3: `backdrop` (CPU glass blur/cache for the combined-panel
+// glass) deleted — dead on both backends; glass is GPU-rendered.
 mod blur;
 mod cache;
 mod chat;

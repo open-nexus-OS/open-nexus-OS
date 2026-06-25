@@ -9,7 +9,6 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
-use super::backdrop::{blur_backdrop_segment, saturate_bgra_segment};
 use super::blur::checked_stride;
 use super::cache::{
     BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
@@ -22,7 +21,6 @@ use super::filter::{
 };
 use super::primitives::draw_line_segment_row;
 use super::scene::copy_scene_row;
-use super::sdf::{fill_sdf_rounded_rect_row, stroke_sdf_rounded_rect_row};
 use super::source::build_scale_lut;
 use super::tile_map::TileMap;
 use super::types::{

@@ -8,10 +8,6 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Covered via compositor integration tests
 
-use super::backdrop::{
-    apply_backdrop_cache_row, blur_backdrop_segment, draw_combined_panel_glass_row,
-    saturate_bgra_segment,
-};
 use super::cache::{BackdropCacheEntry, GlassLayerCache, Layer, LayerCache, PathCacheEntry};
 use super::filter::{draw_filter_input_text_row, draw_filter_word_list_row};
 use super::path_cache::blend_cached_path_row;
@@ -19,10 +15,7 @@ use super::primitives::{
     blend_asset_row, draw_path_row, fill_row_rect, fill_triangle_row, rgba_to_bgra,
     stroke_row_rect_width,
 };
-use super::sdf::{
-    fill_sdf_circle_row, fill_sdf_rounded_rect_row, stroke_sdf_circle_row,
-    stroke_sdf_rounded_rect_row,
-};
+use super::sdf::{fill_sdf_circle_row, stroke_sdf_circle_row};
 use super::types::{
     ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip, SourceFrame,
 };
@@ -159,6 +152,11 @@ pub(crate) fn draw_proof_surface_row(
     Ok(())
 }
 
+// NOTE (RFC-0067 P5-Final G3): the `_`-prefixed params below fed only the deleted
+// combined-panel CPU glass path; kept on the signature (vestigial) so the caller
+// chain stays unchanged — their full removal + the runtime backdrop/glass cache
+// fields is a follow-up (G3b) cascade.
+#[allow(clippy::too_many_arguments)]
 fn draw_layout_box_row(
     state: VisibleState,
     y: u32,
@@ -166,17 +164,17 @@ fn draw_layout_box_row(
     layout_box: &nexus_layout::LayoutBox,
     rect: ProofBoxRect,
     paint_role: Option<ProofPaintRole>,
-    render_clip: RenderClip,
-    backdrop_cache: &mut [BackdropCacheEntry],
-    glass_layer: &mut GlassLayerCache,
-    glass_scratch: &mut [u8],
+    _render_clip: RenderClip,
+    _backdrop_cache: &mut [BackdropCacheEntry],
+    _glass_layer: &mut GlassLayerCache,
+    _glass_scratch: &mut [u8],
     path_cache: &mut [PathCacheEntry],
-    source_frame: &SourceFrame,
-    source_x_lut: &[u32],
-    source_y_lut: &[u32],
-    mode: VisibleBootstrapMode,
-    glass_quality: GlassQuality,
-    backdrop_scratch: &mut [u8],
+    _source_frame: &SourceFrame,
+    _source_x_lut: &[u32],
+    _source_y_lut: &[u32],
+    _mode: VisibleBootstrapMode,
+    _glass_quality: GlassQuality,
+    _backdrop_scratch: &mut [u8],
     layer_cache: &mut LayerCache,
     paint_only: bool,
 ) -> Result<(), WindowdError> {
@@ -205,22 +203,10 @@ fn draw_layout_box_row(
         }
     }
 
-    if layout_box.id == Some("combined_panels") {
-        return draw_combined_panel_glass_row(
-            y,
-            row,
-            rect,
-            render_clip,
-            glass_quality,
-            source_frame,
-            source_x_lut,
-            source_y_lut,
-            mode,
-            glass_layer,
-            backdrop_scratch,
-            glass_scratch,
-        );
-    }
+    // RFC-0067 P5-Final G3: the `combined_panels` CPU glass path (the old proof
+    // panel's blurred-glass background) was dead on BOTH backends (G0
+    // `cpu-backdrop-blur` never fired) — glass is GPU-rendered (BlurBackdrop /
+    // FillSdfGradient commands). The whole `backdrop` CPU module was deleted.
 
     // Paint-only updates redraw only active target content. Existing glass,
     // shadow, and wallpaper remain in the framebuffer outside the target rect.
@@ -252,43 +238,26 @@ fn draw_layout_box_row(
 
     match &layout_box.visual.shape {
         nexus_layout_types::ShapeKind::Rect => {
-            let cr = layout_box.visual.corner_radius.top_left.as_u32().unwrap_or(0);
-            if cr > 0 {
-                // SDF rounded rect path (anti-aliased corners)
-                if let Some(bgra) = get_effective_bgra(layout_box) {
-                    fill_sdf_rounded_rect_row(y, row, rect, cr, bgra)?;
-                }
-                if let Some((border_width, border_color)) =
-                    proof_box_border(layout_box, state, paint_role)
-                {
-                    stroke_sdf_rounded_rect_row(
-                        y,
-                        row,
-                        rect,
-                        cr,
-                        border_width,
-                        rgba_to_bgra(border_color),
-                    )?;
-                }
-            } else {
-                // Fast path: hard-edged rect
-                if let Some(bgra) = get_effective_bgra(layout_box) {
-                    fill_row_rect(y, row, rect.x, rect.y, rect.width, rect.height, bgra)?;
-                }
-                if let Some((border_width, border_color)) =
-                    proof_box_border(layout_box, state, paint_role)
-                {
-                    stroke_row_rect_width(
-                        y,
-                        row,
-                        rect.x,
-                        rect.y,
-                        rect.width,
-                        rect.height,
-                        border_width,
-                        rgba_to_bgra(border_color),
-                    )?;
-                }
+            // RFC-0067 P5-Final G2: the SDF rounded-rect CPU path was dead on BOTH
+            // backends (G0 `cpu-sdf-fill` never fired). The content boxes drawn here
+            // are square (text/spacers); rounded glass containers are GPU-rendered
+            // (FillSdfRoundedRect / FillSdfGradient commands). Hard-edged CPU fill only.
+            if let Some(bgra) = get_effective_bgra(layout_box) {
+                fill_row_rect(y, row, rect.x, rect.y, rect.width, rect.height, bgra)?;
+            }
+            if let Some((border_width, border_color)) =
+                proof_box_border(layout_box, state, paint_role)
+            {
+                stroke_row_rect_width(
+                    y,
+                    row,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    border_width,
+                    rgba_to_bgra(border_color),
+                )?;
             }
         }
         nexus_layout_types::ShapeKind::Circle => {
