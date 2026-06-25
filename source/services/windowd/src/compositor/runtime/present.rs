@@ -139,29 +139,17 @@ impl DisplayServerRuntime {
         if self.band_scratch.len() < row_len * ROW_WRITE_CHUNK {
             return Err(WindowdError::BufferLengthMismatch);
         }
-        let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
-        let proof_layout_index = self.proof_layout_index.as_ref();
+        // G3 (RFC-0067 P5-Final): the base pass is wallpaper-only — the proof panel
+        // and all glass are GPU layers, so the per-row shadow/content state
+        // (proof layout, glass/path/backdrop caches, shadow arena) is gone.
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
         let source_y_lut = self.source_y_lut.as_slice();
         let mode = self.mode;
-        let state = self.state;
-        let filter_text = state.text_input();
-        let filtered_words = self.filtered_words.as_slice();
         let animated_scene = self.animated_scene;
         let end_y = end_y.min(self.mode.height);
         let render_clip = RenderClip::full(self.mode.width);
-        let blur_row_buf = &mut self.blur_row_buf[..row_len];
-        let shadow_scratch = &mut self.shadow_scratch[..row_len];
-        let backdrop_cache = &mut self.backdrop_cache;
-        let glass_layer = &mut self.glass_layer;
-        let glass_scratch = &mut self.glass_scratch;
-        let path_cache = &mut self.path_cache;
         let band_scratch = &mut self.band_scratch;
-        let mut shadow_arena =
-            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
         let mut band_start = start_y.min(end_y);
         while band_start < end_y {
             let band_end = (band_start as usize + ROW_WRITE_CHUNK).min(end_y as usize) as u32;
@@ -178,30 +166,13 @@ impl DisplayServerRuntime {
                 let dest_end = dest_start + row_len;
                 let band_row = &mut band_scratch[dest_start..dest_end];
                 copy_scene_row(
-                    blur_row_buf,
-                    shadow_scratch,
-                    backdrop_cache,
-                    glass_layer,
-                    glass_scratch,
-                    path_cache,
                     source_frame,
                     source_x_lut,
                     source_y_lut,
                     mode,
-                    state,
-                    proof_layout,
-                    proof_layout_index,
-                    filter_text,
-                    filtered_words,
                     y,
                     render_clip,
-                    glass_quality,
-                    paint_only,
                     band_row,
-                    &mut self.layer_cache,
-                    &mut shadow_arena,
-                    &mut self.col_scratch,
-                    &mut self.shadow_box_cache,
                 )?;
                 // Chat is a retained-surface layer composited by build_scene_cb —
                 // no longer baked into Plane 1 here. GPU overlays (button, sidebar,
@@ -214,7 +185,6 @@ impl DisplayServerRuntime {
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
             band_start = band_end;
         }
-        self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         self.telemetry.record_compose_timed(
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
@@ -246,26 +216,11 @@ impl DisplayServerRuntime {
         if start_y >= end_y || start_x >= end_x {
             return Ok(());
         }
-        let active_filter_idx = self.active_filter_idx;
-        let proof_layout =
-            self.proof_layouts.as_ref().and_then(|layouts| layouts.get(active_filter_idx));
-        let proof_layout_index = self.proof_layout_index.as_ref();
+        // G3: wallpaper-only base pass (proof panel + glass are GPU layers).
         let source_frame = &self.source_frame;
         let source_x_lut = self.source_x_lut.as_slice();
         let source_y_lut = self.source_y_lut.as_slice();
         let mode = self.mode;
-        let state = self.state;
-        let filter_text = state.text_input();
-        let filtered_words = self.filtered_words.as_slice();
-        let animated_scene = self.animated_scene;
-        let blur_row_buf = &mut self.blur_row_buf[..row_len];
-        let shadow_scratch = &mut self.shadow_scratch[..row_len];
-        let backdrop_cache = &mut self.backdrop_cache;
-        let glass_layer = &mut self.glass_layer;
-        let glass_scratch = &mut self.glass_scratch;
-        let path_cache = &mut self.path_cache;
-        let mut shadow_arena =
-            ShadowArena::from_buffer_with_used(&mut self.shadow_arena_buf, self.shadow_arena_used);
         let byte_start = start_x as usize * 4;
         let byte_end = end_x as usize * 4;
         let render_clip = RenderClip::new(start_x, end_x, self.mode.width);
@@ -276,30 +231,13 @@ impl DisplayServerRuntime {
                 let dest_start = row_idx * row_len;
                 let band_row = &mut self.band_scratch[dest_start..dest_start + row_len];
                 copy_scene_row(
-                    blur_row_buf,
-                    shadow_scratch,
-                    backdrop_cache,
-                    glass_layer,
-                    glass_scratch,
-                    path_cache,
                     source_frame,
                     source_x_lut,
                     source_y_lut,
                     mode,
-                    state,
-                    proof_layout,
-                    proof_layout_index,
-                    filter_text,
-                    filtered_words,
                     y,
                     render_clip,
-                    glass_quality,
-                    paint_only,
                     band_row,
-                    &mut self.layer_cache,
-                    &mut shadow_arena,
-                    &mut self.col_scratch,
-                    &mut self.shadow_box_cache,
                 )?;
                 // Chat is composited as a layer in build_scene_cb, not baked here.
             }
@@ -325,7 +263,6 @@ impl DisplayServerRuntime {
             }
             band_start = band_end;
         }
-        self.shadow_arena_used = shadow_arena.used_bytes();
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
         self.telemetry.record_compose_timed(
             u64::from(end_x.saturating_sub(start_x))

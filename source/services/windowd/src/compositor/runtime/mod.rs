@@ -10,9 +10,7 @@
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
 use super::blur::checked_stride;
-use super::cache::{
-    BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
-};
+use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry};
 use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
 use super::filter::{
@@ -30,13 +28,12 @@ use super::types::{
 use super::{
     BACKDROP_CACHE_ENTRIES, BACKDROP_CACHE_MAX_WIDTH, BLUR_CACHE_ROW_OFFSET,
     BUTTON_BLUR_CACHE_ABS_ROW, BUTTON_BLUR_CACHE_ABS_X, CHAT_SHADOW_ALPHA, CHAT_SHADOW_BLUR,
-    CHAT_SHADOW_OFFSET_Y, COL_SCRATCH_SIZE, COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS,
+    CHAT_SHADOW_OFFSET_Y, COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS,
     DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT, DISPLAY_OFFSET_BYTES, DISPLAY_ROW_OFFSET,
     DISPLAY_WIDTH, GLASS_LAYER_MAX_BYTES, IPC_BATCH_LIMIT, LAYER_CACHE_MAX_BYTES,
     LAYER_CACHE_MAX_LAYER_BYTES, LIVE_FILTER_VARIANTS, PATH_CACHE_ENTRIES, PATH_CACHE_MAX_PIXELS,
     PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET, ROUTE_NAME, ROW_WRITE_CHUNK,
-    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SHADOW_BOX_CACHE_ENTRIES,
-    SIDEBAR_REST_X, USE_DESKTOP_SHELL, WINDOWD_SHADOW_ARENA_SIZE,
+    SCENE_ORIGIN_X, SCENE_ORIGIN_Y, SIDEBAR_REST_X, USE_DESKTOP_SHELL,
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
@@ -53,7 +50,6 @@ use animation::{AnimProp, AnimationDriver, LayerId, ScrollConfig, ScrollMomentum
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
-use nexus_effects::ShadowArena;
 use nexus_gfx::command::buffer::RgbaColor;
 use nexus_gfx::{
     BackdropCache, CommandBuffer, Layer, LayerBackdrop, LayerShadow, PipelineTimer, RenderPassDesc,
@@ -108,7 +104,6 @@ mod marker_emit;
 mod framebuffer;
 mod input;
 mod chat_window;
-mod proof_window;
 mod shell;
 mod search;
 mod scroll;
@@ -242,8 +237,6 @@ pub(crate) struct DisplayServerRuntime {
     cursor_height: u32,
     framebuffer: Option<Handle>,
     band_scratch: Vec<u8>,
-    /// Shadow compositing row buffer (zero-copy — allocated once at startup).
-    shadow_scratch: Vec<u8>,
     /// Temporary row buffer for horizontal blur (zero-copy — allocated once).
     blur_row_buf: Vec<u8>,
     state: VisibleState,
@@ -254,15 +247,6 @@ pub(crate) struct DisplayServerRuntime {
     pending_damage_rects: Vec<DamageRect>,
     tile_map: TileMap,
     layer_cache: LayerCache,
-    /// Fixed storage for per-box shadow rendering. `ShadowArena` borrows this
-    /// slice per flush and never owns or grows a Vec internally.
-    shadow_arena_buf: Vec<u8>,
-    /// Persisted bump offset so cached shadow slices survive partial flushes.
-    shadow_arena_used: usize,
-    /// Pre-allocated column buffer for 2D blur vertical pass.
-    col_scratch: Vec<u8>,
-    /// Per-box shadow cache (fixed-size, zero heap alloc).
-    shadow_box_cache: [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
@@ -409,13 +393,6 @@ pub(crate) struct DisplayServerRuntime {
     /// the height of the *current* registry-sourced menu.
     dropdown_h: u32,
     dropdown_surface_dirty: bool,
-    /// G3 (RFC-0067 P5-Final): the proof panel (`combined_panels`) as a retained
-    /// GPU-composited LAYER — its content is rendered into `proof_atlas` and
-    /// composited with a soft drop shadow each present (the layer SSOT), instead
-    /// of CPU-baked into Plane 1. Plane 1 then holds only the wallpaper, and the
-    /// panel's shadow is a GPU layer effect (no more `compute_shadow_row`).
-    proof_atlas: crate::atlas::AtlasSurface,
-    proof_surface_dirty: bool,
     /// Dynamic Apps menu (RFC-0065): built from the `bundlemgrd` registry
     /// (`OP_LIST_APPS`), seeded until the lazy fetch on first open succeeds.
     app_menu: crate::app_menu::AppMenu,
@@ -628,16 +605,10 @@ impl DisplayServerRuntime {
         let _ = debug_println("dbg: windowd init self-build start");
         let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
         let _ = debug_println("dbg: windowd init band-scratch ok");
-        let shadow_scratch = alloc::vec![0u8; mode.stride as usize];
-        let _ = debug_println("dbg: windowd init shadow-scratch ok");
         let blur_row_buf = alloc::vec![0u8; mode.stride as usize];
         let _ = debug_println("dbg: windowd init blur-row ok");
         let layer_cache = LayerCache::default();
         let _ = debug_println("dbg: windowd init layer-cache ok");
-        let shadow_arena_buf = alloc::vec![0u8; WINDOWD_SHADOW_ARENA_SIZE];
-        let _ = debug_println("dbg: windowd init shadow-arena ok");
-        let col_scratch = alloc::vec![0u8; COL_SCRATCH_SIZE];
-        let _ = debug_println("dbg: windowd init col-scratch ok");
         let backdrop_cache = core::array::from_fn(|_| BackdropCacheEntry::new());
         let _ = debug_println("dbg: windowd init backdrop-cache ok");
         let glass_layer = GlassLayerCache::new();
@@ -727,15 +698,6 @@ impl DisplayServerRuntime {
         let app_menu = crate::app_menu::AppMenu::seed();
         let dropdown_h = app_menu.dropdown_full_h();
         let dropdown_atlas = alloc_band_or_log(&mut atlas, dropdown_band_h, "dropdown")?;
-        // G3 (RFC-0067 P5-Final): reserve the proof panel's content surface — a
-        // fixed 826×260 glass card (`combined_panels`). Rendered into this band and
-        // composited as a GPU layer (shadow as a layer effect) instead of CPU-baked
-        // into Plane 1. Reserved BEFORE the side panel/window-pool tail so the
-        // "take the rest" clamp accounts for it (full-stride band; height only).
-        let proof_panel_h =
-            (crate::proof_panel_spec::PANEL_HEIGHT.max(crate::proof_panel_spec::FILTER_PANEL_HEIGHT))
-                .max(1) as u32;
-        let proof_atlas = alloc_band_or_log(&mut atlas, proof_panel_h, "proof")?;
         // The Search window as a ShellWindow instance (the reusable glass frame).
         // Its atlas surfaces are NOT reserved at boot — they are acquired from the
         // allocator on show and released on hide (on-demand pool). The boot path
@@ -796,7 +758,6 @@ impl DisplayServerRuntime {
             cursor_height,
             framebuffer: None,
             band_scratch,
-            shadow_scratch,
             blur_row_buf,
             state: initial_state,
             observer_state: initial_state,
@@ -806,10 +767,6 @@ impl DisplayServerRuntime {
             pending_damage_rects: Vec::new(),
             tile_map: TileMap::new(),
             layer_cache,
-            shadow_arena_buf,
-            shadow_arena_used: 0,
-            col_scratch,
-            shadow_box_cache: [ShadowBoxCacheEntry::empty(); SHADOW_BOX_CACHE_ENTRIES],
             pending_damage_rect: None,
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
@@ -873,8 +830,6 @@ impl DisplayServerRuntime {
             apps_dropdown_open: false,
             dropdown_hover: None,
             dropdown_atlas,
-            proof_atlas,
-            proof_surface_dirty: true,
             dropdown_h,
             dropdown_surface_dirty: true,
             app_menu,
@@ -942,10 +897,6 @@ impl DisplayServerRuntime {
     }
 
     fn reset_effect_caches(&mut self) {
-        self.shadow_arena_used = 0;
-        for entry in &mut self.shadow_box_cache {
-            entry.valid = false;
-        }
         for entry in &mut self.backdrop_cache {
             entry.valid = false;
         }

@@ -58,9 +58,6 @@ impl DisplayServerRuntime {
         }
         if let Some(damage) = scroll_damage {
             self.refresh_active_proof_hot_path();
-            // G3: the proof panel is a GPU layer — re-render its content surface so
-            // the scrolled list is reflected (G3c will make this a GPU offset).
-            self.proof_surface_dirty = true;
             for rect in damage.rects.into_iter().flatten() {
                 let x = SCENE_ORIGIN_X.saturating_add(rect.x.as_u32().unwrap_or(0));
                 let y = SCENE_ORIGIN_Y.saturating_add(rect.y.as_u32().unwrap_or(0));
