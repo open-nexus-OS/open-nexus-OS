@@ -81,16 +81,8 @@ impl DisplayServerRuntime {
         //    "nur der button rechts oben soll die animation auslösen").
         let old_button_hover = self.button_hover;
         self.button_hover = crate::interaction::hover_over_button(mode, cursor_x, cursor_y);
-        self.state.hover_visible = self
-            .active_proof_layout_index()
-            .and_then(|idx| idx.target_rect(TargetDamage::Hover))
-            .map(|r| {
-                cursor_x >= r.x as i32
-                    && cursor_y >= r.y as i32
-                    && (cursor_x as u32) < r.x.saturating_add(r.width)
-                    && (cursor_y as u32) < r.y.saturating_add(r.height)
-            })
-            .unwrap_or(false);
+        // C1: the proof/target-test hover card is gone — nothing to hover-test.
+        self.state.hover_visible = false;
 
         // Raw primary-button level from inputd; rising/falling edges are click/release.
         let primary_down = upstream.launcher_click_visible;
@@ -361,7 +353,6 @@ impl DisplayServerRuntime {
         }
         let text_changed = old_state.text_input() != upstream.text_input();
         self.state.set_text_input(upstream.text_input());
-        refill_filtered_words(&mut self.filtered_words, self.state.text_input());
         // Re-render the Search window's filtered list when the typed text changes.
         if self.search.visible && text_changed {
             super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
@@ -397,13 +388,10 @@ impl DisplayServerRuntime {
                 self.commit_search_scroll_position();
             }
         }
-        // The desktop scene has a single layout (no filter variants); keep the
-        // active index pinned at 0 so the single-element layout set stays valid.
+        // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text
+        // change counter that still drives the filter selftest markers below.
         if !USE_DESKTOP_SHELL {
             self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
-        }
-        if self.active_filter_idx != old_filter_idx {
-            self.refresh_active_proof_hot_path();
         }
         self.refresh_observer_state();
         let button_hover_changed = old_button_hover != self.button_hover;
@@ -609,13 +597,9 @@ impl DisplayServerRuntime {
                     self.pending_chat_wheel =
                         self.pending_chat_wheel.saturating_add(upstream.wheel_delta_y);
                 }
-                // Filter is the fallback so a wheel anywhere off the chat still
-                // scrolls the proof list (and emits the scroll markers).
-                _ => {
-                    if self.active_proof_layout().is_some() {
-                        self.handle_scroll_input();
-                    }
-                }
+                // C1: the proof list (the old wheel fallback) is gone; a wheel off
+                // the chat/search windows now scrolls nothing.
+                _ => {}
             }
         }
 
@@ -662,19 +646,6 @@ impl DisplayServerRuntime {
         }
         let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
         let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
-
-        let filter_rects: [Option<DamageRect>; 3] =
-            if let Some(index) = self.active_proof_layout_index() {
-                [
-                    index.target_rect(TargetDamage::FilterPanel),
-                    index.target_rect(TargetDamage::FilterList),
-                    index.target_rect(TargetDamage::FilterInput),
-                ]
-            } else {
-                [None, None, None]
-            };
-        for rect in filter_rects.into_iter().flatten() {
-            self.queue_dirty_rect(rect);
-        }
+        // C1: the proof filter panel is gone — no filter rects to damage.
     }
 }

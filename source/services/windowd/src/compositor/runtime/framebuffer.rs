@@ -113,10 +113,8 @@ impl DisplayServerRuntime {
         }
 
         if !self.first_handoff_bootstrap_markers_emitted {
-            if self.active_proof_layout().is_some() {
-                let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
-                let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
-            }
+            let _ = debug_println(LAYOUT_ENGINE_ON_MARKER);
+            let _ = debug_println(TEXT_WRAPPING_ON_MARKER);
             let _ = debug_println(DISPLAY_BOOTSTRAP_MARKER);
             let _ = debug_println(DISPLAY_MODE_MARKER);
             let _ = debug_println(VISIBLE_BACKEND_MARKER);

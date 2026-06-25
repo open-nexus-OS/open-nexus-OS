@@ -15,36 +15,10 @@
 use super::*;
 
 impl DisplayServerRuntime {
-    pub(super) fn queue_target_damage(&mut self, old_state: VisibleState, new_state: VisibleState) {
-        let Some(index) = self.active_proof_layout_index() else {
-            return;
-        };
-        let hover_rect = index.target_rect(TargetDamage::Hover);
-        let click_rect = index.target_rect(TargetDamage::Click);
-        let key_rect = index.target_rect(TargetDamage::Key);
-        let scroll_rect = index.target_rect(TargetDamage::Scroll);
-        if old_state.hover_visible != new_state.hover_visible {
-            if let Some(rect) = hover_rect {
-                self.queue_dirty_rect(rect);
-            }
-        }
-        if old_state.launcher_click_visible != new_state.launcher_click_visible {
-            if let Some(rect) = click_rect {
-                self.queue_dirty_rect(rect);
-            }
-        }
-        if old_state.keyboard_visible != new_state.keyboard_visible {
-            if let Some(rect) = key_rect {
-                self.queue_dirty_rect(rect);
-            }
-        }
-        if old_state.wheel_up_visible != new_state.wheel_up_visible
-            || old_state.wheel_down_visible != new_state.wheel_down_visible
-        {
-            if let Some(rect) = scroll_rect {
-                self.queue_dirty_rect(rect);
-            }
-        }
+    /// C1 (RFC-0067 closure): the proof/target-test panel was deleted, so there
+    /// are no target-test rects to damage. Retained as a no-op for the input
+    /// state-machine call sites until they're pruned.
+    pub(super) fn queue_target_damage(&mut self, _old_state: VisibleState, _new_state: VisibleState) {
     }
 
     /// Upload the cursor sprite to gpud. gpud arms the virtio-gpu hardware

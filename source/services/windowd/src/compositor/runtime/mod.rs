@@ -13,10 +13,7 @@ use super::blur::checked_stride;
 use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry};
 use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
-use super::filter::{
-    build_live_proof_layouts, filter_layout_variant_index, filter_list_content_height,
-    filter_list_viewport_height, refill_filtered_words,
-};
+use super::filter::filter_layout_variant_index;
 use super::primitives::draw_line_segment_row;
 use super::scene::copy_scene_row;
 use super::source::build_scale_lut;
@@ -106,7 +103,6 @@ mod input;
 mod chat_window;
 mod shell;
 mod search;
-mod scroll;
 mod present;
 mod scene;
 
@@ -264,9 +260,6 @@ pub(crate) struct DisplayServerRuntime {
     /// True when the glass button blur is cached in Plane 3 at BUTTON_BLUR_CACHE_ABS_X/ROW.
     /// Never invalidated: button occupies y=24..80, above the proof panel at y=440.
     button_blur_cache_valid: bool,
-    proof_layouts: Option<Vec<LayoutResult>>,
-    proof_layout_index: Option<LayoutHotPathIndex>,
-    filtered_words: Vec<&'static str>,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
     backdrop_cache: [BackdropCacheEntry; BACKDROP_CACHE_ENTRIES],
     glass_layer: GlassLayerCache,
@@ -580,27 +573,6 @@ impl DisplayServerRuntime {
             cursor_y: 100,
             ..VisibleState::default()
         };
-        let mut filtered_words = Vec::with_capacity(crate::proof_panel_spec::FILTER_WORDS.len());
-        refill_filtered_words(&mut filtered_words, initial_state.text_input());
-        // Shell-P2b: source the composited scene from the desktop shell when
-        // enabled, else the baked proof+filter panel. The desktop scene is laid
-        // out to fit between the scene insets on both sides of the display.
-        let proof_layouts = if USE_DESKTOP_SHELL {
-            let content_width = mode.width.saturating_sub(2 * SCENE_ORIGIN_X).max(1);
-            nexus_shell_desktop::desktop_scene::build_live_desktop_layouts(content_width)
-        } else {
-            build_live_proof_layouts(initial_state)
-        };
-        let proof_layout_index =
-            proof_layouts.as_ref().and_then(|layouts| layouts.first()).map(|layout| {
-                LayoutHotPathIndex::build(
-                    layout,
-                    SCENE_ORIGIN_X,
-                    SCENE_ORIGIN_Y,
-                    mode.width,
-                    mode.height,
-                )
-            });
         let _ = debug_println(RUNTIME_INIT_OK);
         let _ = debug_println("dbg: windowd init self-build start");
         let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
@@ -773,9 +745,6 @@ impl DisplayServerRuntime {
             sidebar_blur_cache_valid: false,
             button_blur_cache_valid: false,
             paint_only_damage: false,
-            proof_layouts,
-            proof_layout_index,
-            filtered_words,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
             backdrop_cache,
             glass_layer,
