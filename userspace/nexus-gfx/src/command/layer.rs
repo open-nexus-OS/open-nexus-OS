@@ -173,7 +173,7 @@ mod tests {
                 shadow_blur: 10,
                 shadow_offset_y: 4,
                 shadow_alpha: 80,
-                backdrop_blur: 0,
+                backdrop_blur: 20,
                 ..
             }
         ));

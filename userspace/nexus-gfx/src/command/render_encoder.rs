@@ -391,6 +391,11 @@ impl<'a> RenderCommandEncoder<'a> {
             Some(s) => (s.blur, s.offset_y, s.alpha),
             None => (0, 0, 0),
         };
+        // Forward the frosted-blur radius. The gpud build-up RT compositor
+        // (gl_scanout.rs `blur_rt_backdrop`, run from `composite_pending_rt_layers`)
+        // GPU-blurs the wallpaper behind each glass layer's rect before
+        // compositing it — the real frosted blur that reaches the virgl scanout.
+        let backdrop_blur = layer.backdrop.map(|b| b.blur_radius).unwrap_or(0);
         self.try_composite_layer_tagged(
             layer.src_row_abs,
             layer.src_x,
@@ -403,7 +408,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_blur,
             shadow_offset_y,
             shadow_alpha,
-            0,
+            backdrop_blur,
             layer.scrollable,
         )
     }

@@ -522,6 +522,61 @@ impl VirtioGpuBackend {
         }
     }
 
+    /// Frosted-glass backdrop: GPU-blur the persistent wallpaper texture into the
+    /// glass RT (`H_GLS_SURF`) at a layer's rect, so a translucent glass layer
+    /// composited on top reads as real frosted glass. This is the proven Stage-4
+    /// recipe (FS_BLUR handle 13 sampling `H_SV_WALLPAPER`), now parameterized per
+    /// layer and run from `composite_pending_rt_layers` for every glass layer
+    /// (`backdrop_blur > 0`) — the real blur that reaches the virgl scanout. Pure
+    /// GL draws sampling a persistent texture: no per-frame TRANSFER_TO_HOST_3D,
+    /// so it avoids the stall that gated the standalone VMO `BlurBackdrop`.
+    pub(crate) fn blur_rt_backdrop(
+        &mut self,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        radius: u32,
+    ) -> Result<(), GfxError> {
+        if radius == 0 || w == 0 || h == 0 {
+            return Ok(());
+        }
+        let mut sb = Submit3d::new();
+        sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
+        sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
+        sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
+        sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
+        sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
+        sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+        sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
+        sb.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[
+                1.0 / SCREEN_W as f32,
+                1.0 / SCREEN_H as f32,
+                radius as f32,
+                -0.02,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+            ],
+        );
+        sb.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+        sb.emit_bind_shader(13, PIPE_SHADER_FRAGMENT); // FS_BLUR
+        sb.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
+        sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        let bb = sb.as_bytes();
+        let bh = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bb.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&bh, bb)?;
+        Ok(())
+    }
+
     /// Incremental GPU compositor (build-up). Renders a synthetic scene into the
     /// scanout RT via GL draws only, adding one feature per `COMPOSITOR_STAGE`
     /// (see the const docs) — to find which GL op breaks the present while

@@ -227,6 +227,9 @@ struct PendingRtLayer {
     shadow_blur: u32,
     shadow_offset_y: i32,
     shadow_alpha: u32,
+    /// Frosted-glass backdrop blur radius (0 = opaque/no glass). When > 0 the
+    /// build-up blurs the wallpaper behind this layer's rect before compositing.
+    backdrop_blur: u32,
     /// This is the one scrollable content layer (chat body). When set, gpud may
     /// re-sample it at `chat_scroll_src_row` on the lightweight scroll fast path.
     scrollable: bool,
@@ -982,7 +985,7 @@ impl VirtioGpuBackend {
                         shadow_blur,
                         shadow_offset_y,
                         shadow_alpha,
-                        backdrop_blur: _,
+                        backdrop_blur,
                         scrollable,
                     } = cmd
                     {
@@ -999,6 +1002,7 @@ impl VirtioGpuBackend {
                                 shadow_blur: *shadow_blur,
                                 shadow_offset_y: *shadow_offset_y,
                                 shadow_alpha: *shadow_alpha,
+                                backdrop_blur: *backdrop_blur,
                                 scrollable: *scrollable,
                             };
                             self.pending_rt_count += 1;
@@ -1285,6 +1289,7 @@ impl VirtioGpuBackend {
                             shadow_blur: *shadow_blur,
                             shadow_offset_y: *shadow_offset_y,
                             shadow_alpha: *shadow_alpha,
+                            backdrop_blur: *backdrop_blur,
                             scrollable: *scrollable,
                         };
                         self.pending_rt_count += 1;
@@ -1409,6 +1414,12 @@ impl VirtioGpuBackend {
                 (true, Some(row)) => row,
                 _ => l.src_row_abs,
             };
+            // Frosted glass: blur the wallpaper behind this layer's rect into the
+            // glass RT first; the layer's translucent tint + content composite over
+            // the blurred backdrop = real frosted glass on the virgl scanout.
+            if l.backdrop_blur > 0 {
+                let _ = self.blur_rt_backdrop(l.dst_x, l.dst_y, l.width, l.height, l.backdrop_blur);
+            }
             let ok = self
                 .composite_layer_rt(
                     src_row_abs,

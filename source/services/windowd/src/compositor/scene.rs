@@ -10,7 +10,6 @@
 use super::cache::{
     BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry, ShadowBoxCacheEntry,
 };
-use super::shadow::compute_shadow_row;
 use super::source::copy_scaled_systemui_row_clipped;
 use super::surface::draw_proof_surface_row;
 use super::types::{RenderClip, SourceFrame};
