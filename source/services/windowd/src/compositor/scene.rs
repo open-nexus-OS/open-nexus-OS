@@ -48,6 +48,30 @@ pub(crate) fn copy_scene_row(
     col_scratch: &mut [u8],
     shadow_box_cache: &mut [ShadowBoxCacheEntry; SHADOW_BOX_CACHE_ENTRIES],
 ) -> Result<(), WindowdError> {
+    // G3 (RFC-0067 P5-Final): Plane 1 now holds ONLY the wallpaper. The proof
+    // panel (`combined_panels`) is composited as a GPU layer with its shadow as a
+    // layer effect (see `runtime/scene.rs` "1·proof" + `render_proof_surface`), so
+    // the per-row CPU shadow (`compute_shadow_row`) and content bake
+    // (`draw_proof_surface_row`) are retired from this hot path.
+    let _ = (
+        proof_layout,
+        proof_layout_index,
+        filter_text,
+        filtered_words,
+        shadow_scratch,
+        blur_row_buf,
+        backdrop_cache,
+        glass_layer,
+        glass_scratch,
+        path_cache,
+        glass_quality,
+        layer_cache,
+        shadow_arena,
+        col_scratch,
+        shadow_box_cache,
+        paint_only,
+        &state,
+    );
     copy_scaled_systemui_row_clipped(
         source_frame,
         source_x_lut,
@@ -56,42 +80,6 @@ pub(crate) fn copy_scene_row(
         y,
         row,
         render_clip,
-    )?;
-    if !paint_only {
-        compute_shadow_row(
-            state,
-            proof_layout,
-            proof_layout_index,
-            y,
-            row,
-            shadow_scratch,
-            blur_row_buf,
-            shadow_arena,
-            col_scratch,
-            shadow_box_cache,
-        )?;
-    }
-    draw_proof_surface_row(
-        state,
-        proof_layout,
-        proof_layout_index,
-        filter_text,
-        filtered_words,
-        y,
-        row,
-        render_clip,
-        backdrop_cache,
-        glass_layer,
-        glass_scratch,
-        path_cache,
-        source_frame,
-        source_x_lut,
-        source_y_lut,
-        mode,
-        glass_quality,
-        blur_row_buf,
-        layer_cache,
-        paint_only,
     )?;
     Ok(())
 }

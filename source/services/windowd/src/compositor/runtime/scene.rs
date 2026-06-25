@@ -66,6 +66,12 @@ impl DisplayServerRuntime {
             self.render_search_surface()?;
             self.search.surface_dirty = false;
         }
+        // G3: (re)render the proof panel content surface when dirty. Composited as
+        // a GPU layer with a soft shadow (G3b); dormant until then.
+        if self.proof_surface_dirty {
+            self.render_proof_surface()?;
+            self.proof_surface_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -134,6 +140,10 @@ impl DisplayServerRuntime {
         let sidebar_composite_cache_row = self.sidebar_composite_cache.abs_row;
         let sidebar_composite_cache_valid = self.sidebar_composite_cache_valid;
         let mut built_sidebar_composite_cache = false;
+        // G3: the proof panel is composited as a GPU layer (shadow as a layer
+        // effect) from its content surface, instead of CPU-baked into Plane 1.
+        let proof_show = self.proof_layouts.is_some();
+        let proof_atlas_row = self.proof_atlas.abs_row;
 
         // Incremental overlays: a static glass overlay (hamburger, chat button,
         // sidebar) only needs re-rendering when a damage rect actually overwrote its
@@ -192,6 +202,48 @@ impl DisplayServerRuntime {
                         rect.height,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // 1·proof. The proof panel (`combined_panels`) as a GPU layer: its
+            //     content surface composited over the wallpaper with a soft drop
+            //     shadow (G3). Replaces the CPU `compute_shadow_row` +
+            //     `draw_proof_surface_row` bake into Plane 1. The surface is
+            //     full-width; sample the panel sub-rect at (SCENE_ORIGIN_X..).
+            if proof_show {
+                use crate::proof_panel_spec::{
+                    FILTER_PANEL_HEIGHT, FILTER_PANEL_WIDTH, PANEL_GAP, PANEL_HEIGHT, PANEL_WIDTH,
+                };
+                let pw = (PANEL_WIDTH + PANEL_GAP + FILTER_PANEL_WIDTH).max(0) as u32;
+                let ph = PANEL_HEIGHT.max(FILTER_PANEL_HEIGHT).max(0) as u32;
+                let px = SCENE_ORIGIN_X as u32;
+                let py = SCENE_ORIGIN_Y as u32;
+                // Restore + blur the wallpaper behind the panel each present (the
+                // panel content is no longer baked into Plane 1, so without this the
+                // panel's transparent interior shows whatever stale pixels are under
+                // it → black). The halo pad keeps the soft shadow over clean
+                // wallpaper. This makes the proof panel a frosted glass card, the
+                // same recipe as the chrome/window glass layers.
+                let shadow_pad = crate::compositor::SOFT_PANEL_SHADOW_BLUR_RADIUS.saturating_add(
+                    crate::compositor::SOFT_PANEL_SHADOW_OFFSET_Y.unsigned_abs(),
+                );
+                let _ = encoder.composite_layer_full(
+                    &Layer {
+                        shadow: Some(LayerShadow {
+                            blur: crate::compositor::SOFT_PANEL_SHADOW_BLUR_RADIUS,
+                            offset_y: crate::compositor::SOFT_PANEL_SHADOW_OFFSET_Y,
+                            alpha: crate::compositor::SOFT_PANEL_SHADOW_ALPHA,
+                        }),
+                        backdrop: Some(LayerBackdrop {
+                            blur_radius: DARK_GLASS_BLUR_RADIUS,
+                            saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                            restore_halo_pad: shadow_pad,
+                            retained_src_y_offset: RETAINED_ROW_OFFSET,
+                            cache: BackdropCache::None,
+                        }),
+                        ..Layer::opaque(proof_atlas_row, px, pw, ph, px, py)
+                    },
+                    (mode.width, mode.height),
+                );
             }
 
             // 1·shell. Glass topbar layer (Shell-P2b): composite the topbar atlas

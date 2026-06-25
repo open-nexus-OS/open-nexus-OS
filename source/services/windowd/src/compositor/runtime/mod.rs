@@ -108,6 +108,7 @@ mod marker_emit;
 mod framebuffer;
 mod input;
 mod chat_window;
+mod proof_window;
 mod shell;
 mod search;
 mod scroll;
@@ -408,6 +409,13 @@ pub(crate) struct DisplayServerRuntime {
     /// the height of the *current* registry-sourced menu.
     dropdown_h: u32,
     dropdown_surface_dirty: bool,
+    /// G3 (RFC-0067 P5-Final): the proof panel (`combined_panels`) as a retained
+    /// GPU-composited LAYER — its content is rendered into `proof_atlas` and
+    /// composited with a soft drop shadow each present (the layer SSOT), instead
+    /// of CPU-baked into Plane 1. Plane 1 then holds only the wallpaper, and the
+    /// panel's shadow is a GPU layer effect (no more `compute_shadow_row`).
+    proof_atlas: crate::atlas::AtlasSurface,
+    proof_surface_dirty: bool,
     /// Dynamic Apps menu (RFC-0065): built from the `bundlemgrd` registry
     /// (`OP_LIST_APPS`), seeded until the lazy fetch on first open succeeds.
     app_menu: crate::app_menu::AppMenu,
@@ -719,6 +727,15 @@ impl DisplayServerRuntime {
         let app_menu = crate::app_menu::AppMenu::seed();
         let dropdown_h = app_menu.dropdown_full_h();
         let dropdown_atlas = alloc_band_or_log(&mut atlas, dropdown_band_h, "dropdown")?;
+        // G3 (RFC-0067 P5-Final): reserve the proof panel's content surface — a
+        // fixed 826×260 glass card (`combined_panels`). Rendered into this band and
+        // composited as a GPU layer (shadow as a layer effect) instead of CPU-baked
+        // into Plane 1. Reserved BEFORE the side panel/window-pool tail so the
+        // "take the rest" clamp accounts for it (full-stride band; height only).
+        let proof_panel_h =
+            (crate::proof_panel_spec::PANEL_HEIGHT.max(crate::proof_panel_spec::FILTER_PANEL_HEIGHT))
+                .max(1) as u32;
+        let proof_atlas = alloc_band_or_log(&mut atlas, proof_panel_h, "proof")?;
         // The Search window as a ShellWindow instance (the reusable glass frame).
         // Its atlas surfaces are NOT reserved at boot — they are acquired from the
         // allocator on show and released on hide (on-demand pool). The boot path
@@ -856,6 +873,8 @@ impl DisplayServerRuntime {
             apps_dropdown_open: false,
             dropdown_hover: None,
             dropdown_atlas,
+            proof_atlas,
+            proof_surface_dirty: true,
             dropdown_h,
             dropdown_surface_dirty: true,
             app_menu,
