@@ -136,6 +136,16 @@ pub(crate) fn fill_sdf_rounded_rect_row(
     let crf = cr as f32;
     let min = (rect.x as f32, rect.y as f32);
     let max = ((rect.x + rect.width) as f32, (rect.y + rect.height) as f32);
+    // RFC-0067 P5-Final G0: one-shot marker so a virgl boot reveals whether this
+    // CPU glass rasterizer is still on the live path (no-op on host).
+    #[cfg(target_os = "none")]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static M: AtomicBool = AtomicBool::new(false);
+        if !M.swap(true, Ordering::Relaxed) {
+            let _ = nexus_abi::debug_println("windowd: G0 cpu-sdf-fill live");
+        }
+    }
     for px in rect.x.max(0)..(rect.x + rect.width).min(rp) {
         let a = nexus_sdf::fill_alpha(
             nexus_sdf::sd_rounded_rect((px as f32 + 0.5, y as f32 + 0.5), min, max, crf),

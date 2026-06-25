@@ -69,6 +69,16 @@ pub(crate) fn draw_proof_surface_row(
     let Some(layout) = proof_layout else {
         return Ok(());
     };
+    // RFC-0067 P5-Final G0: one-shot marker — the CPU CONTENT path (text/proof);
+    // expected to fire on virgl (text has no GPU command yet). No-op on host.
+    #[cfg(target_os = "none")]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static M: AtomicBool = AtomicBool::new(false);
+        if !M.swap(true, Ordering::Relaxed) {
+            let _ = nexus_abi::debug_println("windowd: G0 cpu-surface-content live");
+        }
+    }
     let mut filter_input_rect = None;
     let mut filter_list_rect = None;
     let mut filter_list_scroll_y = 0;

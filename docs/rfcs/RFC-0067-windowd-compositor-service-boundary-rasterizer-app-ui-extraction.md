@@ -77,7 +77,18 @@ We already have every destination crate; they are just used inconsistently.
   - **GPU/virgl shaders are the primary renderer**; windowd emits `Command{FillSdfGradient, DropShadow, BlurBackdrop, …}` for the whole UI instead of CPU-rasterizing into the VMO.
   - **One** CPU command-executor (collapse gpud `cpu_vector` + nexus-gfx `cpu_mock` + windowd's inline rasterizer into a single nexus-sdf/effects-derived fallback for mmio/host/golden).
   - **Delete** windowd `compositor/{sdf,shadow,backdrop,surface,source,scene,primitives}` + `fixed_sdf` (the CPU compositor RFC-0063 condemned).
-  - **P5.1 DONE:** relocated windowd's fixed-point AA SDF math → `nexus-sdf::fixed` (windowd is now a client; 3 parity tests vs the float reference, in the SDF crate). The only hot-path-risky phase — boot-iterated, small reversible steps with markers (I can't repro the live path host-side).
+  - **P5.1–5.4 DONE:** the SDF math SSOT is `nexus-sdf::fixed`; the CPU executors derive from it — windowd rows (P5.1), nexus-gfx `cpu_mock` (P5.2), gpud `cpu_vector` (P5.4). The only hot-path-risky phase — boot-iterated, small reversible steps with markers (I can't repro the live path host-side).
+
+### P5-Final — finish RFC-0063 (GPU-primary), measured not guessed
+
+Inventory finding: the GPU command path (`build_scene_cb_into`) is **already primary** — it emits `FillSdfGradient`/`BlurBackdrop`/`DropShadow`/`CompositeLayer`/`BlitSurface` unconditionally; gpud runs them on GPU (virgl) or CPU (`cpu_vector`). The CPU's remaining job is **content rasterization** (text glyphs + wallpaper) into surfaces the GPU composites — blocked from GPU by the absence of a **glyph command**. So windowd's `compositor/{sdf,shadow,backdrop,blur,surface,scene,source}.rs` are a *mix* of live content-helpers, mmio-only fallback, and possibly-dead; **blind deletion is unsafe**.
+
+Strict gates (each: host + riscv green; **owner boots `GPU_MODE=virgl just start`**; commit before next):
+
+- **G0 — Measure (markers only, zero visual risk).** Add a one-shot marker at each CPU rasterizer entry (`sdf`/`shadow`/`backdrop`/`blur`/`surface` row fns). Owner boots virgl → the markers that **don't** fire are not on the virgl path = candidates to delete/consolidate.
+- **G1…Gn — Delete/consolidate the proven-unused-on-virgl CPU rasterizers**, one per gate, boot-verifying virgl is pixel-identical (and mmio if it matters). Anything still live on virgl stays.
+- **G-text (separate track, the real blocker):** a GPU glyph/text command so text rasterizes on the GPU; only then can the CPU content path (and the last of the CPU compositor) be retired. Out of P5-Final scope — flagged.
+- **Outcome:** windowd's compositor = content source + present + GPU commands; the redundant CPU glass rasterizers gone; CPU reduced to content (text/wallpaper) pending G-text.
 - **P6 — Final shape + docs.** Refresh `//! CONTEXT` headers + `compositor/mod.rs` doc; confirm the slimmed tree; mark this RFC Done. *Gate: full green + boot.*
 
 ## Verification (per phase)

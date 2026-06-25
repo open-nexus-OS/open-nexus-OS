@@ -58,6 +58,15 @@ pub(crate) fn blur_backdrop_segment(
     if end_x <= start_x || radius == 0 {
         return Ok(());
     }
+    // RFC-0067 P5-Final G0: one-shot marker (virgl-usage probe; no-op on host).
+    #[cfg(target_os = "none")]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static M: AtomicBool = AtomicBool::new(false);
+        if !M.swap(true, Ordering::Relaxed) {
+            let _ = nexus_abi::debug_println("windowd: G0 cpu-backdrop-blur live");
+        }
+    }
     let r = radius as usize;
     let start = start_x as usize * 4;
     let end = end_x as usize * 4;

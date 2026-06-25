@@ -161,6 +161,15 @@ pub(crate) fn compute_shadow_row(
     let Some(ly) = pl else {
         return Ok(());
     };
+    // RFC-0067 P5-Final G0: one-shot marker (virgl-usage probe; no-op on host).
+    #[cfg(target_os = "none")]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static M: AtomicBool = AtomicBool::new(false);
+        if !M.swap(true, Ordering::Relaxed) {
+            let _ = nexus_abi::debug_println("windowd: G0 cpu-shadow live");
+        }
+    }
     let rp = tgt.len() / 4;
     if ss.len() < tgt.len() || bb.len() < tgt.len() {
         return Err(WindowdError::BufferLengthMismatch);

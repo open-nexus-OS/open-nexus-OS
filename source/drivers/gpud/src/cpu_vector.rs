@@ -14,7 +14,7 @@
 
 use nexus_gfx::command::buffer::RgbaColor;
 
-use crate::backend::{blend_pixel_vmo, corner_dist_i32};
+use crate::backend::blend_pixel_vmo;
 
 /// Fill an SDF rounded rect with a vertical linear gradient (top → bottom).
 /// `y` is the absolute fb row (display offset already applied by the caller).
@@ -40,11 +40,15 @@ pub(crate) fn fill_sdf_gradient_vmo(
     let end_x = x.saturating_add(w).min(fb_w_u);
     let fb_h = (fb_len / (fb_w * 4)) as u32;
     let end_y = y.saturating_add(h).min(fb_h);
-    let r = radius.min(w / 2).min(h / 2) as i32;
-    let cx = x as i32 + r;
-    let cy = y as i32 + r;
-    let cx2 = x as i32 + w as i32 - r - 1;
-    let cy2 = y as i32 + h as i32 - r - 1;
+    // Anti-aliased coverage via the one SDF math SSOT (`nexus-sdf` fixed-point) —
+    // the SAME rounded-rect coverage the GPU shader + the compositor use
+    // (RFC-0067 P5), replacing the old hard-edged binary corner test.
+    use nexus_sdf::fixed;
+    let min_x = fixed::px_u32(x);
+    let min_y = fixed::px_u32(y);
+    let max_x = fixed::px_u32(x.saturating_add(w));
+    let max_y = fixed::px_u32(y.saturating_add(h));
+    let rad = fixed::px_u32(radius.min(w / 2).min(h / 2));
     for py in y..end_y {
         // Per-row gradient interpolation (fixed point, /h).
         let t_num = (py - y) as u32;
@@ -58,33 +62,24 @@ pub(crate) fn fill_sdf_gradient_vmo(
         if rgba[3] == 0 {
             continue;
         }
+        let pcy = fixed::pixel_center(py);
         let row_base = py as usize * fb_w;
         for px in x..end_x {
             let idx = (row_base + px as usize) * 4;
             if idx + 4 > fb_len {
                 continue;
             }
-            let inside = if r <= 0 {
-                true
-            } else {
-                let px_i = px as i32;
-                let py_i = py as i32;
-                let d = if px_i <= cx && py_i <= cy {
-                    corner_dist_i32(px_i, py_i, cx, cy, r)
-                } else if px_i >= cx2 && py_i <= cy {
-                    corner_dist_i32(px_i, py_i, cx2, cy, r)
-                } else if px_i <= cx && py_i >= cy2 {
-                    corner_dist_i32(px_i, py_i, cx, cy2, r)
-                } else if px_i >= cx2 && py_i >= cy2 {
-                    corner_dist_i32(px_i, py_i, cx2, cy2, r)
-                } else {
-                    0
-                };
-                d <= 0
-            };
-            if inside {
-                blend_pixel_vmo(fb, idx, &rgba);
+            let sd =
+                fixed::rounded_rect_sd(fixed::pixel_center(px), pcy, min_x, min_y, max_x, max_y, rad);
+            let cov = fixed::fill_alpha(sd); // 0..255 anti-aliased coverage
+            if cov == 0 {
+                continue;
             }
+            let a = (rgba[3] as u32 * cov / 255) as u8;
+            if a == 0 {
+                continue;
+            }
+            blend_pixel_vmo(fb, idx, &[rgba[0], rgba[1], rgba[2], a]);
         }
     }
 }
