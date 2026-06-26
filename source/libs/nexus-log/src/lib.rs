@@ -50,9 +50,14 @@ impl Level {
     }
 }
 
-// Quiet by default: Error/Warn/Info emit, Debug/Trace do not. A debug session raises this
-// (or narrows the topic mask) at runtime via the boot-time verbosity knob — no rebuild.
+// Console (UART) verbosity floor. Quiet by default: Error/Warn/Info reach the UART, Debug/Trace
+// do not. Decoupled from the logd journal floor below so the console can stay small/curated
+// while the full structured stream still lands in logd.
 static MAX_LEVEL: AtomicU8 = AtomicU8::new(Level::Info as u8);
+// logd journal floor — default Trace: the structured journal keeps EVERY record (the full
+// stream), so a curated console never means lost detail. The detail is recalled at runtime via
+// logd `OP_QUERY` (filter by level/service/time), not by a rebuild.
+static LOGD_LEVEL: AtomicU8 = AtomicU8::new(Level::Trace as u8);
 static TOPIC_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
 const MAX_SLICE_LEN: usize = 0x4000;
 
@@ -60,12 +65,25 @@ pub fn set_max_level(level: Level) {
     MAX_LEVEL.store(level as u8, Ordering::Relaxed);
 }
 
+/// Set the logd journal floor (how much of the stream logd retains, independent of the console).
+#[allow(dead_code)]
+pub fn set_logd_level(level: Level) {
+    LOGD_LEVEL.store(level as u8, Ordering::Relaxed);
+}
+
 pub fn set_topic_mask(mask: Topic) {
     TOPIC_MASK.store(mask.bits(), Ordering::Relaxed);
 }
 
+/// Whether `level` reaches the console (UART).
 fn level_enabled(level: Level) -> bool {
     level as u8 <= MAX_LEVEL.load(Ordering::Relaxed)
+}
+
+/// Whether `level` is retained by the logd journal (independent of the console floor).
+#[allow(dead_code)]
+fn logd_enabled(level: Level) -> bool {
+    level as u8 <= LOGD_LEVEL.load(Ordering::Relaxed)
 }
 
 fn topic_enabled(topic: Topic) -> bool {
@@ -146,17 +164,31 @@ pub fn configure_sink_logd_slots(logd_send: u32, reply_send: u32, reply_recv: u3
 }
 
 pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
-    if !level_enabled(meta.level) || !topic_enabled(meta.topic) {
+    if !topic_enabled(meta.topic) {
+        return;
+    }
+    // The console (UART) is a CURATED view (floor = MAX_LEVEL); the logd journal keeps the FULL
+    // stream (floor = LOGD_LEVEL). The record is built once and routed to whichever sinks accept
+    // this level: the console writes only when `console`, but the bytes are always captured for
+    // logd. A record below both floors is skipped entirely.
+    let console = level_enabled(meta.level);
+    #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
+    let logd = logd_enabled(meta.level);
+    #[cfg(not(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none")))]
+    let logd = false;
+    if !console && !logd {
         return;
     }
 
     #[cfg(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none"))]
     {
-        debug_ptr(b'L', meta.level.label().as_ptr() as usize);
-        debug_ptr(b'T', meta.target.as_ptr() as usize);
+        if console {
+            debug_ptr(b'L', meta.level.label().as_ptr() as usize);
+            debug_ptr(b'T', meta.target.as_ptr() as usize);
+        }
     }
 
-    let mut sink = sink::Sink::new(meta.level, meta.target, meta.topic);
+    let mut sink = sink::Sink::new(meta.level, meta.target, meta.topic, console);
     sink.write_byte(b'[');
     sink.write_str(meta.level.label());
     sink.write_byte(b' ');
@@ -172,7 +204,7 @@ pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
     sink.write_byte(b'\n');
 
     #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
-    {
+    if logd {
         sink_logd::try_append(meta.level, meta.target, sink.capture_bytes());
     }
 }
@@ -929,6 +961,9 @@ mod sink_userspace {
         level: Level,
         target: &'meta str,
         _topic: Topic,
+        /// Whether this record reaches the console (UART). When false the bytes are still
+        /// captured for logd, so a record can land in the journal without touching the console.
+        console: bool,
         #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
         cap_len: usize,
         #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
@@ -937,11 +972,12 @@ mod sink_userspace {
 
     impl<'meta> Sink<'meta> {
         #[allow(dead_code)]
-        pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
+        pub fn new(level: Level, target: &'meta str, topic: Topic, console: bool) -> Self {
             Self {
                 level,
                 target,
                 _topic: topic,
+                console,
                 #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
                 cap_len: 0,
                 #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
@@ -950,7 +986,9 @@ mod sink_userspace {
         }
 
         pub fn write_byte(&mut self, byte: u8) {
-            crate::userspace_putc(byte);
+            if self.console {
+                crate::userspace_putc(byte);
+            }
             #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
             self.capture_byte(byte);
         }
@@ -1255,15 +1293,19 @@ mod sink_kernel {
         target: &'meta str,
         #[allow(unused)]
         topic: Topic,
+        console: bool,
     }
 
     impl<'meta> Sink<'meta> {
         #[allow(dead_code)]
-        pub fn new(level: Level, target: &'meta str, topic: Topic) -> Self {
-            Self { level, target, topic }
+        pub fn new(level: Level, target: &'meta str, topic: Topic, console: bool) -> Self {
+            Self { level, target, topic, console }
         }
 
         pub fn write_byte(&mut self, byte: u8) {
+            if !self.console {
+                return;
+            }
             unsafe {
                 const UART_BASE: usize = 0x1000_0000;
                 const UART_TX: usize = 0x0;

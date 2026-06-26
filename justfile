@@ -99,21 +99,21 @@ start *args:
     # self-contained interactive path: build first, then keep the same guest
     # alive with the richer breadcrumb ladder. Default to the host build path so
     # interactive starts do not rebuild the dev container or compile cargo-udeps.
-    GPU_MODE=${GPU_MODE:-mmio} make MODE=${NEXUS_START_BUILD_MODE:-host} build
-    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-mmio} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
-    @echo "[hint] just start defaults to GPU_MODE=mmio + gtk (reliable visible window; renders the same UI — gradients/shadows via the CPU fallback). GPU_MODE=virgl uses the GL-scanout compositor but the windowed GL backend (gtk/sdl gl=on) is black on this Wayland/KDE host (QEMU bug); the GPU path is verified headless via tools/vnc_snapshot.py."
+    GPU_MODE=${GPU_MODE:-virgl} make MODE=${NEXUS_START_BUILD_MODE:-host} build
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-virgl} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
+    @echo "[hint] just start defaults to GPU_MODE=virgl (real GL-scanout compositor) in a visible gtk,gl=on window. Use GPU_MODE=mmio just start for the CPU-fallback 2D path. If the GL window backgrounds go black it is the gpud GL-scanout path (gl_scanout.rs full-frame gl_present_damage / task #69), NOT a host/display bug — do not switch backends to 'fix' it."
 
-# Interactive REAL GPU compositor (virgl), viewed over VNC. The windowed GL
-# backend (gtk/sdl gl=on) is black on this Wayland/KDE host — a QEMU host bug,
-# not ours — but QEMU serves the GL scanout over VNC just fine, and VNC forwards
-# mouse/keyboard to the guest, so this is how you SEE and INTERACT with the real
-# GPU-composited UI. Needs a VNC viewer (none ships by default):
+# Interactive REAL GPU compositor (virgl) over an egl-headless + VNC pipe. This is
+# the off-screen counterpart to `just start` (which now defaults to a visible
+# virgl gtk,gl=on window): same GL-scanout compositor, served over VNC instead of
+# a local window — handy for remote viewing or capture. VNC forwards mouse/keyboard
+# to the guest. Needs a VNC viewer (none ships by default):
 #   pacman -S tigervnc   → vncviewer localhost:5979
-#   or KDE krdc          → krdc vnc://localhost:5979
+#   or krdc              → krdc vnc://localhost:5979
 start-vnc *args:
     GPU_MODE=virgl make MODE=${NEXUS_START_BUILD_MODE:-host} build
     @echo "[VNC] real GPU compositor up — connect now:  vncviewer localhost:5979   (or  krdc vnc://localhost:5979)"
-    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full NEXUS_SELFTEST_PROFILE=none QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_EXTRA_ARGS="-vnc 127.0.0.1:79" QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
+    NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=virgl QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=egl-headless QEMU_EXTRA_ARGS="-vnc 127.0.0.1:79" QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
 
 # TASK-0023B P4-06: `test-os` now accepts an optional PROFILE arg that
 # `scripts/qemu-test.sh` forwards to the manifest CLI (`nexus-proof-manifest

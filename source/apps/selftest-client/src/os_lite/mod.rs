@@ -51,10 +51,34 @@ pub fn run() -> core::result::Result<(), ()> {
     // `dbg: phase X skipped` breadcrumb in place of the phase body.
     let active = Profile::from_kernel_cmdline_or_default(Profile::Full);
 
+    // Verdict aggregation: in an interactive boot the per-marker ladder is folded into one
+    // `selftest:<phase> N/N OK <ms>` line per group (+ a final `SELFTEST` total) — slow groups
+    // flagged, failures expanded. The proof harness keeps the full marker stream (verdict mode
+    // off) so `verify-uart` stays deterministic against the proof-manifest SSOT.
+    let interactive = profile::runtime_is_interactive();
+    crate::markers::set_console_verdict_mode(interactive);
+    let boot_span = nexus_abi::Span::begin();
+
     macro_rules! run_or_skip {
-        ($phase:ident, $id:ident) => {
+        ($phase:ident, $id:ident, $group:literal) => {
             if active.includes(PhaseId::$id) {
-                phases::$phase::run(&mut ctx)?;
+                let (t0, f0) = crate::markers::marker_counts();
+                let span = nexus_abi::Span::begin();
+                let result = phases::$phase::run(&mut ctx);
+                if interactive {
+                    let (t1, f1) = crate::markers::marker_counts();
+                    let emitted = t1 - t0;
+                    let fails = (f1 - f0) + if result.is_err() { 1 } else { 0 };
+                    let (total, passed) = if emitted == 0 && fails > 0 {
+                        (1, 0)
+                    } else if fails >= emitted {
+                        (emitted, 0)
+                    } else {
+                        (emitted, emitted - fails)
+                    };
+                    crate::markers::emit_verdict($group, passed, total, span.elapsed_ms());
+                }
+                result?;
             } else {
                 crate::markers::emit_line(Profile::skip_marker(PhaseId::$id));
             }
@@ -64,23 +88,30 @@ pub fn run() -> core::result::Result<(), ()> {
     // Phase order intentionally matches the original ladder (NOT the
     // numeric `[phase.X].order` field) so that under `Profile::Full` the
     // emitted UART transcript is byte-identical to the pre-P4-08 baseline.
-    run_or_skip!(bringup, Bringup);
-    run_or_skip!(routing, Routing);
-    run_or_skip!(ota, Ota);
-    run_or_skip!(policy, Policy);
-    run_or_skip!(exec, Exec);
-    run_or_skip!(logd, Logd);
-    run_or_skip!(ipc_kernel, IpcKernel);
-    run_or_skip!(mmio, Mmio);
-    run_or_skip!(vfs, Vfs);
-    run_or_skip!(net, Net);
-    run_or_skip!(remote, Remote);
-    if active.includes(PhaseId::End) {
+    run_or_skip!(bringup, Bringup, "selftest:bringup");
+    run_or_skip!(routing, Routing, "selftest:routing");
+    run_or_skip!(ota, Ota, "selftest:ota");
+    run_or_skip!(policy, Policy, "selftest:policy");
+    run_or_skip!(exec, Exec, "selftest:exec");
+    run_or_skip!(logd, Logd, "selftest:logd");
+    run_or_skip!(ipc_kernel, IpcKernel, "selftest:ipc");
+    run_or_skip!(mmio, Mmio, "selftest:mmio");
+    run_or_skip!(vfs, Vfs, "selftest:vfs");
+    run_or_skip!(net, Net, "selftest:net");
+    run_or_skip!(remote, Remote, "selftest:remote");
+    let end = if active.includes(PhaseId::End) {
         phases::end::run(&mut ctx)
     } else {
         crate::markers::emit_line(Profile::skip_marker(PhaseId::End));
         Ok(())
+    };
+    // Final aggregated verdict over the whole run.
+    if interactive {
+        let (total, fails) = crate::markers::marker_counts();
+        let passed = total.saturating_sub(fails);
+        crate::markers::emit_verdict("SELFTEST", passed, total, boot_span.elapsed_ms());
     }
+    end
 }
 
 // NOTE: Keep this file's marker surface centralized in `crate::markers`.

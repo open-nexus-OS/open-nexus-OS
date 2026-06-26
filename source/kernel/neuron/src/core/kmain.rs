@@ -187,11 +187,19 @@ impl KernelState {
 
     #[allow(dead_code)]
     fn banner(&self) {
-        log_info!(target: "boot", " _ __   ___ _   _ _ __ ___  _ __");
-        log_info!(target: "boot", r"| '_ \ / _ \ | | | '__/ _ \| '_ \");
-        log_info!(target: "boot", "| | | |  __/ |_| | | | (_) | | | |");
-        log_info!(target: "boot", r"|_| |_|\___|\__,_|_|  \___/|_| |_|");
-        log_info!(target: "boot", "neuron vers. 0.1.0 - One OS. Many Devices.");
+        // Decorative boot banner — emitted RAW (no `[LEVEL target]` prefix) so the logo reads
+        // as art, not log lines. The single intentional exception to the `[ts] TAG content`
+        // console grid. The version line keeps the literal `neuron vers.` (the harness's first
+        // proof-of-life marker) so the marker ladder stays green.
+        use crate::uart::write_line;
+        write_line("");
+        write_line(r"     _ __   ___ _   _ _ __ ___  _ __");
+        write_line(r"    | '_ \ / _ \ | | | '__/ _ \| '_ \");
+        write_line(r"    | | | |  __/ |_| | | | (_) | | | |");
+        write_line(r"    |_| |_|\___|\__,_|_|  \___/|_| |_|");
+        write_line("");
+        write_line("    neuron vers. 0.1.0  ·  One OS. Many Devices.");
+        write_line("");
     }
 
     #[allow(dead_code)]

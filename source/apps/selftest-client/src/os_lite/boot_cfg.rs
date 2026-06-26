@@ -30,9 +30,20 @@ const RUNTIME_CFG_RETRY_YIELDS: usize = 8_192;
 
 static FW_CFG_MAP_STATE: AtomicU8 = AtomicU8::new(MAP_STATE_UNMAPPED);
 
+/// Master gate for the interactive display-bootstrap OBSERVER/driver path (`end.rs`:
+/// `observe_display_evidence` / `display_bootstrap::run` / `interactive_live_tick`, which POLL
+/// windowd with `GET_VISIBLE_STATE` up to 128×). This path was implicitly OFF in EVERY boot to
+/// date because `runtime_mode` could never resolve — the fw_cfg cap was never granted (see the
+/// orchestrator fw_cfg grant). Granting fw_cfg flipped `runtime_mode` to `Some`, which would have
+/// activated this never-before-run driver as a side effect of enabling verdict mode. It is NOT a
+/// pure observer (it drives windowd), so until the pure-observer refactor (task #98) it stays
+/// gated OFF — the verdict console keys off `runtime_is_interactive`, NOT this, so verdicts work
+/// without dragging in the untested windowd-polling path. Flip to `true` to re-enable it.
+const INTERACTIVE_DISPLAY_OBSERVER_ENABLED: bool = false;
+
 #[must_use]
 pub(crate) fn display_bootstrap_enabled() -> bool {
-    runtime_mode_with_retry().is_some()
+    INTERACTIVE_DISPLAY_OBSERVER_ENABLED && runtime_mode_with_retry().is_some()
 }
 
 #[must_use]

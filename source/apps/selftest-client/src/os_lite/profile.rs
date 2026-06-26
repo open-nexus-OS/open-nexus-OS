@@ -89,10 +89,11 @@ impl Profile {
     /// Resolve the active profile, falling back to `default` if unset.
     ///
     /// Resolution order:
-    /// 1. runtime `fw_cfg` profile override
-    /// 2. runtime mode default (`bringup` for interactive starts)
-    /// 3. legacy build-time `SELFTEST_PROFILE`
-    /// 4. caller-provided `default`
+    /// 1. proof mode → legacy/`default` (the full ladder; keeps `verify-uart` byte-stable)
+    /// 2. runtime `fw_cfg` profile override (interactive boots only)
+    /// 3. runtime mode (`full` for `interactive-full`, `bringup` for `interactive-minimal`)
+    /// 4. legacy build-time `SELFTEST_PROFILE`
+    /// 5. caller-provided `default`
     ///
     /// Unknown values fall back to `default`; this is intentional so that a
     /// typo in boot wiring does not crash early boot.
@@ -165,6 +166,15 @@ impl Profile {
         legacy_profile: Option<Profile>,
         default: Profile,
     ) -> Profile {
+        // Proof boots ALWAYS run the full ladder. The proof harness keys its marker
+        // expectation (`verify-uart list-markers --profile=<harness>`) on the HARNESS profile,
+        // NOT this runtime knob, so scoping the runtime here would desync the two and fail
+        // verification. The runtime `fw_cfg` profile therefore only scopes INTERACTIVE boots;
+        // until the observer consumes the runtime profile (Phase 4) proof stays byte-stable.
+        if matches!(runtime_mode, Some(RuntimeMode::Proof)) {
+            return legacy_profile.unwrap_or(default);
+        }
+        // Interactive (or unknown) boots: an explicit `fw_cfg` profile wins for ad-hoc scoping…
         if let Some(profile) = runtime_profile {
             return match profile {
                 RuntimeProfile::Full => Profile::Full,
@@ -175,14 +185,25 @@ impl Profile {
                 RuntimeProfile::None => Profile::None,
             };
         }
-        if matches!(
-            runtime_mode,
-            Some(RuntimeMode::InteractiveMinimal | RuntimeMode::InteractiveFull)
-        ) {
-            return Profile::Bringup;
+        // …otherwise the interactive mode is the single source of truth for the phase scope:
+        // `interactive-full` runs the whole ladder (folded into verdicts), `interactive-minimal`
+        // runs only bring-up. `just start` passes no profile, so the mode alone decides.
+        match runtime_mode {
+            Some(RuntimeMode::InteractiveFull) => Profile::Full,
+            Some(RuntimeMode::InteractiveMinimal) => Profile::Bringup,
+            _ => legacy_profile.unwrap_or(default),
         }
-        legacy_profile.unwrap_or(default)
     }
+}
+
+/// True when this is an interactive boot (`just start`) — the human wants the aggregated
+/// `group N/N OK` verdict view, not the full per-marker proof ladder. The proof harness
+/// (`just test-os`) returns false, keeping the full deterministic marker stream for `verify-uart`.
+pub(crate) fn runtime_is_interactive() -> bool {
+    matches!(
+        boot_cfg::runtime_mode_with_retry(),
+        Some(RuntimeMode::InteractiveMinimal | RuntimeMode::InteractiveFull)
+    )
 }
 
 #[cfg(test)]
@@ -238,7 +259,8 @@ mod tests {
     }
 
     #[test]
-    fn interactive_modes_default_to_bringup_profile() {
+    fn interactive_mode_selects_profile_by_scope() {
+        // `interactive-minimal` → bring-up only (even over a legacy `full`).
         assert_eq!(
             Profile::resolve(
                 None,
@@ -248,9 +270,30 @@ mod tests {
             ),
             Profile::Bringup
         );
+        // `interactive-full` → the whole ladder (folded into verdicts at runtime).
         assert_eq!(
-            Profile::resolve(None, Some(RuntimeMode::InteractiveFull), None, Profile::Full),
-            Profile::Bringup
+            Profile::resolve(None, Some(RuntimeMode::InteractiveFull), None, Profile::Quick),
+            Profile::Full
+        );
+    }
+
+    #[test]
+    fn proof_mode_pins_to_full_ignoring_runtime_profile() {
+        // The proof harness may pass a narrow `fw_cfg` profile (its default is `bringup`), but in
+        // proof mode the runtime MUST still run the full ladder so the marker stream stays
+        // byte-stable against the harness-keyed `verify-uart` expectation.
+        assert_eq!(
+            Profile::resolve(
+                Some(RuntimeProfile::Bringup),
+                Some(RuntimeMode::Proof),
+                None,
+                Profile::Full
+            ),
+            Profile::Full
+        );
+        assert_eq!(
+            Profile::resolve(Some(RuntimeProfile::None), Some(RuntimeMode::Proof), None, Profile::Full),
+            Profile::Full
         );
     }
 

@@ -679,6 +679,35 @@ where
         DEVICE_MMIO_CAP_SLOT,
     )?;
 
+    // fw_cfg: hand the QEMU firmware-config MMIO window to selftest-client so it can read its
+    // runtime boot-config (selftest mode/profile, set by the launcher via `-fw_cfg`) WITHOUT a
+    // rebuild — the same binary boots in `proof` mode under the harness and `interactive-full`
+    // under `just start`. This is a host-config channel, not a policy-gated device, so it is
+    // minted + transferred directly (no policyd round-trip) to the fixed slot the client maps
+    // (`boot_cfg::FW_CFG_SLOT`). Non-fatal: if the mint/transfer fails the client's `mmio_map`
+    // degrades gracefully (runtime_mode → None → the legacy `full` profile + verdict mode off).
+    {
+        const FW_CFG_BASE: usize = 0x1010_0000; // QEMU virt VIRT_FW_CFG window base.
+        const FW_CFG_LEN: usize = 0x1000; // One page (regs live at offset 0/8).
+        const FW_CFG_DST_SLOT: u32 = 0x31; // Must match selftest-client `boot_cfg::FW_CFG_SLOT`.
+        match nexus_abi::device_mmio_cap_create(FW_CFG_BASE, FW_CFG_LEN, usize::MAX) {
+            Ok(cap) => {
+                match nexus_abi::cap_transfer_to_slot(
+                    selftest_pid,
+                    cap,
+                    Rights::MAP,
+                    FW_CFG_DST_SLOT,
+                ) {
+                    Ok(_) => debug_write_bytes(b"init: fw_cfg grant ok svc=selftest-client\n"),
+                    Err(_) => {
+                        debug_write_bytes(b"init: fw_cfg grant xfer FAIL svc=selftest-client\n")
+                    }
+                }
+            }
+            Err(_) => debug_write_bytes(b"init: fw_cfg cap_create FAIL svc=selftest-client\n"),
+        }
+    }
+
     for (idx, input_slot) in input_slots.iter().copied().enumerate() {
         if let Some(input_slot) = input_slot {
             grant_mmio_with_wait(
