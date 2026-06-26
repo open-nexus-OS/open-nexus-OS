@@ -11,6 +11,15 @@ The live visible-output path is service-owned (GPU-only architecture, RFC-0059 P
 `VisibleState` and emits proof markers only after the service state already
 contains the required evidence.
 
+> **Current structure (gfx/driver idealstruktur, Gates 1–4, 2026-06).** The windowd↔gpud wire is the
+> `nexus-display-proto` SSOT (opcodes + control frames) carrying a serialized `nexus_gfx::CommittedBuffer`
+> payload — one definition, imported by both ends (`docs/adr/0038-display-wire-ssot-and-capnp-boundary.md`).
+> CPU/VMO rasterization is the one canonical rasterizer in `userspace/nexus-gfx/src/raster/`, shared by
+> the `cpu_mock` reference and gpud's CPU path (RFC-0067). gpud sits on the `nexus-virtio` bus-HAL +
+> `nexus-driverkit` submit/fence substrate; the whole device-class layering is
+> `docs/adr/0039-device-class-driver-architecture.md`. Some sections below describe the earlier Phase-6
+> path (fbdevd, the two-pass `blur_1d` compositor) and are partly historical.
+
 ## Authority Boundaries
 
 - `hidrawd` owns hardware ingress and normalized HID delivery.

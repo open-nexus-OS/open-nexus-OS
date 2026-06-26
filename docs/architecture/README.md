@@ -129,10 +129,16 @@ These pages are intended to be stable entrypoints; avoid duplicating fast-moving
 - `nexusgfx-artifact-pipeline.md` — offline-first, deterministic, signed artifact strategy for shaders/kernels/pipelines
 - `nexusgfx-capability-matrix.md` — backend capability vocabulary instead of vendor-first design
 - `gpud-command-ring-and-present-pipeline.md` — gpud's virtio-gpu multi-entry command ring, per-slot lifecycle, batched + pipelined GL present (the texture-sampling-stall fix), heap-free Submit3d, hop markers, and the present-cadence limitation (ADR-0032)
+- **Device-class driver architecture (capstone)**: `docs/adr/0039-device-class-driver-architecture.md` — the one layering every device class follows (SDK → device-class service → DriverKit → bus-HAL → kernel) + per-class mapping (GPU/storage/net/audio/NPU/camera-ISP)
+- **Rasterization SSOT**: `userspace/nexus-gfx/src/raster/` — the one canonical software rasterizer; `cpu_mock` (reference) and gpud's CPU/VMO path both call it (RFC-0067)
+- **Display-wire SSOT** (windowd↔gpud): `source/libs/nexus-display-proto` (opcodes + control frames) + the `nexus-gfx` `CommittedBuffer` payload codec; `docs/adr/0038-display-wire-ssot-and-capnp-boundary.md`
+- **virtio-mmio bus-HAL**: `source/libs/nexus-virtio` — register map + init handshake + virtqueue ring, shared across virtio drivers (net migrated; storage/rng/input/gpud boot-gated follow-ons)
+- **Cross-device submit substrate**: `source/libs/nexus-driverkit` (SubmitRing + fence + budget + QoS); ADR-0018 (ABI), ADR-0033 (soft-real-time spine)
 
 **Current snapshot**:
 - `NexusGfx` is documented as an explicit, hardware-agnostic acceleration stack with CPU reference execution first.
 - The graphics/compute docs intentionally assume probable mobile/tile-aware hardware and avoid CUDA-first or legacy-compatibility-first design.
+- The gfx/driver stack now has single sources of truth for rasterization, the display wire, and virtio-mmio bring-up; device-class drivers follow the ADR-0039 layering.
 
 ## Observability
 

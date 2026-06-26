@@ -6,6 +6,10 @@ The OS `virtio-blk` MMIO driver is correct, but **legacy virtio-mmio in QEMU lea
 `used.idx` at 0**, so persistence proofs fail. Modern virtio-mmio fixes this by
 driving the used ring correctly.
 
+> The virtio-mmio bring-up (register map, the legacy/modern device-init handshake, queue setup) is
+> the shared `source/libs/nexus-virtio` bus-HAL — both legacy (v1) and modern (v2) paths live there
+> once, so a driver does not re-implement them. See `docs/adr/0039-device-class-driver-architecture.md`.
+
 ## Recommended Fix (test harness default)
 
 QEMU exposes `virtio-mmio.force-legacy` with a default of `on`. The Open Nexus OS

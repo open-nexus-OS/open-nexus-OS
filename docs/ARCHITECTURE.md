@@ -37,6 +37,12 @@ metadata. Service daemons link `nexus-idl-runtime` to translate Cap'n Proto
 messages into safe userspace library calls while bulk payloads continue to move
 out-of-band via VMOs and `map()`.
 
+The **data-plane display wire** (windowd↔gpud) is deliberately *not* Cap'n Proto: it is a
+hand-rolled opcode + serialized `nexus_gfx::CommittedBuffer` stream owned by the
+`nexus-display-proto` SSOT, with bulk pixels in a shared framebuffer VMO (capability move). Cap'n
+Proto framing is larger than these tiny fixed frames and fights the IPC budget; see
+`docs/adr/0038-display-wire-ssot-and-capnp-boundary.md`. Cap'n Proto stays the control plane.
+
 ## Kernel quick reference (for devs and agents)
 
 - Entry: `kmain()` brings up HAL, Sv39 `AddressSpaceManager`, installs syscall table, starts `Scheduler` and `ipc::Router`.
@@ -74,6 +80,22 @@ out-of-band via VMOs and `map()`.
 - **Security invariants**: no entropy/private key logging; pubkey export only; deny-by-default via `policyd`; audit via `logd`
 - **Contract**: `docs/rfcs/RFC-0016-device-identity-keys-v1.md`
 - **Narrative**: `docs/security/identity-and-sessions.md` and `docs/architecture/13-identity-and-keystore.md`
+
+## Graphics + device-class drivers (ADR-0039)
+
+Device-class drivers (GPU/storage/net today; audio/NPU/camera future) follow **one layering**: an
+SDK (NexusGfx) over a device-class service over **DriverKit** (`nexus-driverkit`: submit ring +
+completion fence + buffer budget + QoS) over a **bus HAL** (`nexus-virtio`: virtio-mmio register map
++ init handshake + virtqueue ring) over the kernel's cap-gated MMIO/IRQ/DMA + VMOs + timeline fence.
+A real driver shrinks to its device id + config registers + command encode/validate + reset.
+
+- **Rasterization SSOT**: `userspace/nexus-gfx` owns the one canonical software rasterizer; the
+  reference backend (`cpu_mock`) and gpud's CPU/VMO path both call it (RFC-0067 / Gate 1).
+- **Display-wire SSOT**: `source/libs/nexus-display-proto` owns the windowd↔gpud opcodes + control
+  frames; the hot payload is the `nexus-gfx` `CommittedBuffer` codec (ADR-0038 / Gate 2).
+- **Bus HAL**: `source/libs/nexus-virtio` (Gate 3); `nexus-driverkit` is the cross-device
+  submit/fence/budget substrate (ADR-0018 / ADR-0033).
+- **Template + per-class mapping**: `docs/adr/0039-device-class-driver-architecture.md`.
 
 Canonical: this is the single architecture page. For deeper details, read the source files listed above.
 

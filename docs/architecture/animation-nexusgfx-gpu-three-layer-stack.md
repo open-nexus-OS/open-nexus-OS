@@ -39,6 +39,12 @@ vmo_write   Device  Queue  CommandBuffer
                     same trait, no code changes
 ```
 
+> **Current structure (Gate 1).** The `GfxBackend` trait lives in `userspace/nexus-gfx`
+> (`backend::traits`), not a separate `gfx-backend` crate. `CpuMockBackend` (reference) and
+> `VirtioGpuBackend`'s CPU/VMO path no longer hand-maintain separate rasterizers — both call the one
+> canonical software rasterizer in `userspace/nexus-gfx/src/raster/` (RFC-0067). The windowd↔gpud wire
+> is the `nexus-display-proto` SSOT (ADR-0038); the full device-class layering is ADR-0039.
+
 ## Layer 1: Animation Engine
 
 Crate: `userspace/ui/animation/` — `src/` + `tests/`

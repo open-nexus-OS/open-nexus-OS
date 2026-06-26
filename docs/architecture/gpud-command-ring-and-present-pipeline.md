@@ -2,7 +2,14 @@
 
 How `gpud` submits work to QEMU's `virtio-gpu` device and how the virgl GL
 compositor present is paced. Decision record: **ADR-0032**. RFC:
-`RFC-0063`. Source: `source/drivers/gpud/src/{backend.rs,gl_scanout.rs,virgl.rs,markers.rs}`.
+`RFC-0063`. Source: `source/drivers/gpud/src/backend/{mod,virtqueue,present,transport,…}.rs`,
+`gl_scanout.rs`, `virgl.rs`, `markers.rs` (the former monolithic `backend.rs` is now the `backend/`
+module split).
+
+> **Current structure.** The `CtrlQueue` ring below is gpud's instance of the cross-device
+> `nexus_driverkit::SubmitRing` (the generalized version of this prototype — ADR-0033). The virtio-gpu
+> bus bring-up (probe/negotiate/queue) is moving onto the shared `nexus-virtio` bus-HAL (boot-gated
+> follow-on); the device-class layering is `docs/adr/0039-device-class-driver-architecture.md`.
 
 ## Why this exists
 
