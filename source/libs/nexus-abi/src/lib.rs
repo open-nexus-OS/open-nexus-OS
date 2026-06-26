@@ -2766,6 +2766,30 @@ pub fn debug_println(s: &str) -> SysResult<()> {
     debug_putc(b'\n')
 }
 
+/// Runtime gate for developer trace breadcrumbs (see [`debug_trace`]). Off by default so
+/// high-frequency dev lines stay silent in a normal boot; flipped on by the boot-time
+/// verbosity knob for a focused debug session.
+#[cfg(nexus_env = "os")]
+static DEBUG_TRACE_ON: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Enable or disable developer trace breadcrumbs emitted via [`debug_trace`].
+#[cfg(nexus_env = "os")]
+pub fn set_debug_trace(on: bool) {
+    DEBUG_TRACE_ON.store(on, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Developer trace breadcrumb. Routes to [`debug_println`] only when tracing is enabled, so
+/// these lines are silent by default but one runtime flag away — never use it for markers or
+/// errors, which must always emit.
+#[cfg(nexus_env = "os")]
+pub fn debug_trace(s: &str) -> SysResult<()> {
+    if DEBUG_TRACE_ON.load(core::sync::atomic::Ordering::Relaxed) {
+        debug_println(s)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn decode_syscall(value: usize) -> SysResult<usize> {
     if let Some(err) = AbiError::from_raw(value) {

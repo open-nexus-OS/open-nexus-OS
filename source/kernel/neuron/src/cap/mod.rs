@@ -139,12 +139,7 @@ impl CapTable {
             // Avoids potential libc/memset intrinsics on no_std target
             table.push(None);
         }
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "CAP: with_capacity slots={}\n", slots);
-        }
+        crate::log_trace!(target: "cap", "with_capacity slots={}", slots);
         Self { slots: table, _not_send_sync: PhantomData }
     }
 
@@ -153,20 +148,10 @@ impl CapTable {
 
     /// Convenience constructor for the bootstrap task.
     pub fn new() -> Self {
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "CAP: new enter\n");
-        }
+        crate::log_trace!(target: "cap", "new enter");
         // Keep this bounded to avoid untrusted inputs forcing unbounded growth (DoS).
         let table = Self::with_capacity(Self::DEFAULT_CAP_SLOTS);
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "CAP: new exit\n");
-        }
+        crate::log_trace!(target: "cap", "new exit");
         table
     }
 

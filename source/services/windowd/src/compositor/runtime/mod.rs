@@ -46,7 +46,7 @@ use alloc::vec::Vec;
 use animation::{AnimProp, AnimationDriver, LayerId, ScrollConfig, ScrollMomentum, SceneUpdate};
 use core::fmt::Write as _;
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
-use nexus_abi::{cap_clone, debug_println, nsec, vmo_write, Handle};
+use nexus_abi::{cap_clone, debug_println, debug_trace, nsec, vmo_write, Handle};
 use nexus_gfx::command::buffer::RgbaColor;
 use nexus_gfx::{
     BackdropCache, CommandBuffer, Layer, LayerBackdrop, LayerShadow, PipelineTimer, RenderPassDesc,
@@ -564,25 +564,25 @@ impl DisplayServerRuntime {
             ..VisibleState::default()
         };
         let _ = debug_println(RUNTIME_INIT_OK);
-        let _ = debug_println("dbg: windowd init self-build start");
+        let _ = debug_trace("dbg: windowd init self-build start");
         let band_scratch = alloc::vec![0u8; mode.stride as usize * ROW_WRITE_CHUNK];
-        let _ = debug_println("dbg: windowd init band-scratch ok");
+        let _ = debug_trace("dbg: windowd init band-scratch ok");
         let blur_row_buf = alloc::vec![0u8; mode.stride as usize];
-        let _ = debug_println("dbg: windowd init blur-row ok");
+        let _ = debug_trace("dbg: windowd init blur-row ok");
         let layer_cache = LayerCache::default();
-        let _ = debug_println("dbg: windowd init layer-cache ok");
+        let _ = debug_trace("dbg: windowd init layer-cache ok");
         let backdrop_cache = core::array::from_fn(|_| BackdropCacheEntry::new());
-        let _ = debug_println("dbg: windowd init backdrop-cache ok");
+        let _ = debug_trace("dbg: windowd init backdrop-cache ok");
         let glass_layer = GlassLayerCache::new();
-        let _ = debug_println("dbg: windowd init glass-layer ok");
+        let _ = debug_trace("dbg: windowd init glass-layer ok");
         let glass_scratch = alloc::vec![0u8; GLASS_LAYER_MAX_BYTES];
-        let _ = debug_println("dbg: windowd init glass-scratch ok");
+        let _ = debug_trace("dbg: windowd init glass-scratch ok");
         let path_cache = core::array::from_fn(|_| PathCacheEntry::new());
-        let _ = debug_println("dbg: windowd init path-cache ok");
+        let _ = debug_trace("dbg: windowd init path-cache ok");
         let animation_driver = AnimationDriver::new();
-        let _ = debug_println("dbg: windowd init animation-driver ok");
+        let _ = debug_trace("dbg: windowd init animation-driver ok");
         let pipeline_timer = PipelineTimer::new();
-        let _ = debug_println("dbg: windowd init pipeline-timer ok");
+        let _ = debug_trace("dbg: windowd init pipeline-timer ok");
         // Chat panel: 5000 deterministic mixed-length messages — a STRESS TEST of
         // the virtual list. Only the visible window is ever rendered, so scroll
         // must stay smooth regardless of collection size. The provider is the data
@@ -710,7 +710,7 @@ impl DisplayServerRuntime {
         // demand (chat button / "Chat" in the Apps dropdown via `toggle_chat`),
         // the first visible step away from a baked-open window toward a launched app.
         chat.visible = false;
-        let _ = debug_println("dbg: windowd init chat hidden ok");
+        let _ = debug_trace("dbg: windowd init chat hidden ok");
         Ok(Self {
             mode,
             source_frame,

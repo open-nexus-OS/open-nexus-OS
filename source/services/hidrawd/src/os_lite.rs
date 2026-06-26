@@ -19,8 +19,8 @@ use input_live_protocol::{
     MAX_HID_BATCH_FRAME_LEN, POINTER_SOURCE_NONE,
 };
 use nexus_abi::{
-    cap_clone, cap_close, debug_println, ipc_recv_v1, irq_bind, irq_complete, nsec, yield_, Cap,
-    MsgHeader, IPC_SYS_TRUNCATE,
+    cap_clone, cap_close, debug_println, debug_trace, ipc_recv_v1, irq_bind, irq_complete, nsec,
+    yield_, Cap, MsgHeader, IPC_SYS_TRUNCATE,
 };
 use nexus_ipc::budget::{route_with_nonce_budgeted, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{Client as _, KernelClient, Wait};
@@ -181,7 +181,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             match current_client.send(&frame, Wait::NonBlocking) {
                 Ok(()) => {
                     if !send_ok_emitted {
-                        debug_println("dbg: hidrawd inputd send ok")?;
+                        debug_trace("dbg: hidrawd inputd send ok")?;
                         // Input-chain hop I2: normalized wire batch sent to inputd.
                         debug_println("hidrawd: chain I2 wire sent to inputd")?;
                         send_ok_emitted = true;

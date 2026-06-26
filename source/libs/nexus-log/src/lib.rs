@@ -50,7 +50,9 @@ impl Level {
     }
 }
 
-static MAX_LEVEL: AtomicU8 = AtomicU8::new(Level::Debug as u8);
+// Quiet by default: Error/Warn/Info emit, Debug/Trace do not. A debug session raises this
+// (or narrows the topic mask) at runtime via the boot-time verbosity knob — no rebuild.
+static MAX_LEVEL: AtomicU8 = AtomicU8::new(Level::Info as u8);
 static TOPIC_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
 const MAX_SLICE_LEN: usize = 0x4000;
 

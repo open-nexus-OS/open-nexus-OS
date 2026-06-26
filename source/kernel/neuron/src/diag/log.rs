@@ -12,15 +12,18 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{Arguments, Write};
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
-/// Logging severity used by the kernel.
+/// Logging severity used by the kernel. Mirrors `nexus_log::Level` (userspace) so the
+/// kernel and userspace facades share one policy vocabulary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum Level {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
+    Error = 1,
+    Warn = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
 }
 
 impl Level {
@@ -33,18 +36,66 @@ impl Level {
             Level::Trace => "TRACE",
         }
     }
+}
 
-    const fn enabled(self) -> bool {
-        match self {
-            Level::Debug | Level::Trace => cfg!(debug_assertions),
-            _ => true,
-        }
+/// Runtime verbosity floor. Default `Info` keeps the kernel quiet by default:
+/// Error/Warn/Info emit, Debug/Trace do not — in every build, including debug. A debug
+/// session raises this (or narrows the topic mask) at runtime instead of recompiling.
+static MAX_LEVEL: AtomicU8 = AtomicU8::new(Level::Info as u8);
+
+/// Per-topic allow mask. Default all-on; narrow it to focus a debug session on one area
+/// (e.g. only `cap` or `vm` trace) without drowning in every other topic.
+static TOPIC_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
+
+// Topic bits. Bit 0 is the catch-all for un-tagged targets and is always allowed when the
+// mask is full. Keep in sync with the userspace topic vocabulary where they overlap.
+const TOPIC_GENERAL: u32 = 1 << 0;
+const TOPIC_CAP: u32 = 1 << 1;
+const TOPIC_VM: u32 = 1 << 2;
+const TOPIC_SCHED: u32 = 1 << 3;
+
+/// Set the runtime verbosity floor (lines at this level or more severe emit).
+/// The runtime control surface for the boot-time verbosity knob; wired to the kernel
+/// cmdline / a debug syscall in a later step of this track.
+#[allow(dead_code)]
+pub fn set_max_level(level: Level) {
+    MAX_LEVEL.store(level as u8, Ordering::Relaxed);
+}
+
+/// Set the per-topic allow mask (a bitmask of `TOPIC_*`). See [`set_max_level`].
+#[allow(dead_code)]
+pub fn set_topic_mask(bits: u32) {
+    TOPIC_MASK.store(bits, Ordering::Relaxed);
+}
+
+const fn topic_bit(target: &str) -> u32 {
+    // Cheap, const-friendly classification by target tag.
+    match target.as_bytes() {
+        b"cap" => TOPIC_CAP,
+        b"vm" | b"as" => TOPIC_VM,
+        b"sched" => TOPIC_SCHED,
+        _ => TOPIC_GENERAL,
     }
 }
 
-/// Emits a structured log line if the level is enabled for the current build.
+fn gate_open(level: Level, target: &str) -> bool {
+    if (level as u8) > MAX_LEVEL.load(Ordering::Relaxed) {
+        return false;
+    }
+    let bit = topic_bit(target);
+    (TOPIC_MASK.load(Ordering::Relaxed) & bit) == bit
+}
+
+/// Cheap predicate for raw/early emit sites that must keep their own writer (e.g. the
+/// satp-switch path, which deliberately avoids the UART lock and the heap). Such sites
+/// guard their raw write with this instead of routing through [`emit`].
+pub fn would_log(level: Level, target: &str) -> bool {
+    gate_open(level, target)
+}
+
+/// Emits a structured log line if the level + topic are enabled at runtime.
 pub fn emit(level: Level, target: &'static str, args: Arguments<'_>) {
-    if !level.enabled() {
+    if !gate_open(level, target) {
         return;
     }
 

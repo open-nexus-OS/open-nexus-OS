@@ -19,7 +19,7 @@ use input_live_protocol::{
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
 use keymaps::{KeyAction, KeyOutput};
-use nexus_abi::{debug_println, nsec, yield_};
+use nexus_abi::{debug_println, debug_trace, nsec, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::route::NormalizeRouter;
@@ -240,7 +240,7 @@ impl LiveRouteRuntime {
     fn handle_frame(&mut self, frame: &[u8]) -> [u8; 8] {
         if frame_has_op(frame, OP_PUSH_HID_BATCH) {
             if !self.hid_batch_recv_debug_emitted {
-                let _ = debug_println("dbg: inputd hid batch recv");
+                let _ = debug_trace("dbg: inputd hid batch recv");
                 // Input-chain hop I3: a wire batch arrived from hidrawd.
                 let _ = debug_println("inputd: chain I3 wire recv from hidrawd");
                 self.hid_batch_recv_debug_emitted = true;
@@ -358,7 +358,7 @@ impl LiveRouteRuntime {
             )
             && active_source != previous_source
         {
-            let _ = debug_println("dbg: inputd active source absolute");
+            let _ = debug_trace("dbg: inputd active source absolute");
             self.absolute_source_debug_emitted = true;
         }
         if !self.relative_blocked_debug_emitted
@@ -370,7 +370,7 @@ impl LiveRouteRuntime {
                 Some(PointerSource::TabletAbsolute | PointerSource::TouchAbsolute)
             )
         {
-            let _ = debug_println("dbg: inputd relative blocked by absolute source");
+            let _ = debug_trace("dbg: inputd relative blocked by absolute source");
             self.relative_blocked_debug_emitted = true;
         }
         if pointer_dispatch_batch {
@@ -448,19 +448,19 @@ impl LiveRouteRuntime {
         self.visible_state.cursor_x = display_pointer.x;
         self.visible_state.cursor_y = display_pointer.y;
         if pointer_down_dispatched && !self.pointer_down_dispatch_debug_emitted {
-            let _ = debug_println("dbg: inputd pointer down dispatched");
+            let _ = debug_trace("dbg: inputd pointer down dispatched");
             self.pointer_down_dispatch_debug_emitted = true;
         }
         if pointer_down_dispatched && !self.pointer_down_delivery_debug_emitted {
-            let _ = debug_println("dbg: inputd pointer down delivered");
+            let _ = debug_trace("dbg: inputd pointer down delivered");
             self.pointer_down_delivery_debug_emitted = true;
         }
         if keyboard_dispatched && !self.keyboard_dispatch_debug_emitted {
-            let _ = debug_println("dbg: inputd keyboard dispatched");
+            let _ = debug_trace("dbg: inputd keyboard dispatched");
             self.keyboard_dispatch_debug_emitted = true;
         }
         if keyboard_dispatched && !self.keyboard_delivery_debug_emitted {
-            let _ = debug_println("dbg: inputd keyboard delivered");
+            let _ = debug_trace("dbg: inputd keyboard delivered");
             self.keyboard_delivery_debug_emitted = true;
         }
         if pointer_move_seen {
@@ -475,7 +475,7 @@ impl LiveRouteRuntime {
             self.visible_state.focus_visible =
                 self.input.router().focused_surface() == Some(self.surface);
             if self.visible_state.focus_visible && !self.focus_debug_emitted {
-                let _ = debug_println("dbg: inputd focus on target");
+                let _ = debug_trace("dbg: inputd focus on target");
                 self.focus_debug_emitted = true;
             }
         }
@@ -753,8 +753,9 @@ impl InputdChainTelemetry {
             .saturating_mul(1_000_000_000)
             .checked_div(elapsed)
             .unwrap_or(0);
-        // #region agent log
-        let _ = debug_println(&format!(
+        // #region agent log — periodic inputd counter dump (off by default; one runtime
+        // flag away via the verbosity knob). Phase 3 promotes these to metricsd counters.
+        let _ = debug_trace(&format!(
             "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} hid_unsupported={} overflow={} frame_malformed={} wire_count={} wire_kind={} wire_source={} wire_event={} wire_mode={} abs_cal={} abs_axis={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
             recv_hz,
             hid_ok_hz,

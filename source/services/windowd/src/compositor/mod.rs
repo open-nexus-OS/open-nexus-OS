@@ -84,7 +84,7 @@ use input_live_protocol::{
 };
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
-use nexus_abi::{debug_println, nsec, vmo_write, yield_, Handle};
+use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::error::WindowdError;
@@ -577,6 +577,8 @@ fn emit_windowd_telemetry(report: WindowdDisplayTelemetryReport) {
         return;
     }
     if let Some(line) = line.as_str() {
-        let _ = debug_println(line);
+        // Periodic compositor counters: off by default, one runtime flag away. Phase 3
+        // promotes these to metricsd counters.
+        let _ = debug_trace(line);
     }
 }

@@ -242,7 +242,7 @@ impl AddressSpaceManager {
         {
             // Skip SATP switch for bring-up; emit post-switch marker directly
             fence_i();
-            log_info!(target: "as", "AS: post-satp OK");
+            log_debug!(target: "vm", "post-satp OK");
         }
         #[cfg(debug_assertions)]
         {
@@ -734,7 +734,8 @@ fn fence_i() {}
 fn do_preflight_checks_and_switch(satp_val: usize) {
     const LOG_LIMIT: usize = 16;
     static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT;
+    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT
+        && crate::log::would_log(crate::log::Level::Trace, "vm");
 
     // SAFE logging using raw UART - no heap allocation, logs in separate scopes
     if log_now {
@@ -782,7 +783,8 @@ fn do_preflight_checks_and_switch(satp_val: usize) {
 fn ensure_rx_guard() {
     const LOG_LIMIT: usize = 16;
     static LOG_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT;
+    let log_now = LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < LOG_LIMIT
+        && crate::log::would_log(crate::log::Level::Trace, "vm");
 
     let pc = crate::arch::riscv::read_pc();
     if log_now {

@@ -45,7 +45,7 @@ impl DisplayServerRuntime {
 
     pub(crate) fn apply_input_state(&mut self, upstream: VisibleState) -> u8 {
         if !self.input_state_debug_emitted {
-            let _ = debug_println("dbg: windowd input state applied");
+            let _ = debug_trace("dbg: windowd input state applied");
             // Input-chain hop I6: input reached windowd and was applied. The
             // present chain (gpud G1..G4) takes over from here to put it onscreen.
             let _ = debug_println("windowd: chain I6 input recv (state applied)");
@@ -178,7 +178,7 @@ impl DisplayServerRuntime {
                 if topbar_menu_icon_hit(lx, ly, self.shell_w) {
                     self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
                     window_consumed_press = true;
-                    let _ = debug_println(if self.state.sidebar_open_visible {
+                    let _ = debug_trace(if self.state.sidebar_open_visible {
                         "dbg: topbar menu -> sidebar OPEN"
                     } else {
                         "dbg: topbar menu -> sidebar CLOSE"

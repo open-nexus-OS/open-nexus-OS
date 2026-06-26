@@ -318,6 +318,7 @@ pub mod os {
     {
         unsafe { super::write_boot_marker(b'B') };
         ALLOCATOR.ensure_init();
+        configure_verbosity_from_env();
         match entry() {
             Ok(()) => exit(0),
             Err(err) => {
@@ -565,6 +566,30 @@ pub mod os {
     fn probe_logs_enabled() -> bool {
         false
     }
+
+    /// One-time per-process verbosity setup from the build-time `INIT_LITE_LOG_TOPICS` knob.
+    /// A `trace` or `verbose` token re-enables developer breadcrumbs (`debug_trace`) and lifts
+    /// the `nexus_log` floor to Debug; without it the process stays quiet (Warn/Info). This is
+    /// the "flags" path: detail is one rebuild-time token away, never deleted.
+    #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+    fn configure_verbosity_from_env() {
+        let verbose = option_env!("INIT_LITE_LOG_TOPICS")
+            .map(|spec| {
+                spec.split(',').any(|token| {
+                    let token = token.trim();
+                    token.eq_ignore_ascii_case("trace") || token.eq_ignore_ascii_case("verbose")
+                })
+            })
+            .unwrap_or(false);
+        if verbose {
+            nexus_abi::set_debug_trace(true);
+            #[cfg(feature = "alloc-log")]
+            nexus_log::set_max_level(nexus_log::Level::Debug);
+        }
+    }
+
+    #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+    fn configure_verbosity_from_env() {}
 
     #[cfg(feature = "alloc-log")]
     fn log_alloc_init(base: usize, end: usize) {
