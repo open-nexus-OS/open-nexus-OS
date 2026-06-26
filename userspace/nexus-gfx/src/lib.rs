@@ -16,6 +16,7 @@
 //!   pipeline/   — RenderPipeline, ComputePipeline, VertexDescriptor, PipelineCache
 //!   shader/     — ShaderModule, ShaderFunction, ShaderLibrary, Reflection
 //!   backend/    — GfxBackend trait, CpuMockBackend (re-exports from gfx-backend)
+//!   raster/     — canonical no_std software rasterizer (fill/blur/blit/blend SSOT)
 //!   sync/       — TimelineSemaphore, Event, Barrier
 //!   transfer/   — VMO import/export, DMA sharing, Layout transitions
 //!   perf/       — Performance counters, GPU trace, Frame budget
@@ -42,6 +43,9 @@ pub mod shader;
 
 // ── Backend ───────────────────────────────────────────────────────
 pub mod backend;
+
+// ── Raster ────────────────────────────────────────────────────────
+pub mod raster;
 
 // ── Sync ──────────────────────────────────────────────────────────
 pub mod sync;

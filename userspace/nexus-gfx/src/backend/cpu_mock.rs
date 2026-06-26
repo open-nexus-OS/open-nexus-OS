@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CPU mock backend — deterministic reference implementation for GPU command execution.
-//! Executes all CommandBuffer commands as a software rasterizer.
-//! Used as the golden reference for backend correctness proofs.
+//! Executes all CommandBuffer commands via the canonical [`crate::raster`] software
+//! rasterizer (the same primitives the live GPU driver's CPU/VMO fallback runs), so
+//! this golden reference and the production path share one implementation.
 
 use crate::backend::error::GfxError;
 use crate::backend::traits::GfxBackend;
@@ -11,6 +12,7 @@ use crate::backend::types::{Rect, ResourceId};
 use crate::command::buffer::{Command, CommittedBuffer, RgbaColor};
 use crate::core::fence::Fence;
 use crate::core::types::PixelFormat;
+use crate::raster::{self, Surface};
 use alloc::{vec, vec::Vec};
 
 #[allow(dead_code)]
@@ -157,8 +159,20 @@ impl CpuMockBackend {
         Ok(())
     }
 
-    /// Vertical linear-gradient SDF fill: per-row color lerp, same rounded
-    /// inside-test as `fill_sdf_rounded` (reference for the gpud executors).
+    // ── Rendering primitives (thin wrappers over the canonical rasterizer) ──
+
+    fn fill_rect_solid(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
+        let width = self.width;
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::fill_rect_solid(&mut s, x, y, w, h, color);
+    }
+
+    fn fill_sdf_rounded(&mut self, x: u32, y: u32, w: u32, h: u32, radius: u32, color: RgbaColor) {
+        let width = self.width;
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::fill_rounded_aa(&mut s, x, y, w, h, radius, color.as_array());
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn fill_sdf_gradient(
         &mut self,
@@ -170,62 +184,11 @@ impl CpuMockBackend {
         top: RgbaColor,
         bottom: RgbaColor,
     ) {
-        if w == 0 || h == 0 {
-            return;
-        }
-        let tc = top.as_array();
-        let bc = bottom.as_array();
-        let fw = self.width as usize;
-        let end_x = x.saturating_add(w).min(self.width);
-        let end_y = y.saturating_add(h).min(self.height);
-        let r = radius.min(w / 2).min(h / 2) as i32;
-        let cx = x as i32 + r;
-        let cy = y as i32 + r;
-        let cx2 = x as i32 + w as i32 - r - 1;
-        let cy2 = y as i32 + h as i32 - r - 1;
-        for py in y..end_y {
-            let t_num = (py - y) as u32;
-            let denom = (h - 1).max(1);
-            let mut rgba = [0u8; 4];
-            for c in 0..4 {
-                rgba[c] = ((tc[c] as u32 * (denom - t_num) + bc[c] as u32 * t_num) / denom) as u8;
-            }
-            if rgba[3] == 0 {
-                continue;
-            }
-            let row = py as usize * fw;
-            for px in x..end_x {
-                let i = (row + px as usize) * 4;
-                if i + 4 > self.framebuffer.len() {
-                    continue;
-                }
-                let inside = if r <= 0 {
-                    true
-                } else {
-                    let px = px as i32;
-                    let py = py as i32;
-                    let d = if px <= cx && py <= cy {
-                        corner_dist(px, py, cx, cy, r)
-                    } else if px >= cx2 && py <= cy {
-                        corner_dist(px, py, cx2, cy, r)
-                    } else if px <= cx && py >= cy2 {
-                        corner_dist(px, py, cx, cy2, r)
-                    } else if px >= cx2 && py >= cy2 {
-                        corner_dist(px, py, cx2, cy2, r)
-                    } else {
-                        0
-                    };
-                    d <= 0
-                };
-                if inside {
-                    blend_pixel(&mut self.framebuffer[i..i + 4], &rgba);
-                }
-            }
-        }
+        let width = self.width;
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::fill_gradient_aa(&mut s, x, y, w, h, radius, top.as_array(), bottom.as_array());
     }
 
-    /// Soft drop shadow: quadratic SDF falloff over `blur` px around the
-    /// offset shape rect (reference for the gpud executors).
     #[allow(clippy::too_many_arguments)]
     fn drop_shadow(
         &mut self,
@@ -239,130 +202,23 @@ impl CpuMockBackend {
         offset_y: i32,
         color: RgbaColor,
     ) {
-        if w == 0 || h == 0 || blur == 0 {
-            return;
-        }
-        let rgba = color.as_array();
-        if rgba[3] == 0 {
-            return;
-        }
-        let fw = self.width as usize;
-        let blur_i = blur as i32;
-        let rx0 = x as i32 + offset_x;
-        let ry0 = y as i32 + offset_y;
-        let rx1 = rx0 + w as i32;
-        let ry1 = ry0 + h as i32;
-        let r = radius.min(w / 2).min(h / 2) as i32;
-        let py0 = (ry0 - blur_i).max(0);
-        let py1 = (ry1 + blur_i).min(self.height as i32);
-        let px0 = (rx0 - blur_i).max(0);
-        let px1 = (rx1 + blur_i).min(self.width as i32);
-        for py in py0..py1 {
-            let row = py as usize * fw;
-            for px in px0..px1 {
-                let qx = (rx0 + r - px).max(px - (rx1 - 1 - r)).max(0);
-                let qy = (ry0 + r - py).max(py - (ry1 - 1 - r)).max(0);
-                // Octagonal norm ≈ length(qx, qy) — avoids per-pixel sqrt.
-                let dist = qx.max(qy) + qx.min(qy) / 2 - r;
-                let fall = blur_i - dist.max(0);
-                if fall <= 0 {
-                    continue;
-                }
-                let a = (rgba[3] as i32 * fall * fall) / (blur_i * blur_i);
-                if a <= 0 {
-                    continue;
-                }
-                let i = (row + px as usize) * 4;
-                if i + 4 > self.framebuffer.len() {
-                    continue;
-                }
-                let src = [rgba[0], rgba[1], rgba[2], a.min(255) as u8];
-                blend_pixel(&mut self.framebuffer[i..i + 4], &src);
-            }
-        }
-    }
-
-    // ── Rendering primitives ─────────────────────────────────
-
-    fn fill_rect_solid(&mut self, x: u32, y: u32, w: u32, h: u32, color: [u8; 4]) {
-        let fw = self.width as usize;
-        let end_x = x.saturating_add(w).min(self.width);
-        let end_y = y.saturating_add(h).min(self.height);
-        for py in y..end_y {
-            let row = py as usize * fw;
-            for px in x..end_x {
-                let i = (row + px as usize) * 4;
-                if i + 4 <= self.framebuffer.len() {
-                    self.framebuffer[i..i + 4].copy_from_slice(&color);
-                }
-            }
-        }
-    }
-
-    fn blit(&mut self, sx: u32, sy: u32, dx: u32, dy: u32, w: u32, h: u32) -> Result<(), GfxError> {
-        if self.source_surface.is_empty() || self.source_width == 0 {
-            return Ok(()); // no source → skip silently
-        }
-        let src_stride = self.source_width as usize * 4;
-        let dst_stride = self.width as usize * 4;
-        for row in 0..h.min(self.height.saturating_sub(dy)) {
-            let src_y = sy.saturating_add(row);
-            let dst_y = dy.saturating_add(row);
-            if src_y >= self.source_height || dst_y >= self.height {
-                break;
-            }
-            let src_off = src_y as usize * src_stride + sx as usize * 4;
-            let dst_off = dst_y as usize * dst_stride + dx as usize * 4;
-            let copy_len = (w as usize * 4).min(self.framebuffer.len().saturating_sub(dst_off));
-            let src_end = src_off.saturating_add(copy_len);
-            if src_end <= self.source_surface.len() && dst_off + copy_len <= self.framebuffer.len()
-            {
-                self.framebuffer[dst_off..dst_off + copy_len]
-                    .copy_from_slice(&self.source_surface[src_off..src_end]);
-            }
-        }
-        Ok(())
-    }
-
-    fn fill_sdf_rounded(&mut self, x: u32, y: u32, w: u32, h: u32, radius: u32, color: RgbaColor) {
-        let rgba = color.as_array();
-        if rgba[3] == 0 || w == 0 || h == 0 {
-            return;
-        }
-        let fw = self.width as usize;
-        let end_x = x.saturating_add(w).min(self.width);
-        let end_y = y.saturating_add(h).min(self.height);
-        // Production anti-aliased coverage via the SDF math SSOT
-        // (`nexus_sdf::fixed`) — the SAME fixed-point rounded-rect coverage the
-        // live compositor uses, so this reference output matches the live path
-        // (RFC-0067 P5: one rasterization math, derived from nexus-sdf).
-        use nexus_sdf::fixed;
-        let r = radius.min(w / 2).min(h / 2);
-        let min_x = fixed::px_u32(x);
-        let min_y = fixed::px_u32(y);
-        let max_x = fixed::px_u32(x.saturating_add(w));
-        let max_y = fixed::px_u32(y.saturating_add(h));
-        let rad = fixed::px_u32(r);
-        for py in y..end_y {
-            let row = py as usize * fw;
-            let pcy = fixed::pixel_center(py);
-            for px in x..end_x {
-                let i = (row + px as usize) * 4;
-                if i + 4 > self.framebuffer.len() {
-                    continue;
-                }
-                let sd = fixed::rounded_rect_sd(fixed::pixel_center(px), pcy, min_x, min_y, max_x, max_y, rad);
-                let cov = fixed::fill_alpha(sd); // 0..255 anti-aliased coverage
-                if cov == 0 {
-                    continue;
-                }
-                let a = (rgba[3] as u32 * cov / 255) as u8;
-                if a == 0 {
-                    continue;
-                }
-                blend_pixel(&mut self.framebuffer[i..i + 4], &[rgba[0], rgba[1], rgba[2], a]);
-            }
-        }
+        let width = self.width;
+        let height = self.height;
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::drop_shadow(
+            &mut s,
+            x,
+            y,
+            w,
+            h,
+            radius,
+            blur,
+            offset_x,
+            offset_y,
+            color.as_array(),
+            0,
+            height,
+        );
     }
 
     fn blur_backdrop(
@@ -374,129 +230,26 @@ impl CpuMockBackend {
         radius: u32,
         saturation_pct: u32,
     ) -> Result<(), GfxError> {
-        if radius == 0 {
-            return Ok(());
-        }
-        let fw = self.width as usize;
-        let end_x = x.saturating_add(w).min(self.width);
-        let end_y = y.saturating_add(h).min(self.height);
-        let r = radius as usize;
+        let width = self.width;
+        let mut scratch_row = vec![0u8; self.width as usize * 4];
+        let mut scratch_col = vec![0u8; self.height as usize * 4];
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::blur_box(&mut s, x, y, w, h, radius, &mut scratch_row, &mut scratch_col)
+            .map_err(|_| GfxError::ResourceExhausted)?;
+        raster::saturate(&mut s, x, y, w, h, saturation_pct);
+        Ok(())
+    }
 
-        // Horizontal pass (in-place with scratch row)
-        let mut scratch = vec![0u8; self.width as usize * 4];
-        for py in y..end_y {
-            let _row_off = py as usize * fw;
-            let row_len = (end_x - x) as usize * 4;
-            let row_start = x as usize * 4;
-            if row_start + row_len > self.framebuffer.len() {
-                continue;
-            }
-            scratch[..row_len].copy_from_slice(&self.framebuffer[row_start..row_start + row_len]);
-
-            let pixels = row_len / 4;
-            let mut sums = [0u64; 4];
-            let mut left = 0usize;
-            let mut right = r.min(pixels.saturating_sub(1));
-            for j in left..=right {
-                let bi = j * 4;
-                for c in 0..4 {
-                    sums[c] += scratch[bi + c] as u64;
-                }
-            }
-            for i in 0..pixels {
-                let count = (right - left + 1) as u64;
-                let di = row_start + i * 4;
-                for (c, &sum) in sums.iter().enumerate() {
-                    self.framebuffer[di + c] = (sum / count.max(1)).min(255) as u8;
-                }
-                if i + 1 < pixels {
-                    let next_left = (i + 1).saturating_sub(r);
-                    if next_left > left {
-                        let bi = left * 4;
-                        for c in 0..4 {
-                            sums[c] = sums[c].saturating_sub(scratch[bi + c] as u64);
-                        }
-                        left = next_left;
-                    }
-                    let next_right = (i + 1 + r).min(pixels.saturating_sub(1));
-                    if next_right > right {
-                        right = next_right;
-                        let bi = right * 4;
-                        for c in 0..4 {
-                            sums[c] += scratch[bi + c] as u64;
-                        }
-                    }
-                }
-            }
+    fn blit(&mut self, sx: u32, sy: u32, dx: u32, dy: u32, w: u32, h: u32) -> Result<(), GfxError> {
+        if self.source_surface.is_empty() || self.source_width == 0 {
+            return Ok(()); // no source → skip silently
         }
-
-        // Vertical pass
-        let mut col_buf = vec![0u8; (end_y - y) as usize * 4];
-        for px in x..end_x {
-            let col_off = px as usize * 4;
-            let col_h = (end_y - y) as usize;
-            for row_i in 0..col_h {
-                let src = (y as usize + row_i) * fw + col_off;
-                col_buf[row_i * 4..row_i * 4 + 4].copy_from_slice(&self.framebuffer[src..src + 4]);
-            }
-            let mut sums = [0u64; 4];
-            let mut top = 0usize;
-            let mut bot = r.min(col_h.saturating_sub(1));
-            for j in top..=bot {
-                let bi = j * 4;
-                for c in 0..4 {
-                    sums[c] += col_buf[bi + c] as u64;
-                }
-            }
-            for i in 0..col_h {
-                let count = (bot - top + 1) as u64;
-                let dst = (y as usize + i) * fw + col_off;
-                for (c, &sum) in sums.iter().enumerate() {
-                    self.framebuffer[dst + c] = (sum / count.max(1)).min(255) as u8;
-                }
-                if i + 1 < col_h {
-                    let next_top = (i + 1).saturating_sub(r);
-                    if next_top > top {
-                        let bi = top * 4;
-                        for c in 0..4 {
-                            sums[c] = sums[c].saturating_sub(col_buf[bi + c] as u64);
-                        }
-                        top = next_top;
-                    }
-                    let next_bot = (i + 1 + r).min(col_h.saturating_sub(1));
-                    if next_bot > bot {
-                        bot = next_bot;
-                        let bi = bot * 4;
-                        for c in 0..4 {
-                            sums[c] += col_buf[bi + c] as u64;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Saturation boost: saturate_bgra_segment
-        if saturation_pct != 0 && saturation_pct != 100 {
-            let factor = saturation_pct as f32 / 100.0;
-            for py in y..end_y {
-                let row_off = py as usize * fw + x as usize * 4;
-                let row_len = (end_x - x) as usize * 4;
-                for off in (row_off..row_off + row_len).step_by(4) {
-                    if off + 4 > self.framebuffer.len() {
-                        continue;
-                    }
-                    let b = self.framebuffer[off] as f32;
-                    let g = self.framebuffer[off + 1] as f32;
-                    let r = self.framebuffer[off + 2] as f32;
-                    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-                    self.framebuffer[off] = (gray + (b - gray) * factor).clamp(0.0, 255.0) as u8;
-                    self.framebuffer[off + 1] =
-                        (gray + (g - gray) * factor).clamp(0.0, 255.0) as u8;
-                    self.framebuffer[off + 2] =
-                        (gray + (r - gray) * factor).clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
+        let width = self.width;
+        let src_w = self.source_width;
+        let src_h = self.source_height;
+        let src = &self.source_surface;
+        let mut s = Surface::new(&mut self.framebuffer, width);
+        raster::blit_from(&mut s, src, src_w, src_h, sx, sy, dx, dy, w, h);
         Ok(())
     }
 
@@ -504,35 +257,35 @@ impl CpuMockBackend {
         if self.cursor_bitmap.is_empty() {
             return;
         }
-        let fw = self.width as usize;
+        let fw = self.width;
+        let fh = self.height;
+        let cw = self.cursor_width;
+        let sprite = &self.cursor_bitmap;
+        let fb = &mut self.framebuffer;
         for row in 0..h {
             let dst_y = y.saturating_add(row);
-            if dst_y >= self.height {
+            if dst_y >= fh {
                 break;
             }
             for col in 0..w {
                 let dst_x = x.saturating_add(col);
-                if dst_x >= self.width {
+                if dst_x >= fw {
                     break;
                 }
-                let src_i = (row as usize * self.cursor_width as usize + col as usize) * 4;
-                if src_i + 4 > self.cursor_bitmap.len() {
+                let src_i = (row as usize * cw as usize + col as usize) * 4;
+                if src_i + 4 > sprite.len() {
                     continue;
                 }
-                let alpha = self.cursor_bitmap[src_i + 3] as u16;
-                if alpha == 0 {
+                let a = sprite[src_i + 3];
+                if a == 0 {
                     continue;
                 }
-                let dst_i = (dst_y as usize * fw + dst_x as usize) * 4;
-                if dst_i + 4 > self.framebuffer.len() {
-                    continue;
-                }
-                let inv = 255u16.saturating_sub(alpha);
-                for c in 0..3 {
-                    self.framebuffer[dst_i + c] = ((alpha * self.cursor_bitmap[src_i + c] as u16
-                        + inv * self.framebuffer[dst_i + c] as u16)
-                        / 255) as u8;
-                }
+                let idx = (dst_y as usize * fw as usize + dst_x as usize) * 4;
+                raster::blend_over(
+                    fb,
+                    idx,
+                    &[sprite[src_i], sprite[src_i + 1], sprite[src_i + 2], a],
+                );
             }
         }
     }
@@ -593,29 +346,4 @@ impl GfxBackend for CpuMockBackend {
     fn move_cursor(&mut self, _x: i32, _y: i32) -> Result<(), GfxError> {
         Ok(())
     }
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-
-fn corner_dist(px: i32, py: i32, cx: i32, cy: i32, r: i32) -> i32 {
-    let dx = px - cx;
-    let dy = py - cy;
-    dx * dx + dy * dy - r * r
-}
-
-fn blend_pixel(dst: &mut [u8], src: &[u8; 4]) {
-    let alpha = src[3] as u32;
-    if alpha == 0 {
-        return;
-    }
-    if alpha == 255 {
-        dst.copy_from_slice(src);
-        return;
-    }
-    let inv = 255 - alpha;
-    // Phase 6e: fixed-point blend — (x*257+32768)>>16 replaces /255.
-    for c in 0..3 {
-        dst[c] = (((alpha * src[c] as u32 + inv * dst[c] as u32) * 257 + 32768) >> 16) as u8;
-    }
-    dst[3] = dst[3].saturating_add(alpha as u8);
 }

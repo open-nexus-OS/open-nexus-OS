@@ -10,6 +10,8 @@ name = "nexus_gfx"
 path = "src/lib.rs"
 
 [dependencies]
-# The one SDF math SSOT — the cpu2d backend rasterizes via its fixed-point AA
-# coverage so the reference output matches the live compositor (RFC-0067 P5).
+# The one SDF math SSOT — the canonical rasterizer rasterizes via its fixed-point
+# AA coverage so the reference output matches the live compositor (RFC-0067 P5).
 nexus-sdf = { path = "../ui/sdf" }
+# Soft-float gaussian kernel for the separable backdrop blur (no_std, no FPU).
+libm = "0.2"
