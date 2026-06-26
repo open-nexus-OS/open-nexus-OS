@@ -1,0 +1,8 @@
+[package]
+name = "nexus-display-proto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SSOT for the windowd↔gpud display-server wire: opcodes, status codes, cursor reply magics, and the small control-frame encoders/decoders. Hot per-frame payloads are nexus-gfx CommittedBuffers carried after the opcode byte."
+
+[dependencies]

@@ -49,11 +49,12 @@ impl DisplayServerRuntime {
         if client.send(&frame, Wait::Blocking).is_err() {
             return;
         }
-        const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
-        const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
+        // Gate 2: cursor reply magics from the shared wire SSOT.
+        const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
+        const CURSOR_REPLY_SW: u32 = nexus_display_proto::CURSOR_REPLY_SW;
         // virgl GL scanout: gpud draws a procedural cursor at its pointer pos —
         // we must ship moves + a present, not a software BlendCursor.
-        const CURSOR_REPLY_GL: u32 = 0xC0DE_0002;
+        const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
         let mut cursor_flags: Option<u32> = None;
         let mut present_acks_seen = 0u32;
         let mut reply = [0u8; 8];

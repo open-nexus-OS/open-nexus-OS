@@ -1109,6 +1109,7 @@ version = "0.1.0"
 dependencies = [
  "libm",
  "nexus-abi",
+ "nexus-display-proto",
  "nexus-driverkit",
  "nexus-gfx",
  "nexus-ipc",
@@ -1774,6 +1775,10 @@ dependencies = [
 
 [[package]]
 name = "nexus-discovery-packet"
+version = "0.1.0"
+
+[[package]]
+name = "nexus-display-proto"
 version = "0.1.0"
 
 [[package]]
@@ -4083,6 +4088,7 @@ dependencies = [
  "fontdue",
  "input-live-protocol",
  "nexus-abi",
+ "nexus-display-proto",
  "nexus-effects",
  "nexus-gfx",
  "nexus-ipc",

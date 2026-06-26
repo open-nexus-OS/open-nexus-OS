@@ -2,8 +2,14 @@
 
 # CONTEXT: TASK-0055 windowd surface IPC seed contract.
 # OWNERS: @ui @runtime
-# STATUS: Done
+# STATUS: DESCRIPTIVE ONLY — not code-generated, generates nothing.
 # API_STABILITY: Internal v1b seed
+# ADR: docs/adr/0038-display-wire-ssot-and-capnp-boundary.md
+#
+# The live windowd↔gpud wire SSOT is the Rust crate `nexus-display-proto`
+# (opcodes/status/cursor magics + control-frame codecs) plus the
+# `nexus_gfx::CommittedBuffer` payload codec. This schema is human documentation
+# of the surface model and is NOT compiled into the build.
 
 struct SurfaceCreateRequest {
   width @0 :UInt32;

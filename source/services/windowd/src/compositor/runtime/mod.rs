@@ -58,14 +58,16 @@ use nexus_layout_types::{FxPx, PathPoint};
 use chat_app::ChatMessageProvider;
 use nexus_virtual_list::{VirtualList, VirtualListConfig};
 
-const GPU_ANIMATION_SUBMIT_OP: u8 = 1;
-const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = 3; // mirrors gpud::OP_SET_FRAMEBUFFER_VMO
-const GPU_PRESENT_DAMAGE_OP: u8 = 4; // mirrors gpud::OP_PRESENT_DAMAGE
-const GPU_MOVE_CURSOR_OP: u8 = 2; // mirrors gpud::OP_MOVE_CURSOR
-const GPU_UPLOAD_CURSOR_OP: u8 = 5; // mirrors gpud::OP_UPLOAD_CURSOR
-const GPU_SET_CHAT_SCROLL_OP: u8 = 6; // mirrors gpud::OP_SET_CHAT_SCROLL
-const GPU_UPLOAD_ICON_OP: u8 = 7; // mirrors gpud::OP_UPLOAD_ICON
-const GPUD_STATUS_OK: u8 = 0;
+// Gate 2: the windowd↔gpud wire is the shared SSOT in `nexus-display-proto`;
+// these local names just re-source its values (no more hand-mirroring gpud).
+const GPU_ANIMATION_SUBMIT_OP: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
+const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
+const GPU_PRESENT_DAMAGE_OP: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
+const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
+const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
+const GPU_SET_CHAT_SCROLL_OP: u8 = nexus_display_proto::OP_SET_CHAT_SCROLL;
+const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
+const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 /// Extra chat content rows rendered above/below the on-screen viewport so scroll
 /// is a GPU composite offset, not a CPU re-render. Re-render only on overscan
 /// exhaustion (recenter ±CHAT_OVERSCAN/2). Larger ⇒ fewer full-surface re-renders
@@ -158,27 +160,15 @@ fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
 }
 
 fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; 17] {
-    let mut frame = [0u8; 17];
-    frame[0] = GPU_PRESENT_DAMAGE_OP;
-    frame[1..5].copy_from_slice(&rect.x.to_le_bytes());
-    frame[5..9].copy_from_slice(&rect.y.to_le_bytes());
-    frame[9..13].copy_from_slice(&rect.width.to_le_bytes());
-    frame[13..17].copy_from_slice(&rect.height.to_le_bytes());
-    frame
+    nexus_display_proto::encode_damage_frame(rect.x, rect.y, rect.width, rect.height)
 }
 
 fn encode_gpud_attach_frame(handoff_id: u32) -> [u8; 5] {
-    let mut frame = [0u8; 5];
-    frame[0] = GPU_SET_FRAMEBUFFER_VMO_OP;
-    frame[1..5].copy_from_slice(&handoff_id.to_le_bytes());
-    frame
+    nexus_display_proto::encode_attach_frame(handoff_id)
 }
 
 fn decode_gpud_handoff_id(reply: &[u8]) -> Option<u32> {
-    if reply.len() < 5 {
-        return None;
-    }
-    Some(u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]]))
+    nexus_display_proto::decode_handoff_id(reply)
 }
 
 #[derive(Clone, Copy)]

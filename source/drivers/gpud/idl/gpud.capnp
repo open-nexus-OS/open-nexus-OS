@@ -2,9 +2,17 @@
 
 # CONTEXT: gpud GPU driver IPC contract — windowd→gpud command protocol.
 # OWNERS: @ui @runtime
-# STATUS: Seed (matches hand-rolled binary in service.rs; governs future evolution)
+# STATUS: DESCRIPTIVE ONLY — not code-generated, generates nothing.
 # API_STABILITY: Internal v1
 # RFC: docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md
+# ADR: docs/adr/0038-display-wire-ssot-and-capnp-boundary.md
+#
+# SSOT (the actual source of truth, Gate 2): the Rust crate
+# `source/libs/nexus-display-proto` owns the opcodes / status codes / cursor reply
+# magics and the small control-frame codecs; the per-frame payload is the
+# `nexus_gfx::CommittedBuffer` codec. windowd AND gpud both import the crate, so
+# the wire is defined exactly once. This `.capnp` is human documentation kept in
+# step with that crate — it is NOT compiled and does NOT govern the wire.
 #
 # Architecture: windowd (sole display owner) → gpud (sole GPU consumer).
 # Zero-copy path: windowd creates the framebuffer VMO; kernel transfers cap
@@ -16,9 +24,9 @@
 # The CommittedBuffer payload is serialized by nexus-gfx (not Cap'n Proto)
 # and carried as opaque bytes after the opcode.
 #
-# This schema documents intent and is the canonical reference for chain-test
-# contracts and future IDL code-gen. It does not yet replace the hand-rolled
-# binary encoder in service.rs.
+# This schema documents intent for chain-test contracts. The canonical wire is
+# the `nexus-display-proto` crate (constants + control-frame codecs) + the
+# `nexus_gfx::CommittedBuffer` payload codec — see the ADR above.
 
 # ── Opcodes ──────────────────────────────────────────────────────────────────
 

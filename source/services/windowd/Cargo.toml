@@ -33,6 +33,9 @@ nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-effects = { path = "../../../userspace/ui/effects" }
 animation = { path = "../../../userspace/ui/animation" }
+# Gate 2: the windowd↔gpud wire SSOT (opcodes/status/cursor magics + control
+# frame codecs), shared with gpud so neither end hand-mirrors the other.
+nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 nexus-virtual-list = { path = "../../../userspace/ui/widgets/virtual_list", default-features = false }
 nexus-shell-desktop = { path = "../../../userspace/ui/shells/desktop" }

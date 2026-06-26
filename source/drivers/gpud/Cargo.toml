@@ -28,6 +28,9 @@ stack_pages = 2
 [dependencies]
 libm = "0.2"
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
+# Gate 2: the windowd↔gpud wire SSOT (opcodes/status/cursor magics + control
+# frame codecs), shared with windowd so neither end hand-mirrors the other.
+nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 # RFC-0067 P5: the CPU vector fallback rasterizes via the one SDF math SSOT
 # (nexus-sdf fixed-point AA), matching the GPU shaders + the compositor.
 nexus-sdf = { path = "../../../userspace/ui/sdf" }

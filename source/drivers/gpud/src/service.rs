@@ -24,37 +24,40 @@ use crate::markers::{
 };
 
 pub const ROUTE_NAME: &str = "gpud";
-pub const OP_SUBMIT_ANIMATION_FRAME: u8 = 1;
-pub const OP_MOVE_CURSOR: u8 = 2;
-pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
-pub const OP_PRESENT_DAMAGE: u8 = 4;
-pub const OP_UPLOAD_CURSOR: u8 = 5;
+// Wire opcodes/status/cursor magics are the shared SSOT in `nexus-display-proto`
+// (Gate 2) — re-exported here under the historical local names so call sites and
+// `crate::service::OP_*` references stay unchanged. Values live in one place now.
+pub const OP_SUBMIT_ANIMATION_FRAME: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
+pub const OP_MOVE_CURSOR: u8 = nexus_display_proto::OP_MOVE_CURSOR;
+pub const OP_SET_FRAMEBUFFER_VMO: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
+pub const OP_PRESENT_DAMAGE: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
+pub const OP_UPLOAD_CURSOR: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 /// Scroll fast path: windowd sends the chat layer's new absolute atlas source row
 /// (5 bytes: op + u32). gpud re-samples the retained scrollable layer at that row
 /// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
 /// `OP_MOVE_CURSOR`.
-pub const OP_SET_CHAT_SCROLL: u8 = 6;
+pub const OP_SET_CHAT_SCROLL: u8 = nexus_display_proto::OP_SET_CHAT_SCROLL;
 /// Upload a real icon sprite to composite as a GPU layer in the virgl buildup.
 /// Payload: op + tex_w(u32) + tex_h(u32) + dst_x(u32) + dst_y(u32) + dst_w(u32) +
 /// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
 /// is GPU-downscaled to dst_w×dst_h. Stored + composited like the cursor sprite.
-pub const OP_UPLOAD_ICON: u8 = 7;
+pub const OP_UPLOAD_ICON: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 /// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
 /// as the gpud server-recv timeout: an idle recv wakes here to re-present.
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
 const SPIN_DEMO_PERIOD_NS: u64 = 8_333_333;
 /// Reply payloads for OP_UPLOAD_CURSOR (magic-tagged — distinguishable from
 /// present acks, whose u32 slot carries a small handoff id).
-pub const CURSOR_REPLY_HW: u32 = 0xC0DE_0001;
-pub const CURSOR_REPLY_SW: u32 = 0xC0DE_0000;
+pub const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
+pub const CURSOR_REPLY_SW: u32 = nexus_display_proto::CURSOR_REPLY_SW;
 /// virgl GL scanout: the build-up present draws a *procedural* cursor at
 /// `cursor_ox/oy` each frame (no resource transfer — safe on the GL scanout,
 /// unlike the HW overlay). windowd must ship `OP_MOVE_CURSOR` on every move
 /// AND a present so the procedural arrow re-renders at the new position.
-pub const CURSOR_REPLY_GL: u32 = 0xC0DE_0002;
-pub const STATUS_OK: u8 = 0;
-pub const STATUS_MALFORMED: u8 = 1;
-pub const STATUS_DEVICE_ERROR: u8 = 2;
+pub const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
+pub const STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
+pub const STATUS_MALFORMED: u8 = nexus_display_proto::STATUS_MALFORMED;
+pub const STATUS_DEVICE_ERROR: u8 = nexus_display_proto::STATUS_DEVICE_ERROR;
 
 const GPU_MMIO_CAP_SLOT: u32 = 48;
 const GPU_MMIO_VA: usize = 0x2020_0000;
@@ -523,17 +526,11 @@ fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
 }
 
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
-    if frame.len() < 5 {
-        return None;
-    }
-    Some(u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]))
+    nexus_display_proto::decode_handoff_id(frame)
 }
 
 fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
-    if frame.len() < 21 {
-        return None;
-    }
-    Some(u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]))
+    nexus_display_proto::decode_present_handoff_id(frame)
 }
 
 /// Extract bounding damage rect from ALL command types.
