@@ -35,6 +35,12 @@ pub(crate) fn run_responder_loop(
 
     let watchdog = watchdog_limit_ticks();
     let mut ticks: usize = 0;
+    // Reactive idle: a waitset over every control-channel request endpoint lets the responder
+    // SLEEP until one has a message, instead of busy-polling all channels every scheduler round
+    // (the pre-RFC-0033 pattern). The full NONBLOCK sweep below is unchanged and still drains
+    // every channel on each wake, so the waitset is purely a "stop spinning while idle" layer —
+    // a failed add or a missed wake only costs the 1s safety-net latency, never a dropped request.
+    let waitset = build_ctrl_waitset(&ctrl_channels);
     loop {
         for chan in &ctrl_channels {
             let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
@@ -324,7 +330,7 @@ pub(crate) fn run_responder_loop(
                 );
             }
         }
-        let _ = nexus_abi::yield_();
+        responder_idle(waitset);
         if let Some(limit) = watchdog {
             ticks = ticks.saturating_add(1);
             if ticks >= limit {
@@ -332,6 +338,45 @@ pub(crate) fn run_responder_loop(
             }
         }
     }
+}
+
+/// Build a waitset over every control-channel request endpoint so the responder can block on
+/// all of them at once. Returns `None` if waitsets are unavailable (host build, or the kernel
+/// rejects creation) — the caller then falls back to a cooperative yield. Adds are best-effort:
+/// a channel that fails to add is still serviced by the full NONBLOCK sweep on each wake.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn build_ctrl_waitset(ctrl_channels: &[CtrlChannel]) -> Option<nexus_abi::Cap> {
+    let ws = nexus_abi::waitset_create().ok()?;
+    for chan in ctrl_channels {
+        let _ = nexus_abi::waitset_add(ws, chan.ctrl_req_parent_slot);
+    }
+    Some(ws)
+}
+
+#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+fn build_ctrl_waitset(_ctrl_channels: &[CtrlChannel]) -> Option<u32> {
+    None
+}
+
+/// Reactive idle for the responder loop: block until a control channel is ready (bounded by a
+/// 1s safety-net deadline, since the sweep already drains every channel), or fall back to a
+/// cooperative yield when no waitset is available.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+fn responder_idle(waitset: Option<nexus_abi::Cap>) {
+    const IDLE_SAFETY_NET_NS: u64 = 1_000_000_000;
+    match waitset {
+        Some(ws) => {
+            let _ = nexus_abi::waitset_wait(ws, IDLE_SAFETY_NET_NS);
+        }
+        None => {
+            let _ = nexus_abi::yield_();
+        }
+    }
+}
+
+#[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+fn responder_idle(_waitset: Option<u32>) {
+    let _ = nexus_abi::yield_();
 }
 
 /// Returns `true` only the first time a given `(svc -> target)` route denial is

@@ -26,7 +26,7 @@
 //!
 //! INVARIANTS:
 //! - Bounded table: at most `MAX_WAITSETS` live waitsets; over-limit → `ResourceExhausted`.
-//! - Bounded members: at most `MAX_WAITSET_MEMBERS` (16) per waitset; over-limit → `ResourceExhausted`.
+//! - Bounded members: at most `MAX_WAITSET_MEMBERS` (32) per waitset; over-limit → `ResourceExhausted`.
 //! - Member set is deduplicated: adding an endpoint already present is a no-op (`Ok`).
 //! - Ownership: a waitset records its owner pid; the syscall layer rejects cross-owner use.
 //! - Cap lifecycle: closing a waitset cap frees its table entry (no dangling members).
@@ -45,8 +45,10 @@ use core::fmt;
 /// Maximum number of concurrent waitsets (matches the timer table bound).
 pub(crate) const MAX_WAITSETS: usize = 64;
 
-/// Maximum number of endpoint members per waitset (RFC-0033 hard bound).
-pub(crate) const MAX_WAITSET_MEMBERS: usize = 16;
+/// Maximum number of endpoint members per waitset (RFC-0033 hard bound). 32 covers init's
+/// full control-channel set (~23 services) so its routing responder can block reactively on
+/// all of them at once instead of busy-polling.
+pub(crate) const MAX_WAITSET_MEMBERS: usize = 32;
 
 /// Opaque kernel-local waitset identifier (type-safe currency for the table API).
 ///

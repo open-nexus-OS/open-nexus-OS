@@ -28,6 +28,12 @@ where
     debug_write_byte(b'\n');
     probe_debug_write_words();
     configure_log_topics();
+    // Boot-timing signposts (Phase 3): total boot duration plus accumulated policy-grant wait,
+    // emitted as a compact table at the end so boot bottlenecks (e.g. services waiting on policyd
+    // MMIO grants) are visible without a separate profiler.
+    let boot_span = nexus_abi::Span::begin();
+    let grant_wait_ns = core::cell::Cell::new(0u64);
+    let grant_count = core::cell::Cell::new(0u32);
     log_str_ptr("init-msg", "init: start");
     debug_write_str("init: start");
     debug_write_byte(b'\n');
@@ -63,6 +69,7 @@ where
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
     let mut ctrl_channels: Vec<CtrlChannel> = Vec::new();
+    let spawn_span = nexus_abi::Span::begin();
     for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
@@ -227,6 +234,7 @@ where
         // scheduler/AS-switching issues by jumping into the newly spawned task mid-print.
         // Keep the default bring-up deterministic: spawn the full set first, then yield.
     }
+    let spawn_ms = spawn_span.elapsed_ms();
 
     notifier.notify();
     debug_write_str("init: ready");
@@ -575,6 +583,7 @@ where
     let grant_mmio_with_wait =
         |pid: u32, svc_name: &str, cap_name: &str, slot: usize, cap_slot: u32| -> Result<()> {
             let (mmio_base, mmio_len) = virtio_mmio_window(slot);
+            let grant_span = nexus_abi::Span::begin();
             let deadline = match nexus_abi::nsec() {
                 Ok(now) => now.saturating_add(1_000_000_000),
                 Err(_) => 0,
@@ -603,6 +612,8 @@ where
                     }
                 }
             }
+            grant_wait_ns.set(grant_wait_ns.get().saturating_add(grant_span.elapsed_ns()));
+            grant_count.set(grant_count.get().saturating_add(1));
             Ok(())
         };
 
@@ -697,6 +708,10 @@ where
             DEVICE_MMIO_CAP_SLOT,
         )?;
     }
+    // Cumulative boot elapsed at the end of the MMIO-grant phase (spawn + resume + early
+    // wiring + grants). The gap to `total_ms` is the per-service cap-wiring phase, during which
+    // init yields and the resumed services co-run their self-init.
+    let grants_done_ms = boot_span.elapsed_ms();
 
     /// Transfer a capability to a child PID with graceful error handling.
     /// Returns Some(slot) on success, None on failure (logs the error).
@@ -1833,6 +1848,11 @@ where
         }
     }
 
+    // Cumulative boot elapsed just before the display-chain deferred resume. The gap from
+    // `grants_done_ms` is the per-service cap-wiring phase; the gap to `total_ms` is the
+    // display resume + the updated/bundlemgr OTA handshake tail.
+    let wiring_done_ms = boot_span.elapsed_ms();
+
     // Resume display-chain services after MMIO grants and route wiring.
     // gpud FIRST: the GL-scanout display handoff (OP_SET_FRAMEBUFFER_VMO →
     // scanout) must be ready before windowd presents, or the window stays black.
@@ -1885,6 +1905,23 @@ where
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
     route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
+    // Boot-timing table (Phase 3): one compact line locating where boot time went. `grant_wait`
+    // is the time spent yielding for policyd MMIO grants — the prime "services waiting" suspect.
+    let total_ms = boot_span.elapsed_ms();
+    let timing = alloc::format!(
+        "init: timing spawn_ms={} grants_at_ms={} wiring_at_ms={} total_ms={} (grant_wait_ms={} grants={} wiring_ms={} tail_ms={})",
+        spawn_ms,
+        grants_done_ms,
+        wiring_done_ms,
+        total_ms,
+        grant_wait_ns.get() / 1_000_000,
+        grant_count.get(),
+        wiring_done_ms.saturating_sub(grants_done_ms),
+        total_ms.saturating_sub(wiring_done_ms)
+    );
+    debug_write_str(&timing);
+    debug_write_byte(b'\n');
+
     Ok(BootstrapState {
         ctrl_channels,
         route_table,

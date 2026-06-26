@@ -72,7 +72,7 @@ const fn topic_bit(target: &str) -> u32 {
     // Cheap, const-friendly classification by target tag.
     match target.as_bytes() {
         b"cap" => TOPIC_CAP,
-        b"vm" | b"as" => TOPIC_VM,
+        b"vm" | b"as" | b"mm" => TOPIC_VM,
         b"sched" => TOPIC_SCHED,
         _ => TOPIC_GENERAL,
     }

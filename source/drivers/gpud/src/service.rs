@@ -222,6 +222,7 @@ fn service_requests(
                 let (status, response_handoff_id) = match op {
                     OP_SET_FRAMEBUFFER_VMO => {
                         let _ = debug_println("gpud: recv OP_SET_FRAMEBUFFER_VMO");
+                        let handoff_t0 = nsec().unwrap_or(0);
                         let handoff_id =
                             decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
                         match moved_cap.take() {
@@ -236,6 +237,12 @@ fn service_requests(
                                     let _ = debug_println("gpud: handoff attach ack");
                                     let _ = debug_println(GPUD_CURSOR_ON);
                                     let _ = debug_println(GPUD_DISPLAY_READY);
+                                    emit_handoff_timing(
+                                        (nsec()
+                                            .unwrap_or(handoff_t0)
+                                            .saturating_sub(handoff_t0)
+                                            / 1_000_000) as u32,
+                                    );
                                     // The GL scanout now exists, so the recv-timeout
                                     // path may re-present the build-up (spin-blur demo).
                                     #[cfg(all(nexus_env = "os", feature = "virgl"))]
@@ -483,6 +490,46 @@ fn present_buildup_tick(
         *present_ns_sum = 0;
         *present_ns_max = 0;
     }
+}
+
+/// One-shot boot diagnostic: wall-clock of the framebuffer handoff → display-ready
+/// processing (attach backing + GL scanout + first textured/wallpaper present). This is the
+/// `tail_ms` the init boot table attributes to the display chain; emitting it here localizes
+/// whether that time is gpud's GL work vs gpud blocked waiting on present completion. No alloc.
+fn emit_handoff_timing(ms: u32) {
+    let mut buf = [0u8; 48];
+    let mut p = 0usize;
+    let put = |buf: &mut [u8; 48], p: &mut usize, s: &[u8]| {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    };
+    let put_dec = |buf: &mut [u8; 48], p: &mut usize, mut v: u32| {
+        let mut tmp = [0u8; 10];
+        let mut n = 0usize;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            n += 1;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            if *p < buf.len() {
+                buf[*p] = tmp[n];
+                *p += 1;
+            }
+        }
+    };
+    put(&mut buf, &mut p, b"gpud: timing handoff_to_ready_ms=");
+    put_dec(&mut buf, &mut p, ms);
+    put(&mut buf, &mut p, b"\n");
+    let _ = debug_write(&buf[..p]);
 }
 
 fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {

@@ -170,6 +170,21 @@ impl VirtioGpuBackend {
         if !self.virgl_capable || !self.virgl_draw_ok || self.virgl_ctx_id == 0 {
             return Err(GfxError::DeviceNotFound);
         }
+        // Batch the whole GL-scanout bring-up (~49 virgl commands, incl. virgl_blur_init's):
+        // enqueue them onto the DriverKit ring WITHOUT a per-command wait. virgl processes the
+        // ring IN ORDER, so resource/shader creation still precedes the draws that use them.
+        // Previously each command blocked up to GPU_WAIT_DEADLINE_NS (500ms) on QEMU's deferred
+        // used-ring advance — ~49 × 500ms froze the bootsplash for ~12s. This is the same
+        // pipelining the present already uses; the init path was never migrated onto it.
+        // `ctrl_batch_end` runs even on the error path so a failed init can't leave the backend
+        // stuck in batch mode for the 2D fallback's synchronous commands.
+        self.ctrl_batch_begin();
+        let result = self.gl_scanout_init_batched();
+        let _ = self.ctrl_batch_end();
+        result
+    }
+
+    fn gl_scanout_init_batched(&mut self) -> Result<(), GfxError> {
         // The display texture (0xF8), quad (0xFA), sampler view/state and the
         // blit's source plumbing are shared with the blur pipeline.
         if !self.virgl_blur_ready {
@@ -259,31 +274,24 @@ impl VirtioGpuBackend {
         self.ctrl_submit_struct(&wp_ctx)?;
         let wp_va =
             self.virgl_attach_backing(H_WALLPAPER_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
-        // Remember the backing so the first present can replace these boot bands
-        // with the real wallpaper (windowd's decoded JPEG in VMO Plane 0).
+        // Remember the backing so the first build-up present can fill it with the real
+        // wallpaper (windowd's decoded JPEG in VMO Plane 0, via try_upload_wallpaper_from_vmo).
         self.gl_wallpaper_tex_va = wp_va as usize;
+        // Seed with the compositor's own base clear colour (a clean splash) — NOT a debug
+        // test pattern. This is the seamless backdrop for the single frame before the real
+        // wallpaper lands: it matches the scanout RT's GPU-clear below, so the boot reads as
+        // one uniform splash → real desktop, with no fallback pattern ever shown.
         {
             let dst = wp_va as *mut u8;
-            const BANDS: [[u8; 4]; 8] = [
-                [40, 40, 220, 255],   // red    (BGRA)
-                [40, 150, 240, 255],  // orange
-                [40, 220, 240, 255],  // yellow
-                [60, 200, 60, 255],   // green
-                [200, 200, 40, 255],  // cyan
-                [220, 80, 40, 255],   // blue
-                [220, 40, 200, 255],  // magenta
-                [240, 240, 240, 255], // white
-            ];
-            for y in 0..SCREEN_H as usize {
-                let c = BANDS[(y * 8 / SCREEN_H as usize).min(7)];
-                for x in 0..SCREEN_W as usize {
-                    let off = (y * SCREEN_W as usize + x) * 4;
-                    unsafe {
-                        dst.add(off).write_volatile(c[0]);
-                        dst.add(off + 1).write_volatile(c[1]);
-                        dst.add(off + 2).write_volatile(c[2]);
-                        dst.add(off + 3).write_volatile(c[3]);
-                    }
+            // BGRA of the GPU-clear slate (0.09, 0.10, 0.12) used for the scanout RT.
+            const SPLASH: [u8; 4] = [31, 26, 23, 255];
+            for i in 0..(SCREEN_W as usize * SCREEN_H as usize) {
+                let off = i * 4;
+                unsafe {
+                    dst.add(off).write_volatile(SPLASH[0]);
+                    dst.add(off + 1).write_volatile(SPLASH[1]);
+                    dst.add(off + 2).write_volatile(SPLASH[2]);
+                    dst.add(off + 3).write_volatile(SPLASH[3]);
                 }
             }
         }

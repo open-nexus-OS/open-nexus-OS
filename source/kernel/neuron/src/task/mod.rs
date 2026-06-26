@@ -760,7 +760,7 @@ impl TaskTable {
         frame.x[3] = global_pointer;
 
         // Debug: verify SP was set
-        log_info!(
+        log_debug!(
             target: "task",
             "SPAWN-FRAME: sepc=0x{:x} sp(x2)=0x{:x} gp(x3)=0x{:x}",
             frame.sepc,

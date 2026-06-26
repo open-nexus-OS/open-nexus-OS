@@ -1837,6 +1837,45 @@ pub fn nsec() -> SysResult<u64> {
     }
 }
 
+/// Current monotonic nanoseconds, or 0 where unavailable (host). Internal to [`Span`].
+#[cfg(nexus_env = "os")]
+fn span_now_ns() -> u64 {
+    nsec().unwrap_or(0)
+}
+#[cfg(not(nexus_env = "os"))]
+fn span_now_ns() -> u64 {
+    0
+}
+
+/// A monotonic timing span over the kernel clock, for boot/section instrumentation (the
+/// signpost primitive). Reading is one cheap syscall; on host (no clock) it degrades to zero
+/// duration so the same instrumentation compiles and runs in host tests.
+pub struct Span {
+    start_ns: u64,
+}
+
+impl Span {
+    /// Begins a span at the current monotonic time.
+    pub fn begin() -> Self {
+        Self { start_ns: span_now_ns() }
+    }
+
+    /// Nanoseconds elapsed since [`begin`](Self::begin).
+    pub fn elapsed_ns(&self) -> u64 {
+        span_now_ns().saturating_sub(self.start_ns)
+    }
+
+    /// Whole milliseconds elapsed since [`begin`](Self::begin).
+    pub fn elapsed_ms(&self) -> u64 {
+        self.elapsed_ns() / 1_000_000
+    }
+
+    /// Whole microseconds elapsed since [`begin`](Self::begin).
+    pub fn elapsed_us(&self) -> u64 {
+        self.elapsed_ns() / 1_000
+    }
+}
+
 /// Creates a kernel timer capability bound to `notify_ep_cap`.
 ///
 /// `notify_ep_cap` must reference an endpoint capability in the caller's cap table.

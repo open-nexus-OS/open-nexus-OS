@@ -450,7 +450,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         log_error!(target: "mm", "AS-MAP: HEAP NOT COVERED! heap={:#x}..{:#x} data_end={:#x}",
             heap_start, heap_end, data_end);
     } else {
-        log_info!(target: "mm", "AS-MAP: HEAP OK in DATA range: heap={:#x}..{:#x} data_end={:#x}",
+        log_debug!(target: "mm", "AS-MAP: HEAP OK in DATA range: heap={:#x}..{:#x} data_end={:#x}",
             heap_start, heap_end, data_end);
     }
 
@@ -485,7 +485,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         map_from
     );
     if map_from < stack_end {
-        log_info!(target: "mm", "AS-MAP: mapping KSTACK tail {:#x}..{:#x}", map_from, stack_end);
+        log_debug!(target: "mm", "AS-MAP: mapping KSTACK tail {:#x}..{:#x}", map_from, stack_end);
         if let Err(e) = map_identity_range(
             table,
             map_from,
@@ -502,7 +502,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
             }
             return Err(e);
         }
-        log_info!(target: "mm", "AS-MAP: KSTACK tail mapped ok");
+        log_debug!(target: "mm", "AS-MAP: KSTACK tail mapped ok");
     } else {
         log_debug!(
             target: "mm",
@@ -652,7 +652,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
         return Err(e);
     }
 
-    log_info!(target: "mm", "map kernel segments ok");
+    log_debug!(target: "mm", "map kernel segments ok");
     Ok(())
 }
 
