@@ -1,0 +1,9 @@
+[package]
+name = "nexus-virtio"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared virtio-mmio transport HAL: register map, the device-init handshake (reset/ack/driver/features/queue/driver_ok), split-virtqueue ring structs, and queue setup — so each virtio driver shrinks to its device id + config registers + device-specific logic."
+
+[dependencies]
+nexus-hal = { path = "../nexus-hal" }

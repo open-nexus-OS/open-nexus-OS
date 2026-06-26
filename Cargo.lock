@@ -1707,6 +1707,7 @@ name = "net-virtio"
 version = "0.1.0"
 dependencies = [
  "nexus-hal",
+ "nexus-virtio",
 ]
 
 [[package]]
@@ -2080,6 +2081,13 @@ dependencies = [
  "capnp",
  "nexus-idl-runtime",
  "nexus-ipc",
+]
+
+[[package]]
+name = "nexus-virtio"
+version = "0.1.0"
+dependencies = [
+ "nexus-hal",
 ]
 
 [[package]]

@@ -1,5 +1,8 @@
 # ADR-0018: DriverKit ABI Versioning and Stability
 
+> Related: ADR-0039 (device-class driver architecture) places this ABI within the full layering —
+> bus-HAL (`nexus-virtio`) + DriverKit + a thin device shim + the SDK.
+
 ## Status
 
 Proposed

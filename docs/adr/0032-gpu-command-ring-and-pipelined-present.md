@@ -4,7 +4,7 @@
 - Created: 2026-06-16
 - RFC: `docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md`
 - Supersedes the single-buffer serialized submit in `source/drivers/gpud/src/backend.rs`
-- Related: ADR-0031 (three-layer animation), ADR-0028 (windowd present chain)
+- Related: ADR-0031 (three-layer animation), ADR-0028 (windowd present chain), ADR-0039 (device-class driver architecture — this ring is the GPU instance of the shared DriverKit submit ring)
 
 ## Context
 

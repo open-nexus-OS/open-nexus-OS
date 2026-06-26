@@ -16,6 +16,8 @@ links:
   - NexusGfx SDK track (consumer + future GPU backend): tasks/TRACK-NEXUSGFX-SDK.md
   - NexusInfer SDK track (on-device ML; CPU ref + future NPU executor): tasks/TRACK-NEXUSINFER-SDK.md
   - ADR (DriverKit ABI policy): docs/adr/0018-driverkit-abi-versioning-and-stability.md
+  - ADR (device-class driver architecture: bus-HAL + DriverKit + thin device shim): docs/adr/0039-device-class-driver-architecture.md
+  - Landed (virtio-mmio bus-HAL): source/libs/nexus-virtio — register map + init handshake + virtqueue ring + queue setup, generic over nexus_hal::Bus (net-virtio migrated; storage/rng/input/gpud boot-gated follow-ons)
   - Extracted (DriverKit core v1): tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
   - Extracted (NexusInfer interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
