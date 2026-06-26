@@ -243,9 +243,12 @@ where
     // Resume all spawned services now so policyd can handle MMIO policy
     // checks during the grant phase. IPC wiring happens after grants.
     for chan in &ctrl_channels {
-        // Display chain is resumed after grants + route wiring so it can
-        // initialize without startup probe/handoff races.
-        if matches!(chan.svc_name, "gpud" | "windowd" | "inputd") {
+        // Display + input device drivers are resumed AFTER grants + route wiring so they
+        // initialize without startup probe/handoff races. A driver resumed before its MMIO
+        // is granted busy-yields waiting for it — wasting scheduler cycles that slow the very
+        // grant phase it is blocked on. Keeping it suspended (zero CPU) until ready is the
+        // reactive, faster path. `hidrawd` previously raced here (see its `entry_to_ready_ms`).
+        if matches!(chan.svc_name, "gpud" | "windowd" | "inputd" | "hidrawd") {
             continue;
         }
         match nexus_abi::task_resume(chan.pid) {
@@ -1853,12 +1856,13 @@ where
     // display resume + the updated/bundlemgr OTA handshake tail.
     let wiring_done_ms = boot_span.elapsed_ms();
 
-    // Resume display-chain services after MMIO grants and route wiring.
+    // Resume display + input device-driver services after MMIO grants and route wiring.
     // gpud FIRST: the GL-scanout display handoff (OP_SET_FRAMEBUFFER_VMO →
     // scanout) must be ready before windowd presents, or the window stays black.
-    // inputd is resumed right after windowd; hidrawd (already running) routes to it
-    // and binds its device IRQ — the input chain is live shortly after the UI.
-    for service_name in ["gpud", "windowd", "inputd"] {
+    // inputd is resumed right after windowd; hidrawd LAST (after inputd) so it finds its
+    // virtio-input MMIO already granted and inputd's route already wired — it opens its
+    // devices + binds its IRQ immediately, with no startup busy-yield (see `entry_to_ready_ms`).
+    for service_name in ["gpud", "windowd", "inputd", "hidrawd"] {
         if let Some(chan) = ctrl_channels.iter().find(|c| c.svc_name == service_name) {
             match nexus_abi::task_resume(chan.pid) {
                 Ok(()) => {

@@ -40,7 +40,9 @@ const INPUT_QUEUE_VAS: [usize; 3] = [0x2004_0000, 0x2005_0000, 0x2006_0000];
 const INPUT_BUFFER_VAS: [usize; 3] = [0x2007_0000, 0x2008_0000, 0x2009_0000];
 
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
-    // Caps are pre-granted by init before resume — no yield needed.
+    // NOTE: hidrawd is currently resumed by init BEFORE its input MMIO is granted + the inputd
+    // route is wired, so the loop below busy-yields until both land (measured by `load_span`).
+    let load_span = nexus_abi::Span::begin();
     let mut service = HidrawdService::new();
     // The live loop reads input via `normalize_ingress_into` and never inspects
     // `recent_batches`; recording there only burns the non-freeing bump heap.
@@ -85,6 +87,10 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         }
         if !ready_emitted && !live_devices.is_empty() {
             debug_println("hidrawd: ready")?;
+            let _ = debug_println(&format!(
+                "hidrawd: timing entry_to_ready_ms={}",
+                load_span.elapsed_ms()
+            ));
             ready_emitted = true;
         }
         if live_devices.is_empty() {
