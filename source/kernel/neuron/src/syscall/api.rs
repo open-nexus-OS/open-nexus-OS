@@ -503,7 +503,8 @@ impl CapTransferToArgsTyped {
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_QUERY,
-    SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEVICE_CAP_CREATE,
+    SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE,
+    SYSCALL_DEVICE_CAP_CREATE,
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
     SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
@@ -669,6 +670,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IPC_RECV_V2, sys_ipc_recv_v2);
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
+    table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         use core::fmt::Write as _;
@@ -2755,6 +2757,28 @@ fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let s = core::str::from_utf8(&ch).unwrap_or("");
     let _ = u.write_str(s);
     Ok(byte as usize)
+}
+
+/// Atomic debug slice write. Emits the whole user byte slice under the UART lock in one
+/// critical section, so a userspace log line cannot interleave mid-line with the kernel's
+/// own locked `emit()` or with another process's line. This is the serialized-console fix
+/// for the byte-level interleave corruption that `sys_debug_putc`'s lock-free path produced.
+/// Args: (ptr, len). Over-long lines are clamped, not rejected.
+fn sys_debug_write(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    const MAX_DEBUG_WRITE: usize = 1024;
+    let ptr = args.get(0);
+    let len = core::cmp::min(args.get(1), MAX_DEBUG_WRITE);
+    if len == 0 {
+        return Ok(0);
+    }
+    ensure_user_slice(ptr, len)?;
+    // SAFETY: `ensure_user_slice` validated [ptr, ptr+len) lies in the caller's user range.
+    let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+    let text = core::str::from_utf8(bytes).unwrap_or("");
+    let mut uart = crate::uart::KernelUart::lock();
+    use core::fmt::Write as _;
+    let _ = (&mut *uart).write_str(text);
+    Ok(len)
 }
 
 // CRITICAL: ABI surface for userspace spawn. Keep Decode→Check→Execute and rights checks stable.

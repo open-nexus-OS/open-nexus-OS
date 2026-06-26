@@ -53,11 +53,29 @@ pub unsafe fn init_global_pointer() {
     );
 }
 
+/// True when the build opted into verbose logging via `INIT_LITE_LOG_TOPICS=trace|verbose`.
+/// Compile-time string; used to gate developer-only output that must stay off by default.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn verbose_build() -> bool {
+    option_env!("INIT_LITE_LOG_TOPICS")
+        .map(|spec| {
+            spec.split(',').any(|token| {
+                let token = token.trim();
+                token.eq_ignore_ascii_case("trace") || token.eq_ignore_ascii_case("verbose")
+            })
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 #[inline(always)]
-/// Emits a single diagnostic marker directly to the debug UART.
+/// Emits a single pre-allocator proof-of-life marker to the debug UART. These raw bytes have
+/// no newline and would fuse with the next line, so they are gated to verbose builds only —
+/// a normal boot stays clean; a debug build (`INIT_LITE_LOG_TOPICS=trace`) restores them.
 pub unsafe fn write_boot_marker(byte: u8) {
-    let _ = nexus_abi::debug_putc(byte);
+    if verbose_build() {
+        let _ = nexus_abi::debug_putc(byte);
+    }
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
@@ -573,15 +591,7 @@ pub mod os {
     /// the "flags" path: detail is one rebuild-time token away, never deleted.
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     fn configure_verbosity_from_env() {
-        let verbose = option_env!("INIT_LITE_LOG_TOPICS")
-            .map(|spec| {
-                spec.split(',').any(|token| {
-                    let token = token.trim();
-                    token.eq_ignore_ascii_case("trace") || token.eq_ignore_ascii_case("verbose")
-                })
-            })
-            .unwrap_or(false);
-        if verbose {
+        if super::verbose_build() {
             nexus_abi::set_debug_trace(true);
             #[cfg(feature = "alloc-log")]
             nexus_log::set_max_level(nexus_log::Level::Debug);

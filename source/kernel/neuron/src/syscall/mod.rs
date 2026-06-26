@@ -65,6 +65,9 @@ pub const SYSCALL_TASK_QOS: usize = 15;
 pub const SYSCALL_EXEC_V2: usize = 17;
 /// Debug UART putc for userspace (best-effort, no permissions required).
 pub const SYSCALL_DEBUG_PUTC: usize = 16;
+/// Debug UART slice write: emits a whole byte slice atomically under the UART lock so a
+/// userspace log line cannot interleave mid-line with the kernel or another process.
+pub const SYSCALL_DEBUG_WRITE: usize = 44;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

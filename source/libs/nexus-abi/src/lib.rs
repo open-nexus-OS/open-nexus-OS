@@ -2750,20 +2750,45 @@ pub fn debug_putc(byte: u8) -> SysResult<()> {
     }
 }
 
-/// Writes a byte slice to the kernel UART for debugging.
+/// Writes a byte slice to the kernel UART for debugging. The whole slice is emitted
+/// atomically by the kernel under the UART lock (one syscall), so it cannot interleave
+/// mid-slice with the kernel or another process.
 #[cfg(nexus_env = "os")]
 pub fn debug_write(bytes: &[u8]) -> SysResult<()> {
-    for &b in bytes {
-        debug_putc(b)?;
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        const SYSCALL_DEBUG_WRITE: usize = 44;
+        let raw = unsafe { ecall2(SYSCALL_DEBUG_WRITE, bytes.as_ptr() as usize, bytes.len()) };
+        decode_syscall(raw).map(|_| ())
     }
-    Ok(())
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        for &b in bytes {
+            debug_putc(b)?;
+        }
+        Ok(())
+    }
 }
 
-/// Writes a line (with trailing '\n') to the kernel UART for debugging.
+/// Writes a line (with trailing '\n') to the kernel UART for debugging. The content and the
+/// newline go out in a single atomic [`debug_write`] (via a bounded stack buffer) so a line
+/// is never split across two console writes; very long lines fall back to content + newline.
 #[cfg(nexus_env = "os")]
 pub fn debug_println(s: &str) -> SysResult<()> {
-    debug_write(s.as_bytes())?;
-    debug_putc(b'\n')
+    const LINE_CAP: usize = 512;
+    let bytes = s.as_bytes();
+    if bytes.len() < LINE_CAP {
+        let mut buf = [0u8; LINE_CAP];
+        buf[..bytes.len()].copy_from_slice(bytes);
+        buf[bytes.len()] = b'\n';
+        debug_write(&buf[..bytes.len() + 1])
+    } else {
+        debug_write(bytes)?;
+        debug_write(b"\n")
+    }
 }
 
 /// Runtime gate for developer trace breadcrumbs (see [`debug_trace`]). Off by default so
