@@ -280,7 +280,10 @@ impl Scheduler {
             static ENQ_COUNT: core::sync::atomic::AtomicUsize =
                 core::sync::atomic::AtomicUsize::new(0);
             let count = ENQ_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            if count < LOG_LIMIT {
+            // Runtime-gated (off by default; MAX_LEVEL=Info): the raw write bypasses the diag
+            // facade, so honour the same DEBUG/topic gate the facade uses. Re-enable via the
+            // boot knob (`NEXUS_LOG=sched=debug`) without a rebuild.
+            if count < LOG_LIMIT && crate::log::would_log(crate::log::Level::Debug, "sched") {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
                 let _ = writeln!(u, "[DEBUG sched] enqueue: pid={} qos={:?}", id.as_raw(), qos);
@@ -303,7 +306,8 @@ impl Scheduler {
             static NEXT_COUNT: core::sync::atomic::AtomicUsize =
                 core::sync::atomic::AtomicUsize::new(0);
             let count = NEXT_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-            if count < LOG_LIMIT {
+            // Runtime-gated like the enqueue trace above (off by default; `NEXUS_LOG=sched=debug`).
+            if count < LOG_LIMIT && crate::log::would_log(crate::log::Level::Debug, "sched") {
                 u = Some(crate::uart::raw_writer());
             }
         }

@@ -335,21 +335,23 @@ pub(crate) fn grant_mmio_cap(
     pol_recv: u32,
     expected_slot: u32,
 ) -> Result<Option<bool>> {
-    // #region agent log (mmio grant tracing)
-    debug_write_bytes(b"init: mmio grant begin svc=");
-    debug_write_str(svc_name);
-    debug_write_bytes(b" pid=0x");
-    debug_write_hex(pid as usize);
-    debug_write_bytes(b" slot=0x");
-    debug_write_hex(expected_slot as usize);
-    debug_write_bytes(b" base=0x");
-    debug_write_hex(base);
-    debug_write_bytes(b" len=0x");
-    debug_write_hex(len);
-    debug_write_bytes(b" cap=");
-    debug_write_str(cap_name);
-    debug_write_byte(b'\n');
-    // #endregion agent log
+    // Success-path grant tracing: off by default (probe topic). DENIED/err lines below are
+    // ALWAYS shown. Re-enable detail via `INIT_LITE_LOG_TOPICS=probe`.
+    if probes_enabled() {
+        debug_write_bytes(b"init: mmio grant begin svc=");
+        debug_write_str(svc_name);
+        debug_write_bytes(b" pid=0x");
+        debug_write_hex(pid as usize);
+        debug_write_bytes(b" slot=0x");
+        debug_write_hex(expected_slot as usize);
+        debug_write_bytes(b" base=0x");
+        debug_write_hex(base);
+        debug_write_bytes(b" len=0x");
+        debug_write_hex(len);
+        debug_write_bytes(b" cap=");
+        debug_write_str(cap_name);
+        debug_write_byte(b'\n');
+    }
 
     let subject_id = nexus_abi::service_id_from_name(svc_name.as_bytes());
     let allowed = match policyd_cap_allowed(pol_send, pol_recv, subject_id, cap_name.as_bytes()) {
@@ -365,21 +367,21 @@ pub(crate) fn grant_mmio_cap(
         return Ok(Some(false));
     }
 
-    // #region agent log (mmio cap create/transfer tracing)
-    debug_write_bytes(b"init: mmio cap_create svc=");
-    debug_write_str(svc_name);
-    debug_write_byte(b'\n');
-    // #endregion agent log
+    if probes_enabled() {
+        debug_write_bytes(b"init: mmio cap_create svc=");
+        debug_write_str(svc_name);
+        debug_write_byte(b'\n');
+    }
 
     let cap = match nexus_abi::device_mmio_cap_create(base, len, usize::MAX) {
         Ok(slot) => {
-            // #region agent log (mmio cap create result)
-            debug_write_bytes(b"init: mmio cap_create ok svc=");
-            debug_write_str(svc_name);
-            debug_write_bytes(b" cap_slot=0x");
-            debug_write_hex(slot as usize);
-            debug_write_byte(b'\n');
-            // #endregion agent log
+            if probes_enabled() {
+                debug_write_bytes(b"init: mmio cap_create ok svc=");
+                debug_write_str(svc_name);
+                debug_write_bytes(b" cap_slot=0x");
+                debug_write_hex(slot as usize);
+                debug_write_byte(b'\n');
+            }
             slot
         }
         Err(e) => {
@@ -394,23 +396,23 @@ pub(crate) fn grant_mmio_cap(
         }
     };
 
-    // #region agent log (mmio cap transfer begin)
-    debug_write_bytes(b"init: mmio xfer_to_slot svc=");
-    debug_write_str(svc_name);
-    debug_write_bytes(b" dst_slot=0x");
-    debug_write_hex(expected_slot as usize);
-    debug_write_byte(b'\n');
-    // #endregion agent log
+    if probes_enabled() {
+        debug_write_bytes(b"init: mmio xfer_to_slot svc=");
+        debug_write_str(svc_name);
+        debug_write_bytes(b" dst_slot=0x");
+        debug_write_hex(expected_slot as usize);
+        debug_write_byte(b'\n');
+    }
 
     let slot = match nexus_abi::cap_transfer_to_slot(pid, cap, Rights::MAP, expected_slot) {
         Ok(slot) => {
-            // #region agent log (mmio cap transfer ok)
-            debug_write_bytes(b"init: mmio xfer_to_slot ok svc=");
-            debug_write_str(svc_name);
-            debug_write_bytes(b" got=0x");
-            debug_write_hex(slot as usize);
-            debug_write_byte(b'\n');
-            // #endregion agent log
+            if probes_enabled() {
+                debug_write_bytes(b"init: mmio xfer_to_slot ok svc=");
+                debug_write_str(svc_name);
+                debug_write_bytes(b" got=0x");
+                debug_write_hex(slot as usize);
+                debug_write_byte(b'\n');
+            }
             slot
         }
         Err(e) => {
@@ -435,11 +437,13 @@ pub(crate) fn grant_mmio_cap(
         debug_write_byte(b'\n');
         return Err(InitError::Map("mmio slot mismatch"));
     }
-    debug_write_bytes(b"init: mmio grant svc=");
-    debug_write_str(svc_name);
-    debug_write_bytes(b" slot=0x");
-    debug_write_hex(slot as usize);
-    debug_write_byte(b'\n');
+    if probes_enabled() {
+        debug_write_bytes(b"init: mmio grant svc=");
+        debug_write_str(svc_name);
+        debug_write_bytes(b" slot=0x");
+        debug_write_hex(slot as usize);
+        debug_write_byte(b'\n');
+    }
     Ok(Some(true))
 }
 

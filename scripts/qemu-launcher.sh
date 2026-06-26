@@ -82,6 +82,9 @@ QEMU_LOG_MAX=${QEMU_LOG_MAX:-52428800}
 UART_LOG_MAX=${UART_LOG_MAX:-10485760}
 LOG_DIR=${LOG_DIR:-$ROOT/build/logs/manual--$(date +%Y-%m-%dT%H-%M-%S)}
 mkdir -p "$LOG_DIR"
+# Keep build/logs/latest pointing at THIS run so `latest/uart.log` is never stale
+# (the recurring "I see the old uart" trap). `-fn` replaces the existing symlink in place.
+ln -sfn "$LOG_DIR" "$ROOT/build/logs/latest" 2>/dev/null || true
 UART_LOG=${UART_LOG:-$LOG_DIR/uart.log}
 QEMU_LOG=${QEMU_LOG:-$LOG_DIR/qemu.stderr}
 HYPOTHESIS_LOG=${HYPOTHESIS_LOG:-$LOG_DIR/hypothesis.json}

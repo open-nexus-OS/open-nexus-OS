@@ -781,13 +781,14 @@ where
 
     for chan in &mut ctrl_channels {
         let pid = chan.pid;
-        // #region agent log (wire-up progress)
-        debug_write_bytes(b"init: wire svc=");
-        debug_write_str(chan.svc_name);
-        debug_write_bytes(b" pid=0x");
-        debug_write_hex(pid as usize);
-        debug_write_byte(b'\n');
-        // #endregion agent log
+        // Per-service wire-up progress: off by default (probe topic; `INIT_LITE_LOG_TOPICS=probe`).
+        if probes_enabled() {
+            debug_write_bytes(b"init: wire svc=");
+            debug_write_str(chan.svc_name);
+            debug_write_bytes(b" pid=0x");
+            debug_write_hex(pid as usize);
+            debug_write_byte(b'\n');
+        }
         match chan.svc_name {
             "netstackd" => {
                 // Provide netstackd its own request/response endpoints (server side).

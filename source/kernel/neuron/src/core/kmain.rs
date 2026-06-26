@@ -119,6 +119,12 @@ impl KernelState {
             panic!("kernel address space activate failed");
         }
 
+        // The kernel AS is now active, so the identity-mapped fw_cfg window is reachable.
+        // Probe the boot mode (proof vs interactive) once — this gates whether later kernel
+        // boot markers fold into the verdict grid (interactive) or stay raw (proof). Safe to
+        // call here; defaults to raw on any failure. Alloc-free (fixed buffers, MMIO reads).
+        crate::boot_mode::detect();
+
         // Now proceed with task table and the rest of bring-up under the active SATP.
         let mut tasks = TaskTable::new();
         // If an early trap occurred, print it once to aid bring-up debugging.
@@ -659,6 +665,10 @@ pub fn kmain() -> ! {
         )))]
         selftest::entry(&mut ctx);
         // Userspace acceptance markers are emitted by daemons and selftest-client.
+        // Fold the kernel selftest's routine markers into one `kself N/N OK <ms>` grid verdict
+        // (interactive boots only; proof boots emitted them raw for verify-uart). Pairs with the
+        // suppression in diag::log::emit so no folded marker is ever dropped without a verdict.
+        crate::log::verdict_flush_kself();
     }
     #[cfg(feature = "boot_timing")]
     {

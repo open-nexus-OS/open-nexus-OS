@@ -2368,7 +2368,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         ctx.address_spaces.map_page(as_handle, va, pa, stack_flags)?;
     }
-    log_info!(
+    log_debug!(
         target: "exec",
         "STACK-MAP: va=0x{:x}-0x{:x} pa=0x{:x} pages={} sp=0x{:x}",
         stack_bottom,
@@ -2384,7 +2384,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let t_sp = pt.translate(sp_probe);
         let t_top_minus_1 = pt.translate(mapped_top.saturating_sub(1));
         let t_top = pt.translate(mapped_top);
-        log_info!(
+        log_debug!(
             target: "exec",
             "STACK-CHECK: base=0x{:x} top=0x{:x} top-1->0x{:x?} top->0x{:x?} sp->0x{:x?}",
             stack_bottom,
@@ -2690,13 +2690,17 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
                 if writable {
                     panic!("exec meta mapping writable");
                 }
-                let mut u = crate::uart::raw_writer();
-                let _ = writeln!(
-                u,
-                "[INFO exec] EXEC-META: va=0x{:x} pa=0x{:x} entry=0x{:016x} name_len=0x{:x} info_va=0x{:x}",
-                meta_va, meta_pa, entry, typed.name_len
-                ,info_va
-            );
+                // Per-spawn loader detail: off by default (raw write bypasses the diag facade, so
+                // honour the same DEBUG/topic gate; `NEXUS_LOG=exec=debug` re-enables). The WRITE
+                // safety check above is unconditional — only the trace is gated.
+                if crate::log::would_log(crate::log::Level::Debug, "exec") {
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(
+                        u,
+                        "[DEBUG exec] EXEC-META: va=0x{:x} pa=0x{:x} entry=0x{:016x} name_len=0x{:x} info_va=0x{:x}",
+                        meta_va, meta_pa, entry, typed.name_len, info_va
+                    );
+                }
             }
         }
 

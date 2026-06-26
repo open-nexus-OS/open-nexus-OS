@@ -475,7 +475,7 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     let mapped_start = stack_start.checked_add(guard_bytes).ok_or(MapError::OutOfRange)?;
     // DATA/BSS identity range may already cover the low portion of the stack; avoid remapping.
     let map_from = core::cmp::max(mapped_start, data_end);
-    log_info!(
+    log_debug!(
         target: "mm",
         "AS-MAP: KSTACK check: start={:#x} end={:#x} data_end={:#x} guard={} map_from={:#x}",
         stack_start,
@@ -648,6 +648,24 @@ fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     ) {
         if let MapError::Overlap = e {
             log_error!(target: "mm", "AS-MAP: overlap in PLIC");
+        }
+        return Err(e);
+    }
+
+    // Identity-map the QEMU virt fw_cfg window (VIRT_FW_CFG = 0x1010_0000, one page) so the kernel
+    // can read the boot mode (proof vs interactive) at early boot — the same source selftest-client
+    // uses. This gates whether the kernel folds its boot markers into verdicts (interactive) or emits
+    // them raw (proof, for verify-uart). Read-only use; mapped RW to match the other device windows.
+    const FW_CFG_BASE: usize = 0x1010_0000;
+    const FW_CFG_LEN: usize = 0x1000;
+    if let Err(e) = map_identity_range(
+        table,
+        align_down(FW_CFG_BASE),
+        align_up(FW_CFG_BASE + FW_CFG_LEN),
+        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+    ) {
+        if let MapError::Overlap = e {
+            log_error!(target: "mm", "AS-MAP: overlap in fw_cfg");
         }
         return Err(e);
     }

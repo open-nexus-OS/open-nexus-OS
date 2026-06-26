@@ -261,6 +261,8 @@ fn alloc_error_handler(layout: core::alloc::Layout) -> ! {
 #[macro_use]
 #[path = "diag/log.rs"]
 mod log;
+#[path = "diag/boot_mode.rs"]
+mod boot_mode;
 #[cfg(target_os = "none")]
 mod arch;
 #[cfg(target_os = "none")]

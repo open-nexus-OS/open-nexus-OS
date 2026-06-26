@@ -1730,17 +1730,23 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     // Verify init task state
     if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
         use core::fmt::Write as _;
-        let mut uart = crate::uart::raw_writer();
         let frame = task.frame();
-        let _ = writeln!(uart, "[INFO selftest] KSELFTEST: init frame:");
-        let _ = writeln!(uart, "  sepc=0x{:016x}", frame.sepc);
-        let _ = writeln!(uart, "  gp=0x{:016x}", frame.x[3]);
-        let _ = writeln!(uart, "  sp=0x{:016x}", frame.x[2]);
-        let _ = writeln!(uart, "  sstatus=0x{:016x}", frame.sstatus);
         let spp = (frame.sstatus >> 8) & 1;
-        let _ = writeln!(uart, "  SPP={} (U-mode=0, S-mode=1)", spp);
+        // Diagnostic register dump — DEBUG, off by default (recallable via `NEXUS_LOG=selftest=debug`);
+        // stays out of the `kself N/N` count.
+        if crate::log::would_log(crate::log::Level::Debug, "selftest") {
+            let mut uart = crate::uart::raw_writer();
+            let _ = writeln!(uart, "[DEBUG selftest] KSELFTEST: init frame:");
+            let _ = writeln!(uart, "  sepc=0x{:016x}", frame.sepc);
+            let _ = writeln!(uart, "  gp=0x{:016x}", frame.x[3]);
+            let _ = writeln!(uart, "  sp=0x{:016x}", frame.x[2]);
+            let _ = writeln!(uart, "  sstatus=0x{:016x}", frame.sstatus);
+            let _ = writeln!(uart, "  SPP={} (U-mode=0, S-mode=1)", spp);
+        }
+        // SPP MUST be 0 for a U-mode task — a violation is a real failure. Route through the facade
+        // so it folds into the `kself` verdict as a fail (and always prints, even folded).
         if spp != 0 {
-            let _ = writeln!(uart, "[ERROR] SPP should be 0 for U-mode task!");
+            log_error!(target: "selftest", "KSELFTEST: init frame SPP!=0 (expected U-mode entry)");
         }
     } else {
         log_info!(target: "selftest", "KSELFTEST: WARNING task lookup failed!");
@@ -2011,12 +2017,16 @@ fn load_init_elf(
         use core::fmt::Write as _;
         let text_page = align_down(e_entry, PAGE_SIZE);
         if let Some(entry) = space.page_table().lookup(text_page) {
-            let mut uart = crate::uart::raw_writer();
-            let _ = writeln!(
-                uart,
-                "[INFO selftest] KSELFTEST: text page entry=0x{:016x} va=0x{:016x}",
-                entry, text_page
-            );
+            // Diagnostic detail (page-table entry), not a pass/fail check → DEBUG, off by default,
+            // recallable via `NEXUS_LOG=selftest=debug`; stays out of the `kself N/N` count.
+            if crate::log::would_log(crate::log::Level::Debug, "selftest") {
+                let mut uart = crate::uart::raw_writer();
+                let _ = writeln!(
+                    uart,
+                    "[DEBUG selftest] KSELFTEST: text page entry=0x{:016x} va=0x{:016x}",
+                    entry, text_page
+                );
+            }
         } else {
             let mut uart = crate::uart::raw_writer();
             let _ = writeln!(
@@ -2027,12 +2037,14 @@ fn load_init_elf(
         }
         if let Some(data_page) = first_rw_page {
             if let Some(entry) = space.page_table().lookup(data_page) {
-                let mut uart = crate::uart::raw_writer();
-                let _ = writeln!(
-                    uart,
-                    "[INFO selftest] KSELFTEST: data page entry=0x{:016x} va=0x{:016x}",
-                    entry, data_page
-                );
+                if crate::log::would_log(crate::log::Level::Debug, "selftest") {
+                    let mut uart = crate::uart::raw_writer();
+                    let _ = writeln!(
+                        uart,
+                        "[DEBUG selftest] KSELFTEST: data page entry=0x{:016x} va=0x{:016x}",
+                        entry, data_page
+                    );
+                }
             } else {
                 let mut uart = crate::uart::raw_writer();
                 let _ = writeln!(

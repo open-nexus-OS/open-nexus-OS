@@ -12,7 +12,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{Arguments, Write};
-use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU8, AtomicU64, Ordering};
 
 /// Logging severity used by the kernel. Mirrors `nexus_log::Level` (userspace) so the
 /// kernel and userspace facades share one policy vocabulary.
@@ -68,6 +68,120 @@ pub fn set_topic_mask(bits: u32) {
     TOPIC_MASK.store(bits, Ordering::Relaxed);
 }
 
+// ── Verdict aggregation (alloc-free) ─────────────────────────────────────────────────────────
+//
+// In interactive boots the kernel folds a subsystem's routine markers into ONE grid verdict
+// (`[ts] OK kself N/N <ms>`) instead of printing every line; a guaranteed flush emits the verdict,
+// and FAIL/ERROR/WARN always print live (a problem is never hidden). Proof boots do NOT fold
+// (`boot_mode::fold_verdicts()` is false there) so `verify-uart` still sees every raw marker.
+// State is plain atomics — NO heap/Vec/replay-buffer (the kernel's UART+alloc constraint). This
+// first slice folds only the `selftest` topic; more subsystems adopt the same pattern next.
+
+/// Monotonic nanoseconds from the RISC-V `time` CSR (QEMU virt timebase = 10 MHz → 100 ns/tick).
+/// Host builds have no CSR; return 0 (verdict timing is a no-op off-target).
+#[inline]
+fn now_ns() -> u64 {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        (riscv::register::time::read() as u64).wrapping_mul(100)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        0
+    }
+}
+
+// Group accumulator table. Each foldable subsystem gets one slot (total markers, failures, first
+// marker time). Plain atomics, const-constructible — no heap. Add a group by extending the indices,
+// `GROUP_NAMES`, and `group_of`, then wire its flush where the group has emitted all its markers.
+//
+// NOTE: only the kernel SELFTEST folds cleanly. Other kernel topics do NOT: `boot`/`traps` markers
+// fire BEFORE the fw_cfg mode probe (fold flag not set yet); `as`/`exec` fire per service-spawn
+// (they belong in the per-service verdicts, S4); `sched`/`mm` are already DEBUG-gated off. So the
+// kernel grid is essentially `kself`; the rest of the grid lives in the per-service aggregator.
+const GROUP_KSELF: usize = 0;
+const GROUP_COUNT: usize = 1;
+const GROUP_NAMES: [&str; GROUP_COUNT] = ["kself"];
+
+struct GroupAcc {
+    tally: AtomicU32,
+    fails: AtomicU32,
+    first_ns: AtomicU64,
+}
+
+impl GroupAcc {
+    const fn new() -> Self {
+        Self { tally: AtomicU32::new(0), fails: AtomicU32::new(0), first_ns: AtomicU64::new(0) }
+    }
+}
+
+static GROUPS: [GroupAcc; GROUP_COUNT] = [GroupAcc::new()];
+
+/// Map a diag target tag to its verdict group, if it folds. Unlisted targets print normally
+/// (subject only to the level/topic gate).
+const fn group_of(target: &str) -> Option<usize> {
+    match target.as_bytes() {
+        b"selftest" => Some(GROUP_KSELF),
+        _ => None,
+    }
+}
+
+/// Tally one marker into group `g`; returns `true` when the caller should SUPPRESS the line
+/// (routine marker folded into the verdict). Only suppresses in interactive boots. WARN/ERROR are
+/// tallied as failures but still print live — a problem is never hidden.
+fn group_fold(g: usize, level: Level) -> bool {
+    if !crate::boot_mode::fold_verdicts() {
+        return false;
+    }
+    let acc = &GROUPS[g];
+    if acc.first_ns.load(Ordering::Relaxed) == 0 {
+        acc.first_ns.store(now_ns(), Ordering::Relaxed);
+    }
+    acc.tally.fetch_add(1, Ordering::Relaxed);
+    if (level as u8) <= (Level::Warn as u8) {
+        acc.fails.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    true
+}
+
+/// Emit one group's verdict as a single atomic grid line. No-op in proof boots / when empty.
+/// Call where the group has emitted all its markers — pairing flush with the suppression in
+/// [`emit`] guarantees no folded marker is ever dropped without a verdict.
+fn flush_group(g: usize) {
+    if !crate::boot_mode::fold_verdicts() {
+        return;
+    }
+    let acc = &GROUPS[g];
+    let total = acc.tally.load(Ordering::Relaxed);
+    if total == 0 {
+        return;
+    }
+    let fails = acc.fails.load(Ordering::Relaxed);
+    let passed = total - fails;
+    let first = acc.first_ns.load(Ordering::Relaxed);
+    let now = now_ns();
+    let ms = if first != 0 { now.saturating_sub(first) / 1_000_000 } else { 0 };
+    let tag = if fails == 0 { "OK" } else { "ERROR" };
+    let mut uart = crate::uart::KernelUart::lock();
+    let _ = write!(
+        &mut *uart,
+        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms\n",
+        now / 1_000_000_000,
+        (now % 1_000_000_000) / 1000,
+        tag,
+        GROUP_NAMES[g],
+        passed,
+        total,
+        ms
+    );
+}
+
+/// Flush the kernel selftest group verdict. Call at the end of the kernel selftest run.
+pub fn verdict_flush_kself() {
+    flush_group(GROUP_KSELF);
+}
+
 const fn topic_bit(target: &str) -> u32 {
     // Cheap, const-friendly classification by target tag.
     match target.as_bytes() {
@@ -97,6 +211,15 @@ pub fn would_log(level: Level, target: &str) -> bool {
 pub fn emit(level: Level, target: &'static str, args: Arguments<'_>) {
     if !gate_open(level, target) {
         return;
+    }
+
+    // Verdict folding: in interactive boots a foldable subsystem's routine markers are tallied into
+    // its `<group> N/N` verdict (flushed where the group ends) instead of printed; FAIL/WARN still
+    // print. Proof boots never fold, so `verify-uart` sees every raw marker.
+    if let Some(g) = group_of(target) {
+        if group_fold(g, level) {
+            return;
+        }
     }
 
     let mut uart = crate::uart::KernelUart::lock();
