@@ -1837,6 +1837,171 @@ pub fn nsec() -> SysResult<u64> {
     }
 }
 
+/// True when the kernel resolved an INTERACTIVE boot (`SYSCALL_BOOT_MODE` → 1), so a U-mode service
+/// should fold its boot markers into a `<service> N/N` verdict. Proof/unknown and host return
+/// `false` (raw markers, keeping `verify-uart` deterministic). Lets every service share the kernel's
+/// fw_cfg-derived mode without mapping fw_cfg itself — the keystone for per-service verdict folding.
+#[must_use]
+pub fn boot_should_fold_verdicts() -> bool {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_BOOT_MODE: usize = 45;
+        let raw = unsafe { ecall0(SYSCALL_BOOT_MODE) };
+        decode_syscall(raw).map(|v| v == 1).unwrap_or(false)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        false
+    }
+}
+
+// ── Per-process service verdict (alloc-free) ─────────────────────────────────────────────────
+// In an interactive boot a service folds its routine boot markers into one `[ts] OK <service> N/N
+// <ms>` grid line (the same form the kernel emits for `kself`). Fold mode is set once at service
+// bootstrap from [`boot_should_fold_verdicts`]; proof boots never fold, so `verify-uart` still sees
+// every raw marker. Counters only — no heap, no replay buffer. A FAILED marker is counted and
+// printed live; routine markers are suppressed. The flush is paired with the tally so nothing is
+// dropped without a verdict; after the flush, folding stops (later runtime markers print raw).
+// Lives in nexus-abi (the universal dep) so any service can use it without a new dependency.
+static SVC_FOLD: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static SVC_TALLY: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static SVC_FAILS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static SVC_FIRST_NS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+// Per-process opt-in for AUTO-folding `debug_println` markers. Only an ARMED process folds its
+// debug_println lines into its verdict — so a folding-but-never-flushing process (init, the
+// selftest observer) keeps printing raw and never loses a line. Services whose markers go through
+// a custom funnel (e.g. keystored's emit_line → service_marker) need NOT arm.
+static SVC_ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Enable per-process verdict folding. Call once at service bootstrap with the kernel boot mode.
+/// When enabling, also stamps the init-start time so the verdict's `<ms>` measures bootstrap→ready
+/// (the real service init duration), not just the span between the first folded marker and flush.
+pub fn set_verdict_fold(on: bool) {
+    use core::sync::atomic::Ordering;
+    SVC_FOLD.store(on, Ordering::Relaxed);
+    if on {
+        SVC_FIRST_NS.store(span_now_ns(), Ordering::Relaxed);
+    }
+}
+
+/// Arm AUTO-folding of this process's `debug_println` markers into its verdict (call once at the
+/// service's `os_entry`, for services whose markers are scattered `debug_println` rather than a
+/// single funnel — gpud, windowd). A no-op effect in proof boots (folding still gated on the mode).
+/// Pair with [`service_verdict_flush`] at the service's ready point.
+pub fn service_verdict_arm() {
+    use core::sync::atomic::Ordering;
+    SVC_ARMED.store(true, Ordering::Relaxed);
+}
+
+#[inline]
+fn svc_armed() -> bool {
+    SVC_ARMED.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Tally one marker, auto-detecting failure from its text (contains `err`/`FAIL`/`denied`).
+/// Returns `true` when the caller should SUPPRESS the line (routine marker folded). The one-call
+/// convenience a service's marker funnel uses: `if nexus_abi::service_marker(msg) { return; }`.
+#[must_use]
+pub fn service_marker(line: &[u8]) -> bool {
+    service_marker_tally(marker_is_failure(line))
+}
+
+/// Shared failure heuristic for service markers (a failure is counted + always printed live).
+fn marker_is_failure(b: &[u8]) -> bool {
+    fn has(h: &[u8], n: &[u8]) -> bool {
+        n.len() <= h.len() && h.windows(n.len()).any(|w| w == n)
+    }
+    has(b, b"err") || has(b, b"FAIL") || has(b, b"denied")
+}
+
+/// Tally one of this service's markers; returns `true` when the caller should SUPPRESS the line
+/// (routine marker folded into the verdict). Only suppresses while folding; a `failed` marker is
+/// counted as a failure and never suppressed.
+#[must_use]
+pub fn service_marker_tally(failed: bool) -> bool {
+    use core::sync::atomic::Ordering;
+    if !SVC_FOLD.load(Ordering::Relaxed) {
+        return false;
+    }
+    if SVC_FIRST_NS.load(Ordering::Relaxed) == 0 {
+        SVC_FIRST_NS.store(span_now_ns(), Ordering::Relaxed);
+    }
+    SVC_TALLY.fetch_add(1, Ordering::Relaxed);
+    if failed {
+        SVC_FAILS.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    true
+}
+
+/// Emit this service's verdict as one atomic grid line, then stop folding (later runtime markers
+/// print raw). No-op when not folding or nothing was tallied. Pairs with [`service_marker_tally`]
+/// so folded markers are never lost without a verdict.
+pub fn service_verdict_flush(service: &str) {
+    use core::sync::atomic::Ordering;
+    if !SVC_FOLD.load(Ordering::Relaxed) {
+        return;
+    }
+    let total = SVC_TALLY.load(Ordering::Relaxed);
+    if total != 0 {
+        let fails = SVC_FAILS.load(Ordering::Relaxed);
+        let passed = total - fails;
+        let first = SVC_FIRST_NS.load(Ordering::Relaxed);
+        let now = span_now_ns();
+        let ms = if first != 0 { now.saturating_sub(first) / 1_000_000 } else { 0 };
+        // Soft-real-time: a group that passed but took too long is WARN+`slow`, so a sluggish
+        // service (e.g. a 12 s bring-up) jumps out of an otherwise quiet `OK` column.
+        const SLOW_MS: u64 = 250;
+        let tag = if fails != 0 {
+            "ERROR"
+        } else if ms >= SLOW_MS {
+            "WARN"
+        } else {
+            "OK"
+        };
+        svc_emit_verdict_line(now, tag, service, passed, total, ms);
+    }
+    SVC_FOLD.store(false, Ordering::Relaxed);
+    SVC_ARMED.store(false, Ordering::Relaxed);
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn svc_emit_verdict_line(now: u64, tag: &str, service: &str, passed: u32, total: u32, ms: u64) {
+    use core::fmt::Write as _;
+    struct Buf {
+        b: [u8; 96],
+        n: usize,
+    }
+    impl core::fmt::Write for Buf {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            for &c in s.as_bytes() {
+                if self.n < self.b.len() {
+                    self.b[self.n] = c;
+                    self.n += 1;
+                }
+            }
+            Ok(())
+        }
+    }
+    let mut buf = Buf { b: [0u8; 96], n: 0 };
+    let _ = write!(
+        buf,
+        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}\n",
+        now / 1_000_000_000,
+        (now % 1_000_000_000) / 1000,
+        tag,
+        service,
+        passed,
+        total,
+        ms,
+        if tag == "WARN" { "  slow" } else { "" }
+    );
+    let _ = debug_write(&buf.b[..buf.n]);
+}
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn svc_emit_verdict_line(_now: u64, _tag: &str, _service: &str, _passed: u32, _total: u32, _ms: u64) {
+}
+
 /// Current monotonic nanoseconds, or 0 where unavailable (host). Internal to [`Span`].
 #[cfg(nexus_env = "os")]
 fn span_now_ns() -> u64 {
@@ -2817,6 +2982,13 @@ pub fn debug_write(bytes: &[u8]) -> SysResult<()> {
 /// is never split across two console writes; very long lines fall back to content + newline.
 #[cfg(nexus_env = "os")]
 pub fn debug_println(s: &str) -> SysResult<()> {
+    // Verdict folding: an ARMED service (gpud/windowd) folds its routine `debug_println` markers
+    // into its `<service> N/N` verdict in interactive boots; a folded routine line is suppressed
+    // here (FAIL lines and proof boots print live). Only armed processes fold, so init/the observer
+    // keep printing raw and never lose a line.
+    if svc_armed() && service_marker(s.as_bytes()) {
+        return Ok(());
+    }
     const LINE_CAP: usize = 512;
     let bytes = s.as_bytes();
     if bytes.len() < LINE_CAP {

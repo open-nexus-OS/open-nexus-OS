@@ -68,6 +68,10 @@ pub const SYSCALL_DEBUG_PUTC: usize = 16;
 /// Debug UART slice write: emits a whole byte slice atomically under the UART lock so a
 /// userspace log line cannot interleave mid-line with the kernel or another process.
 pub const SYSCALL_DEBUG_WRITE: usize = 44;
+/// Boot mode query: returns 1 when the kernel resolved an INTERACTIVE boot (verdict folding on),
+/// 0 for proof/unknown (raw markers). Lets U-mode services share the kernel's fw_cfg-derived mode
+/// without each having to map fw_cfg — the keystone for per-service verdict folding.
+pub const SYSCALL_BOOT_MODE: usize = 45;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

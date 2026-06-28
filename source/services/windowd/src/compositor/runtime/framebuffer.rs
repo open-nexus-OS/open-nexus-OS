@@ -161,6 +161,9 @@ impl DisplayServerRuntime {
         self.state.systemui_first_frame_visible = true;
         self.refresh_observer_state();
         let _ = debug_println(PRESENT_SCHEDULER_ON_MARKER);
+        // Bring-up done (present scheduler on) — flush windowd's folded markers as one
+        // `windowd N/N OK <ms>` grid line, then stop folding (later per-frame markers print raw).
+        nexus_abi::service_verdict_flush("windowd");
         self.input_markers_emitted.scheduler = true;
         let _ = debug_println(SELFTEST_UI_V2_PRESENT_OK_MARKER);
         self.input_markers_emitted.v2_present = true;

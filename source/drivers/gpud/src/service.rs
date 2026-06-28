@@ -88,6 +88,10 @@ const RESOURCE_HEIGHT: u32 = 6400;
 /// `backend::DISPLAY_PLANE_ROW` and windowd's `DISPLAY_ROW_OFFSET`.
 const DISPLAY_PLANE_ROW: u32 = 1600;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
+    // Verdict folding: fold gpud's scattered `debug_println` bring-up markers (virgl ready/shader/
+    // draw/gradient/scanout/…) into one `gpud N/N` grid line in interactive boots. Flushed at
+    // GPUD_READY below; FAIL lines still print live; proof boots emit everything raw.
+    nexus_abi::service_verdict_arm();
     let mut backend = open_backend_once()?;
     if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
         let _ = debug_println(GPUD_SCANOUT_OK);
@@ -126,6 +130,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     }
     let server = bind_server()?;
     debug_println(GPUD_READY)?;
+    // Bring-up done — flush gpud's folded markers as one `gpud N/N OK <ms>` grid line, then stop
+    // folding (later per-frame present markers print raw).
+    nexus_abi::service_verdict_flush("gpud");
     service_requests(server, backend)
 }
 

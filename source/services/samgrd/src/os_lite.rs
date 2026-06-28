@@ -121,6 +121,7 @@ fn cached_reply_client(force_refresh: bool) -> Option<KernelClient> {
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("samgrd: ready");
+    nexus_abi::service_verdict_flush("samgrd");
     emit_line("samgrd: mode os-lite");
     let server = match KernelServer::new_for("samgrd") {
         Ok(server) => server,
@@ -399,6 +400,10 @@ fn rsp(op: u8, status: u8, send_slot: u32, recv_slot: u32) -> [u8; 13] {
 }
 
 fn emit_line(message: &str) {
+    // Verdict folding → `samgrd N/N` (interactive); failures & proof boots print live & raw.
+    if nexus_abi::service_marker(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

@@ -337,6 +337,10 @@ pub mod os {
         unsafe { super::write_boot_marker(b'B') };
         ALLOCATOR.ensure_init();
         configure_verbosity_from_env();
+        // Verdict folding: ask the kernel (single fw_cfg-derived source) whether this is an
+        // interactive boot. If so, a service's routine markers fold into one `<service> N/N`
+        // verdict; proof boots leave it off so `verify-uart` still sees every raw marker.
+        nexus_abi::set_verdict_fold(nexus_abi::boot_should_fold_verdicts());
         match entry() {
             Ok(()) => exit(0),
             Err(err) => {

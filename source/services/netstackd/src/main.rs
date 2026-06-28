@@ -30,9 +30,14 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
+    // Verdict folding: fold netstackd's bring-up markers (facade up / dhcp bound / rpc listen) into
+    // one `netstackd N/N` grid line in interactive boots; flushed once the network is up, before the
+    // facade serve loop (later per-RPC markers print raw). Proof boots emit everything raw.
+    nexus_abi::service_verdict_arm();
     crate::os::entry::emit_ready_marker();
     let crate::os::bootstrap::BootstrapResult { net, bind_ip: _bind_ip } =
         crate::os::bootstrap::bootstrap_network();
+    nexus_abi::service_verdict_flush("netstackd");
     crate::os::facade::runtime::run_facade_loop(net);
 }
 

@@ -502,9 +502,9 @@ impl CapTransferToArgsTyped {
 }
 
 use super::{
-    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_CAP_QUERY,
-    SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE,
-    SYSCALL_DEVICE_CAP_CREATE,
+    Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_BOOT_MODE,
+    SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC,
+    SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE,
     SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
     SYSCALL_IPC_SEND_V1, SYSCALL_MAP, SYSCALL_MMIO_MAP, SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SEND,
     SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME,
@@ -671,6 +671,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_SPAWN_LAST_ERROR, sys_spawn_last_error);
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
+    table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         use core::fmt::Write as _;
@@ -2761,6 +2762,13 @@ fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let s = core::str::from_utf8(&ch).unwrap_or("");
     let _ = u.write_str(s);
     Ok(byte as usize)
+}
+
+/// Returns the resolved boot mode for verdict folding: `1` for an interactive boot (services should
+/// fold their markers into a `<service> N/N` verdict), `0` for proof/unknown (raw markers, so
+/// `verify-uart` stays deterministic). Pure read of the kernel's fw_cfg-derived flag; no args.
+fn sys_boot_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
+    Ok(usize::from(crate::boot_mode::fold_verdicts()))
 }
 
 /// Atomic debug slice write. Emits the whole user byte slice under the UART lock in one

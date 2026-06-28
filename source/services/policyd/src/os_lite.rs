@@ -116,6 +116,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("policyd: ready");
     emit_line("abi-profile: ready (server=policyd|abi-filterd)");
+    nexus_abi::service_verdict_flush("policyd");
     // Private init-lite -> policyd control channels.
     // Slot layout for policyd child (deterministic under current init-lite bring-up):
     // - slot 1/2: init-lite routing control REQ/RSP
@@ -911,6 +912,10 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 }
 
 fn emit_line(message: &str) {
+    // Verdict folding → `policyd N/N` (interactive); failures & proof boots print live & raw.
+    if nexus_abi::service_marker(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

@@ -377,6 +377,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // Emit readiness marker early to keep `scripts/qemu-test.sh` marker ordering stable.
     // The service may still need to wait for late-bound slots before handling some operations.
     emit_line("keystored: ready");
+    // Boot init is done — flush keystored's folded markers as one `keystored N/N OK <ms>` grid line
+    // (interactive boots only; no-op in proof). After this, later runtime markers print raw.
+    nexus_abi::service_verdict_flush("keystored");
     let server = route_keystored_blocking().ok_or(ServerError::Unsupported("ipc route failed"))?;
     // Identity-binding hardening (bring-up semantics):
     //
@@ -1072,6 +1075,12 @@ fn push_hex_bytes(out: &mut String, bytes: &[u8]) {
 pub fn touch_schemas() {}
 
 fn emit_line(message: &str) {
+    // Verdict folding: tally this marker into keystored's `keystored N/N` verdict. In an interactive
+    // boot a routine marker is suppressed (folded); a failure — or any marker in a proof boot —
+    // prints live & raw (so `verify-uart` is unaffected). Alloc-free counters in nexus-abi.
+    if nexus_abi::service_marker(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

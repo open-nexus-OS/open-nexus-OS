@@ -125,8 +125,11 @@ const RUNTIME_APP_CAPS: [&str; 4] = ["vfsd", "samgrd", "policyd", "logd"];
 
 /// Stubbed service loop that reports readiness and yields forever.
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
+    // Verdict folding → `execd N/N` (interactive); flushed at ready, later exec markers print raw.
+    nexus_abi::service_verdict_arm();
     notifier.notify();
     emit_line("execd: ready");
+    nexus_abi::service_verdict_flush("execd");
     let server = match KernelServer::new_for("execd") {
         Ok(server) => server,
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
@@ -789,6 +792,10 @@ pub fn exec_elf(
 }
 
 fn emit_line(message: &str) {
+    // Verdict folding → `execd N/N` (interactive); failures & proof boots print live & raw.
+    if nexus_abi::service_marker(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

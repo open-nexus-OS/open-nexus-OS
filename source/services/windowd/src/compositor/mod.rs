@@ -251,6 +251,10 @@ fn decode_timer_fired_now_ns(frame: &[u8]) -> Option<u64> {
 }
 
 pub fn service_main_loop() -> Result<(), &'static str> {
+    // Verdict folding: fold windowd's scattered `debug_println` bring-up markers (route/shell/
+    // wallpaper/handoff/present…) into one `windowd N/N` grid line in interactive boots. Flushed
+    // once the present scheduler is on; FAIL lines print live; proof boots emit everything raw.
+    nexus_abi::service_verdict_arm();
     let server = match KernelServer::new_for(ROUTE_NAME) {
         Ok(s) => s,
         Err(_) => {

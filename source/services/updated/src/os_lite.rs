@@ -184,6 +184,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     } else {
         "updated: ready (non-persistent)"
     });
+    nexus_abi::service_verdict_flush("updated");
     let mut recv_buf = Vec::with_capacity(MAX_STAGE_FRAME);
     recv_buf.resize(MAX_STAGE_FRAME, 0);
     let mut logged_rx = false;
@@ -906,6 +907,11 @@ fn emit_bytes(bytes: &[u8]) {
 }
 
 fn emit_line(message: &str) {
+    // Verdict folding: tally into `updated N/N`; routine markers fold (interactive), failures &
+    // proof boots print live & raw. Flushed after `updated: ready`.
+    if nexus_abi::service_marker(message.as_bytes()) {
+        return;
+    }
     emit_bytes(message.as_bytes());
     emit_byte(b'\n');
 }
