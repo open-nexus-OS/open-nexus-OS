@@ -81,7 +81,7 @@ pub(crate) fn run_remote_proxy_loop(
     let mut statefs_dep_ok_logged = false;
     let mut pkgfs_served_logged = false;
     let mut statefs_served_logged = false;
-    let _ = nexus_abi::debug_println("dsoftbusd: remote proxy up");
+    let _ = nexus_abi::trace_line("dsoftbusd: remote proxy up");
     let mut rx_logged = false;
     let mut proxy_io_retry_logged = false;
     let mut samgr_rsp_head_logged = false;
@@ -109,7 +109,7 @@ pub(crate) fn run_remote_proxy_loop(
             continue;
         }
         if !rx_logged {
-            let _ = nexus_abi::debug_println("dsoftbusd: remote proxy rx");
+            let _ = nexus_abi::trace_line("dsoftbusd: remote proxy rx");
             rx_logged = true;
         }
         let mut plain = [0u8; REQ_PLAIN];
@@ -286,7 +286,7 @@ pub(crate) fn run_remote_proxy_loop(
                     rsp_payload = pkg_rsp;
                     if served_ok && !pkgfs_served_logged {
                         pkgfs_served_logged = true;
-                        let _ = nexus_abi::debug_println("dsoftbusd: remote packagefs served");
+                        let _ = nexus_abi::trace_line("dsoftbusd: remote packagefs served");
                     }
                 } else {
                     if !pkg_dep_fail_logged {
@@ -328,7 +328,7 @@ pub(crate) fn run_remote_proxy_loop(
                     }
                     if served_ok && !statefs_served_logged {
                         statefs_served_logged = true;
-                        let _ = nexus_abi::debug_println("dsoftbusd: remote statefs served");
+                        let _ = nexus_abi::trace_line("dsoftbusd: remote statefs served");
                     }
                 } else {
                     if !statefs_dep_fail_logged {

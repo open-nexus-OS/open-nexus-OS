@@ -391,7 +391,7 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_header_tail(&wh, wb)?;
         let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
-        let _ = nexus_abi::debug_println("gpud: pipeline warmup ok");
+        let _ = nexus_abi::trace_line("gpud: pipeline warmup ok");
         Ok(())
     }
 
@@ -526,7 +526,7 @@ impl VirtioGpuBackend {
         if self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE).is_ok()
         {
             self.wallpaper_from_vmo_uploaded = true;
-            let _ = nexus_abi::debug_println("gpud: wallpaper uploaded from vmo (jpeg)");
+            let _ = nexus_abi::trace_line("gpud: wallpaper uploaded from vmo (jpeg)");
         }
     }
 
@@ -812,7 +812,7 @@ impl VirtioGpuBackend {
         let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
         if first {
             self.gl_present_parity_done = true;
-            let _ = nexus_abi::debug_println("gpud: compositor buildup present");
+            let _ = nexus_abi::trace_line("gpud: compositor buildup present");
             let _ = nexus_abi::debug_println(crate::markers::GPUD_CHAIN_BATCH_SUBMIT);
         }
         self.ctrl_batch_end()

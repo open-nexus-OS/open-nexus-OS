@@ -35,7 +35,7 @@ pub(crate) enum OsTransportSelection {
 pub(crate) fn select_os_transport_for_session() -> OsTransportSelection {
     // OS QUIC v2 datapath runs over UDP datagrams with explicit Noise XK
     // handshake framing (no fallback marker on this path).
-    let _ = nexus_abi::debug_println("dsoftbusd: transport selected quic");
+    let _ = nexus_abi::trace_line("dsoftbusd: transport selected quic");
     OsTransportSelection::QuicUdp
 }
 
@@ -225,7 +225,7 @@ pub(crate) fn get_local_ip(
 }
 
 pub(crate) fn wait_for_slots_ready() {
-    let _ = nexus_abi::debug_println("dsoftbusd: waiting for slots");
+    let _ = nexus_abi::trace_line("dsoftbusd: waiting for slots");
     for _ in 0..10_000 {
         if let Ok(cloned) = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT) {
             let _ = nexus_abi::cap_close(cloned);
@@ -236,7 +236,7 @@ pub(crate) fn wait_for_slots_ready() {
 }
 
 pub(crate) fn init_netstack_client() -> core::result::Result<nexus_ipc::KernelClient, ()> {
-    let _ = nexus_abi::debug_println("dsoftbusd: entry");
+    let _ = nexus_abi::trace_line("dsoftbusd: entry");
     match nexus_ipc::KernelClient::new_with_slots(0x3, 0x4) {
         Ok(c) => Ok(c),
         Err(_) => {
@@ -251,7 +251,7 @@ pub(crate) fn resolve_local_ip_with_wait(
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
 ) -> [u8; 4] {
-    let _ = nexus_abi::debug_println("dsoftbusd: waiting for local ip");
+    let _ = nexus_abi::trace_line("dsoftbusd: waiting for local ip");
     let mut local_ip = DEFAULT_LOCAL_IP;
     let mut local_ip_resolved = false;
     for i in 0..300u32 {
@@ -261,18 +261,18 @@ pub(crate) fn resolve_local_ip_with_wait(
             break;
         }
         if i % 50 == 0 && i > 0 {
-            let _ = nexus_abi::debug_println("dsoftbusd: local ip wait");
+            let _ = nexus_abi::trace_line("dsoftbusd: local ip wait");
         }
         for _ in 0..500 {
             let _ = nexus_abi::yield_();
         }
     }
     if !local_ip_resolved {
-        let _ = nexus_abi::debug_println("dsoftbusd: local ip fallback");
+        let _ = nexus_abi::trace_line("dsoftbusd: local ip fallback");
     } else {
-        let _ = nexus_abi::debug_println("dsoftbusd: local ip ok");
+        let _ = nexus_abi::trace_line("dsoftbusd: local ip ok");
     }
-    let _ = nexus_abi::debug_println("dsoftbusd: ip phase done");
+    let _ = nexus_abi::trace_line("dsoftbusd: ip phase done");
     local_ip
 }
 
@@ -282,7 +282,7 @@ pub(crate) fn bind_discovery_udp_with_wait(
     nonce_ctr: &mut u64,
     disc_port: u16,
 ) -> u32 {
-    let _ = nexus_abi::debug_println("dsoftbusd: udp bind begin");
+    let _ = nexus_abi::trace_line("dsoftbusd: udp bind begin");
     let udp_id = match udp_bind(pending, net, nonce_ctr, [0, 0, 0, 0], disc_port) {
         Ok(id) => id,
         Err(()) => {
@@ -292,8 +292,8 @@ pub(crate) fn bind_discovery_udp_with_wait(
             }
         }
     };
-    let _ = nexus_abi::debug_println("dsoftbusd: udp bind ok");
-    let _ = nexus_abi::debug_println("dsoftbusd: discovery up (udp loopback)");
+    let _ = nexus_abi::trace_line("dsoftbusd: udp bind ok");
+    let _ = nexus_abi::trace_line("dsoftbusd: discovery up (udp loopback)");
     udp_id
 }
 

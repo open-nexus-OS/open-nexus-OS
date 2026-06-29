@@ -299,7 +299,7 @@ fn run_quic_udp_selftest_server_loop(
         }
     };
     let mut _transport = Transport::new(transport_keys);
-    let _ = nexus_abi::debug_println("dsoftbusd: auth ok");
+    let _ = nexus_abi::trace_line("dsoftbusd: auth ok");
 
     let mut got_ping = false;
     for _ in 0..50_000 {
@@ -359,7 +359,7 @@ fn run_quic_udp_selftest_server_loop(
         }
     }
 
-    let _ = nexus_abi::debug_println("dsoftbusd: os session ok");
+    let _ = nexus_abi::trace_line("dsoftbusd: os session ok");
     let _ = nexus_abi::debug_println("SELFTEST: quic session ok");
 
     if run_mux_contract_selftest() {

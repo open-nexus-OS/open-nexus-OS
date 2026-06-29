@@ -120,7 +120,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
             if !announce_sent {
                 announce_sent = true;
             }
-            let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
+            let _ = nexus_abi::trace_line("dsoftbusd: discovery announce sent");
         }
 
         let mut r = [0u8; 18];
@@ -184,7 +184,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     }
 
     let lid = crate::os::entry::listen_with_retry(pending_replies, net, nonce_ctr, port)?;
-    let _ = nexus_abi::debug_println("dsoftbusd: os transport up (udp+tcp)");
+    let _ = nexus_abi::trace_line("dsoftbusd: os transport up (udp+tcp)");
     let transport_selection = crate::os::entry::select_os_transport_for_session();
 
     let port_b: u16 = 34_568;
@@ -232,14 +232,14 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         peer_ip
     };
 
-    let _ = nexus_abi::debug_println("dsoftbusd: session connect peer=node-b");
+    let _ = nexus_abi::trace_line("dsoftbusd: session connect peer=node-b");
     if peer_b.port == 34_568 {
-        let _ = nexus_abi::debug_println("dsoftbusd: connect portB ok");
+        let _ = nexus_abi::trace_line("dsoftbusd: connect portB ok");
     } else {
         let _ = nexus_abi::debug_println("dsoftbusd: connect portB BAD");
     }
     if peer_ip == crate::os::entry::DEFAULT_LOCAL_IP {
-        let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback ok");
+        let _ = nexus_abi::trace_line("dsoftbusd: connect ip loopback ok");
     } else {
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback BAD");
     }
@@ -368,8 +368,8 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     let _ = transport_a;
     let _ = transport_b;
 
-    let _ = nexus_abi::debug_println("dsoftbusd: identity bound peer=node-b");
-    let _ = nexus_abi::debug_println("dsoftbusd: dual-node session ok");
+    let _ = nexus_abi::trace_line("dsoftbusd: identity bound peer=node-b");
+    let _ = nexus_abi::trace_line("dsoftbusd: dual-node session ok");
     let _ = nexus_abi::debug_println("dsoftbusd: ready");
     nexus_log::info("dsoftbusd", |line| {
         line.text("dsoftbusd: ready");

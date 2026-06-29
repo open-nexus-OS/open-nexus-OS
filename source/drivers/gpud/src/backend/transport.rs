@@ -172,24 +172,24 @@ impl VirtioGpuBackend {
         // Debug: emit format and resource_id values
         match gpu_format {
             1 => {
-                let _ = nexus_abi::debug_println("gpud: dbg fmt=B8G8R8A8");
+                let _ = nexus_abi::trace_line("gpud: dbg fmt=B8G8R8A8");
             }
             67 => {
-                let _ = nexus_abi::debug_println("gpud: dbg fmt=R8G8B8A8");
+                let _ = nexus_abi::trace_line("gpud: dbg fmt=R8G8B8A8");
             }
             _ => {
-                let _ = nexus_abi::debug_println("gpud: dbg fmt=UNKNOWN");
+                let _ = nexus_abi::trace_line("gpud: dbg fmt=UNKNOWN");
             }
         }
         match id.0 {
             0 => {
-                let _ = nexus_abi::debug_println("gpud: dbg rid=0");
+                let _ = nexus_abi::trace_line("gpud: dbg rid=0");
             }
             1 => {
-                let _ = nexus_abi::debug_println("gpud: dbg rid=1");
+                let _ = nexus_abi::trace_line("gpud: dbg rid=1");
             }
             _ => {
-                let _ = nexus_abi::debug_println("gpud: dbg rid=OTHER");
+                let _ = nexus_abi::trace_line("gpud: dbg rid=OTHER");
             }
         }
         let create = protocol::VirtioGpuResourceCreate2d {

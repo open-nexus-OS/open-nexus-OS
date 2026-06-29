@@ -564,7 +564,7 @@ pub(crate) fn run_cross_vm_main(
         }
         out.ok_or(())?
     };
-    let _ = nexus_abi::debug_println("dsoftbusd: discovery cross-vm up");
+    let _ = nexus_abi::trace_line("dsoftbusd: discovery cross-vm up");
 
     let mut peers = PeerLru::with_default_capacity();
     let mut peer_ips: Vec<(String, [u8; 4])> = Vec::new();
@@ -655,7 +655,7 @@ pub(crate) fn run_cross_vm_main(
                         announce_send_failed = true;
                     }
                     if !announced_once {
-                        let _ = nexus_abi::debug_println("dsoftbusd: discovery announce sent");
+                        let _ = nexus_abi::trace_line("dsoftbusd: discovery announce sent");
                         announced_once = true;
                     }
                 }
@@ -782,7 +782,7 @@ pub(crate) fn run_cross_vm_main(
                         // #endregion
                     }
                     if !dial_logged {
-                        let _ = nexus_abi::debug_println("dsoftbusd: cross-vm dial start");
+                        let _ = nexus_abi::trace_line("dsoftbusd: cross-vm dial start");
                         dial_logged = true;
                     }
                     dial_attempts = dial_attempts.wrapping_add(1);
@@ -896,7 +896,7 @@ pub(crate) fn run_cross_vm_main(
                 } else {
                     fsm.set_accepting();
                     if !accept_logged {
-                        let _ = nexus_abi::debug_println("dsoftbusd: cross-vm accept wait");
+                        let _ = nexus_abi::trace_line("dsoftbusd: cross-vm accept wait");
                         accept_logged = true;
                     }
                     accept_attempts = accept_attempts.wrapping_add(1);

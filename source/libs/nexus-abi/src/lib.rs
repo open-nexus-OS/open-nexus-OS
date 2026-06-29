@@ -1877,6 +1877,10 @@ static SVC_ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBoo
 // other group stays compactly folded. Set from config (`NEXUS_LOG_EXPAND=<group>`) at bootstrap.
 // Nothing is hidden: folding is just the default view; expand recalls the raw stream per group.
 static SVC_EXPAND: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+// Persistent interactive-fold policy: like SVC_FOLD but NEVER cleared at the `ready` flush, so
+// post-`ready` runtime TRACE lines (IPC rx/tx, cap moves, audit echoes) can still fold in the
+// interactive view even though the verdict is already emitted. Set once at bootstrap (set_verdict_fold).
+static SVC_FOLD_MODE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Opt THIS process out of folding (the configurable per-group EXPAND): all its markers print raw and
 /// no verdict line is emitted, while every other group stays folded. Call at bootstrap when this
@@ -1892,6 +1896,8 @@ pub fn set_verdict_expand(on: bool) {
 pub fn set_verdict_fold(on: bool) {
     use core::sync::atomic::Ordering;
     SVC_FOLD.store(on, Ordering::Relaxed);
+    // Persistent twin (survives the flush) so post-`ready` runtime traces keep folding via service_trace().
+    SVC_FOLD_MODE.store(on, Ordering::Relaxed);
     if on {
         SVC_FIRST_NS.store(span_now_ns(), Ordering::Relaxed);
     }
@@ -1949,6 +1955,19 @@ pub fn service_marker_tally(failed: bool) -> bool {
         return false;
     }
     true
+}
+
+/// Suppress one routine *runtime* TRACE line — post-`ready` plumbing a service emits forever (IPC
+/// rx/tx ops, cap moves, audit echoes already journaled in logd). Returns `true` when the caller
+/// should SUPPRESS the line. Unlike [`service_marker`] this is independent of the per-process verdict
+/// (already flushed at `ready`): it just hides recall-only detail in the folded interactive view.
+/// Always prints raw in proof boots (fold mode off) and when this group is expanded
+/// (`NEXUS_LOG_EXPAND=<svc>` → [`set_verdict_expand`]); nothing is ever lost. The shared SSOT every
+/// service's `emit_trace` funnel uses: `if nexus_abi::service_trace() { return; }`.
+#[must_use]
+pub fn service_trace() -> bool {
+    use core::sync::atomic::Ordering;
+    SVC_FOLD_MODE.load(Ordering::Relaxed) && !SVC_EXPAND.load(Ordering::Relaxed)
 }
 
 /// Emit this service's verdict as one atomic grid line, then stop folding (later runtime markers
@@ -2985,6 +3004,22 @@ pub fn debug_println(s: &str) -> SysResult<()> {
         debug_write(bytes)?;
         debug_write(b"\n")
     }
+}
+
+/// Emit a routine bring-up/runtime trace line that FOLDS in the interactive grid view (recall with
+/// `NEXUS_LOG_EXPAND=<svc>`) and prints raw in proof boots (so `verify-uart` still sees it). The
+/// shared funnel — via [`service_trace`] — for services that emit scattered `debug_println` markers
+/// (gpud, dsoftbusd) rather than routing through a single `emit_line`. Unlike [`debug_trace`] (gated
+/// on an explicit verbosity flag) this follows the per-process verdict-fold policy. NEVER use it for
+/// SELFTEST markers or failures — those must always reach the observer + verify-uart.
+#[cfg(nexus_env = "os")]
+pub fn trace_line(s: &str) -> SysResult<()> {
+    // Failure safety net: a marker the heuristic flags (err/FAIL/denied) is never folded, even if a
+    // caller routes it here by mistake. Routine lines fold in interactive, raw in proof.
+    if !marker_is_failure(s.as_bytes()) && service_trace() {
+        return Ok(());
+    }
+    debug_println(s)
 }
 
 /// Runtime gate for developer trace breadcrumbs (see [`debug_trace`]). Off by default so

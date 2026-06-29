@@ -266,7 +266,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 if privileged_proxy { subject_id } else { sender_service_id };
             let status = if out.len >= 5 { out.buf[4] } else { STATUS_UNSUPPORTED };
             if cap == b"device.mmio.net" {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio net allow priv"
                     } else {
@@ -279,7 +279,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 });
             }
             if cap == b"device.mmio.rng" {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio rng allow priv"
                     } else {
@@ -292,7 +292,7 @@ fn handle_frame(frame: &[u8], sender_service_id: u64, privileged_proxy: bool) ->
                 });
             }
             if cap == b"device.mmio.blk" {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio blk allow priv"
                     } else {
@@ -380,7 +380,7 @@ match (ver, op) {
                 && subject_id == sid_netstackd
                 && !DBG_MMIO_NET_CHECK_EMITTED.swap(true, Ordering::Relaxed)
             {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio netstackd allow priv"
                     } else {
@@ -396,7 +396,7 @@ match (ver, op) {
                 && subject_id == sid_rngd
                 && !DBG_MMIO_RNG_CHECK_EMITTED.swap(true, Ordering::Relaxed)
             {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio rngd allow priv"
                     } else {
@@ -412,7 +412,7 @@ match (ver, op) {
                 && subject_id == sid_selftest
                 && !DBG_MMIO_SELFTEST_NET_CHECK_EMITTED.swap(true, Ordering::Relaxed)
             {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio selftest-net allow priv"
                     } else {
@@ -428,7 +428,7 @@ match (ver, op) {
                 && subject_id == sid_statefsd
                 && !DBG_MMIO_STATEFSD_BLK_CHECK_EMITTED.swap(true, Ordering::Relaxed)
             {
-                emit_line(if status == STATUS_ALLOW {
+                emit_decision(if status == STATUS_ALLOW {
                     if privileged_proxy {
                         "policyd: mmio statefsd-blk allow priv"
                     } else {
@@ -921,6 +921,26 @@ fn emit_line(message: &str) {
     }
 }
 
+/// RFC-0068 P4: boot-time MMIO policy DECISIONS (allow/deny per device cap). These fire post-`ready`
+/// as each driver requests its region, so they bypass the per-process verdict and print raw. Fold
+/// them away in interactive boots — recall the full decision log with `NEXUS_LOG_EXPAND=policyd`.
+/// Proof boots always print raw (qemu-test.sh greps `policyd: mmio net/rng/blk `).
+fn emit_decision(message: &str) {
+    if nexus_abi::boot_should_fold_verdicts() && !expanded_policyd() {
+        return;
+    }
+    for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
+        let _ = debug_putc(byte);
+    }
+}
+
+fn expanded_policyd() -> bool {
+    match option_env!("NEXUS_LOG_EXPAND") {
+        Some(list) => list.split(',').any(|g| g.trim() == "policyd"),
+        None => false,
+    }
+}
+
 fn emit_audit(
     op: u8,
     decision: AuditDecision,
@@ -947,8 +967,15 @@ fn emit_audit(
     let _ = push_bytes(&mut buf, &mut len, audit_reason_name(reason));
     let ok = append_logd_deterministic(AUDIT_SCOPE.as_bytes(), &buf[..len]);
     if ok {
-        emit_line("policyd: audit emit ok");
+        // RFC-0068 P4: the audit RECORD is now in logd's subject journal (rendered as a `policyd`
+        // verdict at quiet), so this success echo is redundant — fold it away in interactive boots.
+        // Proof boots still print it raw (verify-uart); `=policyd` recalls it.
+        if !nexus_abi::boot_should_fold_verdicts() {
+            emit_line("policyd: audit emit ok");
+        }
     } else {
+        // A DEFERRED append means the audit was NOT recorded (logd queue/readiness) — a real failure,
+        // never hidden: always print live so the lost-audit signal stays visible.
         emit_line("policyd: audit emit deferred");
     }
 }

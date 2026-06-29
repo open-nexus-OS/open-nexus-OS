@@ -14,9 +14,25 @@
 use super::*;
 use crate::markers::*;
 
+/// RFC-0068: emit a routine windowd STATUS marker that folds into the interactive grid view (recall
+/// with `NEXUS_LOG_EXPAND=windowd`) and prints raw in proof boots (folding off → `verify-uart` sees
+/// it). NOT for SELFTEST markers — those must always reach the observer + verify-uart, so keep those
+/// on plain `debug_println`.
+fn trace_marker(s: &str) {
+    if nexus_abi::service_trace() {
+        return;
+    }
+    let _ = debug_println(s);
+}
+
 impl DisplayServerRuntime {
     pub(super) fn emit_asset_markers(&mut self) {
         if self.markers_emitted {
+            return;
+        }
+        // All four are routine asset-visibility status → fold in interactive, raw in proof.
+        if nexus_abi::service_trace() {
+            self.markers_emitted = true;
             return;
         }
         if self.state.cursor_svg_visible {
@@ -48,8 +64,9 @@ impl DisplayServerRuntime {
         if self.v3b_markers_emitted {
             return;
         }
-        let _ = debug_println(crate::markers::EFFECTS_ON_MARKER);
-        let _ = debug_println(crate::markers::EFFECT_BLUR_OK_MARKER);
+        trace_marker(crate::markers::EFFECTS_ON_MARKER);
+        trace_marker(crate::markers::EFFECT_BLUR_OK_MARKER);
+        // SELFTEST verdict marker — always raw (observer + verify-uart).
         let _ = debug_println(crate::markers::SELFTEST_UI_V3_EFFECT_OK_MARKER);
         self.v3b_markers_emitted = true;
     }

@@ -141,13 +141,16 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         }
     };
     let (recv_slot, send_slot) = server.slots();
-    emit_bytes(b"updated: slots ");
-    emit_hex_u8((recv_slot >> 8) as u8);
-    emit_hex_u8(recv_slot as u8);
-    emit_byte(b' ');
-    emit_hex_u8((send_slot >> 8) as u8);
-    emit_hex_u8(send_slot as u8);
-    emit_byte(b'\n');
+    // RFC-0068: routine IPC-plumbing trace → fold in interactive (recall `NEXUS_LOG_EXPAND=updated`), raw in proof.
+    if !nexus_abi::service_trace() {
+        emit_bytes(b"updated: slots ");
+        emit_hex_u8((recv_slot >> 8) as u8);
+        emit_hex_u8(recv_slot as u8);
+        emit_byte(b' ');
+        emit_hex_u8((send_slot >> 8) as u8);
+        emit_hex_u8(send_slot as u8);
+        emit_byte(b'\n');
+    }
     let (recv_slot, _) = server.slots();
     let mut statefs = None;
     emit_line("updated: statefs init");
@@ -193,22 +196,25 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Ok((frame_len, reply_cap)) => {
                 let frame = &recv_buf[..frame_len];
                 if !logged_rx {
-                    emit_line("updated: rx");
-                    if frame.len() >= 3 {
-                        emit_bytes(b"updated: rx head ");
-                        emit_hex_u8(frame[0]);
-                        emit_byte(b' ');
-                        emit_hex_u8(frame[1]);
-                        emit_byte(b' ');
-                        emit_hex_u8(frame[2]);
-                        emit_byte(b'\n');
-                    }
                     logged_rx = true;
+                    if !nexus_abi::service_trace() {
+                        emit_line("updated: rx");
+                        if frame.len() >= 3 {
+                            emit_bytes(b"updated: rx head ");
+                            emit_hex_u8(frame[0]);
+                            emit_byte(b' ');
+                            emit_hex_u8(frame[1]);
+                            emit_byte(b' ');
+                            emit_hex_u8(frame[2]);
+                            emit_byte(b'\n');
+                        }
+                    }
                 }
                 if frame.len() >= 4
                     && frame[0] == MAGIC0
                     && frame[1] == MAGIC1
                     && frame[2] == VERSION
+                    && !nexus_abi::service_trace()
                 {
                     emit_bytes(b"updated: rx op ");
                     emit_hex_u8(frame[3]);
@@ -220,24 +226,26 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         line.text("core service log probe: updated");
                     });
                 }
-                if reply_cap.is_some() {
+                if reply_cap.is_some() && !nexus_abi::service_trace() {
                     emit_line("updated: capmove");
                 }
                 let rsp = handle_frame(&mut state, &mut statefs, frame);
                 if let Some(cap) = reply_cap {
-                    if rsp.len() >= 4 {
+                    if rsp.len() >= 4 && !nexus_abi::service_trace() {
                         emit_bytes(b"updated: tx op ");
                         emit_hex_u8(rsp[3]);
                         emit_byte(b'\n');
                     }
                     // Debug: prove what reply-cap slot the kernel returned (CAP_MOVE recv path).
                     // This should match the allocated-slot observed in the kernel trace ring.
-                    emit_bytes(b"updated: replycap slot=0x");
-                    emit_hex_u8((cap >> 24) as u8);
-                    emit_hex_u8((cap >> 16) as u8);
-                    emit_hex_u8((cap >> 8) as u8);
-                    emit_hex_u8(cap as u8);
-                    emit_byte(b'\n');
+                    if !nexus_abi::service_trace() {
+                        emit_bytes(b"updated: replycap slot=0x");
+                        emit_hex_u8((cap >> 24) as u8);
+                        emit_hex_u8((cap >> 16) as u8);
+                        emit_hex_u8((cap >> 8) as u8);
+                        emit_hex_u8(cap as u8);
+                        emit_byte(b'\n');
+                    }
                     if send_bounded_nonblock(cap, &rsp, 1_000_000_000).is_err() {
                         emit_line("updated: send cap fail");
                     }

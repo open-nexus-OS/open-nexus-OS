@@ -360,7 +360,7 @@ impl CtrlQueue {
                 && !GPU_IRQ_WAKE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed)
             {
                 // Proof (once): a real GPU ring-buffer IRQ woke a wait.
-                let _ = nexus_abi::debug_println("gpud: gpu irq wake");
+                let _ = nexus_abi::trace_line("gpud: gpu irq wake");
             }
         } else {
             let _ = nexus_abi::yield_();
@@ -568,7 +568,7 @@ impl CtrlQueue {
                 let _ = nexus_abi::debug_println("gpud: dbg resp=ERR_INVALID_PARAMETER");
             }
             _ => {
-                let _ = nexus_abi::debug_println("gpud: dbg resp=UNKNOWN");
+                let _ = nexus_abi::trace_line("gpud: dbg resp=UNKNOWN");
             }
         }
         Err(GfxError::CommandRejected)

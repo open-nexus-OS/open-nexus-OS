@@ -142,9 +142,9 @@ impl VirtioGpuBackend {
                 self.scanout_resource = Some(id);
                 match self.gl_scanout_init() {
                     Ok(()) => {
-                        let _ = nexus_abi::debug_println("gpud: set_scanout ok");
-                        let _ = nexus_abi::debug_println("gpud: scanout ok");
-                        let _ = nexus_abi::debug_println("gpud: scanout 1280x800 bgra8888");
+                        let _ = nexus_abi::trace_line("gpud: set_scanout ok");
+                        let _ = nexus_abi::trace_line("gpud: scanout ok");
+                        let _ = nexus_abi::trace_line("gpud: scanout 1280x800 bgra8888");
                         // Absorb the one-time virgl texture-sampling stall (~500ms)
                         // HERE, at boot, so the user's first present/scroll is fast
                         // instead of frozen for half a second.
@@ -155,8 +155,8 @@ impl VirtioGpuBackend {
                             width,
                             height: DISPLAY_PLANE_HEIGHT,
                         })?;
-                        let _ = nexus_abi::debug_println("gpud: transfer_to_host ok");
-                        let _ = nexus_abi::debug_println("gpud: resource flush ok");
+                        let _ = nexus_abi::trace_line("gpud: transfer_to_host ok");
+                        let _ = nexus_abi::trace_line("gpud: resource flush ok");
                         return Ok(());
                     }
                     Err(_) => {
@@ -206,9 +206,9 @@ impl VirtioGpuBackend {
             resource_id: id.0,
         };
         self.ctrl_submit_struct(&scanout).map_err(|_| GfxError::CommandRejected)?;
-        let _ = nexus_abi::debug_println("gpud: set_scanout ok");
-        let _ = nexus_abi::debug_println("gpud: scanout ok");
-        let _ = nexus_abi::debug_println("gpud: scanout 1280x800 bgra8888");
+        let _ = nexus_abi::trace_line("gpud: set_scanout ok");
+        let _ = nexus_abi::trace_line("gpud: scanout ok");
+        let _ = nexus_abi::trace_line("gpud: scanout 1280x800 bgra8888");
 
         let record = ResourceRecord {
             id,
@@ -231,7 +231,7 @@ impl VirtioGpuBackend {
                 nexus_abi::debug_println("gpud: ERROR transfer_to_host for initial frame failed");
             e
         })?;
-        let _ = nexus_abi::debug_println("gpud: transfer_to_host ok");
+        let _ = nexus_abi::trace_line("gpud: transfer_to_host ok");
 
         let flush = protocol::VirtioGpuResourceFlush {
             hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_FLUSH),
@@ -248,7 +248,7 @@ impl VirtioGpuBackend {
             let _ = nexus_abi::debug_println("gpud: ERROR resource flush failed");
             GfxError::CommandRejected
         })?;
-        let _ = nexus_abi::debug_println("gpud: resource flush ok");
+        let _ = nexus_abi::trace_line("gpud: resource flush ok");
 
         self.resources.push(record);
         self.scanout_resource = Some(id);

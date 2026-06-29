@@ -108,9 +108,16 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut saw_reject_rate_limited = false;
     let mut rate_limiter = crate::security::SenderRateLimiter::new();
     let selftest_sid = service_id_from_name(b"selftest-client");
+    // RFC-0068 P4: logd is the central SUBJECT collector. Recv with a timeout (instead of blocking)
+    // so a QUIET period — boot settled, no appends for a while — wakes us to render one verdict per
+    // subject (`scope`) over the journal. One place, no per-service flush-timing.
+    let mut rendered_subjects = false;
     loop {
         let mut inbuf = [0u8; 512];
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut inbuf) {
+        match server.recv_request_with_meta_into(
+            Wait::Timeout(core::time::Duration::from_millis(1000)),
+            &mut inbuf,
+        ) {
             Ok((n, sender_service_id, reply)) => {
                 let frame = &inbuf[..n];
                 if !saw_any_rx {
@@ -234,11 +241,40 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                // Quiet (no request for the timeout window): once boot has settled after appends,
+                // render the per-subject journal verdicts once. Interactive only — proof keeps the
+                // raw records for verify-uart.
+                if !rendered_subjects && saw_any_append && nexus_abi::boot_should_fold_verdicts() {
+                    render_subject_verdicts(&journal);
+                    rendered_subjects = true;
+                }
                 let _ = yield_();
             }
             Err(nexus_ipc::IpcError::Disconnected) => return Err(ServerError::Unsupported),
             Err(_) => return Err(ServerError::Unsupported),
         }
+    }
+}
+
+/// RFC-0068 P4: render one grid verdict per SUBJECT (`scope`) over the journal — the central
+/// subject collector, folding records from any emitter that named the same subject. Same renderer
+/// (`nexus_event::render_verdict_line`) the per-process verdicts use, so the columns match.
+fn render_subject_verdicts(journal: &Journal) {
+    let now = nexus_abi::nsec().unwrap_or(0);
+    emit_line("logd: journal subjects");
+    for sv in journal.subject_verdicts(crate::journal::TimestampNsec(now)) {
+        let subj = core::str::from_utf8(sv.scope.as_slice()).unwrap_or("?");
+        // The journal span (first record → drain) is not a single operation → drop the duration so a
+        // spread-out subject isn't flagged WARN-slow (a real failure still shows as ERROR).
+        let v = nexus_event::verdict_from(
+            sv.verdict.total,
+            sv.verdict.total.saturating_sub(sv.verdict.passed),
+            None,
+            0,
+        );
+        let mut buf = [0u8; 96];
+        let n = nexus_event::render_verdict_line(&mut buf, now, subj, v);
+        let _ = nexus_abi::debug_write(&buf[..n]);
     }
 }
 

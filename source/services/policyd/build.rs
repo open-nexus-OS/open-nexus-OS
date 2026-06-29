@@ -45,6 +45,9 @@ struct RawAbiProfile {
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(nexus_env, values(\"os\",\"host\"))");
+    // RFC-0068: `emit_decision` reads NEXUS_LOG_EXPAND via option_env! — rebuild when it changes
+    // so `NEXUS_LOG_EXPAND=policyd` recalls the folded MMIO decision log.
+    println!("cargo:rerun-if-env-changed=NEXUS_LOG_EXPAND");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing");
     let policy_dir = Path::new(&manifest_dir)
