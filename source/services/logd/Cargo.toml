@@ -30,6 +30,9 @@ capnp = { version = "0.24", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+# RFC-0068: logd is the central subject-indexed journal — it folds records by scope (= subject) into
+# the SHARED verdict math, so cross-emitter records about one subject become one verdict.
+nexus-event = { path = "../../libs/nexus-event" }
 
 [dev-dependencies]
 proptest = "1.3"

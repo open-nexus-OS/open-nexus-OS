@@ -70,6 +70,12 @@ where
 
     let mut ctrl_channels: Vec<CtrlChannel> = Vec::new();
     let spawn_span = nexus_abi::Span::begin();
+    // RFC-0068: in interactive boots fold the unconditional `init: start/up X` spawn ladder (~50
+    // lines) into ONE `init:spawn N/N <ms>` verdict via the shared SSOT. Proof boots don't fold
+    // (`boot_should_fold_verdicts()` is false), so the raw lines stay for verify-uart; a spawn
+    // FAILURE is fatal and always prints live.
+    let init_fold = nexus_abi::boot_should_fold_verdicts();
+    let mut spawn_tally = nexus_event::SpanTally::new();
     for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
@@ -80,17 +86,20 @@ where
             raw_probe_str("svc-name", image.name);
         }
         name.trace_metadata();
-        debug_write_str("init: start ");
-        if let Some(value) = name.value {
-            debug_write_str(value);
-        } else {
-            debug_write_str("[svc@0x");
-            debug_write_hex(name.ptr);
-            debug_write_str("/");
-            debug_write_hex(name.len);
-            debug_write_byte(b']');
+        spawn_tally.start(nexus_abi::nsec().unwrap_or(0));
+        if !init_fold {
+            debug_write_str("init: start ");
+            if let Some(value) = name.value {
+                debug_write_str(value);
+            } else {
+                debug_write_str("[svc@0x");
+                debug_write_hex(name.ptr);
+                debug_write_str("/");
+                debug_write_hex(name.len);
+                debug_write_byte(b']');
+            }
+            debug_write_byte(b'\n');
         }
-        debug_write_byte(b'\n');
         match crate::bootstrap::spawn::spawn_service_with_probe(image, probes_enabled()) {
             Ok(pid) => {
                 // Create private control endpoints (REQ/RSP) for this service and transfer them first.
@@ -194,17 +203,20 @@ where
                     debug_write_hex(pid as usize);
                     debug_write_byte(b'\n');
                 }
-                debug_write_str("init: up ");
-                if let Some(value) = name.value {
-                    debug_write_str(value);
-                } else {
-                    debug_write_str("[svc@0x");
-                    debug_write_hex(name.ptr);
-                    debug_write_str("/");
-                    debug_write_hex(name.len);
-                    debug_write_byte(b']');
+                spawn_tally.record(nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_str("init: up ");
+                    if let Some(value) = name.value {
+                        debug_write_str(value);
+                    } else {
+                        debug_write_str("[svc@0x");
+                        debug_write_hex(name.ptr);
+                        debug_write_str("/");
+                        debug_write_hex(name.len);
+                        debug_write_byte(b']');
+                    }
+                    debug_write_byte(b'\n');
                 }
-                debug_write_byte(b'\n');
             }
             Err(err) => {
                 debug_write_str("init: fail ");
@@ -235,6 +247,15 @@ where
         // Keep the default bring-up deterministic: spawn the full set first, then yield.
     }
     let spawn_ms = spawn_span.elapsed_ms();
+    // RFC-0068: emit the folded spawn-ladder verdict (interactive only; paired with the suppression
+    // above so no folded `start/up` line is ever dropped without this verdict).
+    if init_fold && !spawn_tally.is_empty() {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        let v = spawn_tally.verdict(now);
+        let mut line = [0u8; 96];
+        let n = nexus_event::render_verdict_line(&mut line, now, "init:spawn", v);
+        let _ = nexus_abi::debug_write(&line[..n]);
+    }
 
     notifier.notify();
     debug_write_str("init: ready");

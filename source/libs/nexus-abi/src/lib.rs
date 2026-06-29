@@ -1906,6 +1906,9 @@ pub fn service_verdict_arm() {
     SVC_ARMED.store(true, Ordering::Relaxed);
 }
 
+// Only the `nexus_env = "os"` `debug_println` reads this (the host build's println never folds), so
+// gate it to its sole caller to keep host clippy of nexus-abi consumers warning-free.
+#[cfg(nexus_env = "os")]
 #[inline]
 fn svc_armed() -> bool {
     SVC_ARMED.load(core::sync::atomic::Ordering::Relaxed)

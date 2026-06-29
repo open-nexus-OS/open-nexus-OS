@@ -1609,6 +1609,7 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "nexus-abi",
+ "nexus-event",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-service-entry",
@@ -1881,6 +1882,7 @@ dependencies = [
  "execd",
  "keystored",
  "nexus-abi",
+ "nexus-event",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",

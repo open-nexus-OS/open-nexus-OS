@@ -266,6 +266,49 @@ impl Journal {
             used_bytes: self.used_bytes,
         }
     }
+
+    /// Fold every stored record into ONE verdict per subject (`scope`) — RFC-0068 §4: logd is the
+    /// central subject-indexed journal, so records about one subject emitted by DIFFERENT processes
+    /// (e.g. init wiring policyd + policyd's own audits) collect into a single `scope` verdict here,
+    /// the cross-process grouping a per-process counter cannot do. A record at Error/Warn level is a
+    /// failure (loud in the verdict); Info/Debug/Trace pass. Each subject's span runs from its
+    /// earliest record to `flush_nsec`. Subjects are returned in first-seen order. The verdict math
+    /// is the shared `nexus-event` SSOT (same OK/WARN-slow/ERROR the console grid uses).
+    pub fn subject_verdicts(&self, flush_nsec: TimestampNsec) -> Vec<SubjectVerdict> {
+        // (scope, total, fails, first_ns) accumulators in first-seen order — small N (subjects),
+        // linear find is fine and keeps the order stable for a deterministic render.
+        let mut acc: Vec<(InlineBytes<STORE_MAX_SCOPE_LEN>, u32, u32, u64)> = Vec::new();
+        for rec in &self.records {
+            let failed = matches!(rec.level, LogLevel::Error | LogLevel::Warn);
+            let ts = rec.timestamp_nsec.0;
+            if let Some(entry) = acc.iter_mut().find(|(s, ..)| s.as_slice() == rec.scope.as_slice()) {
+                entry.1 = entry.1.saturating_add(1);
+                if failed {
+                    entry.2 = entry.2.saturating_add(1);
+                }
+                if ts < entry.3 {
+                    entry.3 = ts;
+                }
+            } else {
+                acc.push((rec.scope, 1, u32::from(failed), ts));
+            }
+        }
+        acc.into_iter()
+            .map(|(scope, total, fails, first)| SubjectVerdict {
+                scope,
+                verdict: nexus_event::verdict_from(total, fails, Some(first), flush_nsec.0),
+            })
+            .collect()
+    }
+}
+
+/// One subject's folded verdict over the journal (the row a subject-grouped renderer prints).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubjectVerdict {
+    /// The subject this verdict is about (the records' `scope`).
+    pub scope: InlineBytes<STORE_MAX_SCOPE_LEN>,
+    /// The folded verdict (passed/total, ms, OK/WARN-slow/ERROR) via the shared SSOT math.
+    pub verdict: nexus_event::Verdict,
 }
 
 fn record_size(scope_len: usize, msg_len: usize, fields_len: usize) -> Result<u32, JournalError> {
@@ -279,4 +322,60 @@ fn record_size(scope_len: usize, msg_len: usize, fields_len: usize) -> Result<u3
         return Err(JournalError::TooLarge);
     }
     Ok(sum)
+}
+
+#[cfg(test)]
+mod subject_verdict_tests {
+    use super::*;
+
+    #[test]
+    fn folds_records_by_scope_across_emitters() {
+        // RFC-0068 §4 proof: records about `policyd` from DIFFERENT emitters (init wiring it +
+        // policyd's own) fold into ONE subject verdict at the central journal.
+        let mut j = Journal::new(16, 64 * 1024);
+        j.append(1, TimestampNsec(10_000_000), LogLevel::Info, b"policyd", b"grant", b"").unwrap();
+        j.append(1, TimestampNsec(11_000_000), LogLevel::Info, b"policyd", b"wire", b"").unwrap();
+        // different emitter (service_id 7), same subject scope:
+        j.append(7, TimestampNsec(40_000_000), LogLevel::Info, b"policyd", b"ready", b"").unwrap();
+        // a distinct subject, at Error level (a failure):
+        j.append(9, TimestampNsec(20_000_000), LogLevel::Error, b"gpud", b"fault", b"").unwrap();
+
+        let sv = j.subject_verdicts(TimestampNsec(50_000_000));
+        assert_eq!(sv.len(), 2, "two subjects, not four emitter rows");
+
+        let policyd = sv.iter().find(|s| s.scope.as_slice() == b"policyd").unwrap();
+        assert_eq!(policyd.verdict.total, 3); // 2 init + 1 policyd merged
+        assert_eq!(policyd.verdict.passed, 3);
+        assert_eq!(policyd.verdict.tag, nexus_event::VerdictTag::Ok);
+        assert_eq!(policyd.verdict.ms, 40); // earliest 10ms → flush 50ms
+
+        let gpud = sv.iter().find(|s| s.scope.as_slice() == b"gpud").unwrap();
+        assert_eq!(gpud.verdict.total, 1);
+        assert_eq!(gpud.verdict.tag, nexus_event::VerdictTag::Error); // Error level counts as fail
+    }
+
+    #[test]
+    fn empty_journal_has_no_subjects() {
+        let j = Journal::new(8, 8 * 1024);
+        assert!(j.subject_verdicts(TimestampNsec(1000)).is_empty());
+    }
+
+    #[test]
+    fn renders_subject_grid_from_journal_end_to_end() {
+        // The full logd subject-grid pipeline: journal records → subject_verdicts → the shared
+        // render_verdict_line → one grid line per subject, identical in format to the console grid.
+        let mut j = Journal::new(16, 64 * 1024);
+        j.append(1, TimestampNsec(5_000_000), LogLevel::Info, b"gpud", b"ready", b"").unwrap();
+        j.append(1, TimestampNsec(6_000_000), LogLevel::Info, b"gpud", b"draw", b"").unwrap();
+        let sv = j.subject_verdicts(TimestampNsec(11_000_000));
+        let g = sv.iter().find(|s| s.scope.as_slice() == b"gpud").unwrap();
+        let subj = core::str::from_utf8(g.scope.as_slice()).unwrap();
+        let mut buf = [0u8; 96];
+        let n = nexus_event::render_verdict_line(&mut buf, 11_000_000, subj, g.verdict);
+        let line = core::str::from_utf8(&buf[..n]).unwrap();
+        assert!(line.contains("OK"), "{line}");
+        assert!(line.contains("gpud"), "{line}");
+        assert!(line.contains("2/2"), "{line}");
+        assert!(line.ends_with('\n'));
+    }
 }

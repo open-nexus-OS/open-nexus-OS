@@ -76,6 +76,8 @@ vfsd = { path = "../../services/vfsd", optional = true, default-features = false
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-sync = { path = "../../libs/nexus-sync", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi" }
+# RFC-0068: fold init's per-subject bring-up markers into verdict lines (shared SSOT math + renderer).
+nexus-event = { path = "../../libs/nexus-event" }
 nexus-log = { path = "../../libs/nexus-log", features = ["sink-userspace"] }
 serde = { version = "1", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }

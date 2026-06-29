@@ -214,6 +214,87 @@ impl SpanTally {
     }
 }
 
+/// A bounded, alloc-free SUBJECT collector (RFC-0068 §4) — the mechanism that makes CROSS-PROCESS
+/// subject grouping possible. A single per-process counter can only fold its own lines; to fold
+/// records about the same subject emitted by DIFFERENT processes (init's `policyd` grant + policyd's
+/// own boot markers) you need ONE point that maps `subject → tally`. That point is a central journal
+/// (logd) or any process that handles several subjects (init wiring N services). Capacity `N` is
+/// fixed; once full, an unseen subject's record is counted nowhere but still reported as
+/// pass/fail so the caller can print it live (no record is silently lost). No heap.
+pub struct VerdictTable<const N: usize> {
+    subjects: [Option<Subject>; N],
+    tallies: [SpanTally; N],
+    len: usize,
+}
+
+impl<const N: usize> Default for VerdictTable<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> VerdictTable<N> {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { subjects: [None; N], tallies: [SpanTally::new(); N], len: 0 }
+    }
+
+    /// Find the slot index for `subject`, inserting a fresh tally if new and capacity remains.
+    fn slot(&mut self, subject: Subject) -> Option<usize> {
+        for i in 0..self.len {
+            if self.subjects[i] == Some(subject) {
+                return Some(i);
+            }
+        }
+        if self.len < N {
+            self.subjects[self.len] = Some(subject);
+            self.len += 1;
+            Some(self.len - 1)
+        } else {
+            None
+        }
+    }
+
+    /// Record one event for `subject` at `now_ns`. Records from different emitters that name the
+    /// same subject merge into that subject's one tally — the cross-process fold. Returns `true` on
+    /// failure (the caller prints failures live and never suppresses them, even when the table is
+    /// full and the event could not be counted).
+    pub fn record(&mut self, subject: Subject, status: Status, now_ns: u64) -> bool {
+        match self.slot(subject) {
+            Some(i) => self.tallies[i].record(status, now_ns),
+            None => status.is_fail(),
+        }
+    }
+
+    /// Explicitly stamp a subject's span start (e.g. when init begins wiring a service), so its
+    /// duration covers setup→first-event. Idempotent per subject; a no-op if the table is full.
+    pub fn start(&mut self, subject: Subject, now_ns: u64) {
+        if let Some(i) = self.slot(subject) {
+            self.tallies[i].start(now_ns);
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Visit `(subject, verdict)` for each recorded subject in insertion order, each verdict measured
+    /// against `flush_ns`. The renderer calls [`render_verdict_line`] per entry to emit the grid.
+    pub fn for_each_verdict(&self, flush_ns: u64, mut f: impl FnMut(Subject, Verdict)) {
+        for i in 0..self.len {
+            if let Some(s) = self.subjects[i] {
+                f(s, self.tallies[i].verdict(flush_ns));
+            }
+        }
+    }
+}
+
 /// A `core::fmt::Write` adapter over a caller-owned byte slice — the alloc-free backing for
 /// [`render_verdict_line`]. Writes past the end are silently dropped (the line is bounded).
 struct SliceWriter<'a> {
@@ -414,5 +495,67 @@ mod tests {
         assert_eq!(from_init, from_service);
         assert_ne!(Subject("policyd"), Subject::INIT);
         assert_eq!(Subject::KSELF.name(), "kself");
+    }
+
+    #[test]
+    fn verdict_table_folds_one_subject_across_two_emitters() {
+        // THE P4 proof: records about `policyd` emitted by the init "process" and the policyd
+        // "process" fold into ONE verdict — the cross-process grouping a per-process counter cannot do.
+        let mut t = VerdictTable::<8>::new();
+        // init wiring policyd (3 grant/wire steps)
+        t.record(Subject("policyd"), Status::Ok, 10 * MS);
+        t.record(Subject("policyd"), Status::Ok, 11 * MS);
+        t.record(Subject("policyd"), Status::Lifecycle, 12 * MS);
+        // policyd's own boot markers (different emitter, same subject)
+        t.record(Subject("policyd"), Status::Ok, 40 * MS);
+        t.record(Subject("policyd"), Status::Ok, 41 * MS);
+        assert_eq!(t.len(), 1, "one subject, not two emitter-groups");
+        let mut seen = None;
+        t.for_each_verdict(45 * MS, |s, v| {
+            assert_eq!(s, Subject("policyd"));
+            seen = Some(v);
+        });
+        let v = seen.unwrap();
+        assert_eq!(v.total, 5); // all 5 records from both emitters
+        assert_eq!(v.passed, 5);
+        assert_eq!(v.ms, 35); // 10ms (first) → 45ms (flush)
+        assert_eq!(v.tag, VerdictTag::Ok);
+    }
+
+    #[test]
+    fn verdict_table_keeps_distinct_subjects_separate() {
+        let mut t = VerdictTable::<8>::new();
+        t.record(Subject("gpud"), Status::Ok, 0);
+        t.record(Subject("windowd"), Status::Fail, MS);
+        t.record(Subject("gpud"), Status::Ok, 2 * MS);
+        assert_eq!(t.len(), 2);
+        let mut tags = std::collections::BTreeMap::new();
+        t.for_each_verdict(3 * MS, |s, v| {
+            tags.insert(s.name(), (v.total, v.tag));
+        });
+        assert_eq!(tags["gpud"], (2, VerdictTag::Ok));
+        assert_eq!(tags["windowd"], (1, VerdictTag::Error));
+    }
+
+    #[test]
+    fn verdict_table_full_still_reports_failures_live() {
+        let mut t = VerdictTable::<2>::new();
+        t.record(Subject("a"), Status::Ok, 0);
+        t.record(Subject("b"), Status::Ok, 0);
+        // table full: a NEW subject can't be counted, but a failure is still reported so the caller
+        // prints it live (the user's hard rule: never lose a failure).
+        assert!(t.record(Subject("c"), Status::Fail, 0));
+        assert!(!t.record(Subject("c"), Status::Ok, 0));
+        assert_eq!(t.len(), 2);
+    }
+
+    #[test]
+    fn verdict_table_start_anchors_duration_before_first_event() {
+        let mut t = VerdictTable::<4>::new();
+        t.start(Subject("svc"), 100 * MS); // init begins wiring
+        t.record(Subject("svc"), Status::Ok, 130 * MS); // first real event 30ms later
+        let mut ms = None;
+        t.for_each_verdict(140 * MS, |_, v| ms = Some(v.ms));
+        assert_eq!(ms, Some(40)); // 100 → 140, includes the setup gap
     }
 }

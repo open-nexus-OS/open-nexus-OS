@@ -4684,8 +4684,8 @@
         80231be0         80231be0        0     1                 $x
         80231bea         80231bea        0     1                 .Lpcrel_hi1879
         80231c2c         80231c2c        0     1                 .L0 
-        80231c2c         80231c2c       2e     2         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.text._ZN61_$LT$nexus_event..SliceWriter$u20$as$u20$core..fmt..Write$GT$9write_str17h800c7bd4e1d3ceaeE)
-        80231c2c         80231c2c       2e     1                 _$LT$nexus_event..SliceWriter$u20$as$u20$core..fmt..Write$GT$::write_str::h800c7bd4e1d3ceae
+        80231c2c         80231c2c       2e     2         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.text._ZN61_$LT$nexus_event..SliceWriter$u20$as$u20$core..fmt..Write$GT$9write_str17h99fe8dc88aca58e8E)
+        80231c2c         80231c2c       2e     1                 _$LT$nexus_event..SliceWriter$u20$as$u20$core..fmt..Write$GT$::write_str::h99fe8dc88aca58e8
         80231c2c         80231c2c        0     1                 .L0 
         80231c2c         80231c2c        0     1                 $x
         80231c5a         80231c5a        0     1                 .L0 
@@ -7316,44 +7316,44 @@
         80847c60         80847c60       30     8         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lswitch.table._ZN58_$LT$neuron..ipc..IpcError$u20$as$u20$core..fmt..Debug$GT$3fmt17h5d02cad6ee3eaa05E.475)
         80847c60         80847c60       30     1                 .Lswitch.table._ZN58_$LT$neuron..ipc..IpcError$u20$as$u20$core..fmt..Debug$GT$3fmt17h5d02cad6ee3eaa05E.475
         80847c60         80847c60        0     1                 $d
-        80847c90         80847c90       30     8         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.0)
-        80847c90         80847c90       30     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.0
+        80847c90         80847c90       30     8         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.0)
+        80847c90         80847c90       30     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.0
         80847c90         80847c90        0     1                 $d
-        80847cc0         80847cc0        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.1)
-        80847cc0         80847cc0        1     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.1
+        80847cc0         80847cc0        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.1)
+        80847cc0         80847cc0        1     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.1
         80847cc0         80847cc0        0     1                 $d
-        80847cc1         80847cc1        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.2)
-        80847cc1         80847cc1        1     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.2
+        80847cc1         80847cc1        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.2)
+        80847cc1         80847cc1        1     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.2
         80847cc1         80847cc1        0     1                 $d
-        80847cc2         80847cc2        3     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.3)
-        80847cc2         80847cc2        3     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.3
+        80847cc2         80847cc2        3     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.3)
+        80847cc2         80847cc2        3     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.3
         80847cc2         80847cc2        0     1                 $d
-        80847cc5         80847cc5        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.4)
-        80847cc5         80847cc5        1     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.4
+        80847cc5         80847cc5        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.4)
+        80847cc5         80847cc5        1     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.4
         80847cc5         80847cc5        0     1                 $d
-        80847cc6         80847cc6        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.5)
-        80847cc6         80847cc6        1     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.5
+        80847cc6         80847cc6        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.5)
+        80847cc6         80847cc6        1     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.5
         80847cc6         80847cc6        0     1                 $d
-        80847cc7         80847cc7        3     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.6)
-        80847cc7         80847cc7        3     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.6
+        80847cc7         80847cc7        3     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.6)
+        80847cc7         80847cc7        3     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.6
         80847cc7         80847cc7        0     1                 $d
-        80847cca         80847cca        2     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.7)
-        80847cca         80847cca        2     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.7
+        80847cca         80847cca        2     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.7)
+        80847cca         80847cca        2     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.7
         80847cca         80847cca        0     1                 $d
-        80847ccc         80847ccc        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.8)
-        80847ccc         80847ccc        1     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.8
+        80847ccc         80847ccc        1     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.8)
+        80847ccc         80847ccc        1     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.8
         80847ccc         80847ccc        0     1                 $d
-        80847cd0         80847cd0       90     8         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.9)
-        80847cd0         80847cd0       90     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.9
+        80847cd0         80847cd0       90     8         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.9)
+        80847cd0         80847cd0       90     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.9
         80847cd0         80847cd0        0     1                 $d
-        80847d60         80847d60        2     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.10)
-        80847d60         80847d60        2     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.10
+        80847d60         80847d60        2     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.10)
+        80847d60         80847d60        2     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.10
         80847d60         80847d60        0     1                 $d
-        80847d62         80847d62        5     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.12)
-        80847d62         80847d62        5     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.12
+        80847d62         80847d62        5     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.12)
+        80847d62         80847d62        5     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.12
         80847d62         80847d62        0     1                 $d
-        80847d67         80847d67        6     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.13)
-        80847d67         80847d67        6     1                 .Lanon.768b2cb64a6ed2cd8ed340f5f552e74f.13
+        80847d67         80847d67        6     1         /home/jenning/open-nexus-OS/target/riscv64imac-unknown-none-elf/release/deps/neuron_boot-d5c88378eee30534.neuron_boot.522a42b72d4d446a-cgu.0.rcgu.o:(.rodata..Lanon.f7397f42d4823ceea0f375ccf472b138.13)
+        80847d67         80847d67        6     1                 .Lanon.f7397f42d4823ceea0f375ccf472b138.13
         80847d67         80847d67        0     1                 $d
         80847d70         80847d70       68     8 .srodata.cst8
         80847d70         80847d70       68     8         <internal>:(.srodata.cst8)
