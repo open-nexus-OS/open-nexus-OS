@@ -313,8 +313,10 @@ impl HidrawChainTelemetry {
             self.raw_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
         let sent_hz =
             self.sent_batches.saturating_mul(1_000_000_000).checked_div(elapsed).unwrap_or(0);
-        // #region agent log
-        let _ = debug_println(&format!(
+        // #region agent log — RFC-0068: the 30-field fps counter dump folds in interactive boots
+        // (recall `NEXUS_LOG_EXPAND=hidrawd`) and prints raw in proof. Gated via `service_trace`
+        // directly (NOT trace_line) because the `send_fail=` field would trip the failure safety net.
+        let _ = (!nexus_abi::service_trace()).then(|| debug_println(&format!(
             "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
             ingress_hz,
             sent_hz,
@@ -330,7 +332,7 @@ impl HidrawChainTelemetry {
             self.send_failures,
             self.route_rebinds,
             self.idle_yields
-        ));
+        )));
         // #endregion
         self.last_report_ns = now_ns;
         self.raw_batches = 0;

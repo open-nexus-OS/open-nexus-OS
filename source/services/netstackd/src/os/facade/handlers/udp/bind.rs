@@ -34,7 +34,7 @@ pub(crate) fn handle_bind<R: FnMut(&[u8])>(
 
     if !*dbg_udp_bind_logged {
         *dbg_udp_bind_logged = true;
-        let _ = nexus_abi::debug_println("netstackd: rpc udp bind");
+        let _ = nexus_abi::trace_line("netstackd: rpc udp bind");
         if reply_slot.is_none() {
             let _ = nexus_abi::debug_println("netstackd: udp bind missing reply cap");
         }

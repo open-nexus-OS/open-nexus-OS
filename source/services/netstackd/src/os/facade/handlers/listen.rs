@@ -46,7 +46,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         let port = parse_u16_le(req, 4).unwrap_or(0);
         (bind_ip, port, nonce)
     };
-    let _ = nexus_abi::debug_println("netstackd: rpc listen");
+    let _ = nexus_abi::trace_line("netstackd: rpc listen");
     if listen_ip == QEMU_USERNET_FALLBACK_IP && (port == LOOPBACK_PORT || port == LOOPBACK_PORT_B) {
         if !*dbg_listen_loopback_logged {
             *dbg_listen_loopback_logged = true;
@@ -57,7 +57,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         listeners.push(Some(Listener::Loop { port, pending: None }));
         let id = ListenerId::to_wire(listeners.len() - 1);
         reply_u32_status_maybe_nonce(reply, OP_LISTEN, STATUS_OK, id, nonce);
-        let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
+        let _ = nexus_abi::trace_line("netstackd: rpc listen ok");
     } else {
         if !*dbg_listen_tcp_logged {
             *dbg_listen_tcp_logged = true;
@@ -71,7 +71,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                 listeners.push(Some(Listener::Tcp(l)));
                 let id = ListenerId::to_wire(listeners.len() - 1);
                 reply_u32_status_maybe_nonce(reply, OP_LISTEN, STATUS_OK, id, nonce);
-                let _ = nexus_abi::debug_println("netstackd: rpc listen ok");
+                let _ = nexus_abi::trace_line("netstackd: rpc listen ok");
             }
             Err(_) => {
                 reply_status_maybe_nonce(reply, OP_LISTEN, STATUS_IO, nonce);

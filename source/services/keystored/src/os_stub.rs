@@ -1078,7 +1078,7 @@ fn emit_line(message: &str) {
     // Verdict folding: tally this marker into keystored's `keystored N/N` verdict. In an interactive
     // boot a routine marker is suppressed (folded); a failure — or any marker in a proof boot —
     // prints live & raw (so `verify-uart` is unaffected). Alloc-free counters in nexus-abi.
-    if nexus_abi::service_marker(message.as_bytes()) {
+    if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {

@@ -57,7 +57,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                         let mut q =
                             nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
                         if nexus_abi::cap_query(48, &mut q).is_ok() {
-                            let _ = nexus_abi::debug_println("netstackd: mmio cap48 present");
+                            let _ = nexus_abi::trace_line("netstackd: mmio cap48 present");
                         } else {
                             let _ = nexus_abi::debug_println("netstackd: mmio cap48 missing");
                         }
@@ -284,7 +284,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                                 );
                             }
                             // #endregion
-                            let _ = nexus_abi::debug_println("netstackd: udp dns rx other");
+                            let _ = nexus_abi::trace_line("netstackd: udp dns rx other");
                         }
                     }
                     Err(NetError::WouldBlock) => {
@@ -333,7 +333,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
         // #endregion
         if !ok {
             let _ =
-                nexus_abi::debug_println("netstackd: udp dns unavailable (fallback dhcp proof)");
+                nexus_abi::trace_line("netstackd: udp dns unavailable (fallback dhcp proof)");
             let _ = nexus_abi::debug_println("netstackd: net dns proof fail");
         } else {
             let _ = nexus_abi::debug_println("SELFTEST: net udp dns ok");
@@ -353,7 +353,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
             let _ = yield_();
         }
     }
-    let _ = nexus_abi::debug_println("netstackd: facade up");
+    let _ = nexus_abi::trace_line("netstackd: facade up");
 
     BootstrapResult { net, bind_ip }
 }

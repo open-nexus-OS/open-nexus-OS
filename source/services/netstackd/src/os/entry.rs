@@ -13,7 +13,7 @@
 pub(crate) fn emit_ready_marker() {
     // This marker means the service process reached entry and is alive.
     // Network readiness is proven later by bootstrap markers (iface/ping/dns/tcp).
-    let _ = nexus_abi::debug_println("netstackd: ready");
+    let _ = nexus_abi::trace_line("netstackd: ready");
 }
 
 #[inline]

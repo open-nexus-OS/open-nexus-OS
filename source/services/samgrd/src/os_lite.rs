@@ -400,8 +400,9 @@ fn rsp(op: u8, status: u8, send_slot: u32, recv_slot: u32) -> [u8; 13] {
 }
 
 fn emit_line(message: &str) {
-    // Verdict folding → `samgrd N/N` (interactive); failures & proof boots print live & raw.
-    if nexus_abi::service_marker(message.as_bytes()) {
+    // Verdict folding → `samgrd N/N` (interactive); post-`ready` runtime markers fold into recall;
+    // failures & proof boots print live & raw.
+    if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {

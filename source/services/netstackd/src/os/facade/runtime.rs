@@ -31,7 +31,7 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
     const SVC_RECV_SLOT: u32 = 5;
     let svc_recv_slot = SVC_RECV_SLOT;
     let _svc_send_slot: u32 = 6;
-    let _ = nexus_abi::debug_println("netstackd: svc slots 5/6");
+    let _ = nexus_abi::trace_line("netstackd: svc slots 5/6");
     let mut state = FacadeState::new();
 
     loop {
@@ -62,7 +62,7 @@ pub(crate) fn run_facade_loop(mut net: SmoltcpVirtioNetStack) -> ! {
                 static FIRST_IPC_LOGGED: core::sync::atomic::AtomicBool =
                     core::sync::atomic::AtomicBool::new(false);
                 if !FIRST_IPC_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-                    let _ = nexus_abi::debug_println("netstackd: first ipc recv");
+                    let _ = nexus_abi::trace_line("netstackd: first ipc recv");
                 }
                 let n = n as usize;
                 let req = &buf[..n];

@@ -226,6 +226,10 @@ fn rsp_sleep(status: u8, nonce: u32, wake_ns: u64) -> Vec<u8> {
 }
 
 fn emit_line(message: &str) {
+    // RFC-0068: fold routine markers into recall (interactive); failures & proof print raw.
+    if nexus_abi::service_line(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

@@ -96,7 +96,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
         );
         if !*dbg_loopback_connect_logged {
             *dbg_loopback_connect_logged = true;
-            let _ = nexus_abi::debug_println("netstackd: rpc connect loopback ok");
+            let _ = nexus_abi::trace_line("netstackd: rpc connect loopback ok");
         }
     } else {
         let remote = NetSocketAddrV4::new(ip, port);
@@ -135,7 +135,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                         streams.push(Some(Stream::TcpDial(stream)));
                         let sid = StreamId::to_wire(streams.len() - 1);
                         reply_u32_status_maybe_nonce(reply, OP_CONNECT, STATUS_OK, sid, nonce);
-                        let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                        let _ = nexus_abi::trace_line("netstackd: rpc connect ok");
                     } else {
                         if !*dbg_connect_kick_would_block_logged {
                             *dbg_connect_kick_would_block_logged = true;
@@ -181,7 +181,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
                     streams.push(Some(Stream::TcpDial(s)));
                     let sid = StreamId::to_wire(streams.len() - 1);
                     reply_u32_status_maybe_nonce(reply, OP_CONNECT, STATUS_OK, sid, nonce);
-                    let _ = nexus_abi::debug_println("netstackd: rpc connect ok");
+                    let _ = nexus_abi::trace_line("netstackd: rpc connect ok");
                 } else {
                     if !*dbg_connect_kick_would_block_logged {
                         *dbg_connect_kick_would_block_logged = true;

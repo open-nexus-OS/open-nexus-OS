@@ -27,7 +27,7 @@ pub(crate) fn handle<R: FnMut(&[u8])>(
     static LOCAL_ADDR_LOGGED: core::sync::atomic::AtomicBool =
         core::sync::atomic::AtomicBool::new(false);
     if !LOCAL_ADDR_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-        let _ = nexus_abi::debug_println("netstackd: rpc local_addr");
+        let _ = nexus_abi::trace_line("netstackd: rpc local_addr");
     }
     if req.len() != 4 && req.len() != 12 {
         reply(&status_frame(OP_LOCAL_ADDR, STATUS_MALFORMED));

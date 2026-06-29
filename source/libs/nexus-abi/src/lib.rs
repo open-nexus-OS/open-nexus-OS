@@ -1970,6 +1970,16 @@ pub fn service_trace() -> bool {
     SVC_FOLD_MODE.load(Ordering::Relaxed) && !SVC_EXPAND.load(Ordering::Relaxed)
 }
 
+/// Combined funnel gate for a service's `emit_line`: PRE-`ready` markers fold into the per-process
+/// verdict (tally), POST-`ready` routine markers fold into recall-only detail, and failures/proof
+/// boots always print. Returns `true` when the caller should SUPPRESS the line. The drop-in upgrade
+/// of [`service_marker`] for funnel services that also emit runtime markers after `ready`:
+/// `if nexus_abi::service_line(msg.as_bytes()) { return; }`.
+#[must_use]
+pub fn service_line(line: &[u8]) -> bool {
+    service_marker(line) || (!marker_is_failure(line) && service_trace())
+}
+
 /// Emit this service's verdict as one atomic grid line, then stop folding (later runtime markers
 /// print raw). No-op when not folding or nothing was tallied. Pairs with [`service_marker_tally`]
 /// so folded markers are never lost without a verdict.
