@@ -57,6 +57,7 @@ Renderers consume the journal; none of them change what is emitted:
 
 - **Console (UART) = the verdict grid**, grouped by **subject-span**, folded by default. The config is pure *render* state:
   - `expand=<subject,…>` — show that subject's full event stream raw, everything else folded (the workflow lever, now subject-correct: `expand=policyd` shows init's policyd-grant + policyd boot + policyd runtime together).
+    - **Realized today WITHOUT the central collector (subject-keyed expand at the emit layer):** each emitter independently prints its lines raw when their SUBJECT is in the expand set, keyed by the bare subject name (not the emitter). So `NEXUS_LOG_EXPAND=policyd` makes init print its policyd wiring raw (init's `subject_expanded("init:policyd")` strips the `init:` prefix → matches `policyd`) AND policyd print its own markers raw (its per-process expand) — one keyword expands a subject's whole cross-process story while the compact `init`/`policyd` verdicts still summarize the default view. Implemented for the init wiring fold (orchestrator `iw`/`subject_expanded`, boot-proven 2026-06-29); the per-emitter verdict still groups by emitter, but the *debug* axis is already subject. The full default-view subject MERGE (one `policyd` row) still wants the journal (P4).
   - `level=<subject>=debug` — raise a subject's floor.
   - `filter=` — only certain subjects/levels.
   Default floor Warn + curated Info; Debug/Trace off. Early boot uses a minimal direct console renderer; once logd is up it drives.
