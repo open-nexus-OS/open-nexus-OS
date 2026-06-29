@@ -34,8 +34,11 @@ pub(crate) fn rng_entropy_selftest() {
 
     // Deterministic rngd slots distributed by init-lite. These must stay in sync
     // with the selftest wiring guard in `tools/nx/tests/interactive_os_startup.rs`.
-    const RNGD_SEND_SLOT: u32 = 0x1f;
-    const RNGD_RECV_SLOT: u32 = 0x20;
+    // Must match init-lite's selftest→rngd cap transfer slots (auto-assigned send=0x1e, recv=0x1f).
+    // Previously 0x1f/0x20 — off by one, so `send` landed on the RECV cap and failed (the real
+    // `selftest:bringup` ERROR the verdict grid surfaced).
+    const RNGD_SEND_SLOT: u32 = 0x1e;
+    const RNGD_RECV_SLOT: u32 = 0x1f;
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {
@@ -114,8 +117,11 @@ pub(crate) fn rng_entropy_oversized_selftest() {
     req.extend_from_slice(&nonce.to_le_bytes());
     req.extend_from_slice(&257u16.to_le_bytes());
 
-    const RNGD_SEND_SLOT: u32 = 0x1f;
-    const RNGD_RECV_SLOT: u32 = 0x20;
+    // Must match init-lite's selftest→rngd cap transfer slots (auto-assigned send=0x1e, recv=0x1f).
+    // Previously 0x1f/0x20 — off by one, so `send` landed on the RECV cap and failed (the real
+    // `selftest:bringup` ERROR the verdict grid surfaced).
+    const RNGD_SEND_SLOT: u32 = 0x1e;
+    const RNGD_RECV_SLOT: u32 = 0x1f;
     let client = match KernelClient::new_with_slots(RNGD_SEND_SLOT, RNGD_RECV_SLOT) {
         Ok(c) => c,
         Err(_) => {

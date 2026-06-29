@@ -100,8 +100,10 @@ fn now_ns() -> u64 {
 // (they belong in the per-service verdicts, S4); `sched`/`mm` are already DEBUG-gated off. So the
 // kernel grid is essentially `kself`; the rest of the grid lives in the per-service aggregator.
 const GROUP_KSELF: usize = 0;
-const GROUP_COUNT: usize = 1;
-const GROUP_NAMES: [&str; GROUP_COUNT] = ["kself"];
+const GROUP_SYSCALLS: usize = 1;
+const GROUP_COUNT: usize = 2;
+// Descriptive group names (what the markers ARE), each also the `NEXUS_LOG_EXPAND` flag.
+const GROUP_NAMES: [&str; GROUP_COUNT] = ["kself", "syscalls"];
 
 struct GroupAcc {
     tally: AtomicU32,
@@ -115,7 +117,17 @@ impl GroupAcc {
     }
 }
 
-static GROUPS: [GroupAcc; GROUP_COUNT] = [GroupAcc::new()];
+static GROUPS: [GroupAcc; GROUP_COUNT] = [GroupAcc::new(), GroupAcc::new()];
+
+/// True if a kernel group is named in `NEXUS_LOG_EXPAND` — then its markers print raw (still counted)
+/// instead of folding, so `NEXUS_LOG_EXPAND=syscalls` shows that group's full detail. The displayed
+/// group name IS the flag (RFC-0068 subject-keyed expand, kernel side).
+fn group_expanded(g: usize) -> bool {
+    match option_env!("NEXUS_LOG_EXPAND") {
+        Some(list) => list.split(',').any(|x| x.trim() == GROUP_NAMES[g]),
+        None => false,
+    }
+}
 
 /// Map a diag target tag to its verdict group, if it folds. Unlisted targets print normally
 /// (subject only to the level/topic gate).
@@ -142,7 +154,22 @@ fn group_fold(g: usize, level: Level) -> bool {
         acc.fails.fetch_add(1, Ordering::Relaxed);
         return false;
     }
+    if group_expanded(g) {
+        return false; // expanded for debugging: print raw (already counted in the verdict)
+    }
     true
+}
+
+/// Fold a RAW (non-facade) kernel marker into the `syscalls` group — e.g. the per-process syscall
+/// table install echo. Returns `true` to suppress the raw line. Call as `if !syscalls_fold() { … }`.
+pub fn syscalls_fold() -> bool {
+    group_fold(GROUP_SYSCALLS, Level::Info)
+}
+
+/// Flush the `syscalls` group verdict. Call once the kernel-init syscall installs are done (before
+/// the idle loop), paired with the suppression so no folded line is dropped without a verdict.
+pub fn verdict_flush_syscalls() {
+    flush_group(GROUP_SYSCALLS);
 }
 
 /// Emit one group's verdict as a single atomic grid line. No-op in proof boots / when empty.

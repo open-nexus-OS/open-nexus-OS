@@ -59,6 +59,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     // Also allow external map file
     println!("cargo:rerun-if-env-changed=NEURON_SYMBOLS_MAP");
+    // RFC-0068: the diag GROUP expand (`group_expanded`) reads NEXUS_LOG_EXPAND via option_env! —
+    // rebuild the kernel when it changes so `NEXUS_LOG_EXPAND=syscalls` takes effect.
+    println!("cargo:rerun-if-env-changed=NEXUS_LOG_EXPAND");
     emit_symbol_table();
 
     // Propagate optional embedded init ELF path into the kernel build so it can be included.

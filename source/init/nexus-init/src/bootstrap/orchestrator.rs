@@ -40,6 +40,18 @@ fn iw(wire: &mut nexus_event::SpanTally, fold: bool, subject: &str) -> bool {
     !fold || expanded("init_caps") || expanded(svc)
 }
 
+/// Like [`iw`] but for the `lifecycle` group — the boot LIFECYCLE events (entry/timing/deferred-resume/
+/// probe/rollback), named for WHAT happens, not the `init` emitter. Expanded by the `lifecycle` group
+/// flag OR the bare subject — e.g. `init: deferred resume gpud` carries subject `gpud`, so
+/// `NEXUS_LOG_EXPAND=gpud` reveals it together with gpud's bring-up + runtime (one keyword, the whole
+/// subject's story). `init: ready` is NEVER folded — it is the harness/launcher stop marker.
+#[inline]
+fn il(wire: &mut nexus_event::SpanTally, fold: bool, subject: &str) -> bool {
+    wire.record(nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+    let svc = subject.strip_prefix("init:").unwrap_or(subject);
+    !fold || expanded("lifecycle") || expanded(svc)
+}
+
 pub(crate) fn run_bootstrap<F>(
     images: &'static [ServiceImage],
     notifier: ReadyNotifier<F>,
@@ -106,6 +118,10 @@ where
     // which reveals that subject's init lines together with its own service markers — so the default
     // grid stays compact while debugging stays subject-scoped. Flushed once at the end of bootstrap.
     let mut init_wire = nexus_event::SpanTally::new();
+    // RFC-0068: the `lifecycle` group (entry/timing/deferred-resume/probe/rollback) — named for WHAT
+    // happens, not the `init` emitter; separate from `init_caps` wiring. `init: ready` stays raw
+    // (harness stop marker).
+    let mut init_misc = nexus_event::SpanTally::new();
     for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
@@ -388,16 +404,20 @@ where
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     // #region agent log (probe key_req rights via self-transfer)
     if let Ok(me) = nexus_abi::pid() {
-        debug_write_bytes(b"init: probe key_req self-xfer pid=0x");
-        debug_write_hex(me as usize);
-        debug_write_bytes(b" cap=0x");
-        debug_write_hex(key_req as usize);
-        debug_write_byte(b'\n');
+        if il(&mut init_misc, init_fold, "keystored") {
+            debug_write_bytes(b"init: probe key_req self-xfer pid=0x");
+            debug_write_hex(me as usize);
+            debug_write_bytes(b" cap=0x");
+            debug_write_hex(key_req as usize);
+            debug_write_byte(b'\n');
+        }
         match nexus_abi::cap_transfer(me, key_req, Rights::SEND) {
             Ok(slot) => {
-                debug_write_bytes(b"init: probe key_req self-xfer SEND ok slot=0x");
-                debug_write_hex(slot as usize);
-                debug_write_byte(b'\n');
+                if il(&mut init_misc, init_fold, "keystored") {
+                    debug_write_bytes(b"init: probe key_req self-xfer SEND ok slot=0x");
+                    debug_write_hex(slot as usize);
+                    debug_write_byte(b'\n');
+                }
                 let _ = nexus_abi::cap_close(slot);
             }
             Err(e) => {
@@ -408,9 +428,11 @@ where
         }
         match nexus_abi::cap_transfer(me, key_req, Rights::RECV) {
             Ok(slot) => {
-                debug_write_bytes(b"init: probe key_req self-xfer RECV ok slot=0x");
-                debug_write_hex(slot as usize);
-                debug_write_byte(b'\n');
+                if il(&mut init_misc, init_fold, "keystored") {
+                    debug_write_bytes(b"init: probe key_req self-xfer RECV ok slot=0x");
+                    debug_write_hex(slot as usize);
+                    debug_write_byte(b'\n');
+                }
                 let _ = nexus_abi::cap_close(slot);
             }
             Err(e) => {
@@ -2066,9 +2088,11 @@ where
         if let Some(chan) = ctrl_channels.iter().find(|c| c.svc_name == service_name) {
             match nexus_abi::task_resume(chan.pid) {
                 Ok(()) => {
-                    debug_write_bytes(b"init: deferred resume ");
-                    debug_write_str(service_name);
-                    debug_write_byte(b'\n');
+                    if il(&mut init_misc, init_fold, service_name) {
+                        debug_write_bytes(b"init: deferred resume ");
+                        debug_write_str(service_name);
+                        debug_write_byte(b'\n');
+                    }
                 }
                 Err(e) => {
                     debug_write_bytes(b"init: deferred resume fail svc=");
@@ -2095,7 +2119,7 @@ where
                 pol_ctl_route_rsp,
                 slot,
             );
-            if !ok {
+            if !ok && il(&mut init_misc, init_fold, "init") {
                 debug_write_str("init: rollback deferred");
                 debug_write_byte(b'\n');
             }
@@ -2123,8 +2147,10 @@ where
         wiring_done_ms.saturating_sub(grants_done_ms),
         total_ms.saturating_sub(wiring_done_ms)
     );
-    debug_write_str(&timing);
-    debug_write_byte(b'\n');
+    if il(&mut init_misc, init_fold, "init") {
+        debug_write_str(&timing);
+        debug_write_byte(b'\n');
+    }
 
     // RFC-0068: flush the folded per-subject wiring verdicts (interactive only). Paired with the
     // per-trace suppression so no folded line is dropped without its verdict.
@@ -2136,6 +2162,19 @@ where
         let v = init_wire.verdict_self();
         let mut line = [0u8; 96];
         let n = nexus_event::render_verdict_line(&mut line, now, "init_caps", v);
+        let _ = nexus_abi::debug_write(&line[..n]);
+    }
+    // The `init` lifecycle verdict (entry/timing/deferred-resume/probe/rollback). Recalled via
+    // NEXUS_LOG_EXPAND=init, or =<svc> for a service-tagged line (e.g. deferred resume gpud).
+    if init_fold && !init_misc.is_empty() {
+        // Lifecycle GRAB-BAG: these markers are spread across the whole boot (early probe → late
+        // timing), so a span/`slow` flag would be a false alarm. Show pass/total only (ms=0); a real
+        // failure still surfaces as ERROR.
+        let raw = init_misc.verdict_self();
+        let v = nexus_event::verdict_from(raw.total, raw.total.saturating_sub(raw.passed), None, 0);
+        let now = nexus_abi::nsec().unwrap_or(0);
+        let mut line = [0u8; 96];
+        let n = nexus_event::render_verdict_line(&mut line, now, "lifecycle", v);
         let _ = nexus_abi::debug_write(&line[..n]);
     }
 

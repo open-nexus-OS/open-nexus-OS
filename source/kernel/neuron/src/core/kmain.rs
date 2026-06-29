@@ -669,6 +669,9 @@ pub fn kmain() -> ! {
         // (interactive boots only; proof boots emitted them raw for verify-uart). Pairs with the
         // suppression in diag::log::emit so no folded marker is ever dropped without a verdict.
         crate::log::verdict_flush_kself();
+        // RFC-0068: the kernel-init syscall-table installs are done by now (before the idle loop) —
+        // flush their folded `syscalls N/N` verdict, paired with the suppression in `api.rs`.
+        crate::log::verdict_flush_syscalls();
     }
     #[cfg(feature = "boot_timing")]
     {

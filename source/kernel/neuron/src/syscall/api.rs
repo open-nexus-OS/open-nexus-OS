@@ -672,8 +672,10 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_DEBUG_PUTC, sys_debug_putc);
     table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
     table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
+    // RFC-0068: fold this per-process syscall-table install echo into the `syscalls` verdict
+    // (NEXUS_LOG_EXPAND=syscalls to see them raw). One tally per install event.
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
+    if !crate::log::syscalls_fold() {
         use core::fmt::Write as _;
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("SYSCALL install debug_putc=0x");
