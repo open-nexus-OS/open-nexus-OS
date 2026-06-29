@@ -1967,48 +1967,22 @@ pub fn service_verdict_flush(service: &str) {
         // == 0` is the unset sentinel (a real marker's nsec is never 0 here).
         let started_at = (first != 0).then_some(first);
         let v = nexus_event::verdict_from(total, fails, started_at, now);
-        svc_emit_verdict_line(now, v.tag.label(), service, v.passed, v.total, v.ms);
+        svc_emit_verdict_line(now, service, v);
     }
     SVC_FOLD.store(false, Ordering::Relaxed);
     SVC_ARMED.store(false, Ordering::Relaxed);
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn svc_emit_verdict_line(now: u64, tag: &str, service: &str, passed: u32, total: u32, ms: u64) {
-    use core::fmt::Write as _;
-    struct Buf {
-        b: [u8; 96],
-        n: usize,
-    }
-    impl core::fmt::Write for Buf {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            for &c in s.as_bytes() {
-                if self.n < self.b.len() {
-                    self.b[self.n] = c;
-                    self.n += 1;
-                }
-            }
-            Ok(())
-        }
-    }
-    let mut buf = Buf { b: [0u8; 96], n: 0 };
-    let _ = write!(
-        buf,
-        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}\n",
-        now / 1_000_000_000,
-        (now % 1_000_000_000) / 1000,
-        tag,
-        service,
-        passed,
-        total,
-        ms,
-        if tag == "WARN" { "  slow" } else { "" }
-    );
-    let _ = debug_write(&buf.b[..buf.n]);
+fn svc_emit_verdict_line(now: u64, service: &str, v: nexus_event::Verdict) {
+    // RFC-0068: the grid-line FORMAT is the shared SSOT in nexus-event (same renderer the kernel
+    // GROUP flush uses) — this just owns the fixed buffer + the one atomic console write.
+    let mut buf = [0u8; 96];
+    let n = nexus_event::render_verdict_line(&mut buf, now, service, v);
+    let _ = debug_write(&buf[..n]);
 }
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-fn svc_emit_verdict_line(_now: u64, _tag: &str, _service: &str, _passed: u32, _total: u32, _ms: u64) {
-}
+fn svc_emit_verdict_line(_now: u64, _service: &str, _v: nexus_event::Verdict) {}
 
 /// Current monotonic nanoseconds, or 0 where unavailable (host). Internal to [`Span`].
 #[cfg(nexus_env = "os")]

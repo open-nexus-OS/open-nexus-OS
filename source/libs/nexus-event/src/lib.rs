@@ -214,6 +214,50 @@ impl SpanTally {
     }
 }
 
+/// A `core::fmt::Write` adapter over a caller-owned byte slice — the alloc-free backing for
+/// [`render_verdict_line`]. Writes past the end are silently dropped (the line is bounded).
+struct SliceWriter<'a> {
+    buf: &'a mut [u8],
+    n: usize,
+}
+
+impl core::fmt::Write for SliceWriter<'_> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for &c in s.as_bytes() {
+            if self.n < self.buf.len() {
+                self.buf[self.n] = c;
+                self.n += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Render ONE verdict grid line into `buf`, returning the number of bytes written (clamped to the
+/// buffer). This is the SSOT for the console grid format (RFC-0068 §5 — rendering is one concern):
+/// `[    S.uuuuuu]  TAG    subject        passed/total   Nms[  slow]\n`. Both the per-process
+/// flush (`nexus-abi`) and the kernel GROUP flush call this so the column layout can never drift
+/// between the two. Alloc-free: the caller owns the buffer (96 bytes covers the longest line) and
+/// writes the rendered slice in one atomic console write.
+#[must_use]
+pub fn render_verdict_line(buf: &mut [u8], now_ns: u64, subject: &str, v: Verdict) -> usize {
+    use core::fmt::Write as _;
+    let mut w = SliceWriter { buf, n: 0 };
+    let _ = writeln!(
+        w,
+        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}",
+        now_ns / 1_000_000_000,
+        (now_ns % 1_000_000_000) / 1000,
+        v.tag.label(),
+        subject,
+        v.passed,
+        v.total,
+        v.ms,
+        if v.tag.is_slow() { "  slow" } else { "" },
+    );
+    w.n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +350,60 @@ mod tests {
         assert_eq!(v, Verdict { passed: 4, total: 5, ms: 12, tag: VerdictTag::Error });
         // None anchor → no duration even with a large flush time.
         assert_eq!(verdict_from(2, 0, None, 999 * MS).ms, 0);
+    }
+
+    fn canonical(now: u64, subject: &str, v: Verdict) -> String {
+        format!(
+            "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}\n",
+            now / 1_000_000_000,
+            (now % 1_000_000_000) / 1000,
+            v.tag.label(),
+            subject,
+            v.passed,
+            v.total,
+            v.ms,
+            if v.tag.is_slow() { "  slow" } else { "" },
+        )
+    }
+
+    #[test]
+    fn render_matches_canonical_grid_format() {
+        // Pins the byte layout both the kernel flush_group and nexus-abi flush previously inlined —
+        // render_verdict_line must reproduce it exactly so swapping the call sites is byte-stable.
+        let cases = [
+            (163_015_000u64, "kself", Verdict { passed: 53, total: 53, ms: 14, tag: VerdictTag::Ok }),
+            (1_716_000_000, "windowd", Verdict { passed: 22, total: 22, ms: 1716, tag: VerdictTag::Warn }),
+            (360_000_000, "selftest", Verdict { passed: 25, total: 27, ms: 360, tag: VerdictTag::Error }),
+        ];
+        for (now, subj, v) in cases {
+            let mut buf = [0u8; 96];
+            let n = render_verdict_line(&mut buf, now, subj, v);
+            assert_eq!(&buf[..n], canonical(now, subj, v).as_bytes(), "subject={subj}");
+        }
+    }
+
+    #[test]
+    fn render_slow_suffix_only_on_warn() {
+        let mk = |tag| {
+            let mut b = [0u8; 96];
+            let n = render_verdict_line(&mut b, 0, "x", Verdict { passed: 1, total: 1, ms: 0, tag });
+            core::str::from_utf8(&b[..n]).unwrap().to_string()
+        };
+        assert!(mk(VerdictTag::Warn).contains("slow"));
+        assert!(!mk(VerdictTag::Ok).contains("slow"));
+        assert!(!mk(VerdictTag::Error).contains("slow"));
+    }
+
+    #[test]
+    fn render_truncates_into_small_buffer_without_panic() {
+        let mut buf = [0u8; 8];
+        let n = render_verdict_line(
+            &mut buf,
+            0,
+            "verylongsubjectname",
+            Verdict { passed: 1, total: 1, ms: 0, tag: VerdictTag::Ok },
+        );
+        assert!(n <= 8);
     }
 
     #[test]

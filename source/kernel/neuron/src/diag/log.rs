@@ -164,19 +164,12 @@ fn flush_group(g: usize) {
     // nexus-event — the kernel groups now get the same soft-real-time slow flag the services have.
     let started_at = (first != 0).then_some(first);
     let v = nexus_event::verdict_from(total, fails, started_at, now);
+    // RFC-0068: render via the shared SSOT (the SAME format the services use, so the grid columns
+    // can never drift between kernel and userspace), then one atomic write under the UART lock.
+    let mut buf = [0u8; 96];
+    let n = nexus_event::render_verdict_line(&mut buf, now, GROUP_NAMES[g], v);
     let mut uart = crate::uart::KernelUart::lock();
-    let _ = write!(
-        &mut *uart,
-        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}\n",
-        now / 1_000_000_000,
-        (now % 1_000_000_000) / 1000,
-        v.tag.label(),
-        GROUP_NAMES[g],
-        v.passed,
-        v.total,
-        v.ms,
-        if v.tag.is_slow() { "  slow" } else { "" }
-    );
+    let _ = uart.write_str(core::str::from_utf8(&buf[..n]).unwrap_or(""));
 }
 
 /// Flush the kernel selftest group verdict. Call at the end of the kernel selftest run.
