@@ -241,3 +241,5 @@ See `docs/standards/SECURITY_STANDARDS.md` for detailed guidelines.
   - docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
 - RFC-0067: windowd — clean compositor-service boundary (Draft 2026-06-24; gated multi-phase — retire windowd's inline 2D rasterizer into NexusGfx cpu2d, extract app/shell UI to userspace/apps + userspace/ui, collapse parallel scene models; P0 = this RFC + safety net, P5 = full backend seam last; aligns TASK-0169/0170/0170B)
   - docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md
+- RFC-0068: Structured-event observability — subject-grouped journal + configurable renderer (In progress 2026-06-29 — the future-proof shape of the UART verdict grid: group by SUBJECT not emitter, structured Events {ts,level,subject,name,status} in Spans, logd as the SSOT journal, UART as a configurable renderer, structured anti-fake-proof status; supersedes the per-process verdict grouping axis, keeps its UX; P1 shared nexus-event verdict-math crate DONE, P2 kernel+nexus-abi fold into it)
+  - docs/rfcs/RFC-0068-structured-event-observability-subject-grouped-journal-renderer.md

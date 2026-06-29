@@ -341,6 +341,12 @@ pub mod os {
         // interactive boot. If so, a service's routine markers fold into one `<service> N/N`
         // verdict; proof boots leave it off so `verify-uart` still sees every raw marker.
         nexus_abi::set_verdict_fold(nexus_abi::boot_should_fold_verdicts());
+        // Configurable per-group expand: if this service is named in `NEXUS_LOG_EXPAND` (a comma list),
+        // opt it out of folding so its full raw marker stream shows while every other group stays
+        // compactly folded — `NEXUS_LOG_EXPAND=netstackd just start` to focus one service.
+        if service_expand_requested() {
+            nexus_abi::set_verdict_expand(true);
+        }
         match entry() {
             Ok(()) => exit(0),
             Err(err) => {
@@ -373,6 +379,19 @@ pub mod os {
         }
         let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
         unsafe { core::str::from_utf8_unchecked(bytes) }
+    }
+
+    /// True when this service is listed in the `NEXUS_LOG_EXPAND` build env (a comma-separated set of
+    /// group names) — then it prints raw (un-folded) so its full detail shows while others stay
+    /// folded. Compile-time today (`just start` rebuilds); a runtime fw_cfg source can replace this.
+    fn service_expand_requested() -> bool {
+        match option_env!("NEXUS_LOG_EXPAND") {
+            Some(list) => {
+                let name = service_name();
+                list.split(',').any(|g| g.trim() == name)
+            }
+            None => false,
+        }
     }
 
     #[inline(always)]

@@ -1872,6 +1872,19 @@ static SVC_FIRST_NS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU
 // selftest observer) keeps printing raw and never loses a line. Services whose markers go through
 // a custom funnel (e.g. keystored's emit_line → service_marker) need NOT arm.
 static SVC_ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+// Per-group EXPAND override (the configurable grid): when set, THIS process does NOT fold — it prints
+// every marker raw and emits no verdict line, so you can focus on one group's full detail while every
+// other group stays compactly folded. Set from config (`NEXUS_LOG_EXPAND=<group>`) at bootstrap.
+// Nothing is hidden: folding is just the default view; expand recalls the raw stream per group.
+static SVC_EXPAND: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Opt THIS process out of folding (the configurable per-group EXPAND): all its markers print raw and
+/// no verdict line is emitted, while every other group stays folded. Call at bootstrap when this
+/// service is in the config's expand set. Overrides fold/arm.
+pub fn set_verdict_expand(on: bool) {
+    use core::sync::atomic::Ordering;
+    SVC_EXPAND.store(on, Ordering::Relaxed);
+}
 
 /// Enable per-process verdict folding. Call once at service bootstrap with the kernel boot mode.
 /// When enabling, also stamps the init-start time so the verdict's `<ms>` measures bootstrap→ready
@@ -1920,7 +1933,8 @@ fn marker_is_failure(b: &[u8]) -> bool {
 #[must_use]
 pub fn service_marker_tally(failed: bool) -> bool {
     use core::sync::atomic::Ordering;
-    if !SVC_FOLD.load(Ordering::Relaxed) {
+    // Expanded group, or not folding (proof) → never suppress: print raw.
+    if SVC_EXPAND.load(Ordering::Relaxed) || !SVC_FOLD.load(Ordering::Relaxed) {
         return false;
     }
     if SVC_FIRST_NS.load(Ordering::Relaxed) == 0 {
@@ -1939,27 +1953,21 @@ pub fn service_marker_tally(failed: bool) -> bool {
 /// so folded markers are never lost without a verdict.
 pub fn service_verdict_flush(service: &str) {
     use core::sync::atomic::Ordering;
-    if !SVC_FOLD.load(Ordering::Relaxed) {
+    // Expanded group prints raw detail (no verdict line); proof boots don't fold either.
+    if SVC_EXPAND.load(Ordering::Relaxed) || !SVC_FOLD.load(Ordering::Relaxed) {
         return;
     }
     let total = SVC_TALLY.load(Ordering::Relaxed);
     if total != 0 {
         let fails = SVC_FAILS.load(Ordering::Relaxed);
-        let passed = total - fails;
         let first = SVC_FIRST_NS.load(Ordering::Relaxed);
         let now = span_now_ns();
-        let ms = if first != 0 { now.saturating_sub(first) / 1_000_000 } else { 0 };
-        // Soft-real-time: a group that passed but took too long is WARN+`slow`, so a sluggish
-        // service (e.g. a 12 s bring-up) jumps out of an otherwise quiet `OK` column.
-        const SLOW_MS: u64 = 250;
-        let tag = if fails != 0 {
-            "ERROR"
-        } else if ms >= SLOW_MS {
-            "WARN"
-        } else {
-            "OK"
-        };
-        svc_emit_verdict_line(now, tag, service, passed, total, ms);
+        // RFC-0068: the verdict math (passed/total, ms, OK/WARN-slow/ERROR with the soft-real-time
+        // SLOW budget) lives once in nexus-event; this is just the per-process atomic feeder. `first
+        // == 0` is the unset sentinel (a real marker's nsec is never 0 here).
+        let started_at = (first != 0).then_some(first);
+        let v = nexus_event::verdict_from(total, fails, started_at, now);
+        svc_emit_verdict_line(now, v.tag.label(), service, v.passed, v.total, v.ms);
     }
     SVC_FOLD.store(false, Ordering::Relaxed);
     SVC_ARMED.store(false, Ordering::Relaxed);

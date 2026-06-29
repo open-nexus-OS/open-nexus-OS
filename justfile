@@ -99,6 +99,15 @@ start *args:
     # self-contained interactive path: build first, then keep the same guest
     # alive with the richer breadcrumb ladder. Default to the host build path so
     # interactive starts do not rebuild the dev container or compile cargo-udeps.
+    #
+    # UART verdict grid (see docs/adr/0040 §8): an interactive boot folds each subsystem/service's
+    # markers into one `[ts] OK <group> N/N <ms>` line (compact; failures + slow groups stand out).
+    # To see one group's FULL raw markers while the rest stay folded — the focus-while-debugging
+    # lever — set NEXUS_LOG_EXPAND to a comma list of group names, e.g.:
+    #     NEXUS_LOG_EXPAND=netstackd just start   # netstackd raw, everything else folded
+    #     NEXUS_LOG_EXPAND=gpud just start        # gpud raw, netstackd folded
+    # Nothing is hidden — folding is just the default view; expand recalls the raw stream per group.
+    # (Proof boots `just test-os` never fold, so verify-uart sees every raw marker.)
     GPU_MODE=${GPU_MODE:-virgl} make MODE=${NEXUS_START_BUILD_MODE:-host} build
     NEXUS_SKIP_BUILD=1 NEXUS_DISPLAY_BOOTSTRAP=1 GPU_MODE=${GPU_MODE:-virgl} QEMU_SESSION_MODE=interactive QEMU_MARKER_LEVEL=full NEXUS_SELFTEST_MODE=interactive-full QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-tablet} QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk} QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280} QEMU_GPU_YRES=${QEMU_GPU_YRES:-800} RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-0} scripts/qemu-launcher.sh {{args}}
     @echo "[hint] just start defaults to GPU_MODE=virgl (real GL-scanout compositor) in a visible gtk,gl=on window. Use GPU_MODE=mmio just start for the CPU-fallback 2D path. If the GL window backgrounds go black it is the gpud GL-scanout path (gl_scanout.rs full-frame gl_present_damage / task #69), NOT a host/display bug — do not switch backends to 'fix' it."

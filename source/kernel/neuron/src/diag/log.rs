@@ -158,22 +158,24 @@ fn flush_group(g: usize) {
         return;
     }
     let fails = acc.fails.load(Ordering::Relaxed);
-    let passed = total - fails;
     let first = acc.first_ns.load(Ordering::Relaxed);
     let now = now_ns();
-    let ms = if first != 0 { now.saturating_sub(first) / 1_000_000 } else { 0 };
-    let tag = if fails == 0 { "OK" } else { "ERROR" };
+    // RFC-0068: the verdict math (passed/total, ms, OK/WARN-slow/ERROR) is the shared SSOT in
+    // nexus-event — the kernel groups now get the same soft-real-time slow flag the services have.
+    let started_at = (first != 0).then_some(first);
+    let v = nexus_event::verdict_from(total, fails, started_at, now);
     let mut uart = crate::uart::KernelUart::lock();
     let _ = write!(
         &mut *uart,
-        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms\n",
+        "[{:>5}.{:06}]  {:<6} {:<14} {}/{}   {}ms{}\n",
         now / 1_000_000_000,
         (now % 1_000_000_000) / 1000,
-        tag,
+        v.tag.label(),
         GROUP_NAMES[g],
-        passed,
-        total,
-        ms
+        v.passed,
+        v.total,
+        v.ms,
+        if v.tag.is_slow() { "  slow" } else { "" }
     );
 }
 

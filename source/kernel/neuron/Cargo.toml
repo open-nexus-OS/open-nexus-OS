@@ -42,6 +42,10 @@ spin = { version = "0.9", default-features = false, features = ["mutex", "spin_m
 linked_list_allocator = { version = "0.10.5", default-features = false }
 riscv = { version = "0.11", default-features = false }
 static_assertions = { version = "1", default-features = false }
+# RFC-0068: shared, zero-dep, no_std verdict math (a leaf types crate, same category as the others
+# above) — the kernel GROUP table folds into the SAME SSOT the services use, so OK/WARN-slow/ERROR
+# can never drift between the two sides.
+nexus-event = { path = "../../libs/nexus-event" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

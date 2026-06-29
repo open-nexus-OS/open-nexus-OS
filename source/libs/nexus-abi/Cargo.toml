@@ -6,3 +6,5 @@ license = "Apache-2.0"
 
 [dependencies]
 bitflags = { version = "2", default-features = false }
+# RFC-0068: the per-process verdict counters feed the shared SSOT verdict math.
+nexus-event = { path = "../nexus-event" }

@@ -140,6 +140,65 @@ result fails; an unexpected result fails). The `proof-manifest/` tree remains th
 truth for which results must and must not appear under each profile; only the transport of the
 verdict — per-line greps → one structured summary — changes.
 
+### 8. Implemented: the verdict grid + configurable per-group expand
+
+This is the realized shape of §1/§6 as built (2026-06-26..28). The console default is the **verdict
+grid**: one aggregated line per subsystem/service group instead of its individual markers —
+
+```
+[    0.158113]  OK     kself          53/53   14ms
+[    0.253413]  OK     gpud           17/17   51ms
+[    0.917941]  WARN   windowd        22/22   716ms  slow
+[    1.255062]  WARN   netstackd      18/18   1066ms slow
+[    1.316478]  ERROR  selftest:bringup 25/27  256ms
+```
+
+Format: `[secs.us]  TAG  group  passed/total  <ms>[ slow]`. `TAG` = `OK` | `WARN` (passed but the
+group took ≥ 250 ms — the soft-real-time signal) | `ERROR` (any marker failed). A group's markers are
+counted, not printed; a FAILED marker (text contains `err`/`FAIL`/`denied`, or `Error`/`Warn` level)
+always prints live so a problem is never hidden behind a green verdict.
+
+**Mechanism (alloc-free — counters only, no heap/Vec/replay buffer; this is deliberate, the kernel had
+UART+alloc problems):**
+- *Mode keystone.* The kernel reads the boot mode from QEMU `fw_cfg` once at `kmain`
+  (`diag/boot_mode.rs`, fw_cfg identity-mapped in `mm/address_space.rs`). `SYSCALL_BOOT_MODE` (45) +
+  `nexus_abi::boot_should_fold_verdicts()` expose it to U-mode services. **Interactive boots fold;
+  proof boots (`just test-os`) never fold** → `verify-uart` still sees every raw marker. Default on
+  any failure is raw, so a bad probe can never break the proof harness.
+- *Kernel groups.* `diag/log.rs` has a small `GROUP` table (tally/fails/first_ns atomics); `emit()`
+  folds a foldable target's routine markers and a `verdict_flush_*` emits the grid line. Currently
+  only `kself` (the kernel selftest) folds cleanly; `boot`/`as`/`smp`/`exec` are pending (boot fires
+  before mode-detect; as/exec fire per-spawn).
+- *Service groups.* `nexus_abi` owns the per-process counters + `set_verdict_fold` /
+  `service_marker(line)` / `service_verdict_flush(name)`. `nexus-service-entry::bootstrap` arms the
+  mode for every service. A service folds either via its marker funnel (`emit_line` →
+  `service_marker`, e.g. keystored/policyd/samgrd/updated/execd) or, for services with scattered
+  `debug_println`, by calling `service_verdict_arm()` at `os_entry` so `debug_println` auto-tallies
+  (gpud/windowd/netstackd). Each flushes `service_verdict_flush("<name>")` at its ready point.
+
+**Configurable per-group EXPAND (so the compact grid hides nothing).** Set
+`NEXUS_LOG_EXPAND="<group>[,<group>…]"` to print one group's full raw markers while every other group
+stays folded — the workflow lever: focus the subsystem you are debugging, keep the rest compact.
+
+```
+NEXUS_LOG_EXPAND=netstackd just start   # netstackd raw; gpud/windowd/… folded
+NEXUS_LOG_EXPAND=gpud just start        # gpud raw; netstackd folded
+just start                              # everything folded (compact)
+```
+
+`nexus-service-entry` checks the list against the service name at bootstrap and calls
+`nexus_abi::set_verdict_expand(true)` (which makes `service_marker` print raw + suppresses the verdict
+line). It is compile-time today (`option_env!`, with `build.rs` `rerun-if-env-changed` so `just start`
+— which rebuilds — picks it up); a runtime `fw_cfg`/syscall source can replace it later, and kernel
+groups will honour the same list.
+
+**Endgame (tracked in the observability track + the `uart-grid-config-expand-vision` note):** every
+subsystem except the OpenSBI firmware banner shown in this grid form, each independently expandable by
+config. Remaining: kernel `boot`/`as`/`smp`/`syscall`/`sys` groups, the rest of the services, and
+`init` (it builds each line from multiple `debug_write_bytes` fragments, so it needs a per-line funnel
+before it can fold — a `nexus-init` god-file touch). The per-marker fake-proof audit (the markers fold
+into a green verdict, so they must be genuine) is ongoing and so far reassuring.
+
 ## Consequences
 
 - A default `just start` boot drops from ~1226 lines to a few hundred, with a single

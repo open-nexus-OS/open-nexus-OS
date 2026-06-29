@@ -1728,6 +1728,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cc",
  "linked_list_allocator",
+ "nexus-event",
  "proptest",
  "riscv",
  "sbi-rt",
@@ -1747,6 +1748,7 @@ name = "nexus-abi"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
+ "nexus-event",
 ]
 
 [[package]]
@@ -1809,6 +1811,10 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
 ]
+
+[[package]]
+name = "nexus-event"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-evidence"

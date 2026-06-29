@@ -1,0 +1,11 @@
+[package]
+name = "nexus-event"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+# RFC-0068: shared, alloc-free, no_std structured-event + verdict core. No dependencies — both the
+# kernel (diag::log) and userspace (nexus-log / nexus-abi) build on it, so the verdict math lives in
+# ONE tested place instead of being duplicated per side.
+
+[lib]
