@@ -160,13 +160,14 @@ pub struct SpanTally {
     total: u32,
     fails: u32,
     first_ns: u64,
+    last_ns: u64,
     started: bool,
 }
 
 impl SpanTally {
     #[must_use]
     pub const fn new() -> Self {
-        Self { total: 0, fails: 0, first_ns: 0, started: false }
+        Self { total: 0, fails: 0, first_ns: 0, last_ns: 0, started: false }
     }
 
     /// Explicitly stamp the span start (e.g. at bootstrap-arm, before the first event) so the
@@ -175,14 +176,19 @@ impl SpanTally {
     pub fn start(&mut self, now_ns: u64) {
         if !self.started {
             self.first_ns = now_ns;
+            self.last_ns = now_ns;
             self.started = true;
         }
     }
 
-    /// Record one event at `now_ns`. Stamps the start if not already started. Returns `true` if it
-    /// was a failure (the caller prints failures live and never suppresses them).
+    /// Record one event at `now_ns`. Stamps the start if not already started, and advances the
+    /// span END to `now_ns`. Returns `true` if it was a failure (the caller prints failures live and
+    /// never suppresses them).
     pub fn record(&mut self, status: Status, now_ns: u64) -> bool {
         self.start(now_ns);
+        if now_ns > self.last_ns {
+            self.last_ns = now_ns;
+        }
         self.total = self.total.saturating_add(1);
         let failed = status.is_fail();
         if failed {
@@ -211,6 +217,16 @@ impl SpanTally {
     #[must_use]
     pub fn verdict(&self, flush_ns: u64) -> Verdict {
         verdict_from(self.total, self.fails, self.started_at(), flush_ns)
+    }
+
+    /// Compute the verdict over the SELF-CONTAINED span — first event to LAST event — independent of
+    /// when the caller flushes. Use this when the flush happens far after the last event (e.g. a
+    /// collector drained at end-of-phase): the duration then reflects the work itself, not the wait
+    /// until the drain. For an instant burst of events this is ~0 ms.
+    #[must_use]
+    pub fn verdict_self(&self) -> Verdict {
+        let end = if self.started { Some(self.last_ns) } else { None };
+        verdict_from(self.total, self.fails, self.started_at(), end.unwrap_or(0))
     }
 }
 
@@ -290,6 +306,17 @@ impl<const N: usize> VerdictTable<N> {
         for i in 0..self.len {
             if let Some(s) = self.subjects[i] {
                 f(s, self.tallies[i].verdict(flush_ns));
+            }
+        }
+    }
+
+    /// Like [`for_each_verdict`](Self::for_each_verdict) but each subject's verdict spans first→last
+    /// of ITS OWN events ([`SpanTally::verdict_self`]) — for a collector drained long after the work,
+    /// so each row's duration reflects that subject's work, not the wait until the drain.
+    pub fn for_each_verdict_self(&self, mut f: impl FnMut(Subject, Verdict)) {
+        for i in 0..self.len {
+            if let Some(s) = self.subjects[i] {
+                f(s, self.tallies[i].verdict_self());
             }
         }
     }
@@ -485,6 +512,32 @@ mod tests {
             Verdict { passed: 1, total: 1, ms: 0, tag: VerdictTag::Ok },
         );
         assert!(n <= 8);
+    }
+
+    #[test]
+    fn verdict_self_measures_first_to_last_event_not_flush() {
+        // The fix for the inflated init:<svc> ms: a span is bounded by its EVENTS, not by when the
+        // collector is drained. flush far away → big ms; verdict_self → first→last only.
+        let mut t = SpanTally::new();
+        t.record(Status::Ok, 100 * MS);
+        t.record(Status::Ok, 105 * MS);
+        assert_eq!(t.verdict(900 * MS).ms, 800); // drain-relative (old behaviour)
+        assert_eq!(t.verdict_self().ms, 5); // self-contained span
+        assert_eq!(t.verdict_self().tag, VerdictTag::Ok);
+    }
+
+    #[test]
+    fn table_verdict_self_is_per_subject_span() {
+        let mut t = VerdictTable::<4>::new();
+        t.record(Subject("a"), Status::Ok, 10 * MS);
+        t.record(Subject("a"), Status::Ok, 12 * MS); // a spans 2 ms
+        t.record(Subject("b"), Status::Ok, 50 * MS); // b is a single instant event
+        let mut got = std::collections::BTreeMap::new();
+        t.for_each_verdict_self(|s, v| {
+            got.insert(s.name(), v.ms);
+        });
+        assert_eq!(got["a"], 2);
+        assert_eq!(got["b"], 0);
     }
 
     #[test]

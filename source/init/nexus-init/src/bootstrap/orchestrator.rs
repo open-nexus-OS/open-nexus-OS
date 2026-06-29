@@ -76,6 +76,11 @@ where
     // FAILURE is fatal and always prints live.
     let init_fold = nexus_abi::boot_should_fold_verdicts();
     let mut spawn_tally = nexus_event::SpanTally::new();
+    // RFC-0068: per-subject collector for init's wiring diagnostics (`#region agent log` traces —
+    // NOT proof markers, not harness-grepped). Each trace precedes a real cap_transfer (its `err`
+    // arm aborts on failure), so a folded `init:<svc> N/N` is a real "N wiring steps done" count.
+    // Flushed once at the end of bootstrap. Rolled out per-service-block; keystored is the first.
+    let mut init_wire = nexus_event::VerdictTable::<32>::new();
     for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
@@ -251,7 +256,8 @@ where
     // above so no folded `start/up` line is ever dropped without this verdict).
     if init_fold && !spawn_tally.is_empty() {
         let now = nexus_abi::nsec().unwrap_or(0);
-        let v = spawn_tally.verdict(now);
+        // Self-contained span (first start → last up), so the duration is the spawn work itself.
+        let v = spawn_tally.verdict_self();
         let mut line = [0u8; 96];
         let n = nexus_event::render_verdict_line(&mut line, now, "init:spawn", v);
         let _ = nexus_abi::debug_write(&line[..n]);
@@ -1245,12 +1251,19 @@ where
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)
-                debug_write_bytes(b"init: ks arm\n");
+                let ks_subj = nexus_event::Subject("init:keystored");
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: ks arm\n");
+                }
                 // #endregion agent log
                 // #region agent log (keystored wire-up tracing)
-                debug_write_bytes(b"init: wire keystored xfer key_req RECV cap=0x");
-                debug_write_hex(key_req as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer key_req RECV cap=0x");
+                    debug_write_hex(key_req as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let recv_slot = match nexus_abi::cap_transfer(pid, key_req, Rights::RECV) {
                     Ok(slot) => slot,
@@ -1265,9 +1278,12 @@ where
                 };
 
                 // #region agent log (keystored wire-up tracing)
-                debug_write_bytes(b"init: wire keystored xfer key_rsp SEND cap=0x");
-                debug_write_hex(key_rsp as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer key_rsp SEND cap=0x");
+                    debug_write_hex(key_rsp as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let send_slot = match nexus_abi::cap_transfer(pid, key_rsp, Rights::SEND) {
                     Ok(slot) => slot,
@@ -1285,7 +1301,10 @@ where
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by statefsd + log sinks).
                 // #region agent log (keystored reply-inbox create)
-                debug_write_bytes(b"init: wire keystored create reply_ep\n");
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored create reply_ep\n");
+                }
                 // #endregion agent log
                 let reply_ep =
                     match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
@@ -1301,9 +1320,12 @@ where
                     };
 
                 // #region agent log (keystored reply-inbox transfer)
-                debug_write_bytes(b"init: wire keystored xfer reply_ep RECV cap=0x");
-                debug_write_hex(reply_ep as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer reply_ep RECV cap=0x");
+                    debug_write_hex(reply_ep as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let reply_recv_slot = match nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV) {
                     Ok(slot) => slot,
@@ -1317,9 +1339,12 @@ where
                     }
                 };
                 // #region agent log (keystored reply-inbox transfer)
-                debug_write_bytes(b"init: wire keystored xfer reply_ep SEND cap=0x");
-                debug_write_hex(reply_ep as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer reply_ep SEND cap=0x");
+                    debug_write_hex(reply_ep as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let reply_send_slot = match nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND) {
                     Ok(slot) => slot,
@@ -1338,9 +1363,12 @@ where
 
                 // statefsd SEND cap + use reply inbox for responses
                 // #region agent log (keystored statefsd send cap)
-                debug_write_bytes(b"init: wire keystored xfer state_req SEND cap=0x");
-                debug_write_hex(state_req as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer state_req SEND cap=0x");
+                    debug_write_hex(state_req as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let send_slot = match nexus_abi::cap_transfer(pid, state_req, Rights::SEND) {
                     Ok(slot) => slot,
@@ -1365,9 +1393,12 @@ where
 
                 // Allow keystored to call policyd (reply via CAP_MOVE/@reply).
                 // #region agent log (keystored policyd send cap)
-                debug_write_bytes(b"init: wire keystored xfer pol_req SEND cap=0x");
-                debug_write_hex(pol_req as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer pol_req SEND cap=0x");
+                    debug_write_hex(pol_req as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let send_slot = match nexus_abi::cap_transfer(pid, pol_req, Rights::SEND) {
                     Ok(slot) => slot,
@@ -1385,9 +1416,12 @@ where
 
                 // Allow keystored to send entropy requests to rngd (replies via CAP_MOVE/@reply).
                 // #region agent log (keystored rngd send cap)
-                debug_write_bytes(b"init: wire keystored xfer rng_req SEND cap=0x");
-                debug_write_hex(rng_req as usize);
-                debug_write_byte(b'\n');
+                init_wire.record(ks_subj, nexus_event::Status::Ok, nexus_abi::nsec().unwrap_or(0));
+                if !init_fold {
+                    debug_write_bytes(b"init: wire keystored xfer rng_req SEND cap=0x");
+                    debug_write_hex(rng_req as usize);
+                    debug_write_byte(b'\n');
+                }
                 // #endregion agent log
                 let send_slot = match nexus_abi::cap_transfer(pid, rng_req, Rights::SEND) {
                     Ok(slot) => slot,
@@ -1976,6 +2010,18 @@ where
     );
     debug_write_str(&timing);
     debug_write_byte(b'\n');
+
+    // RFC-0068: flush the folded per-subject wiring verdicts (interactive only). Paired with the
+    // per-trace suppression so no folded line is dropped without its verdict.
+    if init_fold {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        // Self-contained spans: each subject's duration is ITS wiring, not the wait until this drain.
+        init_wire.for_each_verdict_self(|subj, v| {
+            let mut line = [0u8; 96];
+            let n = nexus_event::render_verdict_line(&mut line, now, subj.name(), v);
+            let _ = nexus_abi::debug_write(&line[..n]);
+        });
+    }
 
     Ok(BootstrapState {
         ctrl_channels,
