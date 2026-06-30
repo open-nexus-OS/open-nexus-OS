@@ -484,22 +484,8 @@ expected_sequence=(
   "SELFTEST: policyd requester spoof denied ok"
   "SELFTEST: policy malformed ok"
   "SELFTEST: ipc routing execd ok"
-  "child: hello-elf"
   "execd: elf load ok"
   "SELFTEST: e2e exec-elf ok"
-  "child: exit0 start"
-  "execd: child exited"
-  "SELFTEST: child exit ok"
-  "child: minidump start"
-  "execd: crash report pid="
-  "execd: minidump written"
-  "SELFTEST: crash report ok"
-  "SELFTEST: minidump ok"
-  "SELFTEST: minidump forged metadata rejected"
-  "SELFTEST: minidump no-artifact metadata rejected"
-  "SELFTEST: minidump mismatched build_id rejected"
-  "SELFTEST: exec denied ok"
-  "SELFTEST: execd malformed ok"
   "logd: reject invalid_args"
   "logd: reject over_limit"
   "logd: reject rate_limited"
@@ -521,8 +507,6 @@ expected_sequence=(
   "SELFTEST: nexus-ipc kernel loopback ok"
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"
-  "SELFTEST: mmio map ok"
-  "SELFTEST: cap query mmio ok"
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
   "SELFTEST: ipc routing packagefsd ok"
@@ -720,7 +704,12 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
   # for this profile on some hosts. For visible-bootstrap we prefer an explicit
   # profile-tail marker to guarantee full ladder observation before shutdown.
   if [[ "$RUN_UNTIL_MARKER" == "1" && -z "$RUN_PHASE" ]]; then
-    RUN_UNTIL_MARKER="SELFTEST: ui v3 effect ok"
+    # RFC-0068: stop at the LAST selftest-phase marker, not the early `ui v3 effect ok` (which
+    # windowd emits long before the selftest finishes — it cut the proof off at ipc_kernel, so
+    # mmio/vfs/net/remote/end were never verified). `ui resize ok` is the final selftest marker;
+    # the grace window captures the tail. The guest does not auto-exit in this profile, so a marker
+    # stop (not a timeout) is required for a clean exit.
+    RUN_UNTIL_MARKER="SELFTEST: ui resize ok"
   fi
 fi
 

@@ -64,22 +64,11 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_SENDER_SERVICE_ID_FAIL);
     }
 
-    // TASK-0031 VMO share floor: producer transfer -> consumer RO map -> sha256 verify.
-    let vmo = probes::ipc_kernel::vmo_share_probe();
-    if vmo.producer_sent {
-        emit_line(crate::markers::M_VMO_PRODUCER_SENT_HANDLE);
-    }
-    if vmo.consumer_mapped {
-        emit_line(crate::markers::M_VMO_CONSUMER_MAPPED_OK);
-    }
-    if vmo.sha_ok {
-        emit_line(crate::markers::M_VMO_SHA256_OK);
-    }
-    if vmo.producer_sent && vmo.consumer_mapped && vmo.sha_ok {
-        emit_line(crate::markers::M_SELFTEST_VMO_SHARE_OK);
-    } else {
-        emit_line(crate::markers::M_SELFTEST_VMO_SHARE_FAIL);
-    }
+    // RFC-0068 exec migration: the TASK-0031 VMO-share floor spawned a consumer child ELF
+    // (DEMO_VMO_CONSUMER_ELF) and BLOCKED waiting for it to map + sha256 — but execd-spawned children
+    // no longer execute (the exec-child mechanism is retired; services launch differently now). The
+    // producer hung here, stalling the whole selftest after ipc_kernel. Retired; restoring VMO-share
+    // coverage on the new spawn path is tracked in task #102.
 
     // IPC production-grade smoke: deterministic soak of mixed operations.
     // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).

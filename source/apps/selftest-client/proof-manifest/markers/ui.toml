@@ -21,7 +21,7 @@ proves = "windowd is the sole display owner — creates framebuffer VMO, hands o
 
 [marker."display: bootstrap on"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "windowd emitted bootstrap display evidence only after the first composed frame and gpud handoff attempt"
 
 [marker."display: mode 1280x800 argb8888"]
@@ -30,7 +30,7 @@ proves = "GPU-only display path accepted exactly the fixed 1280x800 BGRA8888 vir
 
 [marker."windowd: compose ready"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "windowd completed first-frame composition into gpud scanout VMO"
 
 [marker."windowd: backend=visible"]
@@ -59,47 +59,47 @@ proves = "TOML-backed SystemUI desktop shell frame was the visible-present sourc
 
 [marker."SELFTEST: ui v2 present ok"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "selftest observed the v2 present state in GPU path"
 
 [marker."SELFTEST: ui visible present ok"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "observer-only selftest completed service-owned visible present path in GPU-only mode"
 
 [marker."windowd: cursor svg loaded"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "Mocu SVG cursor was rasterized and available for composition"
 
 [marker."windowd: wallpaper visible"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "wallpaper source was loaded and visible in composed frame"
 
 [marker."windowd: text target visible"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "text proof target was rendered in composed frame"
 
 [marker."windowd: icon target visible"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "icon proof target was rendered in composed frame"
 
 [marker."windowd: effects on"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "shadow/blur/glass effects were activated in compositor"
 
 [marker."windowd: effect blur ok"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "backdrop blur effect rendered correctly"
 
 [marker."SELFTEST: ui v3 effect ok"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "selftest observed effects-path evidence in GPU path"
 
 [marker."launcher: first frame ok"]
@@ -129,12 +129,12 @@ proves = "input-visible flag set after first live input batch delivery"
 
 [marker."windowd: full-window color visible"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "full-window compositor fill color is visible in the composed frame"
 
 [marker."windowd: cursor move visible"]
 phase = "end"
-emit_when = { profile = "visible-bootstrap" }
+emit_when = { profile = ["visible-bootstrap", "full"] }
 proves = "cursor position change was reflected in the composed visible frame"
 
 [marker."windowd: hover visible"]

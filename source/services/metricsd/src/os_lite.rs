@@ -251,6 +251,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
     let mut reject_rate_limited_emitted = false;
     let mut fallback_now = 0u64;
 
+    nexus_abi::service_verdict_flush("metricsd");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {

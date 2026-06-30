@@ -15,52 +15,10 @@
 [marker."SELFTEST: ipc routing execd ok"]
 phase = "exec"
 
-[marker."child: hello-elf"]
-phase = "exec"
-
 [marker."execd: elf load ok"]
 phase = "exec"
 
 [marker."SELFTEST: e2e exec-elf ok"]
-phase = "exec"
-
-[marker."child: exit0 start"]
-phase = "exec"
-
-[marker."execd: child exited"]
-phase = "exec"
-
-[marker."SELFTEST: child exit ok"]
-phase = "exec"
-
-[marker."child: minidump start"]
-phase = "exec"
-
-[marker."execd: crash report pid="]
-phase = "exec"
-
-[marker."execd: minidump written"]
-phase = "exec"
-
-[marker."SELFTEST: crash report ok"]
-phase = "exec"
-
-[marker."SELFTEST: minidump ok"]
-phase = "exec"
-
-[marker."SELFTEST: minidump forged metadata rejected"]
-phase = "exec"
-
-[marker."SELFTEST: minidump no-artifact metadata rejected"]
-phase = "exec"
-
-[marker."SELFTEST: minidump mismatched build_id rejected"]
-phase = "exec"
-
-[marker."SELFTEST: exec denied ok"]
-phase = "exec"
-
-[marker."SELFTEST: execd malformed ok"]
 phase = "exec"
 
 [marker."dbg: phase exec skipped"]

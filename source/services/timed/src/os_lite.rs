@@ -38,6 +38,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
     }
     let mut registry = TimerRegistry::new();
 
+    nexus_abi::service_verdict_flush("timed");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {

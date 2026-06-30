@@ -148,6 +148,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
     let mut logged_capmove = false;
+    nexus_abi::service_verdict_flush("bundlemgrd");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {

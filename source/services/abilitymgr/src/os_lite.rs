@@ -83,6 +83,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // The broker owns lifecycle state for the life of the service.
     let mut broker = Broker::new();
 
+    nexus_abi::service_verdict_flush("abilitymgr");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply)) => {

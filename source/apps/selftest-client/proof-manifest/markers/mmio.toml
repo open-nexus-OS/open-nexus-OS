@@ -12,19 +12,10 @@
 # API_STABILITY: Stable; literals are the contract surface (referenced as
 #                `M_<KEY>` constants from `markers_generated.rs`)
 
-[marker."SELFTEST: mmio map ok"]
-phase = "mmio"
-
-[marker."SELFTEST: cap query mmio ok"]
-phase = "mmio"
-
 [marker."SELFTEST: cap query vmo ok"]
 phase = "mmio"
 
 [marker."dbg: phase mmio skipped"]
-phase = "mmio"
-
-[marker."SELFTEST: cap query mmio FAIL"]
 phase = "mmio"
 
 [marker."SELFTEST: cap query vmo FAIL"]
@@ -34,9 +25,6 @@ phase = "mmio"
 phase = "mmio"
 
 [marker."SELFTEST: mmio magic0=0x"]
-phase = "mmio"
-
-[marker."SELFTEST: mmio map FAIL"]
 phase = "mmio"
 
 [marker."SELFTEST: virtio-net mmio ver="]

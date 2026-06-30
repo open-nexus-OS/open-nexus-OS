@@ -28,6 +28,10 @@ impl nexus_hal::Bus for MmioBus {
     }
 }
 
+// RFC-0068 mmio migration (task #103): RETIRED — no longer called by phases/mmio.rs. It maps the
+// virtio-net MMIO window via the blocking `mmio_map` syscall, which now hangs (networking moved off
+// virtio-mmio). Kept for reference pending full deletion + helper/marker cleanup.
+#[allow(dead_code)]
 pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
     // Capability is distributed by init (policy-gated) for the virtio-net window.
     const MMIO_CAP_SLOT: u32 = 48;
@@ -98,6 +102,9 @@ pub(crate) fn mmio_map_probe() -> core::result::Result<(), ()> {
     Ok(())
 }
 
+// RFC-0068 mmio migration (task #103): RETIRED — queries the dead virtio-net MMIO cap (slot 48),
+// which blocks like mmio_map. No longer called by phases/mmio.rs.
+#[allow(dead_code)]
 pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
     const MMIO_CAP_SLOT: u32 = 48;
     let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };

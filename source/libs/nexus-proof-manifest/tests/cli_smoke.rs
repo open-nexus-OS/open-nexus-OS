@@ -115,14 +115,14 @@ fn list_markers_full_is_byte_identical_lower_bound() {
 }
 
 #[test]
-fn list_forbidden_quic_required_returns_three_markers() {
+fn list_forbidden_quic_required_returns_four_markers() {
     let (code, stdout, stderr) =
         run(&["list-forbidden", "--profile=quic-required", &manifest_arg()]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-    // The on-disk manifest forbids exactly three markers under quic-required:
-    // tcp transport selection, quic-disabled fallback, fallback-ok signal.
-    assert_eq!(lines.len(), 3, "expected 3 forbidden markers for quic-required, got {lines:?}");
+    // The on-disk manifest forbids exactly four markers under quic-required:
+    // tcp transport selection, quic-disabled fallback, fallback-ok signal, quic msg1 timeout.
+    assert_eq!(lines.len(), 4, "expected 4 forbidden markers for quic-required, got {lines:?}");
     assert!(lines.iter().any(|l| l.contains("quic")), "{lines:?}");
 }
 

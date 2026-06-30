@@ -82,6 +82,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
     // Shared CAP_MOVE reply inbox buffer (nonce-correlated policyd replies).
     let mut pending_replies: reqrep::ReplyBuffer<16, 512> = reqrep::ReplyBuffer::new();
 
+    // RFC-0068: emit rngd's folded bring-up markers as one `rngd N/N` grid line before the loop,
+    // so the service is visible as a group (expand with `NEXUS_LOG_EXPAND=rngd`); proof prints raw.
+    nexus_abi::service_verdict_flush("rngd");
     // Main IPC loop
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {

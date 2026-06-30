@@ -151,9 +151,10 @@ pub struct Marker {
 /// `emit_when_not`, `forbidden_when`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileGate {
-    /// Profile name that the clause references; must match a declared
-    /// `[profile.X]` block.
-    pub profile: String,
+    /// Profile name(s) that the clause references; each must match a declared
+    /// `[profile.X]` block. Accepts a single string or an array in TOML, so one
+    /// marker can be gated to several profiles (e.g. `profile = ["full", "visible-bootstrap"]`).
+    pub profiles: Vec<String>,
 }
 
 /// Parse an inline `proof-manifest` source string into a [`Manifest`].
@@ -660,25 +661,27 @@ impl Manifest {
     pub fn forbidden_markers<'a>(&'a self, profile: &'a str) -> impl Iterator<Item = &'a Marker> {
         self.markers
             .iter()
-            .filter(move |m| m.forbidden_when.as_ref().is_some_and(|g| g.profile == profile))
+            .filter(move |m| {
+                m.forbidden_when.as_ref().is_some_and(|g| g.profiles.iter().any(|p| p == profile))
+            })
     }
 }
 
 fn marker_active(marker: &Marker, profile: &str) -> bool {
     if let Some(g) = &marker.emit_when {
-        if g.profile != profile {
+        if !g.profiles.iter().any(|p| p == profile) {
             return false;
         }
     }
     if let Some(g) = &marker.emit_when_not {
-        if g.profile == profile {
+        if g.profiles.iter().any(|p| p == profile) {
             return false;
         }
     }
     // `forbidden_when` markers belong on the deny-list for that profile;
     // they MUST NOT appear in the expected-ladder for the same profile.
     if let Some(g) = &marker.forbidden_when {
-        if g.profile == profile {
+        if g.profiles.iter().any(|p| p == profile) {
             return false;
         }
     }
@@ -745,19 +748,21 @@ fn check_profile_ref(
     profiles: &BTreeMap<String, Profile>,
 ) -> Result<(), ParseError> {
     if let Some(g) = gate {
-        if !profiles.contains_key(&g.profile) {
-            return Err(ParseError::MarkerUnknownProfile {
-                marker: literal.to_string(),
-                profile: g.profile.clone(),
-                clause,
-            });
+        for p in g.profile.iter() {
+            if !profiles.contains_key(p) {
+                return Err(ParseError::MarkerUnknownProfile {
+                    marker: literal.to_string(),
+                    profile: p.to_string(),
+                    clause,
+                });
+            }
         }
     }
     Ok(())
 }
 
 fn into_gate(raw: RawProfileGate) -> ProfileGate {
-    ProfileGate { profile: raw.profile }
+    ProfileGate { profiles: raw.profile.into_vec() }
 }
 
 // ---------------------------------------------------------------------------
@@ -866,5 +871,29 @@ struct RawMarker {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawProfileGate {
-    profile: String,
+    profile: ProfileRef,
+}
+
+/// A profile clause value: either a single profile name or a list of them.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ProfileRef {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl ProfileRef {
+    fn into_vec(self) -> Vec<String> {
+        match self {
+            Self::One(s) => vec![s],
+            Self::Many(v) => v,
+        }
+    }
+    fn iter(&self) -> impl Iterator<Item = &str> {
+        let slice: &[String] = match self {
+            Self::One(s) => core::slice::from_ref(s),
+            Self::Many(v) => v.as_slice(),
+        };
+        slice.iter().map(String::as_str)
+    }
 }

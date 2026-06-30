@@ -175,6 +175,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     emit_line("statefsd: ready");
 
+    nexus_abi::service_verdict_flush("statefsd");
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {

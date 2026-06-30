@@ -50,6 +50,10 @@ proves = "smoltcp ICMP echo round-trip succeeded over the configured iface"
 phase = "net"
 proves = "netstackd UDP socket bound and DNS round-trip completed"
 
+[marker."dsoftbusd: waiting for slots"]
+phase = "net"
+proves = "dsoftbusd bring-up reached the reply-slot readiness gate before opening its netstack client"
+
 [marker."dsoftbusd: entry"]
 phase = "net"
 
