@@ -263,6 +263,9 @@ fn rsp_with_nonce(op: u8, status: u8, nonce: u32, value: &[u8]) -> Vec<u8> {
 }
 
 fn emit_line(message: &str) {
+    if nexus_abi::service_line(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

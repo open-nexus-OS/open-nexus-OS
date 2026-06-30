@@ -349,6 +349,9 @@ mod mmio_backend {
     }
 
     fn emit_line(msg: &str) {
+        if nexus_abi::service_line(msg.as_bytes()) {
+            return;
+        }
         for byte in msg.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
             let _ = debug_putc(byte);
         }

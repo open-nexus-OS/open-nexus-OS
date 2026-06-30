@@ -570,6 +570,9 @@ fn escaped_attrs_or_placeholder(bytes: &[u8]) -> String {
 }
 
 fn emit_line(message: &str) {
+    if nexus_abi::service_line(message.as_bytes()) {
+        return;
+    }
     for b in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(b);
     }

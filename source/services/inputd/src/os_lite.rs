@@ -56,8 +56,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 nexus_ipc::IpcError::Unsupported => "inputd: route probe unsupported",
                 _ => "inputd: route probe other",
             });
-            let _ = debug_println("inputd: route fallback");
-            let _ = debug_println("inputd: fallback slots 3/4");
+            let _ = nexus_abi::trace_line("inputd: route fallback");
+            let _ = nexus_abi::trace_line("inputd: fallback slots 3/4");
             let server = KernelServer::new_with_slots(3, 4)
                 .map_err(|_| fail("inputd: init fail kernel-server"))?;
             server
@@ -242,7 +242,7 @@ impl LiveRouteRuntime {
             if !self.hid_batch_recv_debug_emitted {
                 let _ = debug_trace("dbg: inputd hid batch recv");
                 // Input-chain hop I3: a wire batch arrived from hidrawd.
-                let _ = debug_println("inputd: chain I3 wire recv from hidrawd");
+                let _ = nexus_abi::trace_line("inputd: chain I3 wire recv from hidrawd");
                 self.hid_batch_recv_debug_emitted = true;
             }
             let Some(batch) = decode_push_hid_batch(frame) else {
@@ -258,7 +258,7 @@ impl LiveRouteRuntime {
             };
             // Input-chain hop I4: the wire batch decoded into normalized events.
             if !self.chain_normalize_ok_emitted {
-                let _ = debug_println("inputd: chain I4 normalized");
+                let _ = nexus_abi::trace_line("inputd: chain I4 normalized");
                 self.chain_normalize_ok_emitted = true;
             }
             let status = self.apply_wire_batch(batch);
@@ -501,11 +501,11 @@ impl LiveRouteRuntime {
             self.visible_state.keyboard_visible = keyboard_held;
         }
         if self.visible_state.pointer_route_live && !self.pointer_marker_emitted {
-            let _ = debug_println("inputd: live pointer route on");
+            let _ = nexus_abi::trace_line("inputd: live pointer route on");
             self.pointer_marker_emitted = true;
         }
         if self.visible_state.keyboard_route_live && !self.keyboard_marker_emitted {
-            let _ = debug_println("inputd: live keyboard route on");
+            let _ = nexus_abi::trace_line("inputd: live keyboard route on");
             self.keyboard_marker_emitted = true;
         }
         self.sync_wheel_indicator(now_ns);
@@ -579,12 +579,12 @@ impl LiveRouteRuntime {
         if self.windowd_client.is_none() {
             self.windowd_client = KernelClient::new_for("windowd").ok();
             if self.windowd_client.is_none() && !self.windowd_route_fallback_emitted {
-                let _ = debug_println("inputd: windowd route unavailable");
+                let _ = nexus_abi::trace_line("inputd: windowd route unavailable");
                 self.windowd_route_fallback_emitted = true;
                 // Fall back to priority-wired slots from init (5=send, 6=recv).
                 self.windowd_client = KernelClient::new_with_slots(5, 6).ok();
                 if self.windowd_client.is_some() {
-                    let _ = debug_println("inputd: windowd route fallback slots 5/6");
+                    let _ = nexus_abi::trace_line("inputd: windowd route fallback slots 5/6");
                 }
             }
         }
@@ -597,9 +597,9 @@ impl LiveRouteRuntime {
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
                 if !self.windowd_push_ok_emitted {
-                    let _ = debug_println("inputd: windowd visible-state pushed");
+                    let _ = nexus_abi::trace_line("inputd: windowd visible-state pushed");
                     // Input-chain hop I5: normalized state delivered to windowd.
-                    let _ = debug_println("inputd: chain I5 delivered to windowd");
+                    let _ = nexus_abi::trace_line("inputd: chain I5 delivered to windowd");
                     self.windowd_push_ok_emitted = true;
                 }
             }

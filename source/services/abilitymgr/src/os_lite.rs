@@ -285,6 +285,9 @@ fn emit_inst_line(prefix: &[u8], id: u32) {
 }
 
 fn emit_line(message: &str) {
+    if nexus_abi::service_line(message.as_bytes()) {
+        return;
+    }
     emit_str(message);
     emit_newline();
 }
