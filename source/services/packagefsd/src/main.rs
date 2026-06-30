@@ -15,7 +15,12 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> packagefsd::LiteResult<()> {
-    packagefsd::service_main_loop(packagefsd::ReadyNotifier::new(|| ()))
+    // RFC-0068: fold routine debug_println markers into one `packagefsd N/N` verdict; the ready
+    // notifier fires the flush when the service signals ready (interactive boots; proof stays raw).
+    nexus_abi::service_verdict_arm();
+    packagefsd::service_main_loop(packagefsd::ReadyNotifier::new(|| {
+        nexus_abi::service_verdict_flush("packagefsd");
+    }))
 }
 
 #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]

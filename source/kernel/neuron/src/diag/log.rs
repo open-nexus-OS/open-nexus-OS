@@ -12,7 +12,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 use core::fmt::{Arguments, Write};
-use core::sync::atomic::{AtomicU32, AtomicU8, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicU64, Ordering};
 
 /// Logging severity used by the kernel. Mirrors `nexus_log::Level` (userspace) so the
 /// kernel and userspace facades share one policy vocabulary.
@@ -91,49 +91,100 @@ fn now_ns() -> u64 {
     }
 }
 
-// Group accumulator table. Each foldable subsystem gets one slot (total markers, failures, first
-// marker time). Plain atomics, const-constructible — no heap. Add a group by extending the indices,
-// `GROUP_NAMES`, and `group_of`, then wire its flush where the group has emitted all its markers.
+// Kernel verdict groups (RFC-0068 subject-grouped boot transcript). Each kernel subject that emits
+// routine boot markers folds into ONE grid verdict instead of printing every line. Add a subject =
+// one `KGroup` variant + one `GROUP_DEFS` row, then either (facade) a `group_of` arm so its
+// `log_*(target: "x", …)` lines auto-fold, or (raw `write!`) a `kfold(KGroup::X, …)` guard at the
+// emit site. `kflush_all()` before the idle loop guarantees no folded line is ever lost.
 //
-// NOTE: only the kernel SELFTEST folds cleanly. Other kernel topics do NOT: `boot`/`traps` markers
-// fire BEFORE the fw_cfg mode probe (fold flag not set yet); `as`/`exec` fire per service-spawn
-// (they belong in the per-service verdicts, S4); `sched`/`mm` are already DEBUG-gated off. So the
-// kernel grid is essentially `kself`; the rest of the grid lives in the per-service aggregator.
-const GROUP_KSELF: usize = 0;
-const GROUP_SYSCALLS: usize = 1;
-const GROUP_COUNT: usize = 2;
-// Descriptive group names (what the markers ARE), each also the `NEXUS_LOG_EXPAND` flag.
-const GROUP_NAMES: [&str; GROUP_COUNT] = ["kself", "syscalls"];
+// Folding is gated on `boot_mode::fold_verdicts()` (false in proof/unknown) → proof boots print
+// every raw marker so `verify-uart` is undisturbed. The only lines that stay raw in an interactive
+// boot are the pre-paging `boot:`/`traps:` markers that fire BEFORE the fw_cfg mode probe (the fold
+// flag is not resolvable before the address space is active).
+//
+// IMPORTANT: the `KGroup` discriminants are the `GROUPS`/`GROUP_DEFS` indices — keep both in order.
+// Only BOUNDED kernel phases are verdict groups (they reach a deterministic flush). Perpetual
+// runtime events (process spawn/exec, QoS audit, the idle loop) are honest DEBUG lines instead —
+// off by default, recalled with `NEXUS_LOG=<topic>=debug` — not boot verdicts.
+#[derive(Clone, Copy)]
+pub enum KGroup {
+    Kself = 0,
+    Syscalls,
+    Boot,
+    As,
+    Sched,
+    Smp,
+}
+
+const KGROUP_COUNT: usize = 6;
+
+struct GroupDef {
+    /// Grid label for the verdict line — also the `NEXUS_LOG_EXPAND=<name>` recall flag.
+    name: &'static str,
+    /// `true`: a bounded phase whose verdict shows a real span `<ms>` + soft-real-time slow flag.
+    /// `false`: a count of events spread across the whole boot (`as`, `cap`, spawns) where a span
+    /// is meaningless — rendered `0ms` and never flagged slow (so the WARN signal stays honest).
+    timed: bool,
+}
+
+// Order MUST match the `KGroup` discriminants above.
+const GROUP_DEFS: [GroupDef; KGROUP_COUNT] = [
+    GroupDef { name: "kself", timed: true },
+    GroupDef { name: "syscalls", timed: true },
+    GroupDef { name: "boot", timed: false },
+    GroupDef { name: "as", timed: false },
+    GroupDef { name: "sched", timed: false },
+    GroupDef { name: "smp", timed: false },
+];
 
 struct GroupAcc {
     tally: AtomicU32,
     fails: AtomicU32,
     first_ns: AtomicU64,
+    /// Set once the group's verdict is emitted; afterwards its lines print raw (boot is over, the
+    /// fold window is closed) so a post-flush runtime marker is never silently swallowed.
+    flushed: AtomicBool,
 }
 
 impl GroupAcc {
     const fn new() -> Self {
-        Self { tally: AtomicU32::new(0), fails: AtomicU32::new(0), first_ns: AtomicU64::new(0) }
+        Self {
+            tally: AtomicU32::new(0),
+            fails: AtomicU32::new(0),
+            first_ns: AtomicU64::new(0),
+            flushed: AtomicBool::new(false),
+        }
     }
 }
 
-static GROUPS: [GroupAcc; GROUP_COUNT] = [GroupAcc::new(), GroupAcc::new()];
+static GROUPS: [GroupAcc; KGROUP_COUNT] = [
+    GroupAcc::new(),
+    GroupAcc::new(),
+    GroupAcc::new(),
+    GroupAcc::new(),
+    GroupAcc::new(),
+    GroupAcc::new(),
+];
 
 /// True if a kernel group is named in `NEXUS_LOG_EXPAND` — then its markers print raw (still counted)
 /// instead of folding, so `NEXUS_LOG_EXPAND=syscalls` shows that group's full detail. The displayed
 /// group name IS the flag (RFC-0068 subject-keyed expand, kernel side).
 fn group_expanded(g: usize) -> bool {
     match option_env!("NEXUS_LOG_EXPAND") {
-        Some(list) => list.split(',').any(|x| x.trim() == GROUP_NAMES[g]),
+        Some(list) => list.split(',').any(|x| x.trim() == GROUP_DEFS[g].name),
         None => false,
     }
 }
 
-/// Map a diag target tag to its verdict group, if it folds. Unlisted targets print normally
-/// (subject only to the level/topic gate).
+/// Map a diag target tag to its verdict group, if it folds (the facade auto-fold path: a
+/// `log_*(target: "x", …)` line whose target is listed here is tallied into that group instead of
+/// printed). Unlisted targets print normally (subject only to the level/topic gate).
 const fn group_of(target: &str) -> Option<usize> {
     match target.as_bytes() {
-        b"selftest" => Some(GROUP_KSELF),
+        b"selftest" => Some(KGroup::Kself as usize),
+        b"boot" => Some(KGroup::Boot as usize),
+        b"as" => Some(KGroup::As as usize),
+        b"smp" => Some(KGroup::Smp as usize),
         _ => None,
     }
 }
@@ -146,7 +197,10 @@ fn group_fold(g: usize, level: Level) -> bool {
         return false;
     }
     let acc = &GROUPS[g];
-    if acc.first_ns.load(Ordering::Relaxed) == 0 {
+    if acc.flushed.load(Ordering::Relaxed) {
+        return false; // verdict already emitted: boot is over, print this runtime line raw
+    }
+    if GROUP_DEFS[g].timed && acc.first_ns.load(Ordering::Relaxed) == 0 {
         acc.first_ns.store(now_ns(), Ordering::Relaxed);
     }
     acc.tally.fetch_add(1, Ordering::Relaxed);
@@ -160,26 +214,37 @@ fn group_fold(g: usize, level: Level) -> bool {
     true
 }
 
-/// Fold a RAW (non-facade) kernel marker into the `syscalls` group — e.g. the per-process syscall
-/// table install echo. Returns `true` to suppress the raw line. Call as `if !syscalls_fold() { … }`.
+/// Fold a RAW (non-facade) kernel marker at a `write!`/`write_str` site into its subject group;
+/// returns `true` to SUPPRESS the raw line (it was tallied into the verdict). The shared SSOT every
+/// raw kernel emit site uses: `if !crate::log::kfold(KGroup::Sched, Level::Info) { write!(…) }`.
+/// WARN/ERROR are tallied as failures but still print live — a problem is never hidden.
+pub fn kfold(g: KGroup, level: Level) -> bool {
+    group_fold(g as usize, level)
+}
+
+/// Back-compat alias: the per-process syscall-table install echo folds into the `syscalls` group.
 pub fn syscalls_fold() -> bool {
-    group_fold(GROUP_SYSCALLS, Level::Info)
+    group_fold(KGroup::Syscalls as usize, Level::Info)
 }
 
-/// Flush the `syscalls` group verdict. Call once the kernel-init syscall installs are done (before
-/// the idle loop), paired with the suppression so no folded line is dropped without a verdict.
-pub fn verdict_flush_syscalls() {
-    flush_group(GROUP_SYSCALLS);
+/// Flush one kernel group's verdict by name — e.g. the `as` group when its rate-limiter exhausts
+/// (it is fed during the first userspace context switches, after the kernel-phase flush).
+pub fn kflush(g: KGroup) {
+    flush_group(g as usize);
 }
 
-/// Emit one group's verdict as a single atomic grid line. No-op in proof boots / when empty.
-/// Call where the group has emitted all its markers — pairing flush with the suppression in
-/// [`emit`] guarantees no folded marker is ever dropped without a verdict.
+/// Emit one group's verdict as a single atomic grid line, then close its fold window (idempotent —
+/// a later `kflush_all` skips it, and post-flush lines print raw). No-op in proof boots / when the
+/// group is empty. Pairing flush with the suppression in [`group_fold`] guarantees no folded marker
+/// is ever dropped without a verdict.
 fn flush_group(g: usize) {
     if !crate::boot_mode::fold_verdicts() {
         return;
     }
     let acc = &GROUPS[g];
+    if acc.flushed.swap(true, Ordering::Relaxed) {
+        return; // already flushed (early per-group flush + the kflush_all safety net are idempotent)
+    }
     let total = acc.tally.load(Ordering::Relaxed);
     if total == 0 {
         return;
@@ -194,14 +259,22 @@ fn flush_group(g: usize) {
     // RFC-0068: render via the shared SSOT (the SAME format the services use, so the grid columns
     // can never drift between kernel and userspace), then one atomic write under the UART lock.
     let mut buf = [0u8; 96];
-    let n = nexus_event::render_verdict_line(&mut buf, now, GROUP_NAMES[g], v);
+    let n = nexus_event::render_verdict_line(&mut buf, now, GROUP_DEFS[g].name, v);
     let mut uart = crate::uart::KernelUart::lock();
     let _ = uart.write_str(core::str::from_utf8(&buf[..n]).unwrap_or(""));
 }
 
-/// Flush the kernel selftest group verdict. Call at the end of the kernel selftest run.
-pub fn verdict_flush_kself() {
-    flush_group(GROUP_KSELF);
+/// Flush the bounded kernel-init phase groups (kself, syscalls, sched, boot, smp) in one call,
+/// once after the kernel selftest and just before the idle loop hands off to userspace — by then
+/// each of these phases has emitted all its markers, so no folded line is left without a verdict.
+/// The `as` group flushes separately via [`kflush`] on its rate-limiter (it is fed later, during
+/// the first userspace context switches).
+pub fn kflush_kernel_phase() {
+    flush_group(KGroup::Kself as usize);
+    flush_group(KGroup::Syscalls as usize);
+    flush_group(KGroup::Sched as usize);
+    flush_group(KGroup::Boot as usize);
+    flush_group(KGroup::Smp as usize);
 }
 
 const fn topic_bit(target: &str) -> u32 {

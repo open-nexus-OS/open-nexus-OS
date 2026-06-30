@@ -218,7 +218,7 @@ impl KernelState {
     }
 
     fn idle_loop(&mut self) -> ! {
-        log_info!(target: "kmain", "KMAIN: Entering idle_loop");
+        log_debug!(target: "kmain", "KMAIN: Entering idle_loop");
         loop {
             // Watchdog: ensure forward progress; 10ms in mtimer ticks (10MHz) ~ 100_000 cycles
             #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -229,7 +229,7 @@ impl KernelState {
                 core::sync::atomic::AtomicUsize::new(0);
             let count = LOOP_COUNT.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
             if count % 10000 == 0 {
-                log_info!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
+                log_debug!(target: "kmain", "KMAIN: idle_loop iteration {}", count);
             }
 
             // ARCHITECTURAL FIX: Idle loop is S-mode kernel code, not a task.
@@ -261,14 +261,14 @@ impl KernelState {
                 if let Some(handle) = handle {
                     if !is_umode {
                         if count < 10 {
-                            log_info!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
+                            log_debug!(target: "kmain", "KMAIN: skip S-mode task pid={} (SPP=1)", next_pid);
                         }
                         continue;
                     }
                     if !is_user_addr {
                         if count < 10 {
                             let frame = unsafe { &*frame_ptr };
-                            log_info!(
+                            log_debug!(
                                 target: "kmain",
                                 "KMAIN: skip invalid task pid={} (sepc=0x{:x} in kernel space)",
                                 next_pid,
@@ -281,7 +281,7 @@ impl KernelState {
                     // Log BEFORE activating user AS (no logging after AS switch!)
                     if count < 10 {
                         let frame = unsafe { &*frame_ptr };
-                        log_info!(
+                        log_debug!(
                             target: "kmain",
                             "KMAIN: switch to U-mode pid={} sepc=0x{:x} sp=0x{:x}",
                             next_pid,
@@ -304,7 +304,7 @@ impl KernelState {
                     }
                 } else {
                     if count < 10 {
-                        log_info!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
+                        log_debug!(target: "kmain", "KMAIN: skip kernel task pid={} (no AS)", next_pid);
                     }
                 }
             } else {
@@ -394,8 +394,10 @@ unsafe fn activate_and_switch_to_user(
     handle: crate::mm::AsHandle,
     frame: &crate::trap::TrapFrame,
 ) -> ! {
-    // Log BEFORE AS switch - safe UART only
-    {
+    // Log BEFORE AS switch - safe UART only. RFC-0068: this per-context-switch register dump is a
+    // DEBUG breadcrumb (off by default; `NEXUS_LOG=kmain=debug` to see it), so it never clutters the
+    // boot overview. Proof boots keep DEBUG off too — it is not a marker.
+    if crate::log::would_log(crate::log::Level::Debug, "kmain") {
         use core::fmt::Write;
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("ACTIVATE_AND_SWITCH: about to activate AS and jump to sepc=0x");
@@ -665,13 +667,13 @@ pub fn kmain() -> ! {
         )))]
         selftest::entry(&mut ctx);
         // Userspace acceptance markers are emitted by daemons and selftest-client.
-        // Fold the kernel selftest's routine markers into one `kself N/N OK <ms>` grid verdict
-        // (interactive boots only; proof boots emitted them raw for verify-uart). Pairs with the
-        // suppression in diag::log::emit so no folded marker is ever dropped without a verdict.
-        crate::log::verdict_flush_kself();
-        // RFC-0068: the kernel-init syscall-table installs are done by now (before the idle loop) —
-        // flush their folded `syscalls N/N` verdict, paired with the suppression in `api.rs`.
-        crate::log::verdict_flush_syscalls();
+        // RFC-0068: fold the bounded kernel-init phases (kself, syscalls, sched, boot, smp) into one
+        // `<subject> N/N OK <ms>` grid verdict each (interactive boots only; proof boots emitted
+        // them raw for verify-uart). By this point — after the selftest, before the idle loop hands
+        // off to userspace — each of these phases has emitted all its markers, so the flush pairs
+        // with the suppression in diag::log so no folded marker is ever dropped without a verdict.
+        // (`as` flushes separately, on its rate-limiter, since it is fed by userspace switches.)
+        crate::log::kflush_kernel_phase();
     }
     #[cfg(feature = "boot_timing")]
     {

@@ -174,16 +174,20 @@ impl Scheduler {
         #[cfg(all(target_arch = "riscv64", target_os = "none", debug_assertions))]
         {
             use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "SCHED: new enter\n");
+            if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
+                let mut u = crate::uart::raw_writer();
+                let _ = write!(u, "SCHED: new enter\n");
+            }
         }
         // Read deterministic timeslice guarded and fall back to constant if needed
         let ts = crate::determinism::fixed_tick_ns();
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "SCHED: timeslice={}\n", ts);
+            if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
+                let mut u = crate::uart::raw_writer();
+                let _ = write!(u, "SCHED: timeslice={}\n", ts);
+            }
         }
         let s = Self {
             // Keep runtime scheduler behavior unchanged for SMP=1 determinism.
@@ -202,8 +206,10 @@ impl Scheduler {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
-            let _ = write!(u, "SCHED: new exit\n");
+            if !crate::log::kfold(crate::log::KGroup::Sched, crate::log::Level::Info) {
+                let mut u = crate::uart::raw_writer();
+                let _ = write!(u, "SCHED: new exit\n");
+            }
         }
         s
     }

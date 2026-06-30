@@ -74,6 +74,8 @@ const JOURNAL_ALLOC_CAP_BYTES: u32 = 256 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
+    // RFC-0068: fold logd's own bring-up status into a `logd N/N` verdict (interactive).
+    nexus_abi::service_verdict_arm();
     let server = match route_logd_blocking() {
         Some(server) => server,
         None => {
@@ -86,6 +88,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     emit_line("logd: ready");
     let _ = yield_();
     emit_line("logd: ready");
+    nexus_abi::service_verdict_flush("logd");
 
     let mut journal = Journal::new_with_alloc_cap(
         JOURNAL_CAP_RECORDS,
@@ -264,6 +267,13 @@ fn render_subject_verdicts(journal: &Journal) {
     emit_line("logd: journal subjects");
     for sv in journal.subject_verdicts(crate::journal::TimestampNsec(now)) {
         let subj = core::str::from_utf8(sv.scope.as_slice()).unwrap_or("?");
+        // RFC-0068 dedup: a bare service name (e.g. `updated`, `dsoftbusd`) already self-folds its
+        // own `<svc> N/N` verdict via `service_verdict_flush` — logd rendering it again would
+        // duplicate the line. logd owns ONLY the cross-cutting aspect subjects that no single
+        // process self-folds: those are dotted (e.g. `policyd.audit`). Skip the bare ones.
+        if !subj.contains('.') {
+            continue;
+        }
         // The journal span (first record → drain) is not a single operation → drop the duration so a
         // spread-out subject isn't flagged WARN-slow (a real failure still shows as ERROR).
         let v = nexus_event::verdict_from(
@@ -744,6 +754,12 @@ fn encode_query_response_bounded_proto_v2(
 }
 
 fn emit_line(message: &str) {
+    // RFC-0068: fold logd's own status chatter (`logd: ready/rx/reject/journal subjects`) into a
+    // `logd N/N` verdict (interactive); the cross-cutting subject verdicts it renders use
+    // `render_verdict_line`/`debug_write` and are unaffected. Failures & proof boots print raw.
+    if nexus_abi::service_line(message.as_bytes()) {
+        return;
+    }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
     }

@@ -115,8 +115,24 @@ fn emit_col(s: &[u8], width: usize) {
 /// column of every console line, so the whole boot timeline (and any gap) is visible.
 fn emit_timestamp() {
     let ns = nexus_abi::nsec().unwrap_or(0);
+    let secs = ns / 1_000_000_000;
     emit_byte(b'[');
-    emit_u64(ns / 1_000_000_000);
+    // RFC-0068: match `nexus_event::render_verdict_line`'s `[{:>5}.{:06}]` so the kernel, service
+    // and selftest verdict timestamps share ONE column-aligned format (no padded-vs-unpadded split).
+    // Right-align the seconds in a 5-wide field.
+    let digits = {
+        let mut d = 1u64;
+        let mut v = secs;
+        while v >= 10 {
+            v /= 10;
+            d += 1;
+        }
+        d
+    };
+    for _ in digits..5 {
+        emit_byte(b' ');
+    }
+    emit_u64(secs);
     emit_byte(b'.');
     emit_zero_padded((ns % 1_000_000_000) / 1000, 6);
     emit_byte(b']');

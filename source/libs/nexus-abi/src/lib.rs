@@ -2996,11 +2996,12 @@ pub fn debug_write(bytes: &[u8]) -> SysResult<()> {
 /// is never split across two console writes; very long lines fall back to content + newline.
 #[cfg(nexus_env = "os")]
 pub fn debug_println(s: &str) -> SysResult<()> {
-    // Verdict folding: an ARMED service (gpud/windowd) folds its routine `debug_println` markers
-    // into its `<service> N/N` verdict in interactive boots; a folded routine line is suppressed
-    // here (FAIL lines and proof boots print live). Only armed processes fold, so init/the observer
-    // keep printing raw and never lose a line.
-    if svc_armed() && service_marker(s.as_bytes()) {
+    // Verdict folding: an ARMED service folds its routine `debug_println` lines in interactive boots.
+    // `service_line` folds BOTH phases: pre-`ready` markers tally into the `<service> N/N` verdict,
+    // and post-`ready` runtime traces (IPC/present/chain echoes) fold into recall-only detail
+    // (`NEXUS_LOG_EXPAND=<svc>`). FAIL lines and proof boots always print; only armed processes fold,
+    // so init/the observer keep printing raw and never lose a line.
+    if svc_armed() && service_line(s.as_bytes()) {
         return Ok(());
     }
     const LINE_CAP: usize = 512;

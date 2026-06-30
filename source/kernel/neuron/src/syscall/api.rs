@@ -1051,7 +1051,8 @@ fn qos_audit(
     decision: &'static str,
     reason: &'static str,
 ) {
-    log_info!(
+    // RFC-0068: QoS audit is a runtime event → DEBUG (off by default; NEXUS_LOG=qos=debug).
+    log_debug!(
         target: "qos",
         "QOS-AUDIT decision={} reason={} caller_sid=0x{:016x} caller_pid={} target_pid={} from={} to={}",
         decision,
@@ -1065,7 +1066,8 @@ fn qos_audit(
 }
 
 fn qos_audit_reject_simple(ctx: &Context<'_>, target: task::Pid, reason: &'static str) {
-    log_info!(
+    // RFC-0068: QoS audit is a runtime event → DEBUG (off by default; NEXUS_LOG=qos=debug).
+    log_debug!(
         target: "qos",
         "QOS-AUDIT decision=deny reason={} caller_sid=0x{:016x} caller_pid={} target_pid={}",
         reason,
@@ -2193,15 +2195,13 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if e_phoff >= elf.len() {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = write!(
-            u,
-            "[INFO exec] EXEC-ELF hdr entry=0x{:x} phoff=0x{:x} phentsz={} phnum={}\n",
-            e_entry, e_phoff, e_phentsize, e_phnum
-        );
-    }
+    // RFC-0068: process-exec is a perpetual runtime event, not a bounded boot phase → DEBUG (off by
+    // default; recall with `NEXUS_LOG=exec=debug`), so it never clutters the quiet boot overview.
+    log_debug!(
+        target: "exec",
+        "EXEC-ELF hdr entry=0x{:x} phoff=0x{:x} phentsz={} phnum={}",
+        e_entry, e_phoff, e_phentsize, e_phnum
+    );
 
     const PT_LOAD: u32 = 1;
     const PF_R: u32 = 4;
@@ -2231,8 +2231,7 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         let p_filesz = read_u64_le(elf, off + 32)? as usize;
         let p_memsz = read_u64_le(elf, off + 40)? as usize;
         {
-            use core::fmt::Write as _;
-            let mut u = crate::uart::raw_writer();
+            // RFC-0068: process-exec is a runtime event → DEBUG (off by default; NEXUS_LOG=exec=debug).
             let first4 = if p_offset + 4 <= elf.len() {
                 u32::from_le_bytes([
                     elf[p_offset],
@@ -2243,9 +2242,9 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             } else {
                 0
             };
-            let _ = write!(
-                u,
-                "[INFO exec] EXEC-ELF phdr load off=0x{:x} vaddr=0x{:x} filesz=0x{:x} memsz=0x{:x} first4=0x{:08x}\n",
+            log_debug!(
+                target: "exec",
+                "EXEC-ELF phdr load off=0x{:x} vaddr=0x{:x} filesz=0x{:x} memsz=0x{:x} first4=0x{:08x}",
                 p_offset, p_vaddr, p_filesz, p_memsz, first4
             );
         }
@@ -2330,8 +2329,6 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         .unwrap_or(0);
     let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
     {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
         let src = if typed.global_pointer != 0 {
             "arg"
         } else if first_rw_vaddr.is_some() {
@@ -2339,7 +2336,8 @@ fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         } else {
             "entry+0x800"
         };
-        let _ = write!(u, "[INFO exec] EXEC-ELF gp=0x{:x} src={}\n", gp, src);
+        // RFC-0068: process-exec is a runtime event → DEBUG (off by default; NEXUS_LOG=exec=debug).
+        log_debug!(target: "exec", "EXEC-ELF gp=0x{:x} src={}", gp, src);
     }
 
     // Stack
@@ -2800,7 +2798,8 @@ fn sys_spawn(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = SpawnArgsTyped::decode(args)?;
     let sp_raw = typed.stack_sp.map(|v| v.raw()).unwrap_or(0);
     let as_raw = typed.as_handle.map(|h| h.to_raw()).unwrap_or(0);
-    log_info!(
+    // RFC-0068: process-spawn is a runtime event → DEBUG (off by default; NEXUS_LOG=sys=debug).
+    log_debug!(
         target: "sys",
         "SPAWN: entry=0x{:x} sp=0x{:x} as={} slot={} gp=0x{:x}",
         typed.entry_pc.raw(),

@@ -912,8 +912,9 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 }
 
 fn emit_line(message: &str) {
-    // Verdict folding → `policyd N/N` (interactive); failures & proof boots print live & raw.
-    if nexus_abi::service_marker(message.as_bytes()) {
+    // Verdict folding: pre-`ready` markers tally into `policyd N/N`; post-`ready` runtime lines fold
+    // into recall-only detail (`NEXUS_LOG_EXPAND=policyd`). Failures & proof boots print live & raw.
+    if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {

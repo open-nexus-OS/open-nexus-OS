@@ -16,6 +16,9 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> Result<(), nexus_abi::AbiError> {
+    // RFC-0068: fold routine debug_println markers into one `touchd N/N` verdict (interactive boots;
+    // proof stays raw).
+    nexus_abi::service_verdict_arm();
     if let Ok(bounds) = touch::TouchBounds::new(64, 48) {
         let mut service =
             touchd::TouchdService::new(bounds, touchd::SyntheticTouchMode::ProofFixture);
@@ -24,6 +27,7 @@ fn os_entry() -> Result<(), nexus_abi::AbiError> {
             nexus_abi::debug_println("touchd: os service payload ready")?;
         }
     }
+    nexus_abi::service_verdict_flush("touchd");
     Ok(())
 }
 

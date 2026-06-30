@@ -458,6 +458,11 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn log_counter_snapshot(name: &[u8], value: u64) {
+    // RFC-0068: per-counter telemetry folds out of the collapsed boot overview
+    // (`NEXUS_LOG_EXPAND=metricsd` to recall it); proof boots (fold off) still print it.
+    if nexus_abi::service_trace() {
+        return;
+    }
     nexus_log::info("metricsd", |line| {
         line.text("metrics snapshot counter name=");
         line.text(as_utf8_or_placeholder(name));
@@ -467,6 +472,9 @@ fn log_counter_snapshot(name: &[u8], value: u64) {
 }
 
 fn log_gauge_snapshot(name: &[u8], value: i64) {
+    if nexus_abi::service_trace() {
+        return;
+    }
     nexus_log::info("metricsd", |line| {
         line.text("metrics snapshot gauge name=");
         line.text(as_utf8_or_placeholder(name));
@@ -481,6 +489,9 @@ fn log_gauge_snapshot(name: &[u8], value: i64) {
 }
 
 fn log_hist_snapshot(name: &[u8], count: u64, sum: u64) {
+    if nexus_abi::service_trace() {
+        return;
+    }
     nexus_log::info("metricsd", |line| {
         line.text("metrics snapshot histogram name=");
         line.text(as_utf8_or_placeholder(name));

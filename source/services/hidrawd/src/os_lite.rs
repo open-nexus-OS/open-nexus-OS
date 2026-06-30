@@ -91,6 +91,8 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
                 "hidrawd: timing entry_to_ready_ms={}",
                 load_span.elapsed_ms()
             ));
+            // RFC-0068: ready reached — emit the folded `hidrawd N/N` verdict (interactive only).
+            nexus_abi::service_verdict_flush("hidrawd");
             ready_emitted = true;
         }
         if live_devices.is_empty() {

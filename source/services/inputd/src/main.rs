@@ -16,6 +16,9 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> Result<(), nexus_abi::AbiError> {
+    // RFC-0068: fold routine debug_println markers into one `inputd N/N` verdict (interactive boots;
+    // proof stays raw). Paired with the flush at its ready point.
+    nexus_abi::service_verdict_arm();
     inputd::service_main_loop().map_err(|_| nexus_abi::AbiError::InvalidArgument)
 }
 

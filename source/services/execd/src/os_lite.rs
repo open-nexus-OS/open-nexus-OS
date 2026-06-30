@@ -792,8 +792,9 @@ pub fn exec_elf(
 }
 
 fn emit_line(message: &str) {
-    // Verdict folding → `execd N/N` (interactive); failures & proof boots print live & raw.
-    if nexus_abi::service_marker(message.as_bytes()) {
+    // Verdict folding: pre-`ready` markers tally into `execd N/N`; post-`ready` runtime lines fold
+    // into recall-only detail (`NEXUS_LOG_EXPAND=execd`). Failures & proof boots print live & raw.
+    if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {

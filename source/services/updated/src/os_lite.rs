@@ -915,9 +915,9 @@ fn emit_bytes(bytes: &[u8]) {
 }
 
 fn emit_line(message: &str) {
-    // Verdict folding: tally into `updated N/N`; routine markers fold (interactive), failures &
-    // proof boots print live & raw. Flushed after `updated: ready`.
-    if nexus_abi::service_marker(message.as_bytes()) {
+    // Verdict folding: pre-`ready` markers tally into `updated N/N`; post-`ready` runtime lines fold
+    // into recall-only detail (`NEXUS_LOG_EXPAND=updated`). Failures & proof boots print live & raw.
+    if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
     emit_bytes(message.as_bytes());

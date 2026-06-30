@@ -16,6 +16,9 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> Result<(), nexus_abi::AbiError> {
+    // RFC-0068: fold this service's routine debug_println markers into one `hidrawd N/N` verdict
+    // (interactive boots; proof boots stay raw). Paired with the flush at its ready point.
+    nexus_abi::service_verdict_arm();
     hidrawd::service_main_loop()
 }
 
