@@ -877,6 +877,11 @@ fn rsp(op: u8, status: u8, payload: &[u8]) -> Vec<u8> {
 }
 
 fn audit(op: &str, status: &str, detail: Option<&str>) {
+    // RFC-0068: updated's audit echoes fold out of the collapsed overview
+    // (`NEXUS_LOG_EXPAND=updated` to recall); proof boots (fold off) print them.
+    if nexus_abi::service_trace() {
+        return;
+    }
     nexus_log::info("updated", |line| {
         line.text("audit");
         line.text(" op=");

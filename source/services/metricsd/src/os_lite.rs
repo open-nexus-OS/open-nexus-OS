@@ -131,17 +131,21 @@ impl RetentionSink {
         }
         if !self.wal_proof_emitted {
             self.wal_proof_emitted = true;
-            nexus_log::info("metricsd", |line| {
-                line.text("retention wal active");
-            });
+            if !nexus_abi::service_trace() {
+                nexus_log::info("metricsd", |line| {
+                    line.text("retention wal active");
+                });
+            }
         }
         if !self.wal_verified_emitted {
             if let Some(proof) = self.proof_client.as_ref() {
                 if proof.put(key.as_str(), &update.wal_bytes).is_ok() {
                     self.wal_verified_emitted = true;
-                    nexus_log::info("metricsd", |line| {
-                        line.text("retention wal verified");
-                    });
+                    if !nexus_abi::service_trace() {
+                        nexus_log::info("metricsd", |line| {
+                            line.text("retention wal verified");
+                        });
+                    }
                 }
             }
         }

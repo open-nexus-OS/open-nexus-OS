@@ -341,6 +341,11 @@ pub mod os {
         // interactive boot. If so, a service's routine markers fold into one `<service> N/N`
         // verdict; proof boots leave it off so `verify-uart` still sees every raw marker.
         nexus_abi::set_verdict_fold(nexus_abi::boot_should_fold_verdicts());
+        // RFC-0068: arm EVERY service entering here so its scattered `debug_println` runtime traces
+        // also fold — pre-`ready` markers tally into the `<service> N/N` verdict, post-`ready` traces
+        // fold into recall-only detail (`NEXUS_LOG_EXPAND=<svc>`). Every service that reaches this
+        // entry flushes a verdict, so no folded line is lost; failures and proof boots always print.
+        nexus_abi::service_verdict_arm();
         // Configurable per-group expand: if this service is named in `NEXUS_LOG_EXPAND` (a comma list),
         // opt it out of folding so its full raw marker stream shows while every other group stays
         // compactly folded — `NEXUS_LOG_EXPAND=netstackd just start` to focus one service.

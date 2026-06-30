@@ -1933,7 +1933,15 @@ fn marker_is_failure(b: &[u8]) -> bool {
     fn has(h: &[u8], n: &[u8]) -> bool {
         n.len() <= h.len() && h.windows(n.len()).any(|w| w == n)
     }
-    has(b, b"err") || has(b, b"FAIL") || has(b, b"denied")
+    // RFC-0068: match `err` only as a TOKEN (`error`, ` err`, `err=`) — never as a bare substring,
+    // which false-flagged routine lines like `audit emit deferred` / `interrupt` as failures and so
+    // forced them to print raw instead of folding. The real failure markers all use one of these
+    // token forms (`recv error`, `registry recv err`, `err={err}`).
+    has(b, b"error")
+        || has(b, b" err")
+        || has(b, b"err=")
+        || has(b, b"FAIL")
+        || has(b, b"denied")
 }
 
 /// Tally one of this service's markers; returns `true` when the caller should SUPPRESS the line
