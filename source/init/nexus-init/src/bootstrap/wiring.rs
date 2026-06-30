@@ -13,6 +13,7 @@ use crate::bootstrap::diag::iw;
 use crate::bootstrap::endpoints::Endpoints;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
+use crate::service_topology::ServiceId;
 
 /// Distribute capabilities to every spawned service (the bespoke per-service
 /// `match` + the declarative generic arm). Mutates each `CtrlChannel`'s slot
@@ -82,8 +83,8 @@ pub(crate) fn wire_services(
                         return Err(InitError::Abi(e));
                     }
                 };
-                chan.net_send_slot = Some(send_slot);
-                chan.net_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Netstackd, send_slot);
+                chan.set_recv(ServiceId::Netstackd, recv_slot);
                 if iw(init_wire, init_fold, "init:netstackd") {
                     debug_write_bytes(b"init: netstackd svc slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -100,8 +101,8 @@ pub(crate) fn wire_services(
                 let recv_slot =
                     nexus_abi::cap_transfer_to_slot(pid, net_dsoft_rsp, Rights::RECV, 0x04)
                         .map_err(InitError::Abi)?;
-                chan.net_send_slot = Some(send_slot);
-                chan.net_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Netstackd, send_slot);
+                chan.set_recv(ServiceId::Netstackd, recv_slot);
                 if iw(init_wire, init_fold, "init:dsoftbusd") {
                     debug_write_bytes(b"init: dsoftbusd netstackd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -133,19 +134,19 @@ pub(crate) fn wire_services(
                 // - receive replies on local reply inbox recv slot
                 let send_slot =
                     nexus_abi::cap_transfer(pid, sam_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.sam_send_slot = Some(send_slot);
-                chan.sam_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Samgrd, send_slot);
+                chan.set_recv(ServiceId::Samgrd, reply_recv_slot);
                 let send_slot =
                     nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.bnd_send_slot = Some(send_slot);
-                chan.bnd_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Bundlemgrd, send_slot);
+                chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
                 // TASK-0016: remote packagefs RO path requires dsoftbusd -> packagefsd routing.
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.pkg_send_slot = Some(send_slot);
-                chan.pkg_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Packagefsd, send_slot);
+                chan.set_recv(ServiceId::Packagefsd, recv_slot);
                 // #region agent log
                 if iw(init_wire, init_fold, "init:dsoftbusd") {
                     debug_write_bytes(b"init: dsoftbusd packagefsd slots send=0x");
@@ -161,8 +162,8 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.state_send_slot = Some(send_slot);
-                chan.state_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Statefsd, send_slot);
+                chan.set_recv(ServiceId::Statefsd, recv_slot);
                 // #region agent log
                 if iw(init_wire, init_fold, "init:dsoftbusd") {
                     debug_write_bytes(b"init: dsoftbusd statefsd slots send=0x");
@@ -178,15 +179,15 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.dsoft_send_slot = Some(send_slot);
-                chan.dsoft_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Dsoftbusd, send_slot);
+                chan.set_recv(ServiceId::Dsoftbusd, recv_slot);
 
                 // TASK-0006: allow dsoftbusd to send structured logs to logd via CAP_MOVE (reply inbox).
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
             "vfsd" => {
@@ -194,24 +195,24 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, vfs_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, vfs_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.vfs_send_slot = Some(send_slot);
-                chan.vfs_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Vfsd, send_slot);
+                chan.set_recv(ServiceId::Vfsd, recv_slot);
 
                 // vfsd needs to resolve pkg:/ paths against packagefsd (real data path).
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.pkg_send_slot = Some(send_slot);
-                chan.pkg_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Packagefsd, send_slot);
+                chan.set_recv(ServiceId::Packagefsd, recv_slot);
             }
             "packagefsd" => {
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pkg_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pkg_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.pkg_send_slot = Some(send_slot);
-                chan.pkg_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Packagefsd, send_slot);
+                chan.set_recv(ServiceId::Packagefsd, recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE replies.
                 let reply_recv_slot = nexus_abi::cap_transfer(pid, pkg_reply_ep, Rights::RECV)
@@ -227,12 +228,12 @@ pub(crate) fn wire_services(
                 // - receive replies on the local reply inbox recv slot
                 let send_slot =
                     nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.bnd_send_slot = Some(send_slot);
-                chan.bnd_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Bundlemgrd, send_slot);
+                chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
             }
             "policyd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.pol_send_slot.is_some() && chan.pol_recv_slot.is_some() {
+                if chan.send(ServiceId::Policyd).is_some() && chan.recv(ServiceId::Policyd).is_some() {
                     if iw(init_wire, init_fold, "init:policyd") {
                         debug_write_bytes(b"init: policyd already priority-wired, skip\n");
                     }
@@ -247,21 +248,21 @@ pub(crate) fn wire_services(
                         .map_err(InitError::Abi)?;
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
-                    chan.state_recv_slot = Some(reply_recv_slot);
+                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
                     let _ = nexus_abi::cap_close(reply_ep);
                     if let Some(req) = log_req {
                         let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
                             .map_err(InitError::Abi)?;
-                        chan.log_send_slot = Some(send_slot);
-                        chan.log_recv_slot = Some(reply_recv_slot);
+                        chan.set_send(ServiceId::Logd, send_slot);
+                        chan.set_recv(ServiceId::Logd, reply_recv_slot);
                     }
                 } else {
                     let recv_slot = nexus_abi::cap_transfer(pid, pol_req, Rights::RECV)
                         .map_err(InitError::Abi)?;
                     let send_slot = nexus_abi::cap_transfer(pid, pol_rsp, Rights::SEND)
                         .map_err(InitError::Abi)?;
-                    chan.pol_send_slot = Some(send_slot);
-                    chan.pol_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Policyd, send_slot);
+                    chan.set_recv(ServiceId::Policyd, recv_slot);
                     if iw(init_wire, init_fold, "init:policyd") {
                         debug_write_bytes(b"init: policyd slots recv=0x");
                         debug_write_hex(recv_slot as usize);
@@ -280,7 +281,7 @@ pub(crate) fn wire_services(
                         .map_err(InitError::Abi)?;
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
-                    chan.state_recv_slot = Some(reply_recv_slot);
+                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
                     let _ = nexus_abi::cap_close(reply_ep);
                     if iw(init_wire, init_fold, "init:policyd") {
                         debug_write_bytes(b"init: policyd reply slots recv=0x");
@@ -294,8 +295,8 @@ pub(crate) fn wire_services(
                     if let Some(req) = log_req {
                         let send_slot = nexus_abi::cap_transfer(pid, req, Rights::SEND)
                             .map_err(InitError::Abi)?;
-                        chan.log_send_slot = Some(send_slot);
-                        chan.log_recv_slot = Some(reply_recv_slot);
+                        chan.set_send(ServiceId::Logd, send_slot);
+                        chan.set_recv(ServiceId::Logd, reply_recv_slot);
                         if iw(init_wire, init_fold, "init:policyd") {
                             debug_write_bytes(b"init: policyd logd slots send=0x");
                             debug_write_hex(send_slot as usize);
@@ -311,8 +312,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, bnd_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, bnd_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.bnd_send_slot = Some(send_slot);
-                chan.bnd_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Bundlemgrd, send_slot);
+                chan.set_recv(ServiceId::Bundlemgrd, recv_slot);
                 if iw(init_wire, init_fold, "init:bundlemgrd") {
                     debug_write_bytes(b"init: bundlemgrd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -326,8 +327,8 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, bnd_exe_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.exe_send_slot = Some(send_slot);
-                chan.exe_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Execd, send_slot);
+                chan.set_recv(ServiceId::Execd, recv_slot);
                 let _ = nexus_abi::cap_close(bnd_exe_req);
                 let _ = nexus_abi::cap_close(bnd_exe_rsp);
 
@@ -347,8 +348,8 @@ pub(crate) fn wire_services(
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
             "updated" => {
@@ -356,8 +357,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, upd_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, upd_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.upd_send_slot = Some(send_slot);
-                chan.upd_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Updated, send_slot);
+                chan.set_recv(ServiceId::Updated, recv_slot);
                 if iw(init_wire, init_fold, "init:updated") {
                     debug_write_bytes(b"init: updated slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -384,8 +385,8 @@ pub(crate) fn wire_services(
                 let send_slot = transfer(bnd_req, Rights::SEND, "bundlemgrd send");
                 let recv_slot = transfer(bnd_rsp_updated, Rights::RECV, "bundlemgrd recv");
                 if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
-                    chan.bnd_send_slot = Some(send_slot);
-                    chan.bnd_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Bundlemgrd, send_slot);
+                    chan.set_recv(ServiceId::Bundlemgrd, recv_slot);
                 }
                 let _ = nexus_abi::cap_close(bnd_rsp_updated);
 
@@ -393,14 +394,14 @@ pub(crate) fn wire_services(
                 let send_slot = transfer(key_req, Rights::SEND, "keystored send");
                 let recv_slot = transfer(key_rsp, Rights::RECV, "keystored recv");
                 if let (Some(send_slot), Some(recv_slot)) = (send_slot, recv_slot) {
-                    chan.key_send_slot = Some(send_slot);
-                    chan.key_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Keystored, send_slot);
+                    chan.set_recv(ServiceId::Keystored, recv_slot);
                 }
 
                 // Allow updated to call statefsd for persistence.
                 let send_slot = transfer(state_req, Rights::SEND, "statefsd send");
                 if let Some(send_slot) = send_slot {
-                    chan.state_send_slot = Some(send_slot);
+                    chan.set_send(ServiceId::Statefsd, send_slot);
                     if iw(init_wire, init_fold, "init:updated") {
                         debug_write_bytes(b"init: updated statefsd send slot=0x");
                         debug_write_hex(send_slot as usize);
@@ -419,7 +420,7 @@ pub(crate) fn wire_services(
                 {
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
-                    chan.state_recv_slot = Some(reply_recv_slot);
+                    chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
                     if iw(init_wire, init_fold, "init:updated") {
                         debug_write_bytes(b"init: updated reply recv slot=0x");
                         debug_write_hex(reply_recv_slot as usize);
@@ -436,9 +437,9 @@ pub(crate) fn wire_services(
                 // TASK-0006: allow updated to send structured logs to logd via CAP_MOVE (reply inbox).
                 if let Some(req) = log_req {
                     if let Some(send_slot) = transfer(req, Rights::SEND, "logd send") {
-                        chan.log_send_slot = Some(send_slot);
+                        chan.set_send(ServiceId::Logd, send_slot);
                         if let Some(reply_recv_slot) = reply_recv_slot {
-                            chan.log_recv_slot = Some(reply_recv_slot);
+                            chan.set_recv(ServiceId::Logd, reply_recv_slot);
                         }
                     }
                 }
@@ -448,8 +449,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, sam_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, sam_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.sam_send_slot = Some(send_slot);
-                chan.sam_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Samgrd, send_slot);
+                chan.set_recv(ServiceId::Samgrd, recv_slot);
                 if iw(init_wire, init_fold, "init:samgrd") {
                     debug_write_bytes(b"init: samgrd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -474,8 +475,8 @@ pub(crate) fn wire_services(
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
             "execd" => {
@@ -483,8 +484,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, exe_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, exe_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.exe_send_slot = Some(send_slot);
-                chan.exe_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Execd, send_slot);
+                chan.set_recv(ServiceId::Execd, recv_slot);
 
                 // Reply inbox: provide both RECV (stay with execd) and SEND (to be moved to servers).
                 let reply_recv_slot = nexus_abi::cap_transfer(pid, execd_reply_ep, Rights::RECV)
@@ -506,8 +507,8 @@ pub(crate) fn wire_services(
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                     if iw(init_wire, init_fold, "init:execd") {
                         debug_write_bytes(b"init: execd logd slots send=0x");
                         debug_write_hex(send_slot as usize);
@@ -560,8 +561,8 @@ pub(crate) fn wire_services(
                         return Err(InitError::Abi(e));
                     }
                 };
-                chan.key_send_slot = Some(send_slot);
-                chan.key_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Keystored, send_slot);
+                chan.set_recv(ServiceId::Keystored, recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by statefsd + log sinks).
                 // #region agent log (keystored reply-inbox create)
@@ -641,14 +642,14 @@ pub(crate) fn wire_services(
                         return Err(InitError::Abi(e));
                     }
                 };
-                chan.state_send_slot = Some(send_slot);
-                chan.state_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Statefsd, send_slot);
+                chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
 
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
 
                 // Allow keystored to call policyd (reply via CAP_MOVE/@reply).
@@ -670,8 +671,8 @@ pub(crate) fn wire_services(
                         return Err(InitError::Abi(e));
                     }
                 };
-                chan.pol_send_slot = Some(send_slot);
-                chan.pol_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Policyd, send_slot);
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
 
                 // Allow keystored to send entropy requests to rngd (replies via CAP_MOVE/@reply).
                 // #region agent log (keystored rngd send cap)
@@ -692,17 +693,17 @@ pub(crate) fn wire_services(
                         return Err(InitError::Abi(e));
                     }
                 };
-                chan.rng_send_slot = Some(send_slot);
+                chan.set_send(ServiceId::Rngd, send_slot);
                 // Use reply inbox recv slot for routing responses (CAP_MOVE replies land here).
-                chan.rng_recv_slot = Some(reply_recv_slot);
+                chan.set_recv(ServiceId::Rngd, reply_recv_slot);
             }
             "statefsd" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, state_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.state_send_slot = Some(send_slot);
-                chan.state_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Statefsd, send_slot);
+                chan.set_recv(ServiceId::Statefsd, recv_slot);
                 if iw(init_wire, init_fold, "init:statefsd") {
                     debug_write_bytes(b"init: statefsd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -726,8 +727,8 @@ pub(crate) fn wire_services(
                 // Allow statefsd to call policyd (reply via CAP_MOVE/@reply).
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.pol_send_slot = Some(send_slot);
-                chan.pol_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Policyd, send_slot);
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
             }
             "rngd" => {
                 // Server-side endpoints for rngd.
@@ -735,8 +736,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, rng_req, Rights::RECV).map_err(InitError::Abi)?;
                 let send_slot =
                     nexus_abi::cap_transfer(pid, rng_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.rng_send_slot = Some(send_slot);
-                chan.rng_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Rngd, send_slot);
+                chan.set_recv(ServiceId::Rngd, recv_slot);
 
                 // Provide a reply inbox for CAP_MOVE reply routing (used by clients).
                 let reply_ep =
@@ -753,31 +754,31 @@ pub(crate) fn wire_services(
                 if let Some(req) = log_req {
                     let send_slot =
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
 
                 // Allow rngd to call policyd (reply via CAP_MOVE/@reply).
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.pol_send_slot = Some(send_slot);
-                chan.pol_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Policyd, send_slot);
+                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
             }
             "timed" => {
                 let recv_slot = nexus_abi::cap_transfer(pid, timed_req, Rights::RECV)
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, timed_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.timed_send_slot = Some(send_slot);
-                chan.timed_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Timed, send_slot);
+                chan.set_recv(ServiceId::Timed, recv_slot);
             }
             "hidrawd" => {
                 let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.input_send_slot = Some(send_slot);
-                chan.input_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Inputd, send_slot);
+                chan.set_recv(ServiceId::Inputd, recv_slot);
                 if iw(init_wire, init_fold, "init:hidrawd") {
                     debug_write_bytes(b"init: hidrawd inputd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -790,8 +791,8 @@ pub(crate) fn wire_services(
                 let recv_slot = try_transfer(pid, gpud_req, Rights::RECV, "gpud", "RECV");
                 let send_slot = try_transfer(pid, gpud_rsp, Rights::SEND, "gpud", "SEND");
                 if let (Some(recv), Some(send)) = (recv_slot, send_slot) {
-                    chan.gpud_send_slot = Some(send);
-                    chan.gpud_recv_slot = Some(recv);
+                    chan.set_send(ServiceId::Gpud, send);
+                    chan.set_recv(ServiceId::Gpud, recv);
                     if iw(init_wire, init_fold, "init:gpud") {
                         debug_write_bytes(b"init: gpud slots recv=0x");
                         debug_write_hex(recv as usize);
@@ -803,7 +804,7 @@ pub(crate) fn wire_services(
             }
             "windowd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.
-                if chan.window_send_slot.is_some() && chan.window_recv_slot.is_some() {
+                if chan.send(ServiceId::Windowd).is_some() && chan.recv(ServiceId::Windowd).is_some() {
                     if iw(init_wire, init_fold, "init:windowd") {
                         debug_write_bytes(b"init: windowd already priority-wired, skip\n");
                     }
@@ -813,8 +814,8 @@ pub(crate) fn wire_services(
                     let gpud_recv_slot =
                         try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
                     if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
-                        chan.gpud_send_slot = Some(gpud_send);
-                        chan.gpud_recv_slot = Some(gpud_recv);
+                        chan.set_send(ServiceId::Gpud, gpud_send);
+                        chan.set_recv(ServiceId::Gpud, gpud_recv);
                     }
                     // RFC-0065 dynamic Apps menu: provision the registry reply-inbox
                     // + bundlemgrd route caps HERE — AFTER the gpud caps, so gpud
@@ -828,16 +829,16 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.window_send_slot = Some(send_slot);
-                chan.window_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Windowd, send_slot);
+                chan.set_recv(ServiceId::Windowd, recv_slot);
                 // gpud may have crashed — graceful transfer
                 let gpud_send_slot =
                     try_transfer(pid, gpud_req, Rights::SEND, "windowd->gpud", "SEND");
                 let gpud_recv_slot =
                     try_transfer(pid, gpud_rsp, Rights::RECV, "windowd->gpud", "RECV");
                 if let (Some(gpud_send), Some(gpud_recv)) = (gpud_send_slot, gpud_recv_slot) {
-                    chan.gpud_send_slot = Some(gpud_send);
-                    chan.gpud_recv_slot = Some(gpud_recv);
+                    chan.set_send(ServiceId::Gpud, gpud_send);
+                    chan.set_recv(ServiceId::Gpud, gpud_recv);
                 }
                 // Registry reply-inbox + bundlemgrd route AFTER gpud (slot-order
                 // contract — see the skip path above).
@@ -860,7 +861,7 @@ pub(crate) fn wire_services(
                 }
             }
             "inputd" => {
-                if chan.input_send_slot.is_some() && chan.input_recv_slot.is_some() {
+                if chan.send(ServiceId::Inputd).is_some() && chan.recv(ServiceId::Inputd).is_some() {
                     if iw(init_wire, init_fold, "init:inputd") {
                         debug_write_bytes(b"init: inputd already priority-wired, skip\n");
                     }
@@ -872,8 +873,8 @@ pub(crate) fn wire_services(
                     if let (Some(window_send), Some(window_recv)) =
                         (window_send_slot, window_recv_slot)
                     {
-                        chan.window_send_slot = Some(window_send);
-                        chan.window_recv_slot = Some(window_recv);
+                        chan.set_send(ServiceId::Windowd, window_send);
+                        chan.set_recv(ServiceId::Windowd, window_recv);
                         if iw(init_wire, init_fold, "init:inputd") {
                             debug_write_bytes(b"init: inputd windowd slots send=0x");
                             debug_write_hex(window_send as usize);
@@ -888,14 +889,14 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let send_slot = nexus_abi::cap_transfer(pid, input_rsp, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.input_send_slot = Some(send_slot);
-                chan.input_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Inputd, send_slot);
+                chan.set_recv(ServiceId::Inputd, recv_slot);
                 let window_send_slot = nexus_abi::cap_transfer(pid, window_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
                 let window_recv_slot = nexus_abi::cap_transfer(pid, window_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.window_send_slot = Some(window_send_slot);
-                chan.window_recv_slot = Some(window_recv_slot);
+                chan.set_send(ServiceId::Windowd, window_send_slot);
+                chan.set_recv(ServiceId::Windowd, window_recv_slot);
                 if iw(init_wire, init_fold, "init:inputd") {
                     debug_write_bytes(b"init: inputd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -917,8 +918,8 @@ pub(crate) fn wire_services(
                         nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
                     let send_slot =
                         nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.metrics_send_slot = Some(send_slot);
-                    chan.metrics_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Metricsd, send_slot);
+                    chan.set_recv(ServiceId::Metricsd, recv_slot);
                     if iw(init_wire, init_fold, "init:metricsd") {
                         debug_write_bytes(b"init: metricsd slots recv=0x");
                         debug_write_hex(recv_slot as usize);
@@ -946,8 +947,8 @@ pub(crate) fn wire_services(
                 if let Some(req) = log_req {
                     let send_slot = nexus_abi::cap_transfer_to_slot(pid, req, Rights::SEND, 0x08)
                         .map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(reply_recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
                     if iw(init_wire, init_fold, "init:metricsd") {
                         debug_write_bytes(b"init: metricsd logd slots send=0x");
                         debug_write_hex(send_slot as usize);
@@ -960,8 +961,8 @@ pub(crate) fn wire_services(
                 // Allow metricsd retention writer to call statefsd via CAP_MOVE/@reply.
                 let send_slot = nexus_abi::cap_transfer_to_slot(pid, state_req, Rights::SEND, 0x07)
                     .map_err(InitError::Abi)?;
-                chan.state_send_slot = Some(send_slot);
-                chan.state_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Statefsd, send_slot);
+                chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
             }
             "logd" => {
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
@@ -969,8 +970,8 @@ pub(crate) fn wire_services(
                         nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
                     let send_slot =
                         nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, recv_slot);
                     if iw(init_wire, init_fold, "init:logd") {
                         debug_write_bytes(b"init: logd slots recv=0x");
                         debug_write_hex(recv_slot as usize);
@@ -985,8 +986,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, vfs_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, vfs_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.vfs_send_slot = Some(send_slot);
-                chan.vfs_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Vfsd, send_slot);
+                chan.set_recv(ServiceId::Vfsd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest vfsd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -998,14 +999,14 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.pkg_send_slot = Some(send_slot);
-                chan.pkg_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Packagefsd, send_slot);
+                chan.set_recv(ServiceId::Packagefsd, recv_slot);
                 let send_slot =
                     nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, pol_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.pol_send_slot = Some(send_slot);
-                chan.pol_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Policyd, send_slot);
+                chan.set_recv(ServiceId::Policyd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest policyd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1017,8 +1018,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, bnd_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.bnd_send_slot = Some(send_slot);
-                chan.bnd_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Bundlemgrd, send_slot);
+                chan.set_recv(ServiceId::Bundlemgrd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest bundlemgrd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1030,8 +1031,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, upd_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, upd_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.upd_send_slot = Some(send_slot);
-                chan.upd_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Updated, send_slot);
+                chan.set_recv(ServiceId::Updated, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest updated slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1043,8 +1044,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, sam_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, sam_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.sam_send_slot = Some(send_slot);
-                chan.sam_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Samgrd, send_slot);
+                chan.set_recv(ServiceId::Samgrd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest samgrd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1056,8 +1057,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, exe_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, exe_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.exe_send_slot = Some(send_slot);
-                chan.exe_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Execd, send_slot);
+                chan.set_recv(ServiceId::Execd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest execd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1069,8 +1070,8 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, key_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, key_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.key_send_slot = Some(send_slot);
-                chan.key_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Keystored, send_slot);
+                chan.set_recv(ServiceId::Keystored, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest keystored slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1083,8 +1084,8 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.state_send_slot = Some(send_slot);
-                chan.state_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Statefsd, send_slot);
+                chan.set_recv(ServiceId::Statefsd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest statefsd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1098,8 +1099,8 @@ pub(crate) fn wire_services(
                         nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
                     let recv_slot =
                         nexus_abi::cap_transfer(pid, rsp, Rights::RECV).map_err(InitError::Abi)?;
-                    chan.log_send_slot = Some(send_slot);
-                    chan.log_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Logd, send_slot);
+                    chan.set_recv(ServiceId::Logd, recv_slot);
                     if iw(init_wire, init_fold, "init:selftest-client") {
                         debug_write_bytes(b"init: selftest logd slots send=0x");
                         debug_write_hex(send_slot as usize);
@@ -1113,8 +1114,8 @@ pub(crate) fn wire_services(
                         .map_err(InitError::Abi)?;
                     let recv_slot = nexus_abi::cap_transfer_to_slot(pid, rsp, Rights::RECV, 0x22)
                         .map_err(InitError::Abi)?;
-                    chan.metrics_send_slot = Some(send_slot);
-                    chan.metrics_recv_slot = Some(recv_slot);
+                    chan.set_send(ServiceId::Metricsd, send_slot);
+                    chan.set_recv(ServiceId::Metricsd, recv_slot);
                     if iw(init_wire, init_fold, "init:selftest-client") {
                         debug_write_bytes(b"init: selftest metricsd slots send=0x");
                         debug_write_hex(send_slot as usize);
@@ -1141,8 +1142,8 @@ pub(crate) fn wire_services(
 
                 let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
-                chan.input_send_slot = Some(send_slot);
-                chan.input_recv_slot = Some(reply_recv_slot);
+                chan.set_send(ServiceId::Inputd, send_slot);
+                chan.set_recv(ServiceId::Inputd, reply_recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest inputd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1156,24 +1157,24 @@ pub(crate) fn wire_services(
                     nexus_abi::cap_transfer(pid, net_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, net_selftest_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.net_send_slot = Some(send_slot);
-                chan.net_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Netstackd, send_slot);
+                chan.set_recv(ServiceId::Netstackd, recv_slot);
 
                 // Allow selftest-client to send requests to dsoftbusd (TASK-0005 remote proxy proof).
                 let send_slot = nexus_abi::cap_transfer(pid, dsoft_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, dsoft_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.dsoft_send_slot = Some(send_slot);
-                chan.dsoft_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Dsoftbusd, send_slot);
+                chan.set_recv(ServiceId::Dsoftbusd, recv_slot);
 
                 // Allow selftest-client to send requests to rngd and receive direct replies.
                 let send_slot =
                     nexus_abi::cap_transfer(pid, rng_req, Rights::SEND).map_err(InitError::Abi)?;
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, rng_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.rng_send_slot = Some(send_slot);
-                chan.rng_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Rngd, send_slot);
+                chan.set_recv(ServiceId::Rngd, recv_slot);
                 if iw(init_wire, init_fold, "init:selftest-client") {
                     debug_write_bytes(b"init: selftest rngd slots send=0x");
                     debug_write_hex(send_slot as usize);
@@ -1187,8 +1188,8 @@ pub(crate) fn wire_services(
                     .map_err(InitError::Abi)?;
                 let recv_slot = nexus_abi::cap_transfer(pid, timed_rsp, Rights::RECV)
                     .map_err(InitError::Abi)?;
-                chan.timed_send_slot = Some(send_slot);
-                chan.timed_recv_slot = Some(recv_slot);
+                chan.set_send(ServiceId::Timed, send_slot);
+                chan.set_recv(ServiceId::Timed, recv_slot);
             }
             // RFC-0066 Phase 3 (incremental): services whose wiring is just "a
             // server endpoint" are provisioned **data-driven** from the declarative
@@ -1198,7 +1199,6 @@ pub(crate) fn wire_services(
             name if crate::service_topology::exposes_server(name.as_bytes())
                 && !is_bespoke_wired(name) =>
             {
-                use crate::service_topology::ServiceId;
                 provision_server_endpoint(ENDPOINT_FACTORY_CAP_SLOT, pid, name.as_bytes());
 
                 // RFC-0066 P3: provision this service's outbound routes **from its
@@ -1226,8 +1226,8 @@ pub(crate) fn wire_services(
                                             if let Ok(s) =
                                                 nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
                                             {
-                                                chan.bnd_send_slot = Some(s);
-                                                chan.bnd_recv_slot = Some(reply_recv);
+                                                chan.set_send(ServiceId::Bundlemgrd, s);
+                                                chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
                                                 debug_write_bytes(b"init: ");
                                                 debug_write_bytes(name.as_bytes());
                                                 debug_write_bytes(b" route->bundlemgrd ok\n");
@@ -1302,8 +1302,8 @@ fn provision_windowd_registry_route(
         chan.reply_recv_slot = Some(reply_recv);
         chan.reply_send_slot = Some(reply_send);
         if let Ok(s) = nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND) {
-            chan.bnd_send_slot = Some(s);
-            chan.bnd_recv_slot = Some(reply_recv);
+            chan.set_send(ServiceId::Bundlemgrd, s);
+            chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
             // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
             debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
         }

@@ -13,156 +13,23 @@ use crate::bootstrap::CtrlChannel;
 use crate::route_table::{CapSlot, RouteTable, ServiceId};
 use nexus_abi::Rights;
 
-/// Build a RouteTable from the wired ctrl_channels.
+/// Build a RouteTable from the wired ctrl_channels — one entry per fully-wired
+/// `(send, recv)` route in each channel's per-`ServiceId` routing map.
 pub(crate) fn build_route_table(channels: &[CtrlChannel]) -> RouteTable {
     let mut table = RouteTable::new();
     for chan in channels {
         let Some(from) = ServiceId::from_name(chan.svc_name.as_bytes()) else {
             continue;
         };
-        if let (Some(s), Some(r)) = (chan.vfs_send_slot, chan.vfs_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Vfsd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.pkg_send_slot, chan.pkg_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Packagefsd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.pol_send_slot, chan.pol_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Policyd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.bnd_send_slot, chan.bnd_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Bundlemgrd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.upd_send_slot, chan.upd_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Updated,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.sam_send_slot, chan.sam_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Samgrd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.exe_send_slot, chan.exe_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Execd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.key_send_slot, chan.key_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Keystored,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.state_send_slot, chan.state_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Statefsd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.rng_send_slot, chan.rng_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Rngd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.timed_send_slot, chan.timed_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Timed,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.window_send_slot, chan.window_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Windowd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.input_send_slot, chan.input_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Inputd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.gpud_send_slot, chan.gpud_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Gpud,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.net_send_slot, chan.net_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Netstackd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.metrics_send_slot, chan.metrics_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Metricsd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.log_send_slot, chan.log_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Logd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
-        }
-        if let (Some(s), Some(r)) = (chan.dsoft_send_slot, chan.dsoft_recv_slot) {
-            table.add_route(
-                from,
-                ServiceId::Dsoftbusd,
-                CapSlot::new(s, Rights::SEND),
-                CapSlot::new(r, Rights::RECV),
-            );
+        for &to in &ServiceId::ALL {
+            if let Some((send, recv)) = chan.route(to) {
+                table.add_route(
+                    from,
+                    to,
+                    CapSlot::new(send, Rights::SEND),
+                    CapSlot::new(recv, Rights::RECV),
+                );
+            }
         }
     }
     table

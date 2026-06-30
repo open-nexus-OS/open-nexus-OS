@@ -10,7 +10,18 @@
 //! RFC: docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md
 
 extern crate alloc;
+use crate::service_topology::ServiceId;
 use alloc::vec::Vec;
+
+/// A requester→target capability route's two slots, each populated independently
+/// during wiring. A route is only emitted into the `RouteTable` once BOTH are set.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CapPair {
+    /// Slot the requester uses to SEND to the target.
+    pub send: Option<u32>,
+    /// Slot the requester uses to RECV from the target.
+    pub recv: Option<u32>,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct CtrlChannel {
@@ -18,44 +29,63 @@ pub(crate) struct CtrlChannel {
     pub pid: u32,
     pub ctrl_req_parent_slot: u32,
     pub ctrl_rsp_parent_slot: u32,
-    pub vfs_send_slot: Option<u32>,
-    pub vfs_recv_slot: Option<u32>,
-    pub pkg_send_slot: Option<u32>,
-    pub pkg_recv_slot: Option<u32>,
-    pub pol_send_slot: Option<u32>,
-    pub pol_recv_slot: Option<u32>,
-    pub bnd_send_slot: Option<u32>,
-    pub bnd_recv_slot: Option<u32>,
-    pub upd_send_slot: Option<u32>,
-    pub upd_recv_slot: Option<u32>,
-    pub sam_send_slot: Option<u32>,
-    pub sam_recv_slot: Option<u32>,
-    pub exe_send_slot: Option<u32>,
-    pub exe_recv_slot: Option<u32>,
-    pub key_send_slot: Option<u32>,
-    pub key_recv_slot: Option<u32>,
-    pub state_send_slot: Option<u32>,
-    pub state_recv_slot: Option<u32>,
-    pub rng_send_slot: Option<u32>,
-    pub rng_recv_slot: Option<u32>,
-    pub timed_send_slot: Option<u32>,
-    pub timed_recv_slot: Option<u32>,
-    pub window_send_slot: Option<u32>,
-    pub window_recv_slot: Option<u32>,
-    pub input_send_slot: Option<u32>,
-    pub input_recv_slot: Option<u32>,
-    pub gpud_send_slot: Option<u32>,
-    pub gpud_recv_slot: Option<u32>,
-    pub net_send_slot: Option<u32>,
-    pub net_recv_slot: Option<u32>,
-    pub metrics_send_slot: Option<u32>,
-    pub metrics_recv_slot: Option<u32>,
-    pub log_send_slot: Option<u32>,
-    pub log_recv_slot: Option<u32>,
-    pub dsoft_send_slot: Option<u32>,
-    pub dsoft_recv_slot: Option<u32>,
+    /// CAP_MOVE reply-inbox slots (NOT a route target — shared across this
+    /// service's outbound calls), so they stay named rather than in `routes`.
     pub reply_send_slot: Option<u32>,
     pub reply_recv_slot: Option<u32>,
+    /// Per-target route slots, indexed by `ServiceId as usize`. Replaces the old
+    /// 36 hand-named `<svc>_send_slot`/`<svc>_recv_slot` fields with one uniform
+    /// map so adding a service needs no new field (RFC-0061 follow-up, task #100).
+    routes: [CapPair; ServiceId::COUNT],
+}
+
+impl CtrlChannel {
+    /// New channel with the control endpoints set and all routes empty.
+    pub fn new(
+        svc_name: &'static str,
+        pid: u32,
+        ctrl_req_parent_slot: u32,
+        ctrl_rsp_parent_slot: u32,
+    ) -> Self {
+        Self {
+            svc_name,
+            pid,
+            ctrl_req_parent_slot,
+            ctrl_rsp_parent_slot,
+            reply_send_slot: None,
+            reply_recv_slot: None,
+            routes: [CapPair::default(); ServiceId::COUNT],
+        }
+    }
+
+    /// Record the SEND slot for the route to `to`.
+    pub fn set_send(&mut self, to: ServiceId, slot: u32) {
+        self.routes[to as usize].send = Some(slot);
+    }
+
+    /// Record the RECV slot for the route to `to`.
+    pub fn set_recv(&mut self, to: ServiceId, slot: u32) {
+        self.routes[to as usize].recv = Some(slot);
+    }
+
+    /// The SEND slot for the route to `to`, if set.
+    pub fn send(&self, to: ServiceId) -> Option<u32> {
+        self.routes[to as usize].send
+    }
+
+    /// The RECV slot for the route to `to`, if set.
+    pub fn recv(&self, to: ServiceId) -> Option<u32> {
+        self.routes[to as usize].recv
+    }
+
+    /// The fully-wired `(send, recv)` route to `to` (both slots set), if any.
+    pub fn route(&self, to: ServiceId) -> Option<(u32, u32)> {
+        let pair = self.routes[to as usize];
+        match (pair.send, pair.recv) {
+            (Some(s), Some(r)) => Some((s, r)),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct BootstrapState {

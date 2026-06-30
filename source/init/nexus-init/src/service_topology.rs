@@ -69,6 +69,36 @@ pub enum ServiceId {
 }
 
 impl ServiceId {
+    /// Number of entries needed to index a per-service array by `id as usize`
+    /// (discriminants are `1..=22`, so the array spans `0..=22`; index 0 is unused).
+    pub const COUNT: usize = 23;
+
+    /// Every service identifier, for iterating a per-service routing array.
+    pub const ALL: [ServiceId; 22] = [
+        Self::Vfsd,
+        Self::Packagefsd,
+        Self::Policyd,
+        Self::Bundlemgrd,
+        Self::Updated,
+        Self::Samgrd,
+        Self::Execd,
+        Self::Keystored,
+        Self::Statefsd,
+        Self::Rngd,
+        Self::Timed,
+        Self::Windowd,
+        Self::Inputd,
+        Self::Abilitymgr,
+        Self::Gpud,
+        Self::Netstackd,
+        Self::Metricsd,
+        Self::Logd,
+        Self::Dsoftbusd,
+        Self::Hidrawd,
+        Self::Touchd,
+        Self::SelftestClient,
+    ];
+
     /// Look up a service by its canonical name. Returns None for unknown names.
     pub fn from_name(name: &[u8]) -> Option<Self> {
         Some(match name {

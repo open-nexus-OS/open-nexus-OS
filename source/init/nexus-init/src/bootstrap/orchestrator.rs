@@ -13,6 +13,7 @@ use crate::bootstrap::diag::{expanded, il, iw};
 use crate::bootstrap::route_builder;
 use crate::bootstrap::{BootstrapState, CtrlChannel};
 use crate::os_payload::*;
+use crate::service_topology::ServiceId;
 use alloc::vec::Vec;
 
 pub(crate) fn run_bootstrap<F>(
@@ -160,50 +161,12 @@ where
                     debug_write_byte(b'\n');
                 }
 
-                let ctrl = CtrlChannel {
-                    svc_name: image.name,
+                let ctrl = CtrlChannel::new(
+                    image.name,
                     pid,
                     ctrl_req_parent_slot,
                     ctrl_rsp_parent_slot,
-                    vfs_send_slot: None,
-                    vfs_recv_slot: None,
-                    pkg_send_slot: None,
-                    pkg_recv_slot: None,
-                    pol_send_slot: None,
-                    pol_recv_slot: None,
-                    bnd_send_slot: None,
-                    bnd_recv_slot: None,
-                    upd_send_slot: None,
-                    upd_recv_slot: None,
-                    sam_send_slot: None,
-                    sam_recv_slot: None,
-                    exe_send_slot: None,
-                    exe_recv_slot: None,
-                    key_send_slot: None,
-                    key_recv_slot: None,
-                    state_send_slot: None,
-                    state_recv_slot: None,
-                    rng_send_slot: None,
-                    rng_recv_slot: None,
-                    timed_send_slot: None,
-                    timed_recv_slot: None,
-                    window_send_slot: None,
-                    window_recv_slot: None,
-                    input_send_slot: None,
-                    input_recv_slot: None,
-                    gpud_send_slot: None,
-                    gpud_recv_slot: None,
-                    net_send_slot: None,
-                    net_recv_slot: None,
-                    metrics_send_slot: None,
-                    metrics_recv_slot: None,
-                    log_send_slot: None,
-                    log_recv_slot: None,
-                    dsoft_send_slot: None,
-                    dsoft_recv_slot: None,
-                    reply_send_slot: None,
-                    reply_recv_slot: None,
-                };
+                );
                 ctrl_channels.push(ctrl);
                 if probes_enabled() {
                     debug_write_bytes(b"!spawn ok pid=0x");
@@ -547,11 +510,13 @@ where
         let pol_rsp_clone = nexus_abi::cap_clone(pol_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "policyd") {
             let pid = chan.pid;
-            chan.pol_recv_slot = Some(
+            chan.set_recv(
+                ServiceId::Policyd,
                 nexus_abi::cap_transfer(pid, pol_req_clone, Rights::RECV)
                     .map_err(InitError::Abi)?,
             );
-            chan.pol_send_slot = Some(
+            chan.set_send(
+                ServiceId::Policyd,
                 nexus_abi::cap_transfer(pid, pol_rsp_clone, Rights::SEND)
                     .map_err(InitError::Abi)?,
             );
@@ -569,11 +534,13 @@ where
         let input_rsp_clone = nexus_abi::cap_clone(input_rsp).map_err(InitError::Abi)?;
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "windowd") {
             let pid = chan.pid;
-            chan.window_recv_slot = Some(
+            chan.set_recv(
+                ServiceId::Windowd,
                 nexus_abi::cap_transfer(pid, window_req_clone, Rights::RECV)
                     .map_err(InitError::Abi)?,
             );
-            chan.window_send_slot = Some(
+            chan.set_send(
+                ServiceId::Windowd,
                 nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::SEND)
                     .map_err(InitError::Abi)?,
             );
@@ -588,11 +555,13 @@ where
         }
         if let Some(chan) = ctrl_channels.iter_mut().find(|c| c.svc_name == "inputd") {
             let pid = chan.pid;
-            chan.input_recv_slot = Some(
+            chan.set_recv(
+                ServiceId::Inputd,
                 nexus_abi::cap_transfer(pid, input_req_clone, Rights::RECV)
                     .map_err(InitError::Abi)?,
             );
-            chan.input_send_slot = Some(
+            chan.set_send(
+                ServiceId::Inputd,
                 nexus_abi::cap_transfer(pid, input_rsp_clone, Rights::SEND)
                     .map_err(InitError::Abi)?,
             );
