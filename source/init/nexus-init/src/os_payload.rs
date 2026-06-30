@@ -341,6 +341,9 @@ pub(crate) type Result<T> = core::result::Result<T, InitError>;
 
 pub(crate) static PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
 
+// Phase-2 hardening: init-lite holds an EndpointFactory capability (slot 1) for endpoint_create.
+pub(crate) const ENDPOINT_FACTORY_CAP_SLOT: u32 = 1;
+
 // RFC-0005: per-service bootstrap routing protocol (init-lite responder over a private control EP).
 pub(crate) const CTRL_EP_DEPTH: usize = 8;
 pub(crate) const CTRL_CHILD_SEND_SLOT: u32 = 1; // First cap_transfer into a freshly spawned task (slot 0 is reserved).
