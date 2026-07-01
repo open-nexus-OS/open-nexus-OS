@@ -14,7 +14,7 @@ use crate::elements::{
     StrokeStyle, SvgDocument, SvgElement, Transform,
 };
 use crate::error::{SvgError, SvgResult};
-use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_DIMENSION, MAX_SVG_NODES};
+use crate::limits::{MAX_PATH_SEGMENTS, MAX_SVG_NODES};
 
 // ---------------------------------------------------------------------------
 // XML Tokenizer
@@ -242,8 +242,20 @@ pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocumen
     let mut node_count = 0;
     let mut segments = 0;
 
+    // One entry per currently-open container (`<svg>`/`<g>`/`<defs>`): the children
+    // accumulated so far plus the group transform/opacity and the resolved style its
+    // subtree inherits. A `<g>` pushes a frame on open and, on close, becomes a
+    // `Group` carrying that transform/opacity — so nested groups compose correctly and
+    // the cascade flows down through them (flat icons and grouped assets alike).
+    struct ParseFrame {
+        children: Vec<SvgElement>,
+        transform: Option<Transform>,
+        opacity: f32,
+        style: StyleContext,
+    }
+
     let mut root: Option<SvgDocument> = None;
-    let mut stack: AVec<(String, Vec<SvgElement>)> = AVec::new();
+    let mut stack: AVec<ParseFrame> = AVec::new();
     let mut defs: HashMap<String, SvgElement> = HashMap::new();
     // The presentation-property cascade root; replaced by the <svg>'s own style.
     let mut root_style = StyleContext::root(tint);
@@ -272,23 +284,53 @@ pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocumen
                             elements: AVec::new(),
                             defs: HashMap::new(),
                         });
-                        stack.push((tag_lower, AVec::new()));
+                        stack.push(ParseFrame {
+                            children: Vec::new(),
+                            transform: None,
+                            opacity: 1.0,
+                            style: root_style.clone(),
+                        });
                     }
                     "defs" => {
-                        stack.push((tag_lower, AVec::new()));
+                        let style = stack
+                            .last()
+                            .map(|f| f.style.clone())
+                            .unwrap_or_else(|| root_style.clone());
+                        stack.push(ParseFrame {
+                            children: Vec::new(),
+                            transform: None,
+                            opacity: 1.0,
+                            style,
+                        });
+                    }
+                    "g" => {
+                        // A group nests: resolve its style from the parent, capture its
+                        // own transform/opacity, and push a frame its children collect
+                        // into. The transform is applied when the group closes.
+                        let style = resolve_context(
+                            &attrs,
+                            stack.last().map(|f| &f.style).unwrap_or(&root_style),
+                        );
+                        let transform = parse_transform_attr(&attrs);
+                        let opacity = parse_opacity_attr(&attrs);
+                        stack.push(ParseFrame { children: Vec::new(), transform, opacity, style });
                     }
                     _ => {
-                        let elem = parse_element(
-                            &tag_lower,
-                            &attrs,
-                            &mut tokenizer,
-                            &mut node_count,
-                            &mut segments,
-                            &mut defs,
-                            &root_style,
-                        )?;
-                        if let Some((_, children)) = stack.last_mut() {
-                            children.push(elem);
+                        let elem = {
+                            let inherited =
+                                stack.last().map(|f| &f.style).unwrap_or(&root_style);
+                            parse_element(
+                                &tag_lower,
+                                &attrs,
+                                &mut tokenizer,
+                                &mut node_count,
+                                &mut segments,
+                                &mut defs,
+                                inherited,
+                            )?
+                        };
+                        if let Some(frame) = stack.last_mut() {
+                            frame.children.push(elem);
                         }
                     }
                 }
@@ -303,28 +345,31 @@ pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocumen
                 check_allowed_tag(&tag_lower, tokenizer.line)?;
                 check_attrs(&tag_lower, &attrs, tokenizer.line)?;
 
-                let elem = parse_element(
-                    &tag_lower,
-                    &attrs,
-                    &mut tokenizer,
-                    &mut node_count,
-                    &mut segments,
-                    &mut defs,
-                    &root_style,
-                )?;
+                let elem = {
+                    let inherited = stack.last().map(|f| &f.style).unwrap_or(&root_style);
+                    parse_element(
+                        &tag_lower,
+                        &attrs,
+                        &mut tokenizer,
+                        &mut node_count,
+                        &mut segments,
+                        &mut defs,
+                        inherited,
+                    )?
+                };
 
                 // Push self-closing element into parent's children
-                if let Some((_, children)) = stack.last_mut() {
-                    children.push(elem);
+                if let Some(frame) = stack.last_mut() {
+                    frame.children.push(elem);
                 }
             }
             XmlToken::CloseTag { name } => {
                 let tag_lower = name.to_lowercase();
                 match tag_lower.as_str() {
                     "svg" => {
-                        if let Some((_, children)) = stack.pop() {
+                        if let Some(frame) = stack.pop() {
                             if let Some(ref mut doc) = root {
-                                doc.elements = children;
+                                doc.elements = frame.children;
                                 doc.defs = defs;
                             }
                         }
@@ -335,11 +380,14 @@ pub(crate) fn parse_svg_tinted(input: &str, tint: Color) -> SvgResult<SvgDocumen
                         let _ = stack.pop();
                     }
                     "g" => {
-                        if let Some((_, children)) = stack.pop() {
-                            let group =
-                                SvgElement::Group { children, transform: None, opacity: 1.0 };
-                            if let Some((_, parent_children)) = stack.last_mut() {
-                                parent_children.push(group);
+                        if let Some(frame) = stack.pop() {
+                            let group = SvgElement::Group {
+                                children: frame.children,
+                                transform: frame.transform,
+                                opacity: frame.opacity,
+                            };
+                            if let Some(parent) = stack.last_mut() {
+                                parent.children.push(group);
                             }
                         }
                     }
@@ -394,6 +442,7 @@ const KNOWN_ATTRS: &[&str] = &[
     "id",
     "class",
     "style",
+    "version",
     "d",
     "fill",
     "stroke",
@@ -446,6 +495,15 @@ fn check_attrs(tag: &str, attrs: &[(String, String)], line: usize) -> SvgResult<
     for (name, value) in attrs {
         // Allow xmlns attributes
         if name.starts_with("xmlns") {
+            continue;
+        }
+
+        // Ignore namespaced metadata attributes (e.g. `xml:space`, and the
+        // vendor-prefixed export metadata that vector editors emit). These carry no
+        // rendering semantics, so a strict allowlist over *rendering* attributes must
+        // not reject an otherwise-valid asset over editor cruft. Downstream parsing
+        // still reads any meaningful namespaced attr directly if it supports one.
+        if name.contains(':') {
             continue;
         }
 
@@ -776,13 +834,30 @@ fn resolve_context(attrs: &[(String, String)], parent: &StyleContext) -> StyleCo
 }
 
 fn parse_dimensions(attrs: &[(String, String)]) -> SvgResult<(f32, f32)> {
-    let w = parse_f32_attr(attrs, "width").unwrap_or(100.0);
-    let h = parse_f32_attr(attrs, "height").unwrap_or(100.0);
-
-    if w > MAX_SVG_DIMENSION || h > MAX_SVG_DIMENSION {
-        return Err(SvgError::DimensionTooLarge { width: w, height: h, max: MAX_SVG_DIMENSION });
+    // The `viewBox` ("min-x min-y width height") defines the user coordinate space the
+    // geometry is authored in, so it is the reference the asset pipeline scales onto the
+    // render target — it takes precedence over width/height, which exported assets often
+    // set to "100%" (a viewport hint, not the coordinate extent). The extent is NOT an
+    // allocation (that is bounded by the explicit output size in `rasterize_document_at`),
+    // so a large viewBox rendered small is fine and is not clamped here.
+    if let Some(vb) = get_attr_ci(attrs, "viewBox") {
+        let mut it = vb
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|s| !s.is_empty());
+        let (_minx, _miny, vw, vh) = (it.next(), it.next(), it.next(), it.next());
+        if let (Some(vw), Some(vh)) = (
+            vw.and_then(|s| s.parse::<f32>().ok()),
+            vh.and_then(|s| s.parse::<f32>().ok()),
+        ) {
+            if vw > 0.0 && vh > 0.0 {
+                return Ok((vw, vh));
+            }
+        }
     }
 
+    // Fall back to explicit width/height (absolute units), then a 100×100 default.
+    let w = parse_f32_attr(attrs, "width").unwrap_or(100.0);
+    let h = parse_f32_attr(attrs, "height").unwrap_or(100.0);
     Ok((w, h))
 }
 

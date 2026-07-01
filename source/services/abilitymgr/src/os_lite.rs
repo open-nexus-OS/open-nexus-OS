@@ -201,6 +201,7 @@ fn probe_registry() {
                     nexus_abi::bundlemgrd::decode_list_apps_header(&buf[..n])
                 {
                     if status == nexus_abi::bundlemgrd::STATUS_OK {
+                        nexus_abi::debug_ts_prefix();
                         emit_prefix(b"abilitymgr: registry ok (n=");
                         emit_u32(count as u32);
                         emit_prefix(b")");
@@ -260,6 +261,7 @@ fn emit_event(event: &Event) {
     match event {
         Event::Launched { app_id, instance_id } => {
             // `abilitymgr: launch (app=<app>, inst=<id>)`
+            nexus_abi::debug_ts_prefix();
             emit_prefix(b"abilitymgr: launch (app=");
             emit_str(app_id);
             emit_prefix(b", inst=");
@@ -279,6 +281,7 @@ fn emit_event(event: &Event) {
 }
 
 fn emit_inst_line(prefix: &[u8], id: u32) {
+    nexus_abi::debug_ts_prefix();
     emit_prefix(prefix);
     emit_u32(id);
     emit_prefix(b")");
@@ -289,6 +292,7 @@ fn emit_line(message: &str) {
     if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
+    nexus_abi::debug_ts_prefix();
     emit_str(message);
     emit_newline();
 }
@@ -304,6 +308,7 @@ fn validate_manifest_caps() {
     for (app, caps) in crate::caps::APP_MANIFEST_CAPS.iter().copied() {
         match crate::caps::first_unknown(caps) {
             None => {
+                nexus_abi::debug_ts_prefix();
                 emit_prefix(b"abilitymgr: caps ok app=");
                 emit_str(app);
                 emit_prefix(b" (n=");
@@ -312,6 +317,7 @@ fn validate_manifest_caps() {
                 emit_newline();
             }
             Some(bad) => {
+                nexus_abi::debug_ts_prefix();
                 emit_prefix(b"abilitymgr: caps reject app=");
                 emit_str(app);
                 emit_prefix(b" cap=");

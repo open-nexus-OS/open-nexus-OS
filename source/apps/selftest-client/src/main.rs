@@ -40,6 +40,11 @@ mod runtime_mode;
 nexus_service_entry::declare_entry!(os_entry);
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
+    // Boot determinism (soft-real-time start): the selftest observer is BACKGROUND — self-lower to
+    // Idle QoS so the selftest ladder runs AFTER the first frame, never starving the display/input
+    // critical path (Normal). Proof correctness is unchanged; only the scheduling order defers.
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     os_lite::run()
 }
 

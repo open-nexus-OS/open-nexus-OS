@@ -204,12 +204,15 @@ fn service_requests(
     let spin_demo_active =
         crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO;
     loop {
-        // Reactive: block until windowd sends a command (framebuffer VMO, present damage,
-        // or animation submit). No polling, no busy-wait. The kernel wakes us on message
-        // arrival. With the spin-blur demo active we instead use a frame-paced timeout so
-        // an idle gpud self-re-presents (handled in the Timeout arm below).
+        // Reactive by default: BLOCK until windowd sends a command (framebuffer VMO,
+        // present damage, or animation submit) — no polling, no busy-wait; the kernel
+        // wakes us on message arrival. Exception: while the boot splash is still held (or
+        // the spin demo runs), wake on a frame-paced timeout so gpud self-re-presents and
+        // re-evaluates the reveal gate. windowd stalls its present loop after its first
+        // frame, so gpud must drive the reveal itself rather than block until windowd
+        // recovers (seconds later). Once revealed, this reverts to Blocking (fully reactive).
         #[cfg(all(nexus_env = "os", feature = "virgl"))]
-        let wait = if spin_demo_active {
+        let wait = if spin_demo_active || backend.is_holding_boot_splash() {
             Wait::Timeout(Duration::from_nanos(SPIN_DEMO_PERIOD_NS))
         } else {
             Wait::Blocking
@@ -418,21 +421,25 @@ fn service_requests(
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                // Spin-blur demo tick: the frame-paced recv timed out (windowd idle) →
-                // re-present the orbiting build-up, recomputing the GPU blur/shadow and
-                // driving the reactive ring-buffer IRQ (folded into present-stats). With
-                // the demo off this is just the legacy yield+retry.
+                // Frame-paced tick (recv timed out, windowd idle): re-present so the reveal
+                // gate re-evaluates and the desktop appears the instant the wallpaper +
+                // cursor are ready — gpud drives this itself because windowd stalls its
+                // present loop after the first frame. Also serves the spin-blur demo. Once
+                // the desktop is revealed `is_holding_boot_splash()` goes false and gpud
+                // stops self-ticking (back to a blocking, reactive recv).
                 #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                let presented = spin_demo_active && active_handoff_id != 0 && {
-                    present_buildup_tick(
-                        &mut backend,
-                        &mut present_count,
-                        &mut present_ns_sum,
-                        &mut present_ns_max,
-                        PRESENT_STATS_WINDOW,
-                    );
-                    true
-                };
+                let presented = (spin_demo_active || backend.is_holding_boot_splash())
+                    && active_handoff_id != 0
+                    && {
+                        present_buildup_tick(
+                            &mut backend,
+                            &mut present_count,
+                            &mut present_ns_sum,
+                            &mut present_ns_max,
+                            PRESENT_STATS_WINDOW,
+                        );
+                        true
+                    };
                 #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
                 let presented = false;
                 if !presented {

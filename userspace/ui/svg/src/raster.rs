@@ -36,6 +36,18 @@ pub fn rasterize_document_at(
     if out_w == 0 || out_h == 0 {
         return Ok(RasterOutput { width: out_w, height: out_h, buffer: Vec::new() });
     }
+    // Bound the actual raster allocation (`out_w × out_h × 4`). This is the real memory
+    // guard — the document's coordinate extent (viewBox) may legitimately exceed this
+    // while the render target stays small.
+    if out_w as f32 > crate::limits::MAX_SVG_DIMENSION
+        || out_h as f32 > crate::limits::MAX_SVG_DIMENSION
+    {
+        return Err(crate::error::SvgError::DimensionTooLarge {
+            width: out_w as f32,
+            height: out_h as f32,
+            max: crate::limits::MAX_SVG_DIMENSION,
+        });
+    }
     let sx = out_w as f32 / doc.width.max(1e-3);
     let sy = out_h as f32 / doc.height.max(1e-3);
     let root = Transform { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 };

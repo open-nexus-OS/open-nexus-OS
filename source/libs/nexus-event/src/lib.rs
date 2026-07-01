@@ -366,6 +366,34 @@ pub fn render_verdict_line(buf: &mut [u8], now_ns: u64, subject: &str, v: Verdic
     w.n
 }
 
+/// Render the grid TIMESTAMP PREFIX `[    S.uuuuuu]  ` into `buf` (RFC-0068 — the same leading column
+/// as [`render_verdict_line`]), returning bytes written. For emitters that build a marker line from
+/// fragments and want to prepend the timestamp themselves.
+#[must_use]
+pub fn render_ts_prefix(buf: &mut [u8], now_ns: u64) -> usize {
+    use core::fmt::Write as _;
+    let mut w = SliceWriter { buf, n: 0 };
+    let _ = write!(w, "[{:>5}.{:06}]  ", now_ns / 1_000_000_000, (now_ns % 1_000_000_000) / 1000);
+    w.n
+}
+
+/// Render ONE timestamped marker line `[    S.uuuuuu]  {body}\n` into `buf` (RFC-0068). The unfolded
+/// analogue of [`render_verdict_line`]: gives a raw bring-up/runtime marker the same `[ts]` column as
+/// the verdict grid so the boot timeline is legible in `build/logs`. Returns bytes written (clamped).
+#[must_use]
+pub fn render_marker_ts(buf: &mut [u8], now_ns: u64, body: &str) -> usize {
+    use core::fmt::Write as _;
+    let mut w = SliceWriter { buf, n: 0 };
+    let _ = writeln!(
+        w,
+        "[{:>5}.{:06}]  {}",
+        now_ns / 1_000_000_000,
+        (now_ns % 1_000_000_000) / 1000,
+        body,
+    );
+    w.n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

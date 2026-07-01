@@ -28,6 +28,11 @@ mod os;
 fn os_entry() -> core::result::Result<(), ()> {
     use nexus_ipc::reqrep::ReplyBuffer;
 
+    // Boot determinism (soft-real-time start): dsoftbusd is BACKGROUND — self-lower to Idle QoS so it
+    // runs after the display/input critical path (Normal) and never starves the first frame.
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
+
     // dsoftbusd must NOT own MMIO; it uses netstackd's IPC facade.
     // Wait for init-lite to finish transferring capability slots before proceeding.
     os::entry::wait_for_slots_ready();

@@ -1724,6 +1724,7 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     let init_pid_typed = Pid::from_raw(init_pid as u32);
     if let Some(t) = sys_ctx.tasks.task_mut(init_pid_typed) {
         t.set_service_id(init_lite_id);
+        // (init-lite QoS stays Normal until boot P1 raises the display path to Interactive.)
     }
     let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
 

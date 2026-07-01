@@ -484,13 +484,6 @@ pub(crate) fn updated_boot_attempt(
         let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 16];
         loop {
-            let now = match nexus_abi::nsec() {
-                Ok(now) => now,
-                Err(_) => break,
-            };
-            if now >= deadline {
-                break;
-            }
             // Deterministic shared-inbox handling: first consume any previously stashed replies.
             if let Some(n) = pending.take_into_where(&mut buf, |f| {
                 nexus_abi::updated::decode_boot_attempt_rsp(f).is_some()
@@ -506,12 +499,17 @@ pub(crate) fn updated_boot_attempt(
                     return Ok(Some(slot));
                 }
             }
+            // Soft-real-time boot: BLOCK on the shared reply inbox until a frame arrives or the
+            // deadline — no busy-poll. This FREES the CPU so windowd's first-frame compose (same
+            // Normal QoS) runs UNINTERRUPTED, and lets `updated` itself run to reply sooner. The old
+            // NONBLOCK+yield loop stole ~half the CPU from the compose, non-deterministically doubling
+            // the first-frame time whenever `updated` was slow (measured: handoff 314ms vs 1816ms).
             match nexus_abi::ipc_recv_v1(
                 reply_recv,
                 &mut rh,
                 &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
+                nexus_abi::IPC_SYS_TRUNCATE,
+                deadline,
             ) {
                 Ok(n) => {
                     // IPC_SYS_TRUNCATE can return a length larger than our local buffer.
@@ -532,13 +530,8 @@ pub(crate) fn updated_boot_attempt(
                     let _ = pending.push(&buf[..n]);
                     continue;
                 }
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = nexus_abi::yield_();
-                    continue;
-                }
-                Err(_) => {
-                    break;
-                }
+                // Deadline hit (or transient error): fall out to the outer attempt loop.
+                Err(_) => break,
             }
         }
         if attempts < max_attempts {
@@ -592,18 +585,15 @@ pub(crate) fn bundlemgrd_set_active_slot(
         };
     }
 
-    // Deterministic NONBLOCK receive loop so we can stash unrelated frames.
-    let mut spins: usize = 0;
+    // Soft-real-time boot: BLOCK on the shared inbox until a frame or the deadline (no busy-poll) —
+    // frees the CPU for windowd's first-frame compose during init's tail (see `updated_boot_attempt`).
     loop {
-        if (spins & 0x7f) == 0 && nexus_abi::nsec().ok().unwrap_or(0) >= deadline {
-            return false;
-        }
         match nexus_abi::ipc_recv_v1(
             reply_recv,
             &mut rh,
             &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            deadline,
         ) {
             Ok(n) => {
                 let n = core::cmp::min(n as usize, buf.len());
@@ -613,14 +603,10 @@ pub(crate) fn bundlemgrd_set_active_slot(
                     return status == nexus_abi::bundlemgrd::STATUS_OK && rsp_slot == slot;
                 }
                 let _ = pending.push(&buf[..n]);
-                let _ = nexus_abi::yield_();
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
+            // Deadline hit (or transient error): give up this cycle.
             Err(_) => return false,
         }
-        spins = spins.wrapping_add(1);
     }
 }
 

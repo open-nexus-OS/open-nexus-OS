@@ -1034,6 +1034,29 @@ fn caller_has_qos_admin(ctx: &Context<'_>) -> bool {
     sid == service_id_from_name(b"execd") || sid == service_id_from_name(b"policyd")
 }
 
+/// Born-at-class QoS — the production soft-real-time boot policy, declared in ONE place and applied
+/// at task creation (`exec_v2`). The critical path to the first frame + mouse is created `Interactive`
+/// so it strictly preempts the core + background → the first frame is deterministic and fast, never
+/// starved by round-robin contention (that was the measured 617/1164/2133ms non-determinism). policyd
+/// gates the MMIO grants; gpud/windowd are the display; inputd/hidrawd the mouse. Background services
+/// not needed before the first frame are `Idle` so they can never starve it. Everything else is `Normal`.
+fn initial_qos_for(service_id: u64) -> QosClass {
+    // DEFERRED: raising the display/input path (policyd/gpud/windowd/inputd/hidrawd) to Interactive
+    // requires the display present loop to BLOCK reactively FIRST (boot P1) — otherwise an Interactive
+    // busy-spin (gpud/windowd self-pace their present loop by polling) strictly starves the Normal
+    // core + Idle background and the boot HANGS (observed at "windowd: gl procedural cursor on"). Until
+    // P1 lands, keep the critical path at Normal and only DEMOTE background so it can't starve it.
+    if service_id == service_id_from_name(b"netstackd")
+        || service_id == service_id_from_name(b"dsoftbusd")
+        || service_id == service_id_from_name(b"touchd")
+        || service_id == service_id_from_name(b"selftest-client")
+    {
+        QosClass::Idle
+    } else {
+        QosClass::Normal
+    }
+}
+
 fn qos_label(qos: QosClass) -> &'static str {
     match qos {
         QosClass::Idle => "idle",
@@ -2729,6 +2752,10 @@ fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
         if let Some(t) = ctx.tasks.task_mut(pid) {
             t.set_service_id(service_id);
+            // Born-at-class QoS (production soft-real-time boot): the display/input critical path is
+            // created Interactive, background Idle, so the first frame is never starved. See
+            // `initial_qos_for`. Escalation is safe here — the kernel sets it at creation, no privilege.
+            t.set_qos(initial_qos_for(service_id));
             // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
             t.set_user_guard_info(task::UserGuardInfo {
                 stack_guard_va: mapped_top,

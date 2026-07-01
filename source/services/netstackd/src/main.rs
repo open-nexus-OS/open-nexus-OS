@@ -30,6 +30,11 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
+    // Boot determinism (soft-real-time start): netstackd is a BACKGROUND service — self-lower to Idle
+    // QoS (lowering own QoS needs no privilege) so its ~1s bring-up runs AFTER the display/input
+    // critical path (Normal) and never starves the first frame in the strict-priority scheduler.
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     // Verdict folding: fold netstackd's bring-up markers (facade up / dhcp bound / rpc listen) into
     // one `netstackd N/N` grid line in interactive boots; flushed once the network is up, before the
     // facade serve loop (later per-RPC markers print raw). Proof boots emit everything raw.

@@ -3012,6 +3012,17 @@ pub fn debug_println(s: &str) -> SysResult<()> {
     if svc_armed() && service_line(s.as_bytes()) {
         return Ok(());
     }
+    // RFC-0068: in interactive boots, give the raw (unfolded) marker the SAME `[    S.uuuuuu]  ` grid
+    // timestamp as the verdict lines, so the `build/logs` boot timeline shows WHEN each marker fired
+    // (this is how the gpud/windowd/hidrawd display+input chain becomes legible). Proof boots stay
+    // unprefixed — `verify-uart` + the nexus-evidence canonicalizer see the bare line (its `[ts=…ms]`
+    // parser only triggers on a `[ts=` prefix, but keeping proof output bare avoids any ambiguity).
+    if boot_should_fold_verdicts() {
+        let now = nsec().unwrap_or(0);
+        let mut buf = [0u8; 640];
+        let n = nexus_event::render_marker_ts(&mut buf, now, s);
+        return debug_write(&buf[..n]);
+    }
     const LINE_CAP: usize = 512;
     let bytes = s.as_bytes();
     if bytes.len() < LINE_CAP {
@@ -3023,6 +3034,20 @@ pub fn debug_println(s: &str) -> SysResult<()> {
         debug_write(bytes)?;
         debug_write(b"\n")
     }
+}
+
+/// Write the grid TIMESTAMP PREFIX `[    S.uuuuuu]  ` to the console (RFC-0068), for emitters that
+/// build a marker line from `debug_putc` fragments (e.g. `abilitymgr`) rather than one `debug_println`.
+/// Call it once at the START of the marker line. No-op in proof boots (keeps the evidence line bare).
+#[cfg(nexus_env = "os")]
+pub fn debug_ts_prefix() {
+    if !boot_should_fold_verdicts() {
+        return;
+    }
+    let now = nsec().unwrap_or(0);
+    let mut buf = [0u8; 24];
+    let n = nexus_event::render_ts_prefix(&mut buf, now);
+    let _ = debug_write(&buf[..n]);
 }
 
 /// Emit a routine bring-up/runtime trace line that FOLDS in the interactive grid view (recall with

@@ -16,6 +16,10 @@ nexus_service_entry::declare_entry!(os_entry);
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> Result<(), nexus_abi::AbiError> {
+    // Boot determinism (soft-real-time start): touchd is BACKGROUND — self-lower to Idle QoS so it
+    // never starves the display/input critical path (Normal) during boot.
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     // RFC-0068: fold routine debug_println markers into one `touchd N/N` verdict (interactive boots;
     // proof stays raw).
     nexus_abi::service_verdict_arm();

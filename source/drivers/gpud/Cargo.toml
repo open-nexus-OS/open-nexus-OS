@@ -38,3 +38,7 @@ nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-driverkit = { path = "../../libs/nexus-driverkit", optional = true }
+
+# Build-time only: rasterize the boot-splash logo SVG → embedded BGRA bitmap (host std).
+[build-dependencies]
+nexus-svg = { path = "../../../userspace/ui/svg" }

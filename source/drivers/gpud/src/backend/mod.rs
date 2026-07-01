@@ -230,6 +230,12 @@ pub struct VirtioGpuBackend {
     /// Plane 0 (it does so at boot, independent of GPU mode).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) wallpaper_from_vmo_uploaded: bool,
+    /// Atomic boot reveal: guest-time (ns) of the first buildup present — the origin for
+    /// the reveal fallback timers. The logo splash is held until the desktop is composable
+    /// (wallpaper + cursor), but a hard cap from this origin guarantees it is NEVER held
+    /// forever if a signal is slow/absent. 0 = not yet latched.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) reveal_content_since_ns: u64,
     /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
     /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
     /// straight onto the scanout RT after the base upload, instead of rendered
@@ -300,6 +306,24 @@ pub(crate) struct ResourceRecord {
 }
 
 impl VirtioGpuBackend {
+    /// True while the boot splash is still held: the GL scanout owns the display but the
+    /// desktop has NOT been revealed yet (wallpaper + cursor not both ready). gpud
+    /// self-ticks presents in this window so the atomic reveal fires the instant the
+    /// desktop is ready, instead of blocking on windowd — whose present loop stalls after
+    /// its first frame. Always `false` outside the virgl GL-scanout path (only *called*
+    /// on the virgl path, hence unused elsewhere).
+    #[allow(dead_code)]
+    pub(crate) fn is_holding_boot_splash(&self) -> bool {
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        {
+            self.gl_scanout_active && !self.wallpaper_from_vmo_uploaded
+        }
+        #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
+        {
+            false
+        }
+    }
+
     /// Create a new backend. Does NOT probe — call probe() separately.
     pub fn new(mmio_base: usize, mmio_len: usize) -> Self {
         Self {
@@ -385,6 +409,8 @@ impl VirtioGpuBackend {
             gl_wallpaper_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             wallpaper_from_vmo_uploaded: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            reveal_content_since_ns: 0,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

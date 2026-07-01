@@ -79,6 +79,14 @@ const QUAD_RES: u32 = 0xFA;
 const SCREEN_W: u32 = 1280;
 const SCREEN_H: u32 = 800;
 
+// Boot-splash wordmark: the Open Nexus logo SVG rasterized ONCE at build time
+// (`build.rs` → BGRA8888, premultiplied), embedded and composited centered on the
+// splash gradient so the loading screen shows the brand mark rather than bare
+// colour. Zero runtime SVG cost, no pressure on gpud's non-freeing bump heap.
+// `SPLASH_LOGO_W/H` are 0 if rasterization was skipped (composite becomes a no-op).
+include!(concat!(env!("OUT_DIR"), "/splash_logo_dims.rs"));
+static SPLASH_LOGO_BGRA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/splash_logo.bgra"));
+
 /// Incremental GPU compositor build-up — a DEBUG harness. From the confirmed-
 /// working base (solid clear + gradient panel — pure GL draws that DO present),
 /// add ONE feature per `COMPOSITOR_STAGE` (shadow → wallpaper texture → blur → …)
@@ -283,15 +291,61 @@ impl VirtioGpuBackend {
         // one uniform splash → real desktop, with no fallback pattern ever shown.
         {
             let dst = wp_va as *mut u8;
-            // BGRA of the GPU-clear slate (0.09, 0.10, 0.12) used for the scanout RT.
-            const SPLASH: [u8; 4] = [31, 26, 23, 255];
-            for i in 0..(SCREEN_W as usize * SCREEN_H as usize) {
-                let off = i * 4;
-                unsafe {
-                    dst.add(off).write_volatile(SPLASH[0]);
-                    dst.add(off + 1).write_volatile(SPLASH[1]);
-                    dst.add(off + 2).write_volatile(SPLASH[2]);
-                    dst.add(off + 3).write_volatile(SPLASH[3]);
+            // Boot splash: a soft radial glow in brand slate-blue — the intentional backdrop
+            // for the frames before windowd's first real present (instead of a flat black void).
+            // Center brighter → edges dark. BGRA, opaque. center ~RGB(40,50,68), edge ~RGB(13,16,23).
+            const C: [i32; 3] = [68, 50, 40]; // center B,G,R
+            const E: [i32; 3] = [23, 16, 13]; // edge   B,G,R
+            let cx = SCREEN_W as i32 / 2;
+            let cy = SCREEN_H as i32 / 2;
+            let max_d2 = (cx * cx + cy * cy).max(1) as u32;
+            for y in 0..SCREEN_H as i32 {
+                let dy = y - cy;
+                for x in 0..SCREEN_W as i32 {
+                    let dx = x - cx;
+                    let d2 = (dx * dx + dy * dy) as u32;
+                    let t = (d2.saturating_mul(256) / max_d2).min(256) as i32; // 0 center .. 256 edge
+                    let off = (y as usize * SCREEN_W as usize + x as usize) * 4;
+                    unsafe {
+                        dst.add(off).write_volatile((C[0] + (E[0] - C[0]) * t / 256) as u8);
+                        dst.add(off + 1).write_volatile((C[1] + (E[1] - C[1]) * t / 256) as u8);
+                        dst.add(off + 2).write_volatile((C[2] + (E[2] - C[2]) * t / 256) as u8);
+                        dst.add(off + 3).write_volatile(255);
+                    }
+                }
+            }
+            // Composite the Open Nexus wordmark centered over the gradient. The embedded
+            // buffer is premultiplied BGRA (nexus-svg accumulates coverage-scaled colour
+            // over transparent black), so use premultiplied `src OVER dst`: out = src +
+            // dst·(255−a)/255. The gradient stays fully opaque (alpha untouched).
+            if SPLASH_LOGO_W > 0 && SPLASH_LOGO_H > 0 {
+                let lx0 = SCREEN_W.saturating_sub(SPLASH_LOGO_W) / 2;
+                let ly0 = SCREEN_H.saturating_sub(SPLASH_LOGO_H) / 2;
+                for ly in 0..SPLASH_LOGO_H {
+                    let py = ly0 + ly;
+                    if py >= SCREEN_H {
+                        break;
+                    }
+                    for lx in 0..SPLASH_LOGO_W {
+                        let px = lx0 + lx;
+                        if px >= SCREEN_W {
+                            break;
+                        }
+                        let src = ((ly * SPLASH_LOGO_W + lx) * 4) as usize;
+                        let a = SPLASH_LOGO_BGRA[src + 3] as u32;
+                        if a == 0 {
+                            continue;
+                        }
+                        let off = (py as usize * SCREEN_W as usize + px as usize) * 4;
+                        unsafe {
+                            for c in 0..3 {
+                                let s = SPLASH_LOGO_BGRA[src + c] as u32;
+                                let d = dst.add(off + c).read_volatile() as u32;
+                                dst.add(off + c)
+                                    .write_volatile((s + d * (255 - a) / 255).min(255) as u8);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -497,6 +551,39 @@ impl VirtioGpuBackend {
         })
     }
 
+    /// True once windowd has written real content into shared-VMO Plane 0 (the boot
+    /// wallpaper it composes on its first frame). Probes a few spread pixels — a decoded
+    /// wallpaper is never all-zero everywhere. Drives the atomic boot reveal: the logo
+    /// splash is held until this is true (and the cursor is up), so the desktop appears
+    /// in one frame rather than wallpaper-first.
+    fn plane0_has_content(&self) -> bool {
+        let Some((fb, fb_len, fb_w, _display_row)) = self.scanout_fb() else {
+            return false;
+        };
+        if fb.is_null() {
+            return false;
+        }
+        let stride = fb_w * 4;
+        if SCREEN_H as usize * stride > fb_len {
+            return false;
+        }
+        let probes = [
+            0usize,
+            (SCREEN_H as usize / 2) * stride + (SCREEN_W as usize / 2) * 4,
+            (SCREEN_H as usize - 1) * stride + (SCREEN_W as usize - 1) * 4,
+        ];
+        for p in probes {
+            if p + 3 < fb_len {
+                unsafe {
+                    if *fb.add(p) != 0 || *fb.add(p + 1) != 0 || *fb.add(p + 2) != 0 {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Copy the real wallpaper from windowd's shared-VMO **Plane 0** (rows
     /// 0..SCREEN_H — the decoded JPEG it writes once at boot) into the wallpaper
     /// texture's backing and transfer it to the host. One-shot: replaces the boot
@@ -514,6 +601,12 @@ impl VirtioGpuBackend {
         let row_bytes = (SCREEN_W as usize * 4).min(stride);
         // Plane 0 (wallpaper) occupies rows 0..SCREEN_H of the shared VMO.
         if SCREEN_H as usize * stride > fb_len {
+            return;
+        }
+        // Hold the boot splash while Plane 0 is still empty (see `plane0_has_content`):
+        // uploading an empty plane would black out the splash. `wallpaper_from_vmo_uploaded`
+        // is NOT set on skip, so the next present retries until real content lands.
+        if !self.plane0_has_content() {
             return;
         }
         for row in 0..SCREEN_H as usize {
@@ -596,10 +689,39 @@ impl VirtioGpuBackend {
         // their one-time CREATE_OBJECT commands are validated outside the batch and
         // can't silently fail inside it. Idempotent — a no-op after the first present.
         let _ = self.virgl_vector_init();
-        // One-shot: replace the boot color-bands with the real wallpaper (windowd's
-        // decoded JPEG in VMO Plane 0). Done before the batch — it issues its own
-        // transfer_to_host (a ctrl command), like `virgl_vector_init` above.
-        if COMPOSITOR_STAGE >= 1 && !self.wallpaper_from_vmo_uploaded {
+
+        // Atomic boot reveal: keep presenting ONLY the logo splash (the clear + seeded
+        // wallpaper-texture blit below) until the whole desktop can appear at once —
+        // Plane 0 holds windowd's real wallpaper AND the cursor sprite is up (mouse path
+        // live). Two fallbacks, both timed from the first buildup present, guarantee the
+        // splash is NEVER held forever: a short one once the wallpaper is up but the cursor
+        // lags, and a hard cap that reveals regardless (even if a signal never arrives, the
+        // desktop + its markers still appear). Once revealed, `wallpaper_from_vmo_uploaded`
+        // latches it so every later frame composites.
+        const REVEAL_FALLBACK_NS: u64 = 500_000_000; // 0.5s: wallpaper up, cursor still lagging
+        const REVEAL_HARD_CAP_NS: u64 = 1_200_000_000; // 1.2s: reveal no matter what (bound the wait)
+        let plane0 = self.plane0_has_content();
+        let cursor = self.cursor_tex_ready();
+        let should_reveal = self.wallpaper_from_vmo_uploaded || {
+            let now = nexus_abi::nsec().unwrap_or(0);
+            if self.reveal_content_since_ns == 0 {
+                self.reveal_content_since_ns = now;
+            }
+            let elapsed = now.saturating_sub(self.reveal_content_since_ns);
+            (plane0 && (cursor || elapsed > REVEAL_FALLBACK_NS)) || elapsed > REVEAL_HARD_CAP_NS
+        };
+
+        // One-shot: replace the logo splash with the real wallpaper (windowd's decoded
+        // JPEG in VMO Plane 0) — only on reveal. Done before the batch — it issues its own
+        // transfer_to_host (a ctrl command), like `virgl_vector_init` above. The reveal
+        // marker records WHICH condition released it, so a slow boot pins the culprit
+        // (wallpaper Plane 0 vs cursor vs the time cap) directly in the UART timeline.
+        if COMPOSITOR_STAGE >= 1 && should_reveal && !self.wallpaper_from_vmo_uploaded {
+            let _ = nexus_abi::debug_println(match (plane0, cursor) {
+                (true, true) => "gpud: desktop reveal (plane0 + cursor ready)",
+                (true, false) => "gpud: desktop reveal (plane0 ready, cursor slow)",
+                (false, _) => "gpud: desktop reveal (TIME CAP — plane0 still empty)",
+            });
             self.try_upload_wallpaper_from_vmo();
         }
         // One-shot: upload the real cursor sprite (windowd's Mocu cursor, set via
@@ -749,40 +871,37 @@ impl VirtioGpuBackend {
             }
         }
 
-        // Composite windowd's REAL atlas layers (the target-test panel et al.)
-        // straight onto the scanout RT, over the wallpaper base — the same
-        // CompositeLayer path the non-buildup present uses. `present_committed`
-        // (run by the service before this) populated the pending layers from
-        // windowd's CompositeLayer commands; this drains + composites them, so
-        // the live UI shows in the buildup window (not just the synthetic scene).
-        self.composite_pending_rt_layers();
+        // Reveal the whole desktop in one frame (gated by `should_reveal` above):
+        // windowd's REAL atlas layers, the icon sprite, and the cursor all composite
+        // together over the just-uploaded wallpaper — so boot reads logo splash →
+        // complete desktop, with NO wallpaper→menu→cursor staggering. Held back entirely
+        // (only the clear + splash blit present) until the desktop is ready.
+        if should_reveal {
+            // windowd's REAL atlas layers (the shell/panels) straight onto the scanout
+            // RT, over the wallpaper base. `present_committed` (run by the service before
+            // this) populated the pending layers from windowd's CompositeLayer commands.
+            self.composite_pending_rt_layers();
 
-        // Real icon layer: composite windowd's uploaded icon sprite (rendered from
-        // an SVG via the nexus-svg HiDPI pipeline) as its own GPU sprite layer,
-        // above the panel/wallpaper and below the cursor. One-shot texture upload
-        // (outside the batch concern — its CREATE/transfer are ctrl commands, like
-        // the cursor's). No-op until windowd uploads it.
-        let _ = self.icon_tex_init();
-        if self.icon_tex_ready() {
-            let _ = self.composite_icon_rt();
-        }
+            // Real icon layer: windowd's uploaded icon sprite (rendered from an SVG via the
+            // nexus-svg HiDPI pipeline) as its own GPU sprite layer, above the wallpaper and
+            // below the cursor. One-shot texture upload; no-op until windowd uploads it.
+            let _ = self.icon_tex_init();
+            if self.icon_tex_ready() {
+                let _ = self.composite_icon_rt();
+            }
 
-        // INPUT — draw a GL cursor at gpud's current pointer position, ALWAYS, on
-        // top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from windowd
-        // as the mouse moves; windowd also sends OP_PRESENT_DAMAGE on move so this
-        // re-renders). Moving the mouse moves this marker = input live on the GPU
-        // compositor, on every stage.
-        {
+            // Cursor on top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from
+            // windowd as the mouse moves).
             let cx = self.cursor_ox.clamp(0, SCREEN_W as i32 - 20) as u32;
             let cy = self.cursor_oy.clamp(0, SCREEN_H as i32 - 28) as u32;
             if self.cursor_tex_ready() {
                 // Production path: composite the real cursor sprite as a layer
-                // (alpha-blended; its own alpha shapes the arrow). Reuses the
-                // generic layer compositor, not a bespoke draw.
+                // (alpha-blended; its own alpha shapes the arrow). Reuses the generic
+                // layer compositor, not a bespoke draw.
                 let _ = self.composite_cursor_rt(cx, cy);
             } else {
-                // Fallback until windowd uploads the sprite: a procedural arrow so
-                // the pointer is never invisible. Dark outline then bright fill.
+                // Fallback (reveal forced by the timer before the sprite landed): a
+                // procedural arrow so the pointer is never invisible.
                 let _ = self.diag_gradient_rt(
                     cx.saturating_sub(2),
                     cy.saturating_sub(2),
