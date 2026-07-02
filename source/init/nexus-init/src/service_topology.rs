@@ -169,7 +169,9 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // App lifecycle / registry chain (RFC-0065).
     (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
     (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
+    (ServiceId::Abilitymgr, ServiceId::Sessiond),   // launch gate: session must be active
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
+    (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd),    // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -229,6 +231,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         routes_to: &[
             Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox },
             Route { to: ServiceId::Execd, kind: RouteKind::ReplyInbox },
+            Route { to: ServiceId::Sessiond, kind: RouteKind::ReplyInbox },
         ],
         announce: true,
     },
@@ -236,7 +239,10 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         id: ServiceId::Windowd,
         exposes_server: true,
         reply_inbox: true,
-        routes_to: &[Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox }],
+        routes_to: &[
+            Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox },
+            Route { to: ServiceId::Sessiond, kind: RouteKind::ReplyInbox },
+        ],
         announce: true,
     },
     // RFC-0069 batches 1+2: regular services wired ENTIRELY from the spec (the
@@ -338,7 +344,7 @@ mod tests {
         assert!(!exposes_server(b"definitely-not-a-service"));
         let targets: alloc::vec::Vec<ServiceId> =
             spec_for(b"abilitymgr").unwrap().routes_to.iter().map(|r| r.to).collect();
-        assert_eq!(targets, [ServiceId::Bundlemgrd, ServiceId::Execd]);
+        assert_eq!(targets, [ServiceId::Bundlemgrd, ServiceId::Execd, ServiceId::Sessiond]);
     }
 
     #[test]

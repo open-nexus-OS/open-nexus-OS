@@ -1,0 +1,17 @@
+# sessiond user registry (TASK-0065B). One `[user.<id>]` section per user;
+# the section suffix IS the user id. `product` names a SystemUI product
+# manifest (source/services/systemui/manifests/products/) — sessiond only
+# stores the string, windowd resolves it through the SystemUI library.
+#
+# [session] auto_login: when set to a registered user id, the session starts
+# for that user without the greeter (proof lanes / kiosk deployments). Absent
+# or omitted = the greeter owns the display until a login.
+
+[session]
+# Phase 1 bring-up: auto-login keeps the boot visually identical while the
+# protocol + wiring land. Phase 2 (greeter visuals) removes this line.
+auto_login = "jenning"
+
+[user.jenning]
+display_name = "Jenning"
+product = "default"

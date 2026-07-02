@@ -106,6 +106,12 @@ pub(crate) struct Endpoints {
     pub metrics_req: Option<u32>,
     /// metricsd server response endpoint.
     pub metrics_rsp: Option<u32>,
+    /// sessiond server request endpoint (present only if sessiond is in the
+    /// image set). Pre-minted so windowd's session route can be granted long
+    /// before sessiond spawns (TASK-0065B ordering).
+    pub sess_req: Option<u32>,
+    /// sessiond server response endpoint.
+    pub sess_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -142,6 +148,9 @@ impl Endpoints {
             ServiceId::Execd => Some((self.exe_req, self.exe_rsp)),
             ServiceId::Netstackd => Some((self.net_req, self.net_rsp)),
             ServiceId::Metricsd => self.metrics_req.zip(self.metrics_rsp),
+            // Session authority (TASK-0065B): pre-minted so windowd/abilitymgr
+            // client routes exist long before sessiond (spawned last) binds.
+            ServiceId::Sessiond => self.sess_req.zip(self.sess_rsp),
             _ => None,
         }
     }

@@ -21,6 +21,10 @@ mod app_menu;
 // parsed into `app_menu::AppMenu`. OS-only (IPC); the parser it feeds is host-tested.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod registry_client;
+// Session-authority client (TASK-0065B): windowd → sessiond GET_STATE/LOGIN over
+// CAP_MOVE — the greeter/login relay. OS-only (IPC); codecs host-tested in nexus-abi.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod session_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

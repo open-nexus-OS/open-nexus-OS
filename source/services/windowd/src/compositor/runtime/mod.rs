@@ -107,6 +107,7 @@ mod shell;
 mod search;
 mod present;
 mod scene;
+mod session;
 
 // The split-out `impl` submodules live one module deeper than the original
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
@@ -446,6 +447,10 @@ pub(crate) struct DisplayServerRuntime {
     /// compositor chrome is now config-driven, so a later runtime shell switch
     /// (tablet/kiosk) just swaps this. Desktop default ⇒ chrome on.
     shell_config: systemui::ShellConfig,
+    /// Session-authority probe (TASK-0065B): after the handoff, ask sessiond
+    /// whether a session is active (apply its shell product) or the greeter
+    /// owns the display. Bounded; unreachable = auto shell, never a brick.
+    session_probe: session::SessionProbe,
 }
 
 #[derive(Default)]
@@ -793,6 +798,7 @@ impl DisplayServerRuntime {
             dropdown_surface_dirty: true,
             app_menu,
             app_menu_fetched: false,
+            session_probe: session::SessionProbe::default(),
             search,
             search_filtered: {
                 let mut v = Vec::new();

@@ -81,7 +81,7 @@ pub(crate) fn wire_services(
         exe_rsp, key_req, key_rsp, state_req, state_rsp, rng_req, rng_rsp, timed_req, timed_rsp,
         window_req, window_rsp, input_req, input_rsp, gpud_req, gpud_rsp, net_req, net_rsp,
         net_selftest_rsp, net_dsoft_rsp, dsoft_req, dsoft_rsp, dsoft_reply_ep, execd_reply_ep,
-        reply_ep, log_req, log_rsp, metrics_req, metrics_rsp, ..
+        reply_ep, log_req, log_rsp, metrics_req, metrics_rsp, sess_req, ..
     } = *eps;
 
     // Services are suspended; they will be resumed atomically at the end
@@ -780,6 +780,11 @@ pub(crate) fn wire_services(
                     // relies on. (Doing this in the priority-wire block shifted gpud
                     // to 8/9 → present handoff `kernel-permission-denied`.)
                     provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
+                    // Session route AFTER the registry route (TASK-0065B): it
+                    // reuses the reply inbox the registry route just created.
+                    if let Some(sess_req) = sess_req {
+                        provision_windowd_session_route(pid, sess_req, chan);
+                    }
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -800,6 +805,10 @@ pub(crate) fn wire_services(
                 // Registry reply-inbox + bundlemgrd route AFTER gpud (slot-order
                 // contract — see the skip path above).
                 provision_windowd_registry_route(ENDPOINT_FACTORY_CAP_SLOT, pid, bnd_req, chan);
+                // Session route AFTER the registry route (TASK-0065B).
+                if let Some(sess_req) = sess_req {
+                    provision_windowd_session_route(pid, sess_req, chan);
+                }
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
                     debug_write_hex(recv_slot as usize);
@@ -1316,6 +1325,22 @@ pub(crate) fn wire_services(
                                             chan.set_recv(ServiceId::Policyd, reply_recv);
                                         }
                                     }
+                                    // Session authority (TASK-0065B launch gate).
+                                    ServiceId::Sessiond => {
+                                        if let Some(req) = sess_req {
+                                            if let Ok(s) =
+                                                nexus_abi::cap_transfer(pid, req, Rights::SEND)
+                                            {
+                                                chan.set_send(ServiceId::Sessiond, s);
+                                                chan.set_recv(ServiceId::Sessiond, reply_recv);
+                                                if spec.announce {
+                                                    debug_write_bytes(b"init: ");
+                                                    debug_write_bytes(name.as_bytes());
+                                                    debug_write_bytes(b" route->sessiond ok\n");
+                                                }
+                                            }
+                                        }
+                                    }
                                     // execd route wires with the launch path (later).
                                     _ => {}
                                 }
@@ -1389,6 +1414,25 @@ fn provision_windowd_registry_route(
             // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
             debug_write_bytes(b"init: windowd route->bundlemgrd ok\n");
         }
+    }
+}
+
+/// Provisions windowd's session route (TASK-0065B): a SEND cap to sessiond's
+/// PRE-MINTED request endpoint; replies arrive on the CAP_MOVE reply inbox
+/// `provision_windowd_registry_route` created — call order matters (that
+/// helper first, and both strictly AFTER windowd's gpud caps so the present
+/// handoff's hardcoded fallback slots 5/6 are not displaced). Best-effort: a
+/// failure leaves the session probe unanswered and windowd falls back to the
+/// auto shell — never bricks boot.
+fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mut CtrlChannel) {
+    let Some(reply_recv) = chan.reply_recv_slot else {
+        return;
+    };
+    if let Ok(s) = nexus_abi::cap_transfer(pid, sess_req, Rights::SEND) {
+        chan.set_send(ServiceId::Sessiond, s);
+        chan.set_recv(ServiceId::Sessiond, reply_recv);
+        // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
+        debug_write_bytes(b"init: windowd route->sessiond ok\n");
     }
 }
 

@@ -460,6 +460,20 @@ where
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, packagefsd_pid, 8)
             .map_err(InitError::Abi)?;
 
+    // sessiond server endpoints (request/response), pre-minted (TASK-0065B):
+    // sessiond spawns LAST, but windowd's greeter route and abilitymgr's launch
+    // gate are wired much earlier — the pair must exist from bootstrap.
+    let sessiond_pid = find_pid(&ctrl_channels, "sessiond");
+    let (sess_req, sess_rsp) = if let Some(pid) = sessiond_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
+
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
     // phase semantics, task #123 fix): the services' deterministic fallback
@@ -477,7 +491,7 @@ where
         rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
         gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
         dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
-        metrics_rsp,
+        metrics_rsp, sess_req, sess_rsp,
     };
     crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
 

@@ -23,8 +23,12 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the
 # registry for the dynamic Apps menu. Without `ipc.core` here, their route requests
 # are policy-denied → "unreachable" (the bug this fixes).
-"abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn"]
-"windowd" = ["ipc.core", "bundle.query"]
+# TASK-0065B: `session.query` = talk to sessiond (windowd relays the greeter
+# login; abilitymgr gates app launches on session state).
+"abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn", "session.query"]
+"windowd" = ["ipc.core", "bundle.query", "session.query"]
+# sessiond answers session queries only; it calls nobody.
+sessiond = ["ipc.core"]
 "selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
 

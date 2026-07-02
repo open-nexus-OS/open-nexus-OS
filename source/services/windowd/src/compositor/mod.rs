@@ -340,7 +340,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // flush needs a timer wake to retry. Once damage clears and no animation
             // runs, the pacer disarms and windowd goes fully idle.
             let handoff_done = !runtime.is_handoff_pending();
-            let needs_pacing = runtime.has_active_animations() || runtime.has_pending_damage();
+            // Session probe (TASK-0065B): after the handoff, ask sessiond for
+            // the session decision on its own cadence. While unresolved it
+            // needs the pacer's wakes (the loop otherwise blocks on IPC);
+            // bounded — resolution or the auto-shell fallback disarms it.
+            let session_pending =
+                runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            let needs_pacing = runtime.has_active_animations()
+                || runtime.has_pending_damage()
+                || session_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {
                     // One-shot timer (interval_ns = 0): windowd rearms it every tick
