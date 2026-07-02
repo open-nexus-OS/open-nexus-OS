@@ -127,6 +127,10 @@ impl Endpoints {
             ServiceId::Packagefsd => Some((self.pkg_req, self.pkg_rsp)),
             ServiceId::Samgrd => Some((self.sam_req, self.sam_rsp)),
             ServiceId::Statefsd => Some((self.state_req, self.state_rsp)),
+            // Optional service: pair exists only when logd is in the image set.
+            // (When absent, the generic arm falls back to provisioning a fresh —
+            // unused — pair; every current image profile includes logd.)
+            ServiceId::Logd => self.log_req.zip(self.log_rsp),
             _ => None,
         }
     }

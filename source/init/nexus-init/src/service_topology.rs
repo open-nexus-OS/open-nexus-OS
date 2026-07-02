@@ -66,15 +66,17 @@ pub enum ServiceId {
     Touchd = 21,
     /// Selftest client.
     SelftestClient = 22,
+    /// Session manager daemon (RFC-0069 §4 — owns the `session-start` stage).
+    Sessiond = 23,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=22`, so the array spans `0..=22`; index 0 is unused).
-    pub const COUNT: usize = 23;
+    /// (discriminants are `1..=23`, so the array spans `0..=23`; index 0 is unused).
+    pub const COUNT: usize = 24;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 22] = [
+    pub const ALL: [ServiceId; 23] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -97,6 +99,7 @@ impl ServiceId {
         Self::Hidrawd,
         Self::Touchd,
         Self::SelftestClient,
+        Self::Sessiond,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -124,6 +127,7 @@ impl ServiceId {
             b"hidrawd" => Self::Hidrawd,
             b"touchd" => Self::Touchd,
             b"selftest-client" => Self::SelftestClient,
+            b"sessiond" => Self::Sessiond,
             _ => return None,
         })
     }
@@ -153,6 +157,7 @@ impl ServiceId {
             Self::Hidrawd => "hidrawd",
             Self::Touchd => "touchd",
             Self::SelftestClient => "selftest-client",
+            Self::Sessiond => "sessiond",
         }
     }
 }
@@ -284,6 +289,25 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         exposes_server: true,
         reply_inbox: true,
         routes_to: &[Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox }],
+        announce: true,
+    },
+    // Batch 4: pure server (optional pair — logd may be absent from an image).
+    ServiceSpec {
+        id: ServiceId::Logd,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[],
+        announce: true,
+    },
+    // Batch S (RFC-0069 §4): the session manager — a NEW service that is
+    // nothing but this manifest entry on the init side (the whole point of the
+    // declarative arm). Owns the `session-start` stage; today it auto-starts
+    // the default session. The greeter/login docks onto its server endpoint.
+    ServiceSpec {
+        id: ServiceId::Sessiond,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[],
         announce: true,
     },
 ];

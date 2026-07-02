@@ -762,6 +762,16 @@ where
     // Yield after cap distribution so services observe a consistent slot layout.
     let _ = nexus_abi::yield_();
 
+    // RFC-0069 §4 boot stage: init's part of the display contract is complete —
+    // the display+input chain is granted, wired and resumed (the visible reveal
+    // itself is gpud's own contract, ADR-0041). The session track docks onto
+    // these named stages: the greeter/login later slots between `display-ready`
+    // and `session-start`.
+    if il(&mut init_misc, init_fold, "init") {
+        debug_write_str("stage: display-ready");
+        debug_write_byte(b'\n');
+    }
+
     let mut upd_pending: nexus_ipc::reqrep::FrameStash<8, 16> =
         nexus_ipc::reqrep::FrameStash::new();
     match updated_boot_attempt(&mut upd_pending, upd_req, init_reply_send, pol_ctl_route_rsp) {
@@ -787,6 +797,15 @@ where
 
     let route_table = route_builder::build_route_table(&ctrl_channels);
     route_builder::populate_samgrd_registry(init_sam_send, init_sam_recv, &route_table);
+
+    // RFC-0069 §4 boot stage: boot state is committed (OTA handshake done) and
+    // routing is live — the session may begin. Today this transition is
+    // automatic (default session = the shell as before); `sessiond` takes
+    // ownership of it in Batch S, and login/auth docks in front of it later.
+    if il(&mut init_misc, init_fold, "init") {
+        debug_write_str("stage: session-start");
+        debug_write_byte(b'\n');
+    }
     // Boot-timing table (Phase 3): one compact line locating where boot time went. `grant_wait`
     // is the time spent yielding for policyd MMIO grants — the prime "services waiting" suspect.
     let total_ms = boot_span.elapsed_ms();

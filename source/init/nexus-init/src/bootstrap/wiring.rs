@@ -833,31 +833,10 @@ pub(crate) fn wire_services(
                 chan.set_send(ServiceId::Statefsd, send_slot);
                 chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
             }
-            "logd" => {
-                if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
-                    let recv_slot = nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(|e| {
-                        debug_write_bytes(b"init: logd xfer log_req RECV FAIL src=0x");
-                        debug_write_hex(req as usize);
-                        debug_write_byte(b'\n');
-                        InitError::Abi(e)
-                    })?;
-                    let send_slot = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(|e| {
-                        debug_write_bytes(b"init: logd xfer log_rsp SEND FAIL src=0x");
-                        debug_write_hex(rsp as usize);
-                        debug_write_byte(b'\n');
-                        InitError::Abi(e)
-                    })?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, recv_slot);
-                    if iw(init_wire, init_fold, "init:logd") {
-                        debug_write_bytes(b"init: logd slots recv=0x");
-                        debug_write_hex(recv_slot as usize);
-                        debug_write_bytes(b" send=0x");
-                        debug_write_hex(send_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-            }
+            // "logd" migrated to the declarative arm below (RFC-0069 batch 4):
+            // announce=true keeps its iw-gated slots line + init_caps tally; the
+            // generic path is best-effort where the old arm aborted init on a
+            // failed transfer — the right semantics for a log sink.
             "selftest-client" => {
                 let send_slot =
                     nexus_abi::cap_transfer(pid, vfs_req, Rights::SEND).map_err(InitError::Abi)?;
@@ -1298,7 +1277,6 @@ fn is_bespoke_wired(name: &str) -> bool {
             | "windowd"
             | "inputd"
             | "metricsd"
-            | "logd"
             | "selftest-client"
     )
 }

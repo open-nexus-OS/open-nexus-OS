@@ -3210,6 +3210,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sessiond"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "settings"
 version = "0.1.0"
 

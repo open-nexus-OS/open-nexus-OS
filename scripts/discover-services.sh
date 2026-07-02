@@ -61,6 +61,7 @@ ORDER = [
     'vfsd',
     'execd',
     'abilitymgr',
+    'sessiond',
     'netstackd',
     'dsoftbusd',
     'hidrawd',
