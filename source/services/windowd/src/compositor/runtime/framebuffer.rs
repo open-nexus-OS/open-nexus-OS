@@ -17,22 +17,39 @@ use super::*;
 impl DisplayServerRuntime {
     /// Phase 6c: Write source frame (wallpaper) to VMO bottom half once.
     /// Moves 4MB of pixel data from control-plane heap to data-plane VMO.
+    /// Banded: ROW_WRITE_CHUNK rows per `vmo_write` (same pattern as
+    /// `write_fast_bootstrap_frame`) instead of one syscall per row — the
+    /// wallpaper is 800 rows, and 800 kernel round-trips sat on windowd's
+    /// first-frame path.
     pub(crate) fn write_source_frame_to_vmo(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
-        let sf = &self.source_frame;
-        if sf.pixels.is_empty() || sf.width == 0 || sf.height == 0 {
+        if self.source_frame.pixels.is_empty()
+            || self.source_frame.width == 0
+            || self.source_frame.height == 0
+        {
             return Ok(());
         }
-        let src_stride = sf.stride as usize;
+        let src_stride = self.source_frame.stride as usize;
         let dst_stride = DISPLAY_WIDTH as usize * 4;
-        for row in 0..sf.height.min(DISPLAY_HEIGHT) {
-            let src_off = row as usize * src_stride;
-            let dst_off = row as usize * dst_stride;
-            let copy_len = (sf.width as usize * 4).min(src_stride).min(dst_stride);
-            vmo_write(handle, dst_off, &sf.pixels[src_off..src_off + copy_len])
+        let copy_len = (self.source_frame.width as usize * 4).min(src_stride).min(dst_stride);
+        let rows = self.source_frame.height.min(DISPLAY_HEIGHT) as usize;
+        let mut band_start = 0usize;
+        while band_start < rows {
+            let band_end = (band_start + ROW_WRITE_CHUNK).min(rows);
+            let band_rows = band_end - band_start;
+            let band_bytes = band_rows * dst_stride;
+            let band = &mut self.band_scratch[..band_bytes];
+            band.fill(0);
+            for row_idx in 0..band_rows {
+                let src_off = (band_start + row_idx) * src_stride;
+                band[row_idx * dst_stride..row_idx * dst_stride + copy_len]
+                    .copy_from_slice(&self.source_frame.pixels[src_off..src_off + copy_len]);
+            }
+            vmo_write(handle, band_start * dst_stride, band)
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            band_start = band_end;
         }
         Ok(())
     }

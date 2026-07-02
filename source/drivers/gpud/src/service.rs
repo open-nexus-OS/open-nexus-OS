@@ -121,18 +121,29 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // a denied bind leaves the queues on spin+yield (never a hang). The shared
     // virtio-gpu IRQ covers both the control and cursor queues.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
-    {
-        if backend.bind_gpu_irq(GPU_IRQ_SOURCE, GPU_IRQ_NOTIFY_SLOT) {
+    let gpu_irq_reactive = {
+        let bound = backend.bind_gpu_irq(GPU_IRQ_SOURCE, GPU_IRQ_NOTIFY_SLOT);
+        if bound {
             let _ = debug_println("gpud: gpu irq bound");
         } else {
             let _ = debug_println("gpud: gpu irq bind skipped (spin fallback)");
         }
-    }
+        bound
+    };
     let server = bind_server()?;
     debug_println(GPUD_READY)?;
     // Bring-up done — flush gpud's folded markers as one `gpud N/N OK <ms>` grid line, then stop
     // folding (later per-frame present markers print raw).
     nexus_abi::service_verdict_flush("gpud");
+    // Raw (post-fold) so every boot log shows which completion-wait mode is live —
+    // the folded bind marker above is invisible in a quiet boot, and a silently
+    // unbound IRQ means every deferred completion costs the full 500ms net.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    let _ = debug_println(if gpu_irq_reactive {
+        "gpud: completion wait reactive (irq)"
+    } else {
+        "gpud: completion wait spin fallback (irq unbound)"
+    });
     service_requests(server, backend)
 }
 
@@ -419,6 +430,24 @@ fn service_requests(
                     let response = [status];
                     let _ = server.send(&response, Wait::Blocking);
                 }
+                // Reveal kick: a cursor upload while the boot splash is held is
+                // exactly the signal the reveal gate waits for — re-present now
+                // instead of waiting for the next self-tick (~250 ms observed),
+                // so the desktop appears the moment it is ready. Reply was sent
+                // first, so windowd is never blocked behind this present.
+                #[cfg(all(nexus_env = "os", feature = "virgl"))]
+                if op == OP_UPLOAD_CURSOR
+                    && status == STATUS_OK
+                    && active_handoff_id != 0
+                    && backend.is_holding_boot_splash()
+                {
+                    let _ = backend.present_scanout_damage(Rect {
+                        x: 0,
+                        y: 0,
+                        width: DISPLAY_WIDTH,
+                        height: DISPLAY_HEIGHT,
+                    });
+                }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 // Frame-paced tick (recv timed out, windowd idle): re-present so the reveal
@@ -547,9 +576,9 @@ fn emit_handoff_timing(ms: u32) {
 }
 
 fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 96];
     let mut p = 0usize;
-    let put = |buf: &mut [u8; 64], p: &mut usize, s: &[u8]| {
+    let put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
         for &b in s {
             if *p < buf.len() {
                 buf[*p] = b;
@@ -557,7 +586,7 @@ fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
             }
         }
     };
-    let put_dec = |buf: &mut [u8; 64], p: &mut usize, mut v: u32| {
+    let put_dec = |buf: &mut [u8; 96], p: &mut usize, mut v: u32| {
         let mut tmp = [0u8; 10];
         let mut n = 0usize;
         loop {
@@ -582,6 +611,24 @@ fn emit_present_stats(avg_us: u32, max_us: u32, n: u32) {
     put_dec(&mut buf, &mut p, max_us);
     put(&mut buf, &mut p, b" n=");
     put_dec(&mut buf, &mut p, n);
+    // Reactive-completion health: waits woken by the GPU ring-buffer IRQ vs.
+    // waits that ran into the 500ms deadline net. A healthy boot has dlx=0;
+    // dlx climbing while irqw stays 0 = the IRQ path is wedged/unbound again.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    {
+        put(&mut buf, &mut p, b" irqw=");
+        put_dec(
+            &mut buf,
+            &mut p,
+            crate::backend::IRQ_WAKE_COUNT.load(core::sync::atomic::Ordering::Relaxed),
+        );
+        put(&mut buf, &mut p, b" dlx=");
+        put_dec(
+            &mut buf,
+            &mut p,
+            crate::backend::IRQ_DEADLINE_EXPIRED_COUNT.load(core::sync::atomic::Ordering::Relaxed),
+        );
+    }
     put(&mut buf, &mut p, b"\n");
     let _ = debug_write(&buf[..p]);
 }

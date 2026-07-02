@@ -371,6 +371,37 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_header_tail(&hdr, bytes)?;
 
+        // Paint the splash INTO the RT before the scanout switches to it, so the
+        // first frame the display ever shows is the branded glow + wordmark —
+        // never the bare clear above. Same fullscreen wallpaper-tex blit as the
+        // build-up present's stage-1 (the texture was seeded with the splash image
+        // earlier in this fn); enqueued in the same batch, so ring order
+        // guarantees it lands before SET_SCANOUT below.
+        let mut sp = Submit3d::new();
+        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
+        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
+        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
+        sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
+        sp.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+        sp.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        sp.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+        sp.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
+        sp.emit_set_constant_buffer(
+            PIPE_SHADER_FRAGMENT,
+            &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+        );
+        sp.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+        sp.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
+        sp.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
+        sp.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        let sp_bytes = sp.as_bytes();
+        let sp_hdr = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: sp_bytes.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&sp_hdr, sp_bytes)?;
+
         // Point the display at the GL RT (full resource — no plane-row window;
         // the 2D path's tall-VMO row addressing ends here).
         let scanout = VirtioGpuSetScanout {
@@ -710,6 +741,17 @@ impl VirtioGpuBackend {
             let elapsed = now.saturating_sub(self.reveal_content_since_ns);
             (plane0 && (cursor || elapsed > REVEAL_FALLBACK_NS)) || elapsed > REVEAL_HARD_CAP_NS
         };
+
+        // Elastic hold: while still holding the splash, don't pile a new frame onto
+        // a control ring that is still busy with the previous one — QEMU may defer
+        // textured-draw completions for a long time, and enqueueing anyway would
+        // park this single-threaded loop in ring back-pressure, starving the
+        // wall-clock gate above (fallback/hard-cap could then fire seconds late).
+        // The tick simply re-evaluates the gate a few ms later; a reveal frame is
+        // never skipped.
+        if !should_reveal && !self.wallpaper_from_vmo_uploaded && self.ctrl_ring_congested() {
+            return Ok(());
+        }
 
         // One-shot: replace the logo splash with the real wallpaper (windowd's decoded
         // JPEG in VMO Plane 0) — only on reveal. Done before the batch — it issues its own

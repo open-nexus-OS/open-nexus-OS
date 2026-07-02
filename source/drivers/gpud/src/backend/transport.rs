@@ -113,6 +113,19 @@ impl VirtioGpuBackend {
         self.ctrl_batch = true;
     }
 
+    /// True while the control ring is more than half busy with previous batches.
+    /// The hold-phase splash tick uses this to SKIP re-enqueueing a frame instead
+    /// of piling onto deferred completions — enqueueing anyway would park this
+    /// single-threaded loop in ring back-pressure and starve the reveal gate's
+    /// wall-clock re-evaluation (the serialized-500ms black screen).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) fn ctrl_ring_congested(&self) -> bool {
+        self.ctrlq
+            .as_ref()
+            .map(|q| q.ring.in_flight() * 2 > q.ring.capacity())
+            .unwrap_or(false)
+    }
+
     /// End the batch — **pipelined: does NOT block**. Clears the batch flag and
     /// opportunistically `harvest`s completed slots (the next present would
     /// otherwise reclaim them). The present's own commands stay in flight and are
