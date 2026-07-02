@@ -123,6 +123,22 @@ impl Endpoints {
         match id {
             ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
             ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
+            ServiceId::Vfsd => Some((self.vfs_req, self.vfs_rsp)),
+            ServiceId::Packagefsd => Some((self.pkg_req, self.pkg_rsp)),
+            ServiceId::Samgrd => Some((self.sam_req, self.sam_rsp)),
+            ServiceId::Statefsd => Some((self.state_req, self.state_rsp)),
+            _ => None,
+        }
+    }
+
+    /// Pre-minted CAP_MOVE reply-inbox endpoint for a service, when bootstrap
+    /// minted a dedicated one. The declarative arm transfers RECV+SEND from it
+    /// and closes the init-side slot — the same lifecycle as a freshly created
+    /// inbox, just on the endpoint bring-up already made.
+    pub(crate) fn minted_reply_ep(&self, id: crate::service_topology::ServiceId) -> Option<u32> {
+        use crate::service_topology::ServiceId;
+        match id {
+            ServiceId::Packagefsd => Some(self.pkg_reply_ep),
             _ => None,
         }
     }

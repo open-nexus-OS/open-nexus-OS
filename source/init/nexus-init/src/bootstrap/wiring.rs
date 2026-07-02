@@ -25,7 +25,7 @@ pub(crate) fn wire_services(
     init_wire: &mut nexus_event::SpanTally,
 ) -> Result<()> {
     let Endpoints {
-        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pkg_reply_ep, pol_req, pol_rsp, bnd_req, bnd_rsp,
+        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pol_req, pol_rsp, bnd_req, bnd_rsp,
         bnd_rsp_updated, bnd_exe_req, bnd_exe_rsp, upd_req, upd_rsp, sam_req, sam_rsp, exe_req,
         exe_rsp, key_req, key_rsp, state_req, state_rsp, rng_req, rng_rsp, timed_req, timed_rsp,
         window_req, window_rsp, input_req, input_rsp, gpud_req, gpud_rsp, net_req, net_rsp,
@@ -190,47 +190,10 @@ pub(crate) fn wire_services(
                     chan.set_recv(ServiceId::Logd, reply_recv_slot);
                 }
             }
-            "vfsd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, vfs_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, vfs_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Vfsd, send_slot);
-                chan.set_recv(ServiceId::Vfsd, recv_slot);
-
-                // vfsd needs to resolve pkg:/ paths against packagefsd (real data path).
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pkg_req, Rights::SEND).map_err(InitError::Abi)?;
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, pkg_rsp, Rights::RECV).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Packagefsd, send_slot);
-                chan.set_recv(ServiceId::Packagefsd, recv_slot);
-            }
-            "packagefsd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, pkg_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pkg_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Packagefsd, send_slot);
-                chan.set_recv(ServiceId::Packagefsd, recv_slot);
-
-                // Provide a reply inbox for CAP_MOVE replies.
-                let reply_recv_slot = nexus_abi::cap_transfer(pid, pkg_reply_ep, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let reply_send_slot = nexus_abi::cap_transfer(pid, pkg_reply_ep, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(pkg_reply_ep);
-
-                // Allow packagefsd to talk to bundlemgrd using CAP_MOVE replies:
-                // - send to bundlemgrd's request endpoint
-                // - receive replies on the local reply inbox recv slot
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Bundlemgrd, send_slot);
-                chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
-            }
+            // "vfsd" and "packagefsd" migrated to the declarative arm below
+            // (RFC-0069 batch 2): spec = SERVICE_SPECS (vfsd's packagefsd link is
+            // a SharedResponse route; packagefsd's reply inbox is the pre-minted
+            // `pkg_reply_ep`). Their bespoke arms are deleted.
             "policyd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.
                 if chan.send(ServiceId::Policyd).is_some() && chan.recv(ServiceId::Policyd).is_some() {
@@ -453,41 +416,8 @@ pub(crate) fn wire_services(
                     }
                 }
             }
-            "samgrd" => {
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, sam_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, sam_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Samgrd, send_slot);
-                chan.set_recv(ServiceId::Samgrd, recv_slot);
-                if iw(init_wire, init_fold, "init:samgrd") {
-                    debug_write_bytes(b"init: samgrd slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                // Provide a reply inbox for CAP_MOVE reply routing (used by log sinks).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                // TASK-0006: allow samgrd to send structured logs to logd via CAP_MOVE (reply inbox).
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                }
-            }
+            // "samgrd" migrated to the declarative arm below (RFC-0069 batch 3):
+            // announce=true keeps its iw-gated slots line + init_caps tally.
             "execd" => {
                 let recv_slot =
                     nexus_abi::cap_transfer(pid, exe_req, Rights::RECV).map_err(InitError::Abi)?;
@@ -706,39 +636,8 @@ pub(crate) fn wire_services(
                 // Use reply inbox recv slot for routing responses (CAP_MOVE replies land here).
                 chan.set_recv(ServiceId::Rngd, reply_recv_slot);
             }
-            "statefsd" => {
-                let recv_slot = nexus_abi::cap_transfer(pid, state_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, state_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Statefsd, send_slot);
-                chan.set_recv(ServiceId::Statefsd, recv_slot);
-                if iw(init_wire, init_fold, "init:statefsd") {
-                    debug_write_bytes(b"init: statefsd slots recv=0x");
-                    debug_write_hex(recv_slot as usize);
-                    debug_write_bytes(b" send=0x");
-                    debug_write_hex(send_slot as usize);
-                    debug_write_byte(b'\n');
-                }
-
-                // Provide a reply inbox for CAP_MOVE reply routing (policyd checks, logd).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                // Allow statefsd to call policyd (reply via CAP_MOVE/@reply).
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Policyd, send_slot);
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-            }
+            // "statefsd" migrated to the declarative arm below (RFC-0069 batch 3):
+            // announce=true keeps its iw-gated slots line + init_caps tally.
             // "rngd" and "timed" migrated to the declarative arm below
             // (RFC-0069 batch 1): spec = SERVICE_SPECS, server pair =
             // Endpoints::server_pair. Their bespoke arms are deleted.
@@ -1180,9 +1079,13 @@ pub(crate) fn wire_services(
                 // Server endpoint: transfer the PRE-MINTED pair when bootstrap
                 // created one (its client side is already distributed — a fresh
                 // endpoint would orphan those clients); otherwise provision a
-                // fresh pair. The pre-minted path is silent on success, matching
-                // the bespoke arms it replaces (RFC-0069 byte-identical migration).
+                // fresh pair. On success the pre-minted path prints/tallies ONLY
+                // where the deleted bespoke arm did (`announce` + the iw() fold
+                // tally, RFC-0069 byte-identical migration — iw also increments
+                // the `init_caps N/N` count, so it must fire exactly as before).
                 let own_id = crate::service_topology::ServiceId::from_name(name.as_bytes());
+                let spec = crate::service_topology::spec_for(name.as_bytes());
+                let announce = spec.is_some_and(|s| s.announce);
                 match own_id.and_then(|id| eps.server_pair(id)) {
                     Some((req, rsp)) => {
                         let recv = nexus_abi::cap_transfer(pid, req, Rights::RECV);
@@ -1191,6 +1094,15 @@ pub(crate) fn wire_services(
                             (Some(id), Ok(recv_slot), Ok(send_slot)) => {
                                 chan.set_send(id, send_slot);
                                 chan.set_recv(id, recv_slot);
+                                if announce && iw(init_wire, init_fold, name) {
+                                    debug_write_bytes(b"init: ");
+                                    debug_write_bytes(name.as_bytes());
+                                    debug_write_bytes(b" slots recv=0x");
+                                    debug_write_hex(recv_slot as usize);
+                                    debug_write_bytes(b" send=0x");
+                                    debug_write_hex(send_slot as usize);
+                                    debug_write_byte(b'\n');
+                                }
                             }
                             _ => {
                                 debug_write_bytes(b"init: ");
@@ -1204,64 +1116,94 @@ pub(crate) fn wire_services(
                     }
                 }
 
-                // RFC-0066 P3: provision this service's outbound routes **from its
-                // declarative `ServiceSpec.routes_to`** (not a bespoke arm). Each
-                // route = a CAP_MOVE reply inbox + a send cap to the target's
-                // request endpoint; the existing `build_route_table` fields register
-                // it. Best-effort: a failure leaves the route unwired, never bricks.
-                if let Some(spec) = crate::service_topology::spec_for(name.as_bytes()) {
+                // RFC-0066/0069: provision this service's outbound routes **from
+                // its declarative `ServiceSpec.routes_to`** (not a bespoke arm).
+                // Best-effort: a failure leaves the route unwired, never bricks.
+                if let Some(spec) = spec {
+                    use crate::service_topology::RouteKind;
+                    // CAP_MOVE reply inbox: PRE-MINTED when bootstrap made one,
+                    // freshly created otherwise. Same lifecycle either way:
+                    // transfer RECV+SEND, close the init-side slot.
+                    let mut reply_recv_opt: Option<u32> = None;
                     if !spec.routes_to.is_empty() && spec.reply_inbox {
-                        if let Ok(reply_ep) =
-                            nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        {
+                        let inbox_ep = own_id.and_then(|id| eps.minted_reply_ep(id)).or_else(
+                            || {
+                                nexus_abi::ipc_endpoint_create_for(
+                                    ENDPOINT_FACTORY_CAP_SLOT,
+                                    pid,
+                                    8,
+                                )
+                                .ok()
+                            },
+                        );
+                        if let Some(reply_ep) = inbox_ep {
                             let rr = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV);
                             let rs = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND);
                             let _ = nexus_abi::cap_close(reply_ep);
                             if let (Ok(reply_recv), Ok(reply_send)) = (rr, rs) {
                                 chan.reply_recv_slot = Some(reply_recv);
                                 chan.reply_send_slot = Some(reply_send);
-                                for &to in spec.routes_to {
-                                    // Bridge ServiceId → the target's request cap +
-                                    // the matching channel field (uniform routing is
-                                    // a later refactor; this reuses what exists).
-                                    match to {
-                                        ServiceId::Bundlemgrd => {
-                                            if let Ok(s) =
-                                                nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
-                                            {
-                                                chan.set_send(ServiceId::Bundlemgrd, s);
-                                                chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
+                                reply_recv_opt = Some(reply_recv);
+                            }
+                        }
+                    }
+                    for route in spec.routes_to {
+                        match route.kind {
+                            // Replies arrive on the TARGET's pre-minted response
+                            // endpoint, shared directly (vfsd → packagefsd).
+                            RouteKind::SharedResponse => {
+                                if let Some((t_req, t_rsp)) = eps.server_pair(route.to) {
+                                    let s = nexus_abi::cap_transfer(pid, t_req, Rights::SEND);
+                                    let r = nexus_abi::cap_transfer(pid, t_rsp, Rights::RECV);
+                                    if let (Ok(s), Ok(r)) = (s, r) {
+                                        chan.set_send(route.to, s);
+                                        chan.set_recv(route.to, r);
+                                    }
+                                }
+                            }
+                            // Replies arrive on this service's CAP_MOVE inbox.
+                            // Bridge ServiceId → the target's request cap (uniform
+                            // target lookup is a later refactor; this reuses what
+                            // exists). Prints only where the pre-migration bespoke
+                            // arm printed (`announce`) — byte-identical boot logs.
+                            RouteKind::ReplyInbox => {
+                                let Some(reply_recv) = reply_recv_opt else {
+                                    continue;
+                                };
+                                match route.to {
+                                    ServiceId::Bundlemgrd => {
+                                        if let Ok(s) =
+                                            nexus_abi::cap_transfer(pid, bnd_req, Rights::SEND)
+                                        {
+                                            chan.set_send(ServiceId::Bundlemgrd, s);
+                                            chan.set_recv(ServiceId::Bundlemgrd, reply_recv);
+                                            if spec.announce {
                                                 debug_write_bytes(b"init: ");
                                                 debug_write_bytes(name.as_bytes());
                                                 debug_write_bytes(b" route->bundlemgrd ok\n");
                                             }
                                         }
-                                        // Silent on success: the bespoke arms these
-                                        // replace (rngd) printed nothing (RFC-0069
-                                        // byte-identical migration).
-                                        ServiceId::Logd => {
-                                            if let Some(req) = log_req {
-                                                if let Ok(s) = nexus_abi::cap_transfer(
-                                                    pid,
-                                                    req,
-                                                    Rights::SEND,
-                                                ) {
-                                                    chan.set_send(ServiceId::Logd, s);
-                                                    chan.set_recv(ServiceId::Logd, reply_recv);
-                                                }
-                                            }
-                                        }
-                                        ServiceId::Policyd => {
-                                            if let Ok(s) =
-                                                nexus_abi::cap_transfer(pid, pol_req, Rights::SEND)
-                                            {
-                                                chan.set_send(ServiceId::Policyd, s);
-                                                chan.set_recv(ServiceId::Policyd, reply_recv);
-                                            }
-                                        }
-                                        // execd route wires with the launch path (later).
-                                        _ => {}
                                     }
+                                    ServiceId::Logd => {
+                                        if let Some(req) = log_req {
+                                            if let Ok(s) =
+                                                nexus_abi::cap_transfer(pid, req, Rights::SEND)
+                                            {
+                                                chan.set_send(ServiceId::Logd, s);
+                                                chan.set_recv(ServiceId::Logd, reply_recv);
+                                            }
+                                        }
+                                    }
+                                    ServiceId::Policyd => {
+                                        if let Ok(s) =
+                                            nexus_abi::cap_transfer(pid, pol_req, Rights::SEND)
+                                        {
+                                            chan.set_send(ServiceId::Policyd, s);
+                                            chan.set_recv(ServiceId::Policyd, reply_recv);
+                                        }
+                                    }
+                                    // execd route wires with the launch path (later).
+                                    _ => {}
                                 }
                             }
                         }
@@ -1346,15 +1288,11 @@ fn is_bespoke_wired(name: &str) -> bool {
         name,
         "netstackd"
             | "dsoftbusd"
-            | "vfsd"
-            | "packagefsd"
             | "policyd"
             | "bundlemgrd"
             | "updated"
-            | "samgrd"
             | "execd"
             | "keystored"
-            | "statefsd"
             | "hidrawd"
             | "gpud"
             | "windowd"

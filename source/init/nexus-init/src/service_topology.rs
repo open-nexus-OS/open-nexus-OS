@@ -165,15 +165,39 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
     (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
-    // RFC-0069 batch 1 (regular services migrated onto the declarative arm).
+    // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd),    // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
+    (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ resolution (shared response ep)
+    (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
+    (ServiceId::Samgrd, ServiceId::Logd),     // structured logs via CAP_MOVE
+    (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
 ];
 
-/// Per-service expectations the orchestrator must satisfy (RFC-0066). A service
-/// that `exposes_server` must be given a server endpoint by init; `routes_to`
-/// must each appear in [`REQUIRED_ROUTES`]. This is the declaration the
-/// data-driven orchestrator (Phase 3) will consume to wire init generically.
+/// How a service receives the target's replies on a declared route (RFC-0069).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteKind {
+    /// Send on the target's request endpoint; replies arrive on the caller's
+    /// CAP_MOVE reply inbox (requires `reply_inbox`).
+    ReplyInbox,
+    /// Send on the target's request endpoint; replies arrive on the target's
+    /// pre-minted RESPONSE endpoint, shared directly (no reply inbox).
+    SharedResponse,
+}
+
+/// One declared outbound route (must appear in [`REQUIRED_ROUTES`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Route {
+    /// The callee.
+    pub to: ServiceId,
+    /// How replies come back.
+    pub kind: RouteKind,
+}
+
+/// Per-service expectations the orchestrator must satisfy (RFC-0066/0069). A
+/// service that `exposes_server` must be given a server endpoint by init;
+/// `routes_to` must each appear in [`REQUIRED_ROUTES`]. This is the declaration
+/// the data-driven orchestrator consumes to wire init generically.
 #[derive(Clone, Copy, Debug)]
 pub struct ServiceSpec {
     /// The service.
@@ -183,7 +207,11 @@ pub struct ServiceSpec {
     /// Init must provision a CAP_MOVE reply inbox for its outbound calls.
     pub reply_inbox: bool,
     /// Services it must be able to call (each must be in `REQUIRED_ROUTES`).
-    pub routes_to: &'static [ServiceId],
+    pub routes_to: &'static [Route],
+    /// Emit the `init: <svc> slots …` / `route->… ok` wire markers. True only
+    /// where the pre-migration bespoke arm printed them — migrated arms keep
+    /// byte-identical boot logs (RFC-0069 migration discipline).
+    pub announce: bool,
 }
 
 /// The declared specs for services that participate in the v6b chain. Grown
@@ -193,29 +221,70 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         id: ServiceId::Abilitymgr,
         exposes_server: true,
         reply_inbox: true,
-        routes_to: &[ServiceId::Bundlemgrd, ServiceId::Execd],
+        routes_to: &[
+            Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox },
+            Route { to: ServiceId::Execd, kind: RouteKind::ReplyInbox },
+        ],
+        announce: true,
     },
     ServiceSpec {
         id: ServiceId::Windowd,
         exposes_server: true,
         reply_inbox: true,
-        routes_to: &[ServiceId::Bundlemgrd],
+        routes_to: &[Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox }],
+        announce: true,
     },
-    // RFC-0069 batch 1: regular services wired ENTIRELY from the spec (the
+    // RFC-0069 batches 1+2: regular services wired ENTIRELY from the spec (the
     // bespoke arms are deleted). Their server pair is PRE-MINTED (see
     // `Endpoints::server_pair`) — the generic arm transfers it instead of
-    // creating a fresh endpoint.
+    // creating a fresh endpoint; `announce: false` because the deleted arms
+    // printed nothing.
     ServiceSpec {
         id: ServiceId::Rngd,
         exposes_server: true,
         reply_inbox: true,
-        routes_to: &[ServiceId::Logd, ServiceId::Policyd],
+        routes_to: &[
+            Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox },
+            Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox },
+        ],
+        announce: false,
     },
     ServiceSpec {
         id: ServiceId::Timed,
         exposes_server: true,
         reply_inbox: false,
         routes_to: &[],
+        announce: false,
+    },
+    ServiceSpec {
+        id: ServiceId::Vfsd,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[Route { to: ServiceId::Packagefsd, kind: RouteKind::SharedResponse }],
+        announce: false,
+    },
+    ServiceSpec {
+        id: ServiceId::Packagefsd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox }],
+        announce: false,
+    },
+    // Batch 3: their deleted arms printed the iw-gated `init: <svc> slots …`
+    // line — announce=true keeps print + init_caps tally parity.
+    ServiceSpec {
+        id: ServiceId::Samgrd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox }],
+        announce: true,
+    },
+    ServiceSpec {
+        id: ServiceId::Statefsd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox }],
+        announce: true,
     },
 ];
 
@@ -243,7 +312,9 @@ mod tests {
         assert!(exposes_server(b"abilitymgr"));
         assert!(exposes_server(b"windowd"));
         assert!(!exposes_server(b"definitely-not-a-service"));
-        assert_eq!(spec_for(b"abilitymgr").unwrap().routes_to, &[ServiceId::Bundlemgrd, ServiceId::Execd]);
+        let targets: alloc::vec::Vec<ServiceId> =
+            spec_for(b"abilitymgr").unwrap().routes_to.iter().map(|r| r.to).collect();
+        assert_eq!(targets, [ServiceId::Bundlemgrd, ServiceId::Execd]);
     }
 
     #[test]
@@ -271,13 +342,24 @@ mod tests {
     #[test]
     fn service_specs_match_required_routes() {
         for spec in SERVICE_SPECS {
-            for &to in spec.routes_to {
+            for route in spec.routes_to {
                 assert!(
-                    REQUIRED_ROUTES.contains(&(spec.id, to)),
+                    REQUIRED_ROUTES.contains(&(spec.id, route.to)),
                     "spec {:?} routes_to {:?} but it is not in REQUIRED_ROUTES",
                     spec.id,
-                    to
+                    route.to
                 );
+            }
+        }
+    }
+
+    /// A `ReplyInbox` route without a reply inbox can never receive its replies —
+    /// catch the contradiction at test time, not as a silent runtime dead-end.
+    #[test]
+    fn reply_inbox_routes_require_reply_inbox() {
+        for spec in SERVICE_SPECS {
+            if spec.routes_to.iter().any(|r| r.kind == RouteKind::ReplyInbox) {
+                assert!(spec.reply_inbox, "spec {:?} has ReplyInbox routes but no inbox", spec.id);
             }
         }
     }
@@ -289,7 +371,7 @@ mod tests {
         for (from, to) in REQUIRED_ROUTES {
             if let Some(spec) = SERVICE_SPECS.iter().find(|s| s.id == *from) {
                 assert!(
-                    spec.routes_to.contains(to),
+                    spec.routes_to.iter().any(|r| r.to == *to),
                     "route {from:?}->{to:?} not covered by {from:?}'s spec"
                 );
             }
