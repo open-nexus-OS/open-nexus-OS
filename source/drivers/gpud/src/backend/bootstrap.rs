@@ -167,8 +167,97 @@ impl VirtioGpuBackend {
         self.transfer_to_host_os(record, full)?;
         self.flush_rect_os(record, full)?;
         self.scanout_resource = Some(resource);
+        self.bootstrap_splash_live = true;
         Ok(())
     }
+
+    /// Re-render the bootstrap title line at `factor_q8/256` brightness and
+    /// present just that band — the boot-splash "breathe" during the 2D text
+    /// phase (before the GL scanout exists). The glyphs are procedural, so the
+    /// redraw needs no pristine copy: geometry never changes, only colour, and
+    /// every glyph pixel is overwritten in place. No-op once windowd's
+    /// framebuffer handoff replaced the bootstrap scanout.
+    pub(crate) fn pulse_bootstrap_title(&mut self, factor_q8: u32) -> Result<(), GfxError> {
+        if !self.bootstrap_splash_live {
+            return Ok(());
+        }
+        let Some(resource) = self.scanout_resource else {
+            return Ok(());
+        };
+        // Proof (once): the 2D splash pulse actually animates in this boot.
+        if !SPLASH_PULSE_LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            let _ = nexus_abi::debug_println("gpud: splash pulse alive");
+        }
+        let record = self.find_resource(resource).ok_or(GfxError::InvalidArgument)?;
+        let (width, height) = (record.width, record.height);
+        let pixel_len = width as usize * height as usize * 4;
+        if pixel_len > record.backing_len {
+            return Err(GfxError::ResourceExhausted);
+        }
+        let pixels =
+            unsafe { core::slice::from_raw_parts_mut(record.backing_va as *mut u8, pixel_len) };
+        // Must match the title line in `attach_bootstrap_text_scanout` exactly
+        // (same text/scale/position — only the colour breathes).
+        const TITLE_SCALE: u32 = 12;
+        let top_y = (height as i32 / 2) - 80;
+        let f = factor_q8.min(256);
+        let c = ((240 * f) / 256) as u8;
+        draw_centered_bootstrap_line(
+            pixels,
+            width,
+            height,
+            top_y,
+            "open nexus OS",
+            TITLE_SCALE,
+            [c, c, c, 255],
+        );
+        let band = Rect {
+            x: 0,
+            y: top_y.max(0) as u32,
+            width,
+            height: (7 * TITLE_SCALE).min(height),
+        };
+        self.transfer_to_host_os(record, band)?;
+        self.flush_rect_os(record, band)?;
+        Ok(())
+    }
+}
+
+/// Latches once the first 2D splash-pulse frame is presented (one proof marker
+/// per boot, no UART storm).
+static SPLASH_PULSE_LOGGED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Wall-clock anchor for the boot-splash pulse, latched on the first sample so
+/// the 2D text phase and the GL glow phase share ONE continuous breathing curve
+/// across the scanout switch (both render `f(now)` — cadence changes never bend
+/// the curve, they only sample it).
+static SPLASH_PULSE_ANCHOR_NS: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// One breathing cycle of the splash pulse.
+const SPLASH_PULSE_PERIOD_NS: u64 = 1_200_000_000;
+
+/// Brightness dip per step — one (1-cos)/2 cycle over 32 steps, max dip 56/256
+/// (~22% dimming at the trough). A LUT keeps this integer-only (no float/libm
+/// in the no_std service) — smooth enough at this amplitude.
+const SPLASH_PULSE_DIP: [u8; 32] = [
+    0, 1, 2, 5, 8, 12, 17, 23, 28, 33, 39, 44, 48, 51, 54, 55, 56, 55, 54, 51, 48, 44, 39, 33, 28,
+    23, 17, 12, 8, 5, 2, 1,
+];
+
+/// Boot-splash brightness factor in q8 (256 = full brightness) at `now_ns`.
+pub(crate) fn splash_pulse_q8(now_ns: u64) -> u32 {
+    let _ = SPLASH_PULSE_ANCHOR_NS.compare_exchange(
+        0,
+        now_ns.max(1),
+        core::sync::atomic::Ordering::Relaxed,
+        core::sync::atomic::Ordering::Relaxed,
+    );
+    let anchor = SPLASH_PULSE_ANCHOR_NS.load(core::sync::atomic::Ordering::Relaxed);
+    let t = now_ns.saturating_sub(anchor) % SPLASH_PULSE_PERIOD_NS;
+    let idx = ((t.saturating_mul(32)) / SPLASH_PULSE_PERIOD_NS) as usize % 32;
+    256 - SPLASH_PULSE_DIP[idx] as u32
 }
 
 const BOOT_FONT_W: i32 = 5;

@@ -187,6 +187,14 @@ fn service_requests(
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
     let mut active_handoff_id: u32 = 0;
+    // One-shot flag for the hold-tick liveness marker below (diagnosis: do the
+    // recv-timeout self-ticks actually fire while the boot splash is held?).
+    #[cfg(all(nexus_env = "os", feature = "virgl"))]
+    let mut hold_tick_logged = false;
+    // Rate limiter for the 2D bootstrap-splash pulse (~30Hz redraw of the title
+    // band; the recv timeout ticks faster than the curve needs).
+    #[cfg(all(nexus_env = "os", feature = "virgl"))]
+    let mut last_splash_pulse_ns: u64 = 0;
     // Persistent present buffer: reused (reload_from) for every frame so gpud
     // does NOT allocate a fresh Vec<Command> per present. gpud runs on a
     // non-freeing bump allocator; a per-frame deserialize Vec would leak and
@@ -223,7 +231,10 @@ fn service_requests(
         // frame, so gpud must drive the reveal itself rather than block until windowd
         // recovers (seconds later). Once revealed, this reverts to Blocking (fully reactive).
         #[cfg(all(nexus_env = "os", feature = "virgl"))]
-        let wait = if spin_demo_active || backend.is_holding_boot_splash() {
+        let wait = if spin_demo_active
+            || backend.is_holding_boot_splash()
+            || backend.bootstrap_splash_active()
+        {
             Wait::Timeout(Duration::from_nanos(SPIN_DEMO_PERIOD_NS))
         } else {
             Wait::Blocking
@@ -435,18 +446,35 @@ fn service_requests(
                 // instead of waiting for the next self-tick (~250 ms observed),
                 // so the desktop appears the moment it is ready. Reply was sent
                 // first, so windowd is never blocked behind this present.
+                // One line per boot: names WHICH branch ran, so a boot log pins
+                // why a late reveal happened without another instrumentation loop.
+                // Gate on `is_holding_boot_splash()` (GL scanout up + splash still
+                // held) — NOT on `active_handoff_id`: the running handoff flow's
+                // attach frame is the 1-byte id-less form, so the id stays 0 and
+                // had silently disabled this kick (and the hold tick) in every boot.
                 #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                if op == OP_UPLOAD_CURSOR
-                    && status == STATUS_OK
-                    && active_handoff_id != 0
-                    && backend.is_holding_boot_splash()
-                {
-                    let _ = backend.present_scanout_damage(Rect {
-                        x: 0,
-                        y: 0,
-                        width: DISPLAY_WIDTH,
-                        height: DISPLAY_HEIGHT,
+                if op == OP_UPLOAD_CURSOR {
+                    let armed = status == STATUS_OK && backend.is_holding_boot_splash();
+                    let _ = debug_println(match (armed, status == STATUS_OK) {
+                        (true, _) => "gpud: reveal kick",
+                        (false, false) => "gpud: reveal kick skipped (cursor status)",
+                        (false, _) => "gpud: reveal kick skipped (not holding)",
                     });
+                    if armed {
+                        let _ = backend.present_scanout_damage(Rect {
+                            x: 0,
+                            y: 0,
+                            width: DISPLAY_WIDTH,
+                            height: DISPLAY_HEIGHT,
+                        });
+                        if backend.is_holding_boot_splash() {
+                            let _ = debug_println(if backend.cursor_tex_ready() {
+                                "gpud: reveal kick held (plane0 empty)"
+                            } else {
+                                "gpud: reveal kick held (cursor tex not ready)"
+                            });
+                        }
+                    }
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
@@ -456,19 +484,45 @@ fn service_requests(
                 // present loop after the first frame. Also serves the spin-blur demo. Once
                 // the desktop is revealed `is_holding_boot_splash()` goes false and gpud
                 // stops self-ticking (back to a blocking, reactive recv).
+                // One-shot liveness proof: boots showed reveals riding ONLY on windowd
+                // presents, so pin whether this timeout path fires at all while holding.
                 #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                let presented = (spin_demo_active || backend.is_holding_boot_splash())
-                    && active_handoff_id != 0
-                    && {
-                        present_buildup_tick(
-                            &mut backend,
-                            &mut present_count,
-                            &mut present_ns_sum,
-                            &mut present_ns_max,
-                            PRESENT_STATS_WINDOW,
-                        );
-                        true
-                    };
+                if !hold_tick_logged && backend.is_holding_boot_splash() {
+                    hold_tick_logged = true;
+                    let _ = debug_println("gpud: hold tick alive");
+                }
+                // The hold-phase tick gates on `is_holding_boot_splash()` alone —
+                // holding implies the GL scanout is attached (gl_scanout_active),
+                // which is what the old `active_handoff_id != 0` guard was meant to
+                // prove. The id stays 0 in the running id-less handoff flow, so
+                // that guard had silently disabled every hold tick (reveals only
+                // ever rode on windowd presents). The spin demo keeps the id gate.
+                #[cfg(all(nexus_env = "os", feature = "virgl"))]
+                let presented = if backend.bootstrap_splash_active() {
+                    // 2D text phase (before windowd's handoff): breathe the title
+                    // line so the very first thing on screen already lives. ~30Hz
+                    // redraw is plenty for the slow curve; the wall-clock pulse
+                    // stays continuous into the GL splash after the switch.
+                    let now = nsec().unwrap_or(0);
+                    if now.saturating_sub(last_splash_pulse_ns) >= 33_000_000 {
+                        last_splash_pulse_ns = now;
+                        let _ = backend.pulse_bootstrap_title(crate::backend::splash_pulse_q8(now));
+                    }
+                    true
+                } else {
+                    ((spin_demo_active && active_handoff_id != 0)
+                        || backend.is_holding_boot_splash())
+                        && {
+                            present_buildup_tick(
+                                &mut backend,
+                                &mut present_count,
+                                &mut present_ns_sum,
+                                &mut present_ns_max,
+                                PRESENT_STATS_WINDOW,
+                            );
+                            true
+                        }
+                };
                 #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
                 let presented = false;
                 if !presented {

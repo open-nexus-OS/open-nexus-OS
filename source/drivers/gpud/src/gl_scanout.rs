@@ -169,6 +169,23 @@ const FS_BLIT: &str = "FRAG\n\
     MOV OUT[0], TEMP[1]\n\
     END\n";
 
+/// Tinted variant of `FS_BLIT` for the boot-splash hold phase only: the sampled
+/// colour is multiplied by CONST[1] (the breathing brightness). A SEPARATE
+/// shader so the shared display blit path keeps its untouched fast shader —
+/// zero blast radius on steady-state presents.
+const H_FS_BLIT_TINT: u32 = 15;
+const FS_BLIT_TINT: &str = "FRAG\n\
+    DCL IN[0], POSITION, LINEAR\n\
+    DCL OUT[0], COLOR\n\
+    DCL SAMP[0]\n\
+    DCL SVIEW[0], 2D, FLOAT\n\
+    DCL CONST[0..1]\n\
+    DCL TEMP[0..1]\n\
+    MAD TEMP[0].xy, IN[0].xyyy, CONST[0].xyyy, CONST[0].zwww\n\
+    TEX TEMP[1], TEMP[0], SAMP[0], 2D\n\
+    MUL OUT[0], TEMP[1], CONST[1]\n\
+    END\n";
+
 impl VirtioGpuBackend {
     /// G0: create the GL scanout render target, point the display at it, and
     /// prove the GPU can put pixels on it (clear + flush). Requires the virgl
@@ -357,6 +374,7 @@ impl VirtioGpuBackend {
         s.emit_create_sampler_view(H_SV_DISPLAY_TEX, H_DISPLAY_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
         s.emit_create_sampler_view(H_SV_WALLPAPER, H_WALLPAPER_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
         s.emit_create_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT, FS_BLIT);
+        s.emit_create_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT, FS_BLIT_TINT);
         // G0 proof: GPU-clear the scanout RT so the first flip shows GPU output
         // (dark slate, replaced by the real UI on the first present).
         s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
@@ -376,7 +394,11 @@ impl VirtioGpuBackend {
         // never the bare clear above. Same fullscreen wallpaper-tex blit as the
         // build-up present's stage-1 (the texture was seeded with the splash image
         // earlier in this fn); enqueued in the same batch, so ring order
-        // guarantees it lands before SET_SCANOUT below.
+        // guarantees it lands before SET_SCANOUT below. Tinted with the shared
+        // pulse curve so this frame is phase-continuous with the 2D text pulse
+        // before it and the hold-phase breathing after it.
+        let splash_f =
+            crate::backend::splash_pulse_q8(nexus_abi::nsec().unwrap_or(0)) as f32 / 256.0;
         let mut sp = Submit3d::new();
         sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
         sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
@@ -388,10 +410,19 @@ impl VirtioGpuBackend {
         sp.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
         sp.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
-            &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+            &[
+                1.0 / SCREEN_W as f32,
+                1.0 / SCREEN_H as f32,
+                0.0,
+                0.0,
+                splash_f,
+                splash_f,
+                splash_f,
+                1.0,
+            ],
         );
         sp.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        sp.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
+        sp.emit_bind_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT);
         sp.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
         sp.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
         let sp_bytes = sp.as_bytes();
@@ -720,6 +751,13 @@ impl VirtioGpuBackend {
         // their one-time CREATE_OBJECT commands are validated outside the batch and
         // can't silently fail inside it. Idempotent — a no-op after the first present.
         let _ = self.virgl_vector_init();
+        // One-shot: upload the real cursor sprite (windowd's Mocu cursor, set via
+        // store_cursor_sprite) into its GL texture + pre-warm the layer shader, so
+        // the cursor composites as a proper layer below. Outside the batch — and
+        // BEFORE the reveal gate samples `cursor_tex_ready()`: the present that a
+        // cursor upload triggers must be able to reveal in the SAME pass (sampling
+        // first left the gate one tick behind, ~234 ms observed).
+        let _ = self.cursor_tex_init();
 
         // Atomic boot reveal: keep presenting ONLY the logo splash (the clear + seeded
         // wallpaper-texture blit below) until the whole desktop can appear at once —
@@ -766,10 +804,6 @@ impl VirtioGpuBackend {
             });
             self.try_upload_wallpaper_from_vmo();
         }
-        // One-shot: upload the real cursor sprite (windowd's Mocu cursor, set via
-        // store_cursor_sprite) into its GL texture + pre-warm the layer shader, so
-        // the cursor composites as a proper layer below. Outside the batch.
-        let _ = self.cursor_tex_init();
         // Batch the whole present: every SUBMIT_3D draw below + the final flush is
         // ENQUEUED into the multi-entry ring without a per-command wait, then drained
         // once at the end. A textured (sampling) draw whose completion QEMU defers no
@@ -793,6 +827,11 @@ impl VirtioGpuBackend {
         // sampling a texture uploaded once presents — vs the per-frame-transfer
         // content path (black).
         if COMPOSITOR_STAGE >= 1 {
+            // While the splash is still held, the blit breathes via the tinted
+            // shader (shared wall-clock curve — continuous with the 2D text
+            // pulse and the init-batch splash frame). Once the real wallpaper
+            // is uploaded (reveal), the untouched fast blit takes over.
+            let holding_pulse = !self.wallpaper_from_vmo_uploaded;
             let mut sw = Submit3d::new();
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
@@ -802,12 +841,23 @@ impl VirtioGpuBackend {
             sw.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
             sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
             sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
-            sw.emit_set_constant_buffer(
-                PIPE_SHADER_FRAGMENT,
-                &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
-            );
-            sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-            sw.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
+            if holding_pulse {
+                let f = crate::backend::splash_pulse_q8(nexus_abi::nsec().unwrap_or(0)) as f32
+                    / 256.0;
+                sw.emit_set_constant_buffer(
+                    PIPE_SHADER_FRAGMENT,
+                    &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0, f, f, f, 1.0],
+                );
+                sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+                sw.emit_bind_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT);
+            } else {
+                sw.emit_set_constant_buffer(
+                    PIPE_SHADER_FRAGMENT,
+                    &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+                );
+                sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
+                sw.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
+            }
             sw.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
             sw.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
             let wb = sw.as_bytes();

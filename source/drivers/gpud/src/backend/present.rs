@@ -50,6 +50,9 @@ impl VirtioGpuBackend {
         if !self.probed {
             return Err(GfxError::DeviceNotFound);
         }
+        // windowd's framebuffer replaces the bootstrap scanout — stop the 2D
+        // splash pulse (the GL hold phase takes the breathing over from here).
+        self.bootstrap_splash_live = false;
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(vmo_slot, &mut info).map_err(|e| {
             let _ = nexus_abi::debug_println("gpud: ERROR cap_query failed");

@@ -61,6 +61,11 @@ pub(crate) use transport::*;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(unused_imports)]
 pub(crate) use virtqueue::*;
+// The shared boot-splash pulse curve (bootstrap.rs) — sampled by both the 2D
+// text phase (service tick) and the GL splash blits (gl_scanout), so the
+// breathing stays continuous across the scanout switch.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) use bootstrap::splash_pulse_q8;
 
 // Bring the moved free-function clusters into the parent namespace so the impl
 // blocks still in this file resolve them by bare name (zero call-site churn).
@@ -148,6 +153,12 @@ pub struct VirtioGpuBackend {
     #[allow(dead_code)]
     ctrl_batch: bool,
     cursor_saveunder: alloc::vec::Vec<u8>,
+    /// True while the early 2D bootstrap text scanout is what's on screen — the
+    /// window where the boot-splash pulse breathes the title line. Set by
+    /// `attach_bootstrap_text_scanout`, cleared when windowd's framebuffer
+    /// handoff replaces the bootstrap scanout.
+    #[allow(dead_code)]
+    bootstrap_splash_live: bool,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     ctrlq: Option<CtrlQueue>,
     /// virtio-gpu cursor virtqueue (index 1) — carries UPDATE_CURSOR / MOVE_CURSOR
@@ -324,6 +335,13 @@ impl VirtioGpuBackend {
         }
     }
 
+    /// True while the early 2D bootstrap text scanout is on screen — the phase
+    /// the boot-splash pulse animates before the GL scanout takes over.
+    #[allow(dead_code)]
+    pub(crate) fn bootstrap_splash_active(&self) -> bool {
+        self.bootstrap_splash_live
+    }
+
     /// Create a new backend. Does NOT probe — call probe() separately.
     pub fn new(mmio_base: usize, mmio_len: usize) -> Self {
         Self {
@@ -359,6 +377,7 @@ impl VirtioGpuBackend {
             ctrl_batch: false,
             cursor_dh: 0,
             cursor_saveunder: alloc::vec::Vec::new(),
+            bootstrap_splash_live: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
