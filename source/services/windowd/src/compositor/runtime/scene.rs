@@ -47,17 +47,17 @@ impl DisplayServerRuntime {
             self.chat.surface_dirty = false;
         }
         // Shell-P2b: (re)render the glass topbar layer surface when dirty.
-        if self.shell_config.desktop_chrome && self.shell_surface_dirty {
+        if self.chrome_composited() && self.shell_surface_dirty {
             self.render_shell_surface()?;
             self.shell_surface_dirty = false;
         }
         // Shell-P2b: (re)render the glass side panel surface when dirty.
-        if self.shell_config.desktop_chrome && self.sidepanel_surface_dirty {
+        if self.chrome_composited() && self.sidepanel_surface_dirty {
             self.render_sidepanel_surface()?;
             self.sidepanel_surface_dirty = false;
         }
         // Shell-P2b: (re)render the Apps dropdown surface when dirty.
-        if self.shell_config.desktop_chrome && self.dropdown_surface_dirty {
+        if self.chrome_composited() && self.dropdown_surface_dirty {
             self.render_dropdown_surface()?;
             self.dropdown_surface_dirty = false;
         }
@@ -169,6 +169,10 @@ impl DisplayServerRuntime {
             overlaps(sx as i32, 0, mode.width as i32, mode.height as i32)
         };
 
+        // Chrome-composite decision hoisted before the encoder borrows
+        // `self.scene_cb` (a method call inside would re-borrow all of self).
+        let chrome_composited = self.chrome_composited();
+        let greeter_active = self.greeter_active();
         self.scene_cb.clear();
         {
             let mut encoder = self
@@ -200,7 +204,7 @@ impl DisplayServerRuntime {
             //     the virgl scanout (the retained Plane 1 does not). Rendered like
             //     the chat window: translucent tint + opaque text in the atlas,
             //     glass effects applied here by the composite.
-            if self.shell_config.desktop_chrome && shell_w > 0 && shell_h > 0 {
+            if chrome_composited && shell_w > 0 && shell_h > 0 {
                 use crate::compositor::desktop_layer::{TOPBAR_MARGIN_X, TOPBAR_RADIUS, TOPBAR_TOP};
                 // Proven glass recipe (same as the glass buttons): restore the
                 // clean backdrop from the retained plane, blur it in place, THEN
@@ -221,7 +225,7 @@ impl DisplayServerRuntime {
 
             // 1·dropdown. Apps dropdown — a small glass menu under the topbar
             //     "Apps" item, revealed (roll-down + fade) by the dropdown spring.
-            if self.shell_config.desktop_chrome && dropdown_progress > 0.01 {
+            if chrome_composited && dropdown_progress > 0.01 {
                 use crate::compositor::desktop_layer::{
                     apps_item_x, DROPDOWN_RADIUS, DROPDOWN_W, TOPBAR_MARGIN_X, TOPBAR_TOP, TOPBAR_H,
                 };
@@ -249,7 +253,7 @@ impl DisplayServerRuntime {
             //     sidebar spring. Same proven recipe as the topbar: restore +
             //     pre-blur the panel's current rect, then composite the atlas with
             //     rounded corners + drop shadow on top (backdrop_blur=0).
-            if self.shell_config.desktop_chrome && sidepanel_opacity > 0.01 {
+            if chrome_composited && sidepanel_opacity > 0.01 {
                 use crate::compositor::desktop_layer::{
                     SIDEPANEL_MARGIN, SIDEPANEL_RADIUS, SIDEPANEL_TOP, SIDEPANEL_W,
                 };
@@ -369,6 +373,7 @@ impl DisplayServerRuntime {
             // hamburger button (which would overlap the topbar) is suppressed.
             if !USE_DESKTOP_SHELL
                 && !self.shell_config.desktop_chrome
+                && !greeter_active
                 && button_blit_w > 0
                 && !button_covered
                 && (button_touched || !btn_blur_cache_valid)
@@ -577,6 +582,7 @@ impl DisplayServerRuntime {
             // sidebar persists on the display plane — no per-present blur/SDF work.
             if !USE_DESKTOP_SHELL
                 && !self.shell_config.desktop_chrome
+                && !greeter_active
                 && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {

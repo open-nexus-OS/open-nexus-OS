@@ -76,10 +76,8 @@ impl DisplayServerRuntime {
                 self.apply_session_shell(product);
             }
             wire::STATE_GREETER => {
-                // Greeter UI lands with the next batch (TASK-0065B Phase 2);
-                // until then a greeter-configured manifest must not black out
-                // the boot — run the auto shell and say so honestly.
-                let _ = debug_println("windowd: greeter pending (ui next batch)");
+                // The login window owns the display until a user logs in.
+                self.start_greeter(&snapshot.users);
             }
             _ => {
                 let _ = debug_println("windowd: session unavailable (auto shell)");
@@ -89,7 +87,7 @@ impl DisplayServerRuntime {
 
     /// Apply the session-selected shell product. Identical product = today's
     /// boot config already renders — marker only, zero visual change.
-    fn apply_session_shell(&mut self, product: &str) {
+    pub(super) fn apply_session_shell(&mut self, product: &str) {
         if product != self.shell_config.product_id {
             match systemui::resolve_product(product) {
                 Ok(cfg) => self.apply_shell_config(systemui::ShellConfig::from_resolved(&cfg)),

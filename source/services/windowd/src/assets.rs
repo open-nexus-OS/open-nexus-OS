@@ -33,6 +33,9 @@ pub const MENU_ICON_BGRA: &[u8] = generated::MENU_ICON_BGRA;
 pub const MENU_ICON_DIM: u32 = generated::MENU_ICON_DIM;
 pub const CLOSE_ICON_BGRA: &[u8] = generated::CLOSE_ICON_BGRA;
 pub const CLOSE_ICON_DIM: u32 = generated::CLOSE_ICON_DIM;
+/// Greeter avatar glyph (TASK-0065B): Lucide `circle-user`, straight-alpha white.
+pub const GREETER_AVATAR_ICON_BGRA: &[u8] = generated::GREETER_AVATAR_ICON_BGRA;
+pub const GREETER_AVATAR_ICON_DIM: u32 = generated::GREETER_AVATAR_ICON_DIM;
 
 pub struct ProofTextAsset {
     pub width: u32,

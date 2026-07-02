@@ -1,0 +1,20 @@
+# SystemUI greeter (login window) appearance manifest (TASK-0065B).
+# SystemUI owns what the login window looks like — windowd only renders it.
+# All pixel values are display pixels at the canonical 1280x800 mode.
+
+id = "default"
+label = "Default greeter"
+
+[backdrop]
+# Box-blur radius applied to the wallpaper (separable, one-time bake).
+blur_radius = 18
+# Dark tint multiplied over the blurred wallpaper, 0..255 (255 = unchanged).
+dim = 176
+
+[avatar]
+# Avatar circle diameter.
+diameter = 96
+# Ring stroke width around the circle.
+ring_stroke = 3
+# Vertical gap between the circle and the user-name label.
+label_gap = 18

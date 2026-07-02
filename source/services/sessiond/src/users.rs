@@ -164,8 +164,8 @@ mod tests {
         assert_eq!(registry.users[0].id, "jenning");
         assert_eq!(registry.users[0].display_name, "Jenning");
         assert_eq!(registry.users[0].product, "default");
-        // Phase 1 ships auto-login; the greeter phase drops the line.
-        assert_eq!(registry.auto_login, Some(0));
+        // The shipped manifest boots into the greeter (no auto-login).
+        assert_eq!(registry.auto_login, None);
         assert_eq!(registry.find("jenning"), Some(0));
         assert_eq!(registry.find("nobody"), None);
     }

@@ -177,6 +177,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (name, dim, svg) in [
         ("MENU_ICON", 26u32, include_str!("../../../resources/icons/lucide/icons/menu.svg")),
         ("CLOSE_ICON", 20u32, include_str!("../../../resources/icons/lucide/icons/x.svg")),
+        // Greeter avatar glyph (TASK-0065B): a user inside a circle, blended
+        // into the login window's avatar disc.
+        (
+            "GREETER_AVATAR_ICON",
+            64u32,
+            include_str!("../../../resources/icons/lucide/icons/circle-user.svg"),
+        ),
     ] {
         const SS: u32 = 4;
         let hi = nexus_svg::render_svg_tinted_at(svg, (255, 255, 255), dim * SS, dim * SS)

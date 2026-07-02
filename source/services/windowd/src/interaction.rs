@@ -130,6 +130,9 @@ pub(crate) enum ClickAction {
     ToggleChat,
     /// Cursor is over the left proof/test panel → focus it (filter input).
     FocusPanel,
+    /// Cursor is over the greeter's user avatar → log that user in
+    /// (TASK-0065B; only reachable while the greeter owns the display).
+    GreeterUser,
     /// Click landed on nothing interactive.
     None,
 }
@@ -278,6 +281,50 @@ pub(crate) fn resolve_click(
     ClickAction::None
 }
 
+/// The greeter's clickable avatar card (circle + name label), centered on the
+/// display. Geometry SSOT shared by the renderer and hit-testing; sized from
+/// the SystemUI greeter config's avatar diameter (padding for label + hover).
+pub(crate) fn greeter_avatar_rect(mode: VisibleBootstrapMode, avatar_diameter: u32) -> HitRect {
+    // Card = circle + label band below; generous horizontal padding so the
+    // name stays inside the hover/redraw region.
+    let card_w = avatar_diameter.max(160) + 48;
+    let card_h = avatar_diameter + 64;
+    HitRect {
+        x: mode.width.saturating_sub(card_w) / 2,
+        y: mode.height.saturating_sub(card_h) / 2,
+        width: card_w.min(mode.width),
+        height: card_h.min(mode.height),
+    }
+}
+
+/// Session-aware click resolution (TASK-0065B): while the greeter owns the
+/// display ONLY the avatar is interactive — every shell affordance (sidebar,
+/// chat, hotspot) is unreachable. This is windowd's pre-session launch gating,
+/// host-tested. When no greeter is active it defers to [`resolve_click`].
+pub(crate) fn resolve_click_session(
+    mode: VisibleBootstrapMode,
+    sidebar_open: bool,
+    greeter_avatar: Option<HitRect>,
+    x: i32,
+    y: i32,
+) -> ClickAction {
+    match greeter_avatar {
+        Some(rect) => {
+            if rect_contains(rect, x, y) {
+                ClickAction::GreeterUser
+            } else {
+                ClickAction::None
+            }
+        }
+        None => resolve_click(mode, sidebar_open, x, y),
+    }
+}
+
+/// Greeter hover feedback: true while the cursor is over the avatar card.
+pub(crate) fn hover_over_greeter(rect: HitRect, x: i32, y: i32) -> bool {
+    rect_contains(rect, x, y)
+}
+
 /// Resolve which scrollable a wheel event belongs to, by the cursor position.
 /// `chat_bounds` is the chat window's CURRENT on-screen rect (None when the
 /// window is closed) — the wheel target follows a dragged window instead of
@@ -304,6 +351,69 @@ mod tests {
 
     fn mode() -> VisibleBootstrapMode {
         VisibleBootstrapMode::fixed().expect("fixed mode")
+    }
+
+    #[test]
+    fn greeter_click_hits_avatar_and_nothing_else() {
+        let m = mode();
+        let rect = greeter_avatar_rect(m, 96);
+        let (cx, cy) = (
+            (rect.x + rect.width / 2) as i32,
+            (rect.y + rect.height / 2) as i32,
+        );
+        // Center of the card logs in.
+        assert_eq!(
+            resolve_click_session(m, false, Some(rect), cx, cy),
+            ClickAction::GreeterUser
+        );
+        // The card is centered on the display.
+        assert_eq!(rect.x + rect.width / 2, m.width / 2);
+        // Outside the card: nothing (even on the sidebar button — the shell
+        // affordances are unreachable while the greeter owns the display).
+        let btn = button_rect(m.width);
+        assert_eq!(
+            resolve_click_session(
+                m,
+                false,
+                Some(rect),
+                (btn.x + btn.width / 2) as i32,
+                (btn.y + btn.height / 2) as i32
+            ),
+            ClickAction::None
+        );
+        // Corner hotspot region is dead too.
+        assert_eq!(
+            resolve_click_session(m, false, Some(rect), 4, (m.height - 4) as i32),
+            ClickAction::None
+        );
+    }
+
+    #[test]
+    fn greeter_gate_off_defers_to_shell_clicks() {
+        let m = mode();
+        let btn = button_rect(m.width);
+        assert_eq!(
+            resolve_click_session(
+                m,
+                false,
+                None,
+                (btn.x + btn.width / 2) as i32,
+                (btn.y + btn.height / 2) as i32
+            ),
+            ClickAction::ToggleSidebar
+        );
+    }
+
+    #[test]
+    fn greeter_hover_tracks_avatar() {
+        let m = mode();
+        let rect = greeter_avatar_rect(m, 96);
+        assert!(hover_over_greeter(
+            rect,
+            (rect.x + 1) as i32,
+            (rect.y + 1) as i32
+        ));
+        assert!(!hover_over_greeter(rect, 0, 0));
     }
 
     #[test]

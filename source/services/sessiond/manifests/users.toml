@@ -7,10 +7,9 @@
 # for that user without the greeter (proof lanes / kiosk deployments). Absent
 # or omitted = the greeter owns the display until a login.
 
+# No auto_login: the greeter owns the display until a login (TASK-0065B).
+# Proof lanes that need an unattended shell set e.g. `auto_login = "jenning"`.
 [session]
-# Phase 1 bring-up: auto-login keeps the boot visually identical while the
-# protocol + wiring land. Phase 2 (greeter visuals) removes this line.
-auto_login = "jenning"
 
 [user.jenning]
 display_name = "Jenning"

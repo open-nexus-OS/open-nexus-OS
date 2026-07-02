@@ -108,6 +108,7 @@ mod search;
 mod present;
 mod scene;
 mod session;
+mod greeter;
 
 // The split-out `impl` submodules live one module deeper than the original
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
@@ -451,6 +452,10 @@ pub(crate) struct DisplayServerRuntime {
     /// whether a session is active (apply its shell product) or the greeter
     /// owns the display. Bounded; unreachable = auto shell, never a brick.
     session_probe: session::SessionProbe,
+    /// The login greeter, while it owns the display (TASK-0065B): blurred
+    /// wallpaper + avatar card baked into Plane 1; all shell affordances
+    /// suppressed until sessiond accepts a login.
+    greeter: Option<greeter::GreeterState>,
 }
 
 #[derive(Default)]
@@ -799,6 +804,7 @@ impl DisplayServerRuntime {
             app_menu,
             app_menu_fetched: false,
             session_probe: session::SessionProbe::default(),
+            greeter: None,
             search,
             search_filtered: {
                 let mut v = Vec::new();

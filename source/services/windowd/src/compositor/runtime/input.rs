@@ -94,12 +94,35 @@ impl DisplayServerRuntime {
         // press on the close button closes it. Both consume the press so it does
         // not also hit the panel/sidebar logic below.
         let mut window_consumed_press = false;
+        // Login greeter gate (TASK-0065B): while the greeter owns the display
+        // the avatar is the ONLY interactive element — hotspot, windows and
+        // chrome below are unreachable (windowd's pre-session launch gating,
+        // host-tested in `interaction::resolve_click_session`). Hover feedback
+        // tracks every pointer move.
+        let greeter_rect = self.greeter_hit_rect();
+        if greeter_rect.is_some() {
+            self.update_greeter_hover(cursor_x, cursor_y);
+            if primary_press {
+                window_consumed_press = true;
+                if crate::interaction::resolve_click_session(
+                    mode,
+                    false,
+                    greeter_rect,
+                    cursor_x,
+                    cursor_y,
+                ) == crate::interaction::ClickAction::GreeterUser
+                {
+                    self.greeter_login_click();
+                }
+            }
+        }
         // Shell switcher hotspot: a fixed bottom-left corner (always wallpaper, no
         // chrome conflict) cycles the active shell via SystemUI's resolver
         // (desktop → tablet → kiosk → …). Reachable in EVERY shell — even a kiosk
         // with no topbar — so the runtime switch is always demonstrable. Checked
         // first so it consumes the press before the windows/chrome below.
         if primary_press
+            && !window_consumed_press
             && cursor_x >= 0
             && cursor_x < 28
             && cursor_y >= (mode.height as i32 - 28)
@@ -170,7 +193,7 @@ impl DisplayServerRuntime {
 
         // Shell-P2b: the topbar menu icon (right) toggles the animated side
         // panel — the same scene-graph-driven slide animation as the hamburger.
-        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
+        if primary_press && !window_consumed_press && self.chrome_composited() {
             use crate::compositor::desktop_layer::{topbar_menu_icon_hit, TOPBAR_MARGIN_X, TOPBAR_TOP};
             if cursor_x >= TOPBAR_MARGIN_X as i32 && cursor_y >= TOPBAR_TOP as i32 {
                 let lx = (cursor_x - TOPBAR_MARGIN_X as i32) as u32;
@@ -188,7 +211,7 @@ impl DisplayServerRuntime {
         }
 
         // Topbar "Apps" item click → toggle the animated dropdown.
-        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome {
+        if primary_press && !window_consumed_press && self.chrome_composited() {
             use crate::compositor::desktop_layer::{topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP};
             if cursor_y >= TOPBAR_TOP as i32
                 && cursor_y < (TOPBAR_TOP + TOPBAR_H) as i32
@@ -220,7 +243,7 @@ impl DisplayServerRuntime {
 
         // Apps dropdown item clicks: Chat opens the chat window; Search opens the
         // search window (next phase).
-        if primary_press && !window_consumed_press && self.shell_config.desktop_chrome && self.apps_dropdown_open {
+        if primary_press && !window_consumed_press && self.chrome_composited() && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
                 apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
@@ -277,6 +300,9 @@ impl DisplayServerRuntime {
                 ClickAction::FocusPanel => {
                     self.state.focus_visible = true;
                 }
+                // Unreachable here: greeter presses are consumed above (the
+                // greeter gate); kept explicit so the enum stays exhaustive.
+                ClickAction::GreeterUser => {}
                 ClickAction::None => {}
             }
         }
@@ -294,7 +320,7 @@ impl DisplayServerRuntime {
         // Shell-P2b: topbar hover. Recompute the hovered item from the cursor and,
         // on change, re-render the topbar atlas + damage its band so the present
         // recomposites with the new hover highlight.
-        if self.shell_config.desktop_chrome {
+        if self.chrome_composited() {
             use crate::compositor::desktop_layer::{
                 topbar_item_at, topbar_menu_icon_hit, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
@@ -323,7 +349,7 @@ impl DisplayServerRuntime {
             }
         }
         // Apps dropdown row hover (only while the dropdown is open).
-        if self.shell_config.desktop_chrome && self.apps_dropdown_open {
+        if self.chrome_composited() && self.apps_dropdown_open {
             use crate::compositor::desktop_layer::{
                 apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
