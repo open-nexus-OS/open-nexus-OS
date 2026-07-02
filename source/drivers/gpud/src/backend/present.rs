@@ -162,7 +162,17 @@ impl VirtioGpuBackend {
                         let _ = nexus_abi::trace_line("gpud: resource flush ok");
                         return Ok(());
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        // Name the failing class at the source (RFC-0066 clean
+                        // errors): a silent fallback cost a debug cycle once.
+                        let _ = nexus_abi::debug_println(match e {
+                            GfxError::DeviceNotFound => "gpud: gl init err device-not-found",
+                            GfxError::MmioFault => "gpud: gl init err mmio-fault",
+                            GfxError::CommandRejected => "gpud: gl init err command-rejected",
+                            GfxError::ResourceExhausted => "gpud: gl init err resource-exhausted",
+                            GfxError::Unsupported => "gpud: gl init err unsupported",
+                            GfxError::InvalidArgument => "gpud: gl init err invalid-argument",
+                        });
                         // virgl scanout failed: create the 2D resource that was
                         // skipped above (use_virgl_scanout) so the proven 2D
                         // scanout path below can take over.

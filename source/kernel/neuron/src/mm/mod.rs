@@ -22,7 +22,13 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 /// The live interactive UI lane needs enough headroom for the full ramfb-sized
 /// framebuffer VMO after normal service bring-up has already allocated virtio,
 /// exec, metadata, and proof buffers.
-pub const USER_VMO_ARENA_LEN: usize = 64 * 1024 * 1024; // 64MB — headroom for 16MB framebuffer VMO
+// 96MB: the pool is bump-only (never frees), and 64MB was exactly exhausted the
+// moment one more service (sessiond) loaded its ELF+stack — gpud's late 4MB GL
+// backings then failed with resource-exhausted and the GL compositor silently
+// fell back to 2D. Machine RAM is 320M (qemu-launcher), so the identity-mapped
+// arena ending at 0x8780_0000 leaves ample headroom. Follow-up hygiene: free
+// dead one-shot VMOs (the 4MB bootstrap-splash resource) instead of growing.
+pub const USER_VMO_ARENA_LEN: usize = 96 * 1024 * 1024;
 /// Base address of the kernel-managed user VMO arena.
 pub const USER_VMO_ARENA_BASE: usize = 0x8180_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.

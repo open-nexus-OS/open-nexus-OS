@@ -93,7 +93,12 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // GPUD_READY below; FAIL lines still print live; proof boots emit everything raw.
     nexus_abi::service_verdict_arm();
     let mut backend = open_backend_once()?;
-    if backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok() {
+    // Branded splash FIRST (task #122): the same glow+wordmark image the GL
+    // splash shows later — the scanout switch becomes invisible and the pulse
+    // animates from the very first frame. Text, then solid, as fallbacks.
+    if backend.attach_bootstrap_splash_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok()
+        || backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok()
+    {
         let _ = debug_println(GPUD_SCANOUT_OK);
         let _ = debug_println(GPUD_SCANOUT_MODE);
     } else if backend
@@ -506,7 +511,8 @@ fn service_requests(
                     let now = nsec().unwrap_or(0);
                     if now.saturating_sub(last_splash_pulse_ns) >= 33_000_000 {
                         last_splash_pulse_ns = now;
-                        let _ = backend.pulse_bootstrap_title(crate::backend::splash_pulse_q8(now));
+                        let _ =
+                            backend.pulse_bootstrap_splash(crate::backend::splash_pulse_q8(now));
                     }
                     true
                 } else {

@@ -79,13 +79,10 @@ const QUAD_RES: u32 = 0xFA;
 const SCREEN_W: u32 = 1280;
 const SCREEN_H: u32 = 800;
 
-// Boot-splash wordmark: the Open Nexus logo SVG rasterized ONCE at build time
-// (`build.rs` → BGRA8888, premultiplied), embedded and composited centered on the
-// splash gradient so the loading screen shows the brand mark rather than bare
-// colour. Zero runtime SVG cost, no pressure on gpud's non-freeing bump heap.
-// `SPLASH_LOGO_W/H` are 0 if rasterization was skipped (composite becomes a no-op).
-include!(concat!(env!("OUT_DIR"), "/splash_logo_dims.rs"));
-static SPLASH_LOGO_BGRA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/splash_logo.bgra"));
+// Boot-splash wordmark + glow: owned by `backend::bootstrap` (the earliest
+// phase that draws it — task #122 unified both splash phases onto one image);
+// the GL seed below renders through the same shared compose.
+use crate::backend::compose_splash_region;
 
 /// Incremental GPU compositor build-up — a DEBUG harness. From the confirmed-
 /// working base (solid clear + gradient panel — pure GL draws that DO present),
@@ -302,69 +299,15 @@ impl VirtioGpuBackend {
         // Remember the backing so the first build-up present can fill it with the real
         // wallpaper (windowd's decoded JPEG in VMO Plane 0, via try_upload_wallpaper_from_vmo).
         self.gl_wallpaper_tex_va = wp_va as usize;
-        // Seed with the compositor's own base clear colour (a clean splash) — NOT a debug
-        // test pattern. This is the seamless backdrop for the single frame before the real
-        // wallpaper lands: it matches the scanout RT's GPU-clear below, so the boot reads as
-        // one uniform splash → real desktop, with no fallback pattern ever shown.
+        // Seed with the boot splash (brand radial glow + wordmark) via the ONE
+        // shared compose in `backend::bootstrap` — the identical image the 2D
+        // bootstrap scanout already shows (task #122), so the scanout switch to
+        // GL is visually seamless. The single frame before the real wallpaper
+        // lands reads as one uniform splash → desktop, never a fallback pattern.
         {
-            let dst = wp_va as *mut u8;
-            // Boot splash: a soft radial glow in brand slate-blue — the intentional backdrop
-            // for the frames before windowd's first real present (instead of a flat black void).
-            // Center brighter → edges dark. BGRA, opaque. center ~RGB(40,50,68), edge ~RGB(13,16,23).
-            const C: [i32; 3] = [68, 50, 40]; // center B,G,R
-            const E: [i32; 3] = [23, 16, 13]; // edge   B,G,R
-            let cx = SCREEN_W as i32 / 2;
-            let cy = SCREEN_H as i32 / 2;
-            let max_d2 = (cx * cx + cy * cy).max(1) as u32;
-            for y in 0..SCREEN_H as i32 {
-                let dy = y - cy;
-                for x in 0..SCREEN_W as i32 {
-                    let dx = x - cx;
-                    let d2 = (dx * dx + dy * dy) as u32;
-                    let t = (d2.saturating_mul(256) / max_d2).min(256) as i32; // 0 center .. 256 edge
-                    let off = (y as usize * SCREEN_W as usize + x as usize) * 4;
-                    unsafe {
-                        dst.add(off).write_volatile((C[0] + (E[0] - C[0]) * t / 256) as u8);
-                        dst.add(off + 1).write_volatile((C[1] + (E[1] - C[1]) * t / 256) as u8);
-                        dst.add(off + 2).write_volatile((C[2] + (E[2] - C[2]) * t / 256) as u8);
-                        dst.add(off + 3).write_volatile(255);
-                    }
-                }
-            }
-            // Composite the Open Nexus wordmark centered over the gradient. The embedded
-            // buffer is premultiplied BGRA (nexus-svg accumulates coverage-scaled colour
-            // over transparent black), so use premultiplied `src OVER dst`: out = src +
-            // dst·(255−a)/255. The gradient stays fully opaque (alpha untouched).
-            if SPLASH_LOGO_W > 0 && SPLASH_LOGO_H > 0 {
-                let lx0 = SCREEN_W.saturating_sub(SPLASH_LOGO_W) / 2;
-                let ly0 = SCREEN_H.saturating_sub(SPLASH_LOGO_H) / 2;
-                for ly in 0..SPLASH_LOGO_H {
-                    let py = ly0 + ly;
-                    if py >= SCREEN_H {
-                        break;
-                    }
-                    for lx in 0..SPLASH_LOGO_W {
-                        let px = lx0 + lx;
-                        if px >= SCREEN_W {
-                            break;
-                        }
-                        let src = ((ly * SPLASH_LOGO_W + lx) * 4) as usize;
-                        let a = SPLASH_LOGO_BGRA[src + 3] as u32;
-                        if a == 0 {
-                            continue;
-                        }
-                        let off = (py as usize * SCREEN_W as usize + px as usize) * 4;
-                        unsafe {
-                            for c in 0..3 {
-                                let s = SPLASH_LOGO_BGRA[src + c] as u32;
-                                let d = dst.add(off + c).read_volatile() as u32;
-                                dst.add(off + c)
-                                    .write_volatile((s + d * (255 - a) / 255).min(255) as u8);
-                            }
-                        }
-                    }
-                }
-            }
+            let len = SCREEN_W as usize * SCREEN_H as usize * 4;
+            let dst = unsafe { core::slice::from_raw_parts_mut(wp_va as *mut u8, len) };
+            compose_splash_region(dst, SCREEN_W, SCREEN_H, 0, 0, SCREEN_W, SCREEN_H, 256);
         }
         self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)?;
 

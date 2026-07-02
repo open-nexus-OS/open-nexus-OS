@@ -182,7 +182,7 @@ trim_log() {
 build_qemu_args() {
   local -a args=()
   local -a input_args=()
-  args+=(-machine virt,aclint=on -cpu max -m 265M -smp "${SMP:-1}" -bios default)
+  args+=(-machine virt,aclint=on -cpu max -m 320M -smp "${SMP:-1}" -bios default)
   args+=(-kernel "$KERNEL_BIN")
 
   # Display mode

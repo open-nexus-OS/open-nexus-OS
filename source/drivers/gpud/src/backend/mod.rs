@@ -61,11 +61,13 @@ pub(crate) use transport::*;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[allow(unused_imports)]
 pub(crate) use virtqueue::*;
-// The shared boot-splash pulse curve (bootstrap.rs) — sampled by both the 2D
-// text phase (service tick) and the GL splash blits (gl_scanout), so the
-// breathing stays continuous across the scanout switch.
+// The shared boot-splash machinery (bootstrap.rs owns it): the pulse curve —
+// sampled by the 2D phase tick and the GL splash blits so the breathing stays
+// continuous across the scanout switch — and the single splash-image compose
+// (glow + wordmark) the 2D attach, the 2D pulse band and the GL wallpaper seed
+// all render through (one asset copy, one implementation).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-pub(crate) use bootstrap::splash_pulse_q8;
+pub(crate) use bootstrap::{compose_splash_region, splash_pulse_q8};
 
 // Bring the moved free-function clusters into the parent namespace so the impl
 // blocks still in this file resolve them by bare name (zero call-site churn).

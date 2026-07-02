@@ -171,14 +171,46 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
-    /// Re-render the bootstrap title line at `factor_q8/256` brightness and
-    /// present just that band — the boot-splash "breathe" during the 2D text
-    /// phase (before the GL scanout exists). The glyphs are procedural, so the
-    /// redraw needs no pristine copy: geometry never changes, only colour, and
-    /// every glyph pixel is overwritten in place. No-op once windowd's
-    /// framebuffer handoff replaced the bootstrap scanout.
-    pub(crate) fn pulse_bootstrap_title(&mut self, factor_q8: u32) -> Result<(), GfxError> {
-        if !self.bootstrap_splash_live {
+    /// Create and present the branded boot splash (radial glow + wordmark) as
+    /// the early 2D bootstrap scanout — the SAME image the GL splash shows, so
+    /// the later scanout switch is visually seamless and the pulse animates
+    /// from the very first frame (task #122). Fails (caller falls back to the
+    /// text splash) when the wordmark asset was not rasterized.
+    pub fn attach_bootstrap_splash_scanout(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        if SPLASH_LOGO_W == 0 || SPLASH_LOGO_H == 0 {
+            return Err(GfxError::Unsupported);
+        }
+        let resource = self.create_resource(width, height, PixelFormat::Bgra8888)?;
+        let record = self.find_resource(resource).ok_or(GfxError::InvalidArgument)?;
+        let pixel_len = width as usize * height as usize * 4;
+        if pixel_len > record.backing_len {
+            return Err(GfxError::ResourceExhausted);
+        }
+        let pixels =
+            unsafe { core::slice::from_raw_parts_mut(record.backing_va as *mut u8, pixel_len) };
+        compose_splash_region(pixels, width, height, 0, 0, width, height, 256);
+        self.set_scanout_os(record)?;
+        let full = Rect { x: 0, y: 0, width, height };
+        self.transfer_to_host_os(record, full)?;
+        self.flush_rect_os(record, full)?;
+        self.scanout_resource = Some(resource);
+        self.bootstrap_splash_live = true;
+        Ok(())
+    }
+
+    /// Re-render the wordmark band at `factor_q8/256` brightness and present
+    /// just that band — the boot-splash "breathe" during the 2D phase (before
+    /// the GL scanout exists). The image is procedural (glow) + a static asset
+    /// (wordmark), so the redraw needs no pristine copy; the glow is NOT scaled
+    /// (see `compose_splash_region`), so the band has no seam against the
+    /// static surround. No-op once windowd's framebuffer handoff replaced the
+    /// bootstrap scanout.
+    pub(crate) fn pulse_bootstrap_splash(&mut self, factor_q8: u32) -> Result<(), GfxError> {
+        if !self.bootstrap_splash_live || SPLASH_LOGO_W == 0 || SPLASH_LOGO_H == 0 {
             return Ok(());
         }
         let Some(resource) = self.scanout_resource else {
@@ -196,30 +228,95 @@ impl VirtioGpuBackend {
         }
         let pixels =
             unsafe { core::slice::from_raw_parts_mut(record.backing_va as *mut u8, pixel_len) };
-        // Must match the title line in `attach_bootstrap_text_scanout` exactly
-        // (same text/scale/position — only the colour breathes).
-        const TITLE_SCALE: u32 = 12;
-        let top_y = (height as i32 / 2) - 80;
-        let f = factor_q8.min(256);
-        let c = ((240 * f) / 256) as u8;
-        draw_centered_bootstrap_line(
+        let lx0 = width.saturating_sub(SPLASH_LOGO_W) / 2;
+        let ly0 = height.saturating_sub(SPLASH_LOGO_H) / 2;
+        compose_splash_region(
             pixels,
             width,
             height,
-            top_y,
-            "open nexus OS",
-            TITLE_SCALE,
-            [c, c, c, 255],
+            lx0,
+            ly0,
+            SPLASH_LOGO_W,
+            SPLASH_LOGO_H,
+            factor_q8,
         );
-        let band = Rect {
-            x: 0,
-            y: top_y.max(0) as u32,
-            width,
-            height: (7 * TITLE_SCALE).min(height),
-        };
+        let band = Rect { x: lx0, y: ly0, width: SPLASH_LOGO_W, height: SPLASH_LOGO_H };
         self.transfer_to_host_os(record, band)?;
         self.flush_rect_os(record, band)?;
         Ok(())
+    }
+}
+
+// The branded wordmark, rasterized at build time (see gpud's build.rs). Owned
+// HERE (the earliest phase that draws it); the GL splash imports it via the
+// backend re-export — one copy in the binary, one compose implementation.
+include!(concat!(env!("OUT_DIR"), "/splash_logo_dims.rs"));
+/// Premultiplied BGRA wordmark pixels (`SPLASH_LOGO_W × SPLASH_LOGO_H`; 0×0
+/// when rasterization was skipped — every composite becomes a no-op).
+pub(crate) static SPLASH_LOGO_BGRA: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/splash_logo.bgra"));
+
+/// Compose the boot-splash image into `dst` (BGRA, `fb_w`-pixel stride) for the
+/// region `x0,y0,rw,rh`: the brand radial glow (center ~RGB(40,50,68) → edge
+/// ~RGB(13,16,23)) with the wordmark premultiplied OVER it, the wordmark's
+/// colour scaled by `logo_factor_q8/256` (256 = full). The glow is NOT scaled —
+/// so the pulse band needs no margin and shows no seam against the static
+/// surround; the wordmark visibly breathes against it. One implementation for
+/// the 2D bootstrap attach, the 2D pulse band and the GL wallpaper seed.
+pub(crate) fn compose_splash_region(
+    dst: &mut [u8],
+    fb_w: u32,
+    fb_h: u32,
+    x0: u32,
+    y0: u32,
+    rw: u32,
+    rh: u32,
+    logo_factor_q8: u32,
+) {
+    if fb_w == 0 || fb_h == 0 || dst.len() < fb_w as usize * fb_h as usize * 4 {
+        return;
+    }
+    let f = logo_factor_q8.min(256);
+    const C: [i32; 3] = [68, 50, 40]; // center B,G,R
+    const E: [i32; 3] = [23, 16, 13]; // edge   B,G,R
+    let cx = fb_w as i32 / 2;
+    let cy = fb_h as i32 / 2;
+    let max_d2 = (cx * cx + cy * cy).max(1) as u32;
+    let lx0 = fb_w.saturating_sub(SPLASH_LOGO_W) / 2;
+    let ly0 = fb_h.saturating_sub(SPLASH_LOGO_H) / 2;
+    for y in y0..(y0 + rh).min(fb_h) {
+        let dy = y as i32 - cy;
+        for x in x0..(x0 + rw).min(fb_w) {
+            let dx = x as i32 - cx;
+            let d2 = (dx * dx + dy * dy) as u32;
+            let t = (d2.saturating_mul(256) / max_d2).min(256) as i32;
+            let off = (y as usize * fb_w as usize + x as usize) * 4;
+            let mut px = [
+                (C[0] + (E[0] - C[0]) * t / 256) as u32,
+                (C[1] + (E[1] - C[1]) * t / 256) as u32,
+                (C[2] + (E[2] - C[2]) * t / 256) as u32,
+            ];
+            if SPLASH_LOGO_W > 0
+                && x >= lx0
+                && x < lx0 + SPLASH_LOGO_W
+                && y >= ly0
+                && y < ly0 + SPLASH_LOGO_H
+            {
+                let src = (((y - ly0) * SPLASH_LOGO_W + (x - lx0)) * 4) as usize;
+                let a = SPLASH_LOGO_BGRA[src + 3] as u32;
+                if a != 0 {
+                    // Premultiplied `src OVER dst`, wordmark colour scaled by f.
+                    for c in 0..3 {
+                        let s = SPLASH_LOGO_BGRA[src + c] as u32 * f / 256;
+                        px[c] = (s + px[c] * (255 - a) / 255).min(255);
+                    }
+                }
+            }
+            dst[off] = px[0] as u8;
+            dst[off + 1] = px[1] as u8;
+            dst[off + 2] = px[2] as u8;
+            dst[off + 3] = 255;
+        }
     }
 }
 
