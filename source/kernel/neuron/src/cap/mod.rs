@@ -198,6 +198,22 @@ impl CapTable {
         Err(CapError::NoSpace)
     }
 
+    /// Allocates the first free slot scanning from the TOP of the table
+    /// downward (RFC-0069 slot discipline): kernel objects a task creates for
+    /// ITSELF land high, while caps installed by someone else (exec-time
+    /// installs, `cap_transfer`, CAP_MOVE deliveries) keep packing low — so
+    /// init's deterministic child layout and a service's own early object
+    /// creation can never race for the same slot.
+    pub fn allocate_high(&mut self, cap: Capability) -> Result<usize, CapError> {
+        for (index, entry) in self.slots.iter_mut().enumerate().rev() {
+            if entry.is_none() {
+                *entry = Some(cap);
+                return Ok(index);
+            }
+        }
+        Err(CapError::NoSpace)
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

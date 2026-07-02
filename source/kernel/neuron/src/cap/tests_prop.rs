@@ -66,4 +66,34 @@ proptest! {
         prop_assume!(!base_rights.contains(extra_rights));
         prop_assert_eq!(table.derive(1, base_rights | extra_rights), Err(CapError::PermissionDenied));
     }
+
+    // RFC-0069 slot discipline: allocate packs low-first, allocate_high packs
+    // high-first, and the two never hand out the same slot while free slots
+    // remain on both ends — the invariant that keeps init's deterministic
+    // child wiring and a service's own early object creation collision-free.
+    #[test]
+    fn allocate_high_never_collides_with_low(kind in arb_capability_kind(), rights in arb_rights(), low in 1usize..8, high in 1usize..8) {
+        let mut table = CapTable::new();
+        let cap = Capability { kind, rights };
+        let mut low_slots = alloc::vec::Vec::new();
+        let mut high_slots = alloc::vec::Vec::new();
+        for _ in 0..low {
+            low_slots.push(table.allocate(cap).unwrap());
+        }
+        for _ in 0..high {
+            high_slots.push(table.allocate_high(cap).unwrap());
+        }
+        // Low allocations are the first `low` indices, in order.
+        for (i, slot) in low_slots.iter().enumerate() {
+            prop_assert_eq!(*slot, i);
+        }
+        // High allocations descend from the top and stay disjoint from the lows.
+        for pair in high_slots.windows(2) {
+            prop_assert_eq!(pair[1], pair[0] - 1);
+        }
+        for slot in &high_slots {
+            prop_assert!(!low_slots.contains(slot));
+            prop_assert!(*slot > *low_slots.last().unwrap());
+        }
+    }
 }

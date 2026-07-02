@@ -165,6 +165,9 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
     (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
+    // RFC-0069 batch 1 (regular services migrated onto the declarative arm).
+    (ServiceId::Rngd, ServiceId::Logd),    // log sink (optional target)
+    (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
 ];
 
 /// Per-service expectations the orchestrator must satisfy (RFC-0066). A service
@@ -197,6 +200,22 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         exposes_server: true,
         reply_inbox: true,
         routes_to: &[ServiceId::Bundlemgrd],
+    },
+    // RFC-0069 batch 1: regular services wired ENTIRELY from the spec (the
+    // bespoke arms are deleted). Their server pair is PRE-MINTED (see
+    // `Endpoints::server_pair`) — the generic arm transfers it instead of
+    // creating a fresh endpoint.
+    ServiceSpec {
+        id: ServiceId::Rngd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[ServiceId::Logd, ServiceId::Policyd],
+    },
+    ServiceSpec {
+        id: ServiceId::Timed,
+        exposes_server: true,
+        reply_inbox: false,
+        routes_to: &[],
     },
 ];
 

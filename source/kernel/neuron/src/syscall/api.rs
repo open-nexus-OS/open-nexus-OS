@@ -822,7 +822,11 @@ fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     let owner = ctx.tasks.current_pid().as_raw();
     let ws_id = ctx.waitsets.alloc(owner).map_err(map_waitset_error)?;
     let cap = Capability { kind: CapabilityKind::Waitset(ws_id.0), rights: Rights::MANAGE };
-    match ctx.tasks.current_caps_mut().allocate(cap) {
+    // RFC-0069 slot discipline: a self-created object allocates from the TOP of
+    // the table so it can never take a low slot that init's deterministic
+    // post-spawn wiring is about to install into (the policyd waitset
+    // collision → capability-denied → init abort).
+    match ctx.tasks.current_caps_mut().allocate_high(cap) {
         Ok(slot) => Ok(slot),
         Err(err) => {
             let _ = ctx.waitsets.free(ws_id);

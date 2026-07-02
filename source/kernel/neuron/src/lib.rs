@@ -271,6 +271,10 @@ mod boot;
 #[cfg(target_os = "none")]
 #[path = "task/bootstrap.rs"]
 mod bootstrap;
+// NOTE (RFC-0069): still target-gated, so cap's property tests (incl. the
+// allocate/allocate_high slot-discipline invariant) do NOT run on the host —
+// cap pulls crate::ipc/log_trace/alloc, all target-gated. Un-gating it is the
+// known host-testability item of the orchestrator track's Part 2.
 #[cfg(target_os = "none")]
 mod cap;
 #[cfg(target_os = "none")]

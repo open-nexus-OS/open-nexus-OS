@@ -241,11 +241,20 @@ pub(crate) fn wire_services(
                     let pid = chan.pid;
                     let reply_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                            .map_err(InitError::Abi)?;
+                            .map_err(|e| {
+                                debug_write_bytes(b"init: policyd reply_ep create FAIL\n");
+                                InitError::Abi(e)
+                            })?;
                     let reply_recv_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
-                        .map_err(InitError::Abi)?;
+                        .map_err(|e| {
+                            debug_write_bytes(b"init: policyd reply_ep xfer RECV FAIL\n");
+                            InitError::Abi(e)
+                        })?;
                     let reply_send_slot = nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
-                        .map_err(InitError::Abi)?;
+                        .map_err(|e| {
+                            debug_write_bytes(b"init: policyd reply_ep xfer SEND FAIL\n");
+                            InitError::Abi(e)
+                        })?;
                     chan.reply_recv_slot = Some(reply_recv_slot);
                     chan.reply_send_slot = Some(reply_send_slot);
                     chan.set_recv(ServiceId::Statefsd, reply_recv_slot);
@@ -730,48 +739,9 @@ pub(crate) fn wire_services(
                 chan.set_send(ServiceId::Policyd, send_slot);
                 chan.set_recv(ServiceId::Policyd, reply_recv_slot);
             }
-            "rngd" => {
-                // Server-side endpoints for rngd.
-                let recv_slot =
-                    nexus_abi::cap_transfer(pid, rng_req, Rights::RECV).map_err(InitError::Abi)?;
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, rng_rsp, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Rngd, send_slot);
-                chan.set_recv(ServiceId::Rngd, recv_slot);
-
-                // Provide a reply inbox for CAP_MOVE reply routing (used by clients).
-                let reply_ep =
-                    nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                        .map_err(InitError::Abi)?;
-                let reply_recv_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV).map_err(InitError::Abi)?;
-                let reply_send_slot =
-                    nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND).map_err(InitError::Abi)?;
-                chan.reply_recv_slot = Some(reply_recv_slot);
-                chan.reply_send_slot = Some(reply_send_slot);
-                let _ = nexus_abi::cap_close(reply_ep);
-
-                if let Some(req) = log_req {
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::SEND).map_err(InitError::Abi)?;
-                    chan.set_send(ServiceId::Logd, send_slot);
-                    chan.set_recv(ServiceId::Logd, reply_recv_slot);
-                }
-
-                // Allow rngd to call policyd (reply via CAP_MOVE/@reply).
-                let send_slot =
-                    nexus_abi::cap_transfer(pid, pol_req, Rights::SEND).map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Policyd, send_slot);
-                chan.set_recv(ServiceId::Policyd, reply_recv_slot);
-            }
-            "timed" => {
-                let recv_slot = nexus_abi::cap_transfer(pid, timed_req, Rights::RECV)
-                    .map_err(InitError::Abi)?;
-                let send_slot = nexus_abi::cap_transfer(pid, timed_rsp, Rights::SEND)
-                    .map_err(InitError::Abi)?;
-                chan.set_send(ServiceId::Timed, send_slot);
-                chan.set_recv(ServiceId::Timed, recv_slot);
-            }
+            // "rngd" and "timed" migrated to the declarative arm below
+            // (RFC-0069 batch 1): spec = SERVICE_SPECS, server pair =
+            // Endpoints::server_pair. Their bespoke arms are deleted.
             "hidrawd" => {
                 let send_slot = nexus_abi::cap_transfer(pid, input_req, Rights::SEND)
                     .map_err(InitError::Abi)?;
@@ -966,10 +936,18 @@ pub(crate) fn wire_services(
             }
             "logd" => {
                 if let (Some(req), Some(rsp)) = (log_req, log_rsp) {
-                    let recv_slot =
-                        nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(InitError::Abi)?;
-                    let send_slot =
-                        nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(InitError::Abi)?;
+                    let recv_slot = nexus_abi::cap_transfer(pid, req, Rights::RECV).map_err(|e| {
+                        debug_write_bytes(b"init: logd xfer log_req RECV FAIL src=0x");
+                        debug_write_hex(req as usize);
+                        debug_write_byte(b'\n');
+                        InitError::Abi(e)
+                    })?;
+                    let send_slot = nexus_abi::cap_transfer(pid, rsp, Rights::SEND).map_err(|e| {
+                        debug_write_bytes(b"init: logd xfer log_rsp SEND FAIL src=0x");
+                        debug_write_hex(rsp as usize);
+                        debug_write_byte(b'\n');
+                        InitError::Abi(e)
+                    })?;
                     chan.set_send(ServiceId::Logd, send_slot);
                     chan.set_recv(ServiceId::Logd, recv_slot);
                     if iw(init_wire, init_fold, "init:logd") {
@@ -1199,7 +1177,32 @@ pub(crate) fn wire_services(
             name if crate::service_topology::exposes_server(name.as_bytes())
                 && !is_bespoke_wired(name) =>
             {
-                provision_server_endpoint(ENDPOINT_FACTORY_CAP_SLOT, pid, name.as_bytes());
+                // Server endpoint: transfer the PRE-MINTED pair when bootstrap
+                // created one (its client side is already distributed — a fresh
+                // endpoint would orphan those clients); otherwise provision a
+                // fresh pair. The pre-minted path is silent on success, matching
+                // the bespoke arms it replaces (RFC-0069 byte-identical migration).
+                let own_id = crate::service_topology::ServiceId::from_name(name.as_bytes());
+                match own_id.and_then(|id| eps.server_pair(id)) {
+                    Some((req, rsp)) => {
+                        let recv = nexus_abi::cap_transfer(pid, req, Rights::RECV);
+                        let send = nexus_abi::cap_transfer(pid, rsp, Rights::SEND);
+                        match (own_id, recv, send) {
+                            (Some(id), Ok(recv_slot), Ok(send_slot)) => {
+                                chan.set_send(id, send_slot);
+                                chan.set_recv(id, recv_slot);
+                            }
+                            _ => {
+                                debug_write_bytes(b"init: ");
+                                debug_write_bytes(name.as_bytes());
+                                debug_write_bytes(b" server pair xfer skip\n");
+                            }
+                        }
+                    }
+                    None => {
+                        provision_server_endpoint(ENDPOINT_FACTORY_CAP_SLOT, pid, name.as_bytes());
+                    }
+                }
 
                 // RFC-0066 P3: provision this service's outbound routes **from its
                 // declarative `ServiceSpec.routes_to`** (not a bespoke arm). Each
@@ -1231,6 +1234,29 @@ pub(crate) fn wire_services(
                                                 debug_write_bytes(b"init: ");
                                                 debug_write_bytes(name.as_bytes());
                                                 debug_write_bytes(b" route->bundlemgrd ok\n");
+                                            }
+                                        }
+                                        // Silent on success: the bespoke arms these
+                                        // replace (rngd) printed nothing (RFC-0069
+                                        // byte-identical migration).
+                                        ServiceId::Logd => {
+                                            if let Some(req) = log_req {
+                                                if let Ok(s) = nexus_abi::cap_transfer(
+                                                    pid,
+                                                    req,
+                                                    Rights::SEND,
+                                                ) {
+                                                    chan.set_send(ServiceId::Logd, s);
+                                                    chan.set_recv(ServiceId::Logd, reply_recv);
+                                                }
+                                            }
+                                        }
+                                        ServiceId::Policyd => {
+                                            if let Ok(s) =
+                                                nexus_abi::cap_transfer(pid, pol_req, Rights::SEND)
+                                            {
+                                                chan.set_send(ServiceId::Policyd, s);
+                                                chan.set_recv(ServiceId::Policyd, reply_recv);
                                             }
                                         }
                                         // execd route wires with the launch path (later).
@@ -1329,8 +1355,6 @@ fn is_bespoke_wired(name: &str) -> bool {
             | "execd"
             | "keystored"
             | "statefsd"
-            | "rngd"
-            | "timed"
             | "hidrawd"
             | "gpud"
             | "windowd"

@@ -107,3 +107,23 @@ pub(crate) struct Endpoints {
     /// metricsd server response endpoint.
     pub metrics_rsp: Option<u32>,
 }
+
+impl Endpoints {
+    /// Pre-minted server endpoint pair (request, response) for a service, when
+    /// bootstrap minted one. The declarative wire path (RFC-0069) transfers THIS
+    /// pair — its client side is already distributed to the service's callers —
+    /// instead of creating a fresh endpoint that would orphan those clients.
+    /// Grows one entry per migrated service; a service without a minted pair
+    /// falls back to a freshly provisioned endpoint.
+    pub(crate) fn server_pair(
+        &self,
+        id: crate::service_topology::ServiceId,
+    ) -> Option<(u32, u32)> {
+        use crate::service_topology::ServiceId;
+        match id {
+            ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
+            ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
+            _ => None,
+        }
+    }
+}
