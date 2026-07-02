@@ -100,6 +100,11 @@ pub struct VirtioGpuBackend {
     #[allow(dead_code)]
     pub(crate) virgl_ctx_id: u32,
     resources: alloc::vec::Vec<ResourceRecord>,
+    /// Monotonic GPU-resource VA-window slot (task #124): VA slots are never
+    /// reused — a released resource's pages stay mapped (no unmap primitive),
+    /// so its window must not be handed to a new resource.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    next_resource_va_index: usize,
     pub(crate) scanout_resource: Option<ResourceId>,
     /// Fragment uniform storage for SetFragmentBytes commands.
     /// Phase 6c: stores shader parameters (animation state) pushed by windowd.
@@ -354,6 +359,8 @@ impl VirtioGpuBackend {
             virgl_capable: false,
             virgl_ctx_id: 0,
             resources: alloc::vec::Vec::new(),
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            next_resource_va_index: 0,
             scanout_resource: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             fragment_data: [0u8; 64],

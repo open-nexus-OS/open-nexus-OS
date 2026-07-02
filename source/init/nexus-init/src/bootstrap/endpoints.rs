@@ -131,6 +131,17 @@ impl Endpoints {
             // (When absent, the generic arm falls back to provisioning a fresh —
             // unused — pair; every current image profile includes logd.)
             ServiceId::Logd => self.log_req.zip(self.log_rsp),
+            // Still-bespoke arms (task #123 hardening): their pairs are ALSO
+            // distributed pre-grants; the bespoke arm skips the transfer when
+            // already set and keeps its markers verbatim. Drivers
+            // (gpud/windowd/inputd) are priority-wired even earlier; dsoftbusd
+            // has no own server pair (its low slots carry netstackd routes).
+            ServiceId::Bundlemgrd => Some((self.bnd_req, self.bnd_rsp)),
+            ServiceId::Updated => Some((self.upd_req, self.upd_rsp)),
+            ServiceId::Keystored => Some((self.key_req, self.key_rsp)),
+            ServiceId::Execd => Some((self.exe_req, self.exe_rsp)),
+            ServiceId::Netstackd => Some((self.net_req, self.net_rsp)),
+            ServiceId::Metricsd => self.metrics_req.zip(self.metrics_rsp),
             _ => None,
         }
     }

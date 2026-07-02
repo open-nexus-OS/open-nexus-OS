@@ -2940,14 +2940,17 @@ pub fn device_mmio_cap_create(_base: usize, _len: usize, _slot_raw: usize) -> Sy
     }
 }
 
-/// Drops the caller's reference to the VMO represented by `handle`.
+/// Releases a sole-owned VMO back to the kernel arena (task #124).
+///
+/// For self-created, never-shared one-shot VMOs (staging buffers, the boot-splash
+/// backing). The kernel refuses while any other capability in the system still
+/// references the range. The caller must not touch the memory afterwards —
+/// including through mappings it made with `vmo_map_page`.
 #[cfg(nexus_env = "os")]
 pub fn vmo_destroy(handle: Handle) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        // Keep this on an unimplemented number so callers get deterministic ENOSYS until
-        // kernel support is added.
-        const SYSCALL_VMO_DESTROY: usize = 32;
+        const SYSCALL_VMO_DESTROY: usize = 46;
         let raw = unsafe { ecall1(SYSCALL_VMO_DESTROY, handle as usize) };
         decode_syscall(raw).map(|_| ())
     }

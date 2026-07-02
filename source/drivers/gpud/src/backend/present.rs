@@ -51,7 +51,10 @@ impl VirtioGpuBackend {
             return Err(GfxError::DeviceNotFound);
         }
         // windowd's framebuffer replaces the bootstrap scanout — stop the 2D
-        // splash pulse (the GL hold phase takes the breathing over from here).
+        // splash pulse (the GL hold phase takes the breathing over from here)
+        // and remember the dead splash resource: its 4MB one-shot backing goes
+        // back to the kernel arena once the new scanout is live (task #124).
+        let dead_splash = if self.bootstrap_splash_live { self.scanout_resource } else { None };
         self.bootstrap_splash_live = false;
         let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
         nexus_abi::cap_query(vmo_slot, &mut info).map_err(|e| {
@@ -73,7 +76,7 @@ impl VirtioGpuBackend {
         // Map the external VMO into gpud's VA space for direct framebuffer write access.
         // Phase 6c: this enables gpud to execute rendering commands directly into the
         // scanout framebuffer without vmo_write syscalls from windowd.
-        let resource_index = self.resources.len();
+        let resource_index = self.alloc_resource_va_index()?;
         let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
         let backing_len_aligned = align_page((width * height * 4) as usize);
         let flags = nexus_abi::page_flags::VALID
@@ -160,6 +163,11 @@ impl VirtioGpuBackend {
                         })?;
                         let _ = nexus_abi::trace_line("gpud: transfer_to_host ok");
                         let _ = nexus_abi::trace_line("gpud: resource flush ok");
+                        // GL scanout is live — the bootstrap splash resource
+                        // and its 4MB backing are dead weight now (task #124).
+                        if let Some(dead) = dead_splash {
+                            self.release_resource(dead);
+                        }
                         return Ok(());
                     }
                     Err(e) => {
@@ -265,6 +273,11 @@ impl VirtioGpuBackend {
 
         self.resources.push(record);
         self.scanout_resource = Some(id);
+        // The 2D scanout switched to windowd's framebuffer — free the dead
+        // bootstrap splash resource + its one-shot backing (task #124).
+        if let Some(dead) = dead_splash {
+            self.release_resource(dead);
+        }
         Ok(())
     }
 

@@ -460,6 +460,27 @@ where
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, packagefsd_pid, 8)
             .map_err(InitError::Abi)?;
 
+    // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
+    // and distribute every declared service's server pair immediately (RFC-0069
+    // phase semantics, task #123 fix): the services' deterministic fallback
+    // slots (3/4) must exist BEFORE anything policyd-gated can delay the boot.
+    // The historical hazard: a slow policyd stalled the grants, wire_services ran
+    // late, and services whose route-probe fell back to the fixed slots hit an
+    // EMPTY slot with their first recv — the whole early fleet died and init
+    // then wired caps into dead PIDs (the `capability-denied` abort).
+    // `wire_services` (after grants) still owns the reply inboxes, routes and
+    // the announce markers — byte-identical boot logs.
+    let eps = crate::bootstrap::endpoints::Endpoints {
+        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pkg_reply_ep, pol_req, pol_rsp, bnd_req, bnd_rsp,
+        bnd_rsp_updated, bnd_exe_req, bnd_exe_rsp, upd_req, upd_rsp, sam_req, sam_rsp,
+        exe_req, exe_rsp, key_req, key_rsp, state_req, state_rsp,
+        rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
+        gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
+        dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
+        metrics_rsp,
+    };
+    crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
+
     // Private init-lite <-> policyd channels: request endpoints are owned by policyd (it receives queries).
     let pol_ctl_route_req =
         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, policyd_pid, 8)
@@ -738,17 +759,10 @@ where
     // init yields and the resumed services co-run their self-init.
     let grants_done_ms = boot_span.elapsed_ms();
 
-    // Bundle the minted endpoint caps and run the per-service cap-distribution
-    // phase (the bespoke `match` + the declarative generic arm).
-    let eps = crate::bootstrap::endpoints::Endpoints {
-        vfs_req, vfs_rsp, pkg_req, pkg_rsp, pkg_reply_ep, pol_req, pol_rsp, bnd_req, bnd_rsp,
-        bnd_rsp_updated, bnd_exe_req, bnd_exe_rsp, upd_req, upd_rsp, sam_req, sam_rsp,
-        exe_req, exe_rsp, key_req, key_rsp, state_req, state_rsp,
-        rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
-        gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
-        dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
-        metrics_rsp,
-    };
+    // Per-service cap-distribution phase (the bespoke `match` + the declarative
+    // generic arm). Server pairs for declared services were already distributed
+    // pre-grants (see `distribute_server_pairs` above); this pass adds reply
+    // inboxes, routes and the announce markers.
     crate::bootstrap::wiring::wire_services(&mut ctrl_channels, &eps, init_fold, &mut init_wire)?;
 
     // Cumulative boot elapsed just before the display-chain deferred resume. The gap from

@@ -155,7 +155,7 @@ impl VirtioGpuBackend {
         fmt: PixelFormat,
         byte_len: usize,
     ) -> Result<(usize, u64, usize, u32), GfxError> {
-        let resource_index = self.resources.len();
+        let resource_index = self.alloc_resource_va_index()?;
         let backing_len = align_page(byte_len);
         let backing_va = GPU_RESOURCE_BASE_VA + resource_index * GPU_RESOURCE_STRIDE;
         let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {

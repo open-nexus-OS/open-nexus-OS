@@ -132,6 +132,11 @@ pub const SYSCALL_FENCE_SIGNAL: usize = 42;
 /// Blocks until the fence value reaches `target`; `-ETIMEDOUT` on deadline.
 /// Args: (fence_cap_slot, target, deadline_ns).
 pub const SYSCALL_FENCE_WAIT: usize = 43;
+/// Releases a sole-owned VMO back to the kernel arena (task #124).
+/// Args: (vmo_cap_slot). Refused while any other capability references the range.
+/// (46: 44/45 are DEBUG_WRITE/BOOT_MODE — a 44 collision once dispatched
+/// `vmo_destroy(slot)` into `debug_write(ptr, …)` and page-faulted the kernel.)
+pub const SYSCALL_VMO_DESTROY: usize = 46;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

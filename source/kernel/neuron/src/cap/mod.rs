@@ -214,6 +214,22 @@ impl CapTable {
         Err(CapError::NoSpace)
     }
 
+    /// Counts capabilities whose VMO range overlaps `[base, base + len)`.
+    /// `vmo_destroy`'s sole-owner safety net: summed over every task's table,
+    /// the destroying cap itself accounts for exactly 1 — anything above means
+    /// a clone/transfer alias still references the memory.
+    pub fn vmo_overlap_count(&self, base: usize, len: usize) -> usize {
+        let end = base.saturating_add(len);
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|cap| match cap.kind {
+                CapabilityKind::Vmo { base: b, len: l } => b < end && base < b.saturating_add(l),
+                _ => false,
+            })
+            .count()
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

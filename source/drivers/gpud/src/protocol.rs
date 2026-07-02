@@ -77,6 +77,24 @@ pub struct VirtioGpuResourceCreate2d {
     pub height: u32,
 }
 
+/// RESOURCE_UNREF command — destroys a host resource (task #124 hygiene).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtioGpuResourceUnref {
+    pub hdr: VirtioGpuCtrlHdr,
+    pub resource_id: u32,
+    pub _padding: u32,
+}
+
+/// DETACH_BACKING command — detaches guest pages from a host resource.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtioGpuResourceDetachBacking {
+    pub hdr: VirtioGpuCtrlHdr,
+    pub resource_id: u32,
+    pub _padding: u32,
+}
+
 /// ATTACH_BACKING command header + memory entries.
 #[repr(C)]
 #[derive(Clone, Copy)]

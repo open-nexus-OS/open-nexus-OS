@@ -132,13 +132,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut ctl_route_buf = [0u8; 512];
     let mut ctl_exec_buf = [0u8; 512];
     let mut server_buf = [0u8; 512];
+    // Reactive idle (RFC-0069 Batch P): the server endpoint (the hot path) is a
+    // TIMED BLOCKING recv — a true kernel park, the proven inputd/windowd
+    // pattern — and the two init control channels are swept NONBLOCK on every
+    // wake, bounding their latency at the park deadline (5ms). This removes the
+    // last busy-poll on the critical grant path. Safe only since the pre-grant
+    // server-pair distribution (task #123): the bootstrap fleet no longer races
+    // its fallback slots against a policyd-latency-delayed wire_services.
+    const SERVER_PARK_NS: u64 = 5_000_000;
     loop {
-        // Multiplex both endpoints without blocking on one of them.
-        let mut progressed = false;
-
         match recv_with_meta_nonblock(ctl_route_recv_slot, &mut ctl_route_buf) {
             Ok((hdr, sender_service_id, n)) => {
-                progressed = true;
                 let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true);
                 let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
@@ -148,7 +152,6 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 
         match recv_with_meta_nonblock(ctl_exec_recv_slot, &mut ctl_exec_buf) {
             Ok((hdr, sender_service_id, n)) => {
-                progressed = true;
                 let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true);
                 let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
@@ -156,9 +159,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
             Err(_) => {}
         }
 
-        match recv_with_meta_nonblock(server_recv_slot, &mut server_buf) {
+        // Park on the server endpoint (or handle its message immediately).
+        match recv_with_meta_deadline(server_recv_slot, &mut server_buf, SERVER_PARK_NS) {
             Ok((hdr, sender_service_id, n)) => {
-                progressed = true;
                 let rsp = handle_frame(
                     &server_buf[..n],
                     sender_service_id,
@@ -166,14 +169,29 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                 );
                 let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
-            Err(nexus_abi::IpcError::QueueEmpty) => {}
             Err(_) => {}
         }
-
-        if !progressed {
-            let _ = yield_();
-        }
     }
+}
+
+/// Timed blocking recv (kernel park until message or deadline) with sender metadata.
+fn recv_with_meta_deadline(
+    recv_slot: u32,
+    buf: &mut [u8],
+    park_ns: u64,
+) -> Result<(nexus_abi::MsgHeader, u64, usize), nexus_abi::IpcError> {
+    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut sid: u64 = 0;
+    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(park_ns);
+    let n = nexus_abi::ipc_recv_v2(
+        recv_slot,
+        &mut hdr,
+        buf,
+        &mut sid,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        deadline,
+    )?;
+    Ok((hdr, sid, n as usize))
 }
 
 fn recv_with_meta_nonblock(

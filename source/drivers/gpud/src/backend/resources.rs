@@ -33,6 +33,61 @@ impl VirtioGpuBackend {
     pub(crate) fn find_resource(&self, res: ResourceId) -> Option<ResourceRecord> {
         self.resources.iter().copied().find(|record| record.id == res)
     }
+
+    /// Next GPU-resource VA slot — monotonic, never reused. There is no unmap
+    /// primitive, so a released resource's pages stay mapped at its old VA;
+    /// handing that VA to a new resource makes `vmo_map_page` fail (remap
+    /// refused). `resources.len()` had the same hazard after any removal.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) fn alloc_resource_va_index(&mut self) -> Result<usize, GfxError> {
+        const MAX_RESOURCE_VA_SLOTS: usize = 8;
+        let index = self.next_resource_va_index;
+        if index >= MAX_RESOURCE_VA_SLOTS {
+            return Err(GfxError::ResourceExhausted);
+        }
+        self.next_resource_va_index = index + 1;
+        Ok(index)
+    }
+
+    /// Free a dead one-shot resource end-to-end (task #124): detach + unref the
+    /// host resource, release the backing VMO back to the kernel arena, drop the
+    /// record (its VA slot becomes reusable). Externally-owned backings
+    /// (`backing_vmo == 0`, e.g. windowd's framebuffer) skip the VMO release.
+    /// Host commands are best-effort on the ordered ring — they land after any
+    /// earlier scanout switch, so the resource is never destroyed while shown.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) fn release_resource(&mut self, res: ResourceId) {
+        use super::transport::ctrl_hdr;
+        let Some(index) = self.resources.iter().position(|record| record.id == res) else {
+            return;
+        };
+        let record = self.resources.remove(index);
+        let detach = protocol::VirtioGpuResourceDetachBacking {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING),
+            resource_id: res.0,
+            _padding: 0,
+        };
+        let _ = self.ctrl_submit_struct(&detach);
+        let unref = protocol::VirtioGpuResourceUnref {
+            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_UNREF),
+            resource_id: res.0,
+            _padding: 0,
+        };
+        let _ = self.ctrl_submit_struct(&unref);
+        if record.backing_vmo != 0 {
+            match nexus_abi::vmo_destroy(record.backing_vmo) {
+                Ok(()) => {
+                    let _ = nexus_abi::debug_println("gpud: resource vmo freed");
+                }
+                Err(_) => {
+                    let _ = nexus_abi::debug_println("gpud: resource vmo free fail");
+                }
+            }
+        }
+        if self.scanout_resource == Some(res) {
+            self.scanout_resource = None;
+        }
+    }
 }
 
 pub(crate) fn resource_byte_len(w: u32, h: u32) -> Result<usize, GfxError> {

@@ -636,6 +636,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_DEVICE_CAP_CREATE, sys_device_cap_create);
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
+    table.register(crate::syscall::SYSCALL_VMO_DESTROY, sys_vmo_destroy);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);
@@ -2057,6 +2058,35 @@ fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     Ok(target)
 }
 
+/// `SYSCALL_VMO_DESTROY` (44): release a task-owned VMO back to the kernel arena
+/// (task #124 — the arena was bump-only; dead one-shot VMOs like the 4MB
+/// boot-splash backing leaked forever). Contract: for self-created, never-shared
+/// VMOs. The kernel refuses while any OTHER capability anywhere in the system
+/// references the range (clone/transfer alias) — the sole-owner safety net.
+/// Mappings are the caller's contract: it must not touch the range afterwards
+/// (a stale writable mapping in the destroying task could scribble over a reused
+/// range — the same trust already granted by `vmo_map_page` on its own VMOs; the
+/// arena zeroes on reuse, so no stale data ever leaks to the next owner).
+fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let slot = args.get(0);
+    let cap = ctx.tasks.current_caps_mut().get(slot)?;
+    let CapabilityKind::Vmo { base, len } = cap.kind else {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    };
+    let mut refs = 0usize;
+    for raw in 0..ctx.tasks.len() as u32 {
+        if let Some(caps) = ctx.tasks.caps_of(task::Pid::from_raw(raw)) {
+            refs += caps.vmo_overlap_count(base, len);
+        }
+    }
+    if refs != 1 {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let _ = ctx.tasks.current_caps_mut().take(slot)?;
+    VMO_POOL.lock().free(base, len)?;
+    Ok(0)
+}
+
 fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = VmoWriteArgsTyped::decode(args)?;
     typed.check()?;
@@ -2997,11 +3027,21 @@ const USER_VADDR_LIMIT: usize = 0x8000_0000;
 
 static VMO_POOL: Mutex<VmoPool> = Mutex::new(VmoPool::new());
 
+/// Bounded free-range table (task #124): freed one-shot VMOs (boot-splash
+/// backing, staging buffers) are reused instead of growing the bump frontier.
+const VMO_FREE_SLOTS: usize = 16;
+
 struct VmoPool {
     base: usize,
     next: usize,
     limit: usize,
     peak_next: usize,
+    /// Freed ranges available for reuse: `(base, len)`, `len == 0` marks an
+    /// empty entry. Bounded — when full, a freed range is leaked (graceful
+    /// bump-only degradation), never corrupted.
+    free_list: [(usize, usize); VMO_FREE_SLOTS],
+    /// Bytes dropped because the free list was full (observability).
+    leaked: usize,
 }
 
 /// Snapshot of the kernel-managed user VMO arena.
@@ -3015,12 +3055,26 @@ struct VmoPoolStats {
 
 impl VmoPool {
     const fn new() -> Self {
-        Self { base: 0, next: 0, limit: 0, peak_next: 0 }
+        Self {
+            base: 0,
+            next: 0,
+            limit: 0,
+            peak_next: 0,
+            free_list: [(0, 0); VMO_FREE_SLOTS],
+            leaked: 0,
+        }
     }
 
     #[cfg(test)]
     fn with_window(base: usize, len: usize) -> Self {
-        Self { base, next: base, limit: base.saturating_add(len), peak_next: base }
+        Self {
+            base,
+            next: base,
+            limit: base.saturating_add(len),
+            peak_next: base,
+            free_list: [(0, 0); VMO_FREE_SLOTS],
+            leaked: 0,
+        }
     }
 
     fn ensure_initialized(&mut self) {
@@ -3041,6 +3095,28 @@ impl VmoPool {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
         let aligned = align_len(len).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        // Reuse a freed range first (best fit) so one-shot allocations stop
+        // growing the bump frontier. Same zeroing guarantee as the bump path.
+        let mut best: Option<usize> = None;
+        for (index, &(_, entry_len)) in self.free_list.iter().enumerate() {
+            if entry_len >= aligned
+                && best.is_none_or(|prev| entry_len < self.free_list[prev].1)
+            {
+                best = Some(index);
+            }
+        }
+        if let Some(index) = best {
+            let (entry_base, entry_len) = self.free_list[index];
+            self.free_list[index] = if entry_len > aligned {
+                (entry_base + aligned, entry_len - aligned)
+            } else {
+                (0, 0)
+            };
+            unsafe {
+                ptr::write_bytes(entry_base as *mut u8, 0, aligned);
+            }
+            return Ok((entry_base, aligned));
+        }
         let next =
             self.next.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
         if next > self.limit {
@@ -3059,6 +3135,60 @@ impl VmoPool {
             ptr::write_bytes(base as *mut u8, 0, aligned);
         }
         Ok((base, aligned))
+    }
+
+    /// Returns a range handed out by [`allocate`] to the pool (task #124).
+    /// Rejects ranges outside the allocated span, unaligned bases, and any
+    /// overlap with already-free memory (double-free defense). Coalesces with
+    /// the bump frontier and with adjacent free entries; when the bounded
+    /// free list is full the range is leaked (counted), never corrupted.
+    fn free(&mut self, base: usize, len: usize) -> Result<(), Error> {
+        self.ensure_initialized();
+        let aligned = align_len(len).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        if aligned == 0 || base & (PAGE_SIZE - 1) != 0 {
+            return Err(Error::Capability(CapError::PermissionDenied));
+        }
+        let end =
+            base.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        // Must lie inside the currently allocated span [pool.base, pool.next).
+        if base < self.base || end > self.next {
+            return Err(Error::Capability(CapError::PermissionDenied));
+        }
+        for &(entry_base, entry_len) in self.free_list.iter() {
+            if entry_len != 0 && entry_base < end && base < entry_base + entry_len {
+                return Err(Error::Capability(CapError::PermissionDenied));
+            }
+        }
+        // Coalesce with adjacent free entries first, then try the frontier —
+        // a freed range touching self.next simply un-bumps, and absorbing
+        // neighbours beforehand lets whole tails collapse back into the pool.
+        let mut base = base;
+        let mut aligned = aligned;
+        for entry in self.free_list.iter_mut() {
+            if entry.1 == 0 {
+                continue;
+            }
+            if entry.0 + entry.1 == base {
+                base = entry.0;
+                aligned += entry.1;
+                *entry = (0, 0);
+            } else if base + aligned == entry.0 {
+                aligned += entry.1;
+                *entry = (0, 0);
+            }
+        }
+        if base + aligned == self.next {
+            self.next = base;
+            return Ok(());
+        }
+        for entry in self.free_list.iter_mut() {
+            if entry.1 == 0 {
+                *entry = (base, aligned);
+                return Ok(());
+            }
+        }
+        self.leaked = self.leaked.saturating_add(aligned);
+        Ok(())
     }
 
     #[must_use]
@@ -3292,6 +3422,53 @@ mod tests {
         assert_eq!(after.peak_used, PAGE_SIZE);
         assert!(pool.allocate(PAGE_SIZE * 2).is_err());
         assert_eq!(pool.stats().peak_used, PAGE_SIZE);
+    }
+
+    #[test]
+    fn vmo_pool_free_reuses_coalesces_and_rejects_double_free() {
+        let mut backing = [0xAAu8; PAGE_SIZE * 4];
+        let mut pool = VmoPool::with_window(backing.as_mut_ptr() as usize, backing.len());
+        let (a, _) = pool.allocate(PAGE_SIZE).expect("alloc a");
+        let (b, lb) = pool.allocate(PAGE_SIZE).expect("alloc b");
+        let (c, lc) = pool.allocate(PAGE_SIZE).expect("alloc c");
+
+        // A freed middle range is reused (and re-zeroed) by the next fitting allocate.
+        pool.free(b, lb).expect("free b");
+        backing[PAGE_SIZE] = 0xCC;
+        let (b2, _) = pool.allocate(PAGE_SIZE / 2).expect("realloc b");
+        assert_eq!(b2, b);
+        assert_eq!(backing[PAGE_SIZE], 0);
+
+        // Double-free and out-of-span frees are rejected.
+        pool.free(b, lb).expect("free b again (was reallocated)");
+        assert!(pool.free(b, lb).is_err());
+        assert!(pool.free(pool.limit, PAGE_SIZE).is_err());
+        assert!(pool.free(a + 1, PAGE_SIZE).is_err());
+
+        // Freeing the tail coalesces through the adjacent free middle back to
+        // the bump frontier: only `a` stays used, the rest is one big span.
+        pool.free(c, lc).expect("free c");
+        assert_eq!(pool.stats().used, PAGE_SIZE);
+        let (big, big_len) = pool.allocate(PAGE_SIZE * 3).expect("realloc whole tail");
+        assert_eq!(big, a + PAGE_SIZE);
+        assert_eq!(big_len, PAGE_SIZE * 3);
+    }
+
+    #[test]
+    fn cap_table_vmo_overlap_count_sees_aliases() {
+        let mut table = crate::cap::CapTable::new();
+        let cap = Capability {
+            kind: CapabilityKind::Vmo { base: 0x1000, len: 0x2000 },
+            rights: Rights::MAP,
+        };
+        table.set(3, cap).unwrap();
+        assert_eq!(table.vmo_overlap_count(0x1000, 0x2000), 1);
+        // A clone in the same table is an alias.
+        table.set(4, cap).unwrap();
+        assert_eq!(table.vmo_overlap_count(0x1000, 0x2000), 2);
+        // Partial overlap counts; disjoint does not.
+        assert_eq!(table.vmo_overlap_count(0x2000, 0x1000), 2);
+        assert_eq!(table.vmo_overlap_count(0x3000, 0x1000), 0);
     }
 
     #[test]
