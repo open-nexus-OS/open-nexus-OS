@@ -840,11 +840,44 @@ fn polygon_edges(points: &[(f32, f32)], fill_rule: FillRule) -> Vec<Edge> {
     edges
 }
 
+/// Twice the signed area of a polygon (shoelace). The sign encodes orientation.
+fn signed_area2(pts: &[(f32, f32)]) -> f32 {
+    let mut s = 0.0;
+    for i in 0..pts.len() {
+        let (x0, y0) = pts[i];
+        let (x1, y1) = pts[(i + 1) % pts.len()];
+        s += x0 * y1 - x1 * y0;
+    }
+    s
+}
+
+/// Emit one stroke piece (segment quad, join wedge/disc, miter spike, cap) with
+/// NORMALIZED orientation. All stroke pieces share one shape id and rely on the
+/// nonzero rule to union their overlaps — that only works when every piece is
+/// wound the same way. An opposite-wound piece CANCELS the winding where it
+/// overlaps a segment quad (+1 − 1 = 0), punching a hole at every joint: round
+/// joins rendered a stroked circle as a DOTTED ring. Normalize to the segment
+/// quads' construction orientation (negative signed area).
+fn stroke_piece_edges(pts: &[(f32, f32)]) -> Vec<Edge> {
+    if pts.len() < 3 {
+        return Vec::new();
+    }
+    if signed_area2(pts) > 0.0 {
+        let mut rev = pts.to_vec();
+        rev.reverse();
+        polygon_edges(&rev, FillRule::NonZero)
+    } else {
+        polygon_edges(pts, FillRule::NonZero)
+    }
+}
+
 /// Tessellate a polyline stroke into filled geometry: an offset quad per segment,
 /// plus a join at each interior vertex and a cap at each open end, per
 /// `StrokeStyle`. All pieces share one shape and are unioned by the nonzero rule,
-/// so the overlaps at joins never punch holes. `closed` wraps the last vertex to
-/// the first (a join, no caps) — for rect/circle/ellipse/polygon outlines.
+/// so the overlaps at joins never punch holes — every piece goes through
+/// `stroke_piece_edges` to guarantee one shared winding orientation. `closed`
+/// wraps the last vertex to the first (a join, no caps) — for
+/// rect/circle/ellipse/polygon outlines.
 fn stroke_edges(
     points: &[(f32, f32)],
     width: f32,
@@ -893,7 +926,7 @@ fn stroke_edges(
         let ny = dx / len * half;
         let quad =
             vec![(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)];
-        edges.extend(polygon_edges(&quad, FillRule::NonZero));
+        edges.extend(stroke_piece_edges(&quad));
     }
 
     // Joins at interior vertices (plus the wrap vertex when closed).
@@ -943,7 +976,7 @@ fn disc_edges(cx: f32, cy: f32, r: f32) -> Vec<Edge> {
         let a = 2.0 * consts::PI * i as f32 / n as f32;
         pts.push((cx + r * a.nexus_cos(), cy + r * a.nexus_sin()));
     }
-    polygon_edges(&pts, FillRule::NonZero)
+    stroke_piece_edges(&pts)
 }
 
 /// Join geometry at vertex `cur` between the incoming (`prev`→`cur`) and outgoing
@@ -976,8 +1009,8 @@ fn join_edges(
     let mut e = Vec::new();
     // Bevel: fill both corner wedges (the outer is the visible gap; the inner is
     // interior and harmless under nonzero).
-    e.extend(polygon_edges(&[in_left, out_left, cur], FillRule::NonZero));
-    e.extend(polygon_edges(&[in_right, out_right, cur], FillRule::NonZero));
+    e.extend(stroke_piece_edges(&[in_left, out_left, cur]));
+    e.extend(stroke_piece_edges(&[in_right, out_right, cur]));
     if style.line_join == LineJoin::Miter {
         // The outer offset lines intersect farther from `cur` than the inner; pick
         // that side and extend to the miter tip if within the limit.
@@ -999,7 +1032,7 @@ fn join_edges(
         if let Some((a, m, b)) = outer {
             let mlen = (dist2(m)).nexus_sqrt();
             if mlen <= style.miter_limit * half {
-                e.extend(polygon_edges(&[a, m, b], FillRule::NonZero));
+                e.extend(stroke_piece_edges(&[a, m, b]));
             }
         }
     }
@@ -1027,7 +1060,7 @@ fn cap_edges(
             let e_r = (end.0 - nrm.0 * half, end.1 - nrm.1 * half);
             let f_l = (e_l.0 + dir.0 * half, e_l.1 + dir.1 * half);
             let f_r = (e_r.0 + dir.0 * half, e_r.1 + dir.1 * half);
-            polygon_edges(&[e_l, f_l, f_r, e_r], FillRule::NonZero)
+            stroke_piece_edges(&[e_l, f_l, f_r, e_r])
         }
     }
 }

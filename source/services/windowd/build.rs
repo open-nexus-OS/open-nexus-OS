@@ -165,11 +165,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the kernel's 8 KiB MAX_FRAME_BYTES: 44×44×4 + a 25-byte header = 7769 B (~45²
     // is the cap). Bigger uploads need the shared-VMO/atlas path (Shell-P3).
     //
-    // To kill stroke-tessellation seams + jagged AA at this small size, render at
-    // 4× (176²) and box-average down to 44² — supersampling (the wallpaper
-    // downscale pattern). nexus-svg output is premultiplied, so averaging the
-    // (already alpha-weighted) channels is the correct, fringe-free downscale. The
-    // 176² render is build-time only; just the 44² result is uploaded.
+    // Render at 4× (176²) and box-average down to 44² — supersampling for extra
+    // AA smoothness at this small size (the wallpaper downscale pattern).
+    // Abutting-shape seams are gone at the source: nexus-svg composites all
+    // shapes conflation-free in one partitioned sweep. nexus-svg output is
+    // premultiplied, so averaging the (already alpha-weighted) channels is the
+    // correct, fringe-free downscale. The 176² render is build-time only; just
+    // the 44² result is uploaded.
     const SHELL_ICON_LOGICAL: u32 = 44;
     const SHELL_ICON_SS: u32 = 4;
     let icon_svg = include_str!("../../../resources/icons/lucide/icons/house.svg");
@@ -355,8 +357,9 @@ fn const_prefix(id: &str) -> String {
 
 /// Box-average downscale a premultiplied BGRA image by an integer `factor`
 /// (`sw`/`sh` must be divisible by it). Averaging the already alpha-weighted
-/// channels is the correct, fringe-free supersample downscale — it smooths
-/// stroke-tessellation seams and jagged AA before the icon is uploaded.
+/// channels is the correct, fringe-free supersample downscale — extra AA
+/// smoothness at small icon sizes (shape-abutment seams are already fixed at
+/// the source: nexus-svg composites conflation-free).
 fn box_average_downscale(src: &[u8], sw: u32, sh: u32, factor: u32) -> Vec<u8> {
     let dw = sw / factor;
     let dh = sh / factor;

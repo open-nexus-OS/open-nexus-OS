@@ -35,7 +35,29 @@ rewrite states the honest IST and the new combined scope. Phases below execute t
 - **Phase 3 DONE (committed)**: drag-to-edge snap (left/right halves, top = fullscreen),
   7 px edge/corner resize with deterministic from-start math, vendored resize cursor shapes
   via `OP_UPLOAD_CURSOR` re-send, TRUE full-display fullscreen with size-parametric content.
-- **Phase 4 (in review)**: GL backend now blurs the **destination-so-far** — before each glass
+- **Phase 5 (in review)** — the visible icon seams had THREE stacked causes in `nexus-svg`;
+  all fixed, each with regression proofs:
+  1. **Stroke-piece winding cancellation (the dominant artifact)**: segment quads, joins and
+     caps share one shape under the nonzero rule, but round-join/cap discs (and turn-dependent
+     bevel/miter wedges) were wound OPPOSITE to the segment quads — overlap cancelled the
+     winding (+1 − 1 = 0) and punched a hole at every joint. A stroked circle (the `search`
+     icon) rendered as a DOTTED ring. Fix: `stroke_piece_edges` normalizes every stroke piece
+     to one shared orientation (signed-area check) before emitting. Proof:
+     `stroked_circle_ring_has_no_joint_holes` samples all 360° of the ring midline.
+  2. **Number lexer ate a second decimal point**: compact path data (`1.099.092` = 1.099 then
+     .092) parsed as one invalid token, corrupting every following parameter — the
+     `message-circle` bubble arc vanished entirely. Fix: a number accepts at most one `.`.
+     Proof: `compact_numbers_and_implicit_arc_repeats_render_the_bubble`.
+  3. **Per-shape coverage conflation**: shapes composited one at a time, so abutting shapes
+     left alpha < 1 seams at shared fractional edges. Fix: one unified sweep — each sub-row is
+     partitioned at ALL shapes' sorted crossings, the covering stack composites ONCE per
+     interval (painter's order, premultiplied), rows write back with exact analytic overlap.
+     Proofs: abutting-no-seam / translucent-overlap-OVER / opaque-top-hides-bottom.
+  Verified end-to-end with a host probe replicating the windowd icon bake (4× SSAA tinted →
+  box downscale → unpremultiply): search/message-circle/house/square now render clean.
+  Consumer supersampling kept for AA quality; build.rs comments no longer call it a seam
+  workaround.
+- **Phase 4 DONE (committed)**: GL backend now blurs the **destination-so-far** — before each glass
   layer composites, the RT region beneath it (padded by the radius) is snapshotted via
   `RESOURCE_COPY_REGION` into a screen-sized scratch texture (GPU-only, no guest backing) and
   the existing gaussian pass samples that snapshot instead of the wallpaper texture; layers

@@ -1163,12 +1163,17 @@ fn try_parse_float(chars: &mut core::iter::Peekable<Chars>) -> Option<f32> {
         }
     }
 
-    // Digits and decimal point
+    // Digits and AT MOST ONE decimal point: a second '.' starts the NEXT number
+    // (SVG number grammar — compact paths write "1.099.092" for 1.099 then .092;
+    // consuming both dots corrupted the whole remaining parameter stream).
+    let mut has_dot = false;
     while let Some(&c) = chars.peek() {
-        if c.is_ascii_digit() || c == '.' {
-            if c.is_ascii_digit() {
-                has_digit = true;
-            }
+        if c.is_ascii_digit() {
+            has_digit = true;
+            buf.push(c);
+            chars.next();
+        } else if c == '.' && !has_dot {
+            has_dot = true;
             buf.push(c);
             chars.next();
         } else {

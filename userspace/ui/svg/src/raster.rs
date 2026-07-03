@@ -3,13 +3,13 @@
 
 use alloc::vec::Vec;
 
-use crate::elements::{FillRule, SvgDocument, Transform};
+use crate::elements::{Color, FillRule, SvgDocument, Transform};
 use crate::gradient::ShapePaint;
 use crate::limits::OUTPUT_BYTES_PER_PIXEL;
 use crate::math::F32Math;
 use crate::tessellate::{tessellate_document_with, Edge};
 
-/// Rasterized BGRA8888 output.
+/// Rasterized BGRA8888 output (premultiplied alpha).
 #[derive(Debug, Clone)]
 pub struct RasterOutput {
     pub width: u32,
@@ -62,53 +62,70 @@ pub fn rasterize_document_at(
     Ok(RasterOutput { width: out_w, height: out_h, buffer })
 }
 
-/// Simple scanline polygon fill with alpha blending. `paints[shape_id]` gives the
-/// fill (solid or gradient) for each shape; gradients are evaluated per pixel.
-fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buffer: &mut [u8]) {
-    if edges.is_empty() {
-        return;
-    }
-
-    let mut start = 0;
-    while start < edges.len() {
-        let shape_id = edges[start].shape_id;
-        let mut end = start + 1;
-        while end < edges.len() && edges[end].shape_id == shape_id {
-            end += 1;
-        }
-        if let Some(paint) = paints.get(shape_id as usize) {
-            scanline_fill_shape(&edges[start..end], paint, w, h, buffer);
-        }
-        start = end;
-    }
-}
-
 /// Vertical supersamples per pixel row. Combined with the analytic horizontal
 /// span coverage below, this yields `SUBSAMPLES_Y`×(continuous-x) anti-aliasing
 /// — smooth edges at any size (cursor/icons stay sharp when scaled for
 /// HiDPI/5K because coverage is computed in the target-resolution grid).
 const SUBSAMPLES_Y: usize = 4;
 
-/// Fill one shape at a time. A global edge list breaks overlapping filled
-/// paths because scanline pairs from different paths get matched together.
+/// One shape's crossing state during the left→right sweep of a sub-row.
+#[derive(Clone, Copy, Default)]
+struct ShapeWind {
+    /// Running nonzero winding number.
+    wind: i32,
+    /// Crossings seen so far (parity drives the even-odd rule).
+    crossings: u32,
+}
+
+#[inline]
+fn shape_inside(s: ShapeWind, rule: FillRule) -> bool {
+    match rule {
+        FillRule::NonZero => s.wind != 0,
+        FillRule::EvenOdd => s.crossings % 2 == 1,
+    }
+}
+
+/// Straight `Color` → premultiplied `[b, g, r, a]`, channels scaled 0..255.
+#[inline]
+fn premult(c: Color) -> [f32; 4] {
+    let a = c.a as f32 / 255.0;
+    [c.b as f32 * a, c.g as f32 * a, c.r as f32 * a, c.a as f32]
+}
+
+/// Composite premultiplied `top` OVER the premultiplied accumulator `col`
+/// (painter's order: callers fold shapes bottom→top).
+#[inline]
+fn apply_over(col: &mut [f32; 4], top: [f32; 4]) {
+    let inv = 1.0 - top[3] / 255.0;
+    for (c, t) in col.iter_mut().zip(top.iter()) {
+        *c = t + *c * inv;
+    }
+}
+
+/// Conflation-free scanline fill: ALL shapes are swept together per sub-row.
 ///
-/// Anti-aliased: each pixel row accumulates fractional coverage from
-/// `SUBSAMPLES_Y` sub-rows, each contributing analytic horizontal coverage
-/// (exact fractional overlap at span endpoints). The shape colour is then
-/// alpha-composited scaled by that coverage. A shape's edges share one fill
-/// colour (the SVG fill model), so coverage is colour-independent.
-fn scanline_fill_shape(edges: &[Edge], paint: &ShapePaint, w: usize, h: usize, buffer: &mut [u8]) {
-    if edges.is_empty() || w == 0 {
+/// The old renderer filled one shape at a time, alpha-compositing each shape's
+/// fractional coverage onto the output. At a shared edge between two abutting
+/// shapes that conflates coverage with alpha: 0.5-coverage-B OVER
+/// 0.5-coverage-A leaves total alpha 0.75, not 1.0 — a visible seam along
+/// every interior contour (the icon "outlines" artifact).
+///
+/// Here each sub-row is partitioned at the sorted crossings of *every* shape.
+/// Between two consecutive crossings the covering set is constant, so the
+/// shapes in that interval composite ONCE, in painter's order with their
+/// intrinsic alphas, into a premultiplied colour; that colour is then written
+/// with the interval's exact analytic pixel overlap. Abutting shapes tile the
+/// row — their fractional endpoint weights sum to 1, so no seam — while
+/// genuinely overlapping translucent shapes still blend `src OVER dst`. The
+/// row accumulates in premultiplied f32 and is composited onto the output
+/// once per row.
+fn scanline_fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize, buffer: &mut [u8]) {
+    if edges.is_empty() || w == 0 || h == 0 || paints.is_empty() {
         return;
     }
+    let n_shapes = paints.len();
 
-    // A fully transparent solid contributes nothing; gradients are evaluated
-    // per pixel below (individual stops may still be transparent).
-    if paint.is_fully_transparent() {
-        return;
-    }
-
-    // Find y-range.
+    // Global y-range.
     let mut min_y = f32::MAX;
     let mut max_y = f32::MIN;
     for e in edges {
@@ -122,82 +139,152 @@ fn scanline_fill_shape(edges: &[Edge], paint: &ShapePaint, w: usize, h: usize, b
     }
     let y_end = y_end_i as usize;
 
-    // All edges of a shape share one fill rule (set in tessellation).
-    let fill_rule = edges[0].fill_rule;
+    // Per-shape fill rule (all edges of a shape agree — set in tessellation)
+    // and the premultiplied solid fast path (None = gradient, per-pixel eval).
+    let mut fill_rules = vec![FillRule::NonZero; n_shapes];
+    for e in edges {
+        if let Some(f) = fill_rules.get_mut(e.shape_id as usize) {
+            *f = e.fill_rule;
+        }
+    }
+    let mut solids: Vec<Option<[f32; 4]>> = Vec::with_capacity(n_shapes);
+    for p in paints {
+        solids.push(match p {
+            ShapePaint::Solid(c) => Some(premult(*c)),
+            ShapePaint::Gradient(_) => None,
+        });
+    }
 
-    // Per-row coverage accumulator + reusable crossing scratch (x, winding dir).
-    let mut cov = vec![0f32; w];
-    let mut xs: Vec<(f32, i32)> = Vec::new();
+    // Reused row/sweep scratch — no per-row allocations.
+    let mut acc = vec![[0f32; 4]; w]; // premultiplied BGRA row accumulator
+    let mut xs: Vec<(f32, u32, i32)> = Vec::new(); // (crossing x, shape_id, dir)
+    let mut winds = vec![ShapeWind::default(); n_shapes];
     let inv_ss = 1.0 / SUBSAMPLES_Y as f32;
 
     for y in y_start..=y_end {
-        for c in cov.iter_mut() {
-            *c = 0.0;
+        for a in acc.iter_mut() {
+            *a = [0.0; 4];
         }
+        let mut row_any = false;
+
         for sy in 0..SUBSAMPLES_Y {
             let yf = y as f32 + (sy as f32 + 0.5) * inv_ss;
             xs.clear();
             for e in edges {
                 // Half-open [y0, y1): a vertex shared by two edges is counted
                 // once, so spans stay correctly paired.
-                if yf >= e.y0 && yf < e.y1 {
+                if yf >= e.y0 && yf < e.y1 && (e.shape_id as usize) < n_shapes {
                     let t = (yf - e.y0) / (e.y1 - e.y0);
-                    xs.push((e.x0 + t * (e.x1 - e.x0), e.dir));
+                    xs.push((e.x0 + t * (e.x1 - e.x0), e.shape_id, e.dir));
                 }
             }
             if xs.len() < 2 {
                 continue;
             }
             xs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(core::cmp::Ordering::Equal));
-            // Walk crossings left→right; the interval [xs[i], xs[i+1]] is inside
-            // per the fill rule — nonzero: running winding != 0; even-odd: parity
-            // (every other interval, preserving the classic paired-span fill).
-            let mut wind = 0i32;
-            let mut i = 0;
-            while i + 1 < xs.len() {
-                wind += xs[i].1;
-                let inside = match fill_rule {
-                    FillRule::NonZero => wind != 0,
-                    FillRule::EvenOdd => i % 2 == 0,
-                };
-                if inside {
-                    add_span_coverage(&mut cov, xs[i].0, xs[i + 1].0, inv_ss, w);
-                }
-                i += 1;
+            for s in winds.iter_mut() {
+                *s = ShapeWind::default();
             }
-        }
-        let row = y * w;
-        let yc = y as f32 + 0.5;
-        for (x, &c) in cov.iter().enumerate() {
-            if c > 0.0009 {
-                // Solid shapes hit a constant; gradients sample at the pixel centre.
-                let px_color = paint.color_at(x as f32 + 0.5, yc);
-                if px_color.a == 0 {
+
+            for k in 0..xs.len() - 1 {
+                let (cx, sid, dir) = xs[k];
+                let s = &mut winds[sid as usize];
+                s.wind += dir;
+                s.crossings += 1;
+                let left = cx.max(0.0);
+                let right = xs[k + 1].0.min(w as f32);
+                if right <= left {
                     continue;
                 }
-                let idx = (row + x) * OUTPUT_BYTES_PER_PIXEL;
-                blend_pixel_cov(&mut buffer[idx..idx + 4], px_color, c.min(1.0));
+                // Covering set for this interval; note whether any member
+                // needs per-pixel (gradient) evaluation.
+                let mut any = false;
+                let mut per_pixel = false;
+                for sid2 in 0..n_shapes {
+                    if shape_inside(winds[sid2], fill_rules[sid2])
+                        && !paints[sid2].is_fully_transparent()
+                    {
+                        any = true;
+                        if solids[sid2].is_none() {
+                            per_pixel = true;
+                        }
+                    }
+                }
+                if !any {
+                    continue;
+                }
+
+                let first = left.nexus_floor() as usize;
+                let last = (right.nexus_ceil() as usize).saturating_sub(1).min(w - 1);
+                if !per_pixel {
+                    // All solids: fold the stack once, spread analytically.
+                    let mut col = [0f32; 4];
+                    for sid2 in 0..n_shapes {
+                        if shape_inside(winds[sid2], fill_rules[sid2]) {
+                            if let Some(sp) = solids[sid2] {
+                                apply_over(&mut col, sp);
+                            }
+                        }
+                    }
+                    if col[3] <= 0.0 {
+                        continue;
+                    }
+                    for (x, slot) in acc.iter_mut().enumerate().take(last + 1).skip(first) {
+                        let px = x as f32;
+                        let overlap = right.min(px + 1.0) - left.max(px);
+                        if overlap > 0.0 {
+                            let wgt = overlap * inv_ss;
+                            for (a, c) in slot.iter_mut().zip(col.iter()) {
+                                *a += c * wgt;
+                            }
+                            row_any = true;
+                        }
+                    }
+                } else {
+                    // Gradient in the stack: evaluate per pixel centre.
+                    for (x, slot) in acc.iter_mut().enumerate().take(last + 1).skip(first) {
+                        let px = x as f32;
+                        let overlap = right.min(px + 1.0) - left.max(px);
+                        if overlap <= 0.0 {
+                            continue;
+                        }
+                        let mut col = [0f32; 4];
+                        for sid2 in 0..n_shapes {
+                            if shape_inside(winds[sid2], fill_rules[sid2]) {
+                                let c = paints[sid2].color_at(px + 0.5, yf);
+                                if c.a > 0 {
+                                    apply_over(&mut col, premult(c));
+                                }
+                            }
+                        }
+                        if col[3] <= 0.0 {
+                            continue;
+                        }
+                        let wgt = overlap * inv_ss;
+                        for (a, c) in slot.iter_mut().zip(col.iter()) {
+                            *a += c * wgt;
+                        }
+                        row_any = true;
+                    }
+                }
             }
         }
-    }
-}
 
-/// Add the analytic horizontal coverage of the span `[x0, x1)` (in pixels) to
-/// the row accumulator, weighted by `weight` (per-sub-row contribution).
-/// Endpoint pixels get their exact fractional overlap → smooth left/right edges.
-fn add_span_coverage(cov: &mut [f32], x0: f32, x1: f32, weight: f32, w: usize) {
-    let left = x0.max(0.0);
-    let right = x1.min(w as f32);
-    if right <= left {
-        return;
-    }
-    let first = left.nexus_floor() as usize;
-    let last = (right.nexus_ceil() as usize).saturating_sub(1).min(w - 1);
-    for (x, slot) in cov.iter_mut().enumerate().take(last + 1).skip(first) {
-        let px = x as f32;
-        let overlap = right.min(px + 1.0) - left.max(px);
-        if overlap > 0.0 {
-            *slot += overlap * weight;
+        if !row_any {
+            continue;
+        }
+        // Composite the accumulated premultiplied row OVER the output once.
+        let row = y * w;
+        for (x, px) in acc.iter().enumerate() {
+            if px[3] <= 0.24 {
+                continue; // < ~0.001 alpha
+            }
+            let idx = (row + x) * OUTPUT_BYTES_PER_PIXEL;
+            let inv = 1.0 - (px[3] / 255.0).min(1.0);
+            let d = &mut buffer[idx..idx + 4];
+            for (b, a) in d.iter_mut().zip(px.iter()) {
+                *b = (a + *b as f32 * inv).nexus_round().clamp(0.0, 255.0) as u8;
+            }
         }
     }
 }
@@ -208,37 +295,50 @@ mod tests {
     use crate::elements::Color;
     use crate::tessellate::Edge;
 
+    fn v(shape_id: u32, x: f32, y0: f32, y1: f32, dir: i32, fill_rule: FillRule) -> Edge {
+        Edge { x0: x, y0, x1: x, y1, shape_id, dir, fill_rule }
+    }
+
+    /// Axis-aligned rect as two vertical edges (CW: right edge down +1, left
+    /// edge up −1) — the minimal closed shape for the sweep.
+    fn rect(shape_id: u32, x0: f32, x1: f32, y0: f32, y1: f32) -> [Edge; 2] {
+        [
+            v(shape_id, x1, y0, y1, 1, FillRule::NonZero),
+            v(shape_id, x0, y0, y1, -1, FillRule::NonZero),
+        ]
+    }
+
+    fn fill(edges: &[Edge], paints: &[ShapePaint], w: usize, h: usize) -> Vec<u8> {
+        let mut buf = vec![0u8; w * h * OUTPUT_BYTES_PER_PIXEL];
+        scanline_fill(edges, paints, w, h, &mut buf);
+        buf
+    }
+
+    fn px(buf: &[u8], w: usize, x: usize, y: usize) -> [u8; 4] {
+        let i = (y * w + x) * OUTPUT_BYTES_PER_PIXEL;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    }
+
     // Two nested squares wound the SAME direction, as one shape. Under nonzero
     // the centre (inside both) stays filled (winding ±2 ≠ 0); under even-odd the
     // centre is a hole (inside count 2 = even). This is the rule that makes real
     // icons render correctly.
     fn nested_squares(fill_rule: FillRule) -> Vec<Edge> {
-        let v = |x: f32, y0: f32, y1: f32, dir: i32| Edge {
-            x0: x,
-            y0,
-            x1: x,
-            y1,
-            shape_id: 0,
-            dir,
-            fill_rule,
-        };
         // Outer CW: right edge x=90 down (+1), left edge x=10 up (−1).
         // Inner CW: right edge x=70 down (+1), left edge x=30 up (−1).
         vec![
-            v(90.0, 10.0, 90.0, 1),
-            v(10.0, 10.0, 90.0, -1),
-            v(70.0, 30.0, 70.0, 1),
-            v(30.0, 30.0, 70.0, -1),
+            v(0, 90.0, 10.0, 90.0, 1, fill_rule),
+            v(0, 10.0, 10.0, 90.0, -1, fill_rule),
+            v(0, 70.0, 30.0, 70.0, 1, fill_rule),
+            v(0, 30.0, 30.0, 70.0, -1, fill_rule),
         ]
     }
 
     fn center_alpha(fill_rule: FillRule) -> u8 {
         let (w, h) = (100usize, 100usize);
-        let mut buf = vec![0u8; w * h * OUTPUT_BYTES_PER_PIXEL];
-        // One shape (id 0), solid white.
         let paints = [ShapePaint::Solid(Color { r: 255, g: 255, b: 255, a: 255 })];
-        scanline_fill(&nested_squares(fill_rule), &paints, w, h, &mut buf);
-        buf[(50 * w + 50) * OUTPUT_BYTES_PER_PIXEL + 3]
+        let buf = fill(&nested_squares(fill_rule), &paints, w, h);
+        px(&buf, w, 50, 50)[3]
     }
 
     #[test]
@@ -250,20 +350,56 @@ mod tests {
     fn even_odd_leaves_nested_center_hole() {
         assert_eq!(center_alpha(FillRule::EvenOdd), 0, "even-odd punches a hole");
     }
-}
 
-/// Alpha-composite `src_color` (straight alpha) onto a BGRA8888 pixel scaled by
-/// `coverage` (0..1). Standard `src OVER dst` so painter-order shapes layer.
-fn blend_pixel_cov(dst: &mut [u8], src_color: crate::elements::Color, coverage: f32) {
-    let sa = (src_color.a as f32 / 255.0) * coverage;
-    if sa <= 0.0 {
-        return;
+    // The conflation regression: two opaque same-colour shapes abutting at a
+    // FRACTIONAL x must tile seamlessly. The old per-shape OVER compositing
+    // left the shared-edge pixel at alpha ≈ 0.79 (0.3-coverage white OVER'd by
+    // 0.7-coverage white) — the visible seam. Partitioned compositing makes
+    // the endpoint weights sum to 1.
+    #[test]
+    fn abutting_same_color_shapes_leave_no_seam() {
+        let (w, h) = (100usize, 100usize);
+        let mut edges = Vec::new();
+        edges.extend_from_slice(&rect(0, 10.0, 50.3, 10.0, 90.0));
+        edges.extend_from_slice(&rect(1, 50.3, 90.0, 10.0, 90.0));
+        let white = ShapePaint::Solid(Color { r: 255, g: 255, b: 255, a: 255 });
+        let buf = fill(&edges, &[white.clone(), white], w, h);
+        let p = px(&buf, w, 50, 50); // the pixel split 0.3/0.7 between the shapes
+        assert!(p[3] >= 254, "seam pixel must be fully opaque, got alpha {}", p[3]);
+        assert!(p[0] >= 254 && p[1] >= 254 && p[2] >= 254, "seam pixel must be full white: {p:?}");
     }
-    let inv = 1.0 - sa;
-    let da = dst[3] as f32 / 255.0;
-    let out_a = sa + da * inv;
-    dst[0] = (src_color.b as f32 * sa + dst[0] as f32 * inv).nexus_round().clamp(0.0, 255.0) as u8;
-    dst[1] = (src_color.g as f32 * sa + dst[1] as f32 * inv).nexus_round().clamp(0.0, 255.0) as u8;
-    dst[2] = (src_color.r as f32 * sa + dst[2] as f32 * inv).nexus_round().clamp(0.0, 255.0) as u8;
-    dst[3] = (out_a * 255.0).nexus_round().clamp(0.0, 255.0) as u8;
+
+    // Genuinely overlapping translucent shapes must still composite
+    // `src OVER dst` in painter's order (the fix must not turn overlap into
+    // replacement).
+    #[test]
+    fn translucent_overlap_composites_over() {
+        let (w, h) = (100usize, 100usize);
+        let mut edges = Vec::new();
+        edges.extend_from_slice(&rect(0, 10.0, 60.0, 10.0, 90.0));
+        edges.extend_from_slice(&rect(1, 40.0, 90.0, 10.0, 90.0));
+        let red = ShapePaint::Solid(Color { r: 255, g: 0, b: 0, a: 128 });
+        let green = ShapePaint::Solid(Color { r: 0, g: 255, b: 0, a: 128 });
+        let buf = fill(&edges, &[red, green], w, h);
+        let p = px(&buf, w, 50, 50); // inside both
+        // a = 0.502 + 0.502·0.498 ≈ 0.752 → 192; g(top) ≈ 128; r(bottom) ≈ 64.
+        assert!((p[3] as i32 - 192).abs() <= 2, "overlap alpha OVER, got {}", p[3]);
+        assert!((p[1] as i32 - 128).abs() <= 2, "top premult green, got {}", p[1]);
+        assert!((p[2] as i32 - 64).abs() <= 2, "bottom attenuated red, got {}", p[2]);
+    }
+
+    // A shape hidden by a later opaque shape must not bleed through at the
+    // shared column (painter's order inside one interval).
+    #[test]
+    fn opaque_top_shape_hides_bottom() {
+        let (w, h) = (100usize, 100usize);
+        let mut edges = Vec::new();
+        edges.extend_from_slice(&rect(0, 10.0, 90.0, 10.0, 90.0));
+        edges.extend_from_slice(&rect(1, 10.0, 90.0, 10.0, 90.0));
+        let red = ShapePaint::Solid(Color { r: 255, g: 0, b: 0, a: 255 });
+        let blue = ShapePaint::Solid(Color { r: 0, g: 0, b: 255, a: 255 });
+        let buf = fill(&edges, &[red, blue], w, h);
+        let p = px(&buf, w, 50, 50);
+        assert_eq!([p[0], p[2], p[3]], [255, 0, 255], "top opaque blue wins: {p:?}");
+    }
 }
