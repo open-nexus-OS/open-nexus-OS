@@ -24,22 +24,21 @@ impl DisplayServerRuntime {
             return; // kiosk lockdown: no launcher windows
         }
         if !self.search.is_mounted() {
-            // 2D-PACKED: content + blur are each SEARCH_W wide, so they pack
-            // side-by-side in ONE band (content x=0, blur x=SEARCH_W) instead of
-            // two full-width bands — half the rows when the window is open. The
-            // content surface is then CPU-rendered per-row at its column; gpud
-            // fills the blur surface (it samples src_x natively).
-            let w = super::desktop_layer::SEARCH_W;
+            // 2D-PACKED: content + blur are each window-width wide, so they pack
+            // side-by-side in ONE band (instead of two full-width bands). The
+            // content surface is CPU-rendered per-row at its column; gpud fills
+            // the blur surface (it samples src_x natively). The blur cache is
+            // best-effort — without one the window composites unblurred.
+            let w = self.search.w;
             let h = self.search.h;
             let Some(content) = self.atlas_alloc.alloc(w, h) else {
                 let _ = debug_println("windowd: search open — atlas pool full (content)");
                 return;
             };
-            let Some(blur) = self.atlas_alloc.alloc(w, h) else {
-                self.atlas_alloc.free(content);
-                let _ = debug_println("windowd: search open — atlas pool full (blur)");
-                return;
-            };
+            let blur = self.atlas_alloc.alloc(w, h);
+            if blur.is_none() {
+                let _ = debug_println("windowd: search open — no blur cache (pool)");
+            }
             self.search.mount(content, blur);
         }
         super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
@@ -58,9 +57,10 @@ impl DisplayServerRuntime {
     /// `viewport` = the visible list rows, `content` = all filtered rows. Called on
     /// open + whenever the filter changes the row count (re-clamps position).
     pub(super) fn search_set_extent(&mut self) {
-        use super::desktop_layer::{SEARCH_LIST_ROW_H, SEARCH_LIST_VIEWPORT_H};
+        use super::desktop_layer::{search_visible_rows, SEARCH_LIST_ROW_H};
         let content = self.search_filtered.len() as u32 * SEARCH_LIST_ROW_H;
-        self.search_scroll.set_extent(SEARCH_LIST_VIEWPORT_H as f32, content as f32);
+        let viewport = search_visible_rows(self.search.h) * SEARCH_LIST_ROW_H;
+        self.search_scroll.set_extent(viewport as f32, content as f32);
     }
 
     /// Map the momentum engine's pixel offset to a whole-row list slice and, if the
@@ -70,9 +70,12 @@ impl DisplayServerRuntime {
     /// would not fit beside chat's overscan), so scroll is a cheap re-render on the
     /// row boundary, driven by the SAME eased momentum as the chat window (E2).
     pub(super) fn commit_search_scroll_position(&mut self) -> bool {
-        use super::desktop_layer::{search_max_scroll, SEARCH_LIST_ROW_H};
+        use super::desktop_layer::{search_max_scroll_for, search_visible_rows, SEARCH_LIST_ROW_H};
         let row = (self.search_scroll.offset_px().max(0) as u32 / SEARCH_LIST_ROW_H)
-            .min(search_max_scroll(self.search_filtered.len()));
+            .min(search_max_scroll_for(
+                self.search_filtered.len(),
+                search_visible_rows(self.search.h),
+            ));
         if row == self.search.scroll {
             return false;
         }
@@ -114,7 +117,9 @@ impl DisplayServerRuntime {
         let rect = self.search_window_rect();
         if let Some((content, blur)) = self.search.unmount() {
             self.atlas_alloc.free(content);
-            self.atlas_alloc.free(blur);
+            if let Some(blur) = blur {
+                self.atlas_alloc.free(blur);
+            }
         }
         self.queue_dirty_rect(rect);
     }
@@ -135,13 +140,20 @@ impl DisplayServerRuntime {
         };
         let abs_row = surface.abs_row;
         let col_off = surface.x as usize * 4; // packed column → byte offset into each row
-        let h = self.search.h;
-        let w = super::desktop_layer::SEARCH_W;
+        let h = self.search.h.min(surface.height);
+        let w = self.search.w.min(surface.width);
         let row_bytes = w as usize * 4;
         let title_hover = self.search.title_hover;
+        // Fullscreen renders square (the composite drops the radius too).
+        let corner_radius = if self.windows.is_fullscreen(crate::window_scene::WindowId::Search) {
+            0
+        } else {
+            super::desktop_layer::SEARCH_RADIUS
+        };
         let scroll = self.search.scroll;
         let total = self.search_filtered.len();
-        let visible_end = (scroll as usize + super::desktop_layer::SEARCH_VISIBLE_ROWS as usize).min(total);
+        let visible_rows = super::desktop_layer::search_visible_rows(h);
+        let visible_end = (scroll as usize + visible_rows as usize).min(total);
         let visible_start = (scroll as usize).min(visible_end);
         // Disjoint field borrows: filter text (state), filtered words, scratch band.
         let filter_text = self.state.text_input();
@@ -155,7 +167,8 @@ impl DisplayServerRuntime {
             let row = &mut band[0..stride];
             row[..row_bytes].fill(0);
             super::desktop_layer::draw_search_window_row(
-                ly, row, w, filter_text, visible, scroll, total, title_hover,
+                ly, row, w, visible_rows, filter_text, visible, scroll, total, title_hover,
+                corner_radius,
             )?;
             let dst = (abs_row + ly) as usize * stride + col_off;
             vmo_write(handle, dst, &row[..row_bytes])

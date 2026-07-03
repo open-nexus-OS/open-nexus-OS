@@ -129,6 +129,14 @@ pub(crate) fn cursor_pixel_bgra(px: u32, py: u32, _w: u32, _h: u32) -> [u8; 4] {
 }
 
 impl VirtioGpuBackend {
+    /// Record the pointer hotspot for the SW/GL cursor draw paths (the HW
+    /// overlay path records it in `upload_cursor`). The GL scanout subtracts
+    /// it when compositing the sprite, so centered-hotspot shapes (the
+    /// resize pointers) sit exactly on the pointer position.
+    pub fn set_cursor_hot(&mut self, hot_x: u32, hot_y: u32) {
+        self.cursor_hot = (hot_x, hot_y);
+    }
+
     /// Store the software cursor sprite (premultiplied BGRA) for BlendCursor.
     /// No hardware cursor resource, no UPDATE_CURSOR — avoids the QEMU virtio-gpu
     /// quirk. The sprite is composited into the display plane each frame.

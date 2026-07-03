@@ -226,11 +226,11 @@ impl DisplayServerRuntime {
         // icon restores that window; anywhere else on the bar just consumes.
         if primary_press && !window_consumed_press {
             if let Some(bar) = self.dock_bar_rect() {
-                if crate::compositor::dock::dock_contains(bar, cursor_x, cursor_y) {
+                if crate::dock::dock_contains(bar, cursor_x, cursor_y) {
                     window_consumed_press = true;
                     let (list, n) = self.windows.minimized_list();
                     if let Some(slot) =
-                        crate::compositor::dock::dock_slot_at(bar, n, cursor_x, cursor_y)
+                        crate::dock::dock_slot_at(bar, n, cursor_x, cursor_y)
                     {
                         self.restore_window(list[slot]);
                     }
@@ -249,10 +249,20 @@ impl DisplayServerRuntime {
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
-                let press = match wid {
-                    WindowId::Chat => self.chat.press(cursor_x, cursor_y),
-                    WindowId::Search => self.search.press(cursor_x, cursor_y),
+                let frame = match wid {
+                    WindowId::Chat => self.chat.frame(),
+                    WindowId::Search => self.search.frame(),
                 };
+                // Edge/corner grab RESIZES (floating windows only) — resolved
+                // before the title/body press so the border band wins.
+                if !self.windows.is_fullscreen(wid) {
+                    if let Some(edge) = frame.resize_edge_at(cursor_x, cursor_y) {
+                        window_consumed_press = true;
+                        self.begin_window_resize(wid, edge, cursor_x, cursor_y);
+                        break;
+                    }
+                }
+                let press = frame.press(cursor_x, cursor_y);
                 match press {
                     WindowPress::Close => {
                         window_consumed_press = true;
@@ -304,9 +314,28 @@ impl DisplayServerRuntime {
                 self.queue_dirty_rect(self.search_window_rect());
             }
         }
+        // Continue an active edge-resize drag (TASK-0070 Phase 3).
+        if self.resize_drag.is_some() {
+            self.apply_window_resize(cursor_x, cursor_y);
+        }
         if primary_release {
+            // Drag-to-edge snap: releasing a TITLE drag with the pointer at a
+            // display edge snaps the window (left/right half, top=fullscreen).
+            // Pointer-driven only — there are no snap keyboard shortcuts.
+            use crate::window_scene::WindowId as Wid;
+            let snap_candidate = if self.chat.is_dragging() {
+                Some(Wid::Chat)
+            } else if self.search.is_dragging() {
+                Some(Wid::Search)
+            } else {
+                None
+            };
+            if let Some(wid) = snap_candidate {
+                let _ = self.apply_release_snap(wid, cursor_x, cursor_y);
+            }
             self.chat.end_drag();
             self.search.end_drag();
+            self.end_window_resize();
         }
 
         // Resolve the click against the rendered geometry (only if the window
@@ -416,7 +445,10 @@ impl DisplayServerRuntime {
             // The row count changed → re-clamp the shared momentum extent, then
             // mirror its (clamped) offset back to the row slice.
             self.search_set_extent();
-            let max_scroll = super::desktop_layer::search_max_scroll(self.search_filtered.len());
+            let max_scroll = super::desktop_layer::search_max_scroll_for(
+                self.search_filtered.len(),
+                super::desktop_layer::search_visible_rows(self.search.h),
+            );
             self.search.scroll = self.search.scroll.min(max_scroll);
             self.search.surface_dirty = true;
             self.queue_dirty_rect(self.search_window_rect());
@@ -424,6 +456,10 @@ impl DisplayServerRuntime {
         // Title-bar button hover `[– □ ×]` for the topmost window under the
         // cursor (TASK-0070 Phase 2; re-renders that window's title on change).
         self.update_title_hovers(self.state.cursor_x, self.state.cursor_y);
+        // Pointer shape (TASK-0070 Phase 3): an active resize keeps its edge
+        // shape; otherwise the topmost floating window's border band under the
+        // cursor selects it; anything else restores the default pointer.
+        self.update_cursor_shape_for_pointer(self.state.cursor_x, self.state.cursor_y);
         // (Search wheel handling moved into the unified stack-ordered wheel
         //  routing below — TASK-0070 Phase 1: topmost window under the cursor.)
         // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text

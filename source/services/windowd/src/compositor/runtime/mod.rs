@@ -476,6 +476,18 @@ pub(crate) struct DisplayServerRuntime {
     dock_rendered_n: usize,
     /// The dock surface needs re-rendering (membership changed).
     dock_dirty: bool,
+    /// Active pointer shape (TASK-0070 Phase 3: resize edges swap the sprite).
+    cursor_shape: cursor::CursorShape,
+    /// Hotspot of the ACTIVE shape (SW/GL draw offset; gpud gets it per upload).
+    cursor_hot: (i32, i32),
+    /// Active edge-resize drag: (window, edge, drag-START frame, grab point).
+    /// Resize math is deterministic in the start frame (`Frame::resized`).
+    resize_drag: Option<(
+        crate::window_scene::WindowId,
+        crate::compositor::shell_window::ResizeEdge,
+        crate::compositor::shell_window::Frame,
+        (i32, i32),
+    )>,
 }
 
 #[derive(Default)]
@@ -735,7 +747,7 @@ impl DisplayServerRuntime {
             CHAT_SHADOW_OFFSET_Y,
             CHAT_SHADOW_ALPHA as u32,
         );
-        chat.mount(chat_atlas, chat_blur_cache);
+        chat.mount(chat_atlas, Some(chat_blur_cache));
         // RFC-0065: the desktop starts clean — chat is NOT auto-shown. It opens on
         // demand (chat button / "Chat" in the Apps dropdown via `toggle_chat`),
         // the first visible step away from a baked-open window toward a launched app.
@@ -856,6 +868,9 @@ impl DisplayServerRuntime {
             dock_surface: None,
             dock_rendered_n: 0,
             dock_dirty: false,
+            cursor_shape: cursor::CursorShape::Default,
+            cursor_hot: (crate::assets::CURSOR_HOTSPOT_X, crate::assets::CURSOR_HOTSPOT_Y),
+            resize_drag: None,
         })
     }
 

@@ -71,6 +71,13 @@ const H_SV_DISPLAY_TEX: u32 = 0x44;
 const H_WALLPAPER_TEX: u32 = 0xE2;
 /// Sampler view of H_WALLPAPER_TEX.
 const H_SV_WALLPAPER: u32 = 0x45;
+/// Backdrop scratch texture (screen-sized, GPU-only — no guest backing): before
+/// each glass layer composites, the RT region beneath it is copied here
+/// (`RESOURCE_COPY_REGION`) so the blur pass samples the DESTINATION-SO-FAR
+/// (lower windows, chrome) instead of the static wallpaper (TASK-0070 Phase 4).
+const H_BACKDROP_TEX: u32 = 0xE5;
+/// Sampler view of H_BACKDROP_TEX.
+const H_SV_BACKDROP: u32 = 0x4B;
 /// Default sampler state (created by `virgl_blur_init`).
 const H_SAMPLER: u32 = 0x34;
 /// Fullscreen −1..1 quad VBO (resource 0xFA, created by `virgl_blur_init`).
@@ -628,14 +635,65 @@ impl VirtioGpuBackend {
         }
     }
 
-    /// Frosted-glass backdrop: GPU-blur the persistent wallpaper texture into the
-    /// glass RT (`H_GLS_SURF`) at a layer's rect, so a translucent glass layer
-    /// composited on top reads as real frosted glass. This is the proven Stage-4
-    /// recipe (FS_BLUR handle 13 sampling `H_SV_WALLPAPER`), now parameterized per
-    /// layer and run from `composite_pending_rt_layers` for every glass layer
-    /// (`backdrop_blur > 0`) — the real blur that reaches the virgl scanout. Pure
-    /// GL draws sampling a persistent texture: no per-frame TRANSFER_TO_HOST_3D,
-    /// so it avoids the stall that gated the standalone VMO `BlurBackdrop`.
+    /// One-shot: create the screen-sized backdrop scratch texture + its sampler
+    /// view. GPU-only (no guest backing, no transfers — it is only ever a
+    /// `RESOURCE_COPY_REGION` destination and an FS_BLUR sampling source), so it
+    /// costs no VMO arena. Issues create/attach ctrl commands — call OUTSIDE a
+    /// present batch (like `cursor_tex_init`). Idempotent after first success.
+    pub(crate) fn backdrop_tex_init(&mut self) -> Result<(), GfxError> {
+        if self.backdrop_tex_ready {
+            return Ok(());
+        }
+        let create = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: H_BACKDROP_TEX,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
+            width: SCREEN_W,
+            height: SCREEN_H,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create)?;
+        let ctx_attach = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: H_BACKDROP_TEX,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach)?;
+        let mut s = Submit3d::new();
+        s.emit_create_sampler_view(H_SV_BACKDROP, H_BACKDROP_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
+        let bb = s.as_bytes();
+        let bh = VirtioGpuSubmit3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
+            size: bb.len() as u32,
+            _padding: 0,
+        };
+        self.ctrl_submit_header_tail(&bh, bb)?;
+        self.backdrop_tex_ready = true;
+        Ok(())
+    }
+
+    /// Frosted-glass backdrop: GPU-blur what is BENEATH a glass layer into the
+    /// glass RT (`H_GLS_SURF`) at the layer's rect, so the translucent glass
+    /// composited on top reads as real frosted glass. Run from
+    /// `composite_pending_rt_layers` for every glass layer (`backdrop_blur > 0`).
+    ///
+    /// Destination-so-far (TASK-0070 Phase 4): layers composite back-to-front, so
+    /// the correct backdrop is the RT content at this point — lower windows and
+    /// chrome included. The RT region (padded by the radius so edge taps stay
+    /// inside the copy) is snapshotted into `H_BACKDROP_TEX` in the SAME command
+    /// stream as the blur draw, and FS_BLUR samples that snapshot. Until the
+    /// scratch texture exists (first boot presents) it falls back to the original
+    /// Stage-4 recipe of sampling the static wallpaper. Pure GPU-side work: the
+    /// copy and the draws never touch guest memory, no per-frame
+    /// TRANSFER_TO_HOST_3D — so it avoids the stall that gated the standalone
+    /// VMO `BlurBackdrop`.
     pub(crate) fn blur_rt_backdrop(
         &mut self,
         x: u32,
@@ -647,14 +705,38 @@ impl VirtioGpuBackend {
         if radius == 0 || w == 0 || h == 0 {
             return Ok(());
         }
+        let dst_so_far = self.backdrop_tex_ready;
         let mut sb = Submit3d::new();
+        if dst_so_far {
+            // Snapshot the RT beneath the layer (+radius halo, clamped to screen).
+            let x0 = x.saturating_sub(radius);
+            let y0 = y.saturating_sub(radius);
+            let x1 = (x + w + radius).min(SCREEN_W);
+            let y1 = (y + h + radius).min(SCREEN_H);
+            if x1 > x0 && y1 > y0 {
+                sb.emit_resource_copy_region(
+                    H_BACKDROP_TEX,
+                    x0,
+                    y0,
+                    GL_SCANOUT_RES,
+                    x0,
+                    y0,
+                    x1 - x0,
+                    y1 - y0,
+                );
+            }
+        }
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_BLEND, 0x20);
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
         sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
         sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
-        sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+        sb.emit_set_sampler_views(
+            PIPE_SHADER_FRAGMENT,
+            0,
+            &[if dst_so_far { H_SV_BACKDROP } else { H_SV_WALLPAPER }],
+        );
         sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
         sb.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
@@ -680,6 +762,12 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_header_tail(&bh, bb)?;
+        // Honest one-shot: emitted only after a destination-so-far snapshot+blur
+        // actually submitted (never on the wallpaper fallback).
+        if dst_so_far && !self.rt_backdrop_marker_done {
+            self.rt_backdrop_marker_done = true;
+            let _ = nexus_abi::debug_println(crate::markers::GPUD_RT_BACKDROP_DST);
+        }
         Ok(())
     }
 
@@ -701,6 +789,9 @@ impl VirtioGpuBackend {
         // cursor upload triggers must be able to reveal in the SAME pass (sampling
         // first left the gate one tick behind, ~234 ms observed).
         let _ = self.cursor_tex_init();
+        // One-shot: create the backdrop scratch texture for the destination-so-far
+        // glass blur (also outside the batch — create/attach ctrl commands).
+        let _ = self.backdrop_tex_init();
 
         // Atomic boot reveal: keep presenting ONLY the logo splash (the clear + seeded
         // wallpaper-texture blit below) until the whole desktop can appear at once —
@@ -927,8 +1018,12 @@ impl VirtioGpuBackend {
 
             // Cursor on top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from
             // windowd as the mouse moves).
-            let cx = self.cursor_ox.clamp(0, SCREEN_W as i32 - 20) as u32;
-            let cy = self.cursor_oy.clamp(0, SCREEN_H as i32 - 28) as u32;
+            // Hotspot-corrected sprite origin: the pointer POSITION is
+            // cursor_ox/oy; the sprite's top-left sits hotspot-left/up of it
+            // (resize shapes center the hotspot — TASK-0070 Phase 3).
+            let (hot_x, hot_y) = self.cursor_hot;
+            let cx = (self.cursor_ox - hot_x as i32).clamp(0, SCREEN_W as i32 - 20) as u32;
+            let cy = (self.cursor_oy - hot_y as i32).clamp(0, SCREEN_H as i32 - 28) as u32;
             if self.cursor_tex_ready() {
                 // Production path: composite the real cursor sprite as a layer
                 // (alpha-blended; its own alpha shapes the arrow). Reuses the generic

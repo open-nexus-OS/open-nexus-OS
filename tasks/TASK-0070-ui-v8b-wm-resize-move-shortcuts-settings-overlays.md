@@ -25,7 +25,29 @@ scoped settings overlays that now live in the reshaped `TASK-0072` (settingsd tr
 rewrite states the honest IST and the new combined scope. Phases below execute together with
 `TASK-0072` as one boot-gated track.
 
-## IST (verified 2026-07-03)
+## Progress ledger
+
+- **Phase 1 DONE (committed)**: window collection on `window_scene::WindowStack` (z/focus/
+  raise), scene emission + input hit-testing share `order()`/`hit_order()`, chrome above
+  windows, unified wheel routing to the topmost window under the cursor.
+- **Phase 2 DONE (committed)**: title-bar `– □ ×` (Frame SSOT for hit-test AND renderer),
+  minimize → bottom-center glass dock (visible only while ≥1 minimized), fullscreen state.
+- **Phase 3 DONE (committed)**: drag-to-edge snap (left/right halves, top = fullscreen),
+  7 px edge/corner resize with deterministic from-start math, vendored resize cursor shapes
+  via `OP_UPLOAD_CURSOR` re-send, TRUE full-display fullscreen with size-parametric content.
+- **Phase 4 (in review)**: GL backend now blurs the **destination-so-far** — before each glass
+  layer composites, the RT region beneath it (padded by the radius) is snapshotted via
+  `RESOURCE_COPY_REGION` into a screen-sized scratch texture (GPU-only, no guest backing) and
+  the existing gaussian pass samples that snapshot instead of the wallpaper texture; layers
+  composite back-to-front, so lower windows and chrome are already in the snapshot. Marker
+  `gpud: rt backdrop dst ok`. Fullscreen windows composite square (no radius, no shadow) and
+  exclude covered floating windows from composition entirely. Known remainders inside this
+  phase's scope: (a) CPU-backend parity — its `LayerBackdrop` restore still samples the
+  retained wallpaper plane, so glass there keeps the wallpaper backdrop for now; (b) the blur
+  rect is square, so the few pixels outside a rounded corner show blurred (not sharp)
+  underlying content — a blur-pass corner clip is a polish follow-up.
+
+## IST (verified 2026-07-03; Phases 1-3 above supersede the WM bullets)
 
 - Exactly **two windows** exist, as named fields on the compositor runtime (`chat`, `search`) —
   no window collection, no focus tracking, no click-to-raise.
@@ -136,7 +158,7 @@ UART markers (order tolerant):
 - `windowd: fullscreen id=..` / `windowd: unfullscreen id=..`
 - `windowd: snap edge=<left|right|top> id=..`
 - `windowd: resize id=.. w=.. h=..` / `cursor: shape=<name>`
-- `gpud: rt backdrop pass ..` / `windowd: backdrop invalidate id=.. reason=..`
+- `gpud: rt backdrop dst ok` (first destination-so-far snapshot+blur submitted)
 - `windowd: font family=.. sizes=..`
 - `gpud: layer scroll id=.. row=..`
 

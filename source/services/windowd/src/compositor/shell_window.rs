@@ -182,7 +182,7 @@ pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
 // crate (`frame`) so every `ShellWindow` (chat + search) shares one
 // implementation; re-export so existing `shell_window::{Frame,WindowPress}` call
 // sites keep working (RFC-0067 P3: window geometry is a widget concern).
-pub(crate) use nexus_widget_window::{Frame, TitleButton, WindowPress};
+pub(crate) use nexus_widget_window::{Frame, ResizeEdge, TitleButton, WindowPress};
 
 /// A movable/closable glass window. The content list is supplied by the caller
 /// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
@@ -211,8 +211,8 @@ pub(crate) struct ShellWindow {
     pub(crate) drag: Option<(i32, i32)>,
     /// Hovered title-bar button `[– □ ×]` (re-renders the title bar on change).
     pub(crate) title_hover: Option<TitleButton>,
-    /// Floating origin remembered while fullscreen, restored on toggle-off.
-    pub(crate) fullscreen_restore: Option<(i32, i32)>,
+    /// Floating frame remembered while fullscreen, restored on toggle-off.
+    pub(crate) fullscreen_restore: Option<(i32, i32, u32, u32)>,
     /// Scroll offset of the body list (rows, for now; GPU-offset in W2).
     pub(crate) scroll: u32,
     /// Set when the atlas surface needs re-rasterizing (filter/scroll/hover).
@@ -266,28 +266,28 @@ impl ShellWindow {
         }
     }
 
-    /// True while the window holds its atlas surfaces (is shown).
+    /// True while the window holds its content surface (is shown). The blur
+    /// cache is OPTIONAL (TASK-0070 Phase 3: a fullscreen-sized blur cache may
+    /// not fit the pool — the window then composites without backdrop).
     pub(crate) fn is_mounted(&self) -> bool {
-        self.atlas.is_some() && self.blur_cache.is_some()
+        self.atlas.is_some()
     }
 
-    /// Attach freshly-allocated atlas surfaces (on show). Forces a re-render and
-    /// invalidates the blur cache so the new rows are painted before composite.
-    pub(crate) fn mount(&mut self, atlas: AtlasSurface, blur_cache: AtlasSurface) {
+    /// Attach freshly-allocated atlas surfaces (on show/resize). Forces a
+    /// re-render and invalidates the blur cache so the new rows are painted
+    /// before composite.
+    pub(crate) fn mount(&mut self, atlas: AtlasSurface, blur_cache: Option<AtlasSurface>) {
         self.atlas = Some(atlas);
-        self.blur_cache = Some(blur_cache);
+        self.blur_cache = blur_cache;
         self.surface_dirty = true;
         self.blur_valid = false;
     }
 
-    /// Detach the atlas surfaces (on hide) so the caller can return them to the
-    /// allocator. Returns `(content, blur_cache)` when the window was mounted.
-    pub(crate) fn unmount(&mut self) -> Option<(AtlasSurface, AtlasSurface)> {
-        match (self.atlas.take(), self.blur_cache.take()) {
-            (Some(a), Some(b)) => Some((a, b)),
-            // Partial state can't occur (mount sets both), but stay total.
-            _ => None,
-        }
+    /// Detach the atlas surfaces (on hide/resize) so the caller can return
+    /// them to the allocator. Returns `(content, blur_cache)` when mounted.
+    pub(crate) fn unmount(&mut self) -> Option<(AtlasSurface, Option<AtlasSurface>)> {
+        self.blur_valid = false;
+        self.atlas.take().map(|a| (a, self.blur_cache.take()))
     }
 
     /// The pure-geometry frame (host-tested hit-testing / clamp / damage live in
@@ -306,27 +306,36 @@ impl ShellWindow {
         self.frame().title_button_at(cx, cy)
     }
 
-    /// Enter fullscreen: remember the floating origin and pin to the display
-    /// origin (the composite covers the chrome; Phase-3 resize will re-render
-    /// the content at display size — until then the frame centers on screen).
-    pub(crate) fn enter_fullscreen(&mut self, mode_w: u32, mode_h: u32) {
-        if self.fullscreen_restore.is_none() {
-            self.fullscreen_restore = Some((self.x, self.y));
+    /// Apply a new display-space frame (move + resize in one step, TASK-0070
+    /// Phase 3). A size change dirties the content surface (the caller
+    /// re-renders — and re-mounts pool surfaces — at the new size); any
+    /// change invalidates the blur cache.
+    pub(crate) fn set_frame(&mut self, x: i32, y: i32, w: u32, h: u32) {
+        if w != self.w || h != self.h {
+            self.w = w;
+            self.h = h;
+            self.surface_dirty = true;
         }
-        self.end_drag();
-        // Center the (native-size) frame; a full-size re-render lands with the
-        // Phase-3 resize machinery.
-        self.x = (mode_w.saturating_sub(self.w) / 2) as i32;
-        self.y = (mode_h.saturating_sub(self.h) / 2) as i32;
+        self.x = x;
+        self.y = y;
         self.blur_valid = false;
     }
 
-    /// Leave fullscreen: return to the remembered floating origin.
+    /// Enter fullscreen: remember the floating frame and take the whole
+    /// display (TRUE fullscreen — the content re-renders at display size via
+    /// the Phase-3 resize machinery; the composite covers the chrome).
+    pub(crate) fn enter_fullscreen(&mut self, mode_w: u32, mode_h: u32) {
+        if self.fullscreen_restore.is_none() {
+            self.fullscreen_restore = Some((self.x, self.y, self.w, self.h));
+        }
+        self.end_drag();
+        self.set_frame(0, 0, mode_w, mode_h);
+    }
+
+    /// Leave fullscreen: return to the remembered floating frame.
     pub(crate) fn leave_fullscreen(&mut self) {
-        if let Some((x, y)) = self.fullscreen_restore.take() {
-            self.x = x;
-            self.y = y;
-            self.blur_valid = false;
+        if let Some((x, y, w, h)) = self.fullscreen_restore.take() {
+            self.set_frame(x, y, w, h);
         }
     }
 
@@ -371,14 +380,24 @@ impl ShellWindow {
 
     /// Snapshot the immutable values the glass composite needs, so the caller can
     /// take them before borrowing the command buffer's encoder. `None` when the
-    /// window is unmounted (no surfaces → nothing to composite).
+    /// window is unmounted (no surfaces → nothing to composite). The blurred
+    /// backdrop is OPTIONAL (TASK-0070 Phase 3): a resized/fullscreen window
+    /// whose blur cache is missing or too small composites without it (the
+    /// translucent body sits straight on the wallpaper — allowed) instead of
+    /// sampling past the cache into foreign atlas rows.
     pub(crate) fn glass_params(&self) -> Option<GlassCompositeParams> {
+        let blur = match self.blur_cache {
+            Some(cache) if cache.width >= self.w && cache.height >= self.h => Some(GlassBlur {
+                cache_row: cache.abs_row,
+                cache_x: cache.x,
+                valid: self.blur_valid,
+            }),
+            _ => None,
+        };
         Some(GlassCompositeParams {
             atlas_row: self.atlas?.abs_row,
             atlas_x: self.atlas?.x,
-            blur_cache_row: self.blur_cache?.abs_row,
-            blur_cache_x: self.blur_cache?.x,
-            blur_valid: self.blur_valid,
+            blur,
             x: self.x.max(0) as u32,
             y: self.y.max(0) as u32,
             w: self.w,
@@ -419,23 +438,24 @@ impl ShellWindow {
                 opacity: 255,
                 corner_radius: p.radius,
                 scrollable: false,
-                shadow: Some(LayerShadow {
+                shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                     blur: p.shadow_blur,
                     offset_y: p.shadow_offset_y,
                     alpha: p.shadow_alpha,
                 }),
-                backdrop: Some(LayerBackdrop {
+                backdrop: p.blur.map(|blur| LayerBackdrop {
                     blur_radius: DARK_GLASS_BLUR_RADIUS,
                     saturation_percent: DARK_GLASS_SATURATION_PERCENT,
                     restore_halo_pad: 0,
                     retained_src_y_offset: RETAINED_ROW_OFFSET,
-                    cache: glass_cache(&p),
+                    cache: glass_cache(blur),
                 }),
             },
             (mode_w, mode_h),
         );
-        // `built_blur`: the cache was (re)built this present iff it was invalid.
-        !p.blur_valid
+        // `built_blur`: the cache was (re)built this present iff a cache exists
+        // and was invalid (no cache → nothing was built).
+        p.blur.map(|b| !b.valid).unwrap_or(false)
     }
 
     /// Composite a glass window whose body **scrolls** by a GPU source-row offset
@@ -474,17 +494,17 @@ impl ShellWindow {
                 opacity: 255,
                 corner_radius: p.radius,
                 scrollable: true,
-                shadow: Some(LayerShadow {
+                shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                     blur: p.shadow_blur,
                     offset_y: p.shadow_offset_y,
                     alpha: p.shadow_alpha,
                 }),
-                backdrop: Some(LayerBackdrop {
+                backdrop: p.blur.map(|blur| LayerBackdrop {
                     blur_radius: DARK_GLASS_BLUR_RADIUS,
                     saturation_percent: DARK_GLASS_SATURATION_PERCENT,
                     restore_halo_pad: pad,
                     retained_src_y_offset: RETAINED_ROW_OFFSET,
-                    cache: glass_cache(&p),
+                    cache: glass_cache(blur),
                 }),
             },
             (mode_w, mode_h),
@@ -500,27 +520,37 @@ impl ShellWindow {
         // `draw_title_bar_row`), so the top corners reveal the body's rounded corners
         // underneath while the bottom edge stays straight — no all-corner "notch".
         let _ = encoder.try_composite_layer(p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
-        // `built_blur`: the cache was (re)built this present iff it was invalid.
-        !p.blur_valid
+        // `built_blur`: the cache was (re)built this present iff a cache exists
+        // and was invalid (no cache → nothing was built).
+        p.blur.map(|b| !b.valid).unwrap_or(false)
     }
 }
 
 /// Map a window's blur-cache state to the layer SSOT's cache mode: build + write
 /// the blurred backdrop on the first settled present, reuse it thereafter.
-fn glass_cache(p: &GlassCompositeParams) -> BackdropCache {
-    if p.blur_valid {
+fn glass_cache(blur: GlassBlur) -> BackdropCache {
+    if blur.valid {
         BackdropCache::Read {
-            cache_x: p.blur_cache_x,
-            cache_row_abs: p.blur_cache_row,
+            cache_x: blur.cache_x,
+            cache_row_abs: blur.cache_row,
             display_row_offset: DISPLAY_ROW_OFFSET,
         }
     } else {
         BackdropCache::Write {
-            cache_x: p.blur_cache_x,
-            cache_row_abs: p.blur_cache_row,
+            cache_x: blur.cache_x,
+            cache_row_abs: blur.cache_row,
             display_row_offset: DISPLAY_ROW_OFFSET,
         }
     }
+}
+
+/// The window's blurred-backdrop cache surface, when one exists AND fits the
+/// current window size (see `glass_params`).
+#[derive(Clone, Copy)]
+pub(crate) struct GlassBlur {
+    pub(crate) cache_row: u32,
+    pub(crate) cache_x: u32,
+    pub(crate) valid: bool,
 }
 
 /// Copy snapshot of the values [`ShellWindow::composite_glass`] needs — taken
@@ -530,10 +560,8 @@ pub(crate) struct GlassCompositeParams {
     /// Atlas content surface row + column (`src_x` — non-zero when 2D-packed).
     pub(crate) atlas_row: u32,
     pub(crate) atlas_x: u32,
-    /// Blur-cache surface row + column.
-    pub(crate) blur_cache_row: u32,
-    pub(crate) blur_cache_x: u32,
-    pub(crate) blur_valid: bool,
+    /// Blurred-backdrop cache, when present and sized for the window.
+    pub(crate) blur: Option<GlassBlur>,
     pub(crate) x: u32,
     pub(crate) y: u32,
     pub(crate) w: u32,

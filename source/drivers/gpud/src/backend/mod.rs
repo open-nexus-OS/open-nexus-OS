@@ -135,7 +135,7 @@ pub struct VirtioGpuBackend {
     /// where the overlay is not composited into the captured/shown scanout —
     /// there the save-under software cursor below is the live path.
     cursor_resource_id: Option<ResourceId>,
-    cursor_hot: (u32, u32),
+    pub(crate) cursor_hot: (u32, u32),
     /// Save-under software cursor (composited into the scanout, so it is visible
     /// on every display backend). `cursor_ox/oy` are the screen-space top-left of
     /// the drawn sprite; `cursor_saveunder` holds the scene pixels it covers.
@@ -215,6 +215,13 @@ pub struct VirtioGpuBackend {
     pub(crate) icon_tex_w: u32,
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) icon_tex_h: u32,
+    /// Backdrop scratch texture (destination-so-far glass blur) created — set by
+    /// `backdrop_tex_init`, read by `blur_rt_backdrop` to pick its blur source.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) backdrop_tex_ready: bool,
+    /// One-shot marker: first destination-so-far backdrop snapshot+blur submitted.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) rt_backdrop_marker_done: bool,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -419,6 +426,10 @@ impl VirtioGpuBackend {
             icon_tex_h: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_atlas_ready: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            backdrop_tex_ready: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            rt_backdrop_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

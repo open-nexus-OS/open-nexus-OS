@@ -38,6 +38,15 @@ pub const MINIMIZE_ICON_BGRA: &[u8] = generated::MINIMIZE_ICON_BGRA;
 pub const MINIMIZE_ICON_DIM: u32 = generated::MINIMIZE_ICON_DIM;
 pub const MAXIMIZE_ICON_BGRA: &[u8] = generated::MAXIMIZE_ICON_BGRA;
 pub const MAXIMIZE_ICON_DIM: u32 = generated::MAXIMIZE_ICON_DIM;
+/// Resize pointer shapes (TASK-0070 Phase 3): vendored cursor-theme
+/// `ew`/`ns`/`nesw`/`nwse` variants, 32×32 like the default pointer,
+/// hotspot = center (16,16).
+pub const CURSOR_RESIZE_EW_BGRA: &[u8] = generated::CURSOR_RESIZE_EW_BGRA;
+pub const CURSOR_RESIZE_NS_BGRA: &[u8] = generated::CURSOR_RESIZE_NS_BGRA;
+pub const CURSOR_RESIZE_NESW_BGRA: &[u8] = generated::CURSOR_RESIZE_NESW_BGRA;
+pub const CURSOR_RESIZE_NWSE_BGRA: &[u8] = generated::CURSOR_RESIZE_NWSE_BGRA;
+pub const CURSOR_RESIZE_HOTSPOT: i32 = 16;
+
 /// Dock icons for minimized windows (Lucide `message-circle` / `search`).
 pub const DOCK_CHAT_ICON_BGRA: &[u8] = generated::DOCK_CHAT_ICON_BGRA;
 pub const DOCK_CHAT_ICON_DIM: u32 = generated::DOCK_CHAT_ICON_DIM;

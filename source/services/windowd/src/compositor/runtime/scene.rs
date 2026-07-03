@@ -79,6 +79,7 @@ impl DisplayServerRuntime {
         let cursor_h = self.cursor_height;
         let cursor_x = self.state.cursor_x;
         let cursor_y = self.state.cursor_y;
+        let cursor_hot = self.cursor_hot;
         let hw_cursor = self.hw_cursor_active;
         let blur_cache_valid = self.sidebar_blur_cache_valid;
         // Pre-blur pass rides the first handoff present (full-screen damage, so
@@ -105,8 +106,18 @@ impl DisplayServerRuntime {
         let dropdown_atlas_row = self.dropdown_atlas.abs_row;
         let dropdown_full_h = self.dropdown_h;
         let dropdown_progress = scene.apps_dropdown_progress;
+        // The fullscreen window (if any): its composite drops the rounded
+        // corners + drop shadow (nothing to round/shadow against at the
+        // display edges — straight edge-to-edge content, user decision).
+        let fullscreen_id = self.windows.fullscreen_active();
         // `Some` only while the Search window is mounted (shown) → composite it.
-        let search_glass = self.search.glass_params();
+        let search_glass = self.search.glass_params().map(|mut p| {
+            if fullscreen_id == Some(crate::window_scene::WindowId::Search) {
+                p.radius = 0;
+                p.shadow_alpha = 0;
+            }
+            p
+        });
         let mut built_search_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
@@ -128,8 +139,20 @@ impl DisplayServerRuntime {
         // (no translucent pad), so the opaque bar occludes scrolled rows and content
         // clips right at its bottom edge — not partway down a translucent strip.
         let chat_title_h = crate::interaction::CHAT_TITLE_BAR_H;
-        let chat_blur_cache_row = self.chat.blur_cache.map(|s| s.abs_row).unwrap_or(0);
-        let chat_blur_cache_valid = self.chat.blur_valid;
+        // Live chat frame (resizable since TASK-0070 Phase 3) + its blur cache
+        // ONLY while the cache still fits the window (a taller/wider resize
+        // composites without backdrop instead of sampling foreign atlas rows).
+        let (chat_w, chat_h) = (self.chat.w, self.chat.h);
+        let chat_blur = match self.chat.blur_cache {
+            Some(cache) if cache.width >= chat_w && cache.height >= chat_h => {
+                Some(crate::compositor::shell_window::GlassBlur {
+                    cache_row: cache.abs_row,
+                    cache_x: cache.x,
+                    valid: self.chat.blur_valid,
+                })
+            }
+            _ => None,
+        };
         let mut built_chat_blur_cache = false;
         let btn_blur_cache_valid = self.button_blur_cache_valid;
         let mut built_button_cache = false;
@@ -242,21 +265,19 @@ impl DisplayServerRuntime {
                     // no per-frame re-render). On virgl the scanout is rebuilt
                     // every present, so the layer is re-composited each frame.
                     crate::window_scene::WindowId::Chat => {
-                        use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
+                        let chat_fs = fullscreen_id == Some(crate::window_scene::WindowId::Chat);
                         let chat_glass = crate::compositor::shell_window::GlassCompositeParams {
                             atlas_row: chat_atlas_row,
                             atlas_x: 0, // chat is a full-width band
-                            blur_cache_row: chat_blur_cache_row,
-                            blur_cache_x: 0,
-                            blur_valid: chat_blur_cache_valid,
+                            blur: chat_blur,
                             x: chat_dx,
                             y: chat_dy,
-                            w: CHAT_PANEL_W,
-                            h: CHAT_PANEL_H,
-                            radius: super::desktop_layer::SEARCH_RADIUS,
-                            shadow_blur: CHAT_SHADOW_BLUR,
+                            w: chat_w,
+                            h: chat_h,
+                            radius: if chat_fs { 0 } else { super::desktop_layer::SEARCH_RADIUS },
+                            shadow_blur: if chat_fs { 0 } else { CHAT_SHADOW_BLUR },
                             shadow_offset_y: CHAT_SHADOW_OFFSET_Y,
-                            shadow_alpha: CHAT_SHADOW_ALPHA as u32,
+                            shadow_alpha: if chat_fs { 0 } else { CHAT_SHADOW_ALPHA as u32 },
                         };
                         built_chat_blur_cache = crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
                             &mut encoder,
@@ -357,7 +378,7 @@ impl DisplayServerRuntime {
             if let Some((dock_row, dock_x, bar)) = dock_layer {
                 let _ = encoder.composite_layer_full(
                     &Layer {
-                        corner_radius: crate::compositor::dock::DOCK_RADIUS,
+                        corner_radius: crate::dock::DOCK_RADIUS,
                         shadow: Some(LayerShadow { blur: 14, offset_y: 4, alpha: 80 }),
                         backdrop: Some(chrome_glass_backdrop()),
                         ..Layer::opaque(dock_row, dock_x, bar.width, bar.height, bar.x, bar.y)
@@ -826,8 +847,8 @@ impl DisplayServerRuntime {
             //    software fallback a cursor-only move is a cheap cursor-region
             //    blit (from the retained Plane 1) + this BlendCursor.
             if !hw_cursor && cursor_w > 0 && cursor_h > 0 {
-                let cx = (cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
-                let cy = (cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
+                let cx = (cursor_x - cursor_hot.0).max(0) as u32;
+                let cy = (cursor_y - cursor_hot.1).max(0) as u32;
                 if cx < mode.width && cy < mode.height {
                     let _ = encoder.try_blend_cursor(cx, cy, cursor_w, cursor_h);
                 }

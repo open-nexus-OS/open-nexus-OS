@@ -15,14 +15,90 @@
 
 use super::*;
 
+/// The pointer shapes windowd can arm (TASK-0070 Phase 3). One sprite per
+/// shape, all 32×32 — a shape switch is a plain `OP_UPLOAD_CURSOR` re-send
+/// (4 KB < the 8 KB IPC frame cap), so no new wire op exists for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CursorShape {
+    Default,
+    ResizeEw,
+    ResizeNs,
+    ResizeNesw,
+    ResizeNwse,
+}
+
+impl CursorShape {
+    /// Sprite bytes + dimensions + hotspot for this shape.
+    fn sprite(self) -> (&'static [u8], u32, u32, i32, i32) {
+        let hot = crate::assets::CURSOR_RESIZE_HOTSPOT;
+        match self {
+            CursorShape::Default => (
+                crate::assets::CURSOR_LEFT_PTR_BGRA,
+                crate::assets::CURSOR_LEFT_PTR_WIDTH,
+                crate::assets::CURSOR_LEFT_PTR_HEIGHT,
+                crate::assets::CURSOR_HOTSPOT_X,
+                crate::assets::CURSOR_HOTSPOT_Y,
+            ),
+            CursorShape::ResizeEw => (crate::assets::CURSOR_RESIZE_EW_BGRA, 32, 32, hot, hot),
+            CursorShape::ResizeNs => (crate::assets::CURSOR_RESIZE_NS_BGRA, 32, 32, hot, hot),
+            CursorShape::ResizeNesw => (crate::assets::CURSOR_RESIZE_NESW_BGRA, 32, 32, hot, hot),
+            CursorShape::ResizeNwse => (crate::assets::CURSOR_RESIZE_NWSE_BGRA, 32, 32, hot, hot),
+        }
+    }
+
+    /// Marker-stable shape name.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            CursorShape::Default => "default",
+            CursorShape::ResizeEw => "ew-resize",
+            CursorShape::ResizeNs => "ns-resize",
+            CursorShape::ResizeNesw => "nesw-resize",
+            CursorShape::ResizeNwse => "nwse-resize",
+        }
+    }
+
+    /// The shape for a resize edge grab/hover.
+    pub(crate) fn for_edge(edge: crate::compositor::shell_window::ResizeEdge) -> Self {
+        use crate::compositor::shell_window::ResizeEdge as E;
+        match edge {
+            E::Left | E::Right => CursorShape::ResizeEw,
+            E::Top | E::Bottom => CursorShape::ResizeNs,
+            E::TopRight | E::BottomLeft => CursorShape::ResizeNesw,
+            E::TopLeft | E::BottomRight => CursorShape::ResizeNwse,
+        }
+    }
+}
+
 impl DisplayServerRuntime {
+    /// Switch the pointer shape (edge hover / active resize). Re-sends the
+    /// sprite via the existing cursor-upload path on change; the SW/GL draw
+    /// hotspot follows via `cursor_hot`. Rate: only on actual change.
+    pub(crate) fn set_cursor_shape(&mut self, shape: CursorShape) {
+        if shape == self.cursor_shape {
+            return;
+        }
+        self.cursor_shape = shape;
+        let (_, w, h, hot_x, hot_y) = shape.sprite();
+        self.cursor_hot = (hot_x, hot_y);
+        self.cursor_width = w;
+        self.cursor_height = h;
+        let _ = debug_println(&alloc::format!("cursor: shape={}", shape.name()));
+        self.upload_cursor_bitmap_to_gpud();
+        // Repaint the pointer region so the SW/GL cursor shows the new shape
+        // without waiting for the next move.
+        self.queue_cursor_damage(
+            self.state.cursor_x,
+            self.state.cursor_y,
+            self.state.cursor_x,
+            self.state.cursor_y,
+        );
+    }
+
     pub(super) fn upload_cursor_bitmap_to_gpud(&mut self) {
         if !self.ensure_gpud_client() {
             return;
         }
-        let bitmap = crate::assets::CURSOR_LEFT_PTR_BGRA;
-        let w = crate::assets::CURSOR_LEFT_PTR_WIDTH;
-        let h = crate::assets::CURSOR_LEFT_PTR_HEIGHT;
+        let (bitmap, w, h, hot_x, hot_y) = self.cursor_shape.sprite();
         let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
         if bgra_len == 0 || bgra_len > bitmap.len() {
             return;
@@ -33,10 +109,8 @@ impl DisplayServerRuntime {
         frame[0] = GPU_UPLOAD_CURSOR_OP;
         frame[1..5].copy_from_slice(&w.to_le_bytes());
         frame[5..9].copy_from_slice(&h.to_le_bytes());
-        frame[9..13]
-            .copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_X.max(0) as u32).to_le_bytes());
-        frame[13..17]
-            .copy_from_slice(&(crate::assets::CURSOR_HOTSPOT_Y.max(0) as u32).to_le_bytes());
+        frame[9..13].copy_from_slice(&(hot_x.max(0) as u32).to_le_bytes());
+        frame[13..17].copy_from_slice(&(hot_y.max(0) as u32).to_le_bytes());
         frame[17..total].copy_from_slice(&bitmap[..bgra_len]);
         // Blocking round-trip. The upload reply is magic-tagged (0xC0DE_000x);
         // any other reply seen while waiting is an in-flight present ack (e.g.
@@ -113,8 +187,8 @@ impl DisplayServerRuntime {
                     // The first present blended the software cursor into the
                     // display plane before the overlay was armed — restore that
                     // region from Plane 1 once so the baked sprite disappears.
-                    let cx = (self.state.cursor_x - crate::assets::CURSOR_HOTSPOT_X).max(0) as u32;
-                    let cy = (self.state.cursor_y - crate::assets::CURSOR_HOTSPOT_Y).max(0) as u32;
+                    let cx = (self.state.cursor_x - self.cursor_hot.0).max(0) as u32;
+                    let cy = (self.state.cursor_y - self.cursor_hot.1).max(0) as u32;
                     self.queue_gpu_blit_rect(DamageRect {
                         x: cx,
                         y: cy,

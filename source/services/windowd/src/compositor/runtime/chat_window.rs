@@ -89,12 +89,8 @@ impl DisplayServerRuntime {
                 self.chat_render_base = new.saturating_sub(CHAT_OVERSCAN / 2);
                 self.chat.surface_dirty = true;
             }
-            self.queue_gpu_blit_rect(DamageRect {
-                x: crate::interaction::CHAT_PANEL_X,
-                y: crate::interaction::CHAT_PANEL_Y,
-                width: crate::interaction::CHAT_PANEL_W,
-                height: crate::interaction::CHAT_PANEL_H,
-            });
+            let rect = self.chat.damage_rect(self.mode.width, self.mode.height);
+            self.queue_gpu_blit_rect(rect);
         }
         if !self.live_scroll_marker_emitted {
             let _ = debug_println(crate::markers::LIVE_SCROLL_OK_MARKER);
@@ -270,7 +266,14 @@ impl DisplayServerRuntime {
         let abs_row = surface.abs_row;
         let render_base = self.chat_render_base;
         let content_h = self.chat_content_h;
+        let chat_w = self.chat.w.min(self.mode.width);
         let title_hover = self.chat.title_hover;
+        // Fullscreen renders square (the composite drops the radius too).
+        let corner_radius = if self.windows.is_fullscreen(crate::window_scene::WindowId::Chat) {
+            0
+        } else {
+            super::desktop_layer::SEARCH_RADIUS
+        };
         let visible = &self.chat_visible;
         let band = &mut self.band_scratch;
         // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
@@ -285,11 +288,13 @@ impl DisplayServerRuntime {
                 super::chat::draw_chat_panel_row(
                     ly,
                     row,
+                    chat_w,
                     render_base,
                     content_h,
                     visible,
                     height,
                     title_hover,
+                    corner_radius,
                 )?;
             }
             let dst = (abs_row + band_start) as usize * stride;

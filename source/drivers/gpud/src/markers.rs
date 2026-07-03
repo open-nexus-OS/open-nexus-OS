@@ -23,6 +23,10 @@ pub const GPUD_ANIMATION_SUBMIT_FAIL: &str = "gpud: animation submit fail";
 pub const GPUD_REQUEST_MALFORMED: &str = "gpud: request malformed";
 /// Emitted when virgl GPU acceleration is detected and active.
 pub const GPUD_VIRGL_READY: &str = "gpud: virgl ready";
+/// First destination-so-far glass backdrop (RT snapshot + GPU blur) submitted —
+/// glass layers now blur what is actually beneath them (lower windows, chrome)
+/// instead of the static wallpaper texture (TASK-0070 Phase 4).
+pub const GPUD_RT_BACKDROP_DST: &str = "gpud: rt backdrop dst ok";
 /// Emitted when virgl is not detected — CPU fallback is active.
 pub const GPUD_CPU_FALLBACK: &str = "gpud: cpu fallback";
 /// Emitted when a minimal SUBMIT_3D command stream is accepted by virglrenderer

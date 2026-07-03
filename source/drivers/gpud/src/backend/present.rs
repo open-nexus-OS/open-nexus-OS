@@ -359,10 +359,9 @@ impl VirtioGpuBackend {
             // The GL-RT build-up owns the scanout, so the CPU/VMO draw stream is
             // never presented (and its per-frame transfers stall virgl). But we
             // STILL collect CompositeLayer ops into `pending_rt_layers` so the
-            // build-up present composites the real UI layers (content + shadow)
-            // straight onto the RT via `composite_pending_rt_layers`. Glass
-            // backdrop-blur is dropped here (the RT-backdrop pass isn't wired yet)
-            // — the layer's content + shadow still show.
+            // build-up present composites the real UI layers (content + shadow +
+            // glass backdrop-blur via `blur_rt_backdrop`) straight onto the RT
+            // via `composite_pending_rt_layers`.
             // Cursor-move presents carry a minimal command buffer with NO layer
             // commands. The build-up re-renders the whole frame every present, so
             // if we cleared the layer set on those frames the UI would flicker.
@@ -818,9 +817,11 @@ impl VirtioGpuBackend {
                 (true, Some(row)) => row,
                 _ => l.src_row_abs,
             };
-            // Frosted glass: blur the wallpaper behind this layer's rect into the
-            // glass RT first; the layer's translucent tint + content composite over
-            // the blurred backdrop = real frosted glass on the virgl scanout.
+            // Frosted glass: blur what is beneath this layer's rect (destination-
+            // so-far — layers composite back-to-front, so lower windows/chrome are
+            // already on the RT) into the glass RT first; the layer's translucent
+            // tint + content composite over the blurred backdrop = real frosted
+            // glass on the virgl scanout.
             if l.backdrop_blur > 0 {
                 let _ = self.blur_rt_backdrop(l.dst_x, l.dst_y, l.width, l.height, l.backdrop_blur);
             }

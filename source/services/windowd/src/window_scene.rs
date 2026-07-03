@@ -283,13 +283,19 @@ impl WindowStack {
     }
 
     /// On-screen windows back-to-front (composite order), alloc-free.
-    /// Minimized windows are excluded; fullscreen windows group on top.
+    /// Minimized windows are excluded; fullscreen windows group on top — and
+    /// while one is on screen, FLOATING windows are excluded entirely (they
+    /// are fully covered: compositing them would be wasted work, and only the
+    /// wallpaper base remains beneath the fullscreen surface).
     pub fn order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
+        let fullscreen_on_screen = self.entries[..self.len]
+            .iter()
+            .any(|w| w.showable(desktop_shell_active) && w.fullscreen);
         let mut out = [WindowId::Chat; MAX_WINDOWS];
         let mut keys = [0i32; MAX_WINDOWS];
         let mut n = 0;
         for w in &self.entries[..self.len] {
-            if w.showable(desktop_shell_active) {
+            if w.showable(desktop_shell_active) && (!fullscreen_on_screen || w.fullscreen) {
                 // Insertion sort by the order key ascending — ≤ MAX_WINDOWS entries.
                 let key = w.order_key();
                 let mut j = n;
@@ -532,18 +538,38 @@ mod tests {
         s.show(WindowId::Search);
         s.show(WindowId::Chat);
         s.set_fullscreen(WindowId::Search, true);
-        // Search entered fullscreen → raised + focused + grouped on top even
-        // though chat was raised later at a higher raw z.
+        // Search entered fullscreen → raised + focused + the ONLY composited
+        // window (covered floating windows are excluded — user decision:
+        // nothing but the wallpaper base beneath a fullscreen surface).
         assert_eq!(s.fullscreen_active(), Some(WindowId::Search));
         assert_eq!(s.focused(), Some(WindowId::Search));
         s.raise(WindowId::Chat);
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search], "fullscreen stays on top");
-        // Leaving fullscreen restores plain z ordering.
+        assert_eq!(&order[..n], &[WindowId::Search], "fullscreen composites alone");
+        // The fullscreen window stays on top of the raw z ordering too.
+        assert_eq!(s.fullscreen_active(), Some(WindowId::Search));
+        // Leaving fullscreen restores plain z ordering (chat was raised last).
         s.set_fullscreen(WindowId::Search, false);
         assert_eq!(s.fullscreen_active(), None);
         let (order, n) = s.order(false);
         assert_eq!(&order[..n], &[WindowId::Search, WindowId::Chat]);
+    }
+
+    #[test]
+    fn fullscreen_excludes_covered_floating_windows() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        s.set_fullscreen(WindowId::Chat, true);
+        // Only the fullscreen window composites (search is fully covered);
+        // hit order follows, so the covered window is unreachable too.
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Chat]);
+        let (hits, hn) = s.hit_order(false);
+        assert_eq!(&hits[..hn], &[WindowId::Chat]);
+        // Leaving fullscreen brings the floating window back.
+        s.set_fullscreen(WindowId::Chat, false);
+        assert_eq!(s.order(false).1, 2);
     }
 
     #[test]

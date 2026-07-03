@@ -210,9 +210,17 @@ pub(crate) const fn search_full_h() -> u32 {
     SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD + SEARCH_ROW_H * SEARCH_VISIBLE_ROWS + SEARCH_PAD
 }
 
-/// Max scroll offset (in rows) for a filtered list of `count` words.
-pub(crate) fn search_max_scroll(count: usize) -> u32 {
-    (count as u32).saturating_sub(SEARCH_VISIBLE_ROWS)
+/// Visible list rows for a Search window of height `h` (TASK-0070 Phase 3:
+/// the window is resizable, so the row count derives from the live height —
+/// the boot default equals `SEARCH_VISIBLE_ROWS`). At least one row.
+pub(crate) fn search_visible_rows(h: u32) -> u32 {
+    (h.saturating_sub(SEARCH_TITLE_H + SEARCH_FILTER_H + 2 * SEARCH_PAD) / SEARCH_ROW_H).max(1)
+}
+
+/// Max scroll offset (in rows) for `count` words in a window showing
+/// `visible_rows` rows.
+pub(crate) fn search_max_scroll_for(count: usize, visible_rows: u32) -> u32 {
+    (count as u32).saturating_sub(visible_rows)
 }
 
 /// Height in px of one list row + the visible list viewport — so the shared
@@ -224,15 +232,18 @@ pub(crate) const SEARCH_LIST_VIEWPORT_H: u32 = SEARCH_ROW_H * SEARCH_VISIBLE_ROW
 /// Draw one window-local row of the Search window: glass body, title bar with a
 /// close "x", the filter text, and the visible slice of the filtered list
 /// (already scrolled by the caller). A scrollbar marks position when scrollable.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_search_window_row(
     local_y: u32,
     row: &mut [u8],
     w: u32,
+    visible_rows: u32,
     filter_text: &str,
     visible_words: &[&'static str],
     scroll: u32,
     total: usize,
     title_hover: Option<super::shell_window::TitleButton>,
+    corner_radius: u32,
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, w, TINT);
     if local_y < SEARCH_TITLE_H {
@@ -245,7 +256,7 @@ pub(crate) fn draw_search_window_row(
             SEARCH_TITLE_H,
             SEARCH_CLOSE_W,
             title_hover,
-            SEARCH_RADIUS,
+            corner_radius,
         );
     }
     let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - FONT_H * FONT_SCALE) / 2;
@@ -259,17 +270,17 @@ pub(crate) fn draw_search_window_row(
         return Ok(());
     }
     let list_top = SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD;
-    for (i, word) in visible_words.iter().take(SEARCH_VISIBLE_ROWS as usize).enumerate() {
+    for (i, word) in visible_words.iter().take(visible_rows as usize).enumerate() {
         let rt = list_top + i as u32 * SEARCH_ROW_H;
         let text_top = rt + (SEARCH_ROW_H - FONT_H * FONT_SCALE) / 2;
         draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
     }
     // Scrollbar thumb on the right when the list overflows.
-    let max_scroll = search_max_scroll(total);
+    let max_scroll = search_max_scroll_for(total, visible_rows);
     if max_scroll > 0 {
         let track_top = list_top;
-        let track_h = SEARCH_ROW_H * SEARCH_VISIBLE_ROWS;
-        let thumb_h = (track_h * SEARCH_VISIBLE_ROWS / total.max(1) as u32).clamp(16, track_h);
+        let track_h = SEARCH_ROW_H * visible_rows;
+        let thumb_h = (track_h * visible_rows / total.max(1) as u32).clamp(16, track_h);
         let thumb_y = track_top + (track_h - thumb_h) * scroll / max_scroll;
         if local_y >= thumb_y && local_y < thumb_y + thumb_h {
             write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), [200, 200, 200, 180]);

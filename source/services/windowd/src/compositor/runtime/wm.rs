@@ -12,8 +12,15 @@
 //! TEST_COVERAGE: No tests (pure logic host-tested in `window_scene` + `dock`)
 
 use super::*;
-use crate::compositor::dock;
+use crate::dock;
+use crate::compositor::shell_window::{Frame, ResizeEdge};
+use crate::snap;
 use crate::window_scene::WindowId;
+
+/// Minimum resizable window size: the three title buttons + a label sliver
+/// wide, the title bar + a few content rows tall.
+const MIN_WIN_W: u32 = 3 * 48 + 60;
+const MIN_WIN_H: u32 = 120;
 
 impl DisplayServerRuntime {
     /// Minimize a window into the dock. Refused (with a marker) when the dock
@@ -66,15 +73,38 @@ impl DisplayServerRuntime {
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Search => self.search.leave_fullscreen(),
+                WindowId::Search => {
+                    self.search.leave_fullscreen();
+                    // Shrink the pool surfaces back to the floating size.
+                    let (w, h) = (self.search.w, self.search.h);
+                    let _ = self.ensure_search_surfaces(w, h);
+                    self.search_set_extent();
+                    self.commit_search_scroll_position();
+                    self.search.surface_dirty = true;
+                }
             }
             self.windows.set_fullscreen(id, false);
             let _ =
                 debug_println(&alloc::format!("windowd: unfullscreen id={}", Self::window_name(id)));
         } else {
             match id {
-                WindowId::Chat => self.chat.enter_fullscreen(mode_w, mode_h),
-                WindowId::Search => self.search.enter_fullscreen(mode_w, mode_h),
+                WindowId::Chat => {
+                    // The full-width chat band backs any h ≤ its height.
+                    let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
+                    self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
+                }
+                WindowId::Search => {
+                    // TRUE fullscreen needs pool surfaces at display size; if
+                    // the pool can't back them the toggle is refused honestly.
+                    if !self.ensure_search_surfaces(mode_w, mode_h) {
+                        let _ = debug_println("windowd: fullscreen denied (search pool)");
+                        return;
+                    }
+                    self.search.enter_fullscreen(mode_w, mode_h);
+                    self.search_set_extent();
+                    self.commit_search_scroll_position();
+                    self.search.surface_dirty = true;
+                }
             }
             self.windows.set_fullscreen(id, true);
             let _ =
@@ -124,6 +154,206 @@ impl DisplayServerRuntime {
             let rect = self.chat.damage_rect(self.mode.width, self.mode.height);
             self.queue_gpu_blit_rect(rect);
         }
+    }
+
+    // ── Edge/corner resize + drag-to-edge snap (TASK-0070 Phase 3) ──
+
+    /// Begin an edge-resize drag: remember the grabbed edge, the START frame
+    /// (the math is deterministic in it) and the grab point.
+    pub(super) fn begin_window_resize(&mut self, id: WindowId, edge: ResizeEdge, cx: i32, cy: i32) {
+        let start = match id {
+            WindowId::Chat => self.chat.frame(),
+            WindowId::Search => self.search.frame(),
+        };
+        self.raise_window(id);
+        self.resize_drag = Some((id, edge, start, (cx, cy)));
+        self.set_cursor_shape(cursor::CursorShape::for_edge(edge));
+    }
+
+    /// Continue an active edge-resize drag: recompute the frame from the drag
+    /// START (no incremental drift), clamp to min size + display, apply.
+    pub(super) fn apply_window_resize(&mut self, cx: i32, cy: i32) {
+        let Some((id, edge, start, (gx, gy))) = self.resize_drag else {
+            return;
+        };
+        let frame = Frame::resized(
+            start,
+            edge,
+            cx - gx,
+            cy - gy,
+            MIN_WIN_W,
+            MIN_WIN_H,
+            self.mode.width,
+            self.mode.height,
+        );
+        let current = match id {
+            WindowId::Chat => self.chat.frame(),
+            WindowId::Search => self.search.frame(),
+        };
+        if frame != current {
+            self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);
+        }
+    }
+
+    /// End an edge-resize drag (pointer release): one honest size marker.
+    pub(super) fn end_window_resize(&mut self) {
+        if let Some((id, _, _, _)) = self.resize_drag.take() {
+            let (w, h) = match id {
+                WindowId::Chat => (self.chat.w, self.chat.h),
+                WindowId::Search => (self.search.w, self.search.h),
+            };
+            let _ = debug_println(&alloc::format!(
+                "windowd: resize id={} w={w} h={h}",
+                Self::window_name(id)
+            ));
+        }
+    }
+
+    /// A title-bar drag released with the pointer at a display edge snaps the
+    /// window (left/right half, top = fullscreen). Returns true when a snap
+    /// was applied (the caller skips the plain drag release).
+    pub(super) fn apply_release_snap(&mut self, id: WindowId, cx: i32, cy: i32) -> bool {
+        let Some(target) = snap::snap_target_at(cx, cy, self.mode.width) else {
+            return false;
+        };
+        match target {
+            snap::SnapTarget::Fullscreen => {
+                // Route through the fullscreen toggle: chrome-cover + restore
+                // semantics live in ONE place.
+                if !self.windows.is_fullscreen(id) {
+                    self.toggle_fullscreen(id);
+                }
+                let _ = debug_println(&alloc::format!(
+                    "windowd: snap edge=top id={}",
+                    Self::window_name(id)
+                ));
+            }
+            half => {
+                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.mode.height);
+                self.apply_window_frame(id, x, y, w, h);
+                let _ = debug_println(&alloc::format!(
+                    "windowd: snap edge={} id={}",
+                    if half == snap::SnapTarget::LeftHalf { "left" } else { "right" },
+                    Self::window_name(id)
+                ));
+            }
+        }
+        true
+    }
+
+    /// Apply a display-space frame to a window: damage the vacated region,
+    /// resize the content surfaces (search re-mounts from the pool; the chat
+    /// band is boot-reserved and only clamps), re-render, damage the new
+    /// region. The SINGLE geometry-apply path shared by edge resize, snap
+    /// halves, and the fullscreen toggle.
+    pub(super) fn apply_window_frame(&mut self, id: WindowId, x: i32, y: i32, w: u32, h: u32) {
+        let old = self.window_damage_rect(id);
+        self.queue_gpu_blit_rect(old);
+        match id {
+            WindowId::Chat => {
+                // The chat band is full-width and CHAT_PANEL_H+CHAT_OVERSCAN
+                // tall — clamp the frame to what the band can back.
+                let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(h);
+                let w = w.min(self.mode.width);
+                let h = h.min(band_h);
+                self.chat.set_frame(x, y, w, h);
+            }
+            WindowId::Search => {
+                let w = w.min(self.mode.width);
+                let h = h.min(self.mode.height);
+                if !self.ensure_search_surfaces(w, h) {
+                    // Pool exhausted at this size: keep the old frame (the
+                    // window must never show garbage or vanish).
+                    let _ = debug_println("windowd: resize denied (search pool)");
+                    return;
+                }
+                self.search.set_frame(x, y, w, h);
+                self.search_set_extent();
+                self.commit_search_scroll_position();
+                self.search.surface_dirty = true;
+            }
+        }
+        let new = self.window_damage_rect(id);
+        self.queue_gpu_blit_rect(new);
+    }
+
+    /// Ensure the search pool surfaces can back a `w`×`h` window: grow-realloc
+    /// when too small, lazily shrink when 2× oversized, keep otherwise. The
+    /// blur cache follows best-effort (missing blur = unblurred glass).
+    /// TRANSACTIONAL: the old surfaces are only freed once a replacement is
+    /// secured (or re-secured at the old size), so the window never loses its
+    /// content surface mid-resize.
+    fn ensure_search_surfaces(&mut self, w: u32, h: u32) -> bool {
+        let fits = |s: crate::atlas::AtlasSurface| {
+            s.width >= w
+                && s.height >= h
+                && (s.width as u64 * s.height as u64) <= 2 * (w as u64 * h as u64).max(1)
+        };
+        let Some(old_content) = self.search.atlas else {
+            return false; // unmounted (hidden) — nothing to resize
+        };
+        if fits(old_content) && self.search.blur_cache.map(fits).unwrap_or(false) {
+            return true;
+        }
+        // Fast path: the pool has room beside the old surfaces.
+        if let Some(content) = self.atlas_alloc.alloc(w, h) {
+            let blur = self.atlas_alloc.alloc(w, h);
+            if let Some((old, old_blur)) = self.search.unmount() {
+                self.atlas_alloc.free(old);
+                if let Some(old_blur) = old_blur {
+                    self.atlas_alloc.free(old_blur);
+                }
+            }
+            self.search.mount(content, blur);
+            return true;
+        }
+        // Tight pool: free the old surfaces first, then retry; on failure fall
+        // back to remounting at the OLD capacity (just freed → succeeds).
+        let (old_w, old_h) = (old_content.width, old_content.height);
+        if let Some((old, old_blur)) = self.search.unmount() {
+            self.atlas_alloc.free(old);
+            if let Some(old_blur) = old_blur {
+                self.atlas_alloc.free(old_blur);
+            }
+        }
+        if let Some(content) = self.atlas_alloc.alloc(w, h) {
+            let blur = self.atlas_alloc.alloc(w, h);
+            self.search.mount(content, blur);
+            return true;
+        }
+        if let Some(content) = self.atlas_alloc.alloc(old_w, old_h) {
+            let blur = self.atlas_alloc.alloc(old_w, old_h);
+            self.search.mount(content, blur);
+        }
+        false
+    }
+
+    /// Select the pointer shape for the current pointer position: an ACTIVE
+    /// resize drag pins its edge shape; otherwise the topmost floating
+    /// window's border band under the cursor picks one; else default.
+    pub(super) fn update_cursor_shape_for_pointer(&mut self, cx: i32, cy: i32) {
+        let shape = if let Some((_, edge, _, _)) = self.resize_drag {
+            cursor::CursorShape::for_edge(edge)
+        } else {
+            let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            let mut shape = cursor::CursorShape::Default;
+            for &wid in &hit[..n] {
+                let frame = match wid {
+                    WindowId::Chat => self.chat.frame(),
+                    WindowId::Search => self.search.frame(),
+                };
+                if frame.contains(cx, cy) {
+                    if !self.windows.is_fullscreen(wid) {
+                        if let Some(edge) = frame.resize_edge_at(cx, cy) {
+                            shape = cursor::CursorShape::for_edge(edge);
+                        }
+                    }
+                    break; // topmost window under the pointer decides
+                }
+            }
+            shape
+        };
+        self.set_cursor_shape(shape);
     }
 
     // ── Dock (bottom-center bar of minimized windows) ──

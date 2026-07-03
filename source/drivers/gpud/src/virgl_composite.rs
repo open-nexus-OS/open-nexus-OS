@@ -443,9 +443,9 @@ impl VirtioGpuBackend {
     /// RT-direct layer composite (Increment 1 of true GPU compositing): composite
     /// the layer straight onto the scanout render target (`H_GLS_SURF`), over the
     /// base that gl_present already blitted there — NO VMO display-plane writeback
-    /// and NO `0xF8` backdrop transfer (the RT is the final surface). Only the
-    /// `backdrop_blur == 0` case (shadow + content); glass-over-dynamic still uses
-    /// `composite_layer_gpu` until the RT-backdrop pass lands in a later step.
+    /// and NO `0xF8` backdrop transfer (the RT is the final surface). Glass layers
+    /// get their backdrop from `blur_rt_backdrop` (destination-so-far RT snapshot
+    /// + GPU blur), run by `composite_pending_rt_layers` before this composite.
     /// Coordinates are screen-space (0..SCREEN_H), matching the RT.
     pub(crate) fn composite_layer_rt(
         &mut self,
@@ -566,6 +566,32 @@ impl VirtioGpuBackend {
     /// True once the cursor sprite has been uploaded into its GL texture.
     pub(crate) fn cursor_tex_ready(&self) -> bool {
         self.cursor_tex_va != 0
+    }
+
+    /// Re-upload the STORED cursor sprite into the existing GL cursor texture
+    /// (TASK-0070 Phase 3 pointer-shape switch: windowd re-sends
+    /// `OP_UPLOAD_CURSOR` with a different 32×32 sprite; the texture backing
+    /// is memcpy'd + transferred — no new resource). No-op until the first
+    /// `cursor_tex_init`; dimension changes are refused (all shapes share the
+    /// init dimensions by contract). Call OUTSIDE a present batch.
+    pub(crate) fn cursor_tex_refresh(&mut self) -> Result<(), GfxError> {
+        if self.cursor_tex_va == 0 {
+            return Ok(()); // init (lazy, at next present) picks up the sprite
+        }
+        let w = self.cursor_sprite_w;
+        let h = self.cursor_sprite_h;
+        if w != self.cursor_tex_w || h != self.cursor_tex_h {
+            return Ok(()); // dims fixed at init — keep the old shape visible
+        }
+        let byte_len = (w as usize) * (h as usize) * 4;
+        let dst = self.cursor_tex_va as *mut u8;
+        if !dst.is_null() && self.cursor_sprite.len() >= byte_len {
+            unsafe {
+                core::ptr::copy_nonoverlapping(self.cursor_sprite.as_ptr(), dst, byte_len);
+            }
+        }
+        self.virgl_transfer_to_host(H_CURSOR_TEX, 0, 0, w, h, w * 4)?;
+        Ok(())
     }
 
     /// Composite the cursor sprite as a layer onto the scanout RT at (`dst_x`,

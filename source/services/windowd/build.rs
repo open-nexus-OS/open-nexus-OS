@@ -121,6 +121,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writeln!(generated, "pub const MOCU_CURSOR_HOTSPOT_Y: i32 = 2;")?;
     writeln!(generated, "pub const MOCU_CURSOR_LEFT_PTR_SVG: &str = r##\"{}\"##;", cursor_svg)?;
 
+    // Resize pointer shapes (TASK-0070 Phase 3): the vendored cursor theme's
+    // `ew`/`ns`/`nesw`/`nwse` variants, rendered through the same 4×-SSAA
+    // pipeline at the same 32×32 as the default pointer. Hotspot = center
+    // (16,16) — these are symmetric double-arrow shapes.
+    for (name, svg) in [
+        ("CURSOR_RESIZE_EW", include_str!("../../../resources/cursors/mocu/src/svg/ew-resize.svg")),
+        ("CURSOR_RESIZE_NS", include_str!("../../../resources/cursors/mocu/src/svg/ns-resize.svg")),
+        (
+            "CURSOR_RESIZE_NESW",
+            include_str!("../../../resources/cursors/mocu/src/svg/nesw-resize.svg"),
+        ),
+        (
+            "CURSOR_RESIZE_NWSE",
+            include_str!("../../../resources/cursors/mocu/src/svg/nwse-resize.svg"),
+        ),
+    ] {
+        // The theme's shape sources use `<defs>` + `<use>` (unsupported by
+        // nexus-svg) — normalize like the default pointer: inline the shared
+        // path as dark outline + light fill, drop the faint offset shadow and
+        // the red hotspot marker circle.
+        let normalized = normalized_mocu_shape_svg(svg)
+            .ok_or_else(|| std::io::Error::other(format!("normalize cursor {name}")))?;
+        let hi =
+            nexus_svg::render_svg_at(&normalized, CURSOR_DIM * CURSOR_SS, CURSOR_DIM * CURSOR_SS)
+                .map_err(|err| std::io::Error::other(format!("render cursor {name}: {err:?}")))?;
+        let bgra = box_average_downscale(&hi.buffer, hi.width, hi.height, CURSOR_SS);
+        let path = out_dir.join(format!("{}.bgra", name.to_lowercase()));
+        fs::write(&path, &bgra)?;
+        writeln!(
+            generated,
+            "pub const {name}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+            path.display()
+        )?;
+    }
+
     // Real icon (TASK #61 "real icon layer"): render a Lucide icon through the
     // nexus-svg render-at-scale pipeline (currentColor → tint) into a BGRA sprite.
     // gpud composites it as a GPU sprite layer on the virgl scanout — the
@@ -366,6 +401,19 @@ fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Inline a mocu shape SVG (`<defs><path id="c" …/></defs>` + `<use>` layers)
+/// into the plain-path form nexus-svg renders: dark stroked outline + light
+/// fill from the shared geometry; the 10%-opacity offset shadow and the red
+/// `id="hot"` marker circle are dropped (same policy as the default pointer).
+fn normalized_mocu_shape_svg(raw: &str) -> Option<String> {
+    let d = raw.split("<path id=\"c\" d=\"").nth(1)?.split('"').next()?;
+    Some(format!(
+        "<svg width=\"24\" height=\"24\" xmlns=\"http://www.w3.org/2000/svg\">\
+         <path d=\"{d}\" fill=\"#1a1b1c\" stroke=\"#1a1b1c\" stroke-width=\"2\" stroke-linejoin=\"round\"/>\
+         <path d=\"{d}\" fill=\"#fafbfc\"/></svg>"
+    ))
 }
 
 fn normalized_mocu_cursor_svg() -> &'static str {

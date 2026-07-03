@@ -53,6 +53,43 @@ impl TitleButton {
     }
 }
 
+/// Width of the edge/corner resize hit band, in px INSIDE the window border
+/// (TASK-0070 Phase 3). Corners are the intersection of two bands.
+pub const RESIZE_BORDER: u32 = 7;
+
+/// Which window edge/corner a resize drag grabs. Determines both the resize
+/// math and the pointer shape (`ew`/`ns`/`nesw`/`nwse`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ResizeEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl ResizeEdge {
+    /// Whether this edge moves the LEFT border (x + w change together).
+    pub fn affects_left(self) -> bool {
+        matches!(self, ResizeEdge::Left | ResizeEdge::TopLeft | ResizeEdge::BottomLeft)
+    }
+    /// Whether this edge moves the RIGHT border (w changes).
+    pub fn affects_right(self) -> bool {
+        matches!(self, ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight)
+    }
+    /// Whether this edge moves the TOP border (y + h change together).
+    pub fn affects_top(self) -> bool {
+        matches!(self, ResizeEdge::Top | ResizeEdge::TopLeft | ResizeEdge::TopRight)
+    }
+    /// Whether this edge moves the BOTTOM border (h changes).
+    pub fn affects_bottom(self) -> bool {
+        matches!(self, ResizeEdge::Bottom | ResizeEdge::BottomLeft | ResizeEdge::BottomRight)
+    }
+}
+
 /// A window's display-space rectangle plus its chrome geometry. Signed origin so a
 /// window dragged partly off-screen is representable before clamping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +156,72 @@ impl Frame {
             }
         } else {
             WindowPress::Body
+        }
+    }
+
+    /// The resize edge/corner under `(cx, cy)` — a `RESIZE_BORDER`-wide band
+    /// just inside each window border; corners where two bands meet. Resolved
+    /// BEFORE title-bar presses (the top band overlaps the title bar's first
+    /// pixels), so grabbing the very edge resizes instead of dragging.
+    pub fn resize_edge_at(&self, cx: i32, cy: i32) -> Option<ResizeEdge> {
+        if !self.contains(cx, cy) {
+            return None;
+        }
+        let b = RESIZE_BORDER as i32;
+        let left = cx < self.x + b;
+        let right = cx >= self.x + self.w as i32 - b;
+        let top = cy < self.y + b;
+        let bottom = cy >= self.y + self.h as i32 - b;
+        match (left, right, top, bottom) {
+            (true, _, true, _) => Some(ResizeEdge::TopLeft),
+            (_, true, true, _) => Some(ResizeEdge::TopRight),
+            (true, _, _, true) => Some(ResizeEdge::BottomLeft),
+            (_, true, _, true) => Some(ResizeEdge::BottomRight),
+            (true, _, _, _) => Some(ResizeEdge::Left),
+            (_, true, _, _) => Some(ResizeEdge::Right),
+            (_, _, true, _) => Some(ResizeEdge::Top),
+            (_, _, _, true) => Some(ResizeEdge::Bottom),
+            _ => None,
+        }
+    }
+
+    /// Pure resize math: the frame that results from dragging `edge` by
+    /// `(dx, dy)` from `start`, clamped to `min_w`/`min_h` and the display.
+    /// Deterministic in the drag START frame (not incremental), so a fast
+    /// pointer never accumulates rounding drift.
+    pub fn resized(
+        start: Frame,
+        edge: ResizeEdge,
+        dx: i32,
+        dy: i32,
+        min_w: u32,
+        min_h: u32,
+        mode_w: u32,
+        mode_h: u32,
+    ) -> Frame {
+        let mut x0 = start.x;
+        let mut y0 = start.y;
+        let mut x1 = start.x + start.w as i32;
+        let mut y1 = start.y + start.h as i32;
+        if edge.affects_left() {
+            x0 = (start.x + dx).clamp(0, x1 - min_w as i32);
+        }
+        if edge.affects_right() {
+            x1 = (x1 + dx).clamp(x0 + min_w as i32, mode_w as i32);
+        }
+        if edge.affects_top() {
+            y0 = (start.y + dy).clamp(0, y1 - min_h as i32);
+        }
+        if edge.affects_bottom() {
+            y1 = (y1 + dy).clamp(y0 + min_h as i32, mode_h as i32);
+        }
+        Frame {
+            x: x0,
+            y: y0,
+            w: (x1 - x0).max(min_w as i32) as u32,
+            h: (y1 - y0).max(min_h as i32) as u32,
+            title_h: start.title_h,
+            close_w: start.close_w,
         }
     }
 
@@ -226,6 +329,59 @@ mod tests {
         assert!(cy + f.h as i32 <= MODE_H as i32);
         // An in-bounds move is unchanged.
         assert_eq!(f.clamp_pos(100, 100, MODE_W, MODE_H), (100, 100));
+    }
+
+    #[test]
+    fn resize_edges_resolve_bands_and_corners() {
+        let f = frame();
+        let b = RESIZE_BORDER as i32;
+        // Band centers on each edge.
+        assert_eq!(f.resize_edge_at(f.x + 2, f.y + f.h as i32 / 2), Some(ResizeEdge::Left));
+        assert_eq!(
+            f.resize_edge_at(f.x + f.w as i32 - 2, f.y + f.h as i32 / 2),
+            Some(ResizeEdge::Right)
+        );
+        assert_eq!(f.resize_edge_at(f.x + f.w as i32 / 2, f.y + 2), Some(ResizeEdge::Top));
+        assert_eq!(
+            f.resize_edge_at(f.x + f.w as i32 / 2, f.y + f.h as i32 - 2),
+            Some(ResizeEdge::Bottom)
+        );
+        // Corners where two bands intersect.
+        assert_eq!(f.resize_edge_at(f.x + 2, f.y + 2), Some(ResizeEdge::TopLeft));
+        assert_eq!(
+            f.resize_edge_at(f.x + f.w as i32 - 2, f.y + f.h as i32 - 2),
+            Some(ResizeEdge::BottomRight)
+        );
+        // Interior (past the band) is not a resize.
+        assert_eq!(f.resize_edge_at(f.x + b + 5, f.y + f.h as i32 / 2), None);
+        // Outside the window is not a resize.
+        assert_eq!(f.resize_edge_at(f.x - 1, f.y), None);
+        // The top band WINS over the title bar (edge grab resizes, not drags).
+        assert_eq!(f.resize_edge_at(f.x + f.w as i32 / 2, f.y + 1), Some(ResizeEdge::Top));
+    }
+
+    #[test]
+    fn resized_moves_only_the_grabbed_border_and_clamps() {
+        let start = frame(); // x=890 y=96 w=366 h=600 (right edge at 1256)
+        // Drag the right edge +20: width grows, origin unchanged (1276 ≤ 1280).
+        let r = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H);
+        assert_eq!((r.x, r.y, r.w, r.h), (start.x, start.y, start.w + 20, start.h));
+        // Drag the left edge +50: x moves right, width shrinks.
+        let l = Frame::resized(start, ResizeEdge::Left, 50, 0, 100, 100, MODE_W, MODE_H);
+        assert_eq!((l.x, l.w), (start.x + 50, start.w - 50));
+        // Corner drag changes both axes.
+        let br = Frame::resized(start, ResizeEdge::BottomRight, 20, 30, 100, 100, MODE_W, MODE_H);
+        assert_eq!((br.w, br.h), (start.w + 20, start.h + 30));
+        // Min size clamps: shrinking below min stops at min.
+        let tiny = Frame::resized(start, ResizeEdge::Right, -9000, 0, 120, 100, MODE_W, MODE_H);
+        assert_eq!(tiny.w, 120);
+        assert_eq!(tiny.x, start.x);
+        // Display clamps: growing past the display stops at its border.
+        let huge = Frame::resized(start, ResizeEdge::Right, 9000, 0, 100, 100, MODE_W, MODE_H);
+        assert_eq!(huge.x + huge.w as i32, MODE_W as i32);
+        // Deterministic in the start frame: same delta twice = same result.
+        let again = Frame::resized(start, ResizeEdge::Right, 20, 0, 100, 100, MODE_W, MODE_H);
+        assert_eq!(r, again);
     }
 
     #[test]

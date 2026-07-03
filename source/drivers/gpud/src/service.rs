@@ -810,8 +810,9 @@ fn arm_cursor(
         let _ = debug_println("gpud: hw cursor armed");
         return (STATUS_OK, Some(CURSOR_REPLY_HW));
     }
-    // virgl GL scanout, or HW arm failed. `hot_x`/`hot_y` are unused on this path.
-    let _ = (hot_x, hot_y);
+    // virgl GL scanout, or HW arm failed: the GL/SW draw subtracts the
+    // hotspot, so record it (resize shapes center it at 16,16).
+    backend.set_cursor_hot(hot_x, hot_y);
     // On virgl the build-up present owns the scanout and draws a procedural
     // cursor at `cursor_ox/oy` — reply GL so windowd ships moves + a present
     // (its software BlendCursor into the VMO would be ignored here). Elsewhere
@@ -822,6 +823,11 @@ fn arm_cursor(
     const NON_HW_REPLY: u32 = CURSOR_REPLY_SW;
     match backend.store_cursor_sprite(bgra, w, h) {
         Ok(()) => {
+            // Pointer-shape switch (TASK-0070 Phase 3): if the GL cursor
+            // texture is already live, refresh it from the new sprite now
+            // (outside any present batch) so the shape changes immediately.
+            #[cfg(feature = "virgl")]
+            let _ = backend.cursor_tex_refresh();
             let _ = debug_println("gpud: cursor uploaded");
             (STATUS_OK, Some(NON_HW_REPLY))
         }

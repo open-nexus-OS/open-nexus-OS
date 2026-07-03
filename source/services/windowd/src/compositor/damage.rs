@@ -26,8 +26,11 @@ pub(crate) fn cursor_damage_rect(
     if cursor_width == 0 || cursor_height == 0 || mode_width == 0 || mode_height == 0 {
         return None;
     }
-    let x0 = cursor_x.saturating_sub(assets::CURSOR_HOTSPOT_X);
-    let y0 = cursor_y.saturating_sub(assets::CURSOR_HOTSPOT_Y);
+    // Conservative hotspot pad: shapes place the hotspot anywhere up to the
+    // sprite center (TASK-0070 Phase 3 resize shapes are 16,16; the default
+    // pointer 2,2). One worst-case rect avoids threading live shape state here.
+    let x0 = cursor_x.saturating_sub(assets::CURSOR_RESIZE_HOTSPOT);
+    let y0 = cursor_y.saturating_sub(assets::CURSOR_RESIZE_HOTSPOT);
     let x1 = x0.saturating_add(cursor_width as i32);
     let y1 = y0.saturating_add(cursor_height as i32);
     let start_x = x0.max(0).min(mode_width as i32) as u32;

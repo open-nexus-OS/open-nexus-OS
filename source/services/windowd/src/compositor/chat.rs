@@ -123,14 +123,17 @@ fn viewport() -> (u32, u32, u32, u32) {
 /// Render one *surface-local* row `ly` (0..CHAT_PANEL_H) of the chat panel into
 /// `row` (pixels written at local x 0..CHAT_PANEL_W). The caller blits the
 /// finished surface to its on-screen position. No-op for `ly` outside the panel.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_chat_panel_row(
     ly: u32,
     row: &mut [u8],
+    w: u32,
     scroll_y: u32,
     content_h: u32,
     visible: &[ChatVisibleMsg],
     surface_h: u32,
     title_hover: Option<super::shell_window::TitleButton>,
+    corner_radius: u32,
 ) -> Result<(), WindowdError> {
     // The scrollbar is dropped on the GPU scroll-offset path (the surface is an
     // overscan window scrolled by composite offset, not by re-render).
@@ -144,12 +147,12 @@ pub(crate) fn draw_chat_panel_row(
         return super::shell_window::draw_title_bar_row(
             ly,
             row,
-            CHAT_PANEL_W,
+            w,
             "Chat",
             CHAT_TITLE_BAR_H,
             CHAT_CLOSE_ZONE_W,
             title_hover,
-            super::desktop_layer::SEARCH_RADIUS,
+            corner_radius,
         );
     }
     // Panel background (full panel width, every row). STRAIGHT-ALPHA COPY (not a
@@ -158,8 +161,12 @@ pub(crate) fn draw_chat_panel_row(
     // the previous band → ghost copies of the list ("three stacked layers"). A
     // straight copy overwrites the stale pixels AND keeps alpha 150 so the body
     // composites as real frosted glass (matching the Search window's `write_tint_span`).
+    // Background spans the LIVE window width (resizable since TASK-0070
+    // Phase 3); the text column below stays at its wrap width — a wider
+    // window reads like a max-content-width column (re-wrap lands with the
+    // Phase-7 list/layout unification).
     let _ = surface_h;
-    fill_row_straight(row, 0, CHAT_PANEL_W, PANEL_BG);
+    fill_row_straight(row, 0, w, PANEL_BG);
 
     let (vp_x, vp_y, vp_w, _vp_h) = viewport();
     // Content fills from below the title to the bottom of the (overscan) surface.

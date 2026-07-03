@@ -37,6 +37,7 @@ pub const VIRGL_CCMD_DRAW_VBO: u32 = 8;
 pub const VIRGL_CCMD_RESOURCE_INLINE_WRITE: u32 = 9;
 pub const VIRGL_CCMD_SET_SAMPLER_VIEWS: u32 = 10;
 pub const VIRGL_CCMD_SET_CONSTANT_BUFFER: u32 = 12;
+pub const VIRGL_CCMD_RESOURCE_COPY_REGION: u32 = 17;
 pub const VIRGL_CCMD_BIND_SAMPLER_STATES: u32 = 18;
 pub const VIRGL_CCMD_BIND_SHADER: u32 = 31;
 
@@ -530,6 +531,39 @@ impl Submit3d {
         for chunk in buf.chunks_exact(4) {
             self.w(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
         }
+    }
+
+    /// `VIRGL_CCMD_RESOURCE_COPY_REGION` — host-side 1:1 texel copy between two
+    /// resources (no guest backing or transfer involved). Payload (13 dwords):
+    /// dst handle/level/x/y/z, src handle/level/x/y/z, then the box w/h/d.
+    /// Used to snapshot the scanout RT beneath a glass layer into the backdrop
+    /// scratch texture so the blur pass samples the destination-so-far.
+    #[allow(clippy::too_many_arguments)]
+    pub fn emit_resource_copy_region(
+        &mut self,
+        dst_handle: u32,
+        dst_x: u32,
+        dst_y: u32,
+        src_handle: u32,
+        src_x: u32,
+        src_y: u32,
+        width: u32,
+        height: u32,
+    ) {
+        self.push_header(VIRGL_CCMD_RESOURCE_COPY_REGION, 0, 13);
+        self.w(dst_handle);
+        self.w(0); // dst level
+        self.w(dst_x);
+        self.w(dst_y);
+        self.w(0); // dst z
+        self.w(src_handle);
+        self.w(0); // src level
+        self.w(src_x);
+        self.w(src_y);
+        self.w(0); // src z
+        self.w(width);
+        self.w(height);
+        self.w(1); // depth
     }
 
     /// `VIRGL_CCMD_DESTROY_OBJECT`.
