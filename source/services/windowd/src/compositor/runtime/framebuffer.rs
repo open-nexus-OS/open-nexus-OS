@@ -150,6 +150,14 @@ impl DisplayServerRuntime {
             self.do_handoff_attach_blocking(handle);
         }
 
+        // Session decision BEFORE the first present (TASK-0065B): sessiond is
+        // ready long before this point, so the first revealed frame already
+        // shows the login greeter (or the session shell) — the boot-default
+        // desktop never flashes. Bounded; a miss defers to the cadenced probe.
+        if self.first_handoff_attach_acked && !self.first_handoff_present_sent {
+            self.session_probe_at_handoff();
+        }
+
         // Reactive present: blit the full retained scene to the display plane and
         // overlay the cursor, then block until ack. The CPU composite above wrote
         // the scene into Plane 1; this CB copies it to Plane 2 (display) so the

@@ -100,7 +100,7 @@ impl DisplayServerRuntime {
         // host-tested in `interaction::resolve_click_session`). Hover feedback
         // tracks every pointer move.
         let greeter_rect = self.greeter_hit_rect();
-        if greeter_rect.is_some() {
+        if greeter_rect.is_some() || !self.session_resolved() {
             self.update_greeter_hover(cursor_x, cursor_y);
             if primary_press {
                 window_consumed_press = true;

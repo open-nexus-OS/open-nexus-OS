@@ -34,14 +34,44 @@ pub(super) struct SessionProbe {
 
 #[cfg(all(nexus_env = "os", target_os = "none"))]
 impl DisplayServerRuntime {
+    /// The session decision has been made (session applied, greeter up, or
+    /// the auto-shell fallback). Until then NO shell surface may composite
+    /// and no shell affordance may react — the desktop must never flash
+    /// before login (TASK-0065B ordering: splash → login → shell).
+    pub(super) fn session_resolved(&self) -> bool {
+        self.session_probe.resolved
+    }
+
+    /// One SYNCHRONOUS probe attempt during the first-frame handoff, BEFORE
+    /// the first present is built: sessiond is ready long before windowd's
+    /// handoff, so in the normal boot the very first revealed frame already
+    /// carries the session decision (the greeter layer — login directly after
+    /// the boot logo, the desktop never flashes). Bounded (the client's 500ms
+    /// recv deadline); a miss falls back to the cadenced probe below.
+    pub(crate) fn session_probe_at_handoff(&mut self) {
+        if self.session_probe.resolved {
+            return;
+        }
+        self.session_probe.attempts = self.session_probe.attempts.saturating_add(1);
+        match crate::session_client::fetch_session_state() {
+            Some(snapshot) => {
+                self.session_probe.resolved = true;
+                self.on_session_snapshot(snapshot);
+            }
+            None => {
+                let _ = debug_println("windowd: session probe retry (post-handoff)");
+            }
+        }
+    }
+
     /// One probe step, called from the main loop. Returns `true` while the
     /// probe still needs pacing wakes (the loop is otherwise fully blocking).
     pub(crate) fn session_probe_tick(&mut self, now_ns: u64) -> bool {
         if self.session_probe.resolved {
             return false;
         }
-        // The session decision must never delay the boot reveal: probe only
-        // after the present handoff is done and the desktop base is up.
+        // The handoff path runs its own synchronous attempt; the cadenced
+        // retries below only cover the sessiond-slow/unreachable cases.
         if self.is_handoff_pending() {
             return true;
         }
@@ -59,6 +89,14 @@ impl DisplayServerRuntime {
             None if self.session_probe.attempts >= SESSION_PROBE_MAX_ATTEMPTS => {
                 self.session_probe.resolved = true;
                 let _ = debug_println("windowd: session unavailable (auto shell)");
+                // Chrome was session-gated until now — one full present
+                // brings the auto shell up.
+                self.queue_gpu_blit_rect(DamageRect {
+                    x: 0,
+                    y: 0,
+                    width: self.mode.width,
+                    height: self.mode.height,
+                });
                 false
             }
             None => true,

@@ -173,6 +173,7 @@ impl DisplayServerRuntime {
         // `self.scene_cb` (a method call inside would re-borrow all of self).
         let chrome_composited = self.chrome_composited();
         let greeter_active = self.greeter_active();
+        let session_resolved = self.session_resolved();
         self.scene_cb.clear();
         {
             let mut encoder = self
@@ -374,6 +375,7 @@ impl DisplayServerRuntime {
             if !USE_DESKTOP_SHELL
                 && !self.shell_config.desktop_chrome
                 && !greeter_active
+                && session_resolved
                 && button_blit_w > 0
                 && !button_covered
                 && (button_touched || !btn_blur_cache_valid)
@@ -583,6 +585,7 @@ impl DisplayServerRuntime {
             if !USE_DESKTOP_SHELL
                 && !self.shell_config.desktop_chrome
                 && !greeter_active
+                && session_resolved
                 && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {

@@ -63,10 +63,12 @@ impl DisplayServerRuntime {
         self.greeter.is_some()
     }
 
-    /// Shell chrome composites only when the config enables it AND no greeter
-    /// owns the display (TASK-0065B session gate).
+    /// Shell chrome composites only when the config enables it, the SESSION
+    /// DECISION has been made, and no greeter owns the display (TASK-0065B):
+    /// the desktop must never flash before login — the boot order is
+    /// splash → login → shell, never splash → shell → login.
     pub(super) fn chrome_composited(&self) -> bool {
-        self.shell_config.desktop_chrome && self.greeter.is_none()
+        self.shell_config.desktop_chrome && self.session_resolved() && self.greeter.is_none()
     }
 
     /// The greeter's clickable card, when active (input hit-testing).
