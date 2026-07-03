@@ -301,6 +301,94 @@ def main() -> int:
         )
         time.sleep(POST_PRESENT_SETTLE_S)
 
+        # TASK-0065B login greeter: when the login window owns the display the
+        # proof lane logs in exactly like a user — click the centered avatar —
+        # then waits for the session shell before the choreography below.
+        # Bounded + optional: lanes with a manifest auto_login (or the
+        # no-sessiond fallback shell) never show the greeter; a miss here just
+        # continues into the normal flow.
+        greeter_marker = os.environ.get(
+            "QEMU_INPUT_INJECT_GREETER_MARKER", "windowd: greeter visible"
+        )
+        session_shell_marker = os.environ.get(
+            "QEMU_INPUT_INJECT_SESSION_SHELL_MARKER", "windowd: session shell visible"
+        )
+        greeter_wait_s = float(os.environ.get("QEMU_INPUT_INJECT_GREETER_WAIT_S", "10"))
+        greeter_present = True
+        try:
+            wait_for_uart_marker(uart_log_path, greeter_marker, greeter_wait_s)
+        except RuntimeError:
+            greeter_present = False
+        if greeter_present:
+            center_x = VISIBLE_DISPLAY_WIDTH // 2
+            center_y = VISIBLE_DISPLAY_HEIGHT // 2
+            login_start_x = route_cell_midpoint(
+                CURSOR_START_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
+            )
+            login_start_y = route_cell_midpoint(
+                CURSOR_START_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
+            )
+            if effective_touch_enabled:
+                send_input_events(
+                    sock,
+                    [
+                        {
+                            "type": "abs",
+                            "data": {
+                                "axis": "x",
+                                "value": qemu_abs_value(center_x, VISIBLE_DISPLAY_WIDTH),
+                            },
+                        },
+                        {
+                            "type": "abs",
+                            "data": {
+                                "axis": "y",
+                                "value": qemu_abs_value(center_y, VISIBLE_DISPLAY_HEIGHT),
+                            },
+                        },
+                    ],
+                    console=None,
+                )
+            elif effective_mouse_enabled:
+                # Relative pointer: walk from the assumed start to the avatar…
+                for step in bounded_rel_steps(center_x - login_start_x):
+                    send_input_events(
+                        sock, [{"type": "rel", "data": {"axis": "x", "value": step}}]
+                    )
+                for step in bounded_rel_steps(center_y - login_start_y):
+                    send_input_events(
+                        sock, [{"type": "rel", "data": {"axis": "y", "value": step}}]
+                    )
+            time.sleep(0.2)
+            send_input_events(sock, [{"type": "btn", "data": {"down": True, "button": "left"}}])
+            time.sleep(0.05)
+            send_input_events(sock, [{"type": "btn", "data": {"down": False, "button": "left"}}])
+            if effective_mouse_enabled and not effective_touch_enabled:
+                # …and back, so the choreography below keeps its start assumption.
+                for step in bounded_rel_steps(login_start_x - center_x):
+                    send_input_events(
+                        sock, [{"type": "rel", "data": {"axis": "x", "value": step}}]
+                    )
+                for step in bounded_rel_steps(login_start_y - center_y):
+                    send_input_events(
+                        sock, [{"type": "rel", "data": {"axis": "y", "value": step}}]
+                    )
+            session_shell_ok = True
+            try:
+                wait_for_uart_marker(uart_log_path, session_shell_marker, 15.0)
+            except RuntimeError:
+                session_shell_ok = False
+            append_debug_log(
+                "H4",
+                "tools/qmp_visible_input_inject.py:greeter",
+                "greeter login step",
+                {
+                    "clicked": [center_x, center_y],
+                    "session_shell_ok": session_shell_ok,
+                },
+            )
+            time.sleep(POST_PRESENT_SETTLE_S)
+
         # Drive the proof through the canonical display-space pipeline: compute
         # the physical midpoint of the hover target cell and inject whichever
         # pointer mode the proof lane exposed for this run.

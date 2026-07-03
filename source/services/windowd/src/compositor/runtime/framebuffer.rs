@@ -82,9 +82,14 @@ impl DisplayServerRuntime {
     pub(super) fn note_present_completed(&mut self) {
         self.last_completed_seq = self.present_seq;
         self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
-        // Phase 4: toggle display slot on completion so next frame uses alternate slot.
-        // gpud scanout switch is deferred to Phase 7 (unified pacing loop).
-        self.current_display_slot ^= 1;
+        // Display stays SINGLE-buffered (slot A, rows 1600..2399). The old
+        // per-ack slot toggle was a half-wired experiment: gpud NEVER switched
+        // its scanout/upload row off slot A, so every second frame was blitted
+        // into invisible memory — and "slot B" (offset 12_288_000 = row 2400)
+        // actually aliases Plane 3, the blur cache. One-shot presents (the
+        // login greeter reveal) landed there deterministically and never
+        // showed (TASK-0065B regression hunt, 2026-07-03). Real page flipping
+        // needs a gpud-side scanout switch + its own plane — not this.
     }
 
     /// Phase 4: byte offset into VMO for the current display slot.

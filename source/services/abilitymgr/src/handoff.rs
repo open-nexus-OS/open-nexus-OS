@@ -49,6 +49,15 @@ pub trait AppResolver {
     fn resolve(&self, app_id: &str) -> Option<ResolvedApp>;
 }
 
+/// Answers whether a user session is active (real impl: sessiond client,
+/// TASK-0065B). App launches are session-scoped: before login (greeter) the
+/// lifecycle broker refuses to launch anything — the pre-session gate at the
+/// AUTHORITY, not just in the UI.
+pub trait SessionGate {
+    /// `true` when a user session is active (launches allowed).
+    fn session_active(&self) -> bool;
+}
+
 /// Spawns an app process (real impl: execd client). Only abilitymgr calls this.
 pub trait Spawner {
     /// Spawns `image_id` on behalf of `requester`; returns the new pid.
@@ -65,6 +74,9 @@ pub trait SurfaceBinder {
 /// Failure points in the launch handoff (each maps to a distinct marker/status).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffError {
+    /// No user session is active (greeter/locked) — launch refused before
+    /// anything is resolved or spawned (TASK-0065B session gate).
+    SessionNotReady,
     /// The app id is not installed in the registry.
     NotInstalled,
     /// The lifecycle broker rejected the launch (e.g. instance table full).
@@ -111,12 +123,19 @@ pub enum HandoffStep {
 /// markers in authority order without re-deriving them.
 pub fn launch_app(
     broker: &mut Broker,
+    gate: &dyn SessionGate,
     resolver: &dyn AppResolver,
     spawner: &mut dyn Spawner,
     binder: &mut dyn SurfaceBinder,
     app_id: &str,
     steps: &mut Vec<HandoffStep>,
 ) -> Result<LaunchOutcome, HandoffError> {
+    // 0. Session gate (TASK-0065B): no launches before a user session is
+    //    active. Refused BEFORE resolve — pre-session requests leak nothing
+    //    about the registry and never touch execd.
+    if !gate.session_active() {
+        return Err(HandoffError::SessionNotReady);
+    }
     // 1. Resolve via the registry (bundlemgrd). No spawn for unknown apps.
     let resolved = resolver.resolve(app_id).ok_or(HandoffError::NotInstalled)?;
     steps.push(HandoffStep::Resolved { app_id: resolved.app_id.clone() });
@@ -167,6 +186,19 @@ mod tests {
     use super::*;
     use crate::lifecycle::AbilityState;
     use alloc::vec;
+
+    struct ActiveGate;
+    impl SessionGate for ActiveGate {
+        fn session_active(&self) -> bool {
+            true
+        }
+    }
+    struct GreeterGate;
+    impl SessionGate for GreeterGate {
+        fn session_active(&self) -> bool {
+            false
+        }
+    }
 
     struct CatalogResolver(Vec<ResolvedApp>);
     impl AppResolver for CatalogResolver {
@@ -232,7 +264,7 @@ mod tests {
         let mut steps = Vec::new();
 
         let outcome =
-            launch_app(&mut broker, &catalog(), &mut spawner, &mut binder, "search", &mut steps)
+            launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "search", &mut steps)
                 .expect("launch ok");
 
         assert_eq!(outcome.app_id, "search");
@@ -258,7 +290,7 @@ mod tests {
         let mut spawner = OkSpawner { next_pid: 1 };
         let mut binder = OkBinder { next_win: 1 };
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &catalog(), &mut spawner, &mut binder, "ghost", &mut steps)
+        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "ghost", &mut steps)
             .unwrap_err();
         assert_eq!(err, HandoffError::NotInstalled);
         assert!(broker.is_empty(), "no instance registered for unknown app");
@@ -271,7 +303,7 @@ mod tests {
         let mut spawner = FailSpawner;
         let mut binder = OkBinder { next_win: 1 };
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
+        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
             .unwrap_err();
         assert_eq!(err, HandoffError::SpawnFailed);
         // Instance was registered then stopped (terminal), never foregrounded.
@@ -286,7 +318,7 @@ mod tests {
         let mut spawner = OkSpawner { next_pid: 1 };
         let mut binder = FailBinder;
         let mut steps = Vec::new();
-        let err = launch_app(&mut broker, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
+        let err = launch_app(&mut broker, &ActiveGate, &catalog(), &mut spawner, &mut binder, "chat", &mut steps)
             .unwrap_err();
         assert_eq!(err, HandoffError::BindFailed);
         assert_eq!(broker.state(1), Some(AbilityState::Stopped));
@@ -298,5 +330,46 @@ mod tests {
                 HandoffStep::Spawned { pid: 1 },
             ]
         );
+    }
+
+    #[test]
+    fn pre_session_launch_rejected_before_resolve() {
+        let mut broker = Broker::new();
+        let mut spawner = OkSpawner { next_pid: 1 };
+        let mut binder = OkBinder { next_win: 1 };
+        let mut steps = Vec::new();
+        let err = launch_app(
+            &mut broker,
+            &GreeterGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "search",
+            &mut steps,
+        )
+        .unwrap_err();
+        assert_eq!(err, HandoffError::SessionNotReady);
+        // Nothing resolved, registered, or spawned.
+        assert!(broker.is_empty());
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn active_session_allows_launch() {
+        let mut broker = Broker::new();
+        let mut spawner = OkSpawner { next_pid: 7 };
+        let mut binder = OkBinder { next_win: 3 };
+        let mut steps = Vec::new();
+        let outcome = launch_app(
+            &mut broker,
+            &ActiveGate,
+            &catalog(),
+            &mut spawner,
+            &mut binder,
+            "chat",
+            &mut steps,
+        )
+        .expect("launch ok with active session");
+        assert_eq!(outcome.app_id, "chat");
     }
 }

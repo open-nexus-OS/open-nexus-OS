@@ -12,14 +12,17 @@
 //! TEST_COVERAGE: Hit-testing/gating host-tested in `crate::interaction`;
 //! manifest bounds in `systemui::greeter`; the bake is boot-verified.
 //!
-//! Rendering model: the greeter is BAKED into Plane 1 (the retained base) —
-//! no atlas surfaces, no per-frame effects. The bake is a one-time separable
-//! box blur of the wallpaper source (horizontal per row via the shared
-//! `blur_row_horizontal`, vertical via a rolling window over those rows) plus
-//! a dark dim, then the avatar card (SDF circle + ring + Lucide glyph +
-//! bitmap-font name). Hover redraws only the card from a saved backdrop copy.
-//! Login exit rewrites Plane 1 from the pristine wallpaper source
-//! (`write_current_frame`) and applies the session shell.
+//! Rendering model: the greeter is ONE full-screen `CompositeLayer` — the
+//! same GPU-layer primitive every window/panel uses, so it renders on BOTH
+//! backends (virgl composites retained layers onto the GL RT; mmio blends the
+//! command stream on the VMO — Plane-1 baking was virgl-invisible, the RT
+//! never samples Plane 1). Its content is a full-screen atlas band (mounted
+//! for the greeter's lifetime — window mounts are impossible while it gates
+//! input, so the pool discipline holds): a one-time separable box blur of the
+//! wallpaper (horizontal `blur_row_horizontal`, vertical rolling window) plus
+//! a dark dim, then the avatar card (SDF circle + ring + Lucide glyph + name).
+//! Hover redraws only the card from a saved backdrop copy. Login exit frees
+//! the band and applies the session shell.
 
 use super::*;
 use crate::interaction::HitRect;
@@ -37,6 +40,8 @@ pub(super) struct GreeterState {
     pub hover: bool,
     /// The avatar card rect (geometry SSOT: `interaction::greeter_avatar_rect`).
     pub card: HitRect,
+    /// Full-screen atlas band holding the greeter content (layer source).
+    pub surface: crate::atlas::AtlasSurface,
     /// Blurred backdrop pixels under the card (card.width×card.height×4).
     backdrop: alloc::vec::Vec<u8>,
     /// Reusable card compose buffer (same size as `backdrop`) — allocated
@@ -78,12 +83,27 @@ impl DisplayServerRuntime {
         };
         let cfg = systemui::greeter_config();
         let card = crate::interaction::greeter_avatar_rect(self.mode, cfg.avatar_diameter);
+        // Layer content lives in a full-screen atlas band for the greeter's
+        // lifetime. Safe on the pool discipline: window mounts are impossible
+        // while the greeter gates input, and the band is freed on login.
+        let surface = match super::alloc_band_or_log(
+            &mut self.atlas_alloc,
+            self.mode.height,
+            "greeter",
+        ) {
+            Ok(surface) => surface,
+            Err(_) => {
+                let _ = debug_println("windowd: greeter atlas OOM (auto shell)");
+                return;
+            }
+        };
         let mut state = GreeterState {
             cfg,
             user_id: user.id.clone(),
             display_name: user.display_name.clone(),
             hover: false,
             card,
+            surface,
             backdrop: alloc::vec::Vec::new(),
             card_rows: alloc::vec![
                 0u8;
@@ -94,6 +114,7 @@ impl DisplayServerRuntime {
             let _ = debug_println(&alloc::format!(
                 "windowd: greeter bake failed err={err:?} (auto shell)"
             ));
+            self.atlas_alloc.free(state.surface);
             return;
         }
         self.greeter = Some(state);
@@ -148,14 +169,12 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Login accepted: restore the pristine base scene into Plane 1, drop the
-    /// greeter (chrome affordances come back), apply the session shell.
+    /// Login accepted: free the greeter band (the pool discipline is restored
+    /// before any window can open), drop the greeter (chrome affordances come
+    /// back — Plane 1 held the desktop all along), apply the session shell.
     fn finish_greeter_login(&mut self, product: &str) {
-        self.greeter = None;
-        if let Err(err) = self.write_current_frame() {
-            let _ = debug_println(&alloc::format!(
-                "windowd: greeter exit rewrite failed err={err:?}"
-            ));
+        if let Some(greeter) = self.greeter.take() {
+            self.atlas_alloc.free(greeter.surface);
         }
         self.apply_session_shell(product);
         self.queue_gpu_blit_rect(DamageRect {
@@ -282,7 +301,7 @@ impl DisplayServerRuntime {
             let band_bytes = (band_end - band_start) * stride;
             vmo_write(
                 handle,
-                RETAINED_OFFSET_BYTES + band_start * stride,
+                (state.surface.abs_row as usize + band_start) * stride,
                 &band_scratch[..band_bytes],
             )
             .map_err(|_| WindowdError::BufferLengthMismatch)?;
@@ -304,7 +323,9 @@ impl DisplayServerRuntime {
             return Ok(());
         };
         // Disjoint field borrows: backdrop/name read, card_rows written.
-        let GreeterState { cfg, display_name, hover, card, backdrop, card_rows, .. } = greeter;
+        let GreeterState { cfg, display_name, hover, card, surface, backdrop, card_rows, .. } =
+            greeter;
+        let surface_abs_row = surface.abs_row;
         let card = *card;
         let hover = *hover;
         let card_w = card.width;
@@ -367,10 +388,10 @@ impl DisplayServerRuntime {
             }
             draw_greeter_label(ly, row, name, text_x, label_top, label_color);
         }
-        // Write the card rows into Plane 1 (row-sized writes bounded by card_h).
+        // Write the card rows into the greeter's atlas band (display-aligned:
+        // band row == display row, so the layer needs no card offset math).
         for ly in 0..card_h as usize {
-            let dst = RETAINED_OFFSET_BYTES
-                + (card.y as usize + ly) * stride
+            let dst = (surface_abs_row as usize + card.y as usize + ly) * stride
                 + card.x as usize * 4;
             vmo_write(handle, dst, &card_rows[ly * row_bytes..ly * row_bytes + row_bytes])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;

@@ -756,6 +756,21 @@ impl DisplayServerRuntime {
                 }
             }
 
+            // 3·greeter. The login greeter (TASK-0065B) — ONE full-screen
+            //     opaque layer sourcing its atlas band (blurred wallpaper +
+            //     avatar card). Emitted in EVERY frame while active: the same
+            //     CompositeLayer primitive as chrome/windows, so it renders on
+            //     both backends (virgl retains/replaces its RT layer set —
+            //     this frame carrying a layer is what evicts the chrome; mmio
+            //     blends it over the base each present). Above everything but
+            //     the cursor.
+            if let Some(greeter_row) = self.greeter.as_ref().map(|g| g.surface.abs_row) {
+                let _ = encoder.composite_layer_full(
+                    &Layer::opaque(greeter_row, 0, mode.width, mode.height, 0, 0),
+                    (mode.width, mode.height),
+                );
+            }
+
             // 4. Cursor — composited last, never baked into any plane. Skipped
             //    entirely when the hardware cursor overlay is active (the host
             //    displays and moves the cursor; frames never carry it). In the

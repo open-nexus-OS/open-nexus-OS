@@ -72,7 +72,7 @@ const ATLAS_SVIEW: u32 = 0x48;
 const H_FBSRC_SURF: u32 = 0x30; // display-plane surface (created by virgl_blur_init)
 const FB_STRIDE: u32 = 1280 * 4;
 const ATLAS_ROW: u32 = 3200; // atlas start row in the VMO
-const ATLAS_ROWS: u32 = 3200; // atlas height (rows 3200..6399)
+const ATLAS_ROWS: u32 = 4000; // atlas height (rows 3200..7199)
 const DISPLAY_PLANE_ROW: u32 = 1600;
 
 // Cursor sprite as a layer: its own self-backed sampler texture (BGRA), so the

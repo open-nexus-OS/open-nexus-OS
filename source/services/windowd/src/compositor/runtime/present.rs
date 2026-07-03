@@ -310,6 +310,8 @@ impl DisplayServerRuntime {
         }
 
         // 2. Recomposite ONLY content damage into Plane 1 (CPU, blur cached).
+        // (The login greeter is a composited LAYER above this base — Plane 1
+        // keeps the normal desktop while it is up, no special casing.)
         let glass_quality = select_glass_quality(PROOF_PANEL_H);
         for rect in content.iter().copied().take(content_count) {
             self.write_damage_rect(rect, glass_quality, paint_only)?;

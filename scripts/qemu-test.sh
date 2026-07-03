@@ -669,6 +669,8 @@ if [[ "${NEXUS_DISPLAY_BOOTSTRAP:-0}" == "1" ]]; then
     "windowd: present visible ok"
     "display: first scanout ok"
     "systemui: first frame visible"
+    "sessiond: ready"
+    "windowd: greeter visible"
     "SELFTEST: ui visible present ok"
     "SELFTEST: ui v2 present ok"
     "hidrawd: virtio-input raw event seen"
@@ -1232,6 +1234,8 @@ if [[ "$missing" -ne 0 ]]; then
       "display: first scanout ok" \
       "systemui: first frame visible" \
       "SELFTEST: ui visible present ok" \
+      "windowd: greeter visible" \
+      "windowd: session shell visible" \
       "windowd: input visible on" \
       "windowd: cursor move visible" \
       "windowd: hover visible" \

@@ -74,7 +74,8 @@ const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 /// during a fast flick (less VMO-write load → less heap pressure) AND more
 /// rendered runway in BOTH directions (smoother up-scroll, which crosses the
 /// window most). Bounded so the atlas (chat 600+this, blur 600, sidebar 800) fits
-/// the 3200-row VMO atlas: 1600+600+800 = 3000 ≤ 3200.
+/// the 4000-row VMO atlas (grown +800 for the full-screen greeter/lock-overlay
+/// band): 1600+600+800 = 3000, + greeter 800 = 3800 ≤ 4000.
 const CHAT_OVERSCAN: u32 = 1000;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;

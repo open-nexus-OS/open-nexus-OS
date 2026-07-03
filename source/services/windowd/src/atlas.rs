@@ -40,10 +40,10 @@ pub(crate) const ATLAS_WIDTH: u32 = 1280;
 /// First atlas row (immediately after the four display planes, each 800 rows).
 pub(crate) const ATLAS_ROW_OFFSET: u32 = 3200;
 /// Atlas height in rows.
-pub(crate) const ATLAS_ROWS: u32 = 3200;
+pub(crate) const ATLAS_ROWS: u32 = 4000;
 /// Total framebuffer-resource height including the atlas. windowd sizes the VMO
 /// to this; gpud's `RESOURCE_HEIGHT` MUST match (separate crate, no shared dep).
-pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 6400
+pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 7200
 
 /// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn resource_height_matches_layout() {
-        assert_eq!(RESOURCE_HEIGHT, 6400);
+        assert_eq!(RESOURCE_HEIGHT, 7200);
         assert_eq!(ATLAS_ROW_OFFSET, 4 * 800);
     }
 

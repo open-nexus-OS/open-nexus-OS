@@ -3,6 +3,14 @@
 
 # OOBE / Greeter / Lock Screen
 
+> **Implementation status (2026-07-02, TASK-0065B).** The greeter v1 is live:
+> blurred-wallpaper login window with a single avatar, click-to-login, session
+> shell handoff, and authority-side launch gating — see
+> `docs/dev/ui/shell/session.md` for the shipped contract (sessiond authority,
+> SystemUI greeter manifest, windowd renderer). OOBE, credential auth, and the
+> lock screen remain design-stage; `SessionState::Locked` and `OP_LOCK` are
+> reserved seams for the lock flow below.
+
 This document covers the shared UI flows for:
 
 - out-of-box experience (OOBE),

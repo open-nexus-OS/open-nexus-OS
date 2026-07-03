@@ -15,6 +15,11 @@ We aim for one UI language across devices. Differences are in **affordances**, n
 > SystemUI runs as a **library** resolver inside windowd, not yet as a booted service (see
 > ADR-0035). Architecture + how it works: **`docs/adr/0035-systemui-declarative-shell-configuration.md`**.
 > Code: `source/services/systemui/` (resolver + manifests), `source/services/windowd/` (consumer).
+>
+> **Update (2026-07-02, TASK-0065B):** the shell decision is now SESSION-driven: the login greeter
+> (SystemUI greeter manifest — see `docs/dev/ui/shell/session.md`) runs first, and the logged-in
+> user's `product` (from sessiond's user registry) selects the shell via `resolve_product` — the
+> boot default is only the pre-login/fallback config.
 
 ## Profiles
 

@@ -87,7 +87,19 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, _sender_service_id, reply)) => {
-                let out = dispatch(&mut broker, frame.as_slice());
+                // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
+                // reports an ACTIVE session. Fail-closed (sessiond unreachable
+                // = deny): windowd's greeter gate is UX, THIS is the
+                // authority-side enforcement (host-tested in `handoff`).
+                let out = if is_launch_request(frame.as_slice()) && !session_gate_active() {
+                    emit_line("abilitymgr: launch denied (session)");
+                    crate::wire::Dispatched {
+                        response: launch_denied_response(),
+                        event: None,
+                    }
+                } else {
+                    dispatch(&mut broker, frame.as_slice())
+                };
                 if let Some(event) = out.event {
                     emit_event(&event);
                 }
@@ -227,6 +239,112 @@ fn probe_registry() {
                 emit_line("abilitymgr: registry recv err");
                 return;
             }
+        }
+    }
+}
+
+/// True for a v1 OP_LAUNCH request frame (the only session-gated op).
+fn is_launch_request(frame: &[u8]) -> bool {
+    frame.len() >= 4
+        && frame[0] == crate::protocol::MAGIC0
+        && frame[1] == crate::protocol::MAGIC1
+        && frame[2] == crate::protocol::VERSION
+        && frame[3] == crate::protocol::OP_LAUNCH
+}
+
+/// The gate's denial reply: `[A, M, ver, OP_LAUNCH|RESPONSE, STATUS_DENIED]`.
+fn launch_denied_response() -> alloc::vec::Vec<u8> {
+    alloc::vec![
+        crate::protocol::MAGIC0,
+        crate::protocol::MAGIC1,
+        crate::protocol::VERSION,
+        crate::protocol::OP_LAUNCH | crate::protocol::OP_RESPONSE,
+        crate::protocol::STATUS_DENIED,
+    ]
+}
+
+/// Live session gate (TASK-0065B): one bounded GET_STATE query to sessiond per
+/// launch request (launches are user-paced — no caching needed in v0).
+/// Fail-closed: any routing/transport/decode failure counts as "no session".
+fn session_gate_active() -> bool {
+    let Some((send_slot, _recv)) = route_blocking(b"sessiond") else {
+        emit_line("abilitymgr: session gate unreachable (deny)");
+        return false;
+    };
+    let Some((reply_send_slot, reply_recv_slot)) = route_blocking(b"@reply") else {
+        emit_line("abilitymgr: session gate no reply inbox (deny)");
+        return false;
+    };
+
+    let mut req = [0u8; 4];
+    nexus_abi::sessiond::encode_get_state(&mut req);
+    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
+        return false;
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        reply_send_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        req.len() as u32,
+    );
+
+    let start = nexus_abi::nsec().unwrap_or(0);
+    let deadline = start.saturating_add(500_000_000); // 500ms bound
+
+    let mut sent = false;
+    let mut spins: u32 = 0;
+    loop {
+        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => {
+                sent = true;
+                break;
+            }
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if nexus_abi::nsec().unwrap_or(0) >= deadline || spins >= 200_000 {
+                    break;
+                }
+                spins = spins.saturating_add(1);
+                let _ = yield_();
+            }
+            Err(_) => break,
+        }
+    }
+    let _ = nexus_abi::cap_close(reply_send_clone);
+    if !sent {
+        return false;
+    }
+
+    loop {
+        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut buf = [0u8; 512];
+        match nexus_abi::ipc_recv_v1(
+            reply_recv_slot,
+            &mut rh,
+            &mut buf,
+            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+            0,
+        ) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if let Some((status, state, _idx, _count)) =
+                    nexus_abi::sessiond::decode_get_state_header(&buf[..n])
+                {
+                    return status == nexus_abi::sessiond::STATUS_OK
+                        && state == nexus_abi::sessiond::STATE_ACTIVE;
+                }
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    return false;
+                }
+                let _ = yield_();
+            }
+            Err(nexus_abi::IpcError::QueueEmpty) => {
+                if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    return false;
+                }
+                let _ = yield_();
+            }
+            Err(_) => return false,
         }
     }
 }

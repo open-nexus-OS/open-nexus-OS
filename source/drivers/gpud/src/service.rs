@@ -80,10 +80,12 @@ const GPU_IRQ_NOTIFY_SLOT: u32 = 2;
 /// On QEMU virtio-gpu with `-display gtk`, the GTK window resizes to match this scanout.
 const DISPLAY_WIDTH: u32 = 1280;
 const DISPLAY_HEIGHT: u32 = 800;
-// 6400 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
-// atlas (3200) for the retained-surface compositor's cached layers. MUST match
-// windowd `crate::atlas::RESOURCE_HEIGHT` (separate crate, no shared dep).
-const RESOURCE_HEIGHT: u32 = 6400;
+// 7200 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
+// atlas (4000) for the retained-surface compositor's cached layers — grown by a
+// full display frame so full-screen system overlays (login greeter, later lock
+// screen) fit as ONE atlas-band layer. MUST match windowd
+// `crate::atlas::RESOURCE_HEIGHT` (separate crate, no shared dep).
+const RESOURCE_HEIGHT: u32 = 7200;
 /// Display plane row within the resource (fixed 4-plane layout). Matches
 /// `backend::DISPLAY_PLANE_ROW` and windowd's `DISPLAY_ROW_OFFSET`.
 const DISPLAY_PLANE_ROW: u32 = 1600;
