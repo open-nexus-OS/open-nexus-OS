@@ -35,7 +35,23 @@ rewrite states the honest IST and the new combined scope. Phases below execute t
 - **Phase 3 DONE (committed)**: drag-to-edge snap (left/right halves, top = fullscreen),
   7 px edge/corner resize with deterministic from-start math, vendored resize cursor shapes
   via `OP_UPLOAD_CURSOR` re-send, TRUE full-display fullscreen with size-parametric content.
-- **Phase 5 (in review)** — the visible icon seams had THREE stacked causes in `nexus-svg`;
+- **Phase 6 (in review)**: runtime text — build.rs bakes A8 coverage glyph atlases of the
+  vendored variable UI face at 13px (chrome labels/dropdown/titles) and 16px (chat body,
+  search rows via shared label path, greeter name): ASCII 32–126, per-glyph
+  placement/advance, line metrics, and sparse non-zero kerning pairs, all consts
+  (`FONT13_*`/`FONT16_*`, ~16 KB total). New crate-root `src/text.rs` (host-tested, 5 tests)
+  renders ROW-BASED to match the surface painters: `draw_text_row` blends the slice of a run
+  intersecting the current row (band top may be negative for scrolled chat lines), `measure`
+  drives topbar cell layout AND hit-testing from one function. Migrated off the 5×7 bitmap:
+  chat messages, window titles, topbar items, dropdown entries, search filter + rows, greeter
+  name; `compositor/font.rs` shim deleted. The baked 16px line height (20px) equals the old
+  bitmap line height, so chat scroll/height math is unchanged; wrapping stays char-count
+  (divisor = the face's average advance) until Phase 7's measured wrap. The legacy
+  scene-graph TILE-text primitive intentionally stays on the 5×7 table (solid tiles cannot
+  express coverage; it backs only the old proof-panel path). Marker:
+  `windowd: font family=inter sizes=13,16`; `ui.font.family` key shape prepared (settingsd
+  wiring in Phase 10; live face switching stays a follow-up).
+- **Phase 5 DONE (committed)** — the visible icon seams had THREE stacked causes in `nexus-svg`;
   all fixed, each with regression proofs:
   1. **Stroke-piece winding cancellation (the dominant artifact)**: segment quads, joins and
      caps share one shape under the nonzero rule, but round-join/cap discs (and turn-dependent

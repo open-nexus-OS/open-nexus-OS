@@ -51,10 +51,8 @@ pub(super) struct GreeterState {
 }
 
 /// Label font metrics (5×7 bitmap font at 2× — the shell-window label style).
-const FONT_W: u32 = 5;
-const FONT_H: u32 = 7;
-const FONT_SCALE: u32 = 2;
-const GLYPH_ADVANCE: u32 = FONT_W * FONT_SCALE + 2;
+/// Greeter name label renders with the 16px runtime face (TASK-0070 Phase 6).
+const NAME_FONT: crate::text::FontSize = crate::text::FontSize::Body;
 
 impl DisplayServerRuntime {
     /// True while the login greeter owns the display (shell chrome + all its
@@ -357,7 +355,7 @@ impl DisplayServerRuntime {
         let icon_x = circle_x + (d.saturating_sub(icon_dim)) / 2;
         let icon_y = circle_y + (d.saturating_sub(icon_dim)) / 2;
         let name = display_name.as_str();
-        let text_w = (name.chars().count() as u32 * GLYPH_ADVANCE).saturating_sub(2);
+        let text_w = crate::text::measure(name.chars(), NAME_FONT);
         let text_x = card_w.saturating_sub(text_w) / 2;
         let label_color = [235u8, 235, 240, 255];
 
@@ -406,28 +404,9 @@ impl DisplayServerRuntime {
     }
 }
 
-/// Card-local name label: 5×7 bitmap font at 2×, same look as the window
-/// title labels (`shell_window::draw_label` is private to that module).
+/// Card-local name label: the 16px runtime face, same rendering path as the
+/// window/chrome labels (`crate::text`).
 fn draw_greeter_label(ly: u32, row: &mut [u8], text: &str, x0: u32, top: u32, color: [u8; 4]) {
-    if ly < top || ly >= top + FONT_H * FONT_SCALE {
-        return;
-    }
-    let glyph_row = ((ly - top) / FONT_SCALE).min(FONT_H - 1) as usize;
-    let rp = (row.len() / 4) as u32;
-    let mut pen_x = x0;
-    for ch in text.chars() {
-        let bits = crate::bitmap_font::bitmap_font_5x7(ch)[glyph_row];
-        for col in 0..FONT_W {
-            if bits & (1 << (FONT_W - 1 - col)) != 0 {
-                for sx in 0..FONT_SCALE {
-                    let px = pen_x + col * FONT_SCALE + sx;
-                    if px < rp {
-                        let idx = px as usize * 4;
-                        row[idx..idx + 4].copy_from_slice(&color);
-                    }
-                }
-            }
-        }
-        pen_x += GLYPH_ADVANCE;
-    }
+    let clip = (row.len() / 4) as u32;
+    crate::text::draw_text_row(row, ly, top as i32, x0, clip, text.chars(), NAME_FONT, color);
 }

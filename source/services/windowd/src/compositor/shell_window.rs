@@ -18,8 +18,6 @@
 //! OWNERS: @ui
 //! STATUS: In progress (unified-window refactor, W1)
 
-use super::font::bitmap_font_5x7;
-use super::primitives::fill_row_rect;
 use crate::atlas::AtlasSurface;
 use crate::compositor::{
     DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
@@ -36,11 +34,8 @@ const SHADOW_HALO_PAD: u32 = 24;
 // One title-bar renderer for every ShellWindow so the chat and search windows
 // share the exact same look (the user's "same close x / same frame" goal). The
 // glass body + corners + shadow come from the composite; this paints the atlas.
-const FONT_W: u32 = 5;
-const FONT_H: u32 = 7;
-const FONT_SCALE: u32 = 2;
-const GLYPH_W: u32 = FONT_W * FONT_SCALE;
-const GLYPH_ADVANCE: u32 = GLYPH_W + 2;
+// Titles render with the 13px runtime face (TASK-0070 Phase 6).
+const TITLE_FONT: crate::text::FontSize = crate::text::FontSize::Small;
 /// Title-bar background tint (slightly lighter than the body for separation),
 /// hover highlight behind the close zone, and the chrome text colour. Straight
 /// alpha — gpud's layer blend composites these over the blurred backdrop.
@@ -73,8 +68,17 @@ pub(crate) fn draw_title_bar_row(
         return Ok(());
     }
     write_tint_span(row, 0, w, TITLE_BG);
-    let text_top = (title_h - FONT_H * FONT_SCALE) / 2;
-    draw_label(local_y, row, title, 14, text_top, CHROME_TEXT)?;
+    let text_top = title_h.saturating_sub(crate::text::line_height(TITLE_FONT)) / 2;
+    crate::text::draw_text_row(
+        row,
+        local_y,
+        text_top as i32,
+        14,
+        w,
+        title.chars(),
+        TITLE_FONT,
+        CHROME_TEXT,
+    );
     // Zone geometry SSOT: a zero-positioned frame gives the window-local x.
     let zones = Frame { x: 0, y: 0, w, h: title_h, title_h, close_w };
     for (button, icon, dim) in [
@@ -139,33 +143,6 @@ fn round_top_corners(local_y: u32, row: &mut [u8], w: u32, radius: u32) {
             row[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
         }
     }
-}
-
-/// Draw a label at window-local `(x0, top)` in `color`, only on rows within the
-/// glyph band (5×7 bitmap font, 2× scale).
-fn draw_label(
-    local_y: u32,
-    row: &mut [u8],
-    text: &str,
-    x0: u32,
-    top: u32,
-    color: [u8; 4],
-) -> Result<(), WindowdError> {
-    if local_y < top || local_y >= top + FONT_H * FONT_SCALE {
-        return Ok(());
-    }
-    let glyph_row = ((local_y - top) / FONT_SCALE).min(FONT_H - 1) as usize;
-    let mut pen_x = x0;
-    for ch in text.chars() {
-        let bits = bitmap_font_5x7(ch)[glyph_row];
-        for col in 0..FONT_W {
-            if bits & (1 << (FONT_W - 1 - col)) != 0 {
-                fill_row_rect(local_y, row, pen_x + col * FONT_SCALE, local_y, FONT_SCALE, 1, color)?;
-            }
-        }
-        pen_x += GLYPH_ADVANCE;
-    }
-    Ok(())
 }
 
 /// Write one straight-alpha BGRA span (gpud's layer blend does the SRC_ALPHA

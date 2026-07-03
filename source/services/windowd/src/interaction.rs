@@ -56,12 +56,10 @@ pub(crate) const CHAT_PANEL_H: u32 = 600;
 /// Inner padding of the chat panel and width reserved for its scrollbar.
 pub(crate) const CHAT_PAD: u32 = 14;
 pub(crate) const CHAT_SCROLLBAR_W: u32 = 8;
-// 5×7 bitmap font at 2× — one glyph cell is 6×7 → advance 12px, line 20px.
-pub(crate) const CHAT_FONT_W: u32 = 5;
-pub(crate) const CHAT_FONT_H: u32 = 7;
-pub(crate) const CHAT_FONT_SCALE: u32 = 2;
-pub(crate) const CHAT_FONT_ADVANCE: u32 = (CHAT_FONT_W + 1) * CHAT_FONT_SCALE;
-pub(crate) const CHAT_LINE_H: u32 = CHAT_FONT_H * CHAT_FONT_SCALE + 6;
+/// Chat body line height = the baked 16px face's line height (TASK-0070
+/// Phase 6 — runtime glyphs replaced the 5×7 bitmap; the baked value is 20px,
+/// identical to the old bitmap line, so the scroll/height math is unchanged).
+pub(crate) const CHAT_LINE_H: u32 = crate::text::line_height(crate::text::FontSize::Body);
 /// Vertical padding inside a message bubble (top and bottom).
 pub(crate) const CHAT_MSG_PAD: u32 = 8;
 
@@ -74,8 +72,11 @@ pub(crate) fn chat_text_width() -> u32 {
 /// single source of truth for wrapping, so layout and paint can never drift).
 /// Wrapping is by char count and the renderer slices by char boundary, so
 /// multi-byte UTF-8 in the message pool (e.g. em-dashes) is handled correctly.
+/// INTERIM: the divisor is the proportional face's AVERAGE advance — typical
+/// lines fit, extreme all-wide lines clip at the viewport edge; measured
+/// wrapping replaces this with the Phase-7 list/layout unification.
 pub(crate) fn chat_chars_per_line() -> usize {
-    (chat_text_width() / CHAT_FONT_ADVANCE).max(1) as usize
+    (chat_text_width() / crate::text::avg_advance(crate::text::FontSize::Body)).max(1) as usize
 }
 
 /// Number of wrapped lines a message of `char_count` characters occupies.

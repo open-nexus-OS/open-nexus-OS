@@ -535,6 +535,12 @@ fn alloc_band_or_log(
 impl DisplayServerRuntime {
     pub(crate) fn new() -> Result<Self, WindowdError> {
         let _ = debug_println(RUNTIME_INIT_START);
+        // Runtime text (TASK-0070 Phase 6): dynamic text renders from the baked
+        // glyph atlases of the manifest-default face (`ui.font.family` key shape).
+        let _ = debug_println(&alloc::format!(
+            "windowd: font family={} sizes=13,16",
+            crate::assets::FONT_FAMILY
+        ));
         let mode = VisibleBootstrapMode::fixed()?.validate()?;
 
         // Resolve the active shell from SystemUI's declarative manifest registry

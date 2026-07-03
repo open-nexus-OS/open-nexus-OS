@@ -228,6 +228,24 @@ const fn rgba8(value: [u8; 4]) -> Rgba8 {
     Rgba8::new(value[0], value[1], value[2], value[3])
 }
 
+/// Runtime glyph atlases (TASK-0070 Phase 6): A8 coverage + metrics + sparse
+/// kerning of the vendored UI face, baked by build.rs at the two shell text
+/// sizes. Consumed exclusively by `crate::text`. `FONT_FAMILY` is the
+/// manifest-driven default behind the prepared `ui.font.family` settings key.
+pub const FONT_FAMILY: &str = generated::FONT_FAMILY;
+pub const FONT13_ASCENT: i32 = generated::FONT13_ASCENT;
+pub const FONT13_LINE_H: u32 = generated::FONT13_LINE_H;
+pub const FONT13_AVG_ADVANCE: u32 = generated::FONT13_AVG_ADVANCE;
+pub const FONT13_COV: &[u8] = generated::FONT13_COV;
+pub const FONT13_GLYPHS: &[(u32, u16, u16, i16, i16, u16); 95] = generated::FONT13_GLYPHS;
+pub const FONT13_KERN: &[(u8, u8, i8)] = generated::FONT13_KERN;
+pub const FONT16_ASCENT: i32 = generated::FONT16_ASCENT;
+pub const FONT16_LINE_H: u32 = generated::FONT16_LINE_H;
+pub const FONT16_AVG_ADVANCE: u32 = generated::FONT16_AVG_ADVANCE;
+pub const FONT16_COV: &[u8] = generated::FONT16_COV;
+pub const FONT16_GLYPHS: &[(u32, u16, u16, i16, i16, u16); 95] = generated::FONT16_GLYPHS;
+pub const FONT16_KERN: &[(u8, u8, i8)] = generated::FONT16_KERN;
+
 #[cfg(test)]
 mod tests {
     #[test]

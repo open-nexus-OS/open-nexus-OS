@@ -18,14 +18,14 @@
 //! STATUS: TASK-0063 — UI v5b chat
 //! API_STABILITY: Unstable
 
-use super::font::bitmap_font_5x7;
 use super::primitives::fill_row_rect;
 use crate::error::WindowdError;
 use crate::interaction::{
     chat_chars_per_line, chat_line_char_range, chat_message_height, chat_message_lines,
-    CHAT_CLOSE_ZONE_W, CHAT_FONT_ADVANCE, CHAT_FONT_H, CHAT_FONT_SCALE, CHAT_FONT_W, CHAT_LINE_H,
-    CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W, CHAT_TITLE_BAR_H,
+    CHAT_CLOSE_ZONE_W, CHAT_LINE_H, CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W,
+    CHAT_SCROLLBAR_W, CHAT_TITLE_BAR_H,
 };
+use crate::text::{draw_text_row, FontSize};
 use alloc::vec::Vec;
 use chat_app::ChatMessageProvider;
 use nexus_virtual_list::ItemProvider;
@@ -197,28 +197,28 @@ pub(crate) fn draw_chat_panel_row(
                 )?;
             }
         }
-        // Text lines.
+        // Text lines: runtime glyphs from the baked 16px atlas (TASK-0070
+        // Phase 6). Each wrapped line is a band of CHAT_LINE_H rows; the char
+        // range comes from the (interim, char-count) wrap SSOT in
+        // `crate::interaction`.
         let text_top = m.top + CHAT_MSG_PAD as i32;
         let text_bottom = text_top + (m.lines.saturating_mul(CHAT_LINE_H)) as i32;
         if yi >= text_top && yi < text_bottom {
-            let rel = (yi - text_top) as u32;
-            let line_idx = rel / CHAT_LINE_H;
-            let glyph_row = (rel % CHAT_LINE_H) / CHAT_FONT_SCALE;
-            if glyph_row < CHAT_FONT_H {
-                if let Some((cs, ce)) = chat_line_char_range(m.char_len, cpl, line_idx) {
-                    let text_x = vp_x.saturating_add(BUBBLE_INSET).saturating_add(6);
-                    let clip_end = vp_x.saturating_add(vp_w);
-                    draw_text_line_row(
-                        ly,
-                        row,
-                        m.text,
-                        cs,
-                        ce,
-                        text_x,
-                        clip_end,
-                        glyph_row as usize,
-                    )?;
-                }
+            let line_idx = ((yi - text_top) as u32) / CHAT_LINE_H;
+            if let Some((cs, ce)) = chat_line_char_range(m.char_len, cpl, line_idx) {
+                let text_x = vp_x.saturating_add(BUBBLE_INSET).saturating_add(6);
+                let clip_end = vp_x.saturating_add(vp_w);
+                let line_top = text_top + (line_idx * CHAT_LINE_H) as i32;
+                draw_text_row(
+                    row,
+                    ly,
+                    line_top,
+                    text_x,
+                    clip_end,
+                    m.text.chars().skip(cs).take(ce.saturating_sub(cs)),
+                    FontSize::Body,
+                    TEXT_COLOR,
+                );
             }
         }
     }
@@ -236,43 +236,6 @@ fn fill_row_straight(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
         let idx = px as usize * 4;
         row[idx..idx + 4].copy_from_slice(&c);
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_text_line_row(
-    y: u32,
-    row: &mut [u8],
-    text: &str,
-    char_start: usize,
-    char_end: usize,
-    start_x: u32,
-    clip_end_x: u32,
-    glyph_row: usize,
-) -> Result<(), WindowdError> {
-    let mut pen_x = start_x;
-    // Walk by characters (boundary-safe for multi-byte UTF-8 like em-dashes).
-    for ch in text.chars().skip(char_start).take(char_end.saturating_sub(char_start)) {
-        if pen_x.saturating_add(CHAT_FONT_W * CHAT_FONT_SCALE) > clip_end_x {
-            break;
-        }
-        let bits = bitmap_font_5x7(ch)[glyph_row.min(CHAT_FONT_H as usize - 1)];
-        for col in 0..CHAT_FONT_W {
-            if bits & (1 << (CHAT_FONT_W - 1 - col)) == 0 {
-                continue;
-            }
-            fill_row_rect(
-                y,
-                row,
-                pen_x + col * CHAT_FONT_SCALE,
-                y,
-                CHAT_FONT_SCALE,
-                1,
-                TEXT_COLOR,
-            )?;
-        }
-        pen_x = pen_x.saturating_add(CHAT_FONT_ADVANCE);
-    }
-    Ok(())
 }
 
 /// Thumb geometry `(thumb_y, thumb_h)` in surface-local pixels for a scroll

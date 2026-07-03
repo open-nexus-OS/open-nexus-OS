@@ -12,9 +12,8 @@
 //! OWNERS: @ui
 //! STATUS: In progress (P2b)
 
-use super::font::bitmap_font_5x7;
-use super::primitives::fill_row_rect;
 use crate::error::WindowdError;
+use crate::text::{draw_text_row, line_height, measure, FontSize};
 
 /// Topbar geometry (display-space). The bar floats with a margin like a macOS
 /// menu bar; rounding/shadow/blur come from the layer composite.
@@ -26,15 +25,13 @@ pub(crate) const TOPBAR_RADIUS: u32 = 14;
 /// Menu items, left to right. TOS-flavored but shell-oriented.
 pub(crate) const TOPBAR_ITEMS: [&str; 5] = ["Apps", "Files", "Edit", "View", "Help"];
 
-// Glyph metrics for the topbar labels (5×7 bitmap font, scaled up).
-const FONT_W: u32 = 5;
-const FONT_H: u32 = 7;
-const FONT_SCALE: u32 = 2;
-const GLYPH_W: u32 = FONT_W * FONT_SCALE; // 10
-const GLYPH_ADVANCE: u32 = GLYPH_W + 2; // 12
+// Chrome labels render with the 13px runtime face (TASK-0070 Phase 6);
+// layout AND hit-testing share `label_width` (a real measure), so cells and
+// clicks can never disagree.
+const LABEL_FONT: FontSize = FontSize::Small;
 const ITEM_PAD_X: u32 = 14; // horizontal padding inside each hover cell
 const ITEM_GAP: u32 = 6; // gap between cells
-const TEXT_TOP: u32 = (TOPBAR_H - FONT_H * FONT_SCALE) / 2; // vertically centered
+const TEXT_TOP: u32 = (TOPBAR_H - line_height(LABEL_FONT)) / 2; // vertically centered
 
 /// Menu icon at the right of the bar (the real Lucide `menu` icon) — opens the
 /// side panel.
@@ -62,12 +59,7 @@ const TEXT_COLOR: [u8; 4] = [255, 255, 255, 255];
 
 /// Pixel width of a label at the topbar font.
 fn label_width(s: &str) -> u32 {
-    let n = s.chars().count() as u32;
-    if n == 0 {
-        0
-    } else {
-        n * GLYPH_ADVANCE - (GLYPH_ADVANCE - GLYPH_W)
-    }
+    measure(s.chars(), LABEL_FONT)
 }
 
 /// `[start_x, end_x)` of each item's hover cell within the bar (local x).
@@ -138,29 +130,24 @@ pub(crate) fn draw_dropdown_row(
         if hover == Some(i) && local_y >= top && local_y < top + DROPDOWN_ROW_H {
             write_tint_span(row, 4, w.saturating_sub(4), HOVER_TINT);
         }
-        let text_top = top + (DROPDOWN_ROW_H - FONT_H * FONT_SCALE) / 2;
+        let text_top = top + (DROPDOWN_ROW_H - line_height(LABEL_FONT)) / 2;
         draw_label(local_y, row, &entry.label, DROPDOWN_PAD + 6, text_top, TEXT_COLOR)?;
     }
     Ok(())
 }
 
 /// Draw a label at `(x0, top)` (bar/panel-local) in `color`, only on rows that
-/// intersect the glyph band.
-fn draw_label(local_y: u32, row: &mut [u8], text: &str, x0: u32, top: u32, color: [u8; 4]) -> Result<(), WindowdError> {
-    if local_y < top || local_y >= top + FONT_H * FONT_SCALE {
-        return Ok(());
-    }
-    let glyph_row = ((local_y - top) / FONT_SCALE).min(FONT_H - 1) as usize;
-    let mut pen_x = x0;
-    for ch in text.chars() {
-        let bits = bitmap_font_5x7(ch)[glyph_row];
-        for col in 0..FONT_W {
-            if bits & (1 << (FONT_W - 1 - col)) != 0 {
-                fill_row_rect(local_y, row, pen_x + col * FONT_SCALE, local_y, FONT_SCALE, 1, color)?;
-            }
-        }
-        pen_x += GLYPH_ADVANCE;
-    }
+/// intersect the text band (13px runtime face).
+fn draw_label(
+    local_y: u32,
+    row: &mut [u8],
+    text: &str,
+    x0: u32,
+    top: u32,
+    color: [u8; 4],
+) -> Result<(), WindowdError> {
+    let clip = (row.len() / 4) as u32;
+    draw_text_row(row, local_y, top as i32, x0, clip, text.chars(), LABEL_FONT, color);
     Ok(())
 }
 
@@ -259,7 +246,7 @@ pub(crate) fn draw_search_window_row(
             corner_radius,
         );
     }
-    let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - FONT_H * FONT_SCALE) / 2;
+    let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - line_height(LABEL_FONT)) / 2;
     if local_y >= SEARCH_TITLE_H && local_y < SEARCH_TITLE_H + SEARCH_FILTER_H {
         write_tint_span(row, SEARCH_PAD, w.saturating_sub(SEARCH_PAD), [30, 28, 26, 150]);
         if filter_text.is_empty() {
@@ -272,7 +259,7 @@ pub(crate) fn draw_search_window_row(
     let list_top = SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD;
     for (i, word) in visible_words.iter().take(visible_rows as usize).enumerate() {
         let rt = list_top + i as u32 * SEARCH_ROW_H;
-        let text_top = rt + (SEARCH_ROW_H - FONT_H * FONT_SCALE) / 2;
+        let text_top = rt + (SEARCH_ROW_H - line_height(LABEL_FONT)) / 2;
         draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
     }
     // Scrollbar thumb on the right when the list overflows.
@@ -368,23 +355,10 @@ pub(crate) fn draw_topbar_row(
         }
     }
 
-    // Labels — only on rows that intersect the text band.
-    if local_y < TEXT_TOP || local_y >= TEXT_TOP + FONT_H * FONT_SCALE {
-        return Ok(());
-    }
-    let glyph_row = ((local_y - TEXT_TOP) / FONT_SCALE).min(FONT_H - 1) as usize;
+    // Labels — `draw_label` gates on the text band internally.
     for (i, item) in TOPBAR_ITEMS.iter().enumerate() {
         let Some((cell_x, _)) = item_cell(i) else { continue };
-        let mut pen_x = cell_x + ITEM_PAD_X;
-        for ch in item.chars() {
-            let bits = bitmap_font_5x7(ch)[glyph_row];
-            for col in 0..FONT_W {
-                if bits & (1 << (FONT_W - 1 - col)) != 0 {
-                    fill_row_rect(local_y, row, pen_x + col * FONT_SCALE, local_y, FONT_SCALE, 1, TEXT_COLOR)?;
-                }
-            }
-            pen_x += GLYPH_ADVANCE;
-        }
+        draw_label(local_y, row, item, cell_x + ITEM_PAD_X, TEXT_TOP, TEXT_COLOR)?;
     }
     Ok(())
 }

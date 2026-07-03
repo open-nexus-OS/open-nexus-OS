@@ -43,6 +43,11 @@ mod assets;
 mod atlas;
 mod bitmap_font;
 mod buffer;
+/// Runtime text from the baked A8 glyph atlases (TASK-0070 Phase 6) — the
+/// dynamic-text replacement for `bitmap_font` (which now only backs the legacy
+/// scene-graph tile-text primitive).
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod text;
 mod cli;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod compositor;
