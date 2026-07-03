@@ -64,11 +64,15 @@ impl DisplayServerRuntime {
     }
 
     /// Shell chrome composites only when the config enables it, the SESSION
-    /// DECISION has been made, and no greeter owns the display (TASK-0065B):
-    /// the desktop must never flash before login — the boot order is
-    /// splash → login → shell, never splash → shell → login.
+    /// DECISION has been made, no greeter owns the display (TASK-0065B), and
+    /// no FULLSCREEN window covers it (TASK-0070 Phase 2 — fullscreen renders
+    /// above the chrome; topbar/panels/dropdown are neither drawn nor
+    /// hit-testable underneath): the boot order is splash → login → shell.
     pub(super) fn chrome_composited(&self) -> bool {
-        self.shell_config.desktop_chrome && self.session_resolved() && self.greeter.is_none()
+        self.shell_config.desktop_chrome
+            && self.session_resolved()
+            && self.greeter.is_none()
+            && self.windows.fullscreen_active().is_none()
     }
 
     /// The greeter's clickable card, when active (input hit-testing).

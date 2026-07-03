@@ -204,7 +204,11 @@ impl DisplayServerRuntime {
                     match id.as_deref() {
                         Some("chat") => self.toggle_chat(),
                         Some("search") => {
-                            if self.search.visible {
+                            // A MINIMIZED search is still `visible` (docked) —
+                            // the launcher toggle restores instead of closing.
+                            if self.windows.is_minimized(crate::window_scene::WindowId::Search) {
+                                self.restore_window(crate::window_scene::WindowId::Search);
+                            } else if self.search.visible {
                                 self.close_search();
                             } else {
                                 self.open_search();
@@ -217,6 +221,22 @@ impl DisplayServerRuntime {
             }
         }
 
+        // Dock (bottom-center bar of minimized windows): composited above the
+        // windows, so its presses resolve BEFORE the window loop. A press on an
+        // icon restores that window; anywhere else on the bar just consumes.
+        if primary_press && !window_consumed_press {
+            if let Some(bar) = self.dock_bar_rect() {
+                if crate::compositor::dock::dock_contains(bar, cursor_x, cursor_y) {
+                    window_consumed_press = true;
+                    let (list, n) = self.windows.minimized_list();
+                    if let Some(slot) =
+                        crate::compositor::dock::dock_slot_at(bar, n, cursor_x, cursor_y)
+                    {
+                        self.restore_window(list[slot]);
+                    }
+                }
+            }
+        }
         // Shell windows, hit-tested FRONT-TO-BACK in the z/focus stack's order —
         // the exact reverse of the composite order (one SSOT in `window_scene`),
         // so input can never disagree with occlusion. Checked AFTER the chrome
@@ -243,6 +263,14 @@ impl DisplayServerRuntime {
                             }
                             WindowId::Search => self.close_search(),
                         }
+                    }
+                    WindowPress::Minimize => {
+                        window_consumed_press = true;
+                        self.minimize_window(wid);
+                    }
+                    WindowPress::Maximize => {
+                        window_consumed_press = true;
+                        self.toggle_fullscreen(wid);
                     }
                     WindowPress::TitleDrag => {
                         window_consumed_press = true;
@@ -393,15 +421,9 @@ impl DisplayServerRuntime {
             self.search.surface_dirty = true;
             self.queue_dirty_rect(self.search_window_rect());
         }
-        // Search window close-button hover (re-render the title bar on change).
-        if self.search.visible {
-            let new_close_hover = self.search.close_hit(self.state.cursor_x, self.state.cursor_y);
-            if new_close_hover != self.search.close_hover {
-                self.search.close_hover = new_close_hover;
-                self.search.surface_dirty = true;
-                self.queue_dirty_rect(self.search_window_rect());
-            }
-        }
+        // Title-bar button hover `[– □ ×]` for the topmost window under the
+        // cursor (TASK-0070 Phase 2; re-renders that window's title on change).
+        self.update_title_hovers(self.state.cursor_x, self.state.cursor_y);
         // (Search wheel handling moved into the unified stack-ordered wheel
         //  routing below — TASK-0070 Phase 1: topmost window under the cursor.)
         // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text

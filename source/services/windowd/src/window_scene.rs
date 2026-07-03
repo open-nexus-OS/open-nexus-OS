@@ -34,10 +34,36 @@ pub enum WindowId {
 pub struct WindowState {
     /// Which window.
     pub id: WindowId,
-    /// Whether the app/window wants to be shown.
+    /// Whether the app/window wants to be shown (open, even if minimized).
     pub visible: bool,
     /// Composite z-order (higher = nearer the viewer).
     pub z: i16,
+    /// Minimized: still OPEN (lives in the dock) but not composited.
+    /// Orthogonal to `visible` — closed = `visible: false`, minimized =
+    /// `visible: true, minimized: true` (restore brings it straight back).
+    pub minimized: bool,
+    /// Fullscreen: composites ABOVE the chrome (the "□" toggle / a later
+    /// top-edge snap). Survives minimize; cleared on close.
+    pub fullscreen: bool,
+}
+
+impl WindowState {
+    /// A floating (non-minimized, non-fullscreen) window state.
+    pub fn floating(id: WindowId, visible: bool, z: i16) -> Self {
+        Self { id, visible, z, minimized: false, fullscreen: false }
+    }
+
+    /// Whether this window composites this frame.
+    fn showable(&self, desktop_shell_active: bool) -> bool {
+        should_show(self.visible, desktop_shell_active) && !self.minimized
+    }
+
+    /// Sort key for composition: fullscreen windows group ABOVE all floating
+    /// windows (they cover the chrome — nothing floating may overlap them),
+    /// z orders within each group.
+    fn order_key(&self) -> i32 {
+        (self.fullscreen as i32) * 100_000 + self.z as i32
+    }
 }
 
 /// Whether a shell window should be composited this frame.
@@ -52,12 +78,12 @@ pub fn should_show(visible: bool, desktop_shell_active: bool) -> bool {
 /// The windows to composite over the base layer, back-to-front (z ascending).
 /// Hidden windows (and all windows when the desktop shell is active) are excluded.
 pub fn composition_order(windows: &[WindowState], desktop_shell_active: bool) -> Vec<WindowId> {
-    let mut visible: Vec<(WindowId, i16)> = windows
+    let mut visible: Vec<(WindowId, i32)> = windows
         .iter()
-        .filter(|w| should_show(w.visible, desktop_shell_active))
-        .map(|w| (w.id, w.z))
+        .filter(|w| w.showable(desktop_shell_active))
+        .map(|w| (w.id, w.order_key()))
         .collect();
-    visible.sort_by_key(|&(_, z)| z);
+    visible.sort_by_key(|&(_, key)| key);
     visible.into_iter().map(|(id, _)| id).collect()
 }
 
@@ -99,10 +125,10 @@ impl WindowStack {
     /// (later ids start on top once shown). Ids beyond [`MAX_WINDOWS`] are
     /// ignored — the cap is a hard invariant, not an error path.
     pub fn new(ids: &[WindowId]) -> Self {
-        let mut entries = [WindowState { id: WindowId::Chat, visible: false, z: 0 }; MAX_WINDOWS];
+        let mut entries = [WindowState::floating(WindowId::Chat, false, 0); MAX_WINDOWS];
         let len = ids.len().min(MAX_WINDOWS);
         for (i, &id) in ids.iter().take(len).enumerate() {
-            entries[i] = WindowState { id, visible: false, z: i as i16 };
+            entries[i] = WindowState::floating(id, false, i as i16);
         }
         Self { entries, len, focused: None, next_z: len as i16 }
     }
@@ -127,32 +153,109 @@ impl WindowStack {
         self.top() == Some(id)
     }
 
-    /// The topmost visible window, if any.
+    /// The topmost ON-SCREEN window (visible and not minimized), if any.
     pub fn top(&self) -> Option<WindowId> {
         self.entries[..self.len]
             .iter()
-            .filter(|w| w.visible)
-            .max_by_key(|w| w.z)
+            .filter(|w| w.visible && !w.minimized)
+            .max_by_key(|w| w.order_key())
             .map(|w| w.id)
     }
 
-    /// Show `id`: it becomes visible, raised to the top, and focused (opening a
-    /// window is user intent — it must not appear behind another window).
+    /// Show `id`: it becomes visible (un-minimized), raised to the top, and
+    /// focused (opening a window is user intent — it must not appear behind
+    /// another window).
     pub fn show(&mut self, id: WindowId) {
         if let Some(i) = self.index_of(id) {
             self.entries[i].visible = true;
+            self.entries[i].minimized = false;
             self.raise(id);
         }
     }
 
-    /// Hide `id` and hand focus to the topmost remaining visible window.
+    /// Hide (close) `id` and hand focus to the topmost remaining window. A
+    /// closed window leaves the dock and forgets fullscreen — reopening starts
+    /// floating.
     pub fn hide(&mut self, id: WindowId) {
         if let Some(i) = self.index_of(id) {
             self.entries[i].visible = false;
+            self.entries[i].minimized = false;
+            self.entries[i].fullscreen = false;
             if self.focused == Some(id) {
                 self.focused = self.top();
             }
         }
+    }
+
+    /// Minimize `id` into the dock: stays open (`visible`) but is excluded
+    /// from composition; focus falls to the topmost remaining window.
+    pub fn minimize(&mut self, id: WindowId) {
+        if let Some(i) = self.index_of(id) {
+            if !self.entries[i].visible {
+                return;
+            }
+            self.entries[i].minimized = true;
+            if self.focused == Some(id) {
+                self.focused = self.top();
+            }
+        }
+    }
+
+    /// Restore `id` from the dock: composited again, raised, and focused.
+    /// (Returns to its previous mode — a fullscreen window restores fullscreen.)
+    pub fn restore(&mut self, id: WindowId) {
+        if let Some(i) = self.index_of(id) {
+            if !self.entries[i].visible {
+                return;
+            }
+            self.entries[i].minimized = false;
+            self.raise(id);
+        }
+    }
+
+    /// Whether `id` sits minimized in the dock.
+    pub fn is_minimized(&self, id: WindowId) -> bool {
+        self.index_of(id).map(|i| self.entries[i].minimized).unwrap_or(false)
+    }
+
+    /// Minimized (docked) windows in stable registration order — the dock's
+    /// slot order, independent of z so icons never shuffle. Alloc-free.
+    pub fn minimized_list(&self) -> ([WindowId; MAX_WINDOWS], usize) {
+        let mut out = [WindowId::Chat; MAX_WINDOWS];
+        let mut n = 0;
+        for w in &self.entries[..self.len] {
+            if w.visible && w.minimized {
+                out[n] = w.id;
+                n += 1;
+            }
+        }
+        (out, n)
+    }
+
+    /// Set/clear fullscreen on `id`. Entering fullscreen raises + focuses (it
+    /// covers the chrome, so it must be the interaction target).
+    pub fn set_fullscreen(&mut self, id: WindowId, on: bool) {
+        if let Some(i) = self.index_of(id) {
+            self.entries[i].fullscreen = on;
+            if on {
+                self.raise(id);
+            }
+        }
+    }
+
+    /// Whether `id` is in fullscreen mode (even while minimized).
+    pub fn is_fullscreen(&self, id: WindowId) -> bool {
+        self.index_of(id).map(|i| self.entries[i].fullscreen).unwrap_or(false)
+    }
+
+    /// The fullscreen window currently ON SCREEN, if any — while this is
+    /// `Some`, the chrome (topbar/panels/dock) is covered and not composited.
+    pub fn fullscreen_active(&self) -> Option<WindowId> {
+        self.entries[..self.len]
+            .iter()
+            .filter(|w| w.visible && !w.minimized && w.fullscreen)
+            .max_by_key(|w| w.order_key())
+            .map(|w| w.id)
     }
 
     /// Raise `id` to the top of the stack and focus it. Returns `true` when the
@@ -179,22 +282,24 @@ impl WindowStack {
         self.index_of(id).map(|i| self.entries[i].z).unwrap_or(0)
     }
 
-    /// Visible windows back-to-front (composite order), alloc-free.
+    /// On-screen windows back-to-front (composite order), alloc-free.
+    /// Minimized windows are excluded; fullscreen windows group on top.
     pub fn order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
         let mut out = [WindowId::Chat; MAX_WINDOWS];
-        let mut zs = [0i16; MAX_WINDOWS];
+        let mut keys = [0i32; MAX_WINDOWS];
         let mut n = 0;
         for w in &self.entries[..self.len] {
-            if should_show(w.visible, desktop_shell_active) {
-                // Insertion sort by z ascending — at most MAX_WINDOWS entries.
+            if w.showable(desktop_shell_active) {
+                // Insertion sort by the order key ascending — ≤ MAX_WINDOWS entries.
+                let key = w.order_key();
                 let mut j = n;
-                while j > 0 && zs[j - 1] > w.z {
+                while j > 0 && keys[j - 1] > key {
                     out[j] = out[j - 1];
-                    zs[j] = zs[j - 1];
+                    keys[j] = keys[j - 1];
                     j -= 1;
                 }
                 out[j] = w.id;
-                zs[j] = w.z;
+                keys[j] = key;
                 n += 1;
             }
         }
@@ -240,8 +345,8 @@ mod tests {
     fn hidden_windows_are_not_composited() {
         // Mirrors the boot case the user hit: chat starts hidden → not in the frame.
         let windows = [
-            WindowState { id: WindowId::Chat, visible: false, z: 3 },
-            WindowState { id: WindowId::Search, visible: false, z: 2 },
+            WindowState::floating(WindowId::Chat, false, 3),
+            WindowState::floating(WindowId::Search, false, 2),
         ];
         assert!(composition_order(&windows, false).is_empty());
     }
@@ -249,8 +354,8 @@ mod tests {
     #[test]
     fn visible_window_is_composited() {
         let windows = [
-            WindowState { id: WindowId::Chat, visible: true, z: 3 },
-            WindowState { id: WindowId::Search, visible: false, z: 2 },
+            WindowState::floating(WindowId::Chat, true, 3),
+            WindowState::floating(WindowId::Search, false, 2),
         ];
         assert_eq!(composition_order(&windows, false), vec![WindowId::Chat]);
     }
@@ -258,8 +363,8 @@ mod tests {
     #[test]
     fn composition_is_z_ordered_back_to_front() {
         let windows = [
-            WindowState { id: WindowId::Chat, visible: true, z: 3 },
-            WindowState { id: WindowId::Search, visible: true, z: 2 },
+            WindowState::floating(WindowId::Chat, true, 3),
+            WindowState::floating(WindowId::Search, true, 2),
         ];
         // Search (z=2) composites before Chat (z=3) → chat on top.
         assert_eq!(composition_order(&windows, false), vec![WindowId::Search, WindowId::Chat]);
@@ -268,8 +373,8 @@ mod tests {
     #[test]
     fn desktop_shell_suppresses_all_windows() {
         let windows = [
-            WindowState { id: WindowId::Chat, visible: true, z: 3 },
-            WindowState { id: WindowId::Search, visible: true, z: 2 },
+            WindowState::floating(WindowId::Chat, true, 3),
+            WindowState::floating(WindowId::Search, true, 2),
         ];
         assert!(composition_order(&windows, true).is_empty());
     }
@@ -360,6 +465,98 @@ mod tests {
         s.show(WindowId::Chat);
         assert_eq!(s.order(true).1, 0);
         assert_eq!(s.hit_order(true).1, 0);
+    }
+
+    // ── Phase 2: minimize / dock / fullscreen ──
+
+    #[test]
+    fn minimize_leaves_composition_and_refocuses() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        s.minimize(WindowId::Chat);
+        // Off screen but still OPEN (in the dock), search takes focus.
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Search]);
+        assert!(s.is_visible(WindowId::Chat));
+        assert!(s.is_minimized(WindowId::Chat));
+        assert_eq!(s.focused(), Some(WindowId::Search));
+        let (dock, dn) = s.minimized_list();
+        assert_eq!(&dock[..dn], &[WindowId::Chat]);
+    }
+
+    #[test]
+    fn restore_returns_raised_and_focused() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        s.minimize(WindowId::Chat);
+        s.restore(WindowId::Chat);
+        assert!(!s.is_minimized(WindowId::Chat));
+        assert!(s.is_top(WindowId::Chat));
+        assert_eq!(s.focused(), Some(WindowId::Chat));
+        assert_eq!(s.minimized_list().1, 0);
+    }
+
+    #[test]
+    fn dock_order_is_stable_registration_order() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        // Minimize chat FIRST, then search — dock still lists registration order.
+        s.minimize(WindowId::Chat);
+        s.minimize(WindowId::Search);
+        let (dock, dn) = s.minimized_list();
+        assert_eq!(&dock[..dn], &[WindowId::Search, WindowId::Chat]);
+        assert_eq!(s.focused(), None);
+        assert_eq!(s.order(false).1, 0);
+    }
+
+    #[test]
+    fn close_clears_dock_membership_and_fullscreen() {
+        let mut s = stack();
+        s.show(WindowId::Chat);
+        s.set_fullscreen(WindowId::Chat, true);
+        s.minimize(WindowId::Chat);
+        s.hide(WindowId::Chat);
+        assert_eq!(s.minimized_list().1, 0);
+        assert!(!s.is_fullscreen(WindowId::Chat));
+        // Reopening starts floating, not fullscreen.
+        s.show(WindowId::Chat);
+        assert_eq!(s.fullscreen_active(), None);
+    }
+
+    #[test]
+    fn fullscreen_sorts_above_floating_and_reports_active() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        s.set_fullscreen(WindowId::Search, true);
+        // Search entered fullscreen → raised + focused + grouped on top even
+        // though chat was raised later at a higher raw z.
+        assert_eq!(s.fullscreen_active(), Some(WindowId::Search));
+        assert_eq!(s.focused(), Some(WindowId::Search));
+        s.raise(WindowId::Chat);
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search], "fullscreen stays on top");
+        // Leaving fullscreen restores plain z ordering.
+        s.set_fullscreen(WindowId::Search, false);
+        assert_eq!(s.fullscreen_active(), None);
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Search, WindowId::Chat]);
+    }
+
+    #[test]
+    fn minimized_fullscreen_window_is_not_active_until_restored() {
+        let mut s = stack();
+        s.show(WindowId::Chat);
+        s.set_fullscreen(WindowId::Chat, true);
+        s.minimize(WindowId::Chat);
+        // Docked → the chrome is NOT covered.
+        assert_eq!(s.fullscreen_active(), None);
+        s.restore(WindowId::Chat);
+        // Restore returns to fullscreen (mode survives the dock).
+        assert_eq!(s.fullscreen_active(), Some(WindowId::Chat));
     }
 
     #[test]

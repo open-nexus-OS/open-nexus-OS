@@ -52,8 +52,11 @@ const TITLE_BG: [u8; 4] = [56, 50, 46, 255];
 const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
 const CHROME_TEXT: [u8; 4] = [255, 255, 255, 255];
 
-/// Draw one window-local row of the shared title bar: the header tint across the
-/// bar, the title on the left, and a hover-highlighted close "x" on the right.
+/// Draw one window-local row of the shared title bar: the header tint across
+/// the bar, the title on the left, and the right-aligned window controls
+/// `[– □ ×]` (TASK-0070 Phase 2), the hovered one highlighted. Button zone
+/// geometry comes from the SAME host-tested [`Frame`] math the hit-tester uses
+/// (`Frame::button_local_x`), so hover/press and pixels can never disagree.
 /// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_title_bar_row(
@@ -63,7 +66,7 @@ pub(crate) fn draw_title_bar_row(
     title: &str,
     title_h: u32,
     close_w: u32,
-    close_hover: bool,
+    hover: Option<TitleButton>,
     radius: u32,
 ) -> Result<(), WindowdError> {
     if local_y >= title_h {
@@ -72,24 +75,31 @@ pub(crate) fn draw_title_bar_row(
     write_tint_span(row, 0, w, TITLE_BG);
     let text_top = (title_h - FONT_H * FONT_SCALE) / 2;
     draw_label(local_y, row, title, 14, text_top, CHROME_TEXT)?;
-    let cx = w.saturating_sub(close_w);
-    if close_hover {
-        write_tint_span(row, cx, w, HOVER_TINT);
-    }
-    // Close glyph — the REAL Lucide `x` icon (white, straight-alpha) blended in,
-    // centred in the close zone, replacing the bitmap-font "x".
-    let cdim = crate::assets::CLOSE_ICON_DIM;
-    let cy0 = title_h.saturating_sub(cdim) / 2;
-    if local_y >= cy0 && local_y < cy0 + cdim {
-        let cix = cx + close_w.saturating_sub(cdim) / 2;
-        super::desktop_layer::blend_icon_row(
-            row,
-            cix,
-            crate::assets::CLOSE_ICON_BGRA,
-            cdim,
-            local_y - cy0,
-            255,
-        );
+    // Zone geometry SSOT: a zero-positioned frame gives the window-local x.
+    let zones = Frame { x: 0, y: 0, w, h: title_h, title_h, close_w };
+    for (button, icon, dim) in [
+        (
+            TitleButton::Minimize,
+            crate::assets::MINIMIZE_ICON_BGRA,
+            crate::assets::MINIMIZE_ICON_DIM,
+        ),
+        (
+            TitleButton::Maximize,
+            crate::assets::MAXIMIZE_ICON_BGRA,
+            crate::assets::MAXIMIZE_ICON_DIM,
+        ),
+        (TitleButton::Close, crate::assets::CLOSE_ICON_BGRA, crate::assets::CLOSE_ICON_DIM),
+    ] {
+        let bx = zones.button_local_x(button);
+        if hover == Some(button) {
+            write_tint_span(row, bx, bx + close_w, HOVER_TINT);
+        }
+        // Real Lucide glyphs (white, straight-alpha) centred in each zone.
+        let cy0 = title_h.saturating_sub(dim) / 2;
+        if local_y >= cy0 && local_y < cy0 + dim {
+            let cix = bx + close_w.saturating_sub(dim) / 2;
+            super::desktop_layer::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255);
+        }
     }
     // Round the TOP corners at the surface level: clear (make transparent) the
     // pixels of the top-left/top-right `radius`×`radius` squares that fall OUTSIDE
@@ -159,8 +169,8 @@ fn draw_label(
 }
 
 /// Write one straight-alpha BGRA span (gpud's layer blend does the SRC_ALPHA
-/// compositing over the blurred backdrop).
-fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
+/// compositing over the blurred backdrop). Shared with the dock renderer.
+pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
     let rp = (row.len() / 4) as u32;
     for px in x0.min(rp)..x1.min(rp) {
         let idx = px as usize * 4;
@@ -172,7 +182,7 @@ fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
 // crate (`frame`) so every `ShellWindow` (chat + search) shares one
 // implementation; re-export so existing `shell_window::{Frame,WindowPress}` call
 // sites keep working (RFC-0067 P3: window geometry is a widget concern).
-pub(crate) use nexus_widget_window::{Frame, WindowPress};
+pub(crate) use nexus_widget_window::{Frame, TitleButton, WindowPress};
 
 /// A movable/closable glass window. The content list is supplied by the caller
 /// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
@@ -199,8 +209,10 @@ pub(crate) struct ShellWindow {
     pub(crate) visible: bool,
     /// Active title-bar drag: cursor offset from the window origin at grab.
     pub(crate) drag: Option<(i32, i32)>,
-    /// Close button hover (re-renders the title bar on change).
-    pub(crate) close_hover: bool,
+    /// Hovered title-bar button `[– □ ×]` (re-renders the title bar on change).
+    pub(crate) title_hover: Option<TitleButton>,
+    /// Floating origin remembered while fullscreen, restored on toggle-off.
+    pub(crate) fullscreen_restore: Option<(i32, i32)>,
     /// Scroll offset of the body list (rows, for now; GPU-offset in W2).
     pub(crate) scroll: u32,
     /// Set when the atlas surface needs re-rasterizing (filter/scroll/hover).
@@ -244,7 +256,8 @@ impl ShellWindow {
             shadow_alpha,
             visible: false,
             drag: None,
-            close_hover: false,
+            title_hover: None,
+            fullscreen_restore: None,
             scroll: 0,
             surface_dirty: true,
             blur_valid: false,
@@ -288,9 +301,33 @@ impl ShellWindow {
         self.frame().contains(cx, cy)
     }
 
-    /// True if `(cx, cy)` is over the close "x" in the title bar.
-    pub(crate) fn close_hit(&self, cx: i32, cy: i32) -> bool {
-        self.frame().close_hit(cx, cy)
+    /// The title-bar button `[– □ ×]` under `(cx, cy)`, if any.
+    pub(crate) fn title_button_at(&self, cx: i32, cy: i32) -> Option<TitleButton> {
+        self.frame().title_button_at(cx, cy)
+    }
+
+    /// Enter fullscreen: remember the floating origin and pin to the display
+    /// origin (the composite covers the chrome; Phase-3 resize will re-render
+    /// the content at display size — until then the frame centers on screen).
+    pub(crate) fn enter_fullscreen(&mut self, mode_w: u32, mode_h: u32) {
+        if self.fullscreen_restore.is_none() {
+            self.fullscreen_restore = Some((self.x, self.y));
+        }
+        self.end_drag();
+        // Center the (native-size) frame; a full-size re-render lands with the
+        // Phase-3 resize machinery.
+        self.x = (mode_w.saturating_sub(self.w) / 2) as i32;
+        self.y = (mode_h.saturating_sub(self.h) / 2) as i32;
+        self.blur_valid = false;
+    }
+
+    /// Leave fullscreen: return to the remembered floating origin.
+    pub(crate) fn leave_fullscreen(&mut self) {
+        if let Some((x, y)) = self.fullscreen_restore.take() {
+            self.x = x;
+            self.y = y;
+            self.blur_valid = false;
+        }
     }
 
     /// Resolve a primary press to a window region.

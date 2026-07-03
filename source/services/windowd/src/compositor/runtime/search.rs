@@ -138,7 +138,7 @@ impl DisplayServerRuntime {
         let h = self.search.h;
         let w = super::desktop_layer::SEARCH_W;
         let row_bytes = w as usize * 4;
-        let close_hover = self.search.close_hover;
+        let title_hover = self.search.title_hover;
         let scroll = self.search.scroll;
         let total = self.search_filtered.len();
         let visible_end = (scroll as usize + super::desktop_layer::SEARCH_VISIBLE_ROWS as usize).min(total);
@@ -155,7 +155,7 @@ impl DisplayServerRuntime {
             let row = &mut band[0..stride];
             row[..row_bytes].fill(0);
             super::desktop_layer::draw_search_window_row(
-                ly, row, w, filter_text, visible, scroll, total, close_hover,
+                ly, row, w, filter_text, visible, scroll, total, title_hover,
             )?;
             let dst = (abs_row + ly) as usize * stride + col_off;
             vmo_write(handle, dst, &row[..row_bytes])

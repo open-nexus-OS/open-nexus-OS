@@ -152,6 +152,12 @@ impl DisplayServerRuntime {
         if self.shell_config.locked {
             return; // kiosk lockdown: no launcher windows
         }
+        // A MINIMIZED chat is still `visible` (it lives in the dock) — the
+        // launcher toggle restores it instead of closing it (TASK-0070 P2).
+        if self.windows.is_minimized(crate::window_scene::WindowId::Chat) {
+            self.restore_window(crate::window_scene::WindowId::Chat);
+            return;
+        }
         let now = !self.chat.visible;
         self.chat.visible = now;
         if now {
@@ -264,6 +270,7 @@ impl DisplayServerRuntime {
         let abs_row = surface.abs_row;
         let render_base = self.chat_render_base;
         let content_h = self.chat_content_h;
+        let title_hover = self.chat.title_hover;
         let visible = &self.chat_visible;
         let band = &mut self.band_scratch;
         // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
@@ -275,7 +282,15 @@ impl DisplayServerRuntime {
             let band_rows = (band_end - band_start) as usize;
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
-                super::chat::draw_chat_panel_row(ly, row, render_base, content_h, visible, height)?;
+                super::chat::draw_chat_panel_row(
+                    ly,
+                    row,
+                    render_base,
+                    content_h,
+                    visible,
+                    height,
+                    title_hover,
+                )?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])

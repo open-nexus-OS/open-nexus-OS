@@ -110,6 +110,7 @@ mod present;
 mod scene;
 mod session;
 mod greeter;
+mod wm;
 
 // The split-out `impl` submodules live one module deeper than the original
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
@@ -467,6 +468,14 @@ pub(crate) struct DisplayServerRuntime {
     /// Visibility here MIRRORS each `ShellWindow.visible` — kept in sync by the
     /// `show_window`/`hide_window` helpers, never written directly.
     windows: crate::window_scene::WindowStack,
+    /// Dock surface (TASK-0070 Phase 2): the bottom-center bar of MINIMIZED
+    /// windows. Allocated on the first minimize (sized for `MAX_WINDOWS`
+    /// icons), freed when the last window restores — no permanent taskbar.
+    dock_surface: Option<crate::atlas::AtlasSurface>,
+    /// Icon count the dock surface currently renders (0 = never rendered).
+    dock_rendered_n: usize,
+    /// The dock surface needs re-rendering (membership changed).
+    dock_dirty: bool,
 }
 
 #[derive(Default)]
@@ -844,6 +853,9 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Search,
                 crate::window_scene::WindowId::Chat,
             ]),
+            dock_surface: None,
+            dock_rendered_n: 0,
+            dock_dirty: false,
         })
     }
 
@@ -927,10 +939,17 @@ impl DisplayServerRuntime {
     }
 
     /// Mirror a window hiding into the stack; focus falls to the topmost
-    /// remaining visible window (marker only when focus actually moved).
+    /// remaining visible window (marker only when focus actually moved). A
+    /// close also leaves the dock and forgets fullscreen (fresh open =
+    /// floating at the remembered origin), so the dock is reconciled here.
     pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
         let before = self.windows.focused();
         self.windows.hide(id);
+        match id {
+            crate::window_scene::WindowId::Chat => self.chat.leave_fullscreen(),
+            crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
+        }
+        self.update_dock();
         let after = self.windows.focused();
         if after != before {
             if let Some(next) = after {

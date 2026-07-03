@@ -177,6 +177,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (name, dim, svg) in [
         ("MENU_ICON", 26u32, include_str!("../../../resources/icons/lucide/icons/menu.svg")),
         ("CLOSE_ICON", 20u32, include_str!("../../../resources/icons/lucide/icons/x.svg")),
+        // Title-bar window controls (TASK-0070 Phase 2): minimize "–" +
+        // maximize "□", sized to read alongside the 20px close "x".
+        (
+            "MINIMIZE_ICON",
+            20u32,
+            include_str!("../../../resources/icons/lucide/icons/minus.svg"),
+        ),
+        (
+            "MAXIMIZE_ICON",
+            16u32,
+            include_str!("../../../resources/icons/lucide/icons/square.svg"),
+        ),
+        // Dock icons for minimized windows (one per shell window today).
+        (
+            "DOCK_CHAT_ICON",
+            28u32,
+            include_str!("../../../resources/icons/lucide/icons/message-circle.svg"),
+        ),
+        (
+            "DOCK_SEARCH_ICON",
+            28u32,
+            include_str!("../../../resources/icons/lucide/icons/search.svg"),
+        ),
         // Greeter avatar glyph (TASK-0065B): a user inside a circle, blended
         // into the login window's avatar disc.
         (

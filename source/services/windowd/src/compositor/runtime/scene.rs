@@ -66,6 +66,11 @@ impl DisplayServerRuntime {
             self.render_search_surface()?;
             self.search.surface_dirty = false;
         }
+        // Dock (TASK-0070 Phase 2): (re)render on membership change.
+        if self.dock_dirty && self.dock_surface.is_some() {
+            self.render_dock_surface()?;
+            self.dock_dirty = false;
+        }
         // Snapshot all `self` reads needed inside the encoder block so the
         // mutable borrow of `self.scene_cb` does not conflict with field reads.
         let mode = self.mode;
@@ -174,6 +179,16 @@ impl DisplayServerRuntime {
         let chrome_composited = self.chrome_composited();
         let greeter_active = self.greeter_active();
         let session_resolved = self.session_resolved();
+        // Fullscreen cover (TASK-0070 Phase 2): while a fullscreen window is on
+        // screen, no chrome-class surface may composite (`chrome_composited`
+        // already folds this in for the desktop chrome; the legacy proof-mode
+        // buttons/sidebar gate on it explicitly below).
+        let fullscreen_none = self.windows.fullscreen_active().is_none();
+        // Dock layer params (bar rect is None while inactive/covered).
+        let dock_layer = match (self.dock_bar_rect(), self.dock_surface) {
+            (Some(bar), Some(surface)) => Some((surface.abs_row, surface.x, bar)),
+            _ => None,
+        };
         self.scene_cb.clear();
         {
             let mut encoder = self
@@ -335,6 +350,22 @@ impl DisplayServerRuntime {
                 }
             }
 
+            // 1·dock. Dock of minimized windows (TASK-0070 Phase 2): a glass
+            //     bar bottom-center, present ONLY while ≥1 window is minimized
+            //     and no fullscreen window covers the chrome. Above windows
+            //     like the rest of the chrome.
+            if let Some((dock_row, dock_x, bar)) = dock_layer {
+                let _ = encoder.composite_layer_full(
+                    &Layer {
+                        corner_radius: crate::compositor::dock::DOCK_RADIUS,
+                        shadow: Some(LayerShadow { blur: 14, offset_y: 4, alpha: 80 }),
+                        backdrop: Some(chrome_glass_backdrop()),
+                        ..Layer::opaque(dock_row, dock_x, bar.width, bar.height, bar.x, bar.y)
+                    },
+                    (mode.width, mode.height),
+                );
+            }
+
             // (1·search / 1a·chat moved into the 1·windows stack loop above —
             //  TASK-0070 Phase 1: one ordering authority, chrome above windows.)
 
@@ -389,6 +420,7 @@ impl DisplayServerRuntime {
                 && !self.shell_config.desktop_chrome
                 && !greeter_active
                 && session_resolved
+                && fullscreen_none
                 && button_blit_w > 0
                 && !button_covered
                 && (button_touched || !btn_blur_cache_valid)
@@ -599,6 +631,7 @@ impl DisplayServerRuntime {
                 && !self.shell_config.desktop_chrome
                 && !greeter_active
                 && session_resolved
+                && fullscreen_none
                 && sidebar_opacity > 0.01
                 && (sidebar_touched || !blur_cache_valid || !sidebar_composite_cache_valid)
             {

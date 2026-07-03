@@ -33,6 +33,16 @@ pub const MENU_ICON_BGRA: &[u8] = generated::MENU_ICON_BGRA;
 pub const MENU_ICON_DIM: u32 = generated::MENU_ICON_DIM;
 pub const CLOSE_ICON_BGRA: &[u8] = generated::CLOSE_ICON_BGRA;
 pub const CLOSE_ICON_DIM: u32 = generated::CLOSE_ICON_DIM;
+/// Title-bar window controls (TASK-0070 Phase 2): minimize "–" + maximize "□".
+pub const MINIMIZE_ICON_BGRA: &[u8] = generated::MINIMIZE_ICON_BGRA;
+pub const MINIMIZE_ICON_DIM: u32 = generated::MINIMIZE_ICON_DIM;
+pub const MAXIMIZE_ICON_BGRA: &[u8] = generated::MAXIMIZE_ICON_BGRA;
+pub const MAXIMIZE_ICON_DIM: u32 = generated::MAXIMIZE_ICON_DIM;
+/// Dock icons for minimized windows (Lucide `message-circle` / `search`).
+pub const DOCK_CHAT_ICON_BGRA: &[u8] = generated::DOCK_CHAT_ICON_BGRA;
+pub const DOCK_CHAT_ICON_DIM: u32 = generated::DOCK_CHAT_ICON_DIM;
+pub const DOCK_SEARCH_ICON_BGRA: &[u8] = generated::DOCK_SEARCH_ICON_BGRA;
+pub const DOCK_SEARCH_ICON_DIM: u32 = generated::DOCK_SEARCH_ICON_DIM;
 /// Greeter avatar glyph (TASK-0065B): Lucide `circle-user`, straight-alpha white.
 pub const GREETER_AVATAR_ICON_BGRA: &[u8] = generated::GREETER_AVATAR_ICON_BGRA;
 pub const GREETER_AVATAR_ICON_DIM: u32 = generated::GREETER_AVATAR_ICON_DIM;

@@ -232,11 +232,11 @@ pub(crate) fn draw_search_window_row(
     visible_words: &[&'static str],
     scroll: u32,
     total: usize,
-    close_hover: bool,
+    title_hover: Option<super::shell_window::TitleButton>,
 ) -> Result<(), WindowdError> {
     write_tint_span(row, 0, w, TINT);
     if local_y < SEARCH_TITLE_H {
-        // Shared window chrome (same title bar + close "x" as the chat window).
+        // Shared window chrome (same title bar + `[– □ ×]` as the chat window).
         return super::shell_window::draw_title_bar_row(
             local_y,
             row,
@@ -244,7 +244,7 @@ pub(crate) fn draw_search_window_row(
             "Search",
             SEARCH_TITLE_H,
             SEARCH_CLOSE_W,
-            close_hover,
+            title_hover,
             SEARCH_RADIUS,
         );
     }

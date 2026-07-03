@@ -130,6 +130,7 @@ pub(crate) fn draw_chat_panel_row(
     content_h: u32,
     visible: &[ChatVisibleMsg],
     surface_h: u32,
+    title_hover: Option<super::shell_window::TitleButton>,
 ) -> Result<(), WindowdError> {
     // The scrollbar is dropped on the GPU scroll-offset path (the surface is an
     // overscan window scrolled by composite offset, not by re-render).
@@ -147,7 +148,7 @@ pub(crate) fn draw_chat_panel_row(
             "Chat",
             CHAT_TITLE_BAR_H,
             CHAT_CLOSE_ZONE_W,
-            false,
+            title_hover,
             super::desktop_layer::SEARCH_RADIUS,
         );
     }

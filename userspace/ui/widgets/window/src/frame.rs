@@ -18,14 +18,39 @@
 /// What a primary press landed on inside a window (window-local resolution).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WindowPress {
+    /// The minimize "–" in the title bar (window hides into the dock).
+    Minimize,
+    /// The maximize "□" in the title bar (toggle fullscreen).
+    Maximize,
     /// The close "x" in the title bar.
     Close,
-    /// The title bar (outside the close button) — begins a drag.
+    /// The title bar (outside the buttons) — begins a drag.
     TitleDrag,
     /// The window body (below the title bar).
     Body,
     /// Outside the window.
     Miss,
+}
+
+/// The three title-bar buttons, right-aligned in the order `[– □ ×]` (each
+/// `close_w` wide). Shared by the hit-tester and the renderer so the hover
+/// highlight and the press resolution can never disagree.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TitleButton {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+impl TitleButton {
+    /// Zone index from the RIGHT edge (close = 0, maximize = 1, minimize = 2).
+    pub fn zone_from_right(self) -> u32 {
+        match self {
+            TitleButton::Close => 0,
+            TitleButton::Maximize => 1,
+            TitleButton::Minimize => 2,
+        }
+    }
 }
 
 /// A window's display-space rectangle plus its chrome geometry. Signed origin so a
@@ -52,24 +77,45 @@ impl Frame {
         cy >= self.y && cy < self.y + self.title_h as i32
     }
 
-    /// True if `(cx, cy)` is over the close "x" at the title bar's right edge.
-    pub fn close_hit(&self, cx: i32, cy: i32) -> bool {
-        cx >= self.x + (self.w.saturating_sub(self.close_w)) as i32
-            && cx < self.x + self.w as i32
-            && self.in_title_bar(cy)
+    /// Window-local x of a title button's zone (its LEFT edge). Buttons are
+    /// right-aligned `[– □ ×]`, each `close_w` wide — one geometry for the
+    /// hit-test AND the renderer.
+    pub fn button_local_x(&self, button: TitleButton) -> u32 {
+        self.w.saturating_sub(self.close_w.saturating_mul(button.zone_from_right() + 1))
     }
 
-    /// Resolve a primary press to a window region. Close wins over the title bar;
-    /// the title bar begins a drag; the rest is the body; outside is a miss.
+    /// The title button under `(cx, cy)`, if any.
+    pub fn title_button_at(&self, cx: i32, cy: i32) -> Option<TitleButton> {
+        if !self.in_title_bar(cy) || !self.contains(cx, cy) {
+            return None;
+        }
+        for button in [TitleButton::Minimize, TitleButton::Maximize, TitleButton::Close] {
+            let bx = self.x + self.button_local_x(button) as i32;
+            if cx >= bx && cx < bx + self.close_w as i32 {
+                return Some(button);
+            }
+        }
+        None
+    }
+
+    /// True if `(cx, cy)` is over the close "x" at the title bar's right edge.
+    pub fn close_hit(&self, cx: i32, cy: i32) -> bool {
+        self.title_button_at(cx, cy) == Some(TitleButton::Close)
+    }
+
+    /// Resolve a primary press to a window region. The title buttons win over
+    /// the title bar; the title bar begins a drag; the rest is the body;
+    /// outside is a miss.
     pub fn press(&self, cx: i32, cy: i32) -> WindowPress {
         if !self.contains(cx, cy) {
             return WindowPress::Miss;
         }
         if self.in_title_bar(cy) {
-            if self.close_hit(cx, cy) {
-                WindowPress::Close
-            } else {
-                WindowPress::TitleDrag
+            match self.title_button_at(cx, cy) {
+                Some(TitleButton::Minimize) => WindowPress::Minimize,
+                Some(TitleButton::Maximize) => WindowPress::Maximize,
+                Some(TitleButton::Close) => WindowPress::Close,
+                None => WindowPress::TitleDrag,
             }
         } else {
             WindowPress::Body
@@ -134,6 +180,39 @@ mod tests {
         let close_x = f.x + f.w as i32 - 10;
         assert_eq!(f.press(close_x, f.y + 5), WindowPress::Close);
         assert_eq!(f.press(f.x + 10, f.y + f.title_h as i32 + 10), WindowPress::Body);
+    }
+
+    #[test]
+    fn title_buttons_are_right_aligned_minus_square_x() {
+        let f = frame();
+        let bw = f.close_w as i32;
+        let right = f.x + f.w as i32;
+        let cy = f.y + 5;
+        // Sample the CENTER of each zone, right-to-left: × □ –
+        assert_eq!(f.press(right - bw / 2, cy), WindowPress::Close);
+        assert_eq!(f.press(right - bw - bw / 2, cy), WindowPress::Maximize);
+        assert_eq!(f.press(right - 2 * bw - bw / 2, cy), WindowPress::Minimize);
+        // Left of all three zones → drag.
+        assert_eq!(f.press(right - 3 * bw - 5, cy), WindowPress::TitleDrag);
+        // Below the title bar in the button column → body, not a button.
+        assert_eq!(f.press(right - bw / 2, f.y + f.title_h as i32 + 2), WindowPress::Body);
+    }
+
+    #[test]
+    fn title_button_at_matches_press_and_renderer_geometry() {
+        let f = frame();
+        let bw = f.close_w;
+        // Renderer geometry: zone left edges from the right edge.
+        assert_eq!(f.button_local_x(TitleButton::Close), f.w - bw);
+        assert_eq!(f.button_local_x(TitleButton::Maximize), f.w - 2 * bw);
+        assert_eq!(f.button_local_x(TitleButton::Minimize), f.w - 3 * bw);
+        // Hover resolution agrees with press resolution.
+        let cy = f.y + 5;
+        let max_cx = f.x + (f.w - 2 * bw) as i32 + 3;
+        assert_eq!(f.title_button_at(max_cx, cy), Some(TitleButton::Maximize));
+        assert_eq!(f.title_button_at(f.x + 5, cy), None);
+        // Outside the title bar → no button.
+        assert_eq!(f.title_button_at(max_cx, f.y + f.title_h as i32), None);
     }
 
     #[test]
