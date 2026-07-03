@@ -417,6 +417,9 @@ pub(crate) struct DisplayServerRuntime {
     chat_scroll_last_ns: u64,
     /// `nsec()` of the last emitted scroll-diagnostic line (rate-limited ~200ms).
     chat_scroll_diag_ns: u64,
+    /// `nsec()` of the last emitted wheel-miss line (rate-limited ~500ms): a
+    /// wheel over no window is an honest diag marker, never a silent no-op.
+    wheel_miss_diag_ns: u64,
     /// Coalesced wheel delta: every queued `OP_UPDATE_VISIBLE_STATE` adds its
     /// `wheel_delta_y` here instead of scrolling immediately. The whole frame's
     /// worth is applied ONCE per present-loop iteration (`commit_scroll_input`).
@@ -457,6 +460,13 @@ pub(crate) struct DisplayServerRuntime {
     /// wallpaper + avatar card baked into Plane 1; all shell affordances
     /// suppressed until sessiond accepts a login.
     greeter: Option<greeter::GreeterState>,
+    /// The z/focus stack (host-tested SSOT in `window_scene`): the ONE ordering
+    /// authority for shell windows. Scene emission composites in `order()` and
+    /// input hit-tests in `hit_order()` (its exact reverse), replacing the old
+    /// hardcoded emit/press sequence that pinned chat above search forever.
+    /// Visibility here MIRRORS each `ShellWindow.visible` — kept in sync by the
+    /// `show_window`/`hide_window` helpers, never written directly.
+    windows: crate::window_scene::WindowStack,
 }
 
 #[derive(Default)]
@@ -819,6 +829,7 @@ impl DisplayServerRuntime {
             chat_scroll_y: 0,
             chat_scroll_last_ns: 0,
             chat_scroll_diag_ns: 0,
+            wheel_miss_diag_ns: 0,
             pending_chat_wheel: 0,
             pending_input: None,
             chat_content_h,
@@ -827,6 +838,12 @@ impl DisplayServerRuntime {
             chat_drag_marker_emitted: false,
             chat_button_marker_emitted: false,
             shell_config,
+            // Registration order = initial stacking (later on top once shown);
+            // both start hidden, mirroring the ShellWindow `visible` flags above.
+            windows: crate::window_scene::WindowStack::new(&[
+                crate::window_scene::WindowId::Search,
+                crate::window_scene::WindowId::Chat,
+            ]),
         })
     }
 
@@ -875,4 +892,79 @@ impl DisplayServerRuntime {
         self.glass_layer.valid = false;
     }
 
+    // ── Window stack sync (TASK-0070 Phase 1) ──
+    // The `windows` stack mirrors each ShellWindow's `visible` flag and owns
+    // z/focus. Every visibility change goes through these helpers so the two
+    // can never drift; raises emit honest markers + damage the affected rects.
+
+    /// Stable short name for markers/diagnostics.
+    pub(super) fn window_name(id: crate::window_scene::WindowId) -> &'static str {
+        match id {
+            crate::window_scene::WindowId::Chat => "chat",
+            crate::window_scene::WindowId::Search => "search",
+        }
+    }
+
+    /// The on-screen damage rect (incl. shadow halo) of a stack window.
+    pub(super) fn window_damage_rect(&self, id: crate::window_scene::WindowId) -> DamageRect {
+        let win = match id {
+            crate::window_scene::WindowId::Chat => &self.chat,
+            crate::window_scene::WindowId::Search => &self.search,
+        };
+        win.damage_rect(self.mode.width, self.mode.height)
+    }
+
+    /// Mirror a window becoming visible into the stack: it is raised to the top
+    /// and focused (opening is user intent). Callers still run their own
+    /// mount/damage logic — this only owns ordering + focus + markers.
+    pub(super) fn show_window(&mut self, id: crate::window_scene::WindowId) {
+        self.windows.show(id);
+        let _ = debug_println(&alloc::format!(
+            "windowd: focus id={} z={}",
+            Self::window_name(id),
+            self.windows.z_of(id),
+        ));
+    }
+
+    /// Mirror a window hiding into the stack; focus falls to the topmost
+    /// remaining visible window (marker only when focus actually moved).
+    pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
+        let before = self.windows.focused();
+        self.windows.hide(id);
+        let after = self.windows.focused();
+        if after != before {
+            if let Some(next) = after {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: focus id={} z={}",
+                    Self::window_name(next),
+                    self.windows.z_of(next),
+                ));
+            }
+        }
+    }
+
+    /// Click-to-raise: bring `id` to the top + focus it. When the stack order
+    /// actually changed, damage every visible window rect (the overlap regions
+    /// swap occlusion) so the next present recomposites the new order.
+    pub(super) fn raise_window(&mut self, id: crate::window_scene::WindowId) {
+        let focus_changed = self.windows.focused() != Some(id);
+        if self.windows.raise(id) {
+            let _ = debug_println(&alloc::format!(
+                "windowd: raise id={} z={}",
+                Self::window_name(id),
+                self.windows.z_of(id),
+            ));
+            let (order, n) = self.windows.order(USE_DESKTOP_SHELL);
+            for &wid in &order[..n] {
+                let rect = self.window_damage_rect(wid);
+                self.queue_gpu_blit_rect(rect);
+            }
+        } else if focus_changed {
+            let _ = debug_println(&alloc::format!(
+                "windowd: focus id={} z={}",
+                Self::window_name(id),
+                self.windows.z_of(id),
+            ));
+        }
+    }
 }

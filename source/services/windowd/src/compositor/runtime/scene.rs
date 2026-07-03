@@ -103,9 +103,9 @@ impl DisplayServerRuntime {
         // `Some` only while the Search window is mounted (shown) → composite it.
         let search_glass = self.search.glass_params();
         let mut built_search_blur = false;
-        // Routed through the host-tested SSOT (window_scene) instead of an inline
-        // `!USE_DESKTOP_SHELL && visible` — same decision, now covered by tests.
-        let chat_show = crate::window_scene::should_show(self.chat.visible, USE_DESKTOP_SHELL);
+        // Back-to-front window order from the z/focus stack (window_scene SSOT):
+        // the composite loop below draws exactly these, in exactly this order.
+        let (win_order, win_n) = self.windows.order(USE_DESKTOP_SHELL);
         let chat_dx = self.chat.x.max(0) as u32;
         let chat_dy = self.chat.y.max(0) as u32;
         // GPU scroll-offset: the body samples the overscan surface shifted by the
@@ -199,12 +199,69 @@ impl DisplayServerRuntime {
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
+            // 1·windows. Shell windows, BACK-TO-FRONT in the z/focus stack's
+            //     order (window_scene SSOT, wired in TASK-0070 Phase 1): the
+            //     topmost window composites last and wins occlusion — replacing
+            //     the old hardcoded search-then-chat emit order that pinned chat
+            //     above search forever. Chrome (topbar/dropdown/side panel)
+            //     follows AFTER this loop, so it renders ABOVE every floating
+            //     window (fullscreen-over-chrome arrives with WindowMode in
+            //     Phase 2).
+            for &wid in &win_order[..win_n] {
+                match wid {
+                    // The Search window — the reusable ShellWindow glass frame
+                    // (rounded + cached blur + shadow); filterable word list.
+                    crate::window_scene::WindowId::Search => {
+                        if let Some(p) = search_glass {
+                            built_search_blur =
+                                crate::compositor::shell_window::ShellWindow::composite_glass(
+                                    &mut encoder,
+                                    p,
+                                    mode.width,
+                                    mode.height,
+                                );
+                        }
+                    }
+                    // The Chat window — the SAME ShellWindow glass frame, with
+                    // the body scrolled by a GPU source-row offset (render once,
+                    // no per-frame re-render). On virgl the scanout is rebuilt
+                    // every present, so the layer is re-composited each frame.
+                    crate::window_scene::WindowId::Chat => {
+                        use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
+                        let chat_glass = crate::compositor::shell_window::GlassCompositeParams {
+                            atlas_row: chat_atlas_row,
+                            atlas_x: 0, // chat is a full-width band
+                            blur_cache_row: chat_blur_cache_row,
+                            blur_cache_x: 0,
+                            blur_valid: chat_blur_cache_valid,
+                            x: chat_dx,
+                            y: chat_dy,
+                            w: CHAT_PANEL_W,
+                            h: CHAT_PANEL_H,
+                            radius: super::desktop_layer::SEARCH_RADIUS,
+                            shadow_blur: CHAT_SHADOW_BLUR,
+                            shadow_offset_y: CHAT_SHADOW_OFFSET_Y,
+                            shadow_alpha: CHAT_SHADOW_ALPHA as u32,
+                        };
+                        built_chat_blur_cache = crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
+                            &mut encoder,
+                            chat_glass,
+                            chat_content_offset,
+                            chat_title_h,
+                            mode.width,
+                            mode.height,
+                        );
+                    }
+                }
+            }
+
             // 1·shell. Glass topbar layer (Shell-P2b): composite the topbar atlas
             //     onto the display each present with backdrop blur + rounded
             //     corners + a soft drop shadow — the GPU layer path that reaches
             //     the virgl scanout (the retained Plane 1 does not). Rendered like
             //     the chat window: translucent tint + opaque text in the atlas,
-            //     glass effects applied here by the composite.
+            //     glass effects applied here by the composite. Composited AFTER
+            //     the window loop: chrome sits above floating windows.
             if chrome_composited && shell_w > 0 && shell_h > 0 {
                 use crate::compositor::desktop_layer::{TOPBAR_MARGIN_X, TOPBAR_RADIUS, TOPBAR_TOP};
                 // Proven glass recipe (same as the glass buttons): restore the
@@ -278,52 +335,8 @@ impl DisplayServerRuntime {
                 }
             }
 
-            // 1·search. Movable Search window — the reusable ShellWindow glass
-            //     frame (rounded + cached blur + shadow); filterable word list
-            //     inside. The glass recipe is shared with the chat window (W3).
-            if let Some(p) = search_glass {
-                built_search_blur = crate::compositor::shell_window::ShellWindow::composite_glass(
-                    &mut encoder,
-                    p,
-                    mode.width,
-                    mode.height,
-                );
-            }
-
-            // 1a. Chat window — the SAME reusable ShellWindow glass frame as the
-            //     Search window (rounded corners + cached blur + drop shadow +
-            //     the shared title bar/close "x"), with the body scrolled by a
-            //     GPU source-row offset (render once, no per-frame re-render).
-            //     On virgl the scanout is rebuilt every present, so the chat layer
-            //     is re-composited each frame (the mmio damage-touch gate would
-            //     otherwise show the window only when the cursor passed over it).
-            if chat_show {
-                use crate::interaction::{CHAT_PANEL_H, CHAT_PANEL_W};
-                let chat_glass = crate::compositor::shell_window::GlassCompositeParams {
-                    atlas_row: chat_atlas_row,
-                    atlas_x: 0, // chat is a full-width band
-                    blur_cache_row: chat_blur_cache_row,
-                    blur_cache_x: 0,
-                    blur_valid: chat_blur_cache_valid,
-                    x: chat_dx,
-                    y: chat_dy,
-                    w: CHAT_PANEL_W,
-                    h: CHAT_PANEL_H,
-                    radius: super::desktop_layer::SEARCH_RADIUS,
-                    shadow_blur: CHAT_SHADOW_BLUR,
-                    shadow_offset_y: CHAT_SHADOW_OFFSET_Y,
-                    shadow_alpha: CHAT_SHADOW_ALPHA as u32,
-                };
-                built_chat_blur_cache =
-                    crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
-                        &mut encoder,
-                        chat_glass,
-                        chat_content_offset,
-                        chat_title_h,
-                        mode.width,
-                        mode.height,
-                    );
-            }
+            // (1·search / 1a·chat moved into the 1·windows stack loop above —
+            //  TASK-0070 Phase 1: one ordering authority, chrome above windows.)
 
             // 1b. Pre-blur the sidebar backdrop at handoff (sidebar closed,
             //     before any overlay is drawn — the display plane equals the

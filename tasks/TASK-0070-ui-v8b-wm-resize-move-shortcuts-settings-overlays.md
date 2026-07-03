@@ -1,118 +1,176 @@
 ---
-title: TASK-0070 UI v8b: WM edge resize/move + global shortcuts + quick settings/settings overlays (stubs) + tests/markers
-status: Draft
+title: TASK-0070 UI v8b: real window management (z/focus, drag-edge snap, header buttons + dock, backdrop correctness, edge resize + cursor shapes) + rendering quality (runtime text, SVG seams) + scroll unification
+status: In progress
 owner: @ui
 created: 2025-12-23
+updated: 2026-07-03 (full rewrite to IST + new scope)
 depends-on: []
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
   - UI v6a WM baseline: tasks/TASK-0064-ui-v6a-window-management-scene-transitions.md
-  - UI v7a snap baseline: tasks/TASK-0066-ui-v7a-wm-split-snap.md
-  - UI v7c screencap/share baseline (shortcut): tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
-  - UI v5b theme tokens baseline (settings toggle): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - UI v2a input routing baseline: tasks/TASK-0056-ui-v2a-present-scheduler-double-buffer-input-routing.md
-  - Policy as Code (wm resize constraints): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - Config broker (wm/shortcuts flags): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
+  - Layout engine contract: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
+  - Compositor boundary: docs/rfcs/RFC-0067-windowd-compositor-service-boundary.md
+  - Settings track (S-track twin): tasks/TASK-0072-ui-v9b-prefsd-settings-panels-quick-settings.md
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Rewrite note (2026-07-03)
 
-We already have WM basics (v6a) and snap zones (v7a). UI v8b adds:
+This task was a stale draft. The old text assumed snap zones from `TASK-0066` v7a existed
+(they never landed — no snap/resize code exists in `windowd`), planned **global keyboard
+shortcuts** for snapping (explicitly rejected — pointer-driven edge snapping instead), and
+scoped settings overlays that now live in the reshaped `TASK-0072` (settingsd track). This
+rewrite states the honest IST and the new combined scope. Phases below execute together with
+`TASK-0072` as one boot-gated track.
 
-- pointer-driven window move and edge/corner resize,
-- global shortcuts that trigger WM snap, screencap sheet, and settings overlay,
-- quick settings/settings overlays (stubs) for operator-friendly UX.
+## IST (verified 2026-07-03)
 
-This task is part of the Orbital-Level UX floor: move/resize and overlays must be
-usable with the live QEMU pointer/keyboard paths, not just host-simulated sequences.
-
-Notifications v2 lives in v8a (`TASK-0069`).
-Notifications v2 “deluxe” follow-ups are `TASK-0123` (persistence/history/unread), `TASK-0124` (dndd), and `TASK-0125` (heads-up/redaction/badging/settings + OS proofs).
+- Exactly **two windows** exist, as named fields on the compositor runtime (`chat`, `search`) —
+  no window collection, no focus tracking, no click-to-raise.
+- **Draw order is hardcoded** in `runtime/scene.rs` (search, then chat) → the chat window always
+  renders above the search window regardless of interaction. A pure, host-tested z-order SSOT
+  exists at `source/services/windowd/src/window_scene.rs` (`composition_order()`) but is **not
+  wired into the runtime**.
+- Chrome topbar/dropdown/side panel are emitted **before** the windows (windows draw over the
+  topbar); the right-side hamburger/chat buttons are emitted after (above windows).
+- **No resize, no snap, no minimize/maximize, no dock/taskbar, no fullscreen state.** Title-bar
+  drag + close-x exist (`nexus_widget_window::Frame`, `WindowPress::{Close,TitleDrag,Body,Miss}`).
+- **Glass blur and rounded corners reveal the wallpaper**, never the actual underlying window:
+  `LayerBackdrop` samples Plane 1, which holds only the wallpaper; windows are independent
+  composite layers and are absent from every backdrop source. On the GL backend glass has no
+  real gaussian at all (tint + bilinear softness only).
+- **Cursor**: only the default pointer shape is baked from the vendored cursor theme
+  (`resources/cursors/mocu/src/svg/default.svg`); the theme ships full resize variants
+  (`ew/ns/nesw/nwse-resize.svg`) unused. gpud has re-upload plumbing but no shape-select API.
+- **Text**: dynamic text (chat messages, search rows) renders with a hand-coded 5×7 bitmap font;
+  the vendored Inter face is used only at build time for a fixed set of pre-rendered strings.
+- **SVG**: adjacent elements show seams/outlines — per-shape straight-alpha `over` compositing in
+  `userspace/ui/svg/src/raster.rs` (conflation artifact); today only mitigated by build-time 4×
+  supersampling.
+- **Scroll is a double structure**: chat = `nexus-virtual-list` + render-once tall atlas surface +
+  GPU source-row offset (`OP_SET_CHAT_SCROLL`); search = raw `ScrollMomentum` + per-row CPU
+  re-render. A wheel event over neither window is a silent no-op. `nexus-layout` (the
+  deterministic layout engine per RFC-0057) and `nexus-virtual-list` (List/VirtualList/lazy
+  `ItemProvider`) are done and host-tested but not uniformly adopted.
 
 ## Goal
 
-Deliver:
+One production-grade window system plus the rendering/scroll floor it sits on:
 
-1. WM move + edge resize:
-   - hit-zones for edges/corners (desktop)
-   - title bar drag to move
-   - constraints to display bounds
-   - enforce min-size from policy
-   - live QEMU pointer drag proof for move and at least one resize edge
-2. WM IPC additions:
-   - `beginMove(win,x,y)`, `beginResize(win,edge,x,y)`, `endMoveResize(win)`
-3. Global shortcuts (SystemUI desktop):
-   - `Super+Left/Right/Up/Down` → snap zones (reuse v7a)
-   - `Super+Shift+S` → open screenshot sheet (reuse v7c; gated)
-   - `Super+,` → open settings overlay
-4. Settings overlays (stubs):
-   - quick settings: Wi‑Fi/Bluetooth/DND stubs, brightness/volume sliders (no backend), theme switch (if v5b exists)
-   - system settings stub routes (Network/Display/Accounts placeholders)
-   - overlays appear on the shared visible proof surface rather than an isolated overlay demo
-5. Host tests + OS markers.
+1. **Window collection + z-order + focus** (Phase 1): windows live in a collection driven by
+   `window_scene::composition_order()`; scene emission AND input hit-testing iterate the same
+   order (hit-test = reverse); click-to-raise + focus; chrome topbar renders **above** windows;
+   wheel routes to the topmost window under the cursor (no silent no-op).
+2. **Header buttons + minimize dock + fullscreen** (Phase 2): title bar gets minimize (–),
+   maximize (□), close (×). Minimize hides the window and shows its icon in a bottom-center
+   glass dock (dock exists only while ≥1 window is minimized; icon click restores + raises).
+   Maximize = fullscreen covering the chrome; restore remembers the floating frame.
+3. **Drag-to-edge snap + edge resize + resize cursors** (Phase 3): dragging a window to the
+   right/left screen edge snaps it to that half; to the top edge = fullscreen. **No keyboard
+   shortcuts.** Edge/corner hit zones (6–8 px) resize floating windows within min-size clamps;
+   hovering an edge switches the hardware cursor to the matching vendored resize shape via a
+   new `OP_SET_CURSOR_SHAPE` (sprites uploaded once, selected by index).
+4. **Backdrop correctness** (Phase 4): glass blur and rounded corners composite over the real
+   content beneath (lower windows, chrome), not the wallpaper. Mechanism: destination-so-far —
+   composition is back-to-front, so the backdrop source is the composition target at the moment
+   the layer composites. The GL backend lands its real gaussian backdrop pass here (the
+   `composite_layer_rt` code already reserves the seam). Backdrop caches become generation-keyed
+   (invalidated by damage/z-change below). Fullscreen windows may keep the cheap wallpaper
+   backdrop.
+5. **SVG seam fix** (Phase 5): accumulate the whole SVG into a premultiplied intermediate
+   (coverage-weighted source-over per shape), composite onto the destination **once** — kills
+   conflation seams for build-time icons and runtime renders.
+6. **Runtime text** (Phase 6): build-time A8 coverage glyph atlases of the vendored Inter face
+   (13 px + 16 px, glyphs 32–126, metrics/kerning as consts) + a `draw_text_run` runtime module
+   replace the 5×7 bitmap in chat/search. Font family is a manifest-driven default with the
+   typed settings key shape (`ui.font.family`); live switching is a follow-up.
+7. **Scroll unification** (Phase 7): one architecture — layout tree → `List` → `VirtualList`
+   (lazy `ItemProvider`) with `ScrollMomentum` physics and render-once + GPU source-row offset
+   presentation for every window. The per-layer offset generalizes: `scrollable: bool` on
+   `CompositeLayer` becomes `scroll_id: u32` + `OP_SET_LAYER_SCROLL(scroll_id, src_row)`; gpud
+   keeps a small id-indexed table. Search migrates off per-row CPU re-render; the chat
+   band-scratch ghosting bug (scratch reused without clearing) is fixed.
 
 ## Non-Goals
 
+- Keyboard shortcuts for window management (rejected).
 - Kernel changes.
-- Real backend implementations for Wi‑Fi/Bluetooth/brightness/volume (stubs only).
-- Full window resizing decorations and cursors (basic only).
+- Live font switching in the settings panel (follow-up; the key shape ships).
+- A GPU glyph command (RFC-0067 "G-text" stays a separate track; CPU glyph rasterization into
+  atlas surfaces is the contract here).
+- Settings service/panel/theme switching — that is `TASK-0072` (same track, S-phases).
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic move/resize math given an input sequence.
-- Live drag input must route through `windowd` and preserve its focus/hit-test authority.
-- Respect policy min sizes; deny/clip as documented.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- No company/product names in code/comments/docs/identifiers; describe patterns generically.
+- Deterministic move/resize/snap math given an input sequence; pure logic host-tested
+  (`frame.rs` / `window_scene.rs` / new `snap.rs`, `dock.rs` modules).
+- windowd keeps focus/hit-test authority; draw order and hit order share one SSOT.
+- Every visual feature ships as composite layers (renders on both the GL and CPU backends).
+- Respect min sizes; clamp to display bounds; atlas exhaustion = deny with marker, never a wedge.
+- No `unwrap`/`expect`; no per-frame/per-event heap allocations (bump allocators never free);
+  no blanket `allow(dead_code)`.
+- Honest markers only; each phase extends the headless expected-log by its own markers.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-`tests/ui_v8b_host/`:
-
-- resize/move:
-  - simulate edge drags → resulting bounds respect min size and remain on-screen
-  - move keeps window within display bounds
-  - live QEMU pointer drag visibly moves a window and resizes one edge
-- shortcuts:
-  - simulate key chords → snap called, settings overlay opened, screenshot sheet invoked (when present)
+- `window_scene`: raise/focus/composition-order/hit-priority (= reverse order) tests.
+- `frame.rs`: button rects (– □ ×), edge hit zones, resize clamps, snap-target frames
+  (left/right halves, top = fullscreen) as pure-function tables.
+- `dock.rs`: slot layout, restore mapping, visibility rule (≥1 minimized).
+- SVG crate: abutting same-color shapes leave no seam (interior pixel = full color);
+  translucent overlap correctness; icon golden checksums.
+- Text: advance/kerning/clipping measurement tests.
+- Wire goldens: `OP_SET_CURSOR_SHAPE`, `scroll_id` layer word, `OP_SET_LAYER_SCROLL`.
 
 ### Proof (OS/QEMU) — gated
 
 UART markers (order tolerant):
 
-- `windowd: wm resize on`
-- `windowd: wm move on`
-- `windowd: wm resized (win=.. w=.. h=..)`
-- `windowd: wm moved (win=.. x=.. y=..)`
-- `windowd: wm live drag ok`
-- `systemui: shortcuts on`
-- `systemui: quick settings open`
-- `systemui: settings open`
-- `SELFTEST: ui v8 resize ok`
-- `SELFTEST: ui v8 move ok`
-- `SELFTEST: ui v8 settings ok`
+- `windowd: focus id=.. z=..` / `windowd: raise id=..`
+- `windowd: minimize id=..` / `windowd: restore id=..` / `windowd: dock show n=..`
+- `windowd: fullscreen id=..` / `windowd: unfullscreen id=..`
+- `windowd: snap edge=<left|right|top> id=..`
+- `windowd: resize id=.. w=.. h=..` / `cursor: shape=<name>`
+- `gpud: rt backdrop pass ..` / `windowd: backdrop invalidate id=.. reason=..`
+- `windowd: font family=.. sizes=..`
+- `gpud: layer scroll id=.. row=..`
 
-### Visual proof — required
+### Visual proof — required (user gtk boot per phase)
 
-- the shared proof surface shows a visible proof window that can be moved/resized,
-- Quick Settings / Settings overlays open on that same screen,
-- shortcuts and pointer drag visibly affect the same desktop/test targets.
+- Clicking the lower window raises it; topbar sits above windows; fullscreen covers chrome.
+- Minimize → dock appears bottom-center; icon click restores.
+- Drag to right/left edge snaps halves; to top = fullscreen; edge hover shows resize cursors;
+  corner drag resizes.
+- Dragging a window across another shows the underlying window through glass + corners.
+- Icons seam-free; chat/search text in the vendored UI face; both windows share identical
+  inertial scroll feel with no ghosting.
 
 ## Touched paths (allowlist)
 
-- `source/services/windowd/` + `idl/wm.capnp` (move/resize)
-- SystemUI plugins (shortcuts + overlays)
-- `tests/ui_v8b_host/`
-- `source/apps/selftest-client/`
-- `tools/postflight-ui-v8b.sh` (delegates)
-- `docs/dev/ui/patterns/wm-resize-move.md` + `docs/dev/ui/input/shortcuts.md`
+- `source/services/windowd/` (runtime scene/input, shell_window, window_scene, new
+  `compositor/{snap,dock}.rs`, new `src/text.rs`, build.rs glyph/cursor bakes)
+- `userspace/ui/widgets/window/` (Frame buttons/edges/resize)
+- `userspace/ui/svg/` (coverage accumulation)
+- `userspace/ui/widgets/virtual_list/`, `userspace/ui/layout/` (gaps only)
+- `userspace/nexus-gfx/` + `source/libs/nexus-display-proto/` (scroll_id, cursor shape op)
+- `source/drivers/gpud/` (cursor sprite table, RT backdrop pass, layer scroll table)
+- `tasks/`, `docs/dev/ui/patterns/wm-resize-move.md`
 
-## Plan (small PRs)
+## Plan (boot-gated phases; user boots + commits each)
 
-1. WM move/resize zones + IDL + markers
-2. shortcuts handling + overlay stubs + markers
-3. host tests + OS selftest markers + docs + postflight
+1. Window collection + z/focus/raise + chrome-above-windows + wheel routing
+2. Header buttons + minimize dock + fullscreen
+3. Drag-to-edge snap + edge resize + cursor shapes
+4. Backdrop correctness (destination-so-far; GL gaussian backdrop pass)
+5. SVG conflation fix
+6. Runtime text (A8 glyph atlas)
+7. Scroll unification (`scroll_id` + layout→List→VirtualList everywhere)
+
+Risks tracked in the plan: atlas budget (hard `MAX_WINDOWS`, boot-time budget marker), GL
+RT-region-copy spike (fallback: fixed-order legacy path), input-routing regression (pure
+host-tested hit-test), backdrop cache thrash (generation keys, measure first).

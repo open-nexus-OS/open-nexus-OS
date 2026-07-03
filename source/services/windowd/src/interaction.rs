@@ -137,13 +137,10 @@ pub(crate) enum ClickAction {
     None,
 }
 
-/// Which scrollable a wheel event over the cursor should drive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WheelTarget {
-    Chat,
-    Filter,
-    None,
-}
+// (WheelTarget / resolve_wheel_target retired in TASK-0070 Phase 1: wheel
+//  routing is now the z/focus stack's front-to-back hit order in
+//  `window_scene::WindowStack::hit_order` — the same SSOT as presses — so the
+//  TOPMOST window under the cursor scrolls, not a hardcoded chat-first rule.)
 
 #[inline]
 pub(crate) fn rect_contains(rect: HitRect, x: i32, y: i32) -> bool {
@@ -325,26 +322,6 @@ pub(crate) fn hover_over_greeter(rect: HitRect, x: i32, y: i32) -> bool {
     rect_contains(rect, x, y)
 }
 
-/// Resolve which scrollable a wheel event belongs to, by the cursor position.
-/// `chat_bounds` is the chat window's CURRENT on-screen rect (None when the
-/// window is closed) — the wheel target follows a dragged window instead of
-/// the default spawn position.
-pub(crate) fn resolve_wheel_target(
-    mode: VisibleBootstrapMode,
-    x: i32,
-    y: i32,
-    chat_bounds: Option<HitRect>,
-) -> WheelTarget {
-    let _ = mode;
-    if let Some(b) = chat_bounds {
-        if rect_contains(b, x, y) {
-            return WheelTarget::Chat;
-        }
-    }
-    // C1: the proof/target-test panel (the old wheel "Filter" target) is gone.
-    WheelTarget::None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,33 +466,8 @@ mod tests {
         assert_eq!(resolve_click(mode(), true, 10, 10), ClickAction::CloseSidebar);
     }
 
-    #[test]
-    fn wheel_routes_to_chat_under_cursor_else_none() {
-        let chat = chat_viewport_rect();
-        assert_eq!(
-            resolve_wheel_target(mode(), (chat.x + 5) as i32, (chat.y + 5) as i32, Some(chat)),
-            WheelTarget::Chat
-        );
-        // C1: off the chat window there is no proof panel — nothing to scroll.
-        assert_eq!(
-            resolve_wheel_target(mode(), 5, 5, Some(chat_viewport_rect())),
-            WheelTarget::None
-        );
-    }
-
-    #[test]
-    fn wheel_follows_moved_chat_window_and_ignores_closed() {
-        // Window dragged to a new position: wheel hits there, not at spawn.
-        let moved = HitRect { x: 100, y: 200, width: CHAT_PANEL_W, height: CHAT_PANEL_H };
-        assert_eq!(resolve_wheel_target(mode(), 150, 250, Some(moved)), WheelTarget::Chat);
-        let spawn = chat_viewport_rect();
-        assert_eq!(
-            resolve_wheel_target(mode(), (spawn.x + 5) as i32, (spawn.y + 5) as i32, Some(moved)),
-            WheelTarget::None
-        );
-        // Closed window: wheel never targets the chat.
-        assert_eq!(resolve_wheel_target(mode(), 150, 250, None), WheelTarget::None);
-    }
+    // (wheel-routing tests moved to `window_scene` — the stack's hit_order is
+    //  the wheel-target SSOT since TASK-0070 Phase 1.)
 
     #[test]
     fn chat_line_ranges_cover_the_whole_message_without_gaps() {

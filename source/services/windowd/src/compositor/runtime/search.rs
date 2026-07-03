@@ -48,6 +48,8 @@ impl DisplayServerRuntime {
         self.search_set_extent();
         self.search_scroll_last_ns = 0;
         self.search.visible = true;
+        // Mirror into the z/focus stack: an opening window comes up on top.
+        self.show_window(crate::window_scene::WindowId::Search);
         self.search.surface_dirty = true;
         self.queue_dirty_rect(self.search_window_rect());
     }
@@ -106,6 +108,8 @@ impl DisplayServerRuntime {
     /// closed window costs zero atlas rows, and damage its (now vacated) region.
     pub(super) fn close_search(&mut self) {
         self.search.visible = false;
+        // Mirror into the z/focus stack (focus falls to the next-top window).
+        self.hide_window(crate::window_scene::WindowId::Search);
         self.search.end_drag();
         let rect = self.search_window_rect();
         if let Some((content, blur)) = self.search.unmount() {

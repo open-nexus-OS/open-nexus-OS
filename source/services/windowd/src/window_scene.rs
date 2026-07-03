@@ -67,6 +67,163 @@ pub fn composition_order(windows: &[WindowState], desktop_shell_active: bool) ->
 /// below pin the contract.
 pub const BASE_ALWAYS_PRESENT: bool = true;
 
+/// Hard cap on concurrently managed shell windows. Sized for the current shell
+/// (chat + search + settings + one spare) and, more importantly, for the atlas
+/// budget: every open window costs content + blur-cache rows from the shared
+/// pool, so "more windows" is an atlas-sizing decision, not just a constant.
+pub const MAX_WINDOWS: usize = 4;
+
+/// When `next_z` reaches this bound the stack renormalizes all z values to
+/// `0..len` (order-preserving). Keeps a long-lived session from ever
+/// overflowing `i16` no matter how often windows are raised.
+const Z_NORMALIZE_LIMIT: i16 = i16::MAX - 8;
+
+/// The z/focus stack — the ONE ordering authority for shell windows. The scene
+/// builder composites in [`WindowStack::order`] (back-to-front) and the input
+/// router hit-tests in [`WindowStack::hit_order`] (front-to-back, the exact
+/// reverse), so a window can never be drawn above another yet hit-tested below
+/// it: draw order and hit order come from the same sorted data.
+///
+/// Alloc-free by design: the per-frame queries return fixed
+/// `[WindowId; MAX_WINDOWS]` arrays + a count, because windowd runs on a
+/// non-freeing bump allocator where a per-frame `Vec` is a slow leak.
+pub struct WindowStack {
+    entries: [WindowState; MAX_WINDOWS],
+    len: usize,
+    focused: Option<WindowId>,
+    next_z: i16,
+}
+
+impl WindowStack {
+    /// Register the managed windows, all hidden, stacked in the given order
+    /// (later ids start on top once shown). Ids beyond [`MAX_WINDOWS`] are
+    /// ignored — the cap is a hard invariant, not an error path.
+    pub fn new(ids: &[WindowId]) -> Self {
+        let mut entries = [WindowState { id: WindowId::Chat, visible: false, z: 0 }; MAX_WINDOWS];
+        let len = ids.len().min(MAX_WINDOWS);
+        for (i, &id) in ids.iter().take(len).enumerate() {
+            entries[i] = WindowState { id, visible: false, z: i as i16 };
+        }
+        Self { entries, len, focused: None, next_z: len as i16 }
+    }
+
+    fn index_of(&self, id: WindowId) -> Option<usize> {
+        self.entries[..self.len].iter().position(|w| w.id == id)
+    }
+
+    /// Whether `id` is currently visible (shown and not hidden).
+    pub fn is_visible(&self, id: WindowId) -> bool {
+        self.index_of(id).map(|i| self.entries[i].visible).unwrap_or(false)
+    }
+
+    /// The focused window, if any. Focus follows raise and always rests on a
+    /// visible window (or nothing when all windows are hidden).
+    pub fn focused(&self) -> Option<WindowId> {
+        self.focused
+    }
+
+    /// Whether `id` is the topmost visible window.
+    pub fn is_top(&self, id: WindowId) -> bool {
+        self.top() == Some(id)
+    }
+
+    /// The topmost visible window, if any.
+    pub fn top(&self) -> Option<WindowId> {
+        self.entries[..self.len]
+            .iter()
+            .filter(|w| w.visible)
+            .max_by_key(|w| w.z)
+            .map(|w| w.id)
+    }
+
+    /// Show `id`: it becomes visible, raised to the top, and focused (opening a
+    /// window is user intent — it must not appear behind another window).
+    pub fn show(&mut self, id: WindowId) {
+        if let Some(i) = self.index_of(id) {
+            self.entries[i].visible = true;
+            self.raise(id);
+        }
+    }
+
+    /// Hide `id` and hand focus to the topmost remaining visible window.
+    pub fn hide(&mut self, id: WindowId) {
+        if let Some(i) = self.index_of(id) {
+            self.entries[i].visible = false;
+            if self.focused == Some(id) {
+                self.focused = self.top();
+            }
+        }
+    }
+
+    /// Raise `id` to the top of the stack and focus it. Returns `true` when the
+    /// stack order actually changed (the caller damages the affected windows),
+    /// `false` when it was already on top (a plain re-focus).
+    pub fn raise(&mut self, id: WindowId) -> bool {
+        let Some(i) = self.index_of(id) else {
+            return false;
+        };
+        self.focused = Some(id);
+        if self.is_top(id) && self.entries[i].visible {
+            return false;
+        }
+        self.entries[i].z = self.next_z;
+        self.next_z = self.next_z.saturating_add(1);
+        if self.next_z >= Z_NORMALIZE_LIMIT {
+            self.normalize_z();
+        }
+        true
+    }
+
+    /// The current z of `id` (diagnostic/marker use).
+    pub fn z_of(&self, id: WindowId) -> i16 {
+        self.index_of(id).map(|i| self.entries[i].z).unwrap_or(0)
+    }
+
+    /// Visible windows back-to-front (composite order), alloc-free.
+    pub fn order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
+        let mut out = [WindowId::Chat; MAX_WINDOWS];
+        let mut zs = [0i16; MAX_WINDOWS];
+        let mut n = 0;
+        for w in &self.entries[..self.len] {
+            if should_show(w.visible, desktop_shell_active) {
+                // Insertion sort by z ascending — at most MAX_WINDOWS entries.
+                let mut j = n;
+                while j > 0 && zs[j - 1] > w.z {
+                    out[j] = out[j - 1];
+                    zs[j] = zs[j - 1];
+                    j -= 1;
+                }
+                out[j] = w.id;
+                zs[j] = w.z;
+                n += 1;
+            }
+        }
+        (out, n)
+    }
+
+    /// Visible windows front-to-back (hit-test order) — the exact reverse of
+    /// [`Self::order`], so occlusion and input can never disagree.
+    pub fn hit_order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
+        let (mut order, n) = self.order(desktop_shell_active);
+        order[..n].reverse();
+        (order, n)
+    }
+
+    /// Order-preserving z renormalization to `0..len`.
+    fn normalize_z(&mut self) {
+        // Selection-style rank assignment over ≤ MAX_WINDOWS entries.
+        let mut ranked: [usize; MAX_WINDOWS] = [0; MAX_WINDOWS];
+        for (slot, item) in ranked.iter_mut().enumerate().take(self.len) {
+            *item = slot;
+        }
+        ranked[..self.len].sort_unstable_by_key(|&i| self.entries[i].z);
+        for (rank, &i) in ranked[..self.len].iter().enumerate() {
+            self.entries[i].z = rank as i16;
+        }
+        self.next_z = self.len as i16;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +281,101 @@ mod tests {
         assert!(BASE_ALWAYS_PRESENT, "compositor must always draw a base layer");
         let nothing: [WindowState; 0] = [];
         assert!(composition_order(&nothing, false).is_empty());
+    }
+
+    // ── WindowStack: the z/focus stack ──
+
+    fn stack() -> WindowStack {
+        WindowStack::new(&[WindowId::Search, WindowId::Chat])
+    }
+
+    #[test]
+    fn stack_starts_hidden_and_unfocused() {
+        let s = stack();
+        assert_eq!(s.order(false).1, 0);
+        assert_eq!(s.focused(), None);
+        assert_eq!(s.top(), None);
+        assert!(!s.is_visible(WindowId::Chat));
+    }
+
+    #[test]
+    fn show_raises_and_focuses() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        assert_eq!(s.focused(), Some(WindowId::Search));
+        assert!(s.is_top(WindowId::Search));
+        // Opening chat puts it on top and moves focus.
+        s.show(WindowId::Chat);
+        assert_eq!(s.focused(), Some(WindowId::Chat));
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Search, WindowId::Chat]);
+    }
+
+    #[test]
+    fn raise_reorders_and_reports_change() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        // Raising the bottom window flips the order (the user's z bug: chat was
+        // ALWAYS on top because emit order was hardcoded — raise must win now).
+        assert!(s.raise(WindowId::Search));
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search]);
+        assert_eq!(s.focused(), Some(WindowId::Search));
+        // Raising the already-top window changes nothing (no damage needed).
+        assert!(!s.raise(WindowId::Search));
+    }
+
+    #[test]
+    fn hide_refocuses_topmost_remaining() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        s.hide(WindowId::Chat);
+        assert_eq!(s.focused(), Some(WindowId::Search));
+        assert!(s.is_top(WindowId::Search));
+        s.hide(WindowId::Search);
+        assert_eq!(s.focused(), None);
+        assert_eq!(s.order(false).1, 0);
+    }
+
+    #[test]
+    fn hit_order_is_reverse_of_composite_order() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        let (order, n) = s.order(false);
+        let (hits, hn) = s.hit_order(false);
+        assert_eq!(n, hn);
+        let mut reversed = order;
+        reversed[..n].reverse();
+        assert_eq!(&hits[..hn], &reversed[..n]);
+        // Front-to-back: the topmost (chat) is hit-tested first.
+        assert_eq!(hits[0], WindowId::Chat);
+    }
+
+    #[test]
+    fn desktop_shell_suppresses_stack_windows_too() {
+        let mut s = stack();
+        s.show(WindowId::Chat);
+        assert_eq!(s.order(true).1, 0);
+        assert_eq!(s.hit_order(true).1, 0);
+    }
+
+    #[test]
+    fn z_normalization_preserves_order() {
+        let mut s = stack();
+        s.show(WindowId::Search);
+        s.show(WindowId::Chat);
+        // Force many raises to cross the renormalization bound.
+        for _ in 0..40_000 {
+            s.raise(WindowId::Search);
+            s.raise(WindowId::Chat);
+        }
+        s.raise(WindowId::Search);
+        let (order, n) = s.order(false);
+        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search]);
+        assert!(s.z_of(WindowId::Search) < Z_NORMALIZE_LIMIT);
+        assert!(s.z_of(WindowId::Chat) < Z_NORMALIZE_LIMIT);
     }
 }

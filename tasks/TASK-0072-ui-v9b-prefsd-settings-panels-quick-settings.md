@@ -1,127 +1,146 @@
 ---
-title: TASK-0072 UI v9b: prefsd persistent store + Settings panels (stubs but functional UI) + Quick Settings wiring
-status: Draft
+title: TASK-0072 UI v9b: settingsd typed registry (persisted via statefsd) + Options menu + settings panel + light/dark end-to-end
+status: In progress
 owner: @ui
 created: 2025-12-23
+updated: 2026-07-03 (full rewrite to IST + new scope; prefsd dropped for settingsd)
 depends-on: []
 follow-up-tasks: []
 links:
   - Vision: docs/agents/VISION.md
   - Playbook: docs/agents/PLAYBOOK.md
-  - UI v8b quick settings overlay baseline: tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
-  - UI v5b theme tokens baseline (theme switch): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - Persistence (/state): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Config broker (bridge for selected keys): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
-  - Policy as Code (prefs writes): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
-  - UI v9a searchd (settings routes registration): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
+  - Settings v2 design vocabulary: tasks/TASK-0225-settings-v2a-host-settingsd-typed-prefs-providers.md
+  - Settings v2 OS UI: tasks/TASK-0226-settings-v2b-os-settings-ui-deeplinks-search-guides.md
+  - Persistence substrate (/state, Done): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
+  - Theme tokens baseline: tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
+  - WM track twin (W-track): tasks/TASK-0070-ui-v8b-wm-resize-move-shortcuts-settings-overlays.md
+  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
   - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
-## Context
+## Rewrite note (2026-07-03)
 
-We need a durable, policy-guarded preferences store to back:
+The original draft proposed a new `prefsd` JSON store and quick-settings stubs. Its own update
+note already deprecated that direction: the canonical substrate is **settingsd** (typed keys,
+scopes, provider apply hooks — the `TASK-0225` vocabulary). Decision (2026-07-03): **extend the
+existing `settingsd` crate; no prefsd.** Quick-settings stubs are dropped; the deliverable is a
+real settings surface: an Options menu in the shell chrome opening a settings panel window, with
+a light/dark appearance switch working end-to-end (typed key → persisted → applied live). This
+task executes as the S-track of the combined window-management/settings track (`TASK-0070`
+phases 1–7 = W-track; this file = phases 8–10).
 
-- Settings UI (Network/Display/Accounts stubs but functional UI),
-- Quick Settings toggles,
-- and a bridge to configd for keys that require 2PC-safe reload (e.g., theme mode, refresh rate).
+## IST (verified 2026-07-03)
 
-This task delivers prefs + Settings panels + Quick Settings wiring. Search/palette is v9a.
-
-Update note (to avoid drift):
-
-- The repo now has an explicit `settingsd` direction (typed keys, scopes, provider apply hooks).
-- Settings v2 is tracked as `TASK-0225` (host-first typed settingsd) and `TASK-0226` (OS UI/deeplinks/search/guides).
-- This task should be treated as **deprecated/superseded** for new work: do not introduce a new `prefsd`
-  JSON store if `settingsd` is the chosen canonical substrate.
-- The Orbital-Level UX floor still needs a visible Settings/Quick Settings surface. If this task remains
-  superseded, the equivalent `settingsd` task must carry the same live QEMU pointer/keyboard proof.
-  It must also preserve the shared visible proof-surface contract (same desktop/test screen, not a detached settings demo).
+- `source/services/settingsd/` exists but is only an input-settings snapshot feeder (~150 LOC,
+  keyboard layout/repeat/pointer accel) — none of the typed Key/Value/scope/provider machinery.
+- **Persistence works today**: `statefsd` is a journaled key-value store on virtio-blk
+  (`OP_PUT/GET/DEL/SYNC/REOPEN`, policy-gated `statefs.write`) — the substrate `TASK-0225`
+  plans to build `state:/prefs/*.nxs` on.
+- `configd` is a separate config-snapshot authority (2PC reload). Not a prefs store; do not
+  create a second parallel authority.
+- **Theme**: authoring is complete (`nexus-theme` runtime + `resources/themes/{base,dark,light,
+  highcontrast}.nxtheme.toml`, dark and light are full token sets), but the runtime side has
+  exactly one hardcoded dark token table; windowd freezes the dark qualifier at build time into
+  const colors, several surfaces use raw literals, and icons are baked with a fixed light tint.
+  There is no runtime light/dark path. A `uitheme: switched (to=..)` marker exists.
+- Service scaffolding pattern is established (sessiond template): nexus-abi wire module with
+  golden-frame tests, `service_topology.rs` routes, bootstrap pre-minted endpoint pairs,
+  `scripts/discover-services.sh`, `policies/base.toml`, embedded-TOML mini parser (no toml
+  crate), and windowd's `session_client.rs` as the bounded request/reply client recipe.
 
 ## Goal
 
-Deliver:
-
-1. `prefsd` service + `nexus-prefs` client:
-   - Value store keyed by string (API stays typed/IDL-driven; storage is not JSON-as-contract)
-   - subscribe by prefix
-   - backed by `/state/prefs.nxs` (Cap'n Proto snapshot) with atomic write
-   - (optional) `nx prefs export --json` emits deterministic `prefs.json` as a derived view for debugging/tooling
-2. Selected config bridge:
-   - for keys like `ui.theme.mode`, `ui.display.hz` (host-first; OS-gated)
-3. Settings app panels:
-   - Network/Display/Accounts routes (stubs but real UI)
-   - applying changes writes prefs and triggers bridge where applicable
-4. Quick Settings wiring:
-   - toggles/sliders write prefs
-   - markers for applied keys
-   - visible live pointer interaction opens Quick Settings and toggles at least one setting in QEMU
-   - the visible Settings/QS panels live on the shared proof surface
-5. Host tests and OS/QEMU markers.
+1. **settingsd typed registry** (Phase 8): extend `source/services/settingsd/` per the
+   `TASK-0225` vocabulary — typed `Key { ns, kind, scope, default, doc }` with stable ordering,
+   typed values, deterministic invalid/unknown errors, provider apply hooks (adapter invoked
+   after a successful set), subscribe-by-prefix marker-only. Persistence: settingsd is a
+   **statefsd client** writing a canonical snapshot to `state:/prefs/device.nxs` (user-scope
+   shape `state:/prefs/user/<uid>.nxs` prepared), atomic write semantics, policy-gated.
+   Wire protocol module in `nexus-abi` with golden-frame tests. Full service wiring
+   (topology routes Settingsd→{Statefsd, Policyd}, Windowd→Settingsd; bootstrap pairs;
+   discover-services; policy grants). Seed keys: `ui.theme.mode` (dark|light),
+   `ui.font.family` (string); prepared but not wired: `ui.locale`, `mime.defaults.*`.
+2. **Theme runtime** (Phase 9): both qualifier snapshots (dark + light) generated at build time
+   from the theme manifests into runtime token tables; dual-tint icon bakes; raw color literals
+   swept onto token lookups; a theme selector in windowd with full re-render on switch;
+   `ui.theme.mode` applied at boot.
+3. **Settings surface** (Phase 10, track DoD): the chrome topbar gains an **Options** menu with
+   a **Settings** entry that opens the settings panel as a normal shell window (inherits
+   z-order/focus/minimize/snap/scroll from the W-track). Panel styling: classic flat-framed
+   desktop control-panel look — framed sections, crisp 1-px rules, immediate apply. Controls:
+   **Appearance → Light/Dark** writes `ui.theme.mode` through a windowd settings client →
+   settingsd validates + persists → apply hook notifies windowd → live theme switch + marker.
+   **Fonts** row displays `ui.font.family` (applied at boot; live switch = follow-up).
+   **Language** and **Default applications** rows are visible but disabled (prepared,
+   out of scope).
 
 ## Non-Goals
 
+- A new `prefsd` service (decision: settingsd is the substrate).
+- Quick-settings overlay, Wi‑Fi/Bluetooth/brightness/volume backends, account system.
+- Live font switching; language/locale switching; MIME default editing (rows prepared only).
 - Kernel changes.
-- Real Wi‑Fi/Bluetooth/brightness/volume backends (prefs only for now).
-- A full account system.
+- searchd route registration / deep links (stays `TASK-0226` scope).
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic storage semantics:
-  - atomic write (temp + rename),
-  - corrupt temp ignored,
-  - bounded file size and JSON depth.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- Policy guardrails:
-  - only Settings/SystemUI (focused) can write certain keys,
-  - audit all writes.
-- Settings/QS UI actions must require focused SystemUI/Settings surfaces and must not be satisfied by marker-only writes.
+- No company/product names in code/comments/docs/identifiers (the panel style inspiration is
+  not named anywhere in the tree).
+- Deterministic storage semantics: atomic snapshot write via statefsd, corrupt/missing snapshot
+  falls back to defaults with a marker, bounded sizes.
+- Typed keys only — no stringly JSON contract; unknown ns/key and type mismatch are
+  deterministic errors with markers.
+- Policy guardrails: settings writes policy-gated; only the settings surface path writes
+  `ui.*` keys; all writes audited by marker.
+- UI apply evidence must be visual (the same screen restyles), not marker-only.
+- No `unwrap`/`expect`; no per-event heap allocations; honest markers.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-`tests/ui_v9b_host/`:
-
-- prefs set/get/subscribe roundtrip
-- atomicity: crash between temp write and rename does not corrupt committed prefs
-- quick settings wiring: applying key writes prefs and triggers bridge hook (mocked)
-- live QEMU pointer can open Quick Settings and toggle one setting visibly
+- settingsd: key registration/order stability, type validation, canonical encoding stability,
+  atomic-persist semantics, apply-hook ordering with mock adapters.
+- nexus-abi settingsd module: golden-frame encode/decode tests.
+- Theme: both qualifier tables resolve every token (completeness test); selector logic.
+- Panel: layout/hit-test pure logic; settings round-trip against a mock client.
 
 ### Proof (OS/QEMU) — gated
 
 UART markers (order tolerant):
 
-- `prefsd: ready`
-- `prefs: set (key=..., size=...)`
-- `systemui: quick settings apply (key=..., val=...)`
-- `systemui: quick settings live toggle ok`
-- `settings: open (route=...)`
-- `settings: apply (key=value)`
-- `SELFTEST: ui v9 prefs ok`
-- `SELFTEST: ui v9 quick ok`
+- `settingsd: ready`
+- `settingsd: load prefs n=..` (or the defaults-fallback marker)
+- `settingsd: set ns=.. scope=.. apply=..`
+- `windowd: options menu open` / `windowd: settings panel open`
+- `uitheme: switched (to=light)` / `(to=dark)`
 
-### Visual proof — required
+### Visual proof — required (user gtk boot)
 
-- the shared proof surface shows Quick Settings and at least one real Settings panel,
-- live pointer interaction visibly toggles one setting on-screen,
-- the same screen reflects the resulting state/theme/route change instead of marker-only apply evidence.
+- Options → Settings opens the panel as a window on the shared desktop.
+- Toggling Light/Dark restyles the whole UI (chrome, windows, icons, text) live, no reboot.
+- Rebooting preserves the chosen mode (persistence proof across restart).
 
 ## Touched paths (allowlist)
 
-- `source/services/prefsd/` (new)
-- `userspace/prefs/nexus-prefs/` (new)
-- `source/apps/settings/` (functional stub UI)
-- SystemUI quick settings overlay wiring
-- `tests/ui_v9b_host/`
-- `source/apps/selftest-client/`
-- `tools/postflight-ui-v9b.sh` (delegates)
-- `docs/platform/prefs.md` + `docs/dev/ui/patterns/app-structure/settings.md`
+- `source/services/settingsd/` (typed registry + statefsd client + manifests)
+- `source/libs/nexus-abi/` (settingsd wire module + goldens)
+- `source/init/nexus-init/` (topology + bootstrap wiring), `scripts/discover-services.sh`,
+  `policies/base.toml`
+- `userspace/ui/theme/`, `userspace/ui/theme-tokens/` (dual snapshots)
+- `source/services/windowd/` (settings client, options menu, settings panel window,
+  theme selector + literal sweep, build.rs dual-tint bakes)
+- `tasks/`, `docs/platform/settings.md`
 
-## Plan (small PRs)
+## Plan (boot-gated phases; user boots + commits each)
 
-1. prefsd + client + atomic file semantics + markers
-2. config bridge for selected keys (gated)
-3. settings panels + route registration to searchd (gated on v9a)
-4. quick settings wiring + markers
-5. tests + OS selftest markers + docs + postflight
+8. settingsd typed registry + persistence + wire + wiring (parallelizable with W-track;
+   gate: a set value survives reboot)
+9. theme runtime: dual token snapshots + dual-tint icons + selector (gate: boot with
+   persisted light mode renders the whole UI light)
+10. Options menu + settings panel window + light/dark end-to-end (track DoD)
+
+Relationship to `TASK-0225`/`TASK-0226`: this task ships the first real slice of the settingsd
+direction (typed keys, apply hooks, statefsd persistence) and the first real settings surface;
+0225's full schema/scope breadth and 0226's deep links/search/guides remain open on their own
+timelines and must build on — not duplicate — what lands here.

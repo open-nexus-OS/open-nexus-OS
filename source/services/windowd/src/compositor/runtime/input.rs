@@ -130,67 +130,6 @@ impl DisplayServerRuntime {
             window_consumed_press = true;
             self.cycle_shell();
         }
-        // Search window (on top): title-bar drag / close / body all consume the
-        // press before the chat wm + sidebar logic below.
-        if primary_press && !window_consumed_press && self.search.visible {
-            use crate::compositor::shell_window::WindowPress;
-            match self.search.press(cursor_x, cursor_y) {
-                WindowPress::Close => {
-                    window_consumed_press = true;
-                    self.close_search();
-                }
-                WindowPress::TitleDrag => {
-                    window_consumed_press = true;
-                    self.search.begin_drag(cursor_x, cursor_y);
-                }
-                WindowPress::Body => {
-                    // Press inside the body still consumes (window is on top).
-                    window_consumed_press = true;
-                }
-                WindowPress::Miss => {}
-            }
-        }
-        // Chat window: the SAME ShellWindow press path as Search (close / title
-        // drag / body), now that chat is a ShellWindow instance (E1 — the old
-        // single-window `wm` is gone). Consumed only if Search didn't take it.
-        if primary_press && !window_consumed_press && self.chat.visible {
-            use crate::compositor::shell_window::WindowPress;
-            match self.chat.press(cursor_x, cursor_y) {
-                WindowPress::Close => {
-                    window_consumed_press = true;
-                    self.chat.visible = false;
-                    self.on_chat_window_closed();
-                }
-                WindowPress::TitleDrag => {
-                    window_consumed_press = true;
-                    self.chat.begin_drag(cursor_x, cursor_y);
-                }
-                WindowPress::Body => {
-                    window_consumed_press = true;
-                }
-                WindowPress::Miss => {}
-            }
-        }
-        // Continue an in-progress chat drag: `ShellWindow::drag_to` clamps to the
-        // display and invalidates the blur cache; we erase the vacated region
-        // (incl. the shadow halo) so a moved window leaves no trail.
-        if self.chat.is_dragging() {
-            if let Some(old) = self.chat.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
-                self.note_chat_window_moved(old);
-            }
-        }
-        // Continue dragging the Search window.
-        if self.search.is_dragging() {
-            if let Some(old) = self.search.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
-                self.queue_dirty_rect(old);
-                self.queue_dirty_rect(self.search_window_rect());
-            }
-        }
-        if primary_release {
-            self.chat.end_drag();
-            self.search.end_drag();
-        }
-
         // Shell-P2b: the topbar menu icon (right) toggles the animated side
         // panel — the same scene-graph-driven slide animation as the hamburger.
         if primary_press && !window_consumed_press && self.chrome_composited() {
@@ -276,6 +215,70 @@ impl DisplayServerRuntime {
                     }
                 }
             }
+        }
+
+        // Shell windows, hit-tested FRONT-TO-BACK in the z/focus stack's order —
+        // the exact reverse of the composite order (one SSOT in `window_scene`),
+        // so input can never disagree with occlusion. Checked AFTER the chrome
+        // blocks above because chrome now composites ABOVE the windows. The
+        // topmost window containing the press consumes it; any press on a title
+        // bar or body raises + focuses that window (click-to-raise).
+        if primary_press && !window_consumed_press {
+            use crate::compositor::shell_window::WindowPress;
+            use crate::window_scene::WindowId;
+            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            for i in 0..hit_n {
+                let wid = hit[i];
+                let press = match wid {
+                    WindowId::Chat => self.chat.press(cursor_x, cursor_y),
+                    WindowId::Search => self.search.press(cursor_x, cursor_y),
+                };
+                match press {
+                    WindowPress::Close => {
+                        window_consumed_press = true;
+                        match wid {
+                            WindowId::Chat => {
+                                self.chat.visible = false;
+                                self.on_chat_window_closed();
+                            }
+                            WindowId::Search => self.close_search(),
+                        }
+                    }
+                    WindowPress::TitleDrag => {
+                        window_consumed_press = true;
+                        self.raise_window(wid);
+                        match wid {
+                            WindowId::Chat => self.chat.begin_drag(cursor_x, cursor_y),
+                            WindowId::Search => self.search.begin_drag(cursor_x, cursor_y),
+                        }
+                    }
+                    WindowPress::Body => {
+                        window_consumed_press = true;
+                        self.raise_window(wid);
+                    }
+                    WindowPress::Miss => continue,
+                }
+                break;
+            }
+        }
+        // Continue an in-progress chat drag: `ShellWindow::drag_to` clamps to the
+        // display and invalidates the blur cache; we erase the vacated region
+        // (incl. the shadow halo) so a moved window leaves no trail.
+        if self.chat.is_dragging() {
+            if let Some(old) = self.chat.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.note_chat_window_moved(old);
+            }
+        }
+        // Continue dragging the Search window.
+        if self.search.is_dragging() {
+            if let Some(old) = self.search.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.queue_dirty_rect(old);
+                self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
+        if primary_release {
+            self.chat.end_drag();
+            self.search.end_drag();
         }
 
         // Resolve the click against the rendered geometry (only if the window
@@ -399,21 +402,8 @@ impl DisplayServerRuntime {
                 self.queue_dirty_rect(self.search_window_rect());
             }
         }
-        // Wheel over the Search window scrolls its filtered list via the SHARED
-        // momentum engine (eased + coasting, the same feel as chat — E2). A notch
-        // extends the target by a few rows; `tick_search_scroll` eases the offset
-        // and `commit_search_scroll_position` maps it to the row slice.
-        if self.search.visible && upstream.wheel_delta_y != 0 {
-            let over = self.search.contains(self.state.cursor_x, self.state.cursor_y);
-            if over {
-                use super::desktop_layer::SEARCH_LIST_ROW_H;
-                // Positive wheel scrolls down (later words), matching the prior
-                // discrete behaviour; 3 rows per notch (≈ the chat "3 lines/notch").
-                let dir = if upstream.wheel_delta_y > 0 { 1.0 } else { -1.0 };
-                self.search_scroll.scroll_wheel(dir * 3.0 * SEARCH_LIST_ROW_H as f32);
-                self.commit_search_scroll_position();
-            }
-        }
+        // (Search wheel handling moved into the unified stack-ordered wheel
+        //  routing below — TASK-0070 Phase 1: topmost window under the cursor.)
         // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text
         // change counter that still drives the filter selftest markers below.
         if !USE_DESKTOP_SHELL {
@@ -580,21 +570,20 @@ impl DisplayServerRuntime {
             self.note_filter_text_changed();
         }
 
-        // ── v3b: scroll on wheel events, routed to the control under the cursor ──
+        // ── Wheel routing: the TOPMOST window under the cursor scrolls ──
         // Gate on the real signed delta (edge-accurate per update) rather than the
         // latched pulse booleans, so each notch is applied once with its magnitude.
+        // The target comes from the SAME front-to-back stack order as presses
+        // (window_scene SSOT) — occlusion applies to scrolling too: a window
+        // covering another receives the wheel, and a dragged window keeps
+        // scrolling wherever it currently sits.
         if upstream.wheel_delta_y != 0 {
-            use crate::interaction::{resolve_wheel_target, HitRect, WheelTarget};
-            // Wheel routing follows the chat window's live bounds (None when
-            // closed) — a dragged window keeps scrolling under the cursor.
-            let chat_bounds = self.chat.visible.then(|| HitRect {
-                x: self.chat.x.max(0) as u32,
-                y: self.chat.y.max(0) as u32,
-                width: self.chat.w,
-                height: self.chat.h,
+            use crate::window_scene::WindowId;
+            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            let target = hit[..hit_n].iter().copied().find(|&wid| match wid {
+                WindowId::Chat => self.chat.contains(self.state.cursor_x, self.state.cursor_y),
+                WindowId::Search => self.search.contains(self.state.cursor_x, self.state.cursor_y),
             });
-            let target =
-                resolve_wheel_target(mode, self.state.cursor_x, self.state.cursor_y, chat_bounds);
             // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
             // even when nothing moves — the routing target + full scroll state, so a
             // "scrolled but nothing happened" freeze is explained by VALUES, not guesses.
@@ -604,7 +593,11 @@ impl DisplayServerRuntime {
                 let _ = debug_println(&alloc::format!(
                     "scroll-diag: in={} tgt={} cur=({},{}) chat_vis={} y={} pos={} target={} max={} base={} gl={}",
                     upstream.wheel_delta_y,
-                    if matches!(target, WheelTarget::Chat) { "chat" } else { "filter" },
+                    match target {
+                        Some(WindowId::Chat) => "chat",
+                        Some(WindowId::Search) => "search",
+                        None => "none",
+                    },
                     self.state.cursor_x,
                     self.state.cursor_y,
                     self.chat.visible,
@@ -619,13 +612,32 @@ impl DisplayServerRuntime {
             match target {
                 // Coalesce: accumulate this event's notches; `commit_scroll_input`
                 // applies the frame's total ONCE (reactive, no per-event replay).
-                WheelTarget::Chat => {
+                Some(WindowId::Chat) => {
                     self.pending_chat_wheel =
                         self.pending_chat_wheel.saturating_add(upstream.wheel_delta_y);
                 }
-                // C1: the proof list (the old wheel fallback) is gone; a wheel off
-                // the chat/search windows now scrolls nothing.
-                _ => {}
+                // Search scrolls via the SHARED momentum engine (eased + coasting,
+                // the same feel as chat — E2): a notch extends the target by a few
+                // rows; `tick_search_scroll` eases and commits the row slice.
+                Some(WindowId::Search) => {
+                    use super::desktop_layer::SEARCH_LIST_ROW_H;
+                    let dir = if upstream.wheel_delta_y > 0 { 1.0 } else { -1.0 };
+                    self.search_scroll.scroll_wheel(dir * 3.0 * SEARCH_LIST_ROW_H as f32);
+                    self.commit_search_scroll_position();
+                }
+                // A wheel over no window is an HONEST no-op — but a rate-limited
+                // diag line, never silence (the old silent fallthrough hid every
+                // "scrolled and nothing happened" report).
+                None => {
+                    if now.saturating_sub(self.wheel_miss_diag_ns) >= 500_000_000 {
+                        self.wheel_miss_diag_ns = now;
+                        let _ = debug_println(&alloc::format!(
+                            "windowd: wheel miss (x={} y={})",
+                            self.state.cursor_x,
+                            self.state.cursor_y,
+                        ));
+                    }
+                }
             }
         }
 

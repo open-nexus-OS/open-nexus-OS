@@ -156,6 +156,8 @@ impl DisplayServerRuntime {
         self.chat.visible = now;
         if now {
             let _ = debug_println("windowd: chat window open");
+            // Mirror into the z/focus stack: an opening window comes up on top.
+            self.show_window(crate::window_scene::WindowId::Chat);
             // Surface content is retained in the atlas — just damage the window
             // region (plus shadow halo) so the composite draws it at the current
             // bounds. The blurred-backdrop cache may be stale from a prior pos.
@@ -172,6 +174,8 @@ impl DisplayServerRuntime {
     /// window is closed (the composite no longer draws it).
     pub(super) fn on_chat_window_closed(&mut self) {
         let _ = debug_println("windowd: chat window close");
+        // Mirror into the z/focus stack (focus falls to the next-top window).
+        self.hide_window(crate::window_scene::WindowId::Chat);
         self.erase_chat_region(self.chat.x, self.chat.y);
         self.note_chat_button_dirty();
     }
