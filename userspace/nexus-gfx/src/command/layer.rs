@@ -72,9 +72,10 @@ pub struct Layer {
     pub dst_y: u32,
     pub opacity: u32,
     pub corner_radius: u32,
-    /// Mark the composited layer scrollable so the backend can re-sample it on a
-    /// lightweight scroll command (GPU scroll fast path).
-    pub scrollable: bool,
+    /// Scroll identity (`0` = not scrollable): the backend re-samples the layer
+    /// at the id's source-row override on a lightweight scroll command (GPU
+    /// scroll fast path).
+    pub scroll_id: u32,
     pub shadow: Option<LayerShadow>,
     pub backdrop: Option<LayerBackdrop>,
 }
@@ -91,7 +92,7 @@ impl Layer {
             dst_y,
             opacity: 255,
             corner_radius: 0,
-            scrollable: false,
+            scroll_id: 0,
             shadow: None,
             backdrop: None,
         }
@@ -134,7 +135,7 @@ mod tests {
                 shadow_offset_y: 0,
                 shadow_alpha: 0,
                 backdrop_blur: 0,
-                scrollable: false,
+                scroll_id: 0,
             }
         );
     }
@@ -302,12 +303,12 @@ mod tests {
         assert!(matches!(cmds[2], Command::CompositeLayer { .. }));
     }
 
-    // A scrollable layer tags the composite so the backend retains it.
+    // A scrollable layer tags the composite with its id so the backend retains it.
     #[test]
-    fn scrollable_layer_tags_the_composite() {
-        let layer = Layer { scrollable: true, ..Layer::opaque(100, 0, 200, 64, 40, 50) };
+    fn scroll_id_tags_the_composite() {
+        let layer = Layer { scroll_id: 3, ..Layer::opaque(100, 0, 200, 64, 40, 50) };
         let cmds = emit(&layer);
-        assert!(matches!(cmds[0], Command::CompositeLayer { scrollable: true, .. }));
+        assert!(matches!(cmds[0], Command::CompositeLayer { scroll_id: 3, .. }));
     }
 
     #[test]

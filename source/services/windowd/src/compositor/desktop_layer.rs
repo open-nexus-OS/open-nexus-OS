@@ -206,9 +206,6 @@ pub(crate) fn search_visible_rows(h: u32) -> u32 {
 
 /// Max scroll offset (in rows) for `count` words in a window showing
 /// `visible_rows` rows.
-pub(crate) fn search_max_scroll_for(count: usize, visible_rows: u32) -> u32 {
-    (count as u32).saturating_sub(visible_rows)
-}
 
 /// Height in px of one list row + the visible list viewport — so the shared
 /// `ScrollMomentum` engine (the same one backing the chat window) can run in
@@ -256,19 +253,30 @@ pub(crate) fn draw_search_window_row(
         }
         return Ok(());
     }
+    // PIXEL-scrolled list (TASK-0070 list architecture, step 1): `scroll` is the
+    // list's pixel offset (the momentum engine's native unit) — rows glide
+    // smoothly instead of snapping whole 24px rows. Each surface row maps to a
+    // content row + a within-row remainder; partially visible rows at the top
+    // and bottom render naturally.
     let list_top = SEARCH_TITLE_H + SEARCH_FILTER_H + SEARCH_PAD;
-    for (i, word) in visible_words.iter().take(visible_rows as usize).enumerate() {
-        let rt = list_top + i as u32 * SEARCH_ROW_H;
-        let text_top = rt + (SEARCH_ROW_H - line_height(LABEL_FONT)) / 2;
-        draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
+    if local_y >= list_top && local_y < list_top + SEARCH_ROW_H * visible_rows {
+        let content_y = (local_y - list_top) + scroll;
+        let row_idx = (content_y / SEARCH_ROW_H) as usize;
+        if let Some(word) = visible_words.get(row_idx) {
+            let row_screen_top = local_y - (content_y % SEARCH_ROW_H);
+            let text_top = row_screen_top + (SEARCH_ROW_H - line_height(LABEL_FONT)) / 2;
+            draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
+        }
     }
-    // Scrollbar thumb on the right when the list overflows.
-    let max_scroll = search_max_scroll_for(total, visible_rows);
-    if max_scroll > 0 {
+    // Scrollbar thumb on the right when the list overflows (pixel-space math).
+    let max_scroll_px =
+        (total as u32 * SEARCH_ROW_H).saturating_sub(SEARCH_ROW_H * visible_rows);
+    if max_scroll_px > 0 {
         let track_top = list_top;
         let track_h = SEARCH_ROW_H * visible_rows;
         let thumb_h = (track_h * visible_rows / total.max(1) as u32).clamp(16, track_h);
-        let thumb_y = track_top + (track_h - thumb_h) * scroll / max_scroll;
+        let thumb_y =
+            track_top + (track_h - thumb_h) * scroll.min(max_scroll_px) / max_scroll_px;
         if local_y >= thumb_y && local_y < thumb_y + thumb_h {
             write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), [200, 200, 200, 180]);
         }

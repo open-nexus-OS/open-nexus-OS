@@ -399,14 +399,40 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
-    /// Scroll fast path (analogue of `OP_MOVE_CURSOR`): re-sample the retained
-    /// scrollable layer (chat body) at `src_row_abs` and re-composite on the GPU.
-    /// `rt_layers_dirty` stays false → NO atlas re-upload, just a different source
-    /// offset into the already-uploaded texture = a ~54µs GPU pass, no CPU
-    /// re-render. Decouples scroll from the embedder's per-frame compose exactly
-    /// like the cursor overlay.
-    pub(crate) fn set_chat_scroll(&mut self, src_row_abs: u32) -> Result<(), GfxError> {
-        self.chat_scroll_src_row = Some(src_row_abs);
+    /// Scroll fast path, RECORD half (analogue of `OP_MOVE_CURSOR`): store the
+    /// source-row override for the retained scrollable layer with this id. NO
+    /// present here — the service loop drains a whole burst of queued scroll
+    /// requests first (latest row wins) and then calls
+    /// [`Self::flush_layer_scroll`] ONCE. Without the split, every queued
+    /// request triggered a full GL re-composite of an already-stale position —
+    /// under a fling the backlog snowballed into seconds of dead UI.
+    pub(crate) fn record_layer_scroll(
+        &mut self,
+        scroll_id: u32,
+        src_row_abs: u32,
+    ) -> Result<(), GfxError> {
+        let Some(slot) = scroll_id
+            .checked_sub(1)
+            .and_then(|i| self.scroll_src_rows.get_mut(i as usize))
+        else {
+            return Err(GfxError::InvalidArgument); // id 0 / beyond the table
+        };
+        *slot = Some(src_row_abs);
+        // Honest one-shot: the generalized scroll fast path actually took effect.
+        if !self.layer_scroll_marker_done {
+            self.layer_scroll_marker_done = true;
+            let _ = nexus_abi::debug_println(&alloc::format!(
+                "gpud: layer scroll live id={scroll_id} row={src_row_abs}"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Scroll fast path, PRESENT half: one GPU re-composite at the latest
+    /// recorded override rows. `rt_layers_dirty` stays false → NO atlas
+    /// re-upload, just a different source offset into the already-uploaded
+    /// texture — a ~54µs GPU pass, no CPU re-render.
+    pub(crate) fn flush_layer_scroll(&mut self) -> Result<(), GfxError> {
         self.gl_present_damage(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H })
     }
 

@@ -35,7 +35,43 @@ rewrite states the honest IST and the new combined scope. Phases below execute t
 - **Phase 3 DONE (committed)**: drag-to-edge snap (left/right halves, top = fullscreen),
   7 px edge/corner resize with deterministic from-start math, vendored resize cursor shapes
   via `OP_UPLOAD_CURSOR` re-send, TRUE full-display fullscreen with size-parametric content.
-- **Phase 6 (in review)**: runtime text — build.rs bakes A8 coverage glyph atlases of the
+- **Phase 7 follow-up (in review) — the scroll "works then suddenly nothing" freeze,
+  diagnosed end-to-end.** Three compounding causes, all fixed:
+  1. Every `OP_SET_LAYER_SCROLL` triggered a FULL gpud re-composite with no in-flight bound
+     (presents have `MAX_IN_FLIGHT=2`; scroll ops had none). A fling queued dozens of stale
+     full re-composites — seconds of dead UI while gpud drained history, then failed sends.
+     Fix: gpud coalesces — the handler only RECORDS the row; the service loop drains the
+     whole queued burst non-blockingly (latest row wins) and composites ONCE; a full present
+     clears the pending flush (it already covers the rows).
+  2. The measured wrap (this phase) re-measured all 5000 messages on every scroll re-window
+     and re-walked the wrap from char 0 per PIXEL ROW while rendering. Fix: per-message line
+     counts precomputed once (fixed wrap width) + per-visible-message line ranges walked once
+     into a shared reused buffer; the renderer does an indexed lookup per row. Zero
+     steady-state allocation (windowd's bump allocator never frees).
+  3. A dropped fast-path send at the END of a glide (gpud queue momentarily full) left the
+     display stuck mid-scroll. Fix: send failure falls back to pending damage, which the
+     pacer retries until a present carries the final position.
+  Architecture note (agreed next step once this verifies on the rig): `List` renders through
+  the nexus-layout (pretext) contract, `VirtualList` extends `List` with lazy loading, and
+  item measurement caching lives IN the list component instead of being re-derived by every
+  embedder — the windowd-side caches above then migrate into that component.
+- **Phase 7 (in review)**: scroll unification — (a) the wire generalizes:
+  `CompositeLayer.scrollable: bool` → `scroll_id: u32` (wire word 12, size-identical; 0 = not
+  scrollable), `OP_SET_CHAT_SCROLL` → `OP_SET_LAYER_SCROLL(scroll_id, src_row)` (9-byte
+  frame), gpud keeps a per-id override table (`scroll_src_rows`, 8 ids) instead of the single
+  hardcoded chat field — any window body can now use the ~54µs GPU re-sample fast path; chat
+  is id 1. One-shot marker `gpud: layer scroll live id=.. row=..`; roundtrip pinned by the
+  updated wire test. (b) Chat wrapping is now MEASURED greedy WORD wrap at the 16px face
+  (`chat_wrap_lines`/`chat_wrap_line_range` walk one shared `chat_wrap_line_end`): breaks at
+  the last fitting space (consumed, not rendered), mid-word for overlong words, char-walked
+  (multi-byte safe); layout heights and painted slices share the walk, so they cannot drift.
+  3 new host proofs (tiling + width bound + word boundaries; multibyte; overlong words).
+  Already landed earlier and verified here: both windows share `ScrollMomentum`/VirtualList
+  (E2) and wheel routing to the topmost window (Phase 1); the chat `band_scratch` ghosting is
+  fixed by the straight-copy background. Honest remainders: search stays on the
+  re-render-per-viewport model (render-once + GPU offset was ruled out by atlas budget, #79);
+  the full nexus-layout `LayoutNode` window body stays with the RFC-0067 P3/P5 track.
+- **Phase 6 DONE (committed)**: runtime text — build.rs bakes A8 coverage glyph atlases of the
   vendored variable UI face at 13px (chrome labels/dropdown/titles) and 16px (chat body,
   search rows via shared label path, greeter name): ASCII 32–126, per-glyph
   placement/advance, line metrics, and sparse non-zero kerning pairs, all consts

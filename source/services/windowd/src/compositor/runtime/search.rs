@@ -63,23 +63,17 @@ impl DisplayServerRuntime {
         self.search_scroll.set_extent(viewport as f32, content as f32);
     }
 
-    /// Map the momentum engine's pixel offset to a whole-row list slice and, if the
-    /// row changed, mark the Search surface dirty + damage its region. Returns true
-    /// if the visible slice moved (so the pacer keeps ticking). The packed surface
-    /// stays window-height (atlas-budget friendly — a full-list render-once surface
-    /// would not fit beside chat's overscan), so scroll is a cheap re-render on the
-    /// row boundary, driven by the SAME eased momentum as the chat window (E2).
+    /// Mirror the momentum engine's PIXEL offset into the Search render state
+    /// and, if it moved, mark the surface dirty + damage its region. Returns
+    /// true if it moved (so the pacer keeps ticking). Pixel-precise (list
+    /// architecture step 1): rows glide smoothly instead of snapping whole
+    /// 24px rows — the engine's extent clamp is the scroll authority.
     pub(super) fn commit_search_scroll_position(&mut self) -> bool {
-        use super::desktop_layer::{search_max_scroll_for, search_visible_rows, SEARCH_LIST_ROW_H};
-        let row = (self.search_scroll.offset_px().max(0) as u32 / SEARCH_LIST_ROW_H)
-            .min(search_max_scroll_for(
-                self.search_filtered.len(),
-                search_visible_rows(self.search.h),
-            ));
-        if row == self.search.scroll {
+        let px = self.search_scroll.offset_px().max(0) as u32;
+        if px == self.search.scroll {
             return false;
         }
-        self.search.scroll = row;
+        self.search.scroll = px;
         self.search.surface_dirty = true;
         self.queue_dirty_rect(self.search_window_rect());
         true
@@ -153,11 +147,11 @@ impl DisplayServerRuntime {
         let scroll = self.search.scroll;
         let total = self.search_filtered.len();
         let visible_rows = super::desktop_layer::search_visible_rows(h);
-        let visible_end = (scroll as usize + visible_rows as usize).min(total);
-        let visible_start = (scroll as usize).min(visible_end);
         // Disjoint field borrows: filter text (state), filtered words, scratch band.
+        // The renderer receives the FULL filtered slice + the pixel offset and
+        // indexes rows itself (pixel-precise scroll, partial rows at the edges).
         let filter_text = self.state.text_input();
-        let visible = &self.search_filtered[visible_start..visible_end];
+        let visible = &self.search_filtered[..];
         let band = &mut self.band_scratch;
         // The Search surface is 2D-PACKED (sub-stride, at column `surface.x`), so
         // its rows are NOT contiguous in the VMO — write per-row (the window's

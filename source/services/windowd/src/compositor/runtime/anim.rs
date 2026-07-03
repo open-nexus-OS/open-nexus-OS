@@ -40,6 +40,26 @@ impl DisplayServerRuntime {
         self.tick_chat_scroll(now_ns);
         // Search window scroll momentum: the SAME engine, eased the same way (E2).
         self.tick_search_scroll(now_ns);
+        // Freeze forensics (rate-limited ~500ms while anything scrolls): one line
+        // with both engines' position/target + the present-loop health counters.
+        // If scroll ever dies again, this pins WHICH stage stopped: the engine
+        // (pos stuck), the pacer (no lines at all), or the present path
+        // (inflight pinned / pending never draining).
+        if (self.chat_list.is_animating()
+            || (self.search.visible && self.search_scroll.is_animating()))
+            && now_ns.saturating_sub(self.chat_scroll_diag_ns) >= 500_000_000
+        {
+            self.chat_scroll_diag_ns = now_ns;
+            let _ = debug_println(&alloc::format!(
+                "windowd: scroll diag chat={}/{} search={}/{} inflight={} pending={}",
+                self.chat_list.scroll_offset().as_i32(),
+                self.chat_list.scroll_target(),
+                self.search_scroll.offset_px(),
+                self.search_scroll.target() as i32,
+                self.frames_in_flight(),
+                self.has_pending_damage(),
+            ));
+        }
 
         let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
         let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);

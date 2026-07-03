@@ -442,14 +442,11 @@ impl DisplayServerRuntime {
         // Re-render the Search window's filtered list when the typed text changes.
         if self.search.visible && text_changed {
             super::desktop_layer::search_filter(self.state.text_input(), &mut self.search_filtered);
-            // The row count changed → re-clamp the shared momentum extent, then
-            // mirror its (clamped) offset back to the row slice.
+            // The row count changed → re-clamp the shared momentum extent (the
+            // engine clamps position + target), then mirror the clamped PIXEL
+            // offset back into the render state.
             self.search_set_extent();
-            let max_scroll = super::desktop_layer::search_max_scroll_for(
-                self.search_filtered.len(),
-                super::desktop_layer::search_visible_rows(self.search.h),
-            );
-            self.search.scroll = self.search.scroll.min(max_scroll);
+            self.search.scroll = self.search_scroll.offset_px().max(0) as u32;
             self.search.surface_dirty = true;
             self.queue_dirty_rect(self.search_window_rect());
         }
@@ -674,13 +671,19 @@ impl DisplayServerRuntime {
                     self.pending_chat_wheel =
                         self.pending_chat_wheel.saturating_add(upstream.wheel_delta_y);
                 }
-                // Search scrolls via the SHARED momentum engine (eased + coasting,
-                // the same feel as chat — E2): a notch extends the target by a few
-                // rows; `tick_search_scroll` eases and commits the row slice.
+                // Search scrolls via the SHARED momentum engine, mapped EXACTLY
+                // like chat: real notch count (magnitude preserved), wheel-up
+                // (positive) moves content up (negative offset), ~3 rows/notch,
+                // clamped per frame. (The old mapping dropped the magnitude AND
+                // inverted the direction.)
                 Some(WindowId::Search) => {
                     use super::desktop_layer::SEARCH_LIST_ROW_H;
-                    let dir = if upstream.wheel_delta_y > 0 { 1.0 } else { -1.0 };
-                    self.search_scroll.scroll_wheel(dir * 3.0 * SEARCH_LIST_ROW_H as f32);
+                    const MAX_NOTCHES_PER_FRAME: i32 = 24;
+                    let notches = upstream
+                        .wheel_delta_y
+                        .clamp(-MAX_NOTCHES_PER_FRAME, MAX_NOTCHES_PER_FRAME);
+                    let step = 3 * SEARCH_LIST_ROW_H as i32;
+                    self.search_scroll.scroll_wheel((-notches * step) as f32);
                     self.commit_search_scroll_position();
                 }
                 // A wheel over no window is an HONEST no-op — but a rate-limited

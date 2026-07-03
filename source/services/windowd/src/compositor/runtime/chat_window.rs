@@ -40,10 +40,10 @@ impl DisplayServerRuntime {
         let notches = wheel_delta_y.clamp(-MAX_NOTCHES_PER_FRAME, MAX_NOTCHES_PER_FRAME);
         let step = crate::interaction::CHAT_LINE_H.saturating_mul(3) as i32;
         let delta_px = -notches.saturating_mul(step);
-        // `scroll_wheel` moves the content IMMEDIATELY (1:1, zero latency — precise
-        // for a slow careful scroll) and injects accumulating momentum (a fast
-        // spin coasts). Commit the instant move NOW so it presents on this very
-        // loop iteration's flush; the momentum tick continues the glide after.
+        // `scroll_wheel` extends the ease TARGET (N notches scroll N×, no
+        // acceleration); the position glides toward it on the pacer's
+        // `tick_chat_scroll` frames. The commit below is a fast no-op unless a
+        // previous tick already moved the position this iteration.
         self.chat_list.scroll_wheel(FxPx::new(delta_px));
         self.commit_chat_scroll_position();
     }
@@ -80,7 +80,14 @@ impl DisplayServerRuntime {
             // retained chat layer at the new atlas row and GPU-re-composite (~54µs)
             // — NO windowd CPU compose, just like the cursor's OP_MOVE_CURSOR. This
             // is what lets scroll run at gpud's rate instead of windowd's compose rate.
-            self.send_chat_scroll_to_gpud(self.chat_atlas_row() + offset);
+            let row = self.chat_atlas_row() + offset;
+            if !self.send_gpud_fire_forget_scroll(row) {
+                // gpud's queue is full (busy frame): fall back to pending damage so
+                // the pacer's retrying present carries the position — a dropped
+                // LAST tick of a glide must never leave the display stuck mid-scroll.
+                let rect = self.chat.damage_rect(self.mode.width, self.mode.height);
+                self.queue_gpu_blit_rect(rect);
+            }
         } else {
             // Left the prerendered window (new content needed) OR the 2D/mmio path
             // (no GL layer re-sample): recenter + re-render as needed, then a normal
@@ -98,15 +105,18 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Scroll fast path: a 5-byte fire-and-forget `OP_SET_CHAT_SCROLL(src_row)` to
-    /// gpud (mirrors the cursor's `OP_MOVE_CURSOR`). gpud re-samples the retained
-    /// scrollable chat layer at `src_row_abs` and re-composites on the GPU — no
-    /// windowd compose. No-op on the 2D/mmio backend (handled there by the CPU path).
-    pub(super) fn send_chat_scroll_to_gpud(&mut self, src_row_abs: u32) {
-        let mut frame = [0u8; 5];
-        frame[0] = GPU_SET_CHAT_SCROLL_OP;
-        frame[1..5].copy_from_slice(&src_row_abs.to_le_bytes());
-        let _ = self.send_gpud_fire_forget(&frame);
+    /// Scroll fast path: a 9-byte fire-and-forget
+    /// `OP_SET_LAYER_SCROLL(CHAT_SCROLL_ID, src_row)` to gpud (mirrors the
+    /// cursor's `OP_MOVE_CURSOR`). gpud RECORDS the row and re-composites once
+    /// per drained burst (latest wins) — no windowd compose. Returns false when
+    /// the queue is full so the caller can fall back to pending damage. No-op
+    /// on the 2D/mmio backend (handled there by the CPU path).
+    pub(super) fn send_gpud_fire_forget_scroll(&mut self, src_row_abs: u32) -> bool {
+        let mut frame = [0u8; 9];
+        frame[0] = GPU_SET_LAYER_SCROLL_OP;
+        frame[1..5].copy_from_slice(&super::CHAT_SCROLL_ID.to_le_bytes());
+        frame[5..9].copy_from_slice(&src_row_abs.to_le_bytes());
+        self.send_gpud_fire_forget(&frame)
     }
 
     /// Advance the chat scroll momentum ONE frame (called from the present-loop
@@ -259,6 +269,8 @@ impl DisplayServerRuntime {
             self.chat_render_base,
             &mut self.chat_visible,
             content_vp_h,
+            &self.chat_msg_lines,
+            &mut self.chat_line_ranges,
         );
         // Keep the component's height authority in sync so momentum clamps to the
         // real bottom (re-render happens on data change / overscan exhaustion).
@@ -275,6 +287,7 @@ impl DisplayServerRuntime {
             super::desktop_layer::SEARCH_RADIUS
         };
         let visible = &self.chat_visible;
+        let ranges = &self.chat_line_ranges;
         let band = &mut self.band_scratch;
         // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
         // per band instead of one per row. The band carries full-stride rows; the
@@ -292,6 +305,7 @@ impl DisplayServerRuntime {
                     render_base,
                     content_h,
                     visible,
+                    ranges,
                     height,
                     title_hover,
                     corner_radius,

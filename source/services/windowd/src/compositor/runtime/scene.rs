@@ -282,6 +282,7 @@ impl DisplayServerRuntime {
                         built_chat_blur_cache = crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
                             &mut encoder,
                             chat_glass,
+                            super::CHAT_SCROLL_ID,
                             chat_content_offset,
                             chat_title_h,
                             mode.width,

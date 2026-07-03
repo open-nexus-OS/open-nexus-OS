@@ -241,13 +241,14 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            false,
+            0,
         )
     }
 
-    /// Composite a layer marked **scrollable** — the backend retains it and can
-    /// re-sample it at a new `src_row_abs` on a lightweight scroll command (the
-    /// GPU scroll fast path), instead of the embedder re-composing per frame.
+    /// Composite a **scrollable** layer under `scroll_id` (non-zero) — the
+    /// backend retains it and re-samples it at the id's source-row override on a
+    /// lightweight scroll command (the GPU scroll fast path), instead of the
+    /// embedder re-composing per frame.
     #[allow(clippy::too_many_arguments)]
     pub fn try_composite_layer_scrollable(
         &mut self,
@@ -263,6 +264,7 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
+        scroll_id: u32,
     ) -> Result<(), GfxError> {
         self.try_composite_layer_tagged(
             src_row_abs,
@@ -277,7 +279,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            true,
+            scroll_id,
         )
     }
 
@@ -296,7 +298,7 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
-        scrollable: bool,
+        scroll_id: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -314,7 +316,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            scrollable,
+            scroll_id,
         })
     }
 
@@ -409,7 +411,7 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            layer.scrollable,
+            layer.scroll_id,
         )
     }
 

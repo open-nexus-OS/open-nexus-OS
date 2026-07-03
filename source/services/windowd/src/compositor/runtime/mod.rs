@@ -65,7 +65,9 @@ const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_V
 const GPU_PRESENT_DAMAGE_OP: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
 const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
-const GPU_SET_CHAT_SCROLL_OP: u8 = nexus_display_proto::OP_SET_CHAT_SCROLL;
+const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
+/// Scroll identity of the chat body layer (ids are windowd-assigned; 0 = none).
+pub(crate) const CHAT_SCROLL_ID: u32 = 1;
 const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 /// Extra chat content rows rendered above/below the on-screen viewport so scroll
@@ -437,6 +439,14 @@ pub(crate) struct DisplayServerRuntime {
     pending_input: Option<VisibleState>,
     chat_content_h: u32,
     chat_visible: Vec<super::chat::ChatVisibleMsg>,
+    /// Wrapped line count per message, precomputed ONCE (fixed wrap width) so a
+    /// scroll re-window costs O(1) per message instead of re-measuring 5000
+    /// texts per recenter.
+    chat_msg_lines: Vec<u32>,
+    /// Per-visible-message wrapped-line char ranges (shared, REUSED buffer —
+    /// cleared per rebuild, never reallocated in steady state). The renderer
+    /// indexes lines here instead of re-walking the wrap per pixel row.
+    chat_line_ranges: Vec<(u32, u32)>,
     /// Scroll position the chat **overscan surface** is currently rendered at.
     /// The surface holds the content window `[base .. base + viewport + overscan]`;
     /// scrolling within that window is a GPU composite source-row offset
@@ -642,6 +652,13 @@ impl DisplayServerRuntime {
             crate::interaction::CHAT_LINE_H,
         );
         let mut chat_visible = Vec::new();
+        // Precompute every message's wrapped line count ONCE (fixed wrap width):
+        // scroll re-windows then cost O(1) per message instead of re-measuring
+        // 5000 texts per recenter (that full-collection walk was a visible hitch
+        // at every overscan exhaustion).
+        let mut chat_msg_lines = Vec::new();
+        super::chat::build_lines_cache(&chat_provider, &mut chat_msg_lines);
+        let mut chat_line_ranges = Vec::new();
         // Window the OVERSCAN content surface (viewport + overscan) at base 0.
         // compute_visible_window returns the TOTAL content height (for max-scroll)
         // and fills the window for the given render base.
@@ -652,6 +669,8 @@ impl DisplayServerRuntime {
             0,
             &mut chat_visible,
             chat_overscan_content_h,
+            &chat_msg_lines,
+            &mut chat_line_ranges,
         );
         // Hand the provider to the virtual-list component (scroll-physics SSOT).
         // windowd stays the height authority: the chat viewport is the panel body
@@ -861,6 +880,8 @@ impl DisplayServerRuntime {
             pending_input: None,
             chat_content_h,
             chat_visible,
+            chat_msg_lines,
+            chat_line_ranges,
             chat_render_base: 0,
             chat_drag_marker_emitted: false,
             chat_button_marker_emitted: false,

@@ -68,45 +68,87 @@ pub(crate) fn chat_text_width() -> u32 {
     CHAT_PANEL_W.saturating_sub(CHAT_PAD.saturating_mul(2)).saturating_sub(CHAT_SCROLLBAR_W)
 }
 
-/// Characters per wrapped line for the chat (hard-wrap; the renderer is the
-/// single source of truth for wrapping, so layout and paint can never drift).
-/// Wrapping is by char count and the renderer slices by char boundary, so
-/// multi-byte UTF-8 in the message pool (e.g. em-dashes) is handled correctly.
-/// INTERIM: the divisor is the proportional face's AVERAGE advance — typical
-/// lines fit, extreme all-wide lines clip at the viewport edge; measured
-/// wrapping replaces this with the Phase-7 list/layout unification.
+/// Rough characters-per-line estimate (average advance) — only feeds the chat
+/// provider's internal height hint; the real wrap below is measured.
 pub(crate) fn chat_chars_per_line() -> usize {
     (chat_text_width() / crate::text::avg_advance(crate::text::FontSize::Body)).max(1) as usize
 }
 
-/// Number of wrapped lines a message of `char_count` characters occupies.
-pub(crate) fn chat_message_lines(char_count: usize, cpl: usize) -> u32 {
-    let cpl = cpl.max(1);
-    (char_count.div_ceil(cpl)).max(1) as u32
+/// Left inset of the text column inside the chat viewport (bubble inset + text
+/// padding) — the renderer's `text_x` offset, subtracted from the wrap width.
+pub(crate) const CHAT_TEXT_INSET: u32 = 10;
+
+/// Pixel width the wrap walker fills — the wrap SSOT width (TASK-0070 Phase 7:
+/// MEASURED word wrap at the 16px face replaces the char-count estimate).
+pub(crate) fn chat_wrap_width() -> u32 {
+    chat_text_width().saturating_sub(CHAT_TEXT_INSET)
+}
+
+/// One wrapped line starting at char index `start`: returns `(end, next_start)`
+/// — the line is chars `[start, end)`, the next line begins at `next_start`
+/// (the break space itself is consumed, not rendered). Greedy WORD wrap at the
+/// 16px face's measured advances; a single word wider than `width` breaks
+/// mid-word. Always consumes at least one char. Walking by chars keeps
+/// multi-byte UTF-8 (em-dashes) boundary-safe.
+fn chat_wrap_line_end(text: &str, width: u32, start: usize) -> (usize, usize) {
+    let w = width.max(1) as i32;
+    let mut pen = 0i32;
+    let mut last_space: Option<usize> = None;
+    let mut idx = start;
+    for ch in text.chars().skip(start) {
+        let adv = crate::text::advance(ch, crate::text::FontSize::Body) as i32;
+        if pen + adv > w && idx > start {
+            return match last_space {
+                Some(s) if s > start => (s, s + 1),
+                _ => (idx, idx),
+            };
+        }
+        if ch == ' ' {
+            last_space = Some(idx);
+        }
+        pen += adv;
+        idx += 1;
+    }
+    (idx, idx)
+}
+
+/// Number of wrapped lines `text` occupies at the chat wrap width.
+pub(crate) fn chat_wrap_lines(text: &str) -> u32 {
+    let width = chat_wrap_width();
+    let len = text.chars().count();
+    let mut start = 0usize;
+    let mut lines = 0u32;
+    while start < len {
+        let (_, next) = chat_wrap_line_end(text, width, start);
+        start = next.max(start + 1);
+        lines += 1;
+    }
+    lines.max(1)
+}
+
+/// Char range `[start, end)` of wrapped line `idx` of `text`, or `None` past
+/// the last line. Walks the same `chat_wrap_line_end` as `chat_wrap_lines`, so
+/// layout heights and painted slices can never drift.
+pub(crate) fn chat_wrap_line_range(text: &str, idx: u32) -> Option<(usize, usize)> {
+    let width = chat_wrap_width();
+    let len = text.chars().count();
+    let mut start = 0usize;
+    let mut line = 0u32;
+    while start < len {
+        let (end, next) = chat_wrap_line_end(text, width, start);
+        if line == idx {
+            return Some((start, end));
+        }
+        start = next.max(start + 1);
+        line += 1;
+    }
+    // An empty message still occupies one (blank) line.
+    (idx == 0 && len == 0).then_some((0, 0))
 }
 
 /// Total block height of a message (its wrapped lines plus top/bottom padding).
 pub(crate) fn chat_message_height(lines: u32) -> u32 {
     lines.saturating_mul(CHAT_LINE_H).saturating_add(CHAT_MSG_PAD.saturating_mul(2))
-}
-
-/// Character range `[start, end)` of wrapped line `idx` within a message of
-/// `char_count` characters. Returns `None` past the last line. These are
-/// *character* offsets (not byte offsets); the renderer walks `chars()` so it
-/// never splits a multi-byte codepoint.
-pub(crate) fn chat_line_char_range(
-    char_count: usize,
-    cpl: usize,
-    idx: u32,
-) -> Option<(usize, usize)> {
-    let cpl = cpl.max(1);
-    let lines = chat_message_lines(char_count, cpl);
-    if idx >= lines {
-        return None;
-    }
-    let start = (idx as usize).saturating_mul(cpl).min(char_count);
-    let end = start.saturating_add(cpl).min(char_count);
-    Some((start, end))
 }
 
 /// A display-space rectangle. Self-contained (no dependency on the OS-only
@@ -471,42 +513,57 @@ mod tests {
     //  the wheel-target SSOT since TASK-0070 Phase 1.)
 
     #[test]
-    fn chat_line_ranges_cover_the_whole_message_without_gaps() {
-        let cpl = chat_chars_per_line();
-        assert!(cpl >= 10, "cpl should be reasonable, got {cpl}");
-        let len = cpl * 3 + 5; // 4 lines (3 full + remainder)
-        assert_eq!(chat_message_lines(len, cpl), 4);
-        // Line ranges tile [0, len) exactly, in order, no gaps/overlap.
-        let mut expected_start = 0usize;
-        for idx in 0..4u32 {
-            let (s, e) = chat_line_char_range(len, cpl, idx).expect("line in range");
-            assert_eq!(s, expected_start);
-            assert!(e <= len && e >= s);
-            assert!(e - s <= cpl);
-            expected_start = e;
+    fn chat_wrap_ranges_tile_the_message_and_break_at_words() {
+        let text = "The quick brown fox jumps over the lazy dog while the compositor keeps every frame at a steady cadence without dropping input events.";
+        let lines = chat_wrap_lines(text);
+        assert!(lines >= 2, "long message wraps ({lines} lines)");
+        // Ranges are in order; consecutive lines are contiguous up to ONE
+        // consumed break space; every rendered line fits the wrap width.
+        let width = chat_wrap_width() as i32;
+        let chars: alloc::vec::Vec<char> = text.chars().collect();
+        let mut prev_end = 0usize;
+        for idx in 0..lines {
+            let (s, e) = chat_wrap_line_range(text, idx).expect("line in range");
+            assert!(s >= prev_end && s <= prev_end + 1, "≤1 skipped break space");
+            assert!(e > s, "non-empty line");
+            let w: i32 = chars[s..e]
+                .iter()
+                .map(|&c| crate::text::advance(c, crate::text::FontSize::Body) as i32)
+                .sum();
+            assert!(w <= width, "line {idx} measures {w} > wrap width {width}");
+            // Word wrap: a line broken at a space never starts with a space.
+            assert_ne!(chars[s], ' ', "line {idx} starts on the skipped space");
+            prev_end = e;
         }
-        assert_eq!(expected_start, len, "lines must cover the whole message");
-        assert_eq!(chat_line_char_range(len, cpl, 4), None);
+        assert!(prev_end == chars.len(), "lines cover the whole message");
+        assert_eq!(chat_wrap_line_range(text, lines), None);
     }
 
     #[test]
-    fn chat_line_ranges_are_char_boundary_safe_for_multibyte() {
+    fn chat_wrap_is_char_boundary_safe_for_multibyte() {
         // The message pool contains em-dashes (3-byte UTF-8). Char-based ranges
         // must let the renderer walk chars() without ever splitting a codepoint.
-        let text = "Let me check that — need to reproduce it first, then I will report back here.";
-        let cpl = chat_chars_per_line();
-        let char_len = text.chars().count();
-        let lines = chat_message_lines(char_len, cpl);
-        // Walk exactly as the renderer does — must not panic on a multi-byte
-        // boundary, and the per-line char ranges must tile the whole message.
-        let mut expected = text.chars();
+        let text = "Let me check that — need to reproduce it first, then I will report back here — thanks a lot for the very detailed reproduction steps.";
+        let lines = chat_wrap_lines(text);
+        let mut expected = text.chars().filter(|&c| c != ' ');
         for idx in 0..lines {
-            let (cs, ce) = chat_line_char_range(char_len, cpl, idx).expect("line");
-            for ch in text.chars().skip(cs).take(ce - cs) {
+            let (cs, ce) = chat_wrap_line_range(text, idx).expect("line");
+            for ch in text.chars().skip(cs).take(ce - cs).filter(|&c| c != ' ') {
                 assert_eq!(Some(ch), expected.next());
             }
         }
-        assert_eq!(expected.next(), None, "char ranges must tile the message exactly");
+        assert_eq!(expected.next(), None, "all non-space chars appear exactly once");
+    }
+
+    #[test]
+    fn chat_wrap_breaks_overlong_words_mid_word() {
+        // A single "word" wider than the viewport must still wrap (no infinite
+        // loop, no zero-length line).
+        let text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let lines = chat_wrap_lines(text);
+        assert!(lines >= 2, "overlong word wraps mid-word ({lines})");
+        let (s0, e0) = chat_wrap_line_range(text, 0).expect("first line");
+        assert!(e0 > s0);
     }
 
     #[test]
@@ -515,9 +572,8 @@ mod tests {
         let three = chat_message_height(3);
         assert!(three > one);
         assert_eq!(three, one + 2 * CHAT_LINE_H);
-        // An empty/one-char message is still one line tall.
-        assert_eq!(chat_message_lines(0, chat_chars_per_line()), 1);
-        assert_eq!(chat_message_lines(1, chat_chars_per_line()), 1);
+        // An empty/short message is still one line tall.
+        assert_eq!(chat_wrap_lines(""), 1);
+        assert_eq!(chat_wrap_lines("a"), 1);
     }
-
 }

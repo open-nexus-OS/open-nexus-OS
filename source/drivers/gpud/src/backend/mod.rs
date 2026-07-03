@@ -222,6 +222,9 @@ pub struct VirtioGpuBackend {
     /// One-shot marker: first destination-so-far backdrop snapshot+blur submitted.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) rt_backdrop_marker_done: bool,
+    /// One-shot marker: first `OP_SET_LAYER_SCROLL` applied (scroll fast path live).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) layer_scroll_marker_done: bool,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -273,12 +276,13 @@ pub struct VirtioGpuBackend {
     pending_rt_layers: [PendingRtLayer; MAX_PENDING_RT_LAYERS],
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pending_rt_count: usize,
-    /// Scroll fast path: when `Some`, the retained `scrollable` layer (chat body)
-    /// is re-sampled at this absolute atlas row instead of its stored `src_row_abs`.
-    /// Set by `OP_SET_CHAT_SCROLL` (a 54µs GPU re-composite, no CPU re-render),
-    /// cleared when a full present brings a fresh authoritative layer set.
+    /// Scroll fast path: per-`scroll_id` source-row overrides. A retained layer
+    /// with a non-zero `scroll_id` is re-sampled at its override row (when set)
+    /// instead of its stored `src_row_abs`. Set by `OP_SET_LAYER_SCROLL` (a 54µs
+    /// GPU re-composite, no CPU re-render), cleared when a full present brings a
+    /// fresh authoritative layer set. Index = `scroll_id - 1`.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) chat_scroll_src_row: Option<u32>,
+    pub(crate) scroll_src_rows: [Option<u32>; MAX_SCROLL_IDS],
     /// Build-up only: the retained layer set's atlas content changed, so the next
     /// composite must re-upload it to the GL texture (`virgl_transfer_to_host`).
     /// Cleared after upload — cursor-move presents then re-composite from the
@@ -305,13 +309,16 @@ struct PendingRtLayer {
     /// Frosted-glass backdrop blur radius (0 = opaque/no glass). When > 0 the
     /// build-up blurs the wallpaper behind this layer's rect before compositing.
     backdrop_blur: u32,
-    /// This is the one scrollable content layer (chat body). When set, gpud may
-    /// re-sample it at `chat_scroll_src_row` on the lightweight scroll fast path.
-    scrollable: bool,
+    /// Scroll identity (0 = not scrollable). Non-zero: gpud re-samples the layer
+    /// at the id's `scroll_src_rows` override on the lightweight scroll fast path.
+    scroll_id: u32,
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 const MAX_PENDING_RT_LAYERS: usize = 8;
+/// Scroll-id table capacity (ids 1..=MAX_SCROLL_IDS; 0 = not scrollable).
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+pub(crate) const MAX_SCROLL_IDS: usize = 8;
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -431,6 +438,8 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_backdrop_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            layer_scroll_marker_done: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_grad_marker_done: false,
@@ -459,7 +468,7 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             pending_rt_count: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            chat_scroll_src_row: None,
+            scroll_src_rows: [None; MAX_SCROLL_IDS],
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_layers_dirty: true,
         }

@@ -21,9 +21,9 @@
 use super::primitives::fill_row_rect;
 use crate::error::WindowdError;
 use crate::interaction::{
-    chat_chars_per_line, chat_line_char_range, chat_message_height, chat_message_lines,
-    CHAT_CLOSE_ZONE_W, CHAT_LINE_H, CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W,
-    CHAT_SCROLLBAR_W, CHAT_TITLE_BAR_H,
+    chat_message_height, chat_wrap_line_range, chat_wrap_lines, CHAT_CLOSE_ZONE_W, CHAT_LINE_H,
+    CHAT_MSG_PAD, CHAT_PAD, CHAT_PANEL_H, CHAT_PANEL_W, CHAT_SCROLLBAR_W, CHAT_TEXT_INSET,
+    CHAT_TITLE_BAR_H,
 };
 use crate::text::{draw_text_row, FontSize};
 use alloc::vec::Vec;
@@ -56,50 +56,65 @@ pub(crate) struct ChatVisibleMsg {
     /// message is partially scrolled above the viewport).
     pub(crate) top: i32,
     pub(crate) lines: u32,
-    /// Character count (NOT byte length) — the message pool contains multi-byte
-    /// UTF-8 (em-dashes), so wrapping is by char and slicing is by char boundary.
-    pub(crate) char_len: usize,
+    /// Index of this message's first wrapped-line char range in the shared
+    /// `ranges` buffer (its `lines` consecutive entries belong to it).
+    pub(crate) range_start: usize,
 }
 
-/// Rebuild the visible-window buffer for a given `scroll_y` and return the total
-/// content height. Walks the full collection once (cheap; called only on scroll),
-/// pushing only the messages that intersect the viewport. Zero alloc after the
-/// `Vec` reaches steady capacity (it is cleared, not reallocated).
-pub(crate) fn compute_visible(
-    provider: &ChatMessageProvider,
-    scroll_y: u32,
-    out: &mut Vec<ChatVisibleMsg>,
-) -> u32 {
-    compute_visible_window(provider, scroll_y, out, viewport().3)
+/// Precompute the wrapped line count of every message ONCE (the wrap width is
+/// fixed — the text column stays at wrap width regardless of window size).
+/// `compute_visible_window` then costs O(1) per message instead of re-walking
+/// every message's text on every scroll re-window.
+pub(crate) fn build_lines_cache(provider: &ChatMessageProvider, out: &mut Vec<u32>) {
+    out.clear();
+    let len = provider.len();
+    for opt in provider.get(0..len) {
+        out.push(opt.map(|m| chat_wrap_lines(m.text)).unwrap_or(1));
+    }
 }
 
-/// As [`compute_visible`] but for an explicit content-viewport height — used by
-/// the GPU scroll-offset path to prerender an OVERSCAN window taller than the
-/// on-screen viewport, so scrolling within it is a composite offset, not a
-/// re-render.
+/// Rebuild the visible-window buffer for a given `scroll_y` and return the
+/// total content height. Message heights come from the precomputed
+/// `lines_cache` (O(1) per message); the wrap walk runs only for the ~dozen
+/// VISIBLE messages, storing each wrapped line's char range in the shared,
+/// REUSED `ranges` buffer — the renderer then slices lines by index instead of
+/// re-walking the text per pixel row. Zero steady-state alloc: both Vecs are
+/// cleared, not reallocated (windowd's bump allocator never frees).
 pub(crate) fn compute_visible_window(
     provider: &ChatMessageProvider,
     scroll_y: u32,
     out: &mut Vec<ChatVisibleMsg>,
     vp_h: u32,
+    lines_cache: &[u32],
+    ranges: &mut Vec<(u32, u32)>,
 ) -> u32 {
     out.clear();
+    ranges.clear();
     let (_, vp_y, _, _) = viewport();
-    let cpl = chat_chars_per_line();
     let view_bottom = scroll_y.saturating_add(vp_h);
     let mut block_top = 0u32;
     let len = provider.len();
-    for opt in provider.get(0..len) {
+    for (i, opt) in provider.get(0..len).iter().enumerate() {
         let Some(msg) = opt else {
             continue;
         };
-        let char_len = msg.text.chars().count();
-        let lines = chat_message_lines(char_len, cpl);
+        let lines = lines_cache.get(i).copied().unwrap_or_else(|| chat_wrap_lines(msg.text));
         let height = chat_message_height(lines);
         let block_bottom = block_top.saturating_add(height);
         if block_bottom > scroll_y && block_top < view_bottom {
             let top = vp_y as i32 + block_top as i32 - scroll_y as i32;
-            out.push(ChatVisibleMsg { text: msg.text, from_me: msg.from_me, top, lines, char_len });
+            let range_start = ranges.len();
+            for idx in 0..lines {
+                let (s, e) = chat_wrap_line_range(msg.text, idx).unwrap_or((0, 0));
+                ranges.push((s as u32, e as u32));
+            }
+            out.push(ChatVisibleMsg {
+                text: msg.text,
+                from_me: msg.from_me,
+                top,
+                lines,
+                range_start,
+            });
         }
         block_top = block_bottom;
     }
@@ -131,6 +146,7 @@ pub(crate) fn draw_chat_panel_row(
     scroll_y: u32,
     content_h: u32,
     visible: &[ChatVisibleMsg],
+    ranges: &[(u32, u32)],
     surface_h: u32,
     title_hover: Option<super::shell_window::TitleButton>,
     corner_radius: u32,
@@ -175,7 +191,6 @@ pub(crate) fn draw_chat_panel_row(
         return Ok(());
     }
     let yi = ly as i32;
-    let cpl = chat_chars_per_line();
 
     for m in visible {
         let height = chat_message_height(m.lines);
@@ -197,16 +212,17 @@ pub(crate) fn draw_chat_panel_row(
                 )?;
             }
         }
-        // Text lines: runtime glyphs from the baked 16px atlas (TASK-0070
-        // Phase 6). Each wrapped line is a band of CHAT_LINE_H rows; the char
-        // range comes from the (interim, char-count) wrap SSOT in
-        // `crate::interaction`.
+        // Text lines: runtime glyphs from the baked 16px atlas. Each wrapped
+        // line is a band of CHAT_LINE_H rows; the char range was walked ONCE
+        // per visible message by `compute_visible_window` (the measured
+        // word-wrap SSOT) — here it is a plain indexed lookup per row.
         let text_top = m.top + CHAT_MSG_PAD as i32;
         let text_bottom = text_top + (m.lines.saturating_mul(CHAT_LINE_H)) as i32;
         if yi >= text_top && yi < text_bottom {
             let line_idx = ((yi - text_top) as u32) / CHAT_LINE_H;
-            if let Some((cs, ce)) = chat_line_char_range(m.char_len, cpl, line_idx) {
-                let text_x = vp_x.saturating_add(BUBBLE_INSET).saturating_add(6);
+            if let Some(&(cs, ce)) = ranges.get(m.range_start + line_idx as usize) {
+                let (cs, ce) = (cs as usize, ce as usize);
+                let text_x = vp_x.saturating_add(CHAT_TEXT_INSET);
                 let clip_end = vp_x.saturating_add(vp_w);
                 let line_top = text_top + (line_idx * CHAT_LINE_H) as i32;
                 draw_text_row(

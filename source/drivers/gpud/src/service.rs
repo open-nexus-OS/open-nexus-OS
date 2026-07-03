@@ -36,7 +36,7 @@ pub const OP_UPLOAD_CURSOR: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 /// (5 bytes: op + u32). gpud re-samples the retained scrollable layer at that row
 /// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
 /// `OP_MOVE_CURSOR`.
-pub const OP_SET_CHAT_SCROLL: u8 = nexus_display_proto::OP_SET_CHAT_SCROLL;
+pub const OP_SET_LAYER_SCROLL: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
 /// Upload a real icon sprite to composite as a GPU layer in the virgl buildup.
 /// Payload: op + tex_w(u32) + tex_h(u32) + dst_x(u32) + dst_y(u32) + dst_w(u32) +
 /// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
@@ -229,6 +229,12 @@ fn service_requests(
     #[cfg(all(nexus_env = "os", feature = "virgl"))]
     let spin_demo_active =
         crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO;
+    // Scroll coalescing: `OP_SET_LAYER_SCROLL` requests only RECORD their row;
+    // this flag makes the next recv NonBlocking so the whole queued burst drains
+    // (latest row wins), and the single re-composite happens in the WouldBlock
+    // arm below. A full present (`OP_PRESENT_DAMAGE`) clears it — that present
+    // already composites the recorded rows.
+    let mut scroll_flush_pending = false;
     loop {
         // Reactive by default: BLOCK until windowd sends a command (framebuffer VMO,
         // present damage, or animation submit) — no polling, no busy-wait; the kernel
@@ -238,7 +244,11 @@ fn service_requests(
         // frame, so gpud must drive the reveal itself rather than block until windowd
         // recovers (seconds later). Once revealed, this reverts to Blocking (fully reactive).
         #[cfg(all(nexus_env = "os", feature = "virgl"))]
-        let wait = if spin_demo_active
+        let wait = if scroll_flush_pending {
+            // A recorded scroll row awaits its composite: drain any further queued
+            // requests first (latest wins), then flush in the WouldBlock arm.
+            Wait::NonBlocking
+        } else if spin_demo_active
             || backend.is_holding_boot_splash()
             || backend.bootstrap_splash_active()
         {
@@ -247,7 +257,7 @@ fn service_requests(
             Wait::Blocking
         };
         #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
-        let wait = Wait::Blocking;
+        let wait = if scroll_flush_pending { Wait::NonBlocking } else { Wait::Blocking };
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
@@ -306,6 +316,9 @@ fn service_requests(
                         }
                     }
                     OP_PRESENT_DAMAGE => {
+                        // This present composites the recorded scroll rows — the
+                        // deferred flush would be a redundant second re-composite.
+                        scroll_flush_pending = false;
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
                         let handoff_id =
@@ -436,7 +449,7 @@ fn service_requests(
                             (status, None)
                         }
                     }
-                    _ => (handle_frame(&mut backend, frame), None),
+                    _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
                 };
                 drop(moved_cap);
                 if let Some(handoff_id) = response_handoff_id {
@@ -485,6 +498,17 @@ fn service_requests(
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                // Deferred scroll composite: the queued burst is drained (every
+                // request already recorded its row, latest wins) — re-composite
+                // ONCE at the final position, then return to reactive blocking.
+                if scroll_flush_pending {
+                    scroll_flush_pending = false;
+                    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+                    {
+                        let _ = backend.flush_layer_scroll();
+                    }
+                    continue;
+                }
                 // Frame-paced tick (recv timed out, windowd idle): re-present so the reveal
                 // gate re-evaluates and the desktop appears the instant the wallpaper +
                 // cursor are ready — gpud drives this itself because windowd stalls its
@@ -865,7 +889,7 @@ fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
     present_scanout_damage(backend, Rect { x, y, width, height })
 }
 
-fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
+fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut bool) -> u8 {
     let Some(op) = frame.first().copied() else {
         return STATUS_MALFORMED;
     };
@@ -913,28 +937,39 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
             }
             STATUS_OK
         }
-        OP_SET_CHAT_SCROLL => {
-            if frame.len() < 5 {
+        OP_SET_LAYER_SCROLL => {
+            if frame.len() < 9 {
                 return STATUS_MALFORMED;
             }
-            let src_row = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
-            // Re-sample the retained scrollable layer at the new atlas row + GPU
-            // re-composite (~54µs, no atlas re-upload). Decoupled from windowd's
-            // CPU compose — the scroll fast path, like OP_MOVE_CURSOR for the cursor.
+            let scroll_id = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+            let src_row = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+            // RECORD the override only — the service loop drains the whole queued
+            // burst (latest row wins) and re-composites ONCE via
+            // `flush_layer_scroll` when the queue is empty. Presenting per request
+            // turned a fling into a backlog of full re-composites of stale
+            // positions (seconds of dead UI).
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             {
-                return match backend.set_chat_scroll(src_row) {
-                    Ok(()) => STATUS_OK,
+                return match backend.record_layer_scroll(scroll_id, src_row) {
+                    Ok(()) => {
+                        *scroll_flush = true;
+                        STATUS_OK
+                    }
                     Err(_) => STATUS_DEVICE_ERROR,
                 };
             }
             #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
             {
-                let _ = (backend, src_row);
+                let _ = (backend, scroll_id, src_row, scroll_flush);
                 STATUS_OK
             }
         }
-        OP_PRESENT_DAMAGE => handle_present_damage(backend, frame),
+        OP_PRESENT_DAMAGE => {
+            // A full present composites the recorded scroll rows anyway — the
+            // deferred scroll flush would be a redundant second re-composite.
+            *scroll_flush = false;
+            handle_present_damage(backend, frame)
+        }
         _ => STATUS_MALFORMED,
     }
 }

@@ -414,7 +414,7 @@ impl ShellWindow {
                 dst_y: p.y,
                 opacity: 255,
                 corner_radius: p.radius,
-                scrollable: false,
+                scroll_id: 0,
                 shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                     blur: p.shadow_blur,
                     offset_y: p.shadow_offset_y,
@@ -446,6 +446,7 @@ impl ShellWindow {
     pub(crate) fn composite_scrollable_glass(
         encoder: &mut RenderCommandEncoder<'_>,
         p: GlassCompositeParams,
+        scroll_id: u32,
         content_offset: u32,
         header_h: u32,
         mode_w: u32,
@@ -470,7 +471,7 @@ impl ShellWindow {
                 dst_y: p.y,
                 opacity: 255,
                 corner_radius: p.radius,
-                scrollable: true,
+                scroll_id,
                 shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                     blur: p.shadow_blur,
                     offset_y: p.shadow_offset_y,

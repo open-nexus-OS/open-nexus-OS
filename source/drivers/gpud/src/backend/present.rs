@@ -373,8 +373,8 @@ impl VirtioGpuBackend {
                 self.pending_rt_count = 0;
                 self.rt_layers_dirty = true; // content changed → re-upload once
                                              // A fresh full layer set carries the authoritative scroll offset in
-                                             // the scrollable layer's `src_row_abs`, so drop any fast-path override.
-                self.chat_scroll_src_row = None;
+                                             // the scrollable layers' `src_row_abs`, so drop any fast-path overrides.
+                self.scroll_src_rows = [None; crate::backend::MAX_SCROLL_IDS];
                 for cmd in cmds {
                     if let Command::CompositeLayer {
                         src_row_abs,
@@ -389,7 +389,7 @@ impl VirtioGpuBackend {
                         shadow_offset_y,
                         shadow_alpha,
                         backdrop_blur,
-                        scrollable,
+                        scroll_id,
                     } = cmd
                     {
                         if self.pending_rt_count < MAX_PENDING_RT_LAYERS {
@@ -406,7 +406,7 @@ impl VirtioGpuBackend {
                                 shadow_offset_y: *shadow_offset_y,
                                 shadow_alpha: *shadow_alpha,
                                 backdrop_blur: *backdrop_blur,
-                                scrollable: *scrollable,
+                                scroll_id: *scroll_id,
                             };
                             self.pending_rt_count += 1;
                         }
@@ -661,15 +661,15 @@ impl VirtioGpuBackend {
                     shadow_offset_y,
                     shadow_alpha,
                     backdrop_blur,
-                    scrollable,
+                    scroll_id,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
                     // relies on the content's own alpha (translucent panel bg).
                     #[cfg(not(feature = "virgl"))]
                     let _ = opacity;
-                    // `scrollable` only drives the virgl RT-direct fast path below.
+                    // `scroll_id` only drives the virgl RT-direct fast path below.
                     #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-                    let _ = scrollable;
+                    let _ = scroll_id;
                     // RT-direct (Increment 1): defer non-glass layers and
                     // composite them straight onto the scanout RT after the base
                     // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
@@ -693,7 +693,7 @@ impl VirtioGpuBackend {
                             shadow_offset_y: *shadow_offset_y,
                             shadow_alpha: *shadow_alpha,
                             backdrop_blur: *backdrop_blur,
-                            scrollable: *scrollable,
+                            scroll_id: *scroll_id,
                         };
                         self.pending_rt_count += 1;
                         continue; // composited onto the RT in gl_present, not here
@@ -810,12 +810,17 @@ impl VirtioGpuBackend {
         let upload = if buildup { self.rt_layers_dirty } else { true };
         for i in 0..n {
             let l = self.pending_rt_layers[i];
-            // Scroll fast path: the scrollable layer (chat body) is re-sampled at
-            // the override row when set — no CPU re-render, just a different source
-            // offset into the already-uploaded atlas texture.
-            let src_row_abs = match (l.scrollable, self.chat_scroll_src_row) {
-                (true, Some(row)) => row,
-                _ => l.src_row_abs,
+            // Scroll fast path: a scrollable layer (non-zero scroll_id) is
+            // re-sampled at its id's override row when set — no CPU re-render,
+            // just a different source offset into the already-uploaded atlas
+            // texture.
+            let src_row_abs = match l
+                .scroll_id
+                .checked_sub(1)
+                .and_then(|i| self.scroll_src_rows.get(i as usize).copied().flatten())
+            {
+                Some(row) => row,
+                None => l.src_row_abs,
             };
             // Frosted glass: blur what is beneath this layer's rect (destination-
             // so-far — layers composite back-to-front, so lower windows/chrome are

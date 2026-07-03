@@ -116,12 +116,14 @@ pub enum Command {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
-        /// Marks the one scrollable content layer (the chat body). The backend
-        /// retains it and can re-sample it at a new `src_row_abs` on a lightweight
-        /// scroll command (`OP_SET_CHAT_SCROLL`) — a 54µs GPU re-composite — instead
-        /// of the embedder re-composing the whole region on the CPU per frame. This
-        /// is the scroll fast path, the analogue of the cursor's `OP_MOVE_CURSOR`.
-        scrollable: bool,
+        /// Scroll identity of the layer (`0` = not scrollable). The backend keeps
+        /// a per-id source-row override that a lightweight scroll command
+        /// (`OP_SET_LAYER_SCROLL(scroll_id, src_row)`) updates — a ~54µs GPU
+        /// re-composite at the new `src_row_abs`, instead of the embedder
+        /// re-composing the whole region on the CPU per frame. This is the scroll
+        /// fast path, the analogue of the cursor's `OP_MOVE_CURSOR`; the id
+        /// generalizes it beyond the single hardcoded chat layer (TASK-0070 Phase 7).
+        scroll_id: u32,
     },
 }
 
@@ -422,7 +424,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 shadow_offset_y,
                 shadow_alpha,
                 backdrop_blur,
-                scrollable,
+                scroll_id,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -440,7 +442,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *shadow_offset_y as u32,
                         *shadow_alpha,
                         *backdrop_blur,
-                        u32::from(*scrollable),
+                        *scroll_id,
                     ],
                 )?;
             }
@@ -823,7 +825,7 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             shadow_offset_y: w[9] as i32,
             shadow_alpha: w[10],
             backdrop_blur: w[11],
-            scrollable: w[12] != 0,
+            scroll_id: w[12],
         },
         pos + 52,
     ))
@@ -965,12 +967,12 @@ fn validate_tile(tile: TileRect, render_extent: Option<(u32, u32)>) -> Result<()
 mod scroll_tag_tests {
     use super::*;
 
-    /// The scroll fast path depends on the `scrollable` tag surviving the wire to
+    /// The scroll fast path depends on the `scroll_id` surviving the wire to
     /// gpud. This pins that: a scrollable CompositeLayer serialized + deserialized
-    /// keeps `scrollable == true` (and a normal one stays false). If this breaks,
-    /// gpud can't identify the chat layer and the scroll fast path silently dies.
+    /// keeps its id (and a normal one stays 0). If this breaks, gpud can't
+    /// identify scrollable layers and the scroll fast path silently dies.
     #[test]
-    fn scrollable_tag_roundtrips_over_the_wire() {
+    fn scroll_id_roundtrips_over_the_wire() {
         let cb = CommittedBuffer {
             commands: alloc::vec![
                 Command::CompositeLayer {
@@ -986,7 +988,7 @@ mod scroll_tag_tests {
                     shadow_offset_y: 12,
                     shadow_alpha: 180,
                     backdrop_blur: 0,
-                    scrollable: true,
+                    scroll_id: 1,
                 },
                 Command::CompositeLayer {
                     src_row_abs: 4000,
@@ -1001,7 +1003,7 @@ mod scroll_tag_tests {
                     shadow_offset_y: 0,
                     shadow_alpha: 0,
                     backdrop_blur: 0,
-                    scrollable: false,
+                    scroll_id: 0,
                 },
             ],
         };
@@ -1009,20 +1011,16 @@ mod scroll_tag_tests {
         let n = cb.serialize_into(&mut buf).expect("serialize");
         let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
         assert_eq!(consumed, n, "consumed all serialized bytes");
-        let tags: alloc::vec::Vec<(u32, bool)> = out
+        let tags: alloc::vec::Vec<(u32, u32)> = out
             .commands
             .iter()
             .filter_map(|c| match c {
-                Command::CompositeLayer { src_row_abs, scrollable, .. } => {
-                    Some((*src_row_abs, *scrollable))
+                Command::CompositeLayer { src_row_abs, scroll_id, .. } => {
+                    Some((*src_row_abs, *scroll_id))
                 }
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            tags,
-            alloc::vec![(3200, true), (4000, false)],
-            "scrollable tag preserved per layer"
-        );
+        assert_eq!(tags, alloc::vec![(3200, 1), (4000, 0)], "scroll_id preserved per layer");
     }
 }

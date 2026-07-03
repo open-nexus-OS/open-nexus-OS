@@ -43,8 +43,12 @@ pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
 /// Upload a cursor sprite (BGRA) for software BlendCursor compositing.
 pub const OP_UPLOAD_CURSOR: u8 = 5;
-/// Scroll fast path: new absolute atlas source row for the chat layer.
-pub const OP_SET_CHAT_SCROLL: u8 = 6;
+/// Scroll fast path: new absolute atlas source row for the scrollable layer
+/// identified by `scroll_id`. Payload: `scroll_id: u32` + `src_row: u32`
+/// (little-endian). Generalizes the former chat-only scroll op (TASK-0070
+/// Phase 7) — any layer composited with a non-zero `scroll_id` can be
+/// re-sampled without a CPU re-render.
+pub const OP_SET_LAYER_SCROLL: u8 = 6;
 /// Upload a real icon sprite to composite as a GPU layer.
 pub const OP_UPLOAD_ICON: u8 = 7;
 

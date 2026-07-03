@@ -97,6 +97,13 @@ fn kern(f: &Face, left: usize, right: usize) -> i32 {
     0
 }
 
+/// Advance of a single glyph in pixels (no kerning) — the unit the wrap
+/// walker accumulates (kerning at these sizes rounds to ≤1px per pair and the
+/// renderer clips, so wrap and paint cannot visibly drift).
+pub(crate) fn advance(ch: char, size: FontSize) -> u32 {
+    face(size).glyphs[glyph_index(ch)].5 as u32
+}
+
 /// Advance width of a run in pixels (kerning included).
 pub(crate) fn measure(text: impl Iterator<Item = char>, size: FontSize) -> u32 {
     let f = face(size);
