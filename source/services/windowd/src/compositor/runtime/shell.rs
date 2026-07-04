@@ -208,6 +208,25 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!("uitheme: switched (to={})", mode.as_str()));
     }
 
+    /// Toggle light↔dark from the settings panel (TASK-0072 Phase 10): switch the
+    /// live UI immediately, then persist the new mode via settingsd so it survives
+    /// a reboot. The live switch already happened, so a transport failure only
+    /// misses persistence — never blocks the UI.
+    pub(super) fn toggle_theme(&mut self) {
+        let next = self.theme_mode.toggled();
+        self.set_theme_mode(next);
+        #[cfg(all(nexus_env = "os", target_os = "none"))]
+        {
+            if crate::settings_client::set_theme_mode(next) {
+                let _ = debug_println("windowd: theme persist ok");
+            } else {
+                let _ = debug_println("windowd: theme persist unroutable");
+            }
+            // The user made a definite choice — a late boot probe must not revert it.
+            self.mark_theme_user_set();
+        }
+    }
+
     /// The topbar item whose dropdown is open (Apps=0 default when none, for
     /// stable geometry while the close animation runs).
     pub(super) fn dropdown_item(&self) -> usize {
@@ -255,5 +274,82 @@ impl DisplayServerRuntime {
             band_start = band_end;
         }
         Ok(())
+    }
+}
+
+/// Persisted-theme probe state (TASK-0072 Phase 10). Mirrors `SessionProbe`:
+/// a one-shot-until-success GET of `ui.theme.mode` from settingsd, bounded so a
+/// missing/slow settingsd degrades to the build-time default (Dark) instead of
+/// retrying forever.
+#[derive(Default)]
+pub(super) struct ThemeProbe {
+    /// The theme has been resolved (applied from settingsd, or the bound hit).
+    done: bool,
+    /// Attempts so far.
+    attempts: u32,
+    /// Monotonic deadline before the next attempt.
+    next_try_ns: u64,
+}
+
+/// Probe cadence: settingsd is a background service, so on a display-first boot
+/// the first attempts may race its bind. 250ms × 24 = ~6s before the default.
+#[cfg(all(nexus_env = "os", target_os = "none"))]
+const THEME_PROBE_INTERVAL_NS: u64 = 250_000_000;
+#[cfg(all(nexus_env = "os", target_os = "none"))]
+const THEME_PROBE_MAX_ATTEMPTS: u32 = 24;
+
+#[cfg(all(nexus_env = "os", target_os = "none"))]
+impl DisplayServerRuntime {
+    /// One synchronous GET at the first-frame handoff: restores the persisted
+    /// theme before the first present when settingsd is already up. A miss falls
+    /// back to the cadenced probe below.
+    pub(crate) fn theme_probe_at_handoff(&mut self) {
+        if self.theme_probe.done {
+            return;
+        }
+        self.theme_probe.attempts = self.theme_probe.attempts.saturating_add(1);
+        self.try_restore_persisted_theme();
+    }
+
+    /// One probe step from the main loop. Returns `true` while the probe still
+    /// needs pacing wakes (else the loop stays fully blocking).
+    pub(crate) fn theme_probe_tick(&mut self, now_ns: u64) -> bool {
+        if self.theme_probe.done {
+            return false;
+        }
+        if self.is_handoff_pending() {
+            return true;
+        }
+        if now_ns < self.theme_probe.next_try_ns {
+            return true;
+        }
+        self.theme_probe.next_try_ns = now_ns.saturating_add(THEME_PROBE_INTERVAL_NS);
+        self.theme_probe.attempts = self.theme_probe.attempts.saturating_add(1);
+        self.try_restore_persisted_theme();
+        if !self.theme_probe.done && self.theme_probe.attempts >= THEME_PROBE_MAX_ATTEMPTS {
+            self.theme_probe.done = true; // settingsd unreachable → keep the default
+            let _ = debug_println("windowd: theme default (settingsd unavailable)");
+        }
+        !self.theme_probe.done
+    }
+
+    /// GET `ui.theme.mode`; on success apply it (a no-op when it already matches)
+    /// and mark the probe resolved. Emits an honest marker so the reboot-survival
+    /// chain is observable end-to-end.
+    fn try_restore_persisted_theme(&mut self) {
+        if let Some(mode) = crate::settings_client::get_theme_mode() {
+            self.theme_probe.done = true;
+            self.set_theme_mode(mode);
+            let _ = debug_println(&alloc::format!(
+                "windowd: theme restored (mode={})",
+                mode.as_str()
+            ));
+        }
+    }
+
+    /// The user set the theme via the settings panel: the probe must not later
+    /// revert it with a stale GET (the persist + live switch already happened).
+    pub(super) fn mark_theme_user_set(&mut self) {
+        self.theme_probe.done = true;
     }
 }

@@ -177,6 +177,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Abilitymgr, ServiceId::Sessiond),   // launch gate: session must be active
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
+    (ServiceId::Windowd, ServiceId::Settingsd),     // theme GET/SET persistence (TASK-0072 P10)
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd),    // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
@@ -248,6 +249,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         routes_to: &[
             Route { to: ServiceId::Bundlemgrd, kind: RouteKind::ReplyInbox },
             Route { to: ServiceId::Sessiond, kind: RouteKind::ReplyInbox },
+            Route { to: ServiceId::Settingsd, kind: RouteKind::ReplyInbox },
         ],
         announce: true,
     },

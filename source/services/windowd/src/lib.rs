@@ -25,6 +25,11 @@ mod registry_client;
 // CAP_MOVE — the greeter/login relay. OS-only (IPC); codecs host-tested in nexus-abi.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod session_client;
+// Settings-registry client (TASK-0072 Phase 10): windowd → settingsd GET/SET of
+// `ui.theme.mode` over CAP_MOVE — restores the persisted theme at boot + persists
+// the toggle. OS-only (IPC); codecs host-tested in nexus-abi::settingsd.
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod settings_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

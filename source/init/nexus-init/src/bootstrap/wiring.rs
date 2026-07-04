@@ -785,6 +785,11 @@ pub(crate) fn wire_services(
                     if let Some(sess_req) = sess_req {
                         provision_windowd_session_route(pid, sess_req, chan);
                     }
+                    // Settings route (TASK-0072 Phase 10): settingsd's minted
+                    // request endpoint, same shared reply inbox.
+                    if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
+                        provision_windowd_settings_route(pid, settings_req, chan);
+                    }
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -808,6 +813,11 @@ pub(crate) fn wire_services(
                 // Session route AFTER the registry route (TASK-0065B).
                 if let Some(sess_req) = sess_req {
                     provision_windowd_session_route(pid, sess_req, chan);
+                }
+                // Settings route (TASK-0072 Phase 10): settingsd's minted request
+                // endpoint, same shared reply inbox as session/registry.
+                if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
+                    provision_windowd_settings_route(pid, settings_req, chan);
                 }
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
@@ -1433,6 +1443,22 @@ fn provision_windowd_session_route(pid: u32, sess_req: u32, chan: &mut CtrlChann
         chan.set_recv(ServiceId::Sessiond, reply_recv);
         // (emitted from a post-bootstrap helper, outside run_bootstrap's init_wire scope — left raw)
         debug_write_bytes(b"init: windowd route->sessiond ok\n");
+    }
+}
+
+/// Provisions windowd's settings route (TASK-0072 Phase 10): a SEND cap to
+/// settingsd's PRE-MINTED request endpoint (generic RFC-0069 server pair); the
+/// GET/SET replies arrive on the SAME CAP_MOVE reply inbox the registry route
+/// created (call order: registry route first). Best-effort: a failure leaves the
+/// theme at the build-time default — never bricks boot.
+fn provision_windowd_settings_route(pid: u32, settings_req: u32, chan: &mut CtrlChannel) {
+    let Some(reply_recv) = chan.reply_recv_slot else {
+        return;
+    };
+    if let Ok(s) = nexus_abi::cap_transfer(pid, settings_req, Rights::SEND) {
+        chan.set_send(ServiceId::Settingsd, s);
+        chan.set_recv(ServiceId::Settingsd, reply_recv);
+        debug_write_bytes(b"init: windowd route->settingsd ok\n");
     }
 }
 

@@ -323,8 +323,7 @@ impl DisplayServerRuntime {
                             use crate::compositor::desktop_layer::{settings_row_at, SETTINGS_ROW_THEME};
                             let local_y = (cursor_y - frame.y) as u32;
                             if settings_row_at(local_y) == Some(SETTINGS_ROW_THEME) {
-                                let next = self.theme_mode.toggled();
-                                self.set_theme_mode(next);
+                                self.toggle_theme();
                             }
                         }
                     }

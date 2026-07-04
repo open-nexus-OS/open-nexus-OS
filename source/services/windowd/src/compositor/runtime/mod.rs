@@ -482,6 +482,11 @@ pub(crate) struct DisplayServerRuntime {
     /// whether a session is active (apply its shell product) or the greeter
     /// owns the display. Bounded; unreachable = auto shell, never a brick.
     session_probe: session::SessionProbe,
+    /// Persisted-theme probe (TASK-0072 Phase 10): after the handoff, GET
+    /// `ui.theme.mode` from settingsd and apply it, so a saved light/dark
+    /// choice is restored across reboots. Bounded, one-shot-until-success;
+    /// settingsd unreachable/slow = the build-time default (Dark), never a brick.
+    theme_probe: shell::ThemeProbe,
     /// The login greeter, while it owns the display (TASK-0065B): blurred
     /// wallpaper + avatar card baked into Plane 1; all shell affordances
     /// suppressed until sessiond accepts a login.
@@ -892,6 +897,7 @@ impl DisplayServerRuntime {
             app_menu,
             app_menu_fetched: false,
             session_probe: session::SessionProbe::default(),
+            theme_probe: shell::ThemeProbe::default(),
             greeter: None,
             search,
             settings_win,

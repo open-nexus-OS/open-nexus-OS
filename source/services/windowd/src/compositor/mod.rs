@@ -344,9 +344,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // bounded — resolution or the auto-shell fallback disarms it.
             let session_pending =
                 runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
+            // `ui.theme.mode` from settingsd once it binds; bounded, then default.
+            let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
             let needs_pacing = runtime.has_active_animations()
                 || runtime.has_pending_damage()
-                || session_pending;
+                || session_pending
+                || theme_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {
                     // One-shot timer (interval_ns = 0): windowd rearms it every tick

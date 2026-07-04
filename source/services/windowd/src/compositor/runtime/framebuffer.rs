@@ -156,6 +156,10 @@ impl DisplayServerRuntime {
         // desktop never flashes. Bounded; a miss defers to the cadenced probe.
         if self.first_handoff_attach_acked && !self.first_handoff_present_sent {
             self.session_probe_at_handoff();
+            // Restore the persisted light/dark theme before the first present
+            // when settingsd is already up (TASK-0072 Phase 10); a miss defers
+            // to the cadenced theme probe in the main loop.
+            self.theme_probe_at_handoff();
         }
 
         // Reactive present: blit the full retained scene to the display plane and

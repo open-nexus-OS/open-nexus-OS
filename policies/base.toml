@@ -26,7 +26,9 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # TASK-0065B: `session.query` = talk to sessiond (windowd relays the greeter
 # login; abilitymgr gates app launches on session state).
 "abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn", "session.query"]
-"windowd" = ["ipc.core", "bundle.query", "session.query"]
+# TASK-0072 P10: `settings.query` = talk to settingsd (GET/SET ui.theme.mode);
+# routing itself is gated on `ipc.core`, this documents the intended target.
+"windowd" = ["ipc.core", "bundle.query", "session.query", "settings.query"]
 # sessiond answers session queries only; it calls nobody.
 sessiond = ["ipc.core"]
 # TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
