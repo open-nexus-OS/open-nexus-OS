@@ -29,6 +29,39 @@ a light/dark appearance switch working end-to-end (typed key → persisted → a
 task executes as the S-track of the combined window-management/settings track (`TASK-0070`
 phases 1–7 = W-track; this file = phases 8–10).
 
+## Progress ledger
+
+- **Phase 8 service core DONE (in review, 2026-07-04)** — the typed registry service is built +
+  host/riscv verified; the boot wiring (reboot-survival gate) is the one remaining focused pass.
+  - `nexus-abi::settingsd` wire module: magic `ST`, v1, `OP_GET`/`OP_SET`, `TYPE_TEXT`, seed
+    keys (`ui.theme.mode`, `ui.font.family`, prepared `ui.locale`), encode/decode for
+    request + response. 4 golden-byte tests.
+  - `settingsd/src/registry.rs` — `SettingsRegistry`: a `SPECS` table of `(key, default,
+    validator)`; `get` serves the default until set; `set` is validate-then-store and reports
+    whether the value changed; `to_prefs_blob`/`load_prefs_blob` persist only non-default
+    overrides (a stale journal line is skipped, never bricks the registry). 5 tests.
+  - `settingsd/src/os_lite.rs` — `service_main_loop` (mirrors sessiond): binds the server,
+    loads persisted prefs at boot, serves GET/SET; a SET is atomic (validate → persist →
+    apply). Markers `settingsd: load prefs (n=…)`, `settingsd: ready`,
+    `settingsd: set key=… value=… persist=ok|fail`.
+  - `settingsd/src/statefs_client.rs` — the first runtime statefsd client: the
+    windowd→sessiond route + CAP_MOVE recipe, hand-encoding the stable statefs v1 frames, key
+    `settingsd/prefs`, best-effort (unreachable statefsd degrades to code defaults).
+  - Crate restructured dual-mode like sessiond: `no_std` under OS, `std` feature carries the
+    legacy `InputSettingsSnapshot` (no external consumers) + CLI `run()`, `os-lite` feature
+    carries the service. Registry on `alloc`.
+  - Gates: 8 settingsd host tests, `nexus-abi` full suite green (incl. the 4 goldens), riscv
+    `os-lite` check clean, host binary builds.
+- **Phase 8 boot wiring DONE (in review, 2026-07-04)** — settingsd is now a booted service.
+  The wiring proved fully declarative (RFC-0069), no orchestrator/endpoints surgery:
+  discover-services auto-embeds it (it has the `nexus-service` metadata + cross-compiles);
+  `service_topology` gained `ServiceId::Settingsd`, its `ServiceSpec` (server + statefsd route)
+  and the `Settingsd→Statefsd` required route (the generic arm provisions the endpoint + route
+  from the spec); `policies/base.toml` grants it `ipc.core`/`statefs.read`/`statefs.write`.
+  Gates: nexus-init topology-consistency host tests, policyd host + riscv, nexus-init riscv,
+  `GPU_MODE=virgl` build (init +28KB, the `settingsd: ready`/`load prefs` markers embedded).
+  The reboot-survival gate needs a `SET` first — that arrives with the Phase 10 settings UI.
+
 ## IST (verified 2026-07-03)
 
 - `source/services/settingsd/` exists but is only an input-settings snapshot feeder (~150 LOC,

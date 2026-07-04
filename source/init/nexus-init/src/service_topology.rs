@@ -68,15 +68,17 @@ pub enum ServiceId {
     SelftestClient = 22,
     /// Session manager daemon (RFC-0069 §4 — owns the `session-start` stage).
     Sessiond = 23,
+    /// Typed settings registry daemon (TASK-0072 Phase 8 — persists prefs via statefsd).
+    Settingsd = 24,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=23`, so the array spans `0..=23`; index 0 is unused).
-    pub const COUNT: usize = 24;
+    /// (discriminants are `1..=24`, so the array spans `0..=24`; index 0 is unused).
+    pub const COUNT: usize = 25;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 23] = [
+    pub const ALL: [ServiceId; 24] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -100,6 +102,7 @@ impl ServiceId {
         Self::Touchd,
         Self::SelftestClient,
         Self::Sessiond,
+        Self::Settingsd,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -128,6 +131,7 @@ impl ServiceId {
             b"touchd" => Self::Touchd,
             b"selftest-client" => Self::SelftestClient,
             b"sessiond" => Self::Sessiond,
+            b"settingsd" => Self::Settingsd,
             _ => return None,
         })
     }
@@ -158,6 +162,7 @@ impl ServiceId {
             Self::Touchd => "touchd",
             Self::SelftestClient => "selftest-client",
             Self::Sessiond => "sessiond",
+            Self::Settingsd => "settingsd",
         }
     }
 }
@@ -179,6 +184,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
     (ServiceId::Samgrd, ServiceId::Logd),     // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
+    (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
 ];
 
 /// How a service receives the target's replies on a declared route (RFC-0069).
@@ -315,6 +321,17 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
         reply_inbox: false,
         routes_to: &[],
         announce: true,
+    },
+    // TASK-0072 Phase 8: the typed settings registry. Exposes a server (windowd
+    // settings panel is a client, Phase 10) and calls statefsd to persist prefs
+    // (its reply inbox = the shared `@reply` recipe). New service = this manifest
+    // entry + its statefsd route + policy grant; the declarative arm wires it.
+    ServiceSpec {
+        id: ServiceId::Settingsd,
+        exposes_server: true,
+        reply_inbox: true,
+        routes_to: &[Route { to: ServiceId::Statefsd, kind: RouteKind::ReplyInbox }],
+        announce: false,
     },
 ];
 

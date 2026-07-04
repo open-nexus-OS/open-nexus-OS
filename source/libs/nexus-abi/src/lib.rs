@@ -890,6 +890,217 @@ pub mod sessiond {
     }
 }
 
+/// settingsd v1 wire protocol (TASK-0072 Phase 8): a TYPED settings registry.
+/// Keys are dotted namespaces (`ui.theme.mode`), values carry a type tag, and
+/// every mutation flows through settingsd (validation + apply hook +
+/// persistence via statefsd) — no client writes prefs directly.
+pub mod settingsd {
+    /// First magic byte (`'S'`).
+    pub const MAGIC0: u8 = b'S';
+    /// Second magic byte (`'T'`).
+    pub const MAGIC1: u8 = b'T';
+    /// Protocol version.
+    pub const VERSION: u8 = 1;
+
+    /// Read one key's typed value.
+    pub const OP_GET: u8 = 1;
+    /// Write one key's typed value (validated, applied, persisted).
+    pub const OP_SET: u8 = 2;
+
+    /// Operation succeeded.
+    pub const STATUS_OK: u8 = 0;
+    /// Request frame was malformed.
+    pub const STATUS_MALFORMED: u8 = 1;
+    /// The key is not in the registry.
+    pub const STATUS_UNKNOWN_KEY: u8 = 2;
+    /// The value's type/content failed the key's validation.
+    pub const STATUS_INVALID_VALUE: u8 = 3;
+    /// Persisting to statefsd failed (the in-memory value did NOT change —
+    /// set is atomic: validate → persist → apply).
+    pub const STATUS_PERSIST_FAIL: u8 = 4;
+
+    /// Value type tags. v1 carries every value as UTF-8 TEXT with a tag that
+    /// names the key's semantic type — enums (`dark`/`light`) and identifiers
+    /// stay human-readable on the wire and in the persisted journal.
+    pub const TYPE_TEXT: u8 = 0;
+
+    /// Seed keys (TASK-0225 vocabulary). The registry defines defaults +
+    /// validation server-side; clients only name keys.
+    pub const KEY_UI_THEME_MODE: &str = "ui.theme.mode";
+    /// UI font family (read-only default today; live switching is a follow-up).
+    pub const KEY_UI_FONT_FAMILY: &str = "ui.font.family";
+    /// Prepared (registered, no consumer yet): locale + MIME defaults.
+    pub const KEY_UI_LOCALE: &str = "ui.locale";
+
+    /// Encodes a GET request: `[S, T, ver, OP_GET, key_len:u8, key...]`.
+    /// Returns the frame length; `None` when the key is empty/oversized or
+    /// `out` is too small.
+    pub fn encode_get_req(key: &str, out: &mut [u8]) -> Option<usize> {
+        let k = key.as_bytes();
+        if k.is_empty() || k.len() > u8::MAX as usize {
+            return None;
+        }
+        let len = 5 + k.len();
+        if out.len() < len {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_GET;
+        out[4] = k.len() as u8;
+        out[5..len].copy_from_slice(k);
+        Some(len)
+    }
+
+    /// Encodes a SET request:
+    /// `[S, T, ver, OP_SET, key_len:u8, key..., type:u8, val_len:u8, val...]`.
+    pub fn encode_set_req(key: &str, value: &str, out: &mut [u8]) -> Option<usize> {
+        let (k, v) = (key.as_bytes(), value.as_bytes());
+        if k.is_empty() || k.len() > u8::MAX as usize || v.len() > u8::MAX as usize {
+            return None;
+        }
+        let len = 5 + k.len() + 2 + v.len();
+        if out.len() < len {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_SET;
+        out[4] = k.len() as u8;
+        out[5..5 + k.len()].copy_from_slice(k);
+        out[5 + k.len()] = TYPE_TEXT;
+        out[6 + k.len()] = v.len() as u8;
+        out[7 + k.len()..len].copy_from_slice(v);
+        Some(len)
+    }
+
+    /// Decodes a request → `(op, key, value)`; `value` is empty for GET.
+    /// Returns `None` on any malformed frame (bad magic/version/lengths).
+    pub fn decode_request(frame: &[u8]) -> Option<(u8, &str, &str)> {
+        if frame.len() < 5 || frame[0] != MAGIC0 || frame[1] != MAGIC1 || frame[2] != VERSION {
+            return None;
+        }
+        let op = frame[3];
+        let klen = frame[4] as usize;
+        let key_end = 5 + klen;
+        if klen == 0 || frame.len() < key_end {
+            return None;
+        }
+        let key = core::str::from_utf8(&frame[5..key_end]).ok()?;
+        match op {
+            OP_GET => (frame.len() == key_end).then_some((op, key, "")),
+            OP_SET => {
+                if frame.len() < key_end + 2 || frame[key_end] != TYPE_TEXT {
+                    return None;
+                }
+                let vlen = frame[key_end + 1] as usize;
+                let val_end = key_end + 2 + vlen;
+                if frame.len() != val_end {
+                    return None;
+                }
+                let value = core::str::from_utf8(&frame[key_end + 2..val_end]).ok()?;
+                Some((op, key, value))
+            }
+            _ => None,
+        }
+    }
+
+    /// Encodes a response: `[S, T, ver, op|0x80, status:u8, type:u8, val_len:u8, val...]`
+    /// (`val` is the key's current value for OK GET/SET; empty otherwise).
+    pub fn encode_response(op: u8, status: u8, value: &str, out: &mut [u8]) -> Option<usize> {
+        let v = value.as_bytes();
+        if v.len() > u8::MAX as usize {
+            return None;
+        }
+        let len = 7 + v.len();
+        if out.len() < len {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = op | 0x80;
+        out[4] = status;
+        out[5] = TYPE_TEXT;
+        out[6] = v.len() as u8;
+        out[7..len].copy_from_slice(v);
+        Some(len)
+    }
+
+    /// Decodes a response → `(status, value)`.
+    pub fn decode_response(op: u8, frame: &[u8]) -> Option<(u8, &str)> {
+        if frame.len() < 7
+            || frame[0] != MAGIC0
+            || frame[1] != MAGIC1
+            || frame[2] != VERSION
+            || frame[3] != (op | 0x80)
+            || frame[5] != TYPE_TEXT
+        {
+            return None;
+        }
+        let vlen = frame[6] as usize;
+        if frame.len() != 7 + vlen {
+            return None;
+        }
+        let value = core::str::from_utf8(&frame[7..]).ok()?;
+        Some((frame[4], value))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        // Golden byte layouts: the wire format is a cross-service contract —
+        // a layout drift breaks windowd/statefsd interop silently.
+        #[test]
+        fn get_request_golden_bytes() {
+            let mut buf = [0u8; 32];
+            let n = encode_get_req("ui.theme.mode", &mut buf).unwrap();
+            assert_eq!(&buf[..5], &[b'S', b'T', 1, OP_GET, 13]);
+            assert_eq!(&buf[5..n], b"ui.theme.mode");
+            let (op, key, value) = decode_request(&buf[..n]).unwrap();
+            assert_eq!((op, key, value), (OP_GET, "ui.theme.mode", ""));
+        }
+
+        #[test]
+        fn set_request_golden_bytes_and_roundtrip() {
+            let mut buf = [0u8; 64];
+            let n = encode_set_req(KEY_UI_THEME_MODE, "light", &mut buf).unwrap();
+            assert_eq!(&buf[..5], &[b'S', b'T', 1, OP_SET, 13]);
+            assert_eq!(buf[5 + 13], TYPE_TEXT);
+            assert_eq!(buf[6 + 13], 5);
+            let (op, key, value) = decode_request(&buf[..n]).unwrap();
+            assert_eq!((op, key, value), (OP_SET, "ui.theme.mode", "light"));
+        }
+
+        #[test]
+        fn response_roundtrip_and_rejects() {
+            let mut buf = [0u8; 32];
+            let n = encode_response(OP_GET, STATUS_OK, "dark", &mut buf).unwrap();
+            assert_eq!(decode_response(OP_GET, &buf[..n]), Some((STATUS_OK, "dark")));
+            // Wrong op bit / truncation / bad magic all reject.
+            assert_eq!(decode_response(OP_SET, &buf[..n]), None);
+            assert_eq!(decode_response(OP_GET, &buf[..n - 1]), None);
+            let mut bad = buf;
+            bad[0] = b'X';
+            assert_eq!(decode_response(OP_GET, &bad[..n]), None);
+        }
+
+        #[test]
+        fn malformed_requests_reject() {
+            // Truncated key, empty key, unknown op, trailing garbage on GET.
+            assert_eq!(decode_request(&[b'S', b'T', 1, OP_GET, 5, b'a']), None);
+            assert_eq!(decode_request(&[b'S', b'T', 1, OP_GET, 0]), None);
+            assert_eq!(decode_request(&[b'S', b'T', 1, 99, 1, b'a']), None);
+            let mut buf = [0u8; 32];
+            let n = encode_get_req("a", &mut buf).unwrap();
+            assert_eq!(decode_request(&buf[..n + 1]), None);
+        }
+    }
+}
+
 /// Read-only bundle image format used in OS bring-up (served by bundlemgrd, consumed by packagefsd).
 pub mod bundleimg {
     /// Image magic `NXBI` ("NeXuS Bundle Image").

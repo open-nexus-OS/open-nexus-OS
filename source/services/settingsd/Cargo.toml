@@ -4,8 +4,31 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
-[dependencies]
-settings = { path = "../../../userspace/settings" }
-inputd = { path = "../inputd" }
-keymaps = { path = "../../../userspace/keymaps" }
+[features]
+default = ["std"]
+std = ["dep:settings", "dep:inputd", "dep:keymaps"]
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
 
+[package.metadata.nexus-service]
+stack_pages = 0
+
+[dependencies]
+# Host-only legacy input-settings snapshot (TASK-0253).
+settings = { path = "../../../userspace/settings", optional = true }
+inputd = { path = "../inputd", optional = true }
+keymaps = { path = "../../../userspace/keymaps", optional = true }
+# OS boot service (TASK-0072 Phase 8).
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
+
+[[bin]]
+name = "settingsd"
+path = "src/main.rs"

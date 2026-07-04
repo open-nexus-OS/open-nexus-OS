@@ -55,6 +55,7 @@ ORDER = [
     'samgrd',
     'bundlemgrd',
     'statefsd',
+    'settingsd',
     'updated',
     'timed',
     'packagefsd',

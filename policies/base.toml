@@ -29,6 +29,10 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 "windowd" = ["ipc.core", "bundle.query", "session.query"]
 # sessiond answers session queries only; it calls nobody.
 sessiond = ["ipc.core"]
+# TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
+# (state:/prefs) — needs ipc.core to route + statefs read/write to load at boot
+# and store on change.
+settingsd = ["ipc.core", "statefs.read", "statefs.write"]
 "selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.boot"]
 "demo.testsvc" = []
 

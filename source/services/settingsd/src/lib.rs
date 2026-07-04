@@ -1,22 +1,57 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: `settingsd` service-side input snapshot seam for TASK-0253.
+//! CONTEXT: `settingsd` — the typed settings registry service (TASK-0072
+//! Phase 8). Every setting is a registered key with a default + validator;
+//! `set` is validate → persist (statefsd `state:/prefs/device.nxs`) → apply,
+//! and the store is loaded back at boot so values survive a reboot. The legacy
+//! `InputSettingsSnapshot` (TASK-0253 input seam, host-only) rides along.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 3 unit tests.
 //! ADR: docs/adr/0011-settings-architecture.md
 
+#![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std)]
+
+extern crate alloc;
+
+/// Typed settings registry (TASK-0072 Phase 8): registered keys + defaults +
+/// validation + prefs-blob (de)serialization — the core the service loop and
+/// the statefsd persistence wrap.
+pub mod registry;
+
+/// OS-lite service runtime: binds the settingsd server, loads persisted prefs,
+/// serves GET/SET (validate → persist → apply). Boot service (RFC-0069).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub mod os_lite;
+/// statefsd persistence client — loads/stores the prefs blob at
+/// `state:/prefs/device.nxs`.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod statefs_client;
+
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub use os_lite::{service_main_loop, SettingsdError, SettingsdResult};
+
+// ── Legacy input-settings snapshot (TASK-0253, host-only) ────────────────────
+// Kept for the inputd contract validation; no external runtime consumer.
+
+#[cfg(feature = "std")]
 use std::string::String;
 
+#[cfg(feature = "std")]
 pub const KEYBOARD_LAYOUT_KEY: &str = "keyboard.layout";
+#[cfg(feature = "std")]
 pub const KEYBOARD_REPEAT_DELAY_KEY: &str = "keyboard.repeat.delay_ms";
+#[cfg(feature = "std")]
 pub const KEYBOARD_REPEAT_RATE_KEY: &str = "keyboard.repeat.rate_hz";
+#[cfg(feature = "std")]
 pub const POINTER_ACCEL_THRESHOLD_KEY: &str = "pointer.accel.threshold";
+#[cfg(feature = "std")]
 pub const POINTER_ACCEL_RATIO_KEY: &str = "pointer.accel.ratio";
+#[cfg(feature = "std")]
 pub const POINTER_ACCEL_MAX_OUTPUT_KEY: &str = "pointer.accel.max_output";
 
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputSettingsSnapshot {
     keyboard_layout: String,
@@ -28,6 +63,7 @@ pub struct InputSettingsSnapshot {
     pointer_max_output: i32,
 }
 
+#[cfg(feature = "std")]
 impl InputSettingsSnapshot {
     #[must_use]
     pub fn new() -> Self {
@@ -102,17 +138,21 @@ impl InputSettingsSnapshot {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for InputSettingsSnapshot {
     fn default() -> Self {
         Self::new()
     }
 }
 
+/// Legacy CLI entry (host builds only). The OS boot service is
+/// [`service_main_loop`].
+#[cfg(feature = "std")]
 pub fn run() {
     settings::run();
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::InputSettingsSnapshot;
 
