@@ -62,6 +62,23 @@ phases 1–7 = W-track; this file = phases 8–10).
   `GPU_MODE=virgl` build (init +28KB, the `settingsd: ready`/`load prefs` markers embedded).
   The reboot-survival gate needs a `SET` first — that arrives with the Phase 10 settings UI.
 
+- **Settings UI opened (in review, 2026-07-04)** — the topbar **Edit** item now owns a
+  dropdown with a **Settings** entry that opens a real **Settings window**. Non-parallel:
+  - The window is a third `ShellWindow` (`WindowId::Settings`) — z-order, focus, click-to-raise,
+    minimize/dock, drag and close come for free from the shared frame; it is a static glass
+    panel (no scroll), fullscreen is a no-op (fixed-size surface). Atlas acquired on open /
+    freed on close, like Search.
+  - The body is the seed of the classic flat-framed panel: an "Appearance" section with sharp
+    1px-framed Theme / Font rows (values read locally for now — `Dark` / the vendored face).
+  - The topbar dropdown is generalized from an Apps-only flag to `open_topbar_menu:
+    Option<usize>` (the open item's index); the Edit menu reuses the same `AppMenu` row model
+    as the dynamic Apps menu, so one menu-bar component serves both. Clicking "Settings"
+    dispatches to `toggle_settings()`.
+  - Gates: windowd host tests green (no regression), riscv `os-lite` clean, `GPU_MODE=virgl`
+    build green. Remaining for the Track DoD: the live light/dark toggle wired to settingsd
+    (`windowd/src/settings_client.rs` GET/SET + the `Windowd→Settingsd` route/policy) and the
+    dual theme tokens (Phase 9).
+
 ## IST (verified 2026-07-03)
 
 - `source/services/settingsd/` exists but is only an input-settings snapshot feeder (~150 LOC,

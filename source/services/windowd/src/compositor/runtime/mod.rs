@@ -108,6 +108,7 @@ mod input;
 mod chat_window;
 mod shell;
 mod search;
+mod settings_window;
 mod present;
 mod scene;
 mod session;
@@ -373,8 +374,14 @@ pub(crate) struct DisplayServerRuntime {
     sidepanel_atlas: crate::atlas::AtlasSurface,
     sidepanel_h: u32,
     sidepanel_surface_dirty: bool,
-    /// Topbar "Apps" dropdown: open state, hovered row, atlas + render dirty.
-    apps_dropdown_open: bool,
+    /// Which topbar item's dropdown menu is open (the item index: 0 = Apps,
+    /// 2 = Edit), or `None` when closed. One dropdown surface serves whichever
+    /// menu is active (`active_menu`) — the menu bar is one component, not a
+    /// per-item parallel structure.
+    open_topbar_menu: Option<usize>,
+    /// The static "Edit" menu (one entry: Settings). Reuses the same `AppMenu`
+    /// row model as the dynamic Apps menu so the dropdown renders it identically.
+    edit_menu: crate::app_menu::AppMenu,
     dropdown_hover: Option<usize>,
     dropdown_atlas: crate::atlas::AtlasSurface,
     /// Open (animated) height of the dropdown = `app_menu.dropdown_full_h()`. The
@@ -391,6 +398,10 @@ pub(crate) struct DisplayServerRuntime {
     /// glass-frame component (drag/close/scroll/cached-blur live in the component;
     /// the filtered word list below is the body content the runtime supplies).
     search: super::shell_window::ShellWindow,
+    /// The Settings window (TASK-0072): a third `ShellWindow` instance, opened
+    /// from the topbar Edit → Settings menu. Static body (no scroll) — its atlas
+    /// surface is acquired on show and released on hide, like Search.
+    settings_win: super::shell_window::ShellWindow,
     /// Prefix-filtered words shown in the Search window body.
     search_filtered: Vec<&'static str>,
     /// Search window scroll engine — the SAME shared `animation::ScrollMomentum`
@@ -745,6 +756,20 @@ impl DisplayServerRuntime {
             5,
             90,
         );
+        // The Settings window — same reusable glass frame, static body.
+        let settings_win = super::shell_window::ShellWindow::new(
+            "Settings",
+            200,
+            140,
+            super::desktop_layer::SETTINGS_W,
+            super::desktop_layer::settings_full_h(),
+            super::desktop_layer::SETTINGS_TITLE_H,
+            super::desktop_layer::SETTINGS_CLOSE_W,
+            super::desktop_layer::SETTINGS_RADIUS,
+            18,
+            5,
+            90,
+        );
         // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
         // left for the on-demand window pool (content + blur cache); without this
         // reserve the panel's "take the rest" would starve a later search show.
@@ -853,7 +878,8 @@ impl DisplayServerRuntime {
             sidepanel_atlas,
             sidepanel_h,
             sidepanel_surface_dirty: true,
-            apps_dropdown_open: false,
+            open_topbar_menu: None,
+            edit_menu: crate::app_menu::AppMenu::single("settings", "Settings"),
             dropdown_hover: None,
             dropdown_atlas,
             dropdown_h,
@@ -863,6 +889,7 @@ impl DisplayServerRuntime {
             session_probe: session::SessionProbe::default(),
             greeter: None,
             search,
+            settings_win,
             search_filtered: {
                 let mut v = Vec::new();
                 super::desktop_layer::search_filter("", &mut v);
@@ -891,6 +918,7 @@ impl DisplayServerRuntime {
             windows: crate::window_scene::WindowStack::new(&[
                 crate::window_scene::WindowId::Search,
                 crate::window_scene::WindowId::Chat,
+                crate::window_scene::WindowId::Settings,
             ]),
             dock_surface: None,
             dock_rendered_n: 0,
@@ -956,6 +984,7 @@ impl DisplayServerRuntime {
         match id {
             crate::window_scene::WindowId::Chat => "chat",
             crate::window_scene::WindowId::Search => "search",
+            crate::window_scene::WindowId::Settings => "settings",
         }
     }
 
@@ -964,6 +993,7 @@ impl DisplayServerRuntime {
         let win = match id {
             crate::window_scene::WindowId::Chat => &self.chat,
             crate::window_scene::WindowId::Search => &self.search,
+            crate::window_scene::WindowId::Settings => &self.settings_win,
         };
         win.damage_rect(self.mode.width, self.mode.height)
     }
@@ -990,6 +1020,7 @@ impl DisplayServerRuntime {
         match id {
             crate::window_scene::WindowId::Chat => self.chat.leave_fullscreen(),
             crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
+            crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
         }
         self.update_dock();
         let after = self.windows.focused();

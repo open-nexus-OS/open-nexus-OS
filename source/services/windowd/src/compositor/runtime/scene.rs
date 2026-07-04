@@ -66,6 +66,10 @@ impl DisplayServerRuntime {
             self.render_search_surface()?;
             self.search.surface_dirty = false;
         }
+        if self.settings_win.visible && self.settings_win.surface_dirty {
+            self.render_settings_surface()?;
+            self.settings_win.surface_dirty = false;
+        }
         // Dock (TASK-0070 Phase 2): (re)render on membership change.
         if self.dock_dirty && self.dock_surface.is_some() {
             self.render_dock_surface()?;
@@ -106,6 +110,7 @@ impl DisplayServerRuntime {
         let dropdown_atlas_row = self.dropdown_atlas.abs_row;
         let dropdown_full_h = self.dropdown_h;
         let dropdown_progress = scene.apps_dropdown_progress;
+        let dropdown_item = self.dropdown_item();
         // The fullscreen window (if any): its composite drops the rounded
         // corners + drop shadow (nothing to round/shadow against at the
         // display edges — straight edge-to-edge content, user decision).
@@ -119,6 +124,9 @@ impl DisplayServerRuntime {
             p
         });
         let mut built_search_blur = false;
+        // `Some` only while the Settings window is mounted (shown) → composite it.
+        let settings_glass = self.settings_win.glass_params();
+        let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(USE_DESKTOP_SHELL);
@@ -289,6 +297,20 @@ impl DisplayServerRuntime {
                             mode.height,
                         );
                     }
+                    // The Settings window — the SAME ShellWindow glass frame,
+                    // static body (no scroll). Never fullscreen (its "□" is a
+                    // no-op), so it always keeps its rounded corners + shadow.
+                    crate::window_scene::WindowId::Settings => {
+                        if let Some(p) = settings_glass {
+                            built_settings_blur =
+                                crate::compositor::shell_window::ShellWindow::composite_glass(
+                                    &mut encoder,
+                                    p,
+                                    mode.width,
+                                    mode.height,
+                                );
+                        }
+                    }
                 }
             }
 
@@ -322,9 +344,9 @@ impl DisplayServerRuntime {
             //     "Apps" item, revealed (roll-down + fade) by the dropdown spring.
             if chrome_composited && dropdown_progress > 0.01 {
                 use crate::compositor::desktop_layer::{
-                    apps_item_x, DROPDOWN_RADIUS, DROPDOWN_W, TOPBAR_MARGIN_X, TOPBAR_TOP, TOPBAR_H,
+                    menu_item_x, DROPDOWN_RADIUS, DROPDOWN_W, TOPBAR_MARGIN_X, TOPBAR_TOP, TOPBAR_H,
                 };
-                let dx = TOPBAR_MARGIN_X + apps_item_x();
+                let dx = TOPBAR_MARGIN_X + menu_item_x(dropdown_item);
                 let dy = TOPBAR_TOP + TOPBAR_H + 4;
                 let reveal_h = ((dropdown_progress.clamp(0.0, 1.0) * dropdown_full_h as f32) as u32).max(1);
                 let alpha = (dropdown_progress.clamp(0.0, 1.0) * 255.0) as u32;
@@ -870,6 +892,9 @@ impl DisplayServerRuntime {
         }
         if built_chat_blur_cache {
             self.chat.blur_valid = true;
+        }
+        if built_settings_blur {
+            self.settings_win.blur_valid = true;
         }
         if built_search_blur {
             self.search.blur_valid = true;

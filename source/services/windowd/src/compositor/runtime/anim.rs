@@ -89,9 +89,9 @@ impl DisplayServerRuntime {
         }
         if dropdown_dirty {
             use crate::compositor::desktop_layer::{
-                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+                menu_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
-            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dx = TOPBAR_MARGIN_X + menu_item_x(self.dropdown_item());
             let dy = TOPBAR_TOP + TOPBAR_H + 4;
             self.queue_gpu_blit_rect(DamageRect {
                 x: dx,

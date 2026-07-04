@@ -149,20 +149,37 @@ impl DisplayServerRuntime {
             }
         }
 
-        // Topbar "Apps" item click → toggle the animated dropdown.
+        // Topbar menu-item click (Apps or Edit) → toggle THAT item's dropdown.
         if primary_press && !window_consumed_press && self.chrome_composited() {
-            use crate::compositor::desktop_layer::{topbar_item_at, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP};
-            if cursor_y >= TOPBAR_TOP as i32
+            use crate::compositor::desktop_layer::{
+                topbar_item_at, topbar_item_has_menu, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+            };
+            let item = if cursor_y >= TOPBAR_TOP as i32
                 && cursor_y < (TOPBAR_TOP + TOPBAR_H) as i32
                 && cursor_x >= TOPBAR_MARGIN_X as i32
-                && topbar_item_at((cursor_x - TOPBAR_MARGIN_X as i32) as u32) == Some(0)
             {
+                topbar_item_at((cursor_x - TOPBAR_MARGIN_X as i32) as u32)
+            } else {
+                None
+            };
+            if let Some(item) = item.filter(|&i| topbar_item_has_menu(i)) {
                 window_consumed_press = true;
-                self.apps_dropdown_open = !self.apps_dropdown_open;
-                // Lazily populate the menu from the live registry the first time the
-                // user opens it (IPC is well past boot here). Failure keeps the seed.
-                if self.apps_dropdown_open {
-                    self.ensure_app_menu();
+                // Clicking the open menu's item closes it; clicking another item
+                // switches the open menu to it.
+                self.open_topbar_menu = if self.open_topbar_menu == Some(item) {
+                    None
+                } else {
+                    Some(item)
+                };
+                let opening = self.open_topbar_menu == Some(item);
+                if opening {
+                    // Lazily populate the Apps menu from the live registry on first
+                    // open (IPC is well past boot here); the Edit menu is static.
+                    if item == 0 {
+                        self.ensure_app_menu();
+                    }
+                    self.dropdown_h = self.active_menu().dropdown_full_h();
+                    self.dropdown_surface_dirty = true;
                 }
                 let spring = animation::SpringConfig {
                     stiffness: 240.0,
@@ -174,35 +191,39 @@ impl DisplayServerRuntime {
                     DROPDOWN_LAYER_ID,
                     AnimProp::Opacity,
                     self.animated_scene.apps_dropdown_progress,
-                    if self.apps_dropdown_open { 1.0 } else { 0.0 },
+                    if opening { 1.0 } else { 0.0 },
                     spring,
                 );
             }
         }
 
-        // Apps dropdown item clicks: Chat opens the chat window; Search opens the
-        // search window (next phase).
-        if primary_press && !window_consumed_press && self.chrome_composited() && self.apps_dropdown_open {
+        // Dropdown item clicks: dispatched by the open menu's app/action id.
+        if primary_press
+            && !window_consumed_press
+            && self.chrome_composited()
+            && self.open_topbar_menu.is_some()
+        {
             use crate::compositor::desktop_layer::{
-                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+                menu_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
-            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dx = TOPBAR_MARGIN_X + menu_item_x(self.dropdown_item());
             let dy = TOPBAR_TOP + TOPBAR_H + 4;
             if cursor_x >= dx as i32
                 && cursor_y >= dy as i32
                 && (cursor_x as u32) < dx + DROPDOWN_W
                 && (cursor_y as u32) < dy + self.dropdown_h
             {
-                if let Some(idx) = self.app_menu.item_at((cursor_y - dy as i32) as u32) {
+                if let Some(idx) = self.active_menu().item_at((cursor_y - dy as i32) as u32) {
                     window_consumed_press = true;
-                    // Copy the id out first so the dispatch arms can take `&mut self`
-                    // (the borrow of `self.app_menu` must end before `toggle_chat`).
-                    let id = self.app_menu.id_at(idx).map(alloc::string::String::from);
-                    // Dispatch by the registry app id (RFC-0065). Known apps map to
-                    // their windowd-hosted windows; any other installed app is
-                    // launched via the lifecycle broker (logged for now).
+                    // Copy the id out first so dispatch arms can take `&mut self`
+                    // (the `active_menu` borrow must end before the toggles).
+                    let id = self.active_menu().id_at(idx).map(alloc::string::String::from);
+                    // Dispatch by the registry app / action id. Known windows map
+                    // to their windowd-hosted ShellWindow; any other installed app
+                    // is launched via the lifecycle broker.
                     match id.as_deref() {
                         Some("chat") => self.toggle_chat(),
+                        Some("settings") => self.toggle_settings(),
                         Some("search") => {
                             // A MINIMIZED search is still `visible` (docked) —
                             // the launcher toggle restores instead of closing.
@@ -252,6 +273,7 @@ impl DisplayServerRuntime {
                 let frame = match wid {
                     WindowId::Chat => self.chat.frame(),
                     WindowId::Search => self.search.frame(),
+                    WindowId::Settings => self.settings_win.frame(),
                 };
                 // Edge/corner grab RESIZES (floating windows only) — resolved
                 // before the title/body press so the border band wins.
@@ -272,6 +294,7 @@ impl DisplayServerRuntime {
                                 self.on_chat_window_closed();
                             }
                             WindowId::Search => self.close_search(),
+                            WindowId::Settings => self.close_settings(),
                         }
                     }
                     WindowPress::Minimize => {
@@ -288,6 +311,7 @@ impl DisplayServerRuntime {
                         match wid {
                             WindowId::Chat => self.chat.begin_drag(cursor_x, cursor_y),
                             WindowId::Search => self.search.begin_drag(cursor_x, cursor_y),
+                            WindowId::Settings => self.settings_win.begin_drag(cursor_x, cursor_y),
                         }
                     }
                     WindowPress::Body => {
@@ -408,12 +432,12 @@ impl DisplayServerRuntime {
                 });
             }
         }
-        // Apps dropdown row hover (only while the dropdown is open).
-        if self.chrome_composited() && self.apps_dropdown_open {
+        // Dropdown row hover (only while a topbar menu is open).
+        if self.chrome_composited() && self.open_topbar_menu.is_some() {
             use crate::compositor::desktop_layer::{
-                apps_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
+                menu_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
             };
-            let dx = TOPBAR_MARGIN_X + apps_item_x();
+            let dx = TOPBAR_MARGIN_X + menu_item_x(self.dropdown_item());
             let dy = TOPBAR_TOP + TOPBAR_H + 4;
             let cx = self.state.cursor_x;
             let cy = self.state.cursor_y;
@@ -422,7 +446,7 @@ impl DisplayServerRuntime {
                 && (cx as u32) < dx + DROPDOWN_W
                 && (cy as u32) < dy + self.dropdown_h
             {
-                self.app_menu.item_at((cy - dy as i32) as u32)
+                self.active_menu().item_at((cy - dy as i32) as u32)
             } else {
                 None
             };
@@ -638,6 +662,9 @@ impl DisplayServerRuntime {
             let target = hit[..hit_n].iter().copied().find(|&wid| match wid {
                 WindowId::Chat => self.chat.contains(self.state.cursor_x, self.state.cursor_y),
                 WindowId::Search => self.search.contains(self.state.cursor_x, self.state.cursor_y),
+                WindowId::Settings => {
+                    self.settings_win.contains(self.state.cursor_x, self.state.cursor_y)
+                }
             });
             // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
             // even when nothing moves — the routing target + full scroll state, so a
@@ -651,6 +678,7 @@ impl DisplayServerRuntime {
                     match target {
                         Some(WindowId::Chat) => "chat",
                         Some(WindowId::Search) => "search",
+                        Some(WindowId::Settings) => "settings",
                         None => "none",
                     },
                     self.state.cursor_x,
@@ -686,6 +714,9 @@ impl DisplayServerRuntime {
                     self.search_scroll.scroll_wheel((-notches * step) as f32);
                     self.commit_search_scroll_position();
                 }
+                // The Settings panel is static — a wheel over it is a no-op
+                // (consumed by the window, not a "miss").
+                Some(WindowId::Settings) => {}
                 // A wheel over no window is an HONEST no-op — but a rate-limited
                 // diag line, never silence (the old silent fallthrough hid every
                 // "scrolled and nothing happened" report).

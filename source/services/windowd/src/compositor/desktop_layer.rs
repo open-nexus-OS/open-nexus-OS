@@ -111,8 +111,14 @@ pub(crate) const fn dropdown_band_h() -> u32 {
 }
 
 /// Bar-local x of the "Apps" topbar item (the dropdown anchors under it).
-pub(crate) fn apps_item_x() -> u32 {
-    item_cell(0).map(|(s, _)| s).unwrap_or(TOPBAR_MARGIN_X)
+/// Bar-local x of topbar item `index`'s cell (a dropdown anchors under it).
+pub(crate) fn menu_item_x(index: usize) -> u32 {
+    item_cell(index).map(|(s, _)| s).unwrap_or(TOPBAR_MARGIN_X)
+}
+
+/// Whether topbar item `index` owns a dropdown menu (Apps=0, Edit=2 today).
+pub(crate) fn topbar_item_has_menu(index: usize) -> bool {
+    matches!(index, 0 | 2)
 }
 
 /// Draw one dropdown-local row from the dynamic [`crate::app_menu::AppMenu`]:
@@ -280,6 +286,134 @@ pub(crate) fn draw_search_window_row(
         if local_y >= thumb_y && local_y < thumb_y + thumb_h {
             write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), [200, 200, 200, 180]);
         }
+    }
+    Ok(())
+}
+
+// ── Settings window — a static glass panel opened from Edit → Settings. ──────
+// TASK-0072 Phase 10 seed: a real 3rd ShellWindow (z/focus/minimize/snap come
+// free from the shared frame). Classic flat-framed sections (sharp 1px lines) —
+// the vocabulary the settings panel grows into; the Appearance rows read the
+// current values (theme/font), the live toggle + settingsd wiring land next.
+pub(crate) const SETTINGS_W: u32 = 380;
+pub(crate) const SETTINGS_TITLE_H: u32 = 36;
+pub(crate) const SETTINGS_CLOSE_W: u32 = 40;
+pub(crate) const SETTINGS_RADIUS: u32 = 16;
+const SETTINGS_PAD: u32 = 16;
+const SETTINGS_SECTION_GAP: u32 = 14;
+const SETTINGS_ROW_H: u32 = 34;
+const SETTINGS_LABEL_FONT: FontSize = FontSize::Body;
+const SETTINGS_HEADER_FONT: FontSize = FontSize::Small;
+
+/// Flat section frame line + the section-row separator (sharp 1px, classic).
+const SETTINGS_FRAME: [u8; 4] = [92, 84, 78, 220];
+const SETTINGS_VALUE: [u8; 4] = [190, 210, 245, 255];
+
+/// One "Appearance" section with two rows (Theme, Font). Fixed layout → the
+/// window height is a const; no scroll.
+const SETTINGS_ROWS: u32 = 2;
+
+/// Full settings window height: title + Appearance header + framed rows + pad.
+pub(crate) const fn settings_full_h() -> u32 {
+    SETTINGS_TITLE_H
+        + SETTINGS_PAD
+        + line_height(SETTINGS_HEADER_FONT)
+        + 6
+        + SETTINGS_ROW_H * SETTINGS_ROWS
+        + SETTINGS_SECTION_GAP
+        + SETTINGS_PAD
+}
+
+/// Render one window-local row `local_y` of the settings panel into `row`.
+/// `theme` / `font` are the current values shown on the right of each row.
+pub(crate) fn draw_settings_window_row(
+    local_y: u32,
+    row: &mut [u8],
+    w: u32,
+    theme: &str,
+    font: &str,
+    title_hover: Option<super::shell_window::TitleButton>,
+    corner_radius: u32,
+) -> Result<(), WindowdError> {
+    // Title bar (shared chrome: title + [– □ ×]).
+    if local_y < SETTINGS_TITLE_H {
+        return super::shell_window::draw_title_bar_row(
+            local_y,
+            row,
+            w,
+            "Settings",
+            SETTINGS_TITLE_H,
+            SETTINGS_CLOSE_W,
+            title_hover,
+            corner_radius,
+        );
+    }
+    // Glass body.
+    write_tint_span(row, 0, w, TINT);
+
+    let body_x0 = SETTINGS_PAD;
+    let body_x1 = w.saturating_sub(SETTINGS_PAD);
+    // "Appearance" section header.
+    let header_top = SETTINGS_TITLE_H + SETTINGS_PAD;
+    if local_y >= header_top && local_y < header_top + line_height(SETTINGS_HEADER_FONT) {
+        draw_text_row(
+            row,
+            local_y,
+            header_top as i32,
+            body_x0,
+            body_x1,
+            "APPEARANCE".chars(),
+            SETTINGS_HEADER_FONT,
+            [150, 150, 160, 255],
+        );
+        return Ok(());
+    }
+    // Framed rows block.
+    let rows_top = header_top + line_height(SETTINGS_HEADER_FONT) + 6;
+    let rows_bottom = rows_top + SETTINGS_ROW_H * SETTINGS_ROWS;
+    if local_y >= rows_top && local_y < rows_bottom {
+        // Outer + inter-row frame lines (sharp 1px).
+        let on_frame = local_y == rows_top
+            || local_y == rows_bottom - 1
+            || (local_y >= rows_top && (local_y - rows_top) % SETTINGS_ROW_H == 0);
+        if on_frame {
+            write_tint_span(row, body_x0, body_x1, SETTINGS_FRAME);
+        }
+        // Row content: label left, value right.
+        let idx = (local_y - rows_top) / SETTINGS_ROW_H;
+        let (label, value) = match idx {
+            0 => ("Theme", theme),
+            _ => ("Font", font),
+        };
+        let row_top = rows_top + idx * SETTINGS_ROW_H;
+        let text_top = row_top + (SETTINGS_ROW_H - line_height(SETTINGS_LABEL_FONT)) / 2;
+        // Left/right frame verticals.
+        if local_y > row_top && local_y < row_top + SETTINGS_ROW_H {
+            write_tint_span(row, body_x0, body_x0 + 1, SETTINGS_FRAME);
+            write_tint_span(row, body_x1.saturating_sub(1), body_x1, SETTINGS_FRAME);
+        }
+        draw_text_row(
+            row,
+            local_y,
+            text_top as i32,
+            body_x0 + 12,
+            body_x1,
+            label.chars(),
+            SETTINGS_LABEL_FONT,
+            [230, 230, 235, 255],
+        );
+        let vw = measure(value.chars(), SETTINGS_LABEL_FONT);
+        let vx = body_x1.saturating_sub(12 + vw);
+        draw_text_row(
+            row,
+            local_y,
+            text_top as i32,
+            vx,
+            body_x1.saturating_sub(12),
+            value.chars(),
+            SETTINGS_LABEL_FONT,
+            SETTINGS_VALUE,
+        );
     }
     Ok(())
 }

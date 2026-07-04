@@ -27,7 +27,7 @@ impl DisplayServerRuntime {
             cfg.product_id, cfg.shell_id, cfg.shell_kind, cfg.desktop_chrome, cfg.locked,
         ));
         self.shell_config = cfg;
-        self.apps_dropdown_open = false;
+        self.open_topbar_menu = None;
         self.shell_surface_dirty = true;
         self.sidepanel_surface_dirty = true;
         self.dropdown_surface_dirty = true;
@@ -174,8 +174,23 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    /// Shell-P2b: render the Apps dropdown into its atlas (Chat/Search rows +
-    /// hover). Composited below the topbar "Apps" item with an animated reveal.
+    /// The topbar item whose dropdown is open (Apps=0 default when none, for
+    /// stable geometry while the close animation runs).
+    pub(super) fn dropdown_item(&self) -> usize {
+        self.open_topbar_menu.unwrap_or(0)
+    }
+
+    /// The menu content for the currently open dropdown: the dynamic Apps menu
+    /// (item 0) or the static Edit menu (item 2). One surface, one renderer.
+    pub(super) fn active_menu(&self) -> &crate::app_menu::AppMenu {
+        match self.open_topbar_menu {
+            Some(2) => &self.edit_menu,
+            _ => &self.app_menu,
+        }
+    }
+
+    /// Shell-P2b: render the open topbar dropdown into its atlas (menu rows +
+    /// hover). Composited below the open item with an animated reveal.
     pub(super) fn render_dropdown_surface(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
@@ -188,6 +203,7 @@ impl DisplayServerRuntime {
         let h = self.dropdown_h;
         let w = super::desktop_layer::DROPDOWN_W;
         let hover = self.dropdown_hover;
+        let menu = self.active_menu().clone();
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < h {
@@ -196,7 +212,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_dropdown_row(&self.app_menu, ly, row, w, hover)?;
+                super::desktop_layer::draw_dropdown_row(&menu, ly, row, w, hover)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])

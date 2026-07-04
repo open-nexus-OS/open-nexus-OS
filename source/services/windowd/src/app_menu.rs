@@ -70,6 +70,15 @@ impl AppMenu {
         }
     }
 
+    /// A fixed single-entry menu (e.g. the Edit → Settings menu). Reuses the
+    /// same row model as the dynamic Apps menu so the dropdown renders it
+    /// identically — the topbar is one menu-bar component, not per-item forks.
+    pub fn single(id: &str, label: &str) -> Self {
+        Self {
+            entries: Vec::from([AppEntry { id: String::from(id), label: String::from(label) }]),
+        }
+    }
+
     /// Builds the menu from a `bundlemgrd` `OP_LIST_APPS` response frame. Returns
     /// `None` if the frame is malformed or empty (caller falls back to [`seed`]).
     ///

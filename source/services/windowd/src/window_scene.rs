@@ -27,6 +27,8 @@ pub enum WindowId {
     Chat,
     /// The search window.
     Search,
+    /// The settings window (TASK-0072: opened from the topbar Edit → Settings).
+    Settings,
 }
 
 /// The composition-relevant state of one window.

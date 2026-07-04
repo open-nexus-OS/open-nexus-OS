@@ -37,6 +37,7 @@ impl DisplayServerRuntime {
         match id {
             WindowId::Chat => self.chat.end_drag(),
             WindowId::Search => self.search.end_drag(),
+            WindowId::Settings => self.settings_win.end_drag(),
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
@@ -54,6 +55,7 @@ impl DisplayServerRuntime {
         match id {
             WindowId::Chat => self.chat.blur_valid = false,
             WindowId::Search => self.search.blur_valid = false,
+            WindowId::Settings => self.settings_win.blur_valid = false,
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -69,10 +71,16 @@ impl DisplayServerRuntime {
     /// the chrome (`chrome_composited` gates on `fullscreen_active`); leaving
     /// restores the remembered floating origin.
     pub(super) fn toggle_fullscreen(&mut self, id: WindowId) {
+        // The Settings panel is a fixed-size static window (its atlas surface
+        // can't cover the display), so its "□" is a no-op — never fullscreen it.
+        if matches!(id, WindowId::Settings) {
+            return;
+        }
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
+                WindowId::Settings => {}
                 WindowId::Search => {
                     self.search.leave_fullscreen();
                     // Shrink the pool surfaces back to the floating size.
@@ -93,6 +101,7 @@ impl DisplayServerRuntime {
                     let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
                     self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
                 }
+                WindowId::Settings => {}
                 WindowId::Search => {
                     // TRUE fullscreen needs pool surfaces at display size; if
                     // the pool can't back them the toggle is refused honestly.
@@ -133,6 +142,7 @@ impl DisplayServerRuntime {
         let owner = hit[..n].iter().copied().find(|&wid| match wid {
             WindowId::Chat => self.chat.contains(cx, cy),
             WindowId::Search => self.search.contains(cx, cy),
+            WindowId::Settings => self.settings_win.contains(cx, cy),
         });
         let want = |wid: WindowId, win: &super::super::shell_window::ShellWindow| -> Option<TitleButton> {
             if owner == Some(wid) {
@@ -154,6 +164,12 @@ impl DisplayServerRuntime {
             let rect = self.chat.damage_rect(self.mode.width, self.mode.height);
             self.queue_gpu_blit_rect(rect);
         }
+        let settings_hover = want(WindowId::Settings, &self.settings_win);
+        if settings_hover != self.settings_win.title_hover {
+            self.settings_win.title_hover = settings_hover;
+            self.settings_win.surface_dirty = true;
+            self.queue_dirty_rect(self.settings_window_rect());
+        }
     }
 
     // ── Edge/corner resize + drag-to-edge snap (TASK-0070 Phase 3) ──
@@ -164,6 +180,7 @@ impl DisplayServerRuntime {
         let start = match id {
             WindowId::Chat => self.chat.frame(),
             WindowId::Search => self.search.frame(),
+            WindowId::Settings => self.settings_win.frame(),
         };
         self.raise_window(id);
         self.resize_drag = Some((id, edge, start, (cx, cy)));
@@ -189,6 +206,7 @@ impl DisplayServerRuntime {
         let current = match id {
             WindowId::Chat => self.chat.frame(),
             WindowId::Search => self.search.frame(),
+            WindowId::Settings => self.settings_win.frame(),
         };
         if frame != current {
             self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);
@@ -201,6 +219,7 @@ impl DisplayServerRuntime {
             let (w, h) = match id {
                 WindowId::Chat => (self.chat.w, self.chat.h),
                 WindowId::Search => (self.search.w, self.search.h),
+                WindowId::Settings => (self.settings_win.w, self.settings_win.h),
             };
             let _ = debug_println(&alloc::format!(
                 "windowd: resize id={} w={w} h={h}",
@@ -272,6 +291,15 @@ impl DisplayServerRuntime {
                 self.commit_search_scroll_position();
                 self.search.surface_dirty = true;
             }
+            WindowId::Settings => {
+                // Static panel — clamp to its fixed atlas band; the content does
+                // not reflow, so a resize just changes the glass frame.
+                let band_h = self.settings_win.atlas.map(|s| s.height).unwrap_or(h);
+                let w = w.min(self.mode.width);
+                let h = h.min(band_h);
+                self.settings_win.set_frame(x, y, w, h);
+                self.settings_win.surface_dirty = true;
+            }
         }
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
@@ -341,6 +369,7 @@ impl DisplayServerRuntime {
                 let frame = match wid {
                     WindowId::Chat => self.chat.frame(),
                     WindowId::Search => self.search.frame(),
+                    WindowId::Settings => self.settings_win.frame(),
                 };
                 if frame.contains(cx, cy) {
                     if !self.windows.is_fullscreen(wid) {
@@ -458,6 +487,10 @@ impl DisplayServerRuntime {
                     }
                     WindowId::Search => {
                         (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
+                    }
+                    // Placeholder dock glyph until a gear icon is baked (Phase 10).
+                    WindowId::Settings => {
+                        (crate::assets::MENU_ICON_BGRA, crate::assets::MENU_ICON_DIM)
                     }
                 };
                 let iy0 = cell.y + cell.height.saturating_sub(dim) / 2;
