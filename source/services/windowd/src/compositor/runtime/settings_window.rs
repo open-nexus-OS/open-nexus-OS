@@ -70,12 +70,15 @@ impl DisplayServerRuntime {
         self.queue_dirty_rect(rect);
     }
 
-    /// The current settings values shown in the panel. TODO(Phase 10): read
-    /// these from settingsd via a `settings_client` (GET ui.theme.mode /
-    /// ui.font.family); until that route is wired they reflect the build-time
-    /// defaults (honest — that is what the running shell uses).
+    /// The current settings values shown in the panel: the live theme mode +
+    /// the font family. The theme reflects `self.theme_mode` (toggled by
+    /// clicking the Theme row, Phase 9); TODO(Phase 10): persist via settingsd.
     fn settings_values(&self) -> (&'static str, &'static str) {
-        ("Dark", crate::assets::FONT_FAMILY)
+        let theme = match self.theme_mode {
+            crate::theme::ThemeMode::Dark => "Dark",
+            crate::theme::ThemeMode::Light => "Light",
+        };
+        (theme, crate::assets::FONT_FAMILY)
     }
 
     /// Render the Settings window's static body into its atlas surface. Called
@@ -103,6 +106,7 @@ impl DisplayServerRuntime {
             super::desktop_layer::SETTINGS_RADIUS
         };
         let (theme, font) = self.settings_values();
+        let tk = self.theme(); // 'static token snapshot — no borrow conflict with band_scratch
         let band = &mut self.band_scratch;
         // 2D-PACKED surface (sub-stride at column `surface.x`): write per row.
         // Static panel → renders only on open/hover, not a per-frame hot path.
@@ -115,6 +119,7 @@ impl DisplayServerRuntime {
                 w,
                 theme,
                 font,
+                tk,
                 title_hover,
                 corner_radius,
             )?;

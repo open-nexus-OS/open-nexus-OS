@@ -233,6 +233,12 @@ const fn rgba8(value: [u8; 4]) -> Rgba8 {
 /// sizes. Consumed exclusively by `crate::text`. `FONT_FAMILY` is the
 /// manifest-driven default behind the prepared `ui.font.family` settings key.
 pub const FONT_FAMILY: &str = generated::FONT_FAMILY;
+
+/// Baked dual theme snapshots (TASK-0072 Phase 9): the same token vocabulary in
+/// BGRA for both qualifiers. The compositor swaps between them on a light/dark
+/// switch — see [`crate::theme`].
+pub const THEME_DARK: crate::theme::ThemeTokens = generated::THEME_DARK;
+pub const THEME_LIGHT: crate::theme::ThemeTokens = generated::THEME_LIGHT;
 pub const FONT13_ASCENT: i32 = generated::FONT13_ASCENT;
 pub const FONT13_LINE_H: u32 = generated::FONT13_LINE_H;
 pub const FONT13_AVG_ADVANCE: u32 = generated::FONT13_AVG_ADVANCE;

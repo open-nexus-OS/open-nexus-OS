@@ -288,6 +288,7 @@ impl DisplayServerRuntime {
         };
         let visible = &self.chat_visible;
         let ranges = &self.chat_line_ranges;
+        let tk = self.theme(); // 'static token snapshot
         let band = &mut self.band_scratch;
         // Write the surface in ROW_WRITE_CHUNK-row bands: one vmo_write syscall
         // per band instead of one per row. The band carries full-stride rows; the
@@ -309,6 +310,7 @@ impl DisplayServerRuntime {
                     height,
                     title_hover,
                     corner_radius,
+                    tk,
                 )?;
             }
             let dst = (abs_row + band_start) as usize * stride;

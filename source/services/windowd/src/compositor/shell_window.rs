@@ -39,13 +39,11 @@ const TITLE_FONT: crate::text::FontSize = crate::text::FontSize::Small;
 /// Title-bar background tint (slightly lighter than the body for separation),
 /// hover highlight behind the close zone, and the chrome text colour. Straight
 /// alpha — gpud's layer blend composites these over the blurred backdrop.
-// OPAQUE (alpha 255): the title bar is composited FIXED on top of the scrollable
-// window body, so it must fully occlude scrolled rows passing underneath — a
-// translucent bar would let them bleed through. Content therefore clips cleanly at
-// the bar's bottom edge.
-const TITLE_BG: [u8; 4] = [56, 50, 46, 255];
+// The title bar is OPAQUE (theme `surface_alt`, alpha 255): composited FIXED on
+// top of the scrollable window body, it must fully occlude scrolled rows passing
+// underneath — a translucent bar would let them bleed through. `HOVER_TINT[3]` is
+// the SSOT for the button hover-cell alpha (the theme swaps only the RGB).
 const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
-const CHROME_TEXT: [u8; 4] = [255, 255, 255, 255];
 
 /// Draw one window-local row of the shared title bar: the header tint across
 /// the bar, the title on the left, and the right-aligned window controls
@@ -53,6 +51,7 @@ const CHROME_TEXT: [u8; 4] = [255, 255, 255, 255];
 /// geometry comes from the SAME host-tested [`Frame`] math the hit-tester uses
 /// (`Frame::button_local_x`), so hover/press and pixels can never disagree.
 /// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_title_bar_row(
     local_y: u32,
@@ -63,11 +62,17 @@ pub(crate) fn draw_title_bar_row(
     close_w: u32,
     hover: Option<TitleButton>,
     radius: u32,
+    tk: &crate::theme::ThemeTokens,
 ) -> Result<(), WindowdError> {
     if local_y >= title_h {
         return Ok(());
     }
-    write_tint_span(row, 0, w, TITLE_BG);
+    // Title bar is chrome distinct from the frosted body: an opaque secondary
+    // surface. Text + button glyphs use fg; the button hover cell uses accent so
+    // it stays visible on both light and dark (TASK-0072 Phase 9).
+    let hover_col = crate::theme::with_alpha(tk.accent, HOVER_TINT[3]);
+    let glyph_tint = Some(crate::theme::rgb3(tk.fg));
+    write_tint_span(row, 0, w, tk.surface_alt);
     let text_top = title_h.saturating_sub(crate::text::line_height(TITLE_FONT)) / 2;
     crate::text::draw_text_row(
         row,
@@ -77,7 +82,7 @@ pub(crate) fn draw_title_bar_row(
         w,
         title.chars(),
         TITLE_FONT,
-        CHROME_TEXT,
+        tk.fg,
     );
     // Zone geometry SSOT: a zero-positioned frame gives the window-local x.
     let zones = Frame { x: 0, y: 0, w, h: title_h, title_h, close_w };
@@ -96,13 +101,14 @@ pub(crate) fn draw_title_bar_row(
     ] {
         let bx = zones.button_local_x(button);
         if hover == Some(button) {
-            write_tint_span(row, bx, bx + close_w, HOVER_TINT);
+            write_tint_span(row, bx, bx + close_w, hover_col);
         }
-        // Real Lucide glyphs (white, straight-alpha) centred in each zone.
+        // Real Lucide glyphs (monochrome, straight-alpha) recolored to the theme
+        // fg and centred in each zone.
         let cy0 = title_h.saturating_sub(dim) / 2;
         if local_y >= cy0 && local_y < cy0 + dim {
             let cix = bx + close_w.saturating_sub(dim) / 2;
-            super::desktop_layer::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255);
+            super::desktop_layer::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255, glyph_tint);
         }
     }
     // Round the TOP corners at the surface level: clear (make transparent) the

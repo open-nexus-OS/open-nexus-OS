@@ -473,12 +473,16 @@ impl DisplayServerRuntime {
         let bar_local =
             dock::DockRect { x: 0, y: 0, width: dock::dock_width(n), height: dock::DOCK_H };
         // Translucent glass tint; the composite adds blur + corners + shadow.
+        // `BAR_TINT[3]` is the SSOT for the frosted alpha; the theme swaps the RGB.
         const BAR_TINT: [u8; 4] = [56, 50, 46, 150];
+        let tk = self.theme();
+        let bar_col = crate::theme::with_alpha(tk.glass_tint, BAR_TINT[3]);
+        let glyph_tint = Some(crate::theme::rgb3(tk.fg));
         let band = &mut self.band_scratch;
         for ly in 0..dock::DOCK_H {
             let row = &mut band[0..stride];
             row[..row_bytes].fill(0);
-            super::super::shell_window::write_tint_span(row, 0, bar_local.width, BAR_TINT);
+            super::super::shell_window::write_tint_span(row, 0, bar_local.width, bar_col);
             for (slot, &wid) in list[..n].iter().enumerate() {
                 let cell = dock::dock_slot_rect(bar_local, slot);
                 let (icon, dim) = match wid {
@@ -496,7 +500,7 @@ impl DisplayServerRuntime {
                 let iy0 = cell.y + cell.height.saturating_sub(dim) / 2;
                 if ly >= iy0 && ly < iy0 + dim {
                     let ix = cell.x + cell.width.saturating_sub(dim) / 2;
-                    super::desktop_layer::blend_icon_row(row, ix, icon, dim, ly - iy0, 255);
+                    super::desktop_layer::blend_icon_row(row, ix, icon, dim, ly - iy0, 255, glyph_tint);
                 }
             }
             let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;

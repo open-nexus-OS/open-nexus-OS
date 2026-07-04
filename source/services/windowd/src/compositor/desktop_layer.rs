@@ -53,9 +53,11 @@ pub(crate) fn topbar_menu_icon_hit(local_x: u32, local_y: u32, bar_w: u32) -> bo
 
 /// Glass tint (cool dark, translucent) + brighter hover tint. Straight alpha —
 /// gpud's layer blend (H_BLEND_ALPHA) composites these over the blurred backdrop.
+// The frosted-glass body alpha (`TINT[3]`) and hover-cell alpha (`HOVER_TINT[3]`)
+// are the SSOT for those translucencies; the theme swaps only the RGB per mode
+// (dark values here double as the fallback color).
 const TINT: [u8; 4] = [40, 34, 30, 150]; // BGRA, ~59% — reads as frosted glass
 const HOVER_TINT: [u8; 4] = [120, 110, 100, 96]; // additive-ish lighter cell
-const TEXT_COLOR: [u8; 4] = [255, 255, 255, 255];
 
 /// Pixel width of a label at the topbar font.
 fn label_width(s: &str) -> u32 {
@@ -129,15 +131,16 @@ pub(crate) fn draw_dropdown_row(
     row: &mut [u8],
     w: u32,
     hover: Option<usize>,
+    tk: &crate::theme::ThemeTokens,
 ) -> Result<(), WindowdError> {
-    write_tint_span(row, 0, w, TINT);
+    write_tint_span(row, 0, w, crate::theme::with_alpha(tk.glass_tint, TINT[3]));
     for (i, entry) in menu.entries().iter().enumerate() {
         let top = DROPDOWN_PAD + i as u32 * DROPDOWN_ROW_H;
         if hover == Some(i) && local_y >= top && local_y < top + DROPDOWN_ROW_H {
-            write_tint_span(row, 4, w.saturating_sub(4), HOVER_TINT);
+            write_tint_span(row, 4, w.saturating_sub(4), crate::theme::with_alpha(tk.surface_alt, HOVER_TINT[3]));
         }
         let text_top = top + (DROPDOWN_ROW_H - line_height(LABEL_FONT)) / 2;
-        draw_label(local_y, row, &entry.label, DROPDOWN_PAD + 6, text_top, TEXT_COLOR)?;
+        draw_label(local_y, row, &entry.label, DROPDOWN_PAD + 6, text_top, tk.fg)?;
     }
     Ok(())
 }
@@ -159,10 +162,15 @@ fn draw_label(
 
 /// Draw one panel-local row of the glass side panel: translucent body, a title,
 /// and a vertical list of items. Corners/shadow/blur applied by the composite.
-pub(crate) fn draw_sidepanel_row(local_y: u32, row: &mut [u8], panel_w: u32) -> Result<(), WindowdError> {
+pub(crate) fn draw_sidepanel_row(
+    local_y: u32,
+    row: &mut [u8],
+    panel_w: u32,
+    tk: &crate::theme::ThemeTokens,
+) -> Result<(), WindowdError> {
     let _ = local_y;
     // Empty glass body for now (content TBD); the composite rounds + shadows it.
-    write_tint_span(row, 0, panel_w, TINT);
+    write_tint_span(row, 0, panel_w, crate::theme::with_alpha(tk.glass_tint, TINT[3]));
     Ok(())
 }
 
@@ -234,8 +242,9 @@ pub(crate) fn draw_search_window_row(
     total: usize,
     title_hover: Option<super::shell_window::TitleButton>,
     corner_radius: u32,
+    tk: &crate::theme::ThemeTokens,
 ) -> Result<(), WindowdError> {
-    write_tint_span(row, 0, w, TINT);
+    write_tint_span(row, 0, w, crate::theme::with_alpha(tk.glass_tint, TINT[3]));
     if local_y < SEARCH_TITLE_H {
         // Shared window chrome (same title bar + `[– □ ×]` as the chat window).
         return super::shell_window::draw_title_bar_row(
@@ -247,15 +256,16 @@ pub(crate) fn draw_search_window_row(
             SEARCH_CLOSE_W,
             title_hover,
             corner_radius,
+            tk,
         );
     }
     let filter_top = SEARCH_TITLE_H + (SEARCH_FILTER_H - line_height(LABEL_FONT)) / 2;
     if local_y >= SEARCH_TITLE_H && local_y < SEARCH_TITLE_H + SEARCH_FILTER_H {
-        write_tint_span(row, SEARCH_PAD, w.saturating_sub(SEARCH_PAD), [30, 28, 26, 150]);
+        write_tint_span(row, SEARCH_PAD, w.saturating_sub(SEARCH_PAD), crate::theme::with_alpha(tk.surface_alt, 150));
         if filter_text.is_empty() {
-            draw_label(local_y, row, "type to filter...", SEARCH_PAD + 6, filter_top, [150, 150, 150, 200])?;
+            draw_label(local_y, row, "type to filter...", SEARCH_PAD + 6, filter_top, crate::theme::with_alpha(tk.muted_fg, 200))?;
         } else {
-            draw_label(local_y, row, filter_text, SEARCH_PAD + 6, filter_top, TEXT_COLOR)?;
+            draw_label(local_y, row, filter_text, SEARCH_PAD + 6, filter_top, tk.fg)?;
         }
         return Ok(());
     }
@@ -271,7 +281,7 @@ pub(crate) fn draw_search_window_row(
         if let Some(word) = visible_words.get(row_idx) {
             let row_screen_top = local_y - (content_y % SEARCH_ROW_H);
             let text_top = row_screen_top + (SEARCH_ROW_H - line_height(LABEL_FONT)) / 2;
-            draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, TEXT_COLOR)?;
+            draw_label(local_y, row, word, SEARCH_PAD + 6, text_top, tk.fg)?;
         }
     }
     // Scrollbar thumb on the right when the list overflows (pixel-space math).
@@ -284,7 +294,7 @@ pub(crate) fn draw_search_window_row(
         let thumb_y =
             track_top + (track_h - thumb_h) * scroll.min(max_scroll_px) / max_scroll_px;
         if local_y >= thumb_y && local_y < thumb_y + thumb_h {
-            write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), [200, 200, 200, 180]);
+            write_tint_span(row, w.saturating_sub(8), w.saturating_sub(4), crate::theme::with_alpha(tk.muted_fg, 180));
         }
     }
     Ok(())
@@ -305,9 +315,6 @@ const SETTINGS_ROW_H: u32 = 34;
 const SETTINGS_LABEL_FONT: FontSize = FontSize::Body;
 const SETTINGS_HEADER_FONT: FontSize = FontSize::Small;
 
-/// Flat section frame line + the section-row separator (sharp 1px, classic).
-const SETTINGS_FRAME: [u8; 4] = [92, 84, 78, 220];
-const SETTINGS_VALUE: [u8; 4] = [190, 210, 245, 255];
 
 /// One "Appearance" section with two rows (Theme, Font). Fixed layout → the
 /// window height is a const; no scroll.
@@ -324,17 +331,38 @@ pub(crate) const fn settings_full_h() -> u32 {
         + SETTINGS_PAD
 }
 
+/// Window-local row index of the Appearance row under `local_y` (0 = Theme,
+/// 1 = Font), or `None` if the point is outside the framed rows block. Shares
+/// the exact geometry the renderer uses so a click always lands on the row the
+/// user sees. `SETTINGS_ROW_THEME` names the interactive (toggle) row.
+pub(crate) const SETTINGS_ROW_THEME: u32 = 0;
+pub(crate) fn settings_row_at(local_y: u32) -> Option<u32> {
+    let header_top = SETTINGS_TITLE_H + SETTINGS_PAD;
+    let rows_top = header_top + line_height(SETTINGS_HEADER_FONT) + 6;
+    let rows_bottom = rows_top + SETTINGS_ROW_H * SETTINGS_ROWS;
+    if local_y >= rows_top && local_y < rows_bottom {
+        Some((local_y - rows_top) / SETTINGS_ROW_H)
+    } else {
+        None
+    }
+}
+
 /// Render one window-local row `local_y` of the settings panel into `row`.
-/// `theme` / `font` are the current values shown on the right of each row.
+/// `theme_value` / `font` are shown on the right of each row; `tk` is the active
+/// theme's color snapshot (TASK-0072 Phase 9 — the panel recolors on switch).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_settings_window_row(
     local_y: u32,
     row: &mut [u8],
     w: u32,
-    theme: &str,
+    theme_value: &str,
     font: &str,
+    tk: &crate::theme::ThemeTokens,
     title_hover: Option<super::shell_window::TitleButton>,
     corner_radius: u32,
 ) -> Result<(), WindowdError> {
+    let frame_col = tk.border;
+    let value_col = tk.accent;
     // Title bar (shared chrome: title + [– □ ×]).
     if local_y < SETTINGS_TITLE_H {
         return super::shell_window::draw_title_bar_row(
@@ -346,10 +374,12 @@ pub(crate) fn draw_settings_window_row(
             SETTINGS_CLOSE_W,
             title_hover,
             corner_radius,
+            tk,
         );
     }
-    // Glass body.
-    write_tint_span(row, 0, w, TINT);
+    // Glass body: theme color at the shared frosted-glass alpha (TINT is the
+    // SSOT for that translucency; the theme only swaps the RGB per mode).
+    write_tint_span(row, 0, w, crate::theme::with_alpha(tk.glass_tint, TINT[3]));
 
     let body_x0 = SETTINGS_PAD;
     let body_x1 = w.saturating_sub(SETTINGS_PAD);
@@ -364,7 +394,7 @@ pub(crate) fn draw_settings_window_row(
             body_x1,
             "APPEARANCE".chars(),
             SETTINGS_HEADER_FONT,
-            [150, 150, 160, 255],
+            tk.muted_fg,
         );
         return Ok(());
     }
@@ -377,20 +407,20 @@ pub(crate) fn draw_settings_window_row(
             || local_y == rows_bottom - 1
             || (local_y >= rows_top && (local_y - rows_top) % SETTINGS_ROW_H == 0);
         if on_frame {
-            write_tint_span(row, body_x0, body_x1, SETTINGS_FRAME);
+            write_tint_span(row, body_x0, body_x1, frame_col);
         }
         // Row content: label left, value right.
         let idx = (local_y - rows_top) / SETTINGS_ROW_H;
         let (label, value) = match idx {
-            0 => ("Theme", theme),
+            0 => ("Theme", theme_value),
             _ => ("Font", font),
         };
         let row_top = rows_top + idx * SETTINGS_ROW_H;
         let text_top = row_top + (SETTINGS_ROW_H - line_height(SETTINGS_LABEL_FONT)) / 2;
         // Left/right frame verticals.
         if local_y > row_top && local_y < row_top + SETTINGS_ROW_H {
-            write_tint_span(row, body_x0, body_x0 + 1, SETTINGS_FRAME);
-            write_tint_span(row, body_x1.saturating_sub(1), body_x1, SETTINGS_FRAME);
+            write_tint_span(row, body_x0, body_x0 + 1, frame_col);
+            write_tint_span(row, body_x1.saturating_sub(1), body_x1, frame_col);
         }
         draw_text_row(
             row,
@@ -400,7 +430,7 @@ pub(crate) fn draw_settings_window_row(
             body_x1,
             label.chars(),
             SETTINGS_LABEL_FONT,
-            [230, 230, 235, 255],
+            tk.fg,
         );
         let vw = measure(value.chars(), SETTINGS_LABEL_FONT);
         let vx = body_x1.saturating_sub(12 + vw);
@@ -412,7 +442,7 @@ pub(crate) fn draw_settings_window_row(
             body_x1.saturating_sub(12),
             value.chars(),
             SETTINGS_LABEL_FONT,
-            SETTINGS_VALUE,
+            value_col,
         );
     }
     Ok(())
@@ -422,7 +452,20 @@ pub(crate) fn draw_settings_window_row(
 /// `dst_x`. `icon_row` is the sprite's row index; `alpha_mul` (0..=255) scales the
 /// sprite alpha (hover / brightness). src-over in straight alpha; the destination
 /// keeps its own alpha (the surface composites over the backdrop later).
-pub(crate) fn blend_icon_row(row: &mut [u8], dst_x: u32, icon: &[u8], dim: u32, icon_row: u32, alpha_mul: u8) {
+///
+/// `tint`: `None` keeps the sprite's own RGB (colored icons); `Some(bgr)` recolors
+/// a monochrome glyph to `bgr` while keeping the sprite alpha as the AA coverage —
+/// so chrome glyphs (menu, window buttons, dock) follow the active theme's `fg`
+/// and stay visible in both light and dark (TASK-0072 Phase 9).
+pub(crate) fn blend_icon_row(
+    row: &mut [u8],
+    dst_x: u32,
+    icon: &[u8],
+    dim: u32,
+    icon_row: u32,
+    alpha_mul: u8,
+    tint: Option<[u8; 3]>,
+) {
     if icon_row >= dim {
         return;
     }
@@ -444,7 +487,11 @@ pub(crate) fn blend_icon_row(row: &mut [u8], dst_x: u32, icon: &[u8], dim: u32, 
         let inv = 255 - a;
         let d = px as usize * 4;
         for ch in 0..3 {
-            row[d + ch] = ((u32::from(icon[s + ch]) * a + u32::from(row[d + ch]) * inv) / 255) as u8;
+            let src = match tint {
+                Some(t) => u32::from(t[ch]),
+                None => u32::from(icon[s + ch]),
+            };
+            row[d + ch] = ((src * a + u32::from(row[d + ch]) * inv) / 255) as u8;
         }
     }
 }
@@ -468,13 +515,15 @@ pub(crate) fn draw_topbar_row(
     bar_w: u32,
     hover: Option<usize>,
     menu_hover: bool,
+    tk: &crate::theme::ThemeTokens,
 ) -> Result<(), WindowdError> {
+    let hover_col = crate::theme::with_alpha(tk.surface_alt, HOVER_TINT[3]);
     // Base glass tint across the whole bar (corner mask applied at composite).
-    write_tint_span(row, 0, bar_w, TINT);
+    write_tint_span(row, 0, bar_w, crate::theme::with_alpha(tk.glass_tint, TINT[3]));
     // Hover cell highlight.
     if let Some(h) = hover {
         if let Some((s, e)) = item_cell(h) {
-            write_tint_span(row, s, e.min(bar_w), HOVER_TINT);
+            write_tint_span(row, s, e.min(bar_w), hover_col);
         }
     }
     // Menu icon at the right — the REAL Lucide `menu` icon (rasterized white,
@@ -483,7 +532,7 @@ pub(crate) fn draw_topbar_row(
         let icon_x = menu_icon_x(bar_w);
         let icon_y0 = (TOPBAR_H.saturating_sub(MENU_ICON_SIZE)) / 2;
         if menu_hover && local_y >= icon_y0 && local_y < icon_y0 + MENU_ICON_SIZE {
-            write_tint_span(row, icon_x, (icon_x + MENU_ICON_SIZE).min(bar_w), HOVER_TINT);
+            write_tint_span(row, icon_x, (icon_x + MENU_ICON_SIZE).min(bar_w), hover_col);
         }
         if local_y >= icon_y0 && local_y < icon_y0 + crate::assets::MENU_ICON_DIM {
             blend_icon_row(
@@ -493,6 +542,7 @@ pub(crate) fn draw_topbar_row(
                 crate::assets::MENU_ICON_DIM,
                 local_y - icon_y0,
                 255,
+                Some(crate::theme::rgb3(tk.fg)),
             );
         }
     }
@@ -500,7 +550,7 @@ pub(crate) fn draw_topbar_row(
     // Labels — `draw_label` gates on the text band internally.
     for (i, item) in TOPBAR_ITEMS.iter().enumerate() {
         let Some((cell_x, _)) = item_cell(i) else { continue };
-        draw_label(local_y, row, item, cell_x + ITEM_PAD_X, TEXT_TOP, TEXT_COLOR)?;
+        draw_label(local_y, row, item, cell_x + ITEM_PAD_X, TEXT_TOP, tk.fg)?;
     }
     Ok(())
 }

@@ -31,13 +31,11 @@ use chat_app::ChatMessageProvider;
 use nexus_virtual_list::ItemProvider;
 
 // Colours (BGRA — the framebuffer is BGRA8888).
-// PANEL_BG matches the Search window's glass tint so both windows share one
-// look; message bubbles stay opaque for readability (iMessage/Telegram look).
+// The body tint, bubble fill, and text now come from the active theme snapshot
+// (TASK-0072 Phase 9); `PANEL_BG[3]` remains the SSOT for the frosted-glass body
+// alpha (the theme swaps only the RGB per mode). Only our own messages get an
+// accent bubble; incoming messages render directly on the glass body.
 const PANEL_BG: [u8; 4] = [40, 34, 30, 150];
-// Only our own messages get a (blue) bubble; incoming messages render directly on
-// the glass body, so there is no incoming-bubble colour.
-const BUBBLE_FROM_ME: [u8; 4] = [180, 96, 44, 255];
-const TEXT_COLOR: [u8; 4] = [245, 245, 240, 255];
 const SCROLL_TRACK: [u8; 4] = [34, 30, 30, 200];
 const SCROLL_THUMB: [u8; 4] = [130, 122, 120, 230];
 /// Gap between a message bubble and the next, plus the bubble inset from the
@@ -150,6 +148,7 @@ pub(crate) fn draw_chat_panel_row(
     surface_h: u32,
     title_hover: Option<super::shell_window::TitleButton>,
     corner_radius: u32,
+    tk: &crate::theme::ThemeTokens,
 ) -> Result<(), WindowdError> {
     // The scrollbar is dropped on the GPU scroll-offset path (the surface is an
     // overscan window scrolled by composite offset, not by re-render).
@@ -169,6 +168,7 @@ pub(crate) fn draw_chat_panel_row(
             CHAT_CLOSE_ZONE_W,
             title_hover,
             corner_radius,
+            tk,
         );
     }
     // Panel background (full panel width, every row). STRAIGHT-ALPHA COPY (not a
@@ -182,7 +182,9 @@ pub(crate) fn draw_chat_panel_row(
     // window reads like a max-content-width column (re-wrap lands with the
     // Phase-7 list/layout unification).
     let _ = surface_h;
-    fill_row_straight(row, 0, w, PANEL_BG);
+    // Theme color at the shared frosted-glass alpha (`PANEL_BG[3]` is the SSOT
+    // for that translucency; the theme swaps only the RGB per mode).
+    fill_row_straight(row, 0, w, crate::theme::with_alpha(tk.glass_tint, PANEL_BG[3]));
 
     let (vp_x, vp_y, vp_w, _vp_h) = viewport();
     // Content fills from below the title to the bottom of the (overscan) surface.
@@ -208,7 +210,7 @@ pub(crate) fn draw_chat_panel_row(
                     bub_top as u32,
                     vp_w.saturating_sub(BUBBLE_INSET.saturating_mul(2)),
                     (bub_bottom - bub_top) as u32,
-                    BUBBLE_FROM_ME,
+                    tk.accent,
                 )?;
             }
         }
@@ -225,6 +227,9 @@ pub(crate) fn draw_chat_panel_row(
                 let text_x = vp_x.saturating_add(CHAT_TEXT_INSET);
                 let clip_end = vp_x.saturating_add(vp_w);
                 let line_top = text_top + (line_idx * CHAT_LINE_H) as i32;
+                // Our own messages sit on an accent bubble → accent-foreground for
+                // contrast; incoming messages read on the glass body → fg.
+                let text_color = if m.from_me { tk.accent_fg } else { tk.fg };
                 draw_text_row(
                     row,
                     ly,
@@ -233,7 +238,7 @@ pub(crate) fn draw_chat_panel_row(
                     clip_end,
                     m.text.chars().skip(cs).take(ce.saturating_sub(cs)),
                     FontSize::Body,
-                    TEXT_COLOR,
+                    text_color,
                 );
             }
         }

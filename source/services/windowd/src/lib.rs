@@ -43,6 +43,8 @@ mod assets;
 mod atlas;
 mod bitmap_font;
 mod buffer;
+/// Runtime theme tokens + light/dark selector (TASK-0072 Phase 9).
+mod theme;
 /// Runtime text from the baked A8 glyph atlases (TASK-0070 Phase 6) — the
 /// dynamic-text replacement for `bitmap_font` (which now only backs the legacy
 /// scene-graph tile-text primitive).

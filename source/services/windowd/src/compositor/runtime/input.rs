@@ -317,6 +317,16 @@ impl DisplayServerRuntime {
                     WindowPress::Body => {
                         window_consumed_press = true;
                         self.raise_window(wid);
+                        // A click on the Settings "Theme" row toggles light/dark
+                        // live (TASK-0072 Phase 9 — immediate-apply, no OK button).
+                        if matches!(wid, WindowId::Settings) && cursor_y >= frame.y {
+                            use crate::compositor::desktop_layer::{settings_row_at, SETTINGS_ROW_THEME};
+                            let local_y = (cursor_y - frame.y) as u32;
+                            if settings_row_at(local_y) == Some(SETTINGS_ROW_THEME) {
+                                let next = self.theme_mode.toggled();
+                                self.set_theme_mode(next);
+                            }
+                        }
                     }
                     WindowPress::Miss => continue,
                 }
@@ -336,6 +346,14 @@ impl DisplayServerRuntime {
             if let Some(old) = self.search.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
                 self.queue_dirty_rect(old);
                 self.queue_dirty_rect(self.search_window_rect());
+            }
+        }
+        // Continue dragging the Settings window.
+        if self.settings_win.is_dragging() {
+            if let Some(old) = self.settings_win.drag_to(cursor_x, cursor_y, mode.width, mode.height)
+            {
+                self.queue_dirty_rect(old);
+                self.queue_dirty_rect(self.settings_window_rect());
             }
         }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).
@@ -359,6 +377,9 @@ impl DisplayServerRuntime {
             }
             self.chat.end_drag();
             self.search.end_drag();
+            // Settings is a fixed panel — it does not edge-snap, but its drag
+            // must still terminate on release (else it stays "stuck" to the cursor).
+            self.settings_win.end_drag();
             self.end_window_resize();
         }
 

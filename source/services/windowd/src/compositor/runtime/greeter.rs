@@ -387,6 +387,7 @@ impl DisplayServerRuntime {
                         icon_dim,
                         ly - icon_y,
                         if hover { 255 } else { 225 },
+                        None, // greeter is pre-shell — keep the sprite's own colors
                     );
                 }
             }

@@ -382,6 +382,10 @@ pub(crate) struct DisplayServerRuntime {
     /// The static "Edit" menu (one entry: Settings). Reuses the same `AppMenu`
     /// row model as the dynamic Apps menu so the dropdown renders it identically.
     edit_menu: crate::app_menu::AppMenu,
+    /// Active light/dark theme (TASK-0072 Phase 9). Colors come from the matching
+    /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
+    /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
+    theme_mode: crate::theme::ThemeMode,
     dropdown_hover: Option<usize>,
     dropdown_atlas: crate::atlas::AtlasSurface,
     /// Open (animated) height of the dropdown = `app_menu.dropdown_full_h()`. The
@@ -880,6 +884,7 @@ impl DisplayServerRuntime {
             sidepanel_surface_dirty: true,
             open_topbar_menu: None,
             edit_menu: crate::app_menu::AppMenu::single("settings", "Settings"),
+            theme_mode: crate::theme::ThemeMode::Dark,
             dropdown_hover: None,
             dropdown_atlas,
             dropdown_h,

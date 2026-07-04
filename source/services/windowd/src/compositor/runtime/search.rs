@@ -152,6 +152,7 @@ impl DisplayServerRuntime {
         // indexes rows itself (pixel-precise scroll, partial rows at the edges).
         let filter_text = self.state.text_input();
         let visible = &self.search_filtered[..];
+        let tk = self.theme(); // 'static token snapshot
         let band = &mut self.band_scratch;
         // The Search surface is 2D-PACKED (sub-stride, at column `surface.x`), so
         // its rows are NOT contiguous in the VMO — write per-row (the window's
@@ -162,7 +163,7 @@ impl DisplayServerRuntime {
             row[..row_bytes].fill(0);
             super::desktop_layer::draw_search_window_row(
                 ly, row, w, visible_rows, filter_text, visible, scroll, total, title_hover,
-                corner_radius,
+                corner_radius, tk,
             )?;
             let dst = (abs_row + ly) as usize * stride + col_off;
             vmo_write(handle, dst, &row[..row_bytes])

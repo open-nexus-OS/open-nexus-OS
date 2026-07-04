@@ -124,6 +124,7 @@ impl DisplayServerRuntime {
         let bar_w = self.shell_w;
         let hover = self.topbar_hover;
         let menu_hover = self.topbar_menu_hover;
+        let tk = self.theme();
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < shell_h {
@@ -132,7 +133,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_topbar_row(ly, row, bar_w, hover, menu_hover)?;
+                super::desktop_layer::draw_topbar_row(ly, row, bar_w, hover, menu_hover, tk)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -156,6 +157,7 @@ impl DisplayServerRuntime {
         let abs_row = self.sidepanel_atlas.abs_row;
         let panel_h = self.sidepanel_h;
         let panel_w = super::desktop_layer::SIDEPANEL_W;
+        let tk = self.theme();
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < panel_h {
@@ -164,7 +166,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w)?;
+                super::desktop_layer::draw_sidepanel_row(ly, row, panel_w, tk)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])
@@ -172,6 +174,38 @@ impl DisplayServerRuntime {
             band_start = band_end;
         }
         Ok(())
+    }
+
+    /// The active theme's baked color snapshot (TASK-0072 Phase 9).
+    pub(super) fn theme(&self) -> &'static crate::theme::ThemeTokens {
+        match self.theme_mode {
+            crate::theme::ThemeMode::Dark => &crate::assets::THEME_DARK,
+            crate::theme::ThemeMode::Light => &crate::assets::THEME_LIGHT,
+        }
+    }
+
+    /// Switch the active light/dark theme: swap the token snapshot, re-render
+    /// every themed surface (invalidating glass blur caches), full-frame damage,
+    /// and emit the honest marker. No-op when already in `mode`. Wired to
+    /// settingsd's `ui.theme.mode` apply hook + the settings panel toggle
+    /// (Phase 10); callable now for the boot-time application.
+    pub(super) fn set_theme_mode(&mut self, mode: crate::theme::ThemeMode) {
+        if self.theme_mode == mode {
+            return;
+        }
+        self.theme_mode = mode;
+        self.shell_surface_dirty = true;
+        self.sidepanel_surface_dirty = true;
+        self.dropdown_surface_dirty = true;
+        self.chat.surface_dirty = true;
+        self.chat.blur_valid = false;
+        self.search.surface_dirty = true;
+        self.search.blur_valid = false;
+        self.settings_win.surface_dirty = true;
+        self.settings_win.blur_valid = false;
+        self.dock_dirty = true;
+        self.queue_full_frame_damage();
+        let _ = debug_println(&alloc::format!("uitheme: switched (to={})", mode.as_str()));
     }
 
     /// The topbar item whose dropdown is open (Apps=0 default when none, for
@@ -204,6 +238,7 @@ impl DisplayServerRuntime {
         let w = super::desktop_layer::DROPDOWN_W;
         let hover = self.dropdown_hover;
         let menu = self.active_menu().clone();
+        let tk = self.theme();
         let band = &mut self.band_scratch;
         let mut band_start = 0u32;
         while band_start < h {
@@ -212,7 +247,7 @@ impl DisplayServerRuntime {
             for (i, ly) in (band_start..band_end).enumerate() {
                 let row = &mut band[i * stride..(i + 1) * stride];
                 row.fill(0);
-                super::desktop_layer::draw_dropdown_row(&menu, ly, row, w, hover)?;
+                super::desktop_layer::draw_dropdown_row(&menu, ly, row, w, hover, tk)?;
             }
             let dst = (abs_row + band_start) as usize * stride;
             vmo_write(handle, dst, &band[..band_rows * stride])

@@ -78,6 +78,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     emit_theme_color(&mut generated, "GLASS_TINT_RGBA", &theme_runtime, TOKEN_GLASS_TINT)?;
     emit_theme_color(&mut generated, "GLASS_EDGE_RGBA", &theme_runtime, TOKEN_GLASS_EDGE)?;
 
+    // Dual theme snapshots (TASK-0072 Phase 9): the SAME token vocabulary baked
+    // for BOTH qualifiers as `ThemeTokens` consts (BGRA), so the runtime light/
+    // dark switch is a const swap + full redraw. Dark is the boot default.
+    emit_theme_tokens(&mut generated, &theme_runtime, "THEME_DARK")?;
+    theme_runtime.set_qualifier(Qualifier::Light);
+    emit_theme_tokens(&mut generated, &theme_runtime, "THEME_LIGHT")?;
+    theme_runtime.set_qualifier(Qualifier::Dark);
+
     for spec in ALL_TEXT_SPECS {
         let rendered = render_text_asset(
             &font,
@@ -430,6 +438,38 @@ fn emit_theme_color(
         generated,
         "pub const {const_name}: [u8; 4] = [{}, {}, {}, {}];",
         color.r, color.g, color.b, color.a
+    )?;
+    Ok(())
+}
+
+/// Emit a [`crate::theme::ThemeTokens`] const for the runtime's CURRENT
+/// qualifier (TASK-0072 Phase 9). Each field is a BGRA array so surface
+/// renderers can write it directly. The token names match the `.nxtheme.toml`
+/// vocabulary.
+fn emit_theme_tokens(
+    generated: &mut File,
+    runtime: &ThemeRuntime,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let f = |t: &str| -> Result<String, Box<dyn std::error::Error>> {
+        let c = color_bgra(runtime.resolve(t)?);
+        Ok(format!("[{}, {}, {}, {}]", c[0], c[1], c[2], c[3]))
+    };
+    writeln!(
+        generated,
+        "pub const {name}: crate::theme::ThemeTokens = crate::theme::ThemeTokens {{\n\
+         \x20   surface: {}, surface_alt: {}, border: {}, fg: {}, muted_fg: {},\n\
+         \x20   accent: {}, accent_fg: {}, glass_tint: {}, glass_edge: {},\n\
+         }};",
+        f("surface")?,
+        f("surfaceAlt")?,
+        f("border")?,
+        f("fg")?,
+        f("mutedFg")?,
+        f("accent")?,
+        f("accentFg")?,
+        f("glassTint")?,
+        f("glassEdge")?,
     )?;
     Ok(())
 }
