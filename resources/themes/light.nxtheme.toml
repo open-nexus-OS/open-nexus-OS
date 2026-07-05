@@ -2,6 +2,10 @@
 name = "light"
 version = 1
 
+# Light overrides only what differs from base; the handoff neutrals, brand,
+# sidebar, chart and text-on-glass tokens + the liquid-glass materials all
+# resolve from base via the qualifier chain (base is the light-leaning default).
+# See docs/dev/ui/foundations/visual/token-reconciliation.md.
 [tokens]
 accent = "#2563eb"
 accentFg = "#ffffff"
@@ -17,23 +21,3 @@ focusRing = "#2563eb"
 
 [material.surface]
 type = "opaque"
-
-[material.glassLow]
-type = "glass"
-blurRadiusDp = 8
-downsampleFactor = 4
-tintColor = "#ffffff"
-tintAlpha = 0.35
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.18
-
-[material.glassHigh]
-type = "glass"
-blurRadiusDp = 16
-downsampleFactor = 2
-tintColor = "#ffffff"
-tintAlpha = 0.25
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.12
-borderColor = "#ffffff"
-borderAlpha = 0.1

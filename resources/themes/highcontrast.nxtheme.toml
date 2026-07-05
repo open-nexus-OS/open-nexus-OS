@@ -2,6 +2,10 @@
 name = "highcontrast"
 version = 1
 
+# High-contrast a11y theme. No handoff numeric contract exists for this variant
+# (intentional — see token-reconciliation.md): it overrides colors for maximum
+# contrast and zeroes blur on every glass material. Neutrals/brand tokens not
+# listed here resolve from base.
 [tokens]
 accent = "#60a5fa"
 accentFg = "#000000"
@@ -15,31 +19,75 @@ muted = "#cccccc"
 mutedFg = "#ffffff"
 danger = "#ff4444"
 dangerFg = "#000000"
+destructive = "#ff4444"
+destructiveFg = "#000000"
 warning = "#ffaa00"
 warningFg = "#000000"
 success = "#44ff44"
 successFg = "#000000"
+info = "#60a5fa"
+infoFg = "#000000"
 focusRing = "#ffffff"
+notifDot = "#ff4444"
+glassTextPrimary = "#ffffff"
+glassTextSecondary = "#cccccc"
+glassTextStrong = "#ffffff"
 
 [material.surface]
 type = "opaque"
 
-[material.glassLow]
+# a11y: blur=0 on every level; solid high-contrast tint + full-white edge/border.
+[material.glassPanel]
 type = "glass"
 blurRadiusDp = 0
 downsampleFactor = 8
 tintColor = "#000000"
-tintAlpha = 0.5
-edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.2
-
-[material.glassHigh]
-type = "glass"
-blurRadiusDp = 0
-downsampleFactor = 8
-tintColor = "#000000"
-tintAlpha = 0.5
+tintAlpha = 0.85
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.2
 borderColor = "#ffffff"
-borderAlpha = 0.15
+borderAlpha = 1.0
+
+[material.glassCard]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.85
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0
+
+[material.glassSubtle]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.85
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0
+
+[material.glassWindow]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.95
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0
+
+[material.glassOverlay]
+type = "glass"
+blurRadiusDp = 0
+downsampleFactor = 8
+tintColor = "#000000"
+tintAlpha = 0.95
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.2
+borderColor = "#ffffff"
+borderAlpha = 1.0

@@ -90,15 +90,54 @@ map the 4-tier px blur onto them (document the dp↔px + downsample choice per l
 - **`BaseTokens` becomes generated** from `.nxtheme.toml` via build.rs (kill the hardcoded impl;
   it currently drifts silently from the toml — the core bug this reconciliation fixes).
 
+## Canonical resolved color values (computed from handoff oklch, verified)
+
+The handoff neutrals + charts are authored in **oklch**; the runtime SSOT is **hex**. Below are the
+oklch→sRGB conversions (Björn Ottosson OKLab matrices; match the canonical shadcn/ui neutral+chart
+set — e.g. `oklch(0.145 0 0)=#0a0a0a`, `oklch(0.269 0 0)=#262626`, `oklch(0.985 0 0)=#fafafa`).
+**Design consequence:** the handoff palette is a **pure-neutral-grey** scale (Apple-like), not the
+current slate-blue tint — adopting it shifts the OS neutrals to grey with **blue only as the
+interactive accent**.
+
+| oklch | hex | roles |
+|---|---|---|
+| `0.145 0 0` | `#0a0a0a` | dark bg/card/popover; light foreground/card-fg |
+| `0.205 0 0` | `#171717` | dark sidebar; primary-fg; light sidebar-accent-fg |
+| `0.269 0 0` | `#262626` | dark secondary/muted/accent/border/sidebar-accent |
+| `0.439 0 0` | `#525252` | dark ring |
+| `0.708 0 0` | `#a1a1a1` | dark muted-fg; light ring |
+| `0.922 0 0` | `#e5e5e5` | light sidebar-border |
+| `0.95 0.0058 264.53` | `#eceef2` | light secondary |
+| `0.97 0 0` | `#f5f5f5` | light sidebar-accent |
+| `0.985 0 0` | `#fafafa` | dark foreground/primary/*-fg; light sidebar/primary-fg |
+| `0.68 0.196 25.5` | `#fa5a55` | dark destructive |
+| charts light | `#f54900 #009689 #104e64 #ffb900 #fe9a00` | chart-1..5 |
+| charts dark | `#1447e6 #00bc7d #fe9a00 #ad46ff #ff2056` | chart-1..5 |
+
+Converter kept at `scratchpad/oklch.py` for regeneration; the values above are the authored SSOT.
+Explicit hex handoff values carry over verbatim (primary `#030213`, destructive `#d4183d`,
+success `#22c55e`, warning `#f59e0b`, info `#3b82f6`, toggle-on `#3b82f6@.85`, notif-dot `#ef4444`,
+island `#000000`).
+
 ## Migration steps (W1, before any component work)
 
-1. Author the extended `.nxtheme.toml` schema (varying: colors+glass; invariant: scales) with the
-   handoff numeric contract (oklch→hex converted, values verbatim).
-2. Regenerate `nexus-theme-tokens` typed enums + a generated `Tokens` impl **from the toml**
-   (build.rs); delete hardcoded `BaseTokens` values.
-3. Point windowd `theme.rs`/`assets::THEME_*` at the same generation (one bake path, not two).
-4. Golden-check the generated values against the handoff `*.css` (the reconciliation test).
-5. Only then build the glass primitive (RFC-0070 §glass) that consumes the material tokens.
+1. **[DONE — additive]** Author the reconciled **colors + 5 glass materials** into the
+   `.nxtheme.toml` layers + `nexus-theme` (`resolve_material` chain added). Purely additive: every
+   existing token name/value is unchanged, so windowd's bake stays byte-identical and all prior
+   tests pass. New tokens (primary/card/popover/secondary/info/destructive/sidebar*/chart*/
+   text-on-glass/toggle*) + the 5 handoff glass levels (`glassPanel/Card/Subtle/Window/Overlay`,
+   replacing the ad-hoc `glassLow/High`) are pinned by goldens in `theme/tests/integration.rs`.
+2. **[TODO — invariant scales]** Add `[typography]/[spacing]/[radius]/[shadow]/[motion]/[zindex]`
+   sections (extend `KNOWN_SECTIONS` + validators + `Theme` struct). Theme-invariant, authored once.
+3. **[TODO — palette shift, BOOT-GATED]** Retune the *existing* neutrals (`surface/fg/bg/accent/
+   danger`) to the handoff pure-grey palette. This changes windowd's baked look → user boot-verifies
+   before commit; updates the value-pinning tests (`dark bg`, `danger`, …). Deliberately deferred
+   from step 1 so the vocabulary grows without a surprise appearance change.
+4. **[TODO]** Regenerate `nexus-theme-tokens` typed enums + a generated `Tokens` impl **from the
+   toml** (build.rs); delete hardcoded `BaseTokens`; point windowd `theme.rs`/`assets::THEME_*` at
+   the same generation (one bake path). Golden-check generated values vs. the handoff `*.css`.
+5. **[TODO]** Then build the glass primitive (RFC-0070 D4) that consumes the material tokens —
+   the first real consumer of `resolve_material`.
 
 ## Verification
 

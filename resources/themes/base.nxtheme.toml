@@ -2,9 +2,20 @@
 name = "base"
 version = 1
 
+# ── Semantic tokens ─────────────────────────────────────────────────────────
+# Base is the default / fallback layer (light-leaning). dark/light/highcontrast
+# override only what varies; everything else resolves here via the qualifier
+# chain (see ThemeRuntime::resolve / resolve_material).
+#
+# Contract source: docs/dev/design_handoff_open_nexus_os/reference/tokens/*.css
+# reconciled per docs/dev/ui/foundations/visual/token-reconciliation.md.
+# `accent` is the interactive blue (handoff --color-info); the neutral handoff
+# `--color-accent` grey maps to `surfaceAlt`.
 [tokens]
+# interactive accent + on-accent
 accent = "#3b82f6"
 accentFg = "#ffffff"
+# surfaces / content
 bg = "#ffffff"
 fg = "#1a1a2e"
 surface = "#f8f9fa"
@@ -13,35 +24,114 @@ border = "#e2e8f0"
 divider = "#cbd5e1"
 muted = "#94a3b8"
 mutedFg = "#64748b"
+# status
 danger = "#ef4444"
 dangerFg = "#ffffff"
+destructive = "#d4183d"
+destructiveFg = "#ffffff"
 warning = "#f59e0b"
 warningFg = "#1a1a2e"
 success = "#22c55e"
 successFg = "#ffffff"
+info = "#3b82f6"
+infoFg = "#ffffff"
 focusRing = "#3b82f6"
+# brand / chrome (handoff)
+primary = "#030213"
+primaryFg = "#ffffff"
+card = "#ffffff"
+cardFg = "#0a0a0a"
+popover = "#ffffff"
+popoverFg = "#0a0a0a"
+secondary = "#eceef2"
+secondaryFg = "#030213"
+inputBg = "#f3f3f5"
+switchBg = "#cbced4"
+islandBg = "#000000"
+notifDot = "#ef4444"
+# sidebar (handoff)
+sidebar = "#fafafa"
+sidebarFg = "#0a0a0a"
+sidebarPrimary = "#030213"
+sidebarPrimaryFg = "#fafafa"
+sidebarAccent = "#f5f5f5"
+sidebarAccentFg = "#171717"
+sidebarBorder = "#e5e5e5"
+# charts (handoff, light — oklch→hex, see token-reconciliation.md)
+chart1 = "#f54900"
+chart2 = "#009689"
+chart3 = "#104e64"
+chart4 = "#ffb900"
+chart5 = "#fe9a00"
+# text-on-glass + interaction washes (RGBA hex; light theme = dark ink)
+glassTextPrimary = "#000000cc"
+glassTextSecondary = "#00000066"
+glassTextStrong = "#000000eb"
+glassHover = "#00000014"
+glassActive = "#0000001f"
+toggleOnBg = "#3b82f6d9"
+toggleOffBg = "#ffffffd9"
 glassTint = "#f8f9fa"
 glassEdge = "#ffffff54"
 
 [material.surface]
 type = "opaque"
 
-[material.glassLow]
+# ── Liquid-glass materials (handoff: panel / card / subtle / window / overlay) ─
+# Materials resolve through the qualifier chain (resolve_material): base carries
+# the light values; dark/highcontrast override. tint/edge/border alphas are
+# floats (0..1); blur in dp with a downsample perf factor.
+[material.glassPanel]
 type = "glass"
-blurRadiusDp = 8
+blurRadiusDp = 40
 downsampleFactor = 4
 tintColor = "#ffffff"
-tintAlpha = 0.3
+tintAlpha = 0.50
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.15
+borderColor = "#ffffff"
+borderAlpha = 0.75
 
-[material.glassHigh]
+[material.glassCard]
 type = "glass"
-blurRadiusDp = 16
+blurRadiusDp = 20
 downsampleFactor = 2
 tintColor = "#ffffff"
-tintAlpha = 0.2
+tintAlpha = 0.60
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.1
+edgeHighlightAlpha = 0.12
 borderColor = "#ffffff"
-borderAlpha = 0.08
+borderAlpha = 0.80
+
+[material.glassSubtle]
+type = "glass"
+blurRadiusDp = 12
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.70
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.10
+borderColor = "#ffffff"
+borderAlpha = 0.80
+
+[material.glassWindow]
+type = "glass"
+blurRadiusDp = 30
+downsampleFactor = 2
+tintColor = "#f8f9fb"
+tintAlpha = 0.94
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.85
+borderColor = "#ffffff"
+borderAlpha = 0.90
+
+[material.glassOverlay]
+type = "glass"
+blurRadiusDp = 40
+downsampleFactor = 2
+tintColor = "#fcfcfe"
+tintAlpha = 0.82
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.20
+borderColor = "#ffffff"
+borderAlpha = 0.85

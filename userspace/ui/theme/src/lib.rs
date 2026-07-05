@@ -114,6 +114,21 @@ impl ThemeRuntime {
         Err(ThemeError::TokenNotFound { token: token_name.to_string(), qualifier: self.active })
     }
 
+    /// Resolve a named material (e.g. "glassPanel", "surface") through the
+    /// qualifier chain: active qualifier first, then fall back to base — the
+    /// same inheritance as [`resolve`](Self::resolve) for color tokens, so a
+    /// theme only redefines the materials that differ.
+    pub fn resolve_material(&self, material_name: &str) -> Option<&Material> {
+        for qualifier in self.active.resolution_chain() {
+            if let Some(theme) = self.themes.get(&qualifier) {
+                if let Some(material) = theme.materials.get(material_name) {
+                    return Some(material);
+                }
+            }
+        }
+        None
+    }
+
     /// Get the active qualifier.
     pub fn active_qualifier(&self) -> Qualifier {
         self.active

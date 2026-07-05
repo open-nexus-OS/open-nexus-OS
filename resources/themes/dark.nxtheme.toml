@@ -2,6 +2,8 @@
 name = "dark"
 version = 1
 
+# Dark overrides only what differs from base (qualifier chain falls back to base
+# for anything omitted). See docs/dev/ui/foundations/visual/token-reconciliation.md.
 [tokens]
 accent = "#60a5fa"
 accentFg = "#1a1a2e"
@@ -14,28 +16,95 @@ divider = "#475569"
 muted = "#64748b"
 mutedFg = "#94a3b8"
 focusRing = "#60a5fa"
+# brand / chrome (handoff dark — oklch→hex)
+primary = "#fafafa"
+primaryFg = "#171717"
+card = "#0a0a0a"
+cardFg = "#fafafa"
+popover = "#0a0a0a"
+popoverFg = "#fafafa"
+secondary = "#262626"
+secondaryFg = "#fafafa"
+destructive = "#fa5a55"
+# sidebar (handoff dark)
+sidebar = "#171717"
+sidebarFg = "#fafafa"
+sidebarPrimary = "#1447e6"
+sidebarPrimaryFg = "#fafafa"
+sidebarAccent = "#262626"
+sidebarAccentFg = "#fafafa"
+sidebarBorder = "#262626"
+# charts (handoff dark)
+chart1 = "#1447e6"
+chart2 = "#00bc7d"
+chart3 = "#fe9a00"
+chart4 = "#ad46ff"
+chart5 = "#ff2056"
+# text-on-glass + interaction washes (dark theme = light ink)
+glassTextPrimary = "#ffffffe6"
+glassTextSecondary = "#ffffff73"
+glassTextStrong = "#fffffff2"
+glassHover = "#ffffff26"
+glassActive = "#ffffff33"
+toggleOffBg = "#ffffff24"
 glassTint = "#1e293b"
 glassEdge = "#ffffff54"
 
 [material.surface]
 type = "opaque"
 
-[material.glassLow]
+# Dark liquid-glass materials (handoff .dark values).
+[material.glassPanel]
 type = "glass"
-blurRadiusDp = 8
+blurRadiusDp = 40
 downsampleFactor = 4
-tintColor = "#000000"
-tintAlpha = 0.3
+tintColor = "#ffffff"
+tintAlpha = 0.10
 edgeHighlightColor = "#ffffff"
-edgeHighlightAlpha = 0.08
+edgeHighlightAlpha = 0.10
+borderColor = "#ffffff"
+borderAlpha = 0.18
 
-[material.glassHigh]
+[material.glassCard]
 type = "glass"
-blurRadiusDp = 16
+blurRadiusDp = 20
 downsampleFactor = 2
-tintColor = "#000000"
-tintAlpha = 0.2
+tintColor = "#ffffff"
+tintAlpha = 0.08
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.06
+borderColor = "#ffffff"
+borderAlpha = 0.12
+
+[material.glassSubtle]
+type = "glass"
+blurRadiusDp = 12
+downsampleFactor = 2
+tintColor = "#ffffff"
+tintAlpha = 0.06
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.05
 borderColor = "#ffffff"
-borderAlpha = 0.05
+borderAlpha = 0.10
+
+[material.glassWindow]
+type = "glass"
+blurRadiusDp = 30
+downsampleFactor = 2
+tintColor = "#34363e"
+tintAlpha = 0.82
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.14
+borderColor = "#ffffff"
+borderAlpha = 0.12
+
+[material.glassOverlay]
+type = "glass"
+blurRadiusDp = 40
+downsampleFactor = 2
+tintColor = "#222734"
+tintAlpha = 0.80
+edgeHighlightColor = "#ffffff"
+edgeHighlightAlpha = 0.16
+borderColor = "#ffffff"
+borderAlpha = 0.16

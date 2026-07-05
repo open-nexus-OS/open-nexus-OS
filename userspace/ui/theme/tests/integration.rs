@@ -288,3 +288,96 @@ fn test_material_glass() {
     let mat = theme.materials.get("glassLow").unwrap();
     assert!(matches!(mat, nexus_theme::Material::Glass(_)));
 }
+
+// ---------------------------------------------------------------------------
+// Reconciled design-system contract (RFC-0070 / token-reconciliation.md)
+// Pins the handoff token + 5-glass-level contract on the real resource themes.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_reconciled_new_tokens_resolve_from_base() {
+    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    for (name, hex) in [
+        ("primary", "#030213"),
+        ("info", "#3b82f6"),
+        ("destructive", "#d4183d"),
+        ("secondary", "#eceef2"),
+        ("sidebar", "#fafafa"),
+        ("chart1", "#f54900"),
+        ("glassTextPrimary", "#000000cc"),
+        ("toggleOnBg", "#3b82f6d9"),
+    ] {
+        assert_eq!(
+            runtime.resolve(name).unwrap(),
+            ColorValue::from_hex(hex).unwrap(),
+            "base token '{name}' should resolve to {hex}"
+        );
+    }
+}
+
+#[test]
+fn test_reconciled_dark_token_overrides() {
+    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    runtime.set_qualifier(Qualifier::Dark);
+    for (name, hex) in [
+        ("primary", "#fafafa"),
+        ("secondary", "#262626"),
+        ("destructive", "#fa5a55"),
+        ("chart1", "#1447e6"),
+        ("glassTextPrimary", "#ffffffe6"),
+    ] {
+        assert_eq!(
+            runtime.resolve(name).unwrap(),
+            ColorValue::from_hex(hex).unwrap(),
+            "dark token '{name}' should override to {hex}"
+        );
+    }
+    // A token only defined in base still falls back under dark.
+    assert_eq!(runtime.resolve("info").unwrap(), ColorValue::from_hex("#3b82f6").unwrap());
+}
+
+#[test]
+fn test_five_glass_levels_present_in_base() {
+    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    let base = runtime.get_theme(Qualifier::Base).unwrap();
+    for level in ["glassPanel", "glassCard", "glassSubtle", "glassWindow", "glassOverlay"] {
+        assert!(
+            matches!(base.materials.get(level), Some(nexus_theme::Material::Glass(_))),
+            "base must define glass material '{level}'"
+        );
+    }
+    // The old ad-hoc glassLow/glassHigh names are gone (replaced by the 5 levels).
+    assert!(base.materials.get("glassLow").is_none());
+    assert!(base.materials.get("glassHigh").is_none());
+}
+
+#[test]
+fn test_glass_material_resolves_through_qualifier_chain() {
+    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+
+    // Light does not redefine glassPanel → inherits base (light blur 40, tint .50).
+    runtime.set_qualifier(Qualifier::Light);
+    match runtime.resolve_material("glassPanel") {
+        Some(nexus_theme::Material::Glass(g)) => {
+            assert_eq!(g.blur_radius_dp, 40);
+            assert!((g.tint_alpha - 0.50).abs() < 1e-6);
+        }
+        other => panic!("light glassPanel should inherit base glass, got {other:?}"),
+    }
+
+    // Dark overrides glassPanel (same blur, dark tint alpha .10).
+    runtime.set_qualifier(Qualifier::Dark);
+    match runtime.resolve_material("glassPanel") {
+        Some(nexus_theme::Material::Glass(g)) => {
+            assert!((g.tint_alpha - 0.10).abs() < 1e-6);
+        }
+        other => panic!("dark glassPanel should override, got {other:?}"),
+    }
+
+    // High contrast zeroes blur on every level (a11y).
+    runtime.set_qualifier(Qualifier::HighContrast);
+    match runtime.resolve_material("glassOverlay") {
+        Some(nexus_theme::Material::Glass(g)) => assert_eq!(g.blur_radius_dp, 0),
+        other => panic!("highcontrast glassOverlay should be blur 0, got {other:?}"),
+    }
+}
