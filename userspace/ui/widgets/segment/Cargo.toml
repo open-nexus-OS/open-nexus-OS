@@ -1,11 +1,11 @@
 [package]
-name = "nexus-widget-text-field"
+name = "nexus-widget-segment"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
 [lib]
-name = "nexus_widget_text_field"
+name = "nexus_widget_segment"
 path = "src/lib.rs"
 
 [dependencies]

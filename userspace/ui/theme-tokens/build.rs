@@ -151,6 +151,30 @@ fn main() {
         spacing("large") as i32,
     ));
 
+    // Typography scale (theme-invariant → resolve at Base).
+    let type_scale: &[(&str, &str)] = &[
+        ("Xs", "xs"),
+        ("Sm", "sm"),
+        ("Base", "base"),
+        ("Md", "md"),
+        ("Lg", "lg"),
+        ("Xl", "xl"),
+        ("Xxl", "xxl"),
+        ("Xxxl", "xxxl"),
+        ("Display", "display"),
+    ];
+    generated.push_str("pub(crate) fn type_size(token: TypographyToken) -> FxPx {\n    match token {\n");
+    for (variant, name) in type_scale {
+        let px = runtime
+            .resolve_scale("typography", name)
+            .unwrap_or_else(|| panic!("nexus-theme-tokens: [typography] '{name}' missing"));
+        generated.push_str(&format!(
+            "        TypographyToken::{variant} => FxPx::new({}),\n",
+            px as i32
+        ));
+    }
+    generated.push_str("    }\n}\n");
+
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
     fs::write(Path::new(&out_dir).join("generated_tokens.rs"), generated)
         .expect("write generated_tokens.rs");

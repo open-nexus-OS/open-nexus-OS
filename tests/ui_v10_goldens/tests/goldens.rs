@@ -74,6 +74,39 @@ fn glass_cards() {
 }
 
 #[test]
+fn controls() {
+    use nexus_widget_checkbox::GlassCheckbox;
+    use nexus_widget_radio::Radio;
+    use nexus_widget_segment::Segment;
+    let t = BaseTokens;
+    check_golden("checkbox_on", &GlassCheckbox::new().checked(true).build(&t)).unwrap();
+    check_golden("checkbox_off", &GlassCheckbox::new().checked(false).build(&t)).unwrap();
+    check_golden("radio_selected", &Radio::new().selected(true).build(&t)).unwrap();
+    check_golden("radio_unselected", &Radio::new().selected(false).build(&t)).unwrap();
+    check_golden(
+        "segment",
+        &Segment::new().active(1).options(vec![swatch(22), swatch(22), swatch(22)]).build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn text_fields() {
+    use nexus_widget_text_field::GlassTextField;
+    let t = BaseTokens;
+    check_golden(
+        "textfield_default",
+        &GlassTextField::new().label("E-Mail").placeholder("name@firma.de").build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "textfield_error",
+        &GlassTextField::new().label("E-Mail").value("x").error("Zu kurz").build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
 fn app_icons() {
     let t = BaseTokens;
     check_golden(

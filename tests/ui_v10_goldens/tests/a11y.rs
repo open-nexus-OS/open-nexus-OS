@@ -63,4 +63,15 @@ fn interactive_targets_meet_minimum() {
     // The switch track.
     let (tw, th) = root_size(&GlassToggle::new().checked(true).build(&t));
     assert!(tw >= MIN_TOUCH && th >= MIN_TOUCH, "toggle {tw}x{th} < {MIN_TOUCH}");
+
+    // The segmented control (each slot is a tap target; the pill sets the height).
+    let seg = nexus_widget_segment::Segment::new()
+        .active(0)
+        .options(vec![swatch(24), swatch(24)])
+        .build(&t);
+    let (_sw, sh) = root_size(&seg);
+    assert!(sh >= MIN_TOUCH, "segment height {sh} < {MIN_TOUCH}");
+
+    // NOTE: bare Checkbox/Radio indicators (20px) are intentionally NOT touch-target
+    // linted — their tap target is the surrounding labeled row, not the glyph.
 }

@@ -2154,6 +2154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-checkbox"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-widget-panel"
 version = "0.1.0"
 dependencies = [
@@ -2162,11 +2171,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-radio"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-segment"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-widget-text-field"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
+ "nexus-theme-tokens",
 ]
 
 [[package]]
@@ -3790,6 +3818,10 @@ dependencies = [
  "nexus-widget-badge",
  "nexus-widget-button",
  "nexus-widget-card",
+ "nexus-widget-checkbox",
+ "nexus-widget-radio",
+ "nexus-widget-segment",
+ "nexus-widget-text-field",
  "nexus-widget-toggle",
  "ui_host_snap",
  "ui_renderer",

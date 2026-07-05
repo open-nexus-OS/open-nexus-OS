@@ -15,8 +15,11 @@
 extern crate alloc;
 
 use alloc::string::String;
-use nexus_layout_types::{FlexItem, FxPx, LayoutNode, TextContent, TextInputNode, TextStyle};
+use nexus_layout_types::{FlexItem, LayoutNode, TextContent, TextInputNode, TextStyle};
 use nexus_style::Style;
+
+mod glass_text_field;
+pub use glass_text_field::{FieldSize, GlassTextField};
 
 /// A styled single-line text input.
 #[derive(Debug, Clone, Default)]
@@ -98,7 +101,7 @@ impl TextField {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexus_layout_types::Rgba8;
+    use nexus_layout_types::{FxPx, Rgba8};
 
     #[test]
     fn text_field_builds_text_input_with_value_and_cursor() {

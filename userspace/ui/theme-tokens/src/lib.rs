@@ -78,6 +78,29 @@ pub enum LengthToken {
     BorderThin,
 }
 
+/// Font-size step (handoff type scale). Theme-invariant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TypographyToken {
+    /// 11px — status bar, captions.
+    Xs,
+    /// 12px — metadata, timestamps, helper text.
+    Sm,
+    /// 14px — body, list items.
+    Base,
+    /// 16px — labels, UI text.
+    Md,
+    /// 18px — subheadings.
+    Lg,
+    /// 20px — headings.
+    Xl,
+    /// 24px — titles.
+    Xxl,
+    /// 30px — large headings.
+    Xxxl,
+    /// 36px — display.
+    Display,
+}
+
 /// Liquid-glass material level (handoff panel/card/subtle/window/overlay).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MaterialToken {
@@ -112,6 +135,12 @@ pub struct GlassSurface {
 pub trait Tokens {
     fn color(&self, token: ColorToken) -> Rgba8;
     fn length(&self, token: LengthToken) -> FxPx;
+
+    /// Font size (px) for a type-scale step. Theme-invariant, so the default
+    /// impl (generated from `[typography]`) is authoritative for every theme.
+    fn type_size(&self, token: TypographyToken) -> FxPx {
+        type_size(token)
+    }
 
     /// The resolved glass material for a level. The default is a non-blurred
     /// opaque-ish fallback derived from the color tokens; generated themes
@@ -246,6 +275,16 @@ mod tests {
         assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 40);
         // high contrast zeroes blur (a11y).
         assert_eq!(HighContrastTokens.glass(MaterialToken::Overlay).blur_radius, 0);
+    }
+
+    #[test]
+    fn generated_type_sizes_match_toml() {
+        let t = BaseTokens;
+        assert_eq!(t.type_size(TypographyToken::Base), FxPx::new(14)); // body
+        assert_eq!(t.type_size(TypographyToken::Sm), FxPx::new(12)); // helper
+        assert_eq!(t.type_size(TypographyToken::Display), FxPx::new(36));
+        // Invariant across themes (default trait impl).
+        assert_eq!(DarkTokens.type_size(TypographyToken::Md), FxPx::new(16));
     }
 
     #[test]

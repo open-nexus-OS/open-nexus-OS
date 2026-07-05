@@ -18,5 +18,9 @@ nexus-widget-badge = { path = "../../userspace/ui/widgets/badge" }
 nexus-widget-toggle = { path = "../../userspace/ui/widgets/toggle" }
 nexus-widget-app-icon = { path = "../../userspace/ui/widgets/app_icon" }
 nexus-widget-card = { path = "../../userspace/ui/widgets/card" }
+nexus-widget-checkbox = { path = "../../userspace/ui/widgets/checkbox" }
+nexus-widget-radio = { path = "../../userspace/ui/widgets/radio" }
+nexus-widget-segment = { path = "../../userspace/ui/widgets/segment" }
+nexus-widget-text-field = { path = "../../userspace/ui/widgets/text_field" }
 ui_renderer = { path = "../../userspace/ui/renderer" }
 ui_host_snap = { path = "../ui_host_snap" }
