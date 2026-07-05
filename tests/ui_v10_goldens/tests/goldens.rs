@@ -107,6 +107,36 @@ fn text_fields() {
 }
 
 #[test]
+fn more_controls() {
+    use nexus_widget_search_bar::SearchBar;
+    use nexus_widget_slider::Slider;
+    use nexus_widget_stepper::Stepper;
+    let t = BaseTokens;
+    check_golden("searchbar", &SearchBar::new().leading(swatch(16)).build(&t)).unwrap();
+    check_golden("slider_60", &Slider::new().value(60).build(&t)).unwrap();
+    check_golden("slider_0", &Slider::new().value(0).build(&t)).unwrap();
+    check_golden(
+        "stepper",
+        &Stepper::new().dec(swatch(12)).value(swatch(20)).inc(swatch(12)).build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn select_and_textarea() {
+    use nexus_widget_select::Select;
+    use nexus_widget_text_area::TextArea;
+    let t = BaseTokens;
+    check_golden("select_value", &Select::new().value("Deutsch").build(&t)).unwrap();
+    check_golden("select_placeholder", &Select::new().placeholder("Sprache").build(&t)).unwrap();
+    check_golden(
+        "textarea",
+        &TextArea::new().label("Notiz").rows(3).max_length(280).show_count(true).build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
 fn app_icons() {
     let t = BaseTokens;
     check_golden(

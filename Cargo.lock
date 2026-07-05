@@ -2180,7 +2180,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-search-bar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text-field",
+]
+
+[[package]]
 name = "nexus-widget-segment"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-select"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-slider"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-stepper"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-text-area"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
@@ -3820,7 +3866,12 @@ dependencies = [
  "nexus-widget-card",
  "nexus-widget-checkbox",
  "nexus-widget-radio",
+ "nexus-widget-search-bar",
  "nexus-widget-segment",
+ "nexus-widget-select",
+ "nexus-widget-slider",
+ "nexus-widget-stepper",
+ "nexus-widget-text-area",
  "nexus-widget-text-field",
  "nexus-widget-toggle",
  "ui_host_snap",

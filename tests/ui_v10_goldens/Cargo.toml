@@ -22,5 +22,10 @@ nexus-widget-checkbox = { path = "../../userspace/ui/widgets/checkbox" }
 nexus-widget-radio = { path = "../../userspace/ui/widgets/radio" }
 nexus-widget-segment = { path = "../../userspace/ui/widgets/segment" }
 nexus-widget-text-field = { path = "../../userspace/ui/widgets/text_field" }
+nexus-widget-search-bar = { path = "../../userspace/ui/widgets/search_bar" }
+nexus-widget-slider = { path = "../../userspace/ui/widgets/slider" }
+nexus-widget-stepper = { path = "../../userspace/ui/widgets/stepper" }
+nexus-widget-select = { path = "../../userspace/ui/widgets/select" }
+nexus-widget-text-area = { path = "../../userspace/ui/widgets/text_area" }
 ui_renderer = { path = "../../userspace/ui/renderer" }
 ui_host_snap = { path = "../ui_host_snap" }

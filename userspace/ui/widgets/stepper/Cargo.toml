@@ -1,0 +1,14 @@
+[package]
+name = "nexus-widget-stepper"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_widget_stepper"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-style = { path = "../../style" }
+nexus-theme-tokens = { path = "../../theme-tokens" }
