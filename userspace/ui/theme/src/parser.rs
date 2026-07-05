@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::error::ThemeError;
-use crate::tokens::{ColorValue, GlassMaterial, Material, TokenMap};
+use crate::tokens::{ColorValue, GlassMaterial, Material, ScaleMap, TokenMap};
 use crate::Theme;
 
 /// Parse a .nxtheme.toml file into a `Theme`.
@@ -60,7 +60,47 @@ pub fn parse_theme_file(content: &str, path: &Path) -> Result<Theme, ThemeError>
         }
     }
 
-    Ok(Theme { name: theme_name, version: theme_version, tokens, materials })
+    // Parse the numeric scale sections (theme-invariant in practice): whole-number
+    // maps keyed by section name. `leading` is line-height ×100 (150 = 1.50);
+    // `typography` is font size px; `zindex` is layer order. Only present sections
+    // are stored; resolution falls back through the qualifier chain.
+    let mut scale_map = std::collections::HashMap::new();
+    for section in crate::SCALE_SECTIONS {
+        let parsed = parse_scale_section(&root, section, path)?;
+        if !parsed.is_empty() {
+            scale_map.insert((*section).to_string(), parsed);
+        }
+    }
+
+    Ok(Theme {
+        name: theme_name,
+        version: theme_version,
+        tokens,
+        materials,
+        scales: scale_map,
+    })
+}
+
+/// Parse a `[spacing]` / `[radius]` section into a [`ScaleMap`]; empty when absent.
+fn parse_scale_section(
+    root: &toml::Table,
+    section: &str,
+    path: &Path,
+) -> Result<ScaleMap, ThemeError> {
+    let Some(value) = root.get(section) else {
+        return Ok(ScaleMap::new());
+    };
+    let table = value.as_table().ok_or_else(|| ThemeError::SchemaValidation {
+        path: path.to_path_buf(),
+        message: format!("[{section}] must be a TOML table"),
+    })?;
+    crate::schema::validate_scale_section(section, table, path)?;
+    let mut map = ScaleMap::new();
+    for (key, v) in table {
+        // validated as non-negative integer above.
+        map.insert(key.clone(), v.as_integer().unwrap_or(0) as u32);
+    }
+    Ok(map)
 }
 
 fn parse_token_map(table: &toml::Table, path: &Path) -> Result<TokenMap, ThemeError> {

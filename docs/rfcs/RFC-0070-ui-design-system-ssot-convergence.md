@@ -58,12 +58,21 @@ motion/z scales authored once). `nexus-theme-tokens` typed enums and their `Toke
 `ThemeTokens` folds into the same bake. Handoff CSS becomes reference + the golden the runtime is
 checked against. Details + the `accent`-semantics decision: `token-reconciliation.md`.
 
-### D4 — One glass primitive
+### D4 — One glass primitive (extend the existing SSOT, don't add one)
 
 The signature liquid-glass surface (backdrop-blur + tint + 1px border + top-shine + drop-shadow)
-is **one reusable draw** in `nexus-effects`/`nexus-gfx`, consumed via material tokens. windowd's
-boot-hardened glass compositing (frosted blur, RT backdrop) is **promoted into it**, not
-re-implemented per component. Everything glass is built on this one primitive.
+is **one reusable draw**, consumed via material tokens (the 5 `glass*` materials in `.nxtheme.toml`).
+
+**Finding (2026-07-05):** the glass compositing SSOT already exists as **`nexus-gfx`
+`Layer`/`LayerBackdrop` + `RenderCommandEncoder::composite_layer_full`**; windowd's
+`shell_window::composite_glass` is a thin wrapper that fills a `Layer`. But it is **split**:
+`LayerBackdrop` carries only `blur_radius` + `saturation_percent` (blur+shadow), while **tint,
+top-shine (edge highlight), and border are baked into the windowd surface content** — not the
+primitive. So D4 = **extend `nexus-gfx` `LayerBackdrop` with tint/edge-highlight/border driven by
+the material tokens**, and route windowd's baked-tint path through it. This is a live-path change →
+**boot-gated**. Do **not** build a second glass primitive in `nexus-effects` (its `blur.rs`/
+`shadow.rs` are the component pieces the extended `Layer` uses) — that would be a new double
+structure. `nexus-effects` blur/shadow are promoted *into* the one `Layer` path, not parallel to it.
 
 ### D5 — Promote the best, not the incumbent
 

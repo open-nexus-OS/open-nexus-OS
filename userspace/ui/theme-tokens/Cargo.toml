@@ -10,3 +10,8 @@ path = "src/lib.rs"
 
 [dependencies]
 nexus-layout-types = { path = "../layout-types" }
+
+# Host-only: generates the typed token snapshots from the `.nxtheme.toml` SSOT at
+# build time (RFC-0070 D3). Does not affect the crate's `no_std` runtime.
+[build-dependencies]
+nexus-theme = { path = "../theme" }

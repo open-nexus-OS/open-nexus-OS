@@ -7,7 +7,8 @@ use std::path::Path;
 use crate::error::ThemeError;
 
 /// Known top-level sections in `.nxtheme.toml`.
-const KNOWN_SECTIONS: &[&str] = &["theme", "tokens", "material"];
+const KNOWN_SECTIONS: &[&str] =
+    &["theme", "tokens", "material", "spacing", "radius", "typography", "leading", "zindex"];
 
 /// Known keys in the `[theme]` section.
 const KNOWN_THEME_KEYS: &[&str] = &["name", "version"];
@@ -99,6 +100,33 @@ pub fn validate_tokens_section(table: &toml::Table, path: &Path) -> Result<(), T
                     message: format!(
                         "token '{key}' value must be a string (hex color), got {value:?}"
                     ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate a length-scale section (`[spacing]` / `[radius]`).
+/// Every value must be a non-negative integer number of layout pixels.
+pub fn validate_scale_section(
+    section: &str,
+    table: &toml::Table,
+    path: &Path,
+) -> Result<(), ThemeError> {
+    for (key, value) in table {
+        match value.as_integer() {
+            Some(px) if px >= 0 => {}
+            Some(px) => {
+                return Err(ThemeError::SchemaValidation {
+                    path: path.to_path_buf(),
+                    message: format!("[{section}] '{key}' must be >= 0, got {px}"),
+                });
+            }
+            None => {
+                return Err(ThemeError::SchemaValidation {
+                    path: path.to_path_buf(),
+                    message: format!("[{section}] '{key}' must be an integer pixel count, got {value:?}"),
                 });
             }
         }

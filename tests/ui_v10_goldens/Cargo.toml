@@ -1,0 +1,22 @@
+[package]
+name = "ui_v10_goldens"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "ui_v10_goldens"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout = { path = "../../userspace/ui/layout" }
+nexus-layout-types = { path = "../../userspace/ui/layout-types" }
+nexus-style = { path = "../../userspace/ui/style" }
+nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
+nexus-widget-button = { path = "../../userspace/ui/widgets/button" }
+nexus-widget-badge = { path = "../../userspace/ui/widgets/badge" }
+nexus-widget-toggle = { path = "../../userspace/ui/widgets/toggle" }
+nexus-widget-app-icon = { path = "../../userspace/ui/widgets/app_icon" }
+nexus-widget-card = { path = "../../userspace/ui/widgets/card" }
+ui_renderer = { path = "../../userspace/ui/renderer" }
+ui_host_snap = { path = "../ui_host_snap" }

@@ -42,6 +42,28 @@ pub enum ColorToken {
     Shadow,
     /// Window/desktop background.
     Background,
+    /// Brand ink (headings, high-emphasis).
+    Primary,
+    /// Content on `Primary`.
+    OnPrimary,
+    /// Destructive / danger action.
+    Danger,
+    /// Content on `Danger`.
+    OnDanger,
+    /// Warning status.
+    Warning,
+    /// Success status.
+    Success,
+    /// Informational status.
+    Info,
+    /// Content on `Warning`.
+    OnWarning,
+    /// Content on `Success`.
+    OnSuccess,
+    /// Content on `Info`.
+    OnInfo,
+    /// Focus ring / keyboard focus indicator.
+    FocusRing,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).
@@ -56,44 +78,125 @@ pub enum LengthToken {
     BorderThin,
 }
 
+/// Liquid-glass material level (handoff panel/card/subtle/window/overlay).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MaterialToken {
+    /// Main surfaces (dock, control center, launcher).
+    Panel,
+    /// Nested cards inside panels.
+    Card,
+    /// Settings rows / list items.
+    Subtle,
+    /// Dense app-window chrome.
+    Window,
+    /// Modal/alert/sheet/popover reading surface.
+    Overlay,
+}
+
+/// A resolved glass material: the pre-composited values a widget feeds into a
+/// `Style` to render one liquid-glass surface (fill tint, top-shine edge, 1px
+/// border, backdrop blur). Colors carry their alpha already (color × material
+/// alpha); `saturation` is the backdrop saturation percent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlassSurface {
+    pub tint: Rgba8,
+    pub edge: Rgba8,
+    pub border: Option<Rgba8>,
+    pub blur_radius: u32,
+    pub saturation: u32,
+    pub downsample: u32,
+}
+
 /// A resolved theme: maps semantic tokens to concrete values. The variable
 /// interface for the UI — `no_std`, deterministic.
 pub trait Tokens {
     fn color(&self, token: ColorToken) -> Rgba8;
     fn length(&self, token: LengthToken) -> FxPx;
+
+    /// The resolved glass material for a level. The default is a non-blurred
+    /// opaque-ish fallback derived from the color tokens; generated themes
+    /// override it with the authored `[material.glass*]` values.
+    fn glass(&self, _token: MaterialToken) -> GlassSurface {
+        GlassSurface {
+            tint: self.color(ColorToken::Surface),
+            edge: Rgba8::TRANSPARENT,
+            border: Some(self.color(ColorToken::Border)),
+            blur_radius: 0,
+            saturation: 100,
+            downsample: 1,
+        }
+    }
 }
 
-/// The built-in baseline theme (a calm dark "glass" palette). Forks/products
-/// provide their own `Tokens` impl (or a generated one) to rebrand without
-/// touching widgets or shells.
+// Color snapshots + the length scale, generated from `resources/themes/*.nxtheme.toml`
+// (RFC-0070 D3). Provides `base_color`/`dark_color`/`light_color`/`highcontrast_color`
+// and `scale_length` (radius/spacing from `[radius]`/`[spacing]`; BorderThin = 1px).
+include!(concat!(env!("OUT_DIR"), "/generated_tokens.rs"));
+
+/// The built-in **base** theme, resolved from `base.nxtheme.toml` (the
+/// light-leaning default layer). Values are generated from the theme SSOT, not
+/// hand-authored — swapping the theme = using [`DarkTokens`]/[`LightTokens`]/
+/// [`HighContrastTokens`] (or any [`Tokens`] impl); no widget code changes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BaseTokens;
 
 impl Tokens for BaseTokens {
     fn color(&self, token: ColorToken) -> Rgba8 {
-        match token {
-            ColorToken::Surface => Rgba8::new(20, 24, 32, 235),
-            ColorToken::SurfaceVariant => Rgba8::new(32, 38, 48, 235),
-            ColorToken::OnSurface => Rgba8::new(236, 240, 245, 255),
-            ColorToken::OnSurfaceVariant => Rgba8::new(160, 168, 180, 255),
-            ColorToken::Accent => Rgba8::new(90, 150, 245, 255),
-            ColorToken::OnAccent => Rgba8::new(8, 12, 20, 255),
-            ColorToken::Border => Rgba8::new(255, 255, 255, 28),
-            ColorToken::Shadow => Rgba8::new(0, 0, 0, 96),
-            ColorToken::Background => Rgba8::new(10, 12, 16, 255),
-        }
+        base_color(token)
     }
-
     fn length(&self, token: LengthToken) -> FxPx {
-        match token {
-            LengthToken::RadiusSmall => FxPx::new(8),
-            LengthToken::RadiusMedium => FxPx::new(16),
-            LengthToken::RadiusLarge => FxPx::new(24),
-            LengthToken::SpacingSmall => FxPx::new(8),
-            LengthToken::SpacingMedium => FxPx::new(16),
-            LengthToken::SpacingLarge => FxPx::new(24),
-            LengthToken::BorderThin => FxPx::new(1),
-        }
+        scale_length(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        base_glass(token)
+    }
+}
+
+/// Dark theme, resolved from `dark.nxtheme.toml` (falling back to base).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DarkTokens;
+
+impl Tokens for DarkTokens {
+    fn color(&self, token: ColorToken) -> Rgba8 {
+        dark_color(token)
+    }
+    fn length(&self, token: LengthToken) -> FxPx {
+        scale_length(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        dark_glass(token)
+    }
+}
+
+/// Light theme, resolved from `light.nxtheme.toml` (falling back to base).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LightTokens;
+
+impl Tokens for LightTokens {
+    fn color(&self, token: ColorToken) -> Rgba8 {
+        light_color(token)
+    }
+    fn length(&self, token: LengthToken) -> FxPx {
+        scale_length(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        light_glass(token)
+    }
+}
+
+/// High-contrast a11y theme, resolved from `highcontrast.nxtheme.toml`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HighContrastTokens;
+
+impl Tokens for HighContrastTokens {
+    fn color(&self, token: ColorToken) -> Rgba8 {
+        highcontrast_color(token)
+    }
+    fn length(&self, token: LengthToken) -> FxPx {
+        scale_length(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        highcontrast_glass(token)
     }
 }
 
@@ -111,6 +214,49 @@ mod tests {
         assert!(t.length(LengthToken::RadiusSmall) < t.length(LengthToken::RadiusLarge));
         assert!(t.length(LengthToken::SpacingSmall) < t.length(LengthToken::SpacingLarge));
         assert_eq!(t.length(LengthToken::BorderThin), FxPx::new(1));
+    }
+
+    #[test]
+    fn generated_tokens_match_theme_toml() {
+        // Locks the build.rs generation to the `.nxtheme.toml` SSOT (RFC-0070 D3):
+        // no more hand-authored drift. base = light-leaning default, dark overrides.
+        assert_eq!(BaseTokens.color(ColorToken::Surface), Rgba8::new(248, 249, 250, 255)); // #f8f9fa
+        assert_eq!(BaseTokens.color(ColorToken::Accent), Rgba8::new(59, 130, 246, 255)); // #3b82f6
+        assert_eq!(DarkTokens.color(ColorToken::Surface), Rgba8::new(30, 41, 59, 255)); // #1e293b
+        assert_eq!(DarkTokens.color(ColorToken::Accent), Rgba8::new(96, 165, 250, 255)); // #60a5fa
+        assert_eq!(LightTokens.color(ColorToken::Surface), Rgba8::new(255, 255, 255, 255)); // #ffffff
+        // High contrast: pure black background, white foreground.
+        assert_eq!(HighContrastTokens.color(ColorToken::Background), Rgba8::new(0, 0, 0, 255));
+        assert_eq!(HighContrastTokens.color(ColorToken::OnSurface), Rgba8::new(255, 255, 255, 255));
+        // Base falls back for a role a theme doesn't override (Shadow only in base).
+        assert_eq!(DarkTokens.color(ColorToken::Shadow), Rgba8::new(0, 0, 0, 96)); // #00000060
+    }
+
+    #[test]
+    fn generated_glass_materials_from_toml() {
+        // base glassPanel: tint #ffffff@.50, blur 40, border #ffffff@.75, sat 140.
+        let p = BaseTokens.glass(MaterialToken::Panel);
+        assert_eq!(p.tint, Rgba8::new(255, 255, 255, 128));
+        assert_eq!(p.blur_radius, 40);
+        assert_eq!(p.border, Some(Rgba8::new(255, 255, 255, 191)));
+        assert_eq!(p.saturation, 140);
+        // dark panel is more translucent (#ffffff@.10).
+        assert_eq!(DarkTokens.glass(MaterialToken::Panel).tint, Rgba8::new(255, 255, 255, 26));
+        // light inherits base materials via the qualifier chain.
+        assert_eq!(LightTokens.glass(MaterialToken::Panel).blur_radius, 40);
+        // high contrast zeroes blur (a11y).
+        assert_eq!(HighContrastTokens.glass(MaterialToken::Overlay).blur_radius, 0);
+    }
+
+    #[test]
+    fn generated_scale_length_matches_toml() {
+        // scale_length is generated from base's [radius]/[spacing]; BorderThin = 1px.
+        assert_eq!(BaseTokens.length(LengthToken::RadiusSmall), FxPx::new(8));
+        assert_eq!(BaseTokens.length(LengthToken::RadiusLarge), FxPx::new(24));
+        assert_eq!(BaseTokens.length(LengthToken::SpacingMedium), FxPx::new(16));
+        assert_eq!(BaseTokens.length(LengthToken::BorderThin), FxPx::new(1));
+        // Every theme shares the invariant scale.
+        assert_eq!(DarkTokens.length(LengthToken::RadiusMedium), FxPx::new(16));
     }
 
     #[test]

@@ -30,6 +30,9 @@ use nexus_layout_types::{
 };
 use nexus_theme_tokens::{ColorToken, LengthToken, Tokens};
 
+pub mod state;
+pub use state::{blend, InteractionState};
+
 /// Backdrop-blur modifier. The only visual modifier not representable on
 /// `VisualStyle` (the renderer emits it as a backdrop filter over the region
 /// behind the element). Carried on [`Style`] so one chain covers every modifier.

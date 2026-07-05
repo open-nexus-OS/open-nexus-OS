@@ -33,7 +33,7 @@ pub use error::{ThemeError, ThemeResult};
 pub use parser::parse_theme_file;
 pub use qualifier::Qualifier;
 pub use registry::ThemeRegistry;
-pub use tokens::{ColorValue, Material, TokenMap};
+pub use tokens::{ColorValue, Material, ScaleMap, TokenMap};
 
 use std::collections::HashMap;
 use std::fs;
@@ -47,13 +47,20 @@ pub struct ThemeRuntime {
     active: Qualifier,
 }
 
-/// A loaded theme with resolved token map and materials.
+/// The numeric scale sections parsed from `.nxtheme.toml` (whole-number maps).
+/// `leading` is line-height ×100 (150 = 1.50); `typography` is font size px;
+/// `zindex` is layer order. Theme-invariant in practice (authored in base).
+pub const SCALE_SECTIONS: &[&str] = &["spacing", "radius", "typography", "leading", "zindex"];
+
+/// A loaded theme with resolved token map, materials, and numeric scales.
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub name: String,
     pub version: u32,
     pub tokens: TokenMap,
     pub materials: HashMap<String, Material>,
+    /// Numeric scale sections keyed by section name (see [`SCALE_SECTIONS`]).
+    pub scales: HashMap<String, ScaleMap>,
 }
 
 impl ThemeRuntime {
@@ -127,6 +134,30 @@ impl ThemeRuntime {
             }
         }
         None
+    }
+
+    /// Resolve a named step from a numeric scale section (e.g. `("radius","medium")`,
+    /// `("typography","base")`) through the qualifier chain. `leading` values are
+    /// line-height ×100. See [`SCALE_SECTIONS`].
+    pub fn resolve_scale(&self, section: &str, name: &str) -> Option<u32> {
+        for qualifier in self.active.resolution_chain() {
+            if let Some(px) =
+                self.themes.get(&qualifier).and_then(|t| t.scales.get(section)).and_then(|m| m.get(name))
+            {
+                return Some(px);
+            }
+        }
+        None
+    }
+
+    /// Convenience: `[spacing]` step (px).
+    pub fn resolve_spacing(&self, name: &str) -> Option<u32> {
+        self.resolve_scale("spacing", name)
+    }
+
+    /// Convenience: `[radius]` step (px).
+    pub fn resolve_radius(&self, name: &str) -> Option<u32> {
+        self.resolve_scale("radius", name)
     }
 
     /// Get the active qualifier.

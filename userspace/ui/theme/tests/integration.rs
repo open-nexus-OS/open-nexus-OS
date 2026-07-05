@@ -381,3 +381,54 @@ fn test_glass_material_resolves_through_qualifier_chain() {
         other => panic!("highcontrast glassOverlay should be blur 0, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Length scales ([spacing] / [radius]) — invariant, authored in base
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_resolve_length_scales_from_base() {
+    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    assert_eq!(runtime.resolve_radius("small"), Some(8));
+    assert_eq!(runtime.resolve_radius("medium"), Some(16));
+    assert_eq!(runtime.resolve_radius("large"), Some(24));
+    assert_eq!(runtime.resolve_spacing("small"), Some(8));
+    assert_eq!(runtime.resolve_spacing("large"), Some(24));
+    assert_eq!(runtime.resolve_radius("nonexistent"), None);
+}
+
+#[test]
+fn test_length_scale_inherits_through_chain() {
+    let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    // dark/light/highcontrast don't redefine [radius]/[spacing] → inherit base.
+    for q in [Qualifier::Dark, Qualifier::Light, Qualifier::HighContrast] {
+        runtime.set_qualifier(q);
+        assert_eq!(runtime.resolve_radius("medium"), Some(16), "{q:?} radius.medium");
+        assert_eq!(runtime.resolve_spacing("small"), Some(8), "{q:?} spacing.small");
+    }
+}
+
+#[test]
+fn test_resolve_typography_leading_zindex() {
+    let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
+    // Font size scale (px).
+    assert_eq!(runtime.resolve_scale("typography", "base"), Some(14));
+    assert_eq!(runtime.resolve_scale("typography", "display"), Some(36));
+    // Line-height ×100.
+    assert_eq!(runtime.resolve_scale("leading", "normal"), Some(150));
+    // Stacking order.
+    assert_eq!(runtime.resolve_scale("zindex", "modal"), Some(30));
+    // Unknown section / key → None.
+    assert_eq!(runtime.resolve_scale("typography", "nope"), None);
+    assert_eq!(runtime.resolve_scale("nosuch", "base"), None);
+}
+
+#[test]
+fn test_reject_non_integer_scale_value() {
+    let err = nexus_theme::parse_theme_file(
+        concat!("[theme]\nname = \"x\"\nversion = 1\n", "[spacing]\nsmall = \"8\"\n"),
+        std::path::Path::new("test.toml"),
+    )
+    .unwrap_err();
+    assert!(matches!(err, ThemeError::SchemaValidation { .. }));
+}

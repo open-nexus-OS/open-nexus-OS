@@ -30,3 +30,24 @@ Rules:
 - normal test runs must not rewrite goldens,
 - updates require an explicit `UPDATE_GOLDENS=1` run,
 - update paths must remain under the approved golden/artifact root.
+
+## TASK-0073 design-system component goldens + a11y lints
+
+`tests/ui_v10_goldens/` proves the design-system primitives (RFC-0070). It reuses the
+`ui_host_snap` golden machinery (canonical BGRA hex compare + `UPDATE_GOLDENS=1` gate):
+
+- **Pipeline:** component builder → `LayoutNode` → `LayoutEngine` → a small structural
+  `LayoutResult` painter (rounded fills + square borders) → `ui_renderer::Frame` → BGRA hex golden
+  under `tests/ui_v10_goldens/goldens/`. The painter is intentionally structural — backdrop blur and
+  text are validated separately, so goldens lock **geometry + resolved colors** deterministically.
+- **Coverage:** core primitives (GlassButton variants + hover/pressed/disabled/focus states, Badge,
+  GlassToggle on/off, GlassCard levels, AppIcon variants) in light **and** dark themes.
+- **A11y lints** (`tests/a11y.rs`, pixel-free — computed from tokens + layout):
+  - **Contrast** — WCAG relative-luminance ratio. Body-text pairs (`OnSurface`/`Surface`,
+    `OnPrimary`/`Primary`) must clear **4.5** (1.4.3); filled-control pairs (`OnAccent`/`Accent`,
+    `OnDanger`/`Danger`, `OnSuccess`/`Success`, `OnWarning`/`Warning`) must clear **3.0** (1.4.11).
+    This lint caught + fixed white-on-`#22c55e` (2.28) → `success` retuned to green-600 `#16a34a`.
+  - **Touch target** — interactive roots must be ≥ `MIN_TOUCH` (24px desktop floor; 44 is the WCAG
+    2.5.5 enhanced ideal).
+- **Regenerate:** `UPDATE_GOLDENS=1 cargo test -p ui_v10_goldens`; commit the updated `*.bgra.hex`.
+  A plain `cargo test -p ui_v10_goldens` is the drift gate.

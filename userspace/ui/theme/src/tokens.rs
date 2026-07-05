@@ -131,6 +131,41 @@ impl TokenMap {
     }
 }
 
+/// A named length scale (radii, spacing) in whole layout pixels. Theme-invariant
+/// in practice (authored once in `base.nxtheme.toml`), but resolved through the
+/// qualifier chain like tokens/materials so a variant *could* override it.
+/// Example keys: `small`, `medium`, `large` (+ the finer handoff scale later).
+#[derive(Debug, Clone, Default)]
+pub struct ScaleMap {
+    values: HashMap<String, u32>,
+}
+
+impl ScaleMap {
+    pub fn new() -> Self {
+        ScaleMap { values: HashMap::new() }
+    }
+
+    pub fn insert(&mut self, name: String, px: u32) {
+        self.values.insert(name, px);
+    }
+
+    pub fn get(&self, name: &str) -> Option<u32> {
+        self.values.get(name).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &u32)> {
+        self.values.iter()
+    }
+}
+
 /// Material definition for UI surfaces.
 #[derive(Debug, Clone)]
 pub enum Material {

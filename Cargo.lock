@@ -2081,6 +2081,7 @@ name = "nexus-theme-tokens"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
+ "nexus-theme",
 ]
 
 [[package]]
@@ -2116,11 +2117,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-app-icon"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-badge"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-widget-button"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-card"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-panel",
 ]
 
 [[package]]
@@ -2137,6 +2167,15 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
+]
+
+[[package]]
+name = "nexus-widget-toggle"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
 ]
 
 [[package]]
@@ -3737,6 +3776,23 @@ dependencies = [
  "nexus-image",
  "nexus-shape",
  "nexus-svg",
+]
+
+[[package]]
+name = "ui_v10_goldens"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout",
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-app-icon",
+ "nexus-widget-badge",
+ "nexus-widget-button",
+ "nexus-widget-card",
+ "nexus-widget-toggle",
+ "ui_host_snap",
+ "ui_renderer",
 ]
 
 [[package]]

@@ -31,7 +31,9 @@ destructive = "#d4183d"
 destructiveFg = "#ffffff"
 warning = "#f59e0b"
 warningFg = "#1a1a2e"
-success = "#22c55e"
+# success uses green-600 (not green-500) so white text clears WCAG UI contrast
+# (3.0) — a deliberate a11y tightening of the handoff #22c55e (which was 2.28).
+success = "#16a34a"
 successFg = "#ffffff"
 info = "#3b82f6"
 infoFg = "#ffffff"
@@ -73,6 +75,50 @@ toggleOnBg = "#3b82f6d9"
 toggleOffBg = "#ffffffd9"
 glassTint = "#f8f9fa"
 glassEdge = "#ffffff54"
+# shadow tint (semantic ColorToken::Shadow)
+shadow = "#00000060"
+
+# ── Length scales (theme-invariant; authored once here) ──────────────────────
+# Semantic small/medium/large map to LengthToken::{Radius,Spacing}{Small,Medium,
+# Large}. The finer handoff scale (radius sm/md/lg/xl/2xl/3xl/full; the 4px
+# spacing scale) is added as consumers need it — see token-reconciliation.md.
+[spacing]
+small = 8
+medium = 16
+large = 24
+
+[radius]
+small = 8
+medium = 16
+large = 24
+
+# Font sizes in px (handoff type scale). base = body text.
+[typography]
+xs = 11
+sm = 12
+base = 14
+md = 16
+lg = 18
+xl = 20
+xxl = 24
+xxxl = 30
+display = 36
+
+# Line-height ×100 (150 = 1.50), consumed as LineHeight::Relative.
+[leading]
+tight = 125
+snug = 138
+normal = 150
+relaxed = 163
+
+# Stacking order (advisory).
+[zindex]
+base = 0
+raised = 10
+overlay = 20
+modal = 30
+topbar = 40
+island = 50
 
 [material.surface]
 type = "opaque"

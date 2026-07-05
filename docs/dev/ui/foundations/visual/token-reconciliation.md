@@ -127,15 +127,31 @@ island `#000000`).
    tests pass. New tokens (primary/card/popover/secondary/info/destructive/sidebar*/chart*/
    text-on-glass/toggle*) + the 5 handoff glass levels (`glassPanel/Card/Subtle/Window/Overlay`,
    replacing the ad-hoc `glassLow/High`) are pinned by goldens in `theme/tests/integration.rs`.
-2. **[TODO — invariant scales]** Add `[typography]/[spacing]/[radius]/[shadow]/[motion]/[zindex]`
-   sections (extend `KNOWN_SECTIONS` + validators + `Theme` struct). Theme-invariant, authored once.
+2. **[DONE — scalar scales; TODO — shadow/motion]** Numeric scale sections added via a generic
+   `Theme.scales: HashMap<String, ScaleMap>` + `ThemeRuntime::resolve_scale(section, name)` (chain),
+   schema `KNOWN_SECTIONS` + `validate_scale_section` (non-negative ints), authored once in base:
+   - `[spacing]` + `[radius]` (`small/medium/large`, current values → no behaviour change) — and
+     `LengthToken` is now GENERATED from them in `nexus-theme-tokens` build.rs (`BorderThin` = 1px).
+   - `[typography]` (font sizes px: xs…display), `[leading]` (line-height ×100, → `LineHeight::
+     Relative`), `[zindex]` (layer order). Weights are already the `FontWeight` enum (no authoring).
+   Goldens in `theme/tests/integration.rs` + `theme-tokens/src/lib.rs`.
+   **Deferred to their consuming increment** (need non-scalar typed structs + a real consumer, so
+   they're not built speculatively): `[shadow]` (→ layout-types `BoxShadow`) and `[motion]` (curves
+   `[f32;4]` + durations ms → `animation` crate). Also the finer handoff scale keys (radius
+   sm/md/lg/xl/2xl/3xl/full; the 4px spacing scale) + a possible `LengthToken` expansion, when a
+   component needs them. All reuse existing layout-types — no new parallel types.
 3. **[TODO — palette shift, BOOT-GATED]** Retune the *existing* neutrals (`surface/fg/bg/accent/
    danger`) to the handoff pure-grey palette. This changes windowd's baked look → user boot-verifies
    before commit; updates the value-pinning tests (`dark bg`, `danger`, …). Deliberately deferred
    from step 1 so the vocabulary grows without a surprise appearance change.
-4. **[TODO]** Regenerate `nexus-theme-tokens` typed enums + a generated `Tokens` impl **from the
-   toml** (build.rs); delete hardcoded `BaseTokens`; point windowd `theme.rs`/`assets::THEME_*` at
-   the same generation (one bake path). Golden-check generated values vs. the handoff `*.css`.
+4. **[DONE — colors]** `nexus-theme-tokens` now GENERATES its color snapshots from the toml via
+   `build.rs` (build-dep `nexus-theme`): `BaseTokens` (light default) + new `DarkTokens`/
+   `LightTokens`/`HighContrastTokens`, each resolving the 9 `ColorToken` roles through the
+   qualifier chain. The hand-authored (drifted) `BaseTokens` values are deleted; `ROLES` in
+   build.rs is the role→token-name bridge; goldens in `theme-tokens/src/lib.rs` lock it to the
+   toml. Consumers (`nexus-style`/`nexus-shell-desktop`/`chat-app`) stay green (token-relative
+   tests). **[TODO]** generate `LengthToken` from the invariant `[scale]` sections (step 2); point
+   windowd `theme.rs`/`assets::THEME_*` at the same generation (one bake path, boot-gated).
 5. **[TODO]** Then build the glass primitive (RFC-0070 D4) that consumes the material tokens —
    the first real consumer of `resolve_material`.
 
