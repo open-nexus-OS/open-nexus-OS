@@ -2117,6 +2117,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-accordion"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
 name = "nexus-widget-app-icon"
 version = "0.1.0"
 dependencies = [
@@ -2126,12 +2136,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-avatar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
 name = "nexus-widget-badge"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-breadcrumbs"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
 ]
 
 [[package]]
@@ -2163,6 +2192,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-chip"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
+name = "nexus-widget-icon"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-list-item"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
+name = "nexus-widget-pagination"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
 name = "nexus-widget-panel"
 version = "0.1.0"
 dependencies = [
@@ -2177,6 +2244,15 @@ dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-rating"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+ "nexus-widget-icon",
 ]
 
 [[package]]
@@ -2208,6 +2284,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-sidebar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-badge",
+ "nexus-widget-text",
+]
+
+[[package]]
 name = "nexus-widget-slider"
 version = "0.1.0"
 dependencies = [
@@ -2222,6 +2309,33 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-sub-header"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
+name = "nexus-widget-tab-bar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
+name = "nexus-widget-text"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
  "nexus-theme-tokens",
 ]
 
@@ -2250,6 +2364,26 @@ dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-toolbar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
+]
+
+[[package]]
+name = "nexus-widget-tree-view"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-text",
 ]
 
 [[package]]
@@ -3860,22 +3994,31 @@ dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
+ "nexus-widget-accordion",
  "nexus-widget-app-icon",
+ "nexus-widget-avatar",
  "nexus-widget-badge",
  "nexus-widget-button",
  "nexus-widget-card",
  "nexus-widget-checkbox",
+ "nexus-widget-chip",
+ "nexus-widget-icon",
+ "nexus-widget-pagination",
  "nexus-widget-radio",
+ "nexus-widget-rating",
  "nexus-widget-search-bar",
  "nexus-widget-segment",
  "nexus-widget-select",
+ "nexus-widget-sidebar",
  "nexus-widget-slider",
  "nexus-widget-stepper",
+ "nexus-widget-tab-bar",
  "nexus-widget-text-area",
  "nexus-widget-text-field",
  "nexus-widget-toggle",
+ "nexus-widget-toolbar",
+ "nexus-widget-tree-view",
  "ui_host_snap",
- "ui_renderer",
 ]
 
 [[package]]

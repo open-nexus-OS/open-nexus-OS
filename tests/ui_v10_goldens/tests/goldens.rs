@@ -137,6 +137,97 @@ fn select_and_textarea() {
 }
 
 #[test]
+fn nav_chip_avatar() {
+    use nexus_widget_avatar::{Avatar, AvatarStatus};
+    use nexus_widget_chip::Chip;
+    let t = BaseTokens;
+    check_golden("chip_selected", &Chip::new("Design").selected(true).build(&t)).unwrap();
+    check_golden("chip_outline", &Chip::new("Ungelesen").build(&t)).unwrap();
+    check_golden("avatar_initials", &Avatar::new().initials("LK").size(48).build(&t)).unwrap();
+    check_golden(
+        "avatar_square",
+        &Avatar::new().initials("AB").size(48).square(true).status(AvatarStatus::Online).build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn nav_bars() {
+    use nexus_widget_pagination::Pagination;
+    use nexus_widget_tab_bar::{TabBar, TabItem};
+    use nexus_widget_toolbar::Toolbar;
+    let t = BaseTokens;
+    check_golden("toolbar", &Toolbar::new().title("Einstellungen").trailing(swatch(20)).build(&t))
+        .unwrap();
+    check_golden(
+        "tabbar",
+        &TabBar::new()
+            .active(0)
+            .tabs(vec![TabItem::new("Start"), TabItem::new("Nachrichten"), TabItem::new("Profil")])
+            .build(&t),
+    )
+    .unwrap();
+    check_golden("pagination", &Pagination::new(5).page(2).build(&t)).unwrap();
+}
+
+#[test]
+fn nav_containers() {
+    use nexus_widget_accordion::{Accordion, AccordionItem};
+    use nexus_widget_sidebar::{Sidebar, SidebarItem};
+    use nexus_widget_tree_view::{TreeNode, TreeView};
+    let t = BaseTokens;
+    check_golden(
+        "accordion",
+        &Accordion::new(vec![
+            AccordionItem::new("Allgemein", swatch(30)).open(true),
+            AccordionItem::new("Datenschutz", swatch(30)),
+        ])
+        .build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "sidebar",
+        &Sidebar::new(vec![
+            SidebarItem::header("Bibliothek"),
+            SidebarItem::item("all", "Alle Dateien"),
+            SidebarItem::item("shared", "Geteilt").badge(2),
+        ])
+        .active("all")
+        .width(180)
+        .build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "treeview",
+        &TreeView::new(vec![TreeNode::branch(
+            "src",
+            "src",
+            vec![TreeNode::leaf("app", "app.rs"), TreeNode::leaf("lib", "lib.rs")],
+        )
+        .expanded(true)])
+        .selected("app")
+        .build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn icons_and_rating() {
+    use nexus_widget_icon::{Icon, Symbol};
+    use nexus_widget_rating::Rating;
+    use nexus_theme_tokens::ColorToken;
+    let t = BaseTokens;
+    check_golden("icon_plus", &Icon::new(Symbol::Plus).size(28).color(ColorToken::OnSurface).build(&t))
+        .unwrap();
+    check_golden("icon_star", &Icon::new(Symbol::Star).size(28).color(ColorToken::Warning).build(&t))
+        .unwrap();
+    check_golden("icon_close", &Icon::new(Symbol::Close).size(28).color(ColorToken::Danger).build(&t))
+        .unwrap();
+    check_golden("icon_chevron_right", &Icon::new(Symbol::ChevronRight).size(28).build(&t)).unwrap();
+    check_golden("rating_3of5", &Rating::new().value(3).max(5).size(20).build(&t)).unwrap();
+}
+
+#[test]
 fn app_icons() {
     let t = BaseTokens;
     check_golden(

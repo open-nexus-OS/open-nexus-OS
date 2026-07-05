@@ -1,0 +1,14 @@
+[package]
+name = "nexus-widget-sub-header"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_widget_sub_header"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-theme-tokens = { path = "../../theme-tokens" }
+nexus-widget-text = { path = "../text" }

@@ -27,5 +27,14 @@ nexus-widget-slider = { path = "../../userspace/ui/widgets/slider" }
 nexus-widget-stepper = { path = "../../userspace/ui/widgets/stepper" }
 nexus-widget-select = { path = "../../userspace/ui/widgets/select" }
 nexus-widget-text-area = { path = "../../userspace/ui/widgets/text_area" }
-ui_renderer = { path = "../../userspace/ui/renderer" }
+nexus-widget-chip = { path = "../../userspace/ui/widgets/chip" }
+nexus-widget-avatar = { path = "../../userspace/ui/widgets/avatar" }
+nexus-widget-toolbar = { path = "../../userspace/ui/widgets/toolbar" }
+nexus-widget-tab-bar = { path = "../../userspace/ui/widgets/tab_bar" }
+nexus-widget-pagination = { path = "../../userspace/ui/widgets/pagination" }
+nexus-widget-accordion = { path = "../../userspace/ui/widgets/accordion" }
+nexus-widget-sidebar = { path = "../../userspace/ui/widgets/sidebar" }
+nexus-widget-tree-view = { path = "../../userspace/ui/widgets/tree_view" }
+nexus-widget-icon = { path = "../../userspace/ui/widgets/icon" }
+nexus-widget-rating = { path = "../../userspace/ui/widgets/rating" }
 ui_host_snap = { path = "../ui_host_snap" }

@@ -1,0 +1,15 @@
+[package]
+name = "nexus-widget-tab-bar"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_widget_tab_bar"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-style = { path = "../../style" }
+nexus-theme-tokens = { path = "../../theme-tokens" }
+nexus-widget-text = { path = "../text" }
