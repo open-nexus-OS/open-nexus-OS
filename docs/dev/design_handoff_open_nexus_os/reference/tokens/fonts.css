@@ -1,0 +1,19 @@
+/* AIVA OS — Font Face Declarations */
+
+/* Inter — primary UI font, Noto Sans — fallback (Google Fonts) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+
+/*
+  Monospace stack uses ui-monospace (maps to SF Mono on Apple,
+  Cascadia Mono on Windows 11, Liberation Mono on Linux) — no
+  @font-face declaration needed for any of those.
+
+  To add a custom display or brand font:
+  @font-face {
+    font-family: 'MyFont';
+    src: url('../assets/fonts/MyFont-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+*/

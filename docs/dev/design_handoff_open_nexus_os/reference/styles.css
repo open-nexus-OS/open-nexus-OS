@@ -1,0 +1,12 @@
+/* AIVA OS Design System — Global CSS Entry Point
+   Source: https://github.com/AIVA-Computers/Oslauncherdesign
+   
+   Import this single file to get all design tokens and base styles.
+   Consuming projects: <link rel="stylesheet" href="path/to/styles.css"> */
+
+@import './tokens/fonts.css';
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/glass.css';
+@import './tokens/motion.css';
