@@ -224,7 +224,11 @@ pub enum ShapeKind {
     Circle,
     TriangleUp,
     TriangleDown,
+    /// A single filled contour (normalized `0..1000` viewbox).
     Path(PathShape),
+    /// A multi-contour vector symbol (each contour a filled sub-path) — the
+    /// model for icons with several strokes/holes (e.g. imported SVG symbols).
+    Vector(alloc::vec::Vec<PathShape>),
 }
 
 /// Visual style attached to container and text nodes.

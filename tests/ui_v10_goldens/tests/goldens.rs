@@ -225,6 +225,11 @@ fn icons_and_rating() {
         .unwrap();
     check_golden("icon_chevron_right", &Icon::new(Symbol::ChevronRight).size(28).build(&t)).unwrap();
     check_golden("rating_3of5", &Rating::new().value(3).max(5).size(20).build(&t)).unwrap();
+    // Imported Lucide symbols (multi-contour vectors).
+    use nexus_widget_icon::LucideSymbol;
+    check_golden("lucide_menu", &Icon::lucide(LucideSymbol::Menu).size(28).build(&t)).unwrap();
+    check_golden("lucide_check", &Icon::lucide(LucideSymbol::Check).size(28).color(ColorToken::Success).build(&t)).unwrap();
+    check_golden("lucide_arrow_right", &Icon::lucide(LucideSymbol::ArrowRight).size(28).color(ColorToken::Accent).build(&t)).unwrap();
 }
 
 #[test]

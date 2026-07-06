@@ -23,6 +23,9 @@ use nexus_layout_types::{
 };
 use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
 
+// Imported Lucide line symbols: `LucideSymbol` + `lucide_contours`.
+include!(concat!(env!("OUT_DIR"), "/lucide.rs"));
+
 /// A built-in symbol (normalized `0..1000` filled outline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Symbol {
@@ -84,16 +87,38 @@ impl Symbol {
 /// A symbol, sized and tinted.
 #[derive(Debug, Clone)]
 pub struct Icon {
-    symbol: Symbol,
+    shape: ShapeKind,
     size: FxPx,
     color: ColorToken,
     id: Option<&'static str>,
 }
 
 impl Icon {
-    /// A `16px`, `OnSurface` symbol.
+    /// A `16px`, `OnSurface` built-in symbol.
     pub fn new(symbol: Symbol) -> Self {
-        Self { symbol, size: FxPx::new(16), color: ColorToken::OnSurface, id: None }
+        Self {
+            shape: ShapeKind::Path(symbol.path()),
+            size: FxPx::new(16),
+            color: ColorToken::OnSurface,
+            id: None,
+        }
+    }
+
+    /// An imported Lucide line symbol (multi-contour).
+    pub fn lucide(sym: LucideSymbol) -> Self {
+        let contours = lucide_contours(sym)
+            .iter()
+            .map(|c| PathShape {
+                points: c.iter().map(|&(x, y)| PathPoint::new(x, y)).collect(),
+                closed: true,
+            })
+            .collect();
+        Self {
+            shape: ShapeKind::Vector(contours),
+            size: FxPx::new(16),
+            color: ColorToken::OnSurface,
+            id: None,
+        }
     }
 
     /// Explicit pixel size.
@@ -120,7 +145,7 @@ impl Icon {
     pub fn build(self, tokens: &dyn Tokens) -> LayoutNode {
         let visual = VisualStyle {
             background: Some(tokens.color(self.color)),
-            shape: ShapeKind::Path(self.symbol.path()),
+            shape: self.shape,
             corner_radius: CornerRadius::uniform(FxPx::ZERO),
             ..VisualStyle::default()
         };
@@ -184,6 +209,27 @@ mod tests {
                 assert!(matches!(v.shape, ShapeKind::Path(_)));
             }
             _ => panic!("Icon must build a Stack"),
+        }
+    }
+
+    #[test]
+    fn imported_lucide_symbols_are_multi_contour_vectors() {
+        let t = BaseTokens;
+        // "menu" (hamburger) = 3 stroke lines → 3 quad contours.
+        match Icon::lucide(LucideSymbol::Menu).size(24).build(&t) {
+            LayoutNode::Stack(_, v, _) => match v.shape {
+                ShapeKind::Vector(contours) => assert_eq!(contours.len(), 3, "3 hamburger lines"),
+                _ => panic!("lucide icon must be a Vector"),
+            },
+            _ => panic!(),
+        }
+        // "check" = one 2-segment polyline → 2 quads.
+        match Icon::lucide(LucideSymbol::Check).build(&t) {
+            LayoutNode::Stack(_, v, _) => match v.shape {
+                ShapeKind::Vector(contours) => assert_eq!(contours.len(), 2),
+                _ => panic!(),
+            },
+            _ => panic!(),
         }
     }
 

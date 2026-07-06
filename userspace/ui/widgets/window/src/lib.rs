@@ -20,6 +20,9 @@ extern crate alloc;
 pub mod frame;
 pub use frame::{Frame, ResizeEdge, TitleButton, WindowPress};
 
+pub mod chrome;
+pub use chrome::{WindowButton, WindowButtonKind, WindowControls, WindowPane};
+
 use alloc::vec::Vec;
 use nexus_layout_types::{Align, FlexItem, FxPx, LayoutNode, Spacer};
 use nexus_style::Style;

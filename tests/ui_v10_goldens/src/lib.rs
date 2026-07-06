@@ -170,13 +170,18 @@ fn shape_polygon(shape: &ShapeKind, x: i32, y: i32, w: i32, h: i32) -> Option<Ve
                     .collect(),
             )
         }
-        ShapeKind::Path(ps) => Some(
-            ps.points
-                .iter()
-                .map(|p| (xf + p.x_milli as f32 / 1000.0 * wf, yf + p.y_milli as f32 / 1000.0 * hf))
-                .collect(),
-        ),
+        ShapeKind::Path(ps) => Some(contour_points(ps, xf, yf, wf, hf)),
+        // Multi-contour is filled per-contour in `render_to_bgra`.
+        ShapeKind::Vector(_) => None,
     }
+}
+
+/// Map a normalized `0..1000` contour into a box.
+fn contour_points(ps: &nexus_layout_types::PathShape, xf: f32, yf: f32, wf: f32, hf: f32) -> Vec<(f32, f32)> {
+    ps.points
+        .iter()
+        .map(|p| (xf + p.x_milli as f32 / 1000.0 * wf, yf + p.y_milli as f32 / 1000.0 * hf))
+        .collect()
 }
 
 /// Paint a flattened `LayoutResult` into a fresh canvas and return its BGRA bytes.
@@ -193,11 +198,18 @@ pub fn render_to_bgra(node: &LayoutNode) -> SnapResult<Vec<u8>> {
             continue;
         }
         if let Some(bg) = b.visual.background {
-            match shape_polygon(&b.visual.shape, x, y, w, h) {
-                Some(poly) => canvas.fill_polygon(&poly, bg),
-                None => {
-                    let radius = b.visual.corner_radius.top_left.0.max(0);
-                    canvas.fill_round_rect(x, y, w, h, radius, bg);
+            if let ShapeKind::Vector(contours) = &b.visual.shape {
+                for ps in contours {
+                    let poly = contour_points(ps, x as f32, y as f32, w as f32, h as f32);
+                    canvas.fill_polygon(&poly, bg);
+                }
+            } else {
+                match shape_polygon(&b.visual.shape, x, y, w, h) {
+                    Some(poly) => canvas.fill_polygon(&poly, bg),
+                    None => {
+                        let radius = b.visual.corner_radius.top_left.0.max(0);
+                        canvas.fill_round_rect(x, y, w, h, radius, bg);
+                    }
                 }
             }
         }
