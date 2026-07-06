@@ -178,8 +178,14 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-display-proto",
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
+ "nexus-dsl-runtime",
  "nexus-ipc",
+ "nexus-layout",
+ "nexus-layout-types",
  "nexus-service-entry",
+ "nexus-theme-tokens",
 ]
 
 [[package]]

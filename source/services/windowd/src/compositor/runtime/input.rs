@@ -368,6 +368,24 @@ impl DisplayServerRuntime {
                 self.queue_dirty_rect(self.settings_window_rect());
             }
         }
+        // Continue dragging the DSL demo window (was missing entirely — its
+        // begin_drag armed but no window followed the pointer, and without
+        // the end_drag below it stayed "stuck": user report 2026-07-06).
+        if self.dsl_win.is_dragging() {
+            if let Some(old) = self.dsl_win.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.queue_dirty_rect(old);
+                self.queue_dirty_rect(self.dsl_window_rect());
+                self.dsl_win.surface_dirty = true;
+            }
+        }
+        // Continue dragging the app-client window (ADR-0042).
+        if self.app_win.is_dragging() {
+            if let Some(old) = self.app_win.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+                self.queue_dirty_rect(old);
+                self.queue_dirty_rect(self.app_window_rect());
+                self.app_win.surface_dirty = true;
+            }
+        }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).
         if self.resize_drag.is_some() {
             self.apply_window_resize(cursor_x, cursor_y);
@@ -392,6 +410,9 @@ impl DisplayServerRuntime {
             // Settings is a fixed panel — it does not edge-snap, but its drag
             // must still terminate on release (else it stays "stuck" to the cursor).
             self.settings_win.end_drag();
+            // Same no-snap release for the DSL demo + app-client windows.
+            self.dsl_win.end_drag();
+            self.app_win.end_drag();
             self.end_window_resize();
         }
 

@@ -1,13 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: app-host — the DSL app runtime process (TASK-0080D). R1 is the
-//! ADR-0042 transport PROBE: spawned by execd (not a boot service), it
-//! creates its own surface VMO, fills it with a solid color, and presents
-//! through windowd's client-surface wire (`SURFACE_CREATE` with the VMO
-//! capability moved, then a strictly-sequenced `SURFACE_PRESENT`). Proves
-//! spawn + per-app VMO + cross-process present before any DSL involvement.
-//! R2 mounts a real `.nxir` payload behind the same surface.
+//! CONTEXT: app-host — the DSL app runtime process (TASK-0080D). Spawned by
+//! execd (not a boot service), it validates + mounts a compiled `.nxir`
+//! program with the SAME interpreter windowd's demo mount uses, lays the
+//! scene out, renders it into its OWN surface VMO and presents through
+//! windowd's client-surface wire (ADR-0042: `SURFACE_CREATE` moves the VMO
+//! capability, presents are strictly sequenced). R2a: payload embedded at
+//! build time (bundle GET_PAYLOAD replaces the byte source, not this code);
+//! scene fills only — text lands with the shared text/painter promotion
+//! (RFC-0067 P5). Falls back to the R1 solid-fill probe if the mount fails
+//! (fail-closed, visibly).
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental (TASK-0080D R1)
 //! API_STABILITY: Unstable
@@ -17,6 +20,9 @@
 
 #![forbid(unsafe_code)]
 #![cfg_attr(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), no_std, no_main)]
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+extern crate alloc;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 nexus_service_entry::declare_entry!(os_entry);
@@ -58,6 +64,18 @@ mod probe {
     const WINDOWD_SEND_SLOT: u32 = 5;
     const WINDOWD_RECV_SLOT: u32 = 6;
 
+    /// The compiled DSL payload (R2a: embedded by `build.rs`; the bundle
+    /// GET_PAYLOAD step swaps the byte source, not this code). 8-byte
+    /// aligned — capnp segments are word-aligned by contract and
+    /// `include_bytes!` alone guarantees nothing (riscv misaligned-u64
+    /// hazard).
+    #[repr(C, align(8))]
+    struct AlignedNxir<const N: usize>([u8; N]);
+    static APP_NXIR_ALIGNED: AlignedNxir<
+        { include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")).len() },
+    > = AlignedNxir(*include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")));
+    static APP_NXIR: &[u8] = &APP_NXIR_ALIGNED.0;
+
     /// Probe surface: well under the transport bounds.
     const SURFACE_W: u16 = 320;
     const SURFACE_H: u16 = 240;
@@ -80,14 +98,21 @@ mod probe {
         let bytes = SURFACE_W as usize * SURFACE_H as usize * 4;
         let vmo = vmo_create(bytes).map_err(|_| "apphost: vmo create failed")?;
 
-        // 2. Fill with the probe color, row by row (no heap).
-        let mut row = [0u8; SURFACE_W as usize * 4];
-        for px in row.chunks_exact_mut(4) {
-            px.copy_from_slice(&FILL_BGRA);
-        }
-        let row_bytes = SURFACE_W as usize * 4;
-        for y in 0..SURFACE_H as usize {
-            vmo_write(vmo, y * row_bytes, &row).map_err(|_| "apphost: vmo fill failed")?;
+        // 2. Mount + render the DSL program into the VMO (R2); the R1 solid
+        //    fill stays as the fail-closed VISIBLE fallback.
+        if render_dsl_frame(vmo) {
+            raw_marker("APPHOST: dsl frame rendered");
+        } else {
+            raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
+            let mut row = [0u8; SURFACE_W as usize * 4];
+            for px in row.chunks_exact_mut(4) {
+                px.copy_from_slice(&FILL_BGRA);
+            }
+            let row_bytes = SURFACE_W as usize * 4;
+            for y in 0..SURFACE_H as usize {
+                vmo_write(vmo, y * row_bytes, &row)
+                    .map_err(|_| "apphost: vmo fill failed")?;
+            }
         }
         raw_marker("apphost: vmo filled");
 
@@ -118,6 +143,146 @@ mod probe {
         loop {
             let _ = client.recv_into(Wait::Blocking, &mut idle_frame);
         }
+    }
+
+    /// Text measurement estimate (8px advance / 16px line) — honest
+    /// placeholder until the shared text SSOT is promoted out of windowd
+    /// (RFC-0067 P5); layout structure is real, glyphs are not drawn yet.
+    struct EstimateMeasure;
+
+    impl nexus_layout_types::MeasureText for EstimateMeasure {
+        fn prepare(
+            &self,
+            content: &nexus_layout_types::TextContent,
+            _style: &nexus_layout_types::TextStyle,
+        ) -> nexus_layout_types::PreparedTextHandle {
+            let width = content.as_str().chars().count() * 8;
+            nexus_layout_types::PreparedTextHandle((16usize << 20) | (width & 0xF_FFFF))
+        }
+
+        fn measure_width(
+            &self,
+            handle: &nexus_layout_types::PreparedTextHandle,
+        ) -> nexus_layout_types::FxPx {
+            nexus_layout_types::FxPx::new((handle.0 & 0xF_FFFF) as i32)
+        }
+
+        fn layout_lines(
+            &self,
+            handle: &nexus_layout_types::PreparedTextHandle,
+            width: nexus_layout_types::FxPx,
+            max_lines: Option<u32>,
+        ) -> nexus_layout_types::LineLayout {
+            let natural_width = self.measure_width(handle);
+            let line_height = nexus_layout_types::FxPx::new((handle.0 >> 20) as i32);
+            let line = nexus_layout_types::LineMetrics {
+                text_range: 0..1,
+                width: natural_width.min(width.max(nexus_layout_types::FxPx::ONE)),
+                baseline: line_height,
+                height: line_height,
+            };
+            let lines = if matches!(max_lines, Some(0)) {
+                alloc::vec![]
+            } else {
+                alloc::vec![line]
+            };
+            nexus_layout_types::LineLayout { lines, natural_width }
+        }
+    }
+
+    /// Validates + mounts the embedded program, lays it out at surface size
+    /// and writes the scene's FILLS into the VMO (BGRA rows). Returns false
+    /// on any failure — the caller keeps the visible probe-fill fallback.
+    fn render_dsl_frame(vmo: u32) -> bool {
+        use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+
+        // Symbols + i18n keys for the identity locale (windowd's demo-mount
+        // recipe: interpreter mount first, then the key table).
+        let Ok(runtime) = nexus_dsl_runtime::Runtime::mount(APP_NXIR) else {
+            return false;
+        };
+        let symbols = runtime.symbols().to_vec();
+        let hash_prefix: u64 = {
+            let bytes = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+                .ok()
+                .and_then(|r| r.root().ok().map(|root| root.get_program_hash().ok().map(
+                    |h| {
+                        let mut v = [0u8; 8];
+                        let n = h.len().min(8);
+                        v[..n].copy_from_slice(&h[..n]);
+                        u64::from_be_bytes(v)
+                    },
+                )))
+                .flatten();
+            bytes.unwrap_or(0)
+        };
+        let keys: alloc::vec::Vec<u32> =
+            match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+                .and_then(|r| {
+                    r.root().map(|root| {
+                        root.get_i18n_keys()
+                            .map(|l| l.iter().map(|k| k.get_key()).collect())
+                    })
+                }) {
+                Ok(Ok(keys)) => keys,
+                _ => alloc::vec::Vec::new(),
+            };
+        let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
+        let device = FixtureEnv::default();
+        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+        let Ok(view) = View::mount(APP_NXIR, &tokens, &device, &locale) else {
+            return false;
+        };
+        {
+            // `APPHOST: mounted hash=<first-16-hex>` — the R2 DoD marker.
+            let mut line = [0u8; 64];
+            let prefix = b"APPHOST: mounted hash=";
+            line[..prefix.len()].copy_from_slice(prefix);
+            let mut pos = prefix.len();
+            for i in 0..16 {
+                let nibble = ((hash_prefix >> (60 - i * 4)) & 0xF) as u8;
+                line[pos] = if nibble < 10 { b'0' + nibble } else { b'a' + nibble - 10 };
+                pos += 1;
+            }
+            line[pos] = b'\n';
+            let _ = nexus_abi::debug_write(&line[..pos + 1]);
+        }
+
+        let engine = nexus_layout::LayoutEngine::new();
+        let Ok(layout) = engine.layout(
+            view.scene(),
+            nexus_layout_types::FxPx::new(SURFACE_W as i32),
+            &EstimateMeasure,
+        ) else {
+            return false;
+        };
+
+        // Fills pass: page background, then each box's background rect.
+        let row_bytes = SURFACE_W as usize * 4;
+        let mut row = alloc::vec![0u8; row_bytes];
+        for y in 0..SURFACE_H as i32 {
+            // Page base: near-black panel so fills read against it.
+            for px in row.chunks_exact_mut(4) {
+                px.copy_from_slice(&[0x20, 0x1c, 0x18, 0xFF]);
+            }
+            for b in &layout.boxes {
+                let (bx, by, bw, bh) =
+                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                if bw <= 0 || bh <= 0 || y < by || y >= by + bh {
+                    continue;
+                }
+                let Some(bg) = b.visual.background else { continue };
+                let x0 = bx.max(0) as usize;
+                let x1 = ((bx + bw).max(0) as usize).min(SURFACE_W as usize);
+                for px in row[x0 * 4..x1 * 4].chunks_exact_mut(4) {
+                    px.copy_from_slice(&[bg.b, bg.g, bg.r, bg.a]);
+                }
+            }
+            if vmo_write(vmo, y as usize * row_bytes, &row).is_err() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Sends with bounded retries: the fixed slots may not be populated yet

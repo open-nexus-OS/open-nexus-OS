@@ -17,6 +17,7 @@ default = ["std"]
 std = []
 os-lite = [
     "dep:nexus-service-entry",
+    "nexus-service-entry/heap-2m",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
@@ -32,3 +33,14 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+# The DSL runtime IN the app process (R2): mount + layout the compiled
+# program; hash-verify stays OFF for the embedded payload (binary = trust
+# boundary, same rule as windowd's demo mount).
+nexus-dsl-ir = { path = "../../../userspace/dsl/ir", default-features = false }
+nexus-dsl-runtime = { path = "../../../userspace/dsl/runtime", default-features = false }
+nexus-layout = { path = "../../../userspace/ui/layout" }
+nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
+nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
+
+[build-dependencies]
+nexus-dsl-core = { path = "../../../userspace/dsl/core" }

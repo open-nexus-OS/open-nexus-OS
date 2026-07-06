@@ -276,10 +276,44 @@ Until this is diagnosed the headless LADDER cannot go green for anyone —
 the R1/Phase-6 chain is proven from the uart log instead. Needs its own
 diagnosis pass (kernel exec debug build: `log_debug target "exec"`).
 
+### ✅ R1 USER-VERIFIED (teal window visible) + drag fix (2026-07-06 late)
+
+User confirmed the teal window on screen — and reported neither it nor the
+DSL demo window can be MOVED. Root cause: the drag-continue block in
+`input.rs` only advanced chat/search/settings — **the DSL window was never
+draggable** (pre-existing since 0076B: `begin_drag` armed, no `drag_to`, no
+`end_drag` on release → stuck), and the app window inherited the gap. Fixed:
+both windows drag like Settings (move, no edge-snap) + release termination +
+`surface_dirty` re-render after moves.
+
+### ✅ R2a: FIRST CROSS-PROCESS DSL FRAME (boot 9, 2026-07-06 23:39)
+
+The app-host now mounts a real `.nxir` and renders it into its own surface:
+`APPHOST: mounted hash=5f1a6f3ab24e3dde` → `APPHOST: dsl frame rendered` →
+create/present chain. The hash is IDENTICAL to windowd's in-compositor demo
+mount — the same canonical program executing in two different hosts (the
+IR-determinism thesis, proven on hardware). Implementation:
+
+- `app-host/build.rs` compiles `examples/dsl/counter/counter.nx` (windowd's
+  seam; the bundle GET_PAYLOAD step swaps the BYTE SOURCE, not this code);
+  payload embedded 8-byte aligned (capnp), hash-verify off (embedded = trust
+  boundary), heap-2m (DSL mount + layout allocate).
+- Mount recipe = windowd's demo mount (Runtime::mount for symbols, key
+  table, `View::mount` with BaseTokens/FixtureEnv/IdentityLocale); fails
+  closed to the visible teal probe fill + FAIL marker.
+- Render v1: real layout (`nexus-layout`) at surface size with an ESTIMATE
+  text measurer (8px/16px — honest placeholder until the shared text SSOT
+  is promoted out of windowd, RFC-0067 P5), fills pass only (page base +
+  per-box `visual.background`). Text glyphs are the known gap.
+
 ### ⬜ OPEN
 
-- User visible-lane verify of R1 (the teal window) — then commit.
-- R2 runtime half: bundlemgrd GET_PAYLOAD sourcing in execd (os-lite),
+- User visible-lane verify: drag fix + the counter scene (color fills) in
+  the app window instead of the teal probe.
+- R2 runtime half — RECON FINDING: os-lite bundlemgrd has NO GET_PAYLOAD
+  opcode today (only the std_server speaks it); the R2 payload fetch needs
+  either that opcode added os-lite-side (payload bytes → VMO + cap-move
+  reply) or execd embedding via the existing image-table seam. Then:
   abilitymgr launch path replaces the R1 autolaunch, app-host validates +
   mounts the `.nxir` and renders the first DSL frame (needs a no_std
   LayoutNode renderer for the surface VMO — the blocking design question).

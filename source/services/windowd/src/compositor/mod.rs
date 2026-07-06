@@ -85,7 +85,6 @@ use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, yield_, Handle};
 use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
-use crate::error::WindowdError;
 use crate::fixed_sdf;
 use crate::ids::CallerCtx;
 use crate::live_runtime::{
