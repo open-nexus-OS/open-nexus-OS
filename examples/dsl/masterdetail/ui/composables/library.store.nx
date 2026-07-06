@@ -1,31 +1,48 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The master–detail store: a keyed list + a selection, loaded via an effect.
+// The master-detail store: a keyed list + a selection, loaded page-by-page
+// through QuerySpec v1 (docs/dev/dsl/db-queries.md): the query is a pure
+// top-level value; execution happens ONLY in the effect's query step.
 
 Store LibraryStore {
     items: List<Str> = ["Alpha", "Beta", "Gamma"],
     selected: Str = "",
     query: Str = "",
     loading: Bool = false,
+    nextToken: Str = "",
+    lastError: Int = 0,
 }
 
 Event LibraryEvent {
     Refresh,
-    Loaded(List<Str>),
+    Loaded(List<Str>, Str),
+    LoadFailed(Int),
     Select(Str),
 }
 
 reduce LibraryEvent {
     Refresh => state.loading = true,
-    Loaded(items) => {
-        state.items = items;
+    Loaded(rows, next) => {
+        state.items = rows;
+        state.nextToken = next;
+        state.loading = false;
+    },
+    LoadFailed(code) => {
+        state.lastError = code;
         state.loading = false;
     },
     Select(name) => state.selected = name,
 }
 
+Query LibraryItems on library {
+    orderBy name,
+    limit 20,
+}
+
 @effect on Refresh {
-    let items = svc.library.list(timeoutMs: 250);
-    dispatch(Loaded(items));
+    match LibraryItems(token: state.nextToken) {
+        Ok(rows, next) => dispatch(Loaded(rows, next)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }

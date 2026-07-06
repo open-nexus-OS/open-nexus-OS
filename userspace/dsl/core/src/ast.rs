@@ -37,6 +37,7 @@ pub enum Decl {
     Component(ComponentDecl),
     Page(PageDecl),
     Routes(RoutesDecl),
+    Query(QueryDecl),
 }
 
 // ------------------------------------------------------------------- state
@@ -97,6 +98,38 @@ pub struct Pattern {
 pub struct EffectDecl {
     pub trigger: Pattern,
     pub body: Vec<Stmt>,
+    pub span: Span,
+}
+
+// ------------------------------------------------------------------ queries
+
+/// `Query Name on source { params: {…}, where col op value, orderBy col
+/// [desc], limit N, }` — an immutable QuerySpec value (docs/dev/dsl/
+/// db-queries.md). Built purely at the top level; executed ONLY via a
+/// `match Name(args, token: t) { Ok(rows, next) => …, Err(e) => … }` step
+/// inside an `@effect`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryDecl {
+    pub name: Ident,
+    /// Table/source name (validated at the service boundary).
+    pub source: Ident,
+    pub params: Vec<PropDecl>,
+    pub preds: Vec<QueryPred>,
+    /// The order column — also the only column ranges may target (v1 rule).
+    pub order_col: Ident,
+    pub descending: bool,
+    pub limit: i64,
+    pub limit_span: Span,
+    pub span: Span,
+}
+
+/// One `where col <op> value` clause. `value` is a const literal or a
+/// param reference (checked); `op` is `==`, `>=`, or `<=` in v1.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryPred {
+    pub col: Ident,
+    pub op: BinOp,
+    pub value: Expr,
     pub span: Span,
 }
 

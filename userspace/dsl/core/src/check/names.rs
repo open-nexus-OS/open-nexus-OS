@@ -10,7 +10,7 @@ use crate::ast::{
 };
 use crate::diag::{DiagCode, Diagnostic, Span};
 use crate::registry;
-use alloc::{collections::BTreeMap, format, vec::Vec};
+use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
 
 pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Model<'a> {
     let mut model = Model {
@@ -21,10 +21,12 @@ pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Mo
         pages: Vec::new(),
         components: Vec::new(),
         routes: Vec::new(),
+        queries: Vec::new(),
         store_by_name: BTreeMap::new(),
         event_by_name: BTreeMap::new(),
         page_by_name: BTreeMap::new(),
         component_by_name: BTreeMap::new(),
+        query_by_name: BTreeMap::new(),
         case_lookup: BTreeMap::new(),
         i18n_keys: Vec::new(),
     };
@@ -88,6 +90,13 @@ pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Mo
                 for route in &routes.routes {
                     model.routes.push(route);
                 }
+            }
+            Decl::Query(query) => {
+                if model.query_by_name.insert(&query.name.text, model.queries.len()).is_some()
+                {
+                    dup(diags, query.name.span, "query", &query.name.text);
+                }
+                model.queries.push(query);
             }
         }
     }
@@ -178,6 +187,11 @@ pub(super) fn check_references(file: &File, model: &Model<'_>, diags: &mut Vec<D
         }
     }
 
+    // queries (the v1 shape contract, docs/dev/dsl/db-queries.md)
+    for query in &model.queries {
+        check_query_decl(query, diags);
+    }
+
     // views
     for page in &model.pages {
         check_view(&page.view, model, diags);
@@ -186,6 +200,127 @@ pub(super) fn check_references(file: &File, model: &Model<'_>, diags: &mut Vec<D
         check_view(&component.view, model, diags);
     }
     let _ = file;
+}
+
+/// Bound on `limit` (the per-page budget; the service re-caps at its edge).
+const MAX_QUERY_LIMIT: i64 = 1000;
+
+fn check_query_decl(query: &crate::ast::QueryDecl, diags: &mut Vec<Diagnostic>) {
+    let mut seen: BTreeMap<&str, ()> = BTreeMap::new();
+    for param in &query.params {
+        if seen.insert(&param.name.text, ()).is_some() {
+            diags.push(Diagnostic::new(
+                DiagCode::DuplicateDefinition,
+                param.name.span,
+                format!("query param `{}` is defined twice", param.name.text),
+            ));
+        }
+        if !matches!(param.ty.name.text.as_str(), "Bool" | "Int" | "Fx" | "Str") {
+            diags.push(Diagnostic::new(
+                DiagCode::UnknownType,
+                param.ty.span,
+                format!("query params are scalar (Bool/Int/Fx/Str), not `{}`", param.ty.name.text),
+            ));
+        }
+    }
+    for pred in &query.preds {
+        match pred.op {
+            crate::ast::BinOp::Eq => {}
+            crate::ast::BinOp::Ge | crate::ast::BinOp::Le => {
+                // v1 rule: ranges ride the order column's index.
+                if pred.col.text != query.order_col.text {
+                    diags.push(Diagnostic::new(
+                        DiagCode::QueryShape,
+                        pred.span,
+                        format!(
+                            "range predicates target the `orderBy` column (`{}`), not `{}`",
+                            query.order_col.text, pred.col.text
+                        ),
+                    ));
+                }
+            }
+            _ => diags.push(Diagnostic::new(
+                DiagCode::QueryShape,
+                pred.span,
+                String::from("v1 comparisons are `==`, `>=`, `<=` (strict bounds land with the v2 builder)"),
+            )),
+        }
+        let is_param_ref = matches!(
+            &pred.value,
+            Expr::Path { segments, .. }
+                if segments.len() == 1
+                    && query.params.iter().any(|p| p.name.text == segments[0].text)
+        );
+        let is_const = matches!(
+            &pred.value,
+            Expr::Bool { .. } | Expr::Int { .. } | Expr::Fx { .. } | Expr::Str { .. }
+        );
+        if !is_param_ref && !is_const {
+            diags.push(Diagnostic::new(
+                DiagCode::QueryShape,
+                pred.value.span(),
+                String::from("predicate values are literals or query params (queries are pure values)"),
+            ));
+        }
+    }
+    if query.limit <= 0 || query.limit > MAX_QUERY_LIMIT {
+        diags.push(Diagnostic::new(
+            DiagCode::QueryShape,
+            query.limit_span,
+            format!("`limit` must be 1..={MAX_QUERY_LIMIT}"),
+        ));
+    }
+}
+
+/// Validates a `QueryName(args…, token: t)` execution site: every declared
+/// param passed exactly once by name; `token:` optional; nothing extra.
+pub(super) fn check_query_call(
+    query: &crate::ast::QueryDecl,
+    args: &[crate::ast::CallArg],
+    span: Span,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let mut covered: Vec<bool> = alloc::vec![false; query.params.len()];
+    for arg in args {
+        let Some(name) = &arg.name else {
+            diags.push(Diagnostic::new(
+                DiagCode::WrongArity,
+                arg.value.span(),
+                String::from("query arguments are named (`param: value`)"),
+            ));
+            continue;
+        };
+        if name.text == "token" {
+            continue;
+        }
+        match query.params.iter().position(|p| p.name.text == name.text) {
+            Some(idx) if covered[idx] => diags.push(Diagnostic::new(
+                DiagCode::WrongArity,
+                name.span,
+                format!("query param `{}` is passed twice", name.text),
+            )),
+            Some(idx) => covered[idx] = true,
+            None => diags.push(Diagnostic::new(
+                DiagCode::UnknownField,
+                name.span,
+                format!("`{}` has no param `{}`", query.name.text, name.text),
+            )),
+        }
+    }
+    if covered.iter().any(|&c| !c) {
+        let missing: Vec<&str> = query
+            .params
+            .iter()
+            .zip(&covered)
+            .filter(|(_, &c)| !c)
+            .map(|(p, _)| p.name.text.as_str())
+            .collect();
+        diags.push(Diagnostic::new(
+            DiagCode::WrongArity,
+            span,
+            format!("`{}` misses params: {}", query.name.text, missing.join(", ")),
+        ));
+    }
 }
 
 fn check_binds_arity(pattern: &Pattern, payload_len: usize, diags: &mut Vec<Diagnostic>) {
@@ -245,17 +380,103 @@ fn check_stmts(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
                         ));
                     }
                 }
+                for arg in args {
+                    check_calls_in_expr(arg, model, diags);
+                }
             }
-            Stmt::If { then, els, .. } => {
+            Stmt::If { cond, then, els, .. } => {
+                check_calls_in_expr(cond, model, diags);
                 check_stmts(then, model, diags);
                 check_stmts(els, model, diags);
             }
-            Stmt::Match { arms, .. } => {
+            Stmt::Match { scrutinee, arms, .. } => {
+                check_calls_in_expr(scrutinee, model, diags);
                 for arm in arms {
                     check_stmts(&arm.body, model, diags);
                 }
             }
-            Stmt::Assign { .. } | Stmt::Let { .. } | Stmt::ExprStmt { .. } => {}
+            Stmt::Assign { value, .. } | Stmt::Let { value, .. } => {
+                check_calls_in_expr(value, model, diags);
+            }
+            Stmt::ExprStmt { expr, .. } => check_calls_in_expr(expr, model, diags),
+        }
+    }
+}
+
+/// Walks an expression and validates every call site against the platform
+/// surface: `svc.<service>.<method>` against the IDL-generated signature
+/// table (unknown service/method/arity = stable diagnostics), a bare
+/// `Name(args)` against the declared queries.
+fn check_calls_in_expr(expr: &Expr, model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
+    match expr {
+        Expr::Call { path, args, span } => {
+            if path.first().map(|s| s.text.as_str()) == Some("svc") && path.len() == 3 {
+                check_svc_call(&path[1], &path[2], args, *span, diags);
+            } else if path.len() == 1 {
+                if let Some(&idx) = model.query_by_name.get(path[0].text.as_str()) {
+                    check_query_call(model.queries[idx], args, *span, diags);
+                }
+            }
+            for arg in args {
+                check_calls_in_expr(&arg.value, model, diags);
+            }
+        }
+        Expr::List { items, .. } | Expr::EnumLit { args: items, .. } => {
+            for item in items {
+                check_calls_in_expr(item, model, diags);
+            }
+        }
+        Expr::I18n { args, .. } => {
+            for arg in args {
+                check_calls_in_expr(arg, model, diags);
+            }
+        }
+        Expr::Unary { operand, .. } => check_calls_in_expr(operand, model, diags),
+        Expr::Binary { lhs, rhs, .. } => {
+            check_calls_in_expr(lhs, model, diags);
+            check_calls_in_expr(rhs, model, diags);
+        }
+        _ => {}
+    }
+}
+
+/// Signature check against the generated platform service surface
+/// (`tools/nexus-idl/schemas/dsl_services.capnp` → `registry::svc_method`).
+fn check_svc_call(
+    service: &crate::ast::Ident,
+    method: &crate::ast::Ident,
+    args: &[crate::ast::CallArg],
+    span: Span,
+    diags: &mut Vec<Diagnostic>,
+) {
+    match crate::registry::svc_method(&service.text, &method.text) {
+        crate::registry::SvcLookup::UnknownService => diags.push(Diagnostic::new(
+            DiagCode::UnknownService,
+            service.span,
+            format!("`svc.{}` is not a platform service (see docs/dev/dsl/services.md)", service.text),
+        )),
+        crate::registry::SvcLookup::UnknownMethod => diags.push(Diagnostic::new(
+            DiagCode::UnknownServiceMethod,
+            method.span,
+            format!("`svc.{}` has no method `{}`", service.text, method.text),
+        )),
+        crate::registry::SvcLookup::Found(sig) => {
+            let positional = args
+                .iter()
+                .filter(|a| a.name.as_ref().map(|n| n.text.as_str()) != Some("timeoutMs"))
+                .count();
+            if positional != sig.args.len() {
+                diags.push(Diagnostic::new(
+                    DiagCode::WrongArity,
+                    span,
+                    format!(
+                        "`svc.{}.{}` takes {} argument(s), got {positional}",
+                        service.text,
+                        method.text,
+                        sig.args.len()
+                    ),
+                ));
+            }
         }
     }
 }

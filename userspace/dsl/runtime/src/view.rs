@@ -293,6 +293,12 @@ impl<'p> View<'p> {
         }
     }
 
+    /// The underlying runtime (event/name lookups for hosts and tools).
+    #[must_use]
+    pub fn runtime(&self) -> &crate::Runtime<'p> {
+        &self.runtime
+    }
+
     /// Dispatches an event; re-emits only when a visible dependency changed.
     ///
     /// # Errors

@@ -167,6 +167,53 @@ fn decl_to(out: &mut String, decl: &Decl) {
             view_to(out, &component.view, 1);
             out.push_str("}\n");
         }
+        Decl::Query(query) => {
+            out.push_str("Query ");
+            out.push_str(&query.name.text);
+            out.push_str(" on ");
+            out.push_str(&query.source.text);
+            out.push_str(" {\n");
+            // Canonical clause order: params, where (source order), orderBy, limit.
+            if !query.params.is_empty() {
+                indent_to(out, 1);
+                out.push_str("params: {\n");
+                for param in &query.params {
+                    indent_to(out, 2);
+                    out.push_str(&param.name.text);
+                    out.push_str(": ");
+                    type_to(out, &param.ty);
+                    out.push_str(",\n");
+                }
+                indent_to(out, 1);
+                out.push_str("},\n");
+            }
+            for pred in &query.preds {
+                indent_to(out, 1);
+                out.push_str("where ");
+                out.push_str(&pred.col.text);
+                out.push_str(match pred.op {
+                    crate::ast::BinOp::Eq => " == ",
+                    crate::ast::BinOp::Ge => " >= ",
+                    crate::ast::BinOp::Le => " <= ",
+                    crate::ast::BinOp::Gt => " > ",
+                    _ => " < ",
+                });
+                expr_to(out, &pred.value, 1);
+                out.push_str(",\n");
+            }
+            indent_to(out, 1);
+            out.push_str("orderBy ");
+            out.push_str(&query.order_col.text);
+            if query.descending {
+                out.push_str(" desc");
+            }
+            out.push_str(",\n");
+            indent_to(out, 1);
+            out.push_str("limit ");
+            out.push_str(&alloc::format!("{}", query.limit));
+            out.push_str(",\n");
+            out.push_str("}\n");
+        }
         Decl::Routes(routes) => {
             out.push_str("Routes {\n");
             for route in &routes.routes {

@@ -17,7 +17,7 @@ string literals.
 File        = { Import } { Decl } ;
 Import      = "import" StringLit ;                     (* explicit; no auto-import *)
 Decl        = StoreDecl | EventDecl | ReduceDecl | EffectDecl
-            | ComponentDecl | PageDecl | RoutesDecl ;
+            | ComponentDecl | PageDecl | RoutesDecl | QueryDecl ;
 ```
 
 ## State: stores, events, reducers, effects
@@ -37,6 +37,23 @@ Pattern     = Ident [ "(" Ident { "," Ident } ")" ] ;
 
 EffectDecl  = "@effect" "on" Ident [ "(" Ident { "," Ident } ")" ] Block ;
 ```
+
+## Queries (QuerySpec v1, docs/dev/dsl/db-queries.md)
+
+`Query`, `params`, `where`, `orderBy`, `limit`, `asc`, `desc` are contextual
+(recognized only in these positions — they stay usable as ordinary names):
+
+```ebnf
+QueryDecl   = "Query" Ident "on" Ident "{" { QueryClause } "}" ;
+QueryClause = ParamsClause | WhereClause | OrderClause | LimitClause ;
+ParamsClause = "params" ":" "{" { Ident ":" Type "," } "}" "," ;
+WhereClause  = "where" Ident ( "==" | ">=" | "<=" ) Expr "," ;
+OrderClause  = "orderBy" Ident [ "asc" | "desc" ] "," ;      (* mandatory, once *)
+LimitClause  = "limit" IntLit "," ;                          (* mandatory, once *)
+```
+
+Execution is an effect statement: `match QueryName(NamedArgs) { Ok(rows,
+next) => Dispatch , Err(e) => Dispatch , }` — the only query execution site.
 
 Reducer bodies are statements over `state` (the store the event's reducer is bound to):
 

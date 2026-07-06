@@ -255,9 +255,15 @@ struct DispatchStep {
 
 struct QueryStep {
   spec     @0 :UInt32;          # index into querySpecs
-  args     @1 :List(Expr);
+  args     @1 :List(Expr);      # query param values, declaration order
   onPage   @2 :DispatchStep;
   onErr    @3 :DispatchStep;
+  # --- v1.3 (QuerySpec v1) ---
+  token    @4 :Expr;            # page token (Str; "" = first page)
+  rowsSlot @5 :UInt32;          # local receiving the page rows (Ok path)
+                                # (the Err path binds the error code here —
+                                #  only one path ever runs)
+  nextSlot @6 :UInt32;          # local receiving the next-page token (Str)
 }
 
 # ---------------------------------------------------------------- views
@@ -355,11 +361,30 @@ struct I18nKey {
 }
 
 # ------------------------------------------------------------ query specs
-# v1.0 skeleton: reserved surface; the QuerySpec v1 task extends additively.
+# v1.3 (QuerySpec v1, docs/dev/dsl/db-queries.md): typed bounded query values.
+# Built purely (a top-level `Query` declaration), executed ONLY via the
+# `query` effect step. Predicate values are const literals or paramGet exprs
+# (bound from QueryStep.args at execution).
 
 struct QuerySpec {
   source @0 :UInt32;            # table/source symbol id
+  # --- v1.3 ---
+  paramCount @1 :UInt16;        # declared params (call-site arity check)
+  preds      @2 :List(QueryPred);
+  orderCol   @3 :UInt32;        # column symbol id (the scan index)
+  descending @4 :Bool;
+  limit      @5 :UInt32;        # mandatory, > 0
 }
+
+struct QueryPred {
+  col   @0 :UInt32;             # column symbol id
+  op    @1 :QueryOp;
+  value @2 :Expr;               # const literal or paramGet only
+}
+
+# v1 floor: eq + inclusive bounds; strict `<`/`>` land with the v2 builder
+# (lowering rejects them with a stable diagnostic today).
+enum QueryOp { eq @0; ge @1; le @2; }
 
 # ---------------------------------------------------------------- assets
 

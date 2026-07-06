@@ -51,6 +51,45 @@ impl Catalog {
     fn lookup(&self, key: u32) -> Option<&str> {
         self.templates.get(key as usize).and_then(|t| t.as_deref())
     }
+
+    /// Loads a compiled binary catalog (`nx-dsl i18n compile` output).
+    ///
+    /// Format: `NXC1` magic, u32-LE entry count, then per entry
+    /// `u32-LE key-len, key bytes, u32-LE value-len, value bytes`, entries
+    /// sorted by key (deterministic bytes). `None` = malformed — a broken
+    /// catalog fails at load, never silently at lookup.
+    #[must_use]
+    pub fn from_binary(program_keys: &[&str], bytes: &[u8]) -> Option<Self> {
+        let mut cursor = 4usize;
+        if bytes.get(..4)? != b"NXC1" {
+            return None;
+        }
+        let take = |cursor: &mut usize, n: usize| -> Option<&[u8]> {
+            let slice = bytes.get(*cursor..*cursor + n)?;
+            *cursor += n;
+            Some(slice)
+        };
+        let count = u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+        if count > 65536 {
+            return None; // bounded
+        }
+        let mut entries: Vec<(String, String)> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let key_len =
+                u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+            let key = core::str::from_utf8(take(&mut cursor, key_len)?).ok()?;
+            let val_len =
+                u32::from_le_bytes(take(&mut cursor, 4)?.try_into().ok()?) as usize;
+            let value = core::str::from_utf8(take(&mut cursor, val_len)?).ok()?;
+            entries.push((String::from(key), String::from(value)));
+        }
+        if cursor != bytes.len() {
+            return None;
+        }
+        let borrowed: Vec<(&str, &str)> =
+            entries.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        Some(Self::from_entries(program_keys, &borrowed))
+    }
 }
 
 /// Fills `{n}` placeholders from the argument values.

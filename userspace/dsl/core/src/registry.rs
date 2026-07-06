@@ -161,3 +161,34 @@ pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
 pub fn device_field(name: &str) -> Option<&'static [&'static str]> {
     DEVICE_FIELDS.iter().find(|(field, _)| *field == name).map(|(_, values)| *values)
 }
+
+// ------------------------------------------------------------ svc surface
+// GENERATED from the IDL SSOT (tools/nexus-idl/schemas/dsl_services.capnp):
+// `SvcSig` + `SVC_SURFACE`. The checker's unknown-service/method/arity
+// diagnostics derive from the same file the app-host routes against.
+include!(concat!(env!("OUT_DIR"), "/svc_surface.rs"));
+
+/// Result of looking up `svc.<service>.<method>` against the surface.
+pub enum SvcLookup {
+    Found(&'static SvcSig),
+    UnknownService,
+    UnknownMethod,
+}
+
+#[must_use]
+pub fn svc_method(service: &str, method: &str) -> SvcLookup {
+    let mut service_exists = false;
+    for sig in SVC_SURFACE {
+        if sig.service == service {
+            service_exists = true;
+            if sig.method == method {
+                return SvcLookup::Found(sig);
+            }
+        }
+    }
+    if service_exists {
+        SvcLookup::UnknownMethod
+    } else {
+        SvcLookup::UnknownService
+    }
+}

@@ -296,6 +296,53 @@ fn lower_effect_steps(
                 let mut dispatch = step.init_dispatch();
                 fill_dispatch(ctx, env, case, args, *span, &mut dispatch)?;
             }
+            Stmt::Match { scrutinee: Expr::Call { path, args, span }, arms, .. }
+                if path.len() == 1 && ctx.query_index.contains_key(path[0].text.as_str()) =>
+            {
+                // `match QueryName(args…, token: t) { Ok(rows, next) => dispatch(..),
+                //  Err(e) => dispatch(..), }` — the ONLY query execution site.
+                let canonical = ctx.query_index[path[0].text.as_str()];
+                let query = ctx.queries[canonical as usize];
+                let mut qstep = step.init_query();
+                super::queries::fill_query_step(
+                    ctx, env, canonical, query, args, *span, &mut qstep,
+                )?;
+                // Ok binds (rows, next); Err binds the error code into the
+                // rows slot — only one path ever runs.
+                let rows_slot = env.bind_local("__query_rows");
+                let next_slot = env.bind_local("__query_next");
+                qstep.set_rows_slot(rows_slot);
+                qstep.set_next_slot(next_slot);
+                for arm in arms {
+                    let is_ok = arm.pattern.case.text == "Ok";
+                    let is_err = arm.pattern.case.text == "Err";
+                    if !is_ok && !is_err {
+                        return Err(unsupported(arm.span, "non-Ok/Err arm on a query result"));
+                    }
+                    let [Stmt::Dispatch { case, args, span }] = arm.body.as_slice() else {
+                        return Err(unsupported(
+                            arm.span,
+                            "query-result arms beyond a single dispatch",
+                        ));
+                    };
+                    if is_ok {
+                        if let Some(bind) = arm.pattern.binds.first() {
+                            env.bind_local_to(&bind.text, rows_slot);
+                        }
+                        if let Some(bind) = arm.pattern.binds.get(1) {
+                            env.bind_local_to(&bind.text, next_slot);
+                        }
+                    } else if let Some(bind) = arm.pattern.binds.first() {
+                        env.bind_local_to(&bind.text, rows_slot);
+                    }
+                    let mut target = if is_ok {
+                        qstep.reborrow().init_on_page()
+                    } else {
+                        qstep.reborrow().init_on_err()
+                    };
+                    fill_dispatch(ctx, env, case, args, *span, &mut target)?;
+                }
+            }
             Stmt::Match { scrutinee: Expr::Call { path, args, span }, arms, .. } => {
                 // `match svc.x.y(...) { Ok(v) => dispatch(..), Err(e) => dispatch(..), }`
                 // Ok and Err arms share ONE result slot: only one path runs

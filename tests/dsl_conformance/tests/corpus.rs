@@ -108,7 +108,7 @@ reduce E {
     Loaded(n) => { state.count = n; state.busy = false; },
 }
 @effect on Load {
-    let n = svc.stats.count(timeoutMs: 100);
+    let n = svc.stats.count("all", timeoutMs: 100);
     dispatch(Loaded(n));
 }
 "#,
@@ -133,7 +133,7 @@ reduce E {
     Failed(code) => state.status = "failed",
 }
 @effect on Save {
-    match svc.db.put(timeoutMs: 100) {
+    match svc.db.put("k", "v", timeoutMs: 100) {
         Ok(r) => dispatch(Saved),
         Err(e) => dispatch(Failed(e)),
     }

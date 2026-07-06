@@ -15,6 +15,7 @@
 //! outside the subset reports `NX0501 LoweringUnsupported` — never silent.
 
 mod exprs;
+mod queries;
 mod views;
 
 use crate::ast::{Decl, File, Stmt, TypeExpr};
@@ -99,6 +100,11 @@ pub(super) struct Ctx<'a> {
     /// named stores in canonical order: (component name, canonical store
     /// index, model component index).
     pub local_stores: Vec<(String, u32, usize)>,
+    /// Query declarations in canonical (name-sorted) order → model index.
+    pub query_order: Vec<usize>,
+    pub query_index: BTreeMap<&'a str, u32>,
+    /// The declarations themselves, canonical order (index = spec id).
+    pub queries: Vec<&'a crate::ast::QueryDecl>,
 }
 
 #[derive(Clone, Copy)]
@@ -123,6 +129,13 @@ impl<'a> Ctx<'a> {
         store_order.sort_by_key(|&i| model.stores[i].name.text.as_str());
         let mut event_order: Vec<usize> = (0..model.events.len()).collect();
         event_order.sort_by_key(|&i| model.events[i].name.text.as_str());
+        let mut query_order: Vec<usize> = (0..model.queries.len()).collect();
+        query_order.sort_by_key(|&i| model.queries[i].name.text.as_str());
+        let query_index: BTreeMap<&str, u32> = query_order
+            .iter()
+            .enumerate()
+            .map(|(i, &m)| (model.queries[m].name.text.as_str(), i as u32))
+            .collect();
 
         let mut component_order: Vec<(&str, ComponentSource)> = Vec::new();
         for (i, page) in model.pages.iter().enumerate() {
@@ -233,6 +246,9 @@ impl<'a> Ctx<'a> {
             case_map,
             field_store,
             local_stores,
+            queries: query_order.iter().map(|&i| model.queries[i]).collect(),
+            query_order,
+            query_index,
         })
     }
 
@@ -530,6 +546,19 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                     }
                 }
             }
+            Decl::Query(query) => {
+                set.insert(query.name.text.clone());
+                set.insert(query.source.text.clone());
+                set.insert(query.order_col.text.clone());
+                for param in &query.params {
+                    set.insert(param.name.text.clone());
+                    walk_type(&param.ty, set);
+                }
+                for pred in &query.preds {
+                    set.insert(pred.col.text.clone());
+                    walk_expr(&pred.value, set, i18n);
+                }
+            }
         }
     }
 }
@@ -619,6 +648,7 @@ fn build_message(
         views::build_state(ctx, model, &mut program)?;
         views::build_components(ctx, model, &mut program)?;
         views::build_routes(ctx, model, &mut program)?;
+        queries::build_query_specs(ctx, model, &mut program)?;
 
         {
             let mut keys = program.reborrow().init_i18n_keys(ctx.i18n_keys.len() as u32);

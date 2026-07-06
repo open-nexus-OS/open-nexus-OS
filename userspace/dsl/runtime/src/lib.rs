@@ -25,6 +25,7 @@ pub mod nav;
 pub mod reduce;
 pub mod registry;
 pub mod store;
+pub mod svc;
 pub mod view;
 
 pub use emit::{Damage, Dep};
@@ -69,6 +70,38 @@ pub trait LocaleSource {
     fn format(&self, key: u32, args: &[Value]) -> String;
 }
 
+/// Stable error code for hosts without query support (the default impl).
+pub const ERR_QUERY_UNSUPPORTED: u32 = u32::MAX - 1;
+
+/// A fully resolved query execution request (the `query` effect step):
+/// symbols textualized, predicate values evaluated, the v1 shape flattened
+/// into eq-conjunction + inclusive bounds on the order column
+/// (docs/dev/dsl/db-queries.md). The host maps this onto `nexus-query`
+/// (fixtures) or the queryd wire schema (app-host) — the runtime itself
+/// never touches storage.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryCall {
+    pub source: String,
+    /// Equality predicates (column name, value).
+    pub eq: Vec<(String, Value)>,
+    /// Inclusive bounds on the ORDER column (v1 rule).
+    pub low: Option<Value>,
+    pub high: Option<Value>,
+    pub order_col: String,
+    pub descending: bool,
+    pub limit: u32,
+    /// Opaque page token (hex; `""` = first page).
+    pub token: String,
+}
+
+/// One page: rows as a DSL list value + the continuation token
+/// (`""` = exhausted).
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryPage {
+    pub rows: Value,
+    pub next: String,
+}
+
 /// The IO boundary: effects call services only through this.
 pub trait EffectHost {
     /// Returns the call result or a stable error code.
@@ -79,6 +112,13 @@ pub trait EffectHost {
         args: &[Value],
         timeout_ms: u32,
     ) -> Result<Value, u32>;
+
+    /// Executes a query step. Hosts without a query engine keep the default
+    /// (a deterministic error — never a silent empty page).
+    fn query(&mut self, call: &QueryCall) -> Result<QueryPage, u32> {
+        let _ = call;
+        Err(ERR_QUERY_UNSUPPORTED)
+    }
 }
 
 /// Fixture environment: the full read-only device contract
@@ -472,6 +512,7 @@ impl<'p> Runtime<'p> {
                 locale,
                 host,
                 symbols: &self.symbols,
+                root,
             };
             effects::run_plan(&mut ctx, plan, &pending.payload, queue)?;
         }

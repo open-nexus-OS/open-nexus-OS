@@ -5,8 +5,8 @@
 
 use super::Parser;
 use crate::ast::{
-    ComponentDecl, EffectDecl, EventCase, EventDecl, Pattern, PageDecl, PropDecl, ReduceArm,
-    ReduceDecl, Route, RoutesDecl, StoreDecl, StoreField,
+    ComponentDecl, EffectDecl, EventCase, EventDecl, Pattern, PageDecl, PropDecl, QueryDecl,
+    ReduceArm, ReduceDecl, Route, RoutesDecl, StoreDecl, StoreField,
 };
 use crate::diag::{DiagCode, Diagnostic};
 use crate::lexer::TokenKind;
@@ -168,6 +168,124 @@ impl Parser<'_> {
         self.expect(&TokenKind::RBrace, "`}` closing the component")?;
         let span = start.to(self.prev_span());
         Ok(ComponentDecl { name, props, state, view, span })
+    }
+
+    /// `Query Name on source { params: { name: Type, }, where col op value,
+    /// orderBy col [asc|desc], limit N, }`
+    ///
+    /// Clause keywords (`where`, `orderBy`, `limit`, `asc`, `desc`) are
+    /// contextual — they stay usable as ordinary names elsewhere.
+    pub(super) fn query_decl(&mut self) -> Result<QueryDecl, Diagnostic> {
+        let start = self.bump().span; // the `Query` ident
+        let name = self.ident("a query name")?;
+        self.expect(&TokenKind::KwOn, "`on` (the query's source table)")?;
+        let source = self.ident("a source/table name")?;
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        let mut params = Vec::new();
+        let mut preds = Vec::new();
+        let mut order: Option<(crate::ast::Ident, bool)> = None;
+        let mut limit: Option<(i64, crate::diag::Span)> = None;
+        while !self.eat(&TokenKind::RBrace) {
+            match self.peek() {
+                TokenKind::Ident(kw) if kw == "params" => {
+                    self.bump();
+                    self.expect(&TokenKind::Colon, "`:`")?;
+                    self.expect(&TokenKind::LBrace, "`{`")?;
+                    while !self.eat(&TokenKind::RBrace) {
+                        let prop_name = self.ident("a param name")?;
+                        self.expect(&TokenKind::Colon, "`:`")?;
+                        let ty = self.type_expr()?;
+                        let prop_span = prop_name.span.to(self.prev_span());
+                        self.expect(&TokenKind::Comma, "`,` after the param")?;
+                        params.push(PropDecl { name: prop_name, ty, span: prop_span });
+                    }
+                    self.expect(&TokenKind::Comma, "`,` after the params block")?;
+                }
+                TokenKind::Ident(kw) if kw == "where" => {
+                    self.bump();
+                    let col = self.ident("a column name")?;
+                    let op = match self.peek() {
+                        TokenKind::EqEq => crate::ast::BinOp::Eq,
+                        TokenKind::Ge => crate::ast::BinOp::Ge,
+                        TokenKind::Le => crate::ast::BinOp::Le,
+                        TokenKind::Gt => crate::ast::BinOp::Gt,
+                        TokenKind::Lt => crate::ast::BinOp::Lt,
+                        _ => return Err(self.unexpected("a comparison (`==`, `>=`, `<=`)")),
+                    };
+                    self.bump();
+                    let value = self.expr()?;
+                    let pred_span = col.span.to(self.prev_span());
+                    self.expect(&TokenKind::Comma, "`,` after the where clause")?;
+                    preds.push(crate::ast::QueryPred { col, op, value, span: pred_span });
+                }
+                TokenKind::Ident(kw) if kw == "orderBy" => {
+                    self.bump();
+                    let col = self.ident("a column name")?;
+                    let descending = match self.peek() {
+                        TokenKind::Ident(dir) if dir == "desc" => {
+                            self.bump();
+                            true
+                        }
+                        TokenKind::Ident(dir) if dir == "asc" => {
+                            self.bump();
+                            false
+                        }
+                        _ => false,
+                    };
+                    self.expect(&TokenKind::Comma, "`,` after the orderBy clause")?;
+                    if order.is_some() {
+                        return Err(Diagnostic::new(
+                            DiagCode::DuplicateProp,
+                            col.span,
+                            String::from("`orderBy` is declared twice"),
+                        ));
+                    }
+                    order = Some((col, descending));
+                }
+                TokenKind::Ident(kw) if kw == "limit" => {
+                    let kw_span = self.bump().span;
+                    let value = match self.peek() {
+                        TokenKind::IntLit(v) => {
+                            let v = *v;
+                            self.bump();
+                            v
+                        }
+                        _ => return Err(self.unexpected("an integer limit")),
+                    };
+                    let limit_span = kw_span.to(self.prev_span());
+                    self.expect(&TokenKind::Comma, "`,` after the limit clause")?;
+                    if limit.is_some() {
+                        return Err(Diagnostic::new(
+                            DiagCode::DuplicateProp,
+                            limit_span,
+                            String::from("`limit` is declared twice"),
+                        ));
+                    }
+                    limit = Some((value, limit_span));
+                }
+                _ => {
+                    return Err(self.unexpected(
+                        "a query clause (`params:`, `where`, `orderBy`, `limit`)",
+                    ))
+                }
+            }
+        }
+        let span = start.to(self.prev_span());
+        let Some((order_col, descending)) = order else {
+            return Err(Diagnostic::new(
+                DiagCode::UnexpectedToken,
+                span,
+                String::from("a query needs an `orderBy` clause (deterministic order is mandatory)"),
+            ));
+        };
+        let Some((limit, limit_span)) = limit else {
+            return Err(Diagnostic::new(
+                DiagCode::UnexpectedToken,
+                span,
+                String::from("a query needs a `limit` clause (bounded results are mandatory)"),
+            ));
+        };
+        Ok(QueryDecl { name, source, params, preds, order_col, descending, limit, limit_span, span })
     }
 
     /// `Routes { "/path/:id" -> Page(id: Int); ... }`

@@ -86,6 +86,12 @@ pub mod manifest_capnp {
     include!(concat!(env!("OUT_DIR"), "/manifest_capnp.rs"));
 }
 
+#[cfg(feature = "capnp")]
+#[allow(unsafe_code, clippy::unwrap_used, clippy::expect_used, clippy::needless_lifetimes)]
+pub mod queryspec_capnp {
+    include!(concat!(env!("OUT_DIR"), "/queryspec_capnp.rs"));
+}
+
 /// Common error type for IDL encode/decode boundaries.
 #[derive(Debug)]
 pub enum IdlError {

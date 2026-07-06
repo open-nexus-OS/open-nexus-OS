@@ -293,6 +293,78 @@ No offset paging anywhere. A page token is opaque to apps and contains
 `Page { rows, next }`: `next = None` means exhausted; a present token means
 the caller may continue. Tokens survive wire round-trips byte-identically.
 
+## The DSL surface (v1)
+
+A query is a **top-level declaration** — an immutable, pure value:
+
+```nx
+Query FromName on library {
+    params: { from: Str, },
+    where flagged == true,
+    where name >= from,
+    orderBy name,
+    limit 20,
+}
+```
+
+- `on <source>` names the table/source (validated at the service boundary);
+- `params:` declares typed scalar parameters (Bool/Int/Fx/Str);
+- `where <col> <op> <value>` clauses: `==` on any column; `>=`/`<=` only on
+  the `orderBy` column (`NX0410` otherwise); values are literals or params
+  (`NX0410` for computed values — queries are pure values);
+- `orderBy <col> [asc|desc]` and `limit N` (1..=1000) are **mandatory**
+  (`NX0410`); deterministic order and bounded results are not optional;
+- `Query`, `where`, `orderBy`, `limit`, `params`, `asc`, `desc` are all
+  contextual — they stay usable as ordinary field/binding names.
+
+Execution happens ONLY via the query step inside an `@effect`
+(the checker rejects execution in reducers, `NX0405`):
+
+```nx
+@effect on Refresh {
+    match FromName(from: state.cursor, token: state.nextToken) {
+        Ok(rows, next) => dispatch(Loaded(rows, next)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+```
+
+- arguments are named and must cover the declared params exactly
+  (`NX0302`/`NX0303`); `token:` is optional (`""` = first page);
+- `Ok(rows, next)` binds the page rows and the opaque continuation token
+  (`""` = exhausted) — keep the token in state to page;
+- `Err(e)` binds a stable error code and stops the plan (call-step
+  semantics).
+
+In the IR (`ui_ir.capnp` v1.3) the declaration lowers into `querySpecs`
+(predicate values are const literals or `paramGet`), the execution site into
+a `QueryStep` (spec index, args in declaration order, token expression,
+result slots). The runtime flattens both into a resolved `QueryCall` for the
+host: fixtures answer with the real `nexus-query` engine; the app-host
+speaks the queryd wire contract below.
+
+## The service boundary: queryd
+
+`source/services/queryd` hosts the engine behind
+`tools/nexus-idl/schemas/queryspec.capnp`
+(frame = `[opcode u8][capnp]`; opcodes CREATE_TABLE/PUT/DELETE/QUERY):
+
+- **namespaces are derived server-side** from the caller's bundle identity —
+  nothing on the wire selects a namespace, so apps cannot reach each other's
+  tables by construction (loopback-tested);
+- every frame is gated on `nexus.permission.QUERY` (abilitymgr,
+  **fail-closed**: the default answer is no, checked before parsing the
+  payload);
+- errors are the typed `QueryErr` vocabulary (mirrors the engine's
+  `QueryError` + `denied`/`badRequest`) — the engine stays swappable because
+  nothing observable identifies it;
+- page tokens travel as opaque `Data`, byte-identical to the engine's
+  hash-bound tokens.
+
+Boot/topology wiring and the statefsd-journal `Kv` land with Phase 6
+(TASK-0080C); until then queryd is a host-tested skeleton over the same
+seams.
+
 ## v2/v3 non-goals (v1)
 
 `OR`, joins, aggregation, full-text, arbitrary query strings, multi-column

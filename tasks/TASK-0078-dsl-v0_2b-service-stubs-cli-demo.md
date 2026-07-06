@@ -123,11 +123,42 @@ host-side. OS markers formerly listed here move to Phase 6 (launch e2e).
   project builds to ONE `.nxir`; desktop list-tap → detail → back; the phone fixture
   renders the override layout from the same bytes.
 
-### ⬜ OPEN (this task's core)
+### ✅ DONE (core increment, 2026-07-06)
 
-- Typed `svc.*` adapters generated from the real IDL schemas (frontend signature checks
-  NX0302/unknown-service; currently svc calls are opaque and host-scripted).
-- TranscriptHost (record/replay transcript files; the conformance `Script` host is the
-  in-memory precursor).
-- `i18n extract|compile` verbs; generators (`init`, `add …`); `run --route/--locale/--profile`.
-- en/de catalogs for masterdetail (runtime `Catalog` machinery is ready).
+- **Service surface from the IDL SSOT**: `tools/nexus-idl/schemas/
+  dsl_services.capnp` (`const dslSurface`, pinned entry style) → dsl-core
+  `build.rs` generates `registry::SVC_SURFACE`; the checker validates every
+  `svc.<service>.<method>` call site: **NX0207** UnknownService, **NX0208**
+  UnknownServiceMethod, NX0302 arity (excluding `timeoutMs:`). The checker is
+  structurally unable to disagree with the platform surface. Surface covers
+  appState/search/users + the demo/test services the corpus uses.
+- **TranscriptHost** (`nexus-dsl-runtime::svc`): line-based transcript format
+  (`call svc.m(args) -> Ok(...)|Err(n)`, `query source(...) -> Ok(next,rows)`),
+  canonical Value text codec (`value_to_text`/`parse_value`, round-trip +
+  reject tested), in-order byte-exact replay, **miss = recorded failure +
+  ERR_TRANSCRIPT_MISS** (never a silent default), malformed fixtures fail at
+  parse with a line number; `Recorder` wraps a live host and emits the format.
+  Conformance: `tests/dsl_conformance/tests/transcript.rs` (LoadRequested →
+  replay → Loaded; transcripted Err with stable code; miss contract).
+- **CLI (`nx-dsl`)**: `run` gains `--route/--locale/--profile/--transcript/
+  --dispatch` (headless run, deterministic hash+scene-text summary, replay
+  miss = exit 1); `i18n extract` (keys from the LOWERED IR, preserves existing
+  translations) + `i18n compile` (deterministic `NXC1` binary,
+  `Catalog::from_binary` loader in the runtime); generators `init` +
+  `add page|component|store` (canonical-format output, no overwrites).
+  Proof: `userspace/dsl/cli/tests/cli.rs` (5 tests) — run exits 0 with scene
+  texts, de/en locale switch changes output, desktop-vs-phone profile matrix
+  stable + distinct, **init → build green** (also after `add`), i18n
+  extract/compile round-trip through the runtime loader.
+- **masterdetail**: `i18n/{en,de}.json` catalogs; list data now loads through
+  QuerySpec paging (see TASK-0078B ledger).
+- **Docs**: services.md rewritten to reference grade (generated surface +
+  diagnostics table, transcript contract, query step); cli.md v0.2b verbs.
+
+### ⬜ OPEN (remainder)
+
+- `add service|test` generators; `session inspect|clear|export --json`.
+- Lint growth: i18n coverage lint, transcript staleness warning.
+- Recording flow surfaced as a CLI flag (`Recorder` exists; wiring a
+  `run --record` dev flag rides with the app-host effects work, 0080D).
+- NX0407/NX0409 promotion to errors (async-recipe posture completion).

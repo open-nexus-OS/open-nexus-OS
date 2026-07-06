@@ -115,6 +115,14 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.3 (2026-07-06, TASK-0078B)** — additive: `QuerySpec` grows the v1
+  shape (`paramCount`, `preds` (col/op/value; `QueryOp` = eq/ge/le),
+  `orderCol`, `descending`, `limit`); `QueryStep` grows `token` (page-token
+  expression), `rowsSlot`, `nextSlot` (the Ok path binds rows + next token;
+  the Err path binds the stable error code into `rowsSlot` — only one path
+  ever runs). Predicate values are const literals or `paramGet` only, bound
+  from `QueryStep.args` in declaration order. Strict `<`/`>` comparisons are
+  reserved for the v2 builder; lowering rejects them today (NX0501).
 - **v1.2 (2026-07-06, TASK-0077B)** — additive: `Handler.bind` (two-way
   binding write target). Auto-synthesized at lowering when an interactive
   kind's primary prop is `$state`-bound (`Toggle { checked: $state.on }` ⇒ a

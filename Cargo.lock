@@ -765,6 +765,7 @@ dependencies = [
  "nexus-dsl-ir",
  "nexus-dsl-runtime",
  "nexus-layout-types",
+ "nexus-query",
 ]
 
 [[package]]
@@ -2589,6 +2590,7 @@ dependencies = [
  "nexus-dsl-core",
  "nexus-dsl-ir",
  "nexus-dsl-runtime",
+ "nexus-layout-types",
  "nexus-theme-tokens",
 ]
 
@@ -2898,6 +2900,15 @@ dependencies = [
 [[package]]
 name = "qemu-run"
 version = "0.1.0"
+
+[[package]]
+name = "queryd"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-idl-runtime",
+ "nexus-query",
+]
 
 [[package]]
 name = "quick-error"

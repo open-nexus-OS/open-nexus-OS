@@ -15,7 +15,7 @@ pub(super) fn run(file: &crate::ast::File, model: &Model<'_>, diags: &mut Vec<Di
     let _ = file;
     for reduce in &model.reduces {
         for arm in &reduce.arms {
-            purity(&arm.body, diags);
+            purity(&arm.body, model, diags);
         }
     }
     for effect in &model.effects {
@@ -31,8 +31,9 @@ pub(super) fn run(file: &crate::ast::File, model: &Model<'_>, diags: &mut Vec<Di
 
 // ------------------------------------------------------------ reducer purity
 
-/// Reducers: no `svc.*`, no `dispatch`, no bare call statements.
-fn purity(stmts: &[Stmt], diags: &mut Vec<Diagnostic>) {
+/// Reducers: no `svc.*`, no query execution, no `dispatch`, no bare call
+/// statements — the pure-build / effect-execute split (db-queries.md).
+fn purity(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
     for stmt in stmts {
         match stmt {
             Stmt::Dispatch { span, .. } => diags.push(Diagnostic::new(
@@ -46,31 +47,62 @@ fn purity(stmts: &[Stmt], diags: &mut Vec<Diagnostic>) {
                 String::from("reducers are pure: service calls belong in an `@effect`"),
             )),
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
-                if let Some(span) = find_svc_call(value) {
+                if let Some(span) = find_io_call(value, model) {
                     diags.push(Diagnostic::new(
                         DiagCode::ReducerImpure,
                         span,
-                        String::from("reducers are pure: `svc.*` belongs in an `@effect`"),
+                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
                     ));
                 }
             }
             Stmt::If { then, els, cond, .. } => {
-                if let Some(span) = find_svc_call(cond) {
+                if let Some(span) = find_io_call(cond, model) {
                     diags.push(Diagnostic::new(
                         DiagCode::ReducerImpure,
                         span,
-                        String::from("reducers are pure: `svc.*` belongs in an `@effect`"),
+                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
                     ));
                 }
-                purity(then, diags);
-                purity(els, diags);
+                purity(then, model, diags);
+                purity(els, model, diags);
             }
-            Stmt::Match { arms, .. } => {
+            Stmt::Match { scrutinee, arms, .. } => {
+                if let Some(span) = find_io_call(scrutinee, model) {
+                    diags.push(Diagnostic::new(
+                        DiagCode::ReducerImpure,
+                        span,
+                        String::from("reducers are pure: `svc.*`/query execution belongs in an `@effect`"),
+                    ));
+                }
                 for arm in arms {
-                    purity(&arm.body, diags);
+                    purity(&arm.body, model, diags);
                 }
             }
         }
+    }
+}
+
+/// IO call sites: `svc.*` and executions of a declared `Query`.
+fn find_io_call(expr: &Expr, model: &Model<'_>) -> Option<crate::diag::Span> {
+    match expr {
+        Expr::Call { path, span, args } => {
+            if path.first().map(|seg| seg.text.as_str()) == Some("svc") {
+                return Some(*span);
+            }
+            if path.len() == 1 && model.query_by_name.contains_key(path[0].text.as_str()) {
+                return Some(*span);
+            }
+            args.iter().find_map(|arg| find_io_call(&arg.value, model))
+        }
+        Expr::Unary { operand, .. } => find_io_call(operand, model),
+        Expr::Binary { lhs, rhs, .. } => {
+            find_io_call(lhs, model).or_else(|| find_io_call(rhs, model))
+        }
+        Expr::List { items, .. } | Expr::EnumLit { args: items, .. } => {
+            items.iter().find_map(|item| find_io_call(item, model))
+        }
+        Expr::I18n { args, .. } => args.iter().find_map(|arg| find_io_call(arg, model)),
+        _ => None,
     }
 }
 

@@ -1,0 +1,23 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "queryd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+# Host skeleton (TASK-0078B). Boot/topology wiring (os-lite, statefsd-backed
+# Kv, abilitymgr gate over IPC) rides with Phase 6 (TASK-0080C).
+std = []
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+nexus-query = { path = "../../libs/nexus-query", default-features = false }
+nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", features = ["capnp"] }
+capnp = "0.24"

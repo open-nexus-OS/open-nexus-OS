@@ -162,13 +162,42 @@ riscv64 no_std check green, clippy clean, 21 tests):
   decision + rationale, key-encoding spec, storage layout, v1 shape, canonical
   form/hash, keyset paging contract, v1 non-goals.
 
-### ⬜ OPEN (rest of this task)
+### ✅ DONE (second increment, 2026-07-06 — plan items 3–6: wire + DSL + queryd + consumer)
 
-- `tools/nexus-idl/schemas/queryspec.capnp` wire schema + idl-runtime module.
-- DSL surface: QuerySpec value/syntax + `query` effect step + pure-build/effect-execute
-  gating lints (plan item 4).
-- `queryd` skeleton (opcodes over `[opcode u8][capnp]`, namespace derivation,
-  fail-closed permission contract, host-loopback tests) + register
-  `nexus.permission.QUERY` in abilitymgr (plan item 5).
-- master-detail consumer switch to QuerySpec paging (plan item 6);
-  `docs/dev/dsl/services.md` query-step section.
+- **IR v1.3** (`ui_ir.capnp`, changelog in ir.md, goldens regenerated):
+  `QuerySpec` grows paramCount/preds(col,op∈{eq,ge,le},value)/orderCol/
+  descending/limit; `QueryStep` grows token/rowsSlot/nextSlot.
+- **DSL surface end-to-end**: top-level `Query Name on source { params:/where/
+  orderBy/limit }` declaration (ALL clause words contextual — `query` stays a
+  valid field name) → parser/fmt/checker/lowering; execution ONLY as
+  `match Name(args…, token: t) { Ok(rows, next) => …, Err(e) => … }` inside
+  effects. New stable codes: **NX0410** QueryShape (strict ops, range off the
+  order column, computed pred values, limit outside 1..=1000), NX0405 extended
+  to query execution in reducers; call-site named-param coverage (NX0302/0303).
+- **Runtime**: `EffectHost::query` (default = deterministic
+  `ERR_QUERY_UNSUPPORTED`), spec+args flattened into a resolved `QueryCall`
+  (eq conj + inclusive bounds + token), Ok binds rows+next / Err binds the
+  stable code and stops the plan (call-step semantics).
+- **`queryspec.capnp`** wire contract + `nexus-idl-runtime::queryspec_capnp`
+  module: QVal/preds/QueryRequest/PageResult, typed `QueryErr` vocabulary
+  (engine errors + denied/badRequest), opcodes CREATE_TABLE/PUT/DELETE/QUERY.
+- **`source/services/queryd`** skeleton: `[opcode u8][capnp]` frame handler
+  over the engine; namespaces DERIVED from caller identity (prefix-scoped Kv
+  view — nothing on the wire selects one); `Caps` gate **fail-closed** before
+  payload parse. 5 loopback tests: opcode round-trip, wire keyset paging walk,
+  namespace isolation, denial (DenyAll + non-listed identity), typed errors.
+- **abilitymgr**: `nexus.permission.QUERY` registered in KNOWN_PERMISSIONS.
+- **masterdetail consumer**: library.store.nx loads via `Query LibraryItems`
+  + token in state; conformance proof `tests/dsl_conformance/tests/query.rs`
+  (6 cases) runs the REAL engine behind the host seam (`EngineHost`): 3-page
+  walk through DSL state, param→range flow, error path, purity + shape lints.
+- **Docs**: db-queries.md gains the DSL syntax reference + queryd boundary
+  section; services.md query-step section; grammar.md QueryDecl production.
+
+### ⬜ OPEN (deferred per Non-Goals / later phases)
+
+- Boot/topology wiring + statefsd-journal `Kv` behind queryd (Phase 6,
+  TASK-0080C); abilitymgr gate over real IPC.
+- DSL-side generated typed table handles (v2 ergonomics, TASK-0274); strict
+  `<`/`>` bounds (engine Range exclusivity — a documented canonical-bytes
+  change).

@@ -11,7 +11,9 @@
 mod lints;
 mod names;
 
-use crate::ast::{ComponentDecl, EventDecl, File, PageDecl, ReduceDecl, Route, StoreDecl};
+use crate::ast::{
+    ComponentDecl, EventDecl, File, PageDecl, QueryDecl, ReduceDecl, Route, StoreDecl,
+};
 use crate::diag::{Diagnostic, Severity};
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
@@ -25,10 +27,12 @@ pub struct Model<'a> {
     pub pages: Vec<&'a PageDecl>,
     pub components: Vec<&'a ComponentDecl>,
     pub routes: Vec<&'a Route>,
+    pub queries: Vec<&'a QueryDecl>,
     pub store_by_name: BTreeMap<&'a str, usize>,
     pub event_by_name: BTreeMap<&'a str, usize>,
     pub page_by_name: BTreeMap<&'a str, usize>,
     pub component_by_name: BTreeMap<&'a str, usize>,
+    pub query_by_name: BTreeMap<&'a str, usize>,
     /// Event case name → (event index, case index). Ambiguous names map to
     /// `usize::MAX` markers and are reported.
     pub case_lookup: BTreeMap<&'a str, (usize, usize)>,

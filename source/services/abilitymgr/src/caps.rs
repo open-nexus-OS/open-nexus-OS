@@ -36,6 +36,8 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     "nexus.permission.NOTIFY",
     // Persist/read app state via statefsd.
     "nexus.permission.STATE",
+    // Execute QuerySpec v1 queries via queryd (docs/dev/dsl/db-queries.md).
+    "nexus.permission.QUERY",
 ];
 
 /// `true` if `cap` is a recognized platform permission.
