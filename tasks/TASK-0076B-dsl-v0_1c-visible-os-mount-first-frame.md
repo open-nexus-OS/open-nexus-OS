@@ -114,6 +114,14 @@ Visual proof:
 > BOOT-VERIFY in the visible lane** (interaction + optics).
 >
 > ### Debug findings (the hard-won facts — read before touching this area)
+> **RESOLVED (2026-07-06, user decision):** the kernel VMO pool is now **160MB**
+> (`USER_VMO_ARENA_LEN`, production-grade headroom for per-app processes +
+> surfaces in Phase 6; RAM 320M, arena ends 0x8B80_0000), the exhaustion path
+> **logs values** instead of dying silently (`VMO-POOL exhausted: want/used/
+> remaining/peak`), and windowd's image size is **CI-gated** at 8MB
+> (`just contract-windowd-size`, wired into `ci-os-headless`; currently 78%).
+> Growth stays a conscious act — raise the budget only with a ledger note.
+>
 > 1. **windowd binary size is a BOOT BUDGET.** Service images are allocated from
 >    the kernel's 96MB `VmoPool` (`syscall/api.rs::sys_exec`), and exhaustion is
 >    a SILENT `PermissionDenied` (the stats are discarded in the error path).

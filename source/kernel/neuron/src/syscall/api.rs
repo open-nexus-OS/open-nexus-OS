@@ -3120,8 +3120,18 @@ impl VmoPool {
         let next =
             self.next.checked_add(aligned).ok_or(Error::Capability(CapError::PermissionDenied))?;
         if next > self.limit {
+            // Exhaustion was SILENT once and cost a day of bisection
+            // (TASK-0076B): a service image allocation failing here kills the
+            // spawn with no output anywhere. Say what ran out, with values.
             let pressure = self.stats();
-            let _ = (pressure.base, pressure.used, pressure.remaining, pressure.peak_used);
+            log_debug!(
+                target: "vmo",
+                "VMO-POOL exhausted: want=0x{:x} used=0x{:x} remaining=0x{:x} peak=0x{:x}",
+                aligned,
+                pressure.used,
+                pressure.remaining,
+                pressure.peak_used
+            );
             return Err(Error::Capability(CapError::PermissionDenied));
         }
         let base = self.next;

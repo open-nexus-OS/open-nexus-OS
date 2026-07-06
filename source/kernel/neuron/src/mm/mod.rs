@@ -22,13 +22,18 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 /// The live interactive UI lane needs enough headroom for the full ramfb-sized
 /// framebuffer VMO after normal service bring-up has already allocated virtio,
 /// exec, metadata, and proof buffers.
-// 96MB: the pool is bump-only (never frees), and 64MB was exactly exhausted the
-// moment one more service (sessiond) loaded its ELF+stack — gpud's late 4MB GL
-// backings then failed with resource-exhausted and the GL compositor silently
-// fell back to 2D. Machine RAM is 320M (qemu-launcher), so the identity-mapped
-// arena ending at 0x8780_0000 leaves ample headroom. Follow-up hygiene: free
-// dead one-shot VMOs (the 4MB bootstrap-splash resource) instead of growing.
-pub const USER_VMO_ARENA_LEN: usize = 96 * 1024 * 1024;
+// 160MB (2026-07-06, was 96MB): the pool feeds EVERY service image + stack +
+// VMO (framebuffer ~20MB, GL backings, per-app surfaces per ADR-0037) and is
+// bump-first with a bounded free list. 96MB sat ~1KB from exhaustion once the
+// DSL runtime linked into windowd — and exhaustion at spawn time kills a
+// service SILENTLY (see TASK-0076B ledger). The DSL app runtime (TASK-0080D)
+// adds a process image + surface VMO PER APP, so the budget must carry a
+// desktop's worth of apps, not one compositor. Machine RAM is 320M
+// (qemu-launcher): the identity-mapped arena now ends at 0x8B80_0000, leaving
+// >130MB above it. Growth discipline still applies: windowd's image size is
+// CI-gated (`just contract-windowd-size`) and dead one-shot VMOs get freed
+// (#124) — the pool is headroom, not an excuse.
+pub const USER_VMO_ARENA_LEN: usize = 160 * 1024 * 1024;
 /// Base address of the kernel-managed user VMO arena.
 pub const USER_VMO_ARENA_BASE: usize = 0x8180_0000;
 /// Base address of the temporary kernel page-pool window used by early loaders/selftests.

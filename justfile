@@ -182,7 +182,13 @@ ci-os-full:
     just test-os full
 
 ci-os-headless:
+    just contract-windowd-size
     just test-os headless
+
+# CI contract: windowd image-size budget (spawn-time VMO-pool allocation).
+# Silent-death prevention — see scripts/check-windowd-size.sh.
+contract-windowd-size:
+    @scripts/check-windowd-size.sh
 
 ci-os-display-gpu-pci:
     GPU_MODE=pci just test-os display-gpu
