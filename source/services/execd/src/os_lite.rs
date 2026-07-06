@@ -785,6 +785,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             if image_id == IMG_APPHOST {
                 grant_windowd_route(pid as u32);
             }
+            // #102 ROOT CAUSE FIX: `spawn_inner` starts EVERY task Suspended
+            // (the grants-before-resume hardening); nexus-init resumes its
+            // services explicitly after cap wiring — execd never did, so its
+            // children loaded but never executed. Resume AFTER the grants
+            // above (same grants-before-resume discipline).
+            if nexus_abi::task_resume(pid as u32).is_err() {
+                emit_line("execd: FAIL child resume");
+            }
             metrics_counter_inc_best_effort("execd.spawn.ok");
             let end_ns = nsec().ok().unwrap_or(start_ns);
             metrics_span_end_best_effort(span_id, end_ns, 0, b"result=ok\n");
@@ -838,9 +846,17 @@ fn autolaunch_apphost_probe(state: &mut State) {
         Ok(pid) => {
             state.track_child(pid as u32, IMG_APPHOST);
             grant_windowd_route(pid as u32);
+            // Grants-before-resume (#102 fix): the child spawns Suspended;
+            // enqueue it only now that its slots are populated.
+            if nexus_abi::task_resume(pid as u32).is_err() {
+                let _ = nexus_abi::debug_println("execd: FAIL apphost probe resume");
+                return;
+            }
             let _ = nexus_abi::debug_println("execd: apphost probe autolaunch (R1)");
         }
-        Err(_) => emit_line("execd: FAIL apphost probe spawn"),
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL apphost probe spawn");
+        }
     }
 }
 

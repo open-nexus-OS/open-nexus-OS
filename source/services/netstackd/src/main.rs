@@ -33,13 +33,18 @@ fn os_entry() -> core::result::Result<(), ()> {
     // Boot determinism (soft-real-time start): netstackd is a BACKGROUND service — self-lower to Idle
     // QoS (lowering own QoS needs no privilege) so its ~1s bring-up runs AFTER the display/input
     // critical path (Normal) and never starves the first frame in the strict-priority scheduler.
-    #[cfg(nexus_env = "os")]
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     // Verdict folding: fold netstackd's bring-up markers (facade up / dhcp bound / rpc listen) into
     // one `netstackd N/N` grid line in interactive boots; flushed once the network is up, before the
     // facade serve loop (later per-RPC markers print raw). Proof boots emit everything raw.
     nexus_abi::service_verdict_arm();
+    // `ready` means "the process reached entry and is alive" (see
+    // emit_ready_marker) — emit it BEFORE self-lowering to Idle QoS. On the
+    // strict-priority scheduler an Idle task can be starved indefinitely by
+    // any Normal-QoS yield-spinner (observed: the headless proof ladder
+    // failed on a missing `netstackd: ready` for exactly this ordering).
     crate::os::entry::emit_ready_marker();
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     let crate::os::bootstrap::BootstrapResult { net, bind_ip: _bind_ip } =
         crate::os::bootstrap::bootstrap_network();
     nexus_abi::service_verdict_flush("netstackd");

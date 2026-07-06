@@ -187,7 +187,38 @@ the OS" are the same thing — search first, then chat, then the hard apps.
   clone-move; vmo_read syscall; shared-channel acks; full-surface v1 blit;
   envelope family).
 
-### ⚠ BLOCKER CONFIRMED BY THE PROBE (boot-iterated 2026-07-06, 4 runs)
+### ✅ R1 CHAIN PROVEN END-TO-END (boot 7, 2026-07-06 21:20)
+
+Full marker chain in hop order:
+`execd: apphost windowd route granted` → `execd: apphost probe autolaunch
+(R1)` → `apphost: start` → `apphost: vmo filled` → `WINDOWD: surface created
+id=1 320x240` → `APPHOST: surface created` → `WINDOWD: surface presented
+id=1 seq=1` → `APPHOST: probe surface presented`. Cross-process surface
+transport works: spawn → own VMO → cap-move CREATE → windowd blit + window →
+strictly-sequenced PRESENT → acks back to the app. **User visible-lane
+verify pending** (teal 320×240 window, title "App", at 460/420).
+
+### ✅ #102 ROOT-CAUSED AND FIXED (7 boot iterations)
+
+**Root cause**: `spawn_inner` starts EVERY task `Suspended` (the
+grants-before-resume hardening); nexus-init resumes its services explicitly
+after cap wiring — **execd never resumed its children**, so they loaded but
+never executed. Fix: execd calls `task_resume(pid)` after the grants (both
+the OP_EXEC_IMAGE path — repairing hello/exit0/minidump children too — and
+the R1 autolaunch). The retired selftest exec/crash/minidump chain (#102)
+can be restored on this fix.
+
+Iteration traps burned down on the way (recorded for the trap ledger):
+
+- boot 5: child ack-wait budget was ITERATION-counted (4000 yields ≈ 1.17s)
+  and expired 3ms before windowd's 1.50s bring-up answer → time-budgeted
+  (`nsec()`, 30s).
+- boot 6: the chain ran fully but the child's success markers vanished —
+  `nexus-service-entry` ARMS verdict folding for every process it
+  bootstraps, so non-FAIL `debug_println` lines fold into recall-only.
+  Probe markers now bypass via raw `debug_write`.
+
+### ⚠ Historical diagnosis notes (superseded by the fix above)
 
 The R1 chain runs cleanly up to and including the spawn:
 `execd: apphost windowd route granted` + `execd: apphost probe autolaunch
@@ -211,12 +242,52 @@ minimal, fully-instrumented payload. Diagnosis notes for the next move:
   markers must use `debug_println`); `cap_query` answers ONLY Vmo/DeviceMmio
   kinds (endpoint-slot polling needs a `cap_clone`+`cap_close` probe).
 
+### ✅ R1 ALSO PROVEN HEADLESS + further hardening (2026-07-06 evening)
+
+- The full R1 marker chain reproduces in the **headless proof boot**
+  (`build/logs/headless--2026-07-06T21-57-08`, lines 355–475) — "test
+  headless" for the transport is done at the uart level.
+- app-host idle loop → **blocking recv** (a Normal-QoS `loop{yield}` starves
+  every Idle-QoS service on the strict-priority scheduler — netstackd's
+  exact exposure class; R3 turns this recv into the input loop).
+- netstackd now emits `ready` BEFORE its Idle self-lower (correct marker
+  semantics — "process reached entry").
+
+### ✅ R2 PACKAGING HALF DONE (host-proven)
+
+- `manifest.capnp` **v2.1**: `payloadKind @16` (`elf` default | `uiProgram`),
+  append-only.
+- `nxb-pack`: `payload_kind = "ui-program"` in manifest.toml → packs
+  **`payload.nxir`**; found + fixed a PRE-EXISTING gap on the way:
+  `rewrite_manifest_with_digests` dropped all v2.0+ fields (bundleType too)
+  — scalars now survive; the unused v2.0 LIST fields are still dropped
+  (commented, copy when first used).
+- Round-trip pinned: `tools/nxb-pack/tests/payload_kind.rs` (2 tests).
+- `docs/packaging/nxb.md` payload-kinds section (DoD item).
+
+### ⚠ SEPARATE PRE-EXISTING FINDING: netstackd never reaches its entry
+
+`just test-os headless` fails in the ota phase on a missing
+`netstackd: ready` — **pre-existing** (identical fail with this task's work
+stashed). netstackd prints NOTHING (not even the service-entry panic
+handler); stack-pages 8→32 changed nothing; the binary + entry point look
+like every other service. init reports `up netstackd` (exec_v2 + resume ok).
+Until this is diagnosed the headless LADDER cannot go green for anyone —
+the R1/Phase-6 chain is proven from the uart log instead. Needs its own
+diagnosis pass (kernel exec debug build: `log_debug target "exec"`).
+
 ### ⬜ OPEN
 
-- **#102 kernel diagnosis** (why U-task `sys_exec` children never run) — the
-  single gate in front of R1's visible window; everything downstream of the
-  spawn is already built and host-proven.
-- Boot-verify R1 (chain markers, then user visible-lane verify).
+- User visible-lane verify of R1 (the teal window) — then commit.
+- R2 runtime half: bundlemgrd GET_PAYLOAD sourcing in execd (os-lite),
+  abilitymgr launch path replaces the R1 autolaunch, app-host validates +
+  mounts the `.nxir` and renders the first DSL frame (needs a no_std
+  LayoutNode renderer for the surface VMO — the blocking design question).
+- R3: input routing by surface id (windowd → focused surface's connection),
+  effects over real IPC, `@persist`, stop/crash residency, per-app channels.
+- 0080B/0080C (shell + greeter in DSL, launcher e2e) — after R2/R3.
+- Restore the retired selftest exec/exit0/minidump chain on the #102 fix.
+- netstackd entry diagnosis (separate finding above).
 - R2: manifest v2.1 `payloadKind`, nxb-pack `.nxir`, bundlemgrd GET_PAYLOAD
   sourcing, validate/mount, first DSL app frame (counter).
 - R3: input routing by surface id, effects over real IPC, `@persist`,

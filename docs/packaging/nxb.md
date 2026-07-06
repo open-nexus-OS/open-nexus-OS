@@ -116,3 +116,21 @@ via the `nexus-vfs` client crate.
 `userspace/exec-payloads` exposes the same manifest bytes and canonical payload
 used by `tools/nxb-pack`. This keeps selftests, host fixtures, and the
 packaging toolchain aligned.
+
+## Payload kinds (manifest v2.1, TASK-0080D)
+
+A bundle's payload is either a native ELF or a compiled DSL UI program:
+
+- `payload_kind = "elf"` (default, backward compatible) — the payload is
+  `payload.elf`, spawned directly by execd.
+- `payload_kind = "ui-program"` — the payload is **`payload.nxir`** (the
+  canonical, hash-verified Scene IR produced by `nx-dsl build`); execd
+  dispatches such bundles to the **app-host runtime process**, which
+  validates and mounts the program and presents through its own
+  cross-process windowd surface (ADR-0042).
+
+The manifest field is append-only (`payloadKind @16`, readers of older
+manifests see the `elf` default). `nxb-pack` names the packed payload file by
+the kind; the digest/size fields (`payloadDigest`/`payloadSize`) are
+payload-agnostic, so bundlemgrd install/enumerate/GET_PAYLOAD are unchanged.
+Round-trip pinned by `tools/nxb-pack/tests/payload_kind.rs`.

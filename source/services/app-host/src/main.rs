@@ -33,7 +33,20 @@ fn main() {
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
-    use nexus_abi::{cap_clone, debug_println, vmo_create, vmo_write, yield_};
+    use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
+
+    /// Probe markers must NOT fold: `nexus-service-entry` arms verdict
+    /// folding for every process it bootstraps, so `debug_println` swallows
+    /// non-FAIL lines in interactive boots (recall-only). The R1 proof chain
+    /// goes through the raw write syscall instead.
+    fn raw_marker(line: &str) {
+        let mut buf = [0u8; 96];
+        let bytes = line.as_bytes();
+        let n = bytes.len().min(buf.len() - 1);
+        buf[..n].copy_from_slice(&bytes[..n]);
+        buf[n] = b'\n';
+        let _ = nexus_abi::debug_write(&buf[..n + 1]);
+    }
     use nexus_display_proto::client_surface as wire;
     use nexus_ipc::{Client as _, KernelClient, Wait};
 
@@ -55,9 +68,13 @@ mod probe {
 
     /// Bounded retry budget for the cap-transfer race + windowd bring-up.
     const SEND_RETRIES: usize = 4000;
+    /// Ack wait budget in nanoseconds (windowd finishes its bring-up around
+    /// 1.5s boot time; the probe may start at 0.33s — a yield-count budget
+    /// expired 3ms early in boot 5, so the budget is TIME, not iterations).
+    const ACK_BUDGET_NS: u64 = 30_000_000_000;
 
     pub(super) fn run() -> Result<(), &'static str> {
-        let _ = debug_println("apphost: start");
+        raw_marker("apphost: start");
 
         // 1. The app's own surface VMO (per-app isolation, ADR-0037).
         let bytes = SURFACE_W as usize * SURFACE_H as usize * 4;
@@ -72,7 +89,7 @@ mod probe {
         for y in 0..SURFACE_H as usize {
             vmo_write(vmo, y * row_bytes, &row).map_err(|_| "apphost: vmo fill failed")?;
         }
-        let _ = debug_println("apphost: vmo filled");
+        raw_marker("apphost: vmo filled");
 
         let client = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
             .map_err(|_| "apphost: client slots")?;
@@ -83,7 +100,7 @@ mod probe {
         let create = wire::encode_surface_create(SURFACE_W, SURFACE_H, wire::FORMAT_BGRA8888);
         send_retry_cap(&client, &create, clone)?;
         let surface_id = recv_ack(&client, wire::OP_SURFACE_CREATE)?;
-        let _ = debug_println("APPHOST: surface created");
+        raw_marker("APPHOST: surface created");
 
         // 4. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
         let damage = [wire::DamageRect { x: 0, y: 0, width: SURFACE_W, height: SURFACE_H }];
@@ -91,12 +108,15 @@ mod probe {
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
         let _ = recv_ack(&client, wire::OP_SURFACE_PRESENT)?;
-        let _ = debug_println("APPHOST: probe surface presented");
+        raw_marker("APPHOST: probe surface presented");
 
-        // 5. Stay alive (R3 adds the input loop); fully yielded, zero polling
-        //    work — the process exists so the window keeps its owner.
+        // 5. Stay alive on a BLOCKING recv (R3 turns this into the input
+        //    loop). Never a yield-spin: on the strict-priority scheduler a
+        //    Normal-QoS yield loop starves every Idle-QoS service forever
+        //    (netstackd's exact failure mode).
+        let mut idle_frame = [0u8; 64];
         loop {
-            let _ = yield_();
+            let _ = client.recv_into(Wait::Blocking, &mut idle_frame);
         }
     }
 
@@ -133,10 +153,12 @@ mod probe {
     }
 
     /// Receives the matching ack (skips unrelated frames on the shared
-    /// response channel, bounded). Returns the ack value on OK status.
+    /// response channel). Budgeted by TIME — windowd's bring-up decides when
+    /// the ack arrives, not our iteration speed. Returns the ack value on OK.
     fn recv_ack(client: &KernelClient, op: u8) -> Result<u32, &'static str> {
         let mut frame = [0u8; 64];
-        for _ in 0..SEND_RETRIES {
+        let start = nsec().unwrap_or(0);
+        loop {
             match client.recv_into(Wait::NonBlocking, &mut frame) {
                 Ok(len) => {
                     if let Some((status, value)) =
@@ -154,8 +176,10 @@ mod probe {
                     let _ = yield_();
                 }
             }
+            if nsec().unwrap_or(u64::MAX).saturating_sub(start) > ACK_BUDGET_NS {
+                let _ = debug_println("apphost: FAIL ack timeout");
+                return Err("apphost: ack timeout");
+            }
         }
-        let _ = debug_println("apphost: FAIL ack timeout");
-        Err("apphost: ack timeout")
     }
 }

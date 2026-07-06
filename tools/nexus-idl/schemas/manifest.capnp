@@ -12,7 +12,9 @@
 #   - v1.0: Core fields (name, version, abilities, caps, publisher, signature)
 #   - v1.1: Add payloadDigest + payloadSize (TASK-0034)
 #   - v1.2: Add sbomDigest + reproDigest (TASK-0029)
-#   - v2.0+: Future extensions (dependencies, permissions, etc.)
+#   - v2.0: bundleType + dependencies + providedServices + resources
+#   - v2.1: payloadKind (TASK-0080D — DSL apps ship payload.nxir; execd
+#           dispatches uiProgram payloads to the app-host runtime)
 #
 # USAGE:
 #   - Input: manifest.toml (human-editable)
@@ -93,6 +95,17 @@ struct BundleManifest {
   }
   # Resources bundled with this artifact.
   resources @15 :List(Resource);
+
+  # v2.1 addition (TASK-0080D)
+  # What the payload IS: a native ELF (spawned directly) or a compiled DSL
+  # UI program (`payload.nxir`, loaded by the app-host runtime process).
+  # Append-only; readers of older manifests see the `elf` default.
+  payloadKind @16 :PayloadKind = elf;
+}
+
+enum PayloadKind {
+  elf @0;
+  uiProgram @1;
 }
 
 enum BundleType {

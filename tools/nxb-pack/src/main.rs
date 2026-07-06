@@ -72,7 +72,14 @@ fn pack_bundle(
     let manifest_with_payload =
         rewrite_manifest_with_digests(manifest_bytes, payload_bytes, None, None)?;
     let manifest_binding_sha256 = sha256_hex(&manifest_with_payload);
-    fs::write(output_dir.join("payload.elf"), payload_bytes)?;
+    // v2.1: DSL bundles ship `payload.nxir`; native bundles keep `payload.elf`
+    // (digest/size fields are payload-agnostic — bundlemgrd stays unchanged).
+    let payload_name = if manifest_payload_is_ui_program(&manifest_with_payload)? {
+        "payload.nxir"
+    } else {
+        "payload.elf"
+    };
+    fs::write(output_dir.join(payload_name), payload_bytes)?;
     let sbom_bytes =
         write_sbom(output_dir, &manifest_with_payload, payload_bytes, &manifest_binding_sha256)?;
     let repro_bytes =
@@ -180,6 +187,17 @@ fn rewrite_manifest_with_digests(
         dst.set_signature(src.get_signature()?);
         dst.set_payload_digest(&hex::decode(sha256_hex(payload_bytes))?);
         dst.set_payload_size(payload_bytes.len() as u64);
+        // v2.0/v2.1 scalars must survive the digest rewrite (payloadKind
+        // decides the packed payload filename; bundleType feeds the registry).
+        // NOTE (pre-existing gap): the v2.0 LIST fields (dependencies/
+        // providedServices/resources) are still dropped here — none of the
+        // shipped bundles use them yet; copy them when the first one does.
+        if let Ok(kind) = src.get_payload_kind() {
+            dst.set_payload_kind(kind);
+        }
+        if let Ok(bundle_type) = src.get_bundle_type() {
+            dst.set_bundle_type(bundle_type);
+        }
 
         if let Some(sbom) = sbom_bytes {
             dst.set_sbom_digest(&hex::decode(sha256_hex(sbom))?);
@@ -208,6 +226,17 @@ fn rewrite_manifest_with_digests(
     let mut out: Vec<u8> = Vec::new();
     capnp::serialize::write_message(&mut out, &builder)?;
     Ok(out)
+}
+
+/// Reads `payloadKind` back from encoded manifest bytes (v2.1; older
+/// manifests decode to the `elf` default).
+fn manifest_payload_is_ui_program(
+    manifest_bytes: &[u8],
+) -> Result<bool, Box<dyn std::error::Error>> {
+    use nexus_idl_runtime::manifest_capnp::{self as mf, bundle_manifest};
+    let reader = capnp::serialize::read_message(manifest_bytes, Default::default())?;
+    let manifest = reader.get_root::<bundle_manifest::Reader<'_>>()?;
+    Ok(matches!(manifest.get_payload_kind(), Ok(mf::PayloadKind::UiProgram)))
 }
 
 fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
@@ -283,6 +312,14 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         .into());
     }
 
+    // v2.1: payload kind (TASK-0080D). Default `elf`; DSL apps declare
+    // `payload_kind = "ui-program"` and ship `payload.nxir`.
+    let payload_kind = match opt_str(table, "payload_kind").unwrap_or("elf") {
+        "elf" => mf::PayloadKind::Elf,
+        "ui-program" => mf::PayloadKind::UiProgram,
+        other => return Err(format!("manifest.toml unknown payload_kind: {other}").into()),
+    };
+
     // v2.0: bundle type (default app for backward compat)
     let bundle_type = match opt_str(table, "bundle_type").unwrap_or("app") {
         "app" => mf::BundleType::App,
@@ -309,6 +346,7 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
     msg.set_publisher(&publisher);
     msg.set_signature(&signature);
     msg.set_bundle_type(bundle_type);
+    msg.set_payload_kind(payload_kind);
 
     {
         let mut a = msg.reborrow().init_abilities(abilities.len() as u32);
