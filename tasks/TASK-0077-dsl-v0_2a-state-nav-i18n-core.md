@@ -171,12 +171,19 @@ Unknown ids / incompatible profile-shell pairings reject deterministically.
   primary-prop name; IR goldens regenerated. (The golden painter draws no glyphs — the
   matrix asserts text sets structurally via `dsl_goldens::texts`.)
 
+### ✅ DONE (third increment, 2026-07-06)
+
+- **`navigate` as a DSL handler action, end-to-end**: lexer keyword → AST/parser/fmt →
+  checker (a literal path that matches no declared route = diagnostic) → **IR schema
+  v1.1** (`Handler.navigate`, append-only union variant + ir.md changelog) → lowering →
+  runtime (`interact::HandlerAction::{Dispatch,Navigate}`; `View::pointer` routes taps to
+  `nav.push` + re-emit). Proven by a scene test: live tap on a Button switches Home →
+  Detail through real hit-testing, `navigate_back` returns.
+
 ### ⬜ OPEN (this task's remainder — see Goal)
 
 - Route-param **binding into page views** (needs lowering support: route params as the
   page's param slice; pages currently take no params).
-- `navigate` as a DSL handler action (grammar/IR/lowering — today navigation is a host
-  API on `View`).
 - Multi-store programs, effect-scheduling determinism fixtures, i18n compiled catalogs +
   locale switch, `device.*` from the systemui registry + profile-matrix goldens,
   `ui/platform/<profile>/` build-time overrides, kept-alive route state contract,

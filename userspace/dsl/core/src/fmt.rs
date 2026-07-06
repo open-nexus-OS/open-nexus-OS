@@ -469,6 +469,11 @@ fn handler_to(out: &mut String, handler: &HandlerDecl) {
             }
             out.push(')');
         }
+        HandlerAction::Navigate { path } => {
+            out.push_str("navigate(");
+            expr_to(out, path, 0);
+            out.push(')');
+        }
         HandlerAction::Emit { prop, args } => {
             out.push_str("emit(");
             expr_to(out, prop, 0);

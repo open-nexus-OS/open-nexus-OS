@@ -4,7 +4,7 @@
 //! View emission: IR view tree + committed state → `LayoutNode` scene,
 //! recording state→node dependencies with their invalidation class.
 
-use crate::interact::HandlerEntry;
+use crate::interact::{HandlerAction, HandlerEntry};
 use crate::reduce::{eval, EvalCtx};
 use crate::registry::{self, Mods};
 use crate::store::{StoreState, Value};
@@ -263,26 +263,43 @@ fn emit_widget(
     if !mods.disabled {
         for handler in widget.get_handlers().map_err(|_| RtError::Malformed)?.iter() {
             use ir::handler::Which;
-            if let Ok(Which::Dispatch(Ok(dispatch))) = handler.which() {
-                let payload_list = dispatch.get_payload().map_err(|_| RtError::Malformed)?;
-                let mut payload = Vec::with_capacity(payload_list.len() as usize);
-                for arg in payload_list.iter() {
-                    // Payload state reads: Paint-class dep so any change
-                    // re-emits and re-captures the payload.
-                    ctx.record_deps(arg, Damage::Paint);
-                    payload.push(ctx.eval(arg)?);
+            let action = match handler.which() {
+                Ok(Which::Dispatch(Ok(dispatch))) => {
+                    let payload_list =
+                        dispatch.get_payload().map_err(|_| RtError::Malformed)?;
+                    let mut payload = Vec::with_capacity(payload_list.len() as usize);
+                    for arg in payload_list.iter() {
+                        // Payload state reads: Paint-class dep so any change
+                        // re-emits and re-captures the payload.
+                        ctx.record_deps(arg, Damage::Paint);
+                        payload.push(ctx.eval(arg)?);
+                    }
+                    Some(HandlerAction::Dispatch {
+                        event: dispatch.get_event(),
+                        case: dispatch.get_case(),
+                        payload,
+                    })
                 }
-                let entry = HandlerEntry {
+                Ok(Which::Navigate(Ok(path_expr))) => {
+                    ctx.record_deps(path_expr, Damage::Paint);
+                    match ctx.eval(path_expr)? {
+                        crate::store::Value::Str(path) => {
+                            Some(HandlerAction::Navigate { path })
+                        }
+                        _ => return Err(RtError::TypeMismatch),
+                    }
+                }
+                // emitProp handlers route through component instances — wired
+                // with the instance/params work (see the task ledger).
+                _ => None,
+            };
+            if let Some(action) = action {
+                ctx.handlers.push(HandlerEntry {
                     path: ctx.path.clone(),
                     trigger: handler.get_trigger(),
-                    event: dispatch.get_event(),
-                    case: dispatch.get_case(),
-                    payload,
-                };
-                ctx.handlers.push(entry);
+                    action,
+                });
             }
-            // emitProp handlers route through component instances — wired
-            // with the instance/params work (see the task ledger).
         }
     }
 

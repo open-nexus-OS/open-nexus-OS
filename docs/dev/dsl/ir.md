@@ -115,6 +115,9 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.1 (2026-07-06, TASK-0077)** — additive: `Handler.navigate` (a Str-typed
+  route-path expression; `on Tap -> navigate("/detail/7")`). Readers of 1.0
+  see an unknown union variant and must treat such handlers as inert.
 - **v1.0 (2026-07-06, TASK-0075)** — initial schema
   (`tools/nexus-idl/schemas/ui_ir.capnp`): `UiProgram` with interned sorted
   symbols, budgets, expression-tree reducers, linear effect plans

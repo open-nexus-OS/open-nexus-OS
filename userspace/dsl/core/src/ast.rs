@@ -326,6 +326,8 @@ pub struct HandlerDecl {
 pub enum HandlerAction {
     Dispatch { case: Ident, args: Vec<Expr> },
     Emit { prop: Expr, args: Vec<Expr> },
+    /// `navigate("/detail/7")` — a Str-typed route-path expression.
+    Navigate { path: Expr },
 }
 
 // ---------------------------------------------------------------- routing

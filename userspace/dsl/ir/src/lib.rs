@@ -32,7 +32,7 @@ pub mod validate;
 /// Schema major version this crate reads/writes. Readers reject other majors.
 pub const SCHEMA_MAJOR: u16 = 1;
 /// Schema minor version this crate writes. Readers accept any minor of [`SCHEMA_MAJOR`].
-pub const SCHEMA_MINOR: u16 = 0;
+pub const SCHEMA_MINOR: u16 = 1;
 
 /// Byte length of `programHash` / `sourceDigest` (SHA-256).
 pub const DIGEST_LEN: usize = 32;

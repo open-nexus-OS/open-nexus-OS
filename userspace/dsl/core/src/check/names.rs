@@ -298,6 +298,29 @@ pub(super) fn check_view(node: &ViewNode, model: &Model<'_>, diags: &mut Vec<Dia
                         format!("unknown interaction `{}`", handler.trigger.text),
                     ));
                 }
+                if let HandlerAction::Navigate { path } = &handler.action {
+                    // A literal path must match a declared route (dynamic
+                    // paths resolve at runtime; unmatched = deterministic error).
+                    if let Expr::Str { value, span } = path {
+                        let matches_route = model.routes.iter().any(|route| {
+                            let pat: Vec<&str> =
+                                route.path.split('/').filter(|s| !s.is_empty()).collect();
+                            let have: Vec<&str> =
+                                value.split('/').filter(|s| !s.is_empty()).collect();
+                            pat.len() == have.len()
+                                && pat.iter().zip(&have).all(|(p, h)| {
+                                    p.starts_with(':') || p == h
+                                })
+                        });
+                        if !matches_route {
+                            diags.push(Diagnostic::new(
+                                DiagCode::UnknownName,
+                                *span,
+                                format!("`{value}` matches no declared route"),
+                            ));
+                        }
+                    }
+                }
                 if let HandlerAction::Dispatch { case, args } = &handler.action {
                     let pattern =
                         Pattern { case: case.clone(), binds: Vec::new(), span: case.span };

@@ -18,6 +18,15 @@ use crate::store::Value;
 use alloc::vec::Vec;
 use nexus_layout_types::{FxPx, LayoutNode};
 
+/// What a triggered handler does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HandlerAction {
+    /// Dispatch a store event (payload captured at emit time).
+    Dispatch { event: u32, case: u32, payload: Vec<Value> },
+    /// Navigate to a route path (evaluated at emit time).
+    Navigate { path: alloc::string::String },
+}
+
 /// One interactive region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandlerEntry {
@@ -25,10 +34,7 @@ pub struct HandlerEntry {
     pub path: Vec<u32>,
     /// Interaction trigger symbol id (`Tap`, `Change`, …).
     pub trigger: u32,
-    /// Dispatch target: (event index, case index, captured payload).
-    pub event: u32,
-    pub case: u32,
-    pub payload: Vec<Value>,
+    pub action: HandlerAction,
 }
 
 /// Pre-order box id (1-based, matches `LayoutBox::node_id`) for a path.

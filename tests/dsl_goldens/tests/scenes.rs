@@ -276,3 +276,74 @@ fn locale_switch_changes_bound_text_deterministically() {
         "pseudo-locale shows the key: {pseudo_texts:?}"
     );
 }
+
+/// `navigate("/detail/…")` as a DSL handler action: a live tap switches the
+/// page through the route table; back returns (schema v1.1 Handler.navigate).
+#[test]
+fn navigate_handler_switches_pages_on_tap() {
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    let nxir = compile(
+        r#"
+Store S { n: Int = 0, }
+Event E { Noop, }
+reduce E { Noop => state.n = state.n, }
+Page Home {
+    Stack {
+        Text("home screen")
+        Button { label: "open" }
+        on Tap -> navigate("/detail")
+    }
+    .padding(2)
+    .gap(2)
+}
+Page Detail {
+    Stack {
+        Text("detail screen")
+    }
+}
+Routes {
+    "/" -> Home;
+    "/detail" -> Detail;
+}
+"#,
+    );
+    let mut mounted = Mounted::new(&nxir);
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("home screen")));
+
+    // Tap the button through real hit-testing.
+    let engine = LayoutEngine::new();
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
+        .expect("lays out");
+    let button_box = mounted.view.handlers()[0].0;
+    let rect = result.boxes.iter().find(|b| b.node_id == button_box).expect("box").rect;
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+    let damage = mounted
+        .view
+        .pointer(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &mut NoIo,
+            &result.boxes,
+            "Tap",
+            FxPx::new(rect.x.0 + rect.width.0 / 2),
+            FxPx::new(rect.y.0 + rect.height.0 / 2),
+        )
+        .expect("routes");
+    assert_eq!(damage, Some(Damage::Layout));
+    assert!(
+        dsl_goldens::texts(mounted.view.scene()).contains(&String::from("detail screen")),
+        "tap navigated to the detail page"
+    );
+
+    // And back.
+    let damage = mounted
+        .view
+        .navigate_back(&BaseTokens, &FixtureEnv::default(), &locale)
+        .expect("back");
+    assert_eq!(damage, Damage::Layout);
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("home screen")));
+}

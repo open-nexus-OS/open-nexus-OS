@@ -19,7 +19,7 @@
 #   - field numbers are append-only; minor bump = additive with defaults;
 #     major bump = readers reject (docs/dev/dsl/ir.md#schema-evolution-rules)
 #
-# VERSION: 1.0 (TASK-0075)
+# VERSION: 1.1 (TASK-0077: Handler.navigate)
 
 struct UiProgram {
   schemaVersionMajor @0 :UInt16;   # readers reject unknown majors
@@ -309,6 +309,7 @@ struct Handler {
   union {
     dispatch @1 :DispatchStep;  # dispatch a store event
     emitProp @2 :EmitProp;      # emit an EventRef prop (components)
+    navigate @3 :Expr;          # v1.1: route path expression (Str-typed)
   }
 }
 

@@ -11,7 +11,7 @@
 //! re-emit and arena-backed zero-alloc dispatch are recorded follow-ups.
 
 use crate::emit::{self, Damage, Dep, EmitCtx};
-use crate::interact::{self, HandlerEntry};
+use crate::interact::{self, HandlerAction, HandlerEntry};
 use crate::nav::Nav;
 use crate::store::Value;
 use crate::{DeviceEnv, EffectHost, LocaleSource, MountError, RtError, Runtime};
@@ -113,8 +113,14 @@ impl<'p> View<'p> {
         let Some(entry) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
             return Ok(None);
         };
-        let (event, case, payload) = (entry.event, entry.case, entry.payload.clone());
-        self.dispatch(tokens, device, locale, host, event, case, payload).map(Some)
+        match entry.action.clone() {
+            HandlerAction::Dispatch { event, case, payload } => {
+                self.dispatch(tokens, device, locale, host, event, case, payload).map(Some)
+            }
+            HandlerAction::Navigate { path } => {
+                self.navigate(tokens, device, locale, &path).map(Some)
+            }
+        }
     }
 
     /// Re-emits the scene from committed state.

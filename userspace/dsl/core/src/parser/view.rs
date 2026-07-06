@@ -239,7 +239,14 @@ impl Parser<'_> {
                 self.expect(&TokenKind::RParen, "`)`")?;
                 HandlerAction::Emit { prop, args }
             }
-            _ => return Err(self.unexpected("`dispatch(...)` or `emit(...)`")),
+            TokenKind::KwNavigate => {
+                self.bump();
+                self.expect(&TokenKind::LParen, "`(`")?;
+                let path = self.expr()?;
+                self.expect(&TokenKind::RParen, "`)`")?;
+                HandlerAction::Navigate { path }
+            }
+            _ => return Err(self.unexpected("`dispatch(...)`, `emit(...)`, or `navigate(...)`")),
         };
         Ok(HandlerDecl { trigger, action, span: start.to(self.prev_span()) })
     }

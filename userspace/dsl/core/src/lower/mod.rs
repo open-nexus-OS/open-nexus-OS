@@ -329,6 +329,7 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                                 walk_expr(arg, set, i18n);
                             }
                         }
+                        HandlerAction::Navigate { path } => walk_expr(path, set, i18n),
                     }
                 }
                 for child in &widget.children {

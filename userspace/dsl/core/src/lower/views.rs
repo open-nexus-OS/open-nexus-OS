@@ -496,6 +496,9 @@ fn lower_widget(
                     let mut dispatch = hb.init_dispatch();
                     fill_dispatch(ctx, env, case, args, handler.span, &mut dispatch)?;
                 }
+                HandlerAction::Navigate { path } => {
+                    lower_expr(env, path, hb.init_navigate())?;
+                }
                 HandlerAction::Emit { prop, args } => {
                     let Expr::PropsRef { path: prop_path, .. } = prop else {
                         return Err(unsupported(handler.span, "emit of a non-`$props` target"));
