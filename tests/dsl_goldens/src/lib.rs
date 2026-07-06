@@ -26,6 +26,27 @@ pub fn compile(source: &str) -> Vec<u8> {
     nexus_dsl_core::lower_file(&file, &model, &canonical).expect("example lowers").nxir
 }
 
+/// Collects the text contents of a scene in pre-order (the golden painter
+/// draws no glyphs, so text-only differences are asserted structurally).
+#[must_use]
+pub fn texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
+    fn walk(node: &nexus_layout_types::LayoutNode, out: &mut Vec<String>) {
+        use nexus_layout_types::LayoutNode as N;
+        match node {
+            N::Text(text, _) => out.push(String::from(text.content.as_str())),
+            N::Stack(_, _, children) | N::Grid(_, _, children) => {
+                for child in children {
+                    walk(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(scene, &mut out);
+    out
+}
+
 /// The program's i18n key table (key index → symbol id) for locale sources.
 #[must_use]
 pub fn i18n_keys(nxir: &[u8]) -> Vec<u32> {

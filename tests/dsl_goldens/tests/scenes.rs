@@ -180,3 +180,99 @@ fn disabled_nodes_take_no_input() {
         "the disabled button's Tap handler is not registered"
     );
 }
+
+const RESPONSIVE: &str = r#"
+Store S { n: Int = 1, }
+Event E { Noop, }
+reduce E { Noop => state.n = state.n, }
+Page P {
+    Stack {
+        if device.profile == desktop {
+            Stack {
+                Text("wide layout").textSize(lg)
+                Text("sidebar")
+            }
+            .direction(row)
+            .gap(4)
+        } else if device.profile == tablet {
+            Text("regular layout").textSize(base)
+        } else {
+            Text("compact").textSize(sm)
+        }
+        if device.orientation == landscape {
+            Text("landscape hint")
+        } else {
+            Spacer
+        }
+    }
+    .padding(3)
+    .gap(2)
+}
+"#;
+
+/// One page, five devices: the default-UI-plus-overrides story renders a
+/// stable, DISTINCT golden per profile fixture (TASK-0077 DoD matrix).
+#[test]
+fn profile_matrix_goldens_are_stable_and_distinct() {
+    let nxir = compile(RESPONSIVE);
+    let variants: [(&str, FixtureEnv); 5] = [
+        ("dsl_env_desktop", FixtureEnv::desktop()),
+        ("dsl_env_phone_portrait", FixtureEnv::phone("portrait")),
+        ("dsl_env_phone_landscape", FixtureEnv::phone("landscape")),
+        ("dsl_env_tablet_portrait", FixtureEnv::tablet("portrait")),
+        ("dsl_env_convertible_desktop", FixtureEnv::convertible("desktop")),
+    ];
+    let mut scenes = Vec::new();
+    for (name, env) in variants {
+        let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+        let keys = i18n_keys(&nxir);
+        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+        let view = View::mount(&nxir, &BaseTokens, &env, &locale).expect("mounts");
+        ui_v10_goldens::check_golden(name, view.scene()).unwrap();
+        scenes.push((name, dsl_goldens::texts(view.scene())));
+    }
+    // Different devices must take different branches (structural, since the
+    // golden painter draws no glyphs — text sets carry the distinction).
+    assert_ne!(scenes[0].1, scenes[1].1, "desktop vs phone");
+    assert_ne!(scenes[1].1, scenes[3].1, "phone vs tablet");
+    assert_ne!(scenes[1].1, scenes[2].1, "portrait vs landscape");
+    assert!(scenes[0].1.contains(&String::from("wide layout")));
+    assert!(scenes[1].1.contains(&String::from("compact")));
+}
+
+/// Locale switch: same program, catalog chain vs pseudo-locale — text changes,
+/// scene stays deterministic per locale (re-emit on switch = Layout damage).
+#[test]
+fn locale_switch_changes_bound_text_deterministically() {
+    use nexus_dsl_runtime::{i18n, Catalog, LocaleChain};
+    let nxir = compile(TODO);
+    let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+    let reader = dsl_goldens::nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir)
+        .expect("reads");
+    let names = i18n::key_names(reader.root().expect("root"), &symbols);
+    let name_strs: Vec<&str> = names.iter().map(String::as_str).collect();
+
+    let de = Catalog::from_entries(
+        &name_strs,
+        &[("todo.title", "Aufgaben"), ("todo.refresh", "Neu laden"), ("common.loading", "Lädt…")],
+    );
+    let de_cats = [&de];
+    let de_chain = LocaleChain::new(&de_cats, &names);
+    let view_de =
+        View::mount(&nxir, &BaseTokens, &FixtureEnv::default(), &de_chain).expect("mounts de");
+    ui_v10_goldens::check_golden("dsl_todo_locale_de", view_de.scene()).unwrap();
+
+    // Pseudo-locale (untranslated) renders the keys — visibly different.
+    let keys = i18n_keys(&nxir);
+    let pseudo = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view_pseudo =
+        View::mount(&nxir, &BaseTokens, &FixtureEnv::default(), &pseudo).expect("mounts pseudo");
+    let de_texts = dsl_goldens::texts(view_de.scene());
+    let pseudo_texts = dsl_goldens::texts(view_pseudo.scene());
+    assert_ne!(de_texts, pseudo_texts, "translated vs pseudo-locale must differ");
+    assert!(de_texts.contains(&String::from("Aufgaben")), "de catalog applied: {de_texts:?}");
+    assert!(
+        pseudo_texts.contains(&String::from("todo.title")),
+        "pseudo-locale shows the key: {pseudo_texts:?}"
+    );
+}

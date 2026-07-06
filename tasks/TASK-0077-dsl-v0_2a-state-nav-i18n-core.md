@@ -152,6 +152,25 @@ Unknown ids / incompatible profile-shell pairings reject deterministically.
   happy chain, value-carrying atlas denial, fail-closed validation, reserve contract).
   Boot regressions in the mount chain now name the exact failing hop host-side.
 
+### ✅ DONE (second increment, 2026-07-06)
+
+- **i18n runtime** (`runtime/src/i18n.rs`): `Catalog` (program-key-indexed templates,
+  `{0}`-placeholder formatting for Str/Int/Bool/Fx args), **fallback chain** ending in the
+  pseudo-locale (untranslated key renders visibly — never empty/panic), malformed
+  placeholders render verbatim, missing args show `?`. `key_names` helper. Unit tests +
+  scene test: de-catalog vs pseudo-locale differ structurally, de golden pinned.
+- **Full device.* fixture env**: `FixtureEnv` now carries the whole contract (profile/
+  posture/orientation/shellMode/sizeClass/dpiClass/input list) with `desktop()/phone(o)/
+  tablet(o)/convertible(shell)` variants (field ids = registry::DEVICE_FIELDS order).
+- **Profile-matrix goldens**: one responsive page × 5 device fixtures → stable goldens
+  (`dsl_env_*`) + structural distinctness asserts (desktop/phone/tablet, portrait/landscape).
+- **BUG FOUND+FIXED by the matrix test**: positional-sugar prop names (`Text("…")` →
+  `value`) were never interned (they only materialize during lowering) → dangling symbol
+  → emitted props unfindable → static literal texts rendered EMPTY. Counter had masked it
+  (a store field happened to be named `value`). Fix: collector interns the registry
+  primary-prop name; IR goldens regenerated. (The golden painter draws no glyphs — the
+  matrix asserts text sets structurally via `dsl_goldens::texts`.)
+
 ### ⬜ OPEN (this task's remainder — see Goal)
 
 - Route-param **binding into page views** (needs lowering support: route params as the

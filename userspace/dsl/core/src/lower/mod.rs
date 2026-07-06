@@ -296,6 +296,14 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                 set.insert(widget.name.text.clone());
                 if let Some(positional) = &widget.positional {
                     walk_expr(positional, set, i18n);
+                    // The positional sugar becomes the registry primary prop
+                    // during lowering — intern its name here or the emitted
+                    // PropInit references a dangling symbol.
+                    if let Some(primary) = crate::registry::widget_spec(&widget.name.text)
+                        .and_then(|spec| spec.primary_prop)
+                    {
+                        set.insert(alloc::string::String::from(primary));
+                    }
                 }
                 for (name, value) in &widget.props {
                     set.insert(name.text.clone());

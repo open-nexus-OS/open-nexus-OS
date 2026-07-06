@@ -19,6 +19,7 @@ extern crate alloc;
 
 pub mod effects;
 pub mod emit;
+pub mod i18n;
 pub mod interact;
 pub mod nav;
 pub mod reduce;
@@ -29,6 +30,7 @@ pub mod view;
 pub use emit::{Damage, Dep};
 pub use nexus_theme_tokens as theme_tokens;
 pub use interact::HandlerEntry;
+pub use i18n::{Catalog, LocaleChain};
 pub use nav::{Nav, NavEntry};
 pub use store::{StoreState, Value};
 pub use view::View;
@@ -79,25 +81,95 @@ pub trait EffectHost {
     ) -> Result<Value, u32>;
 }
 
-/// Fixture environment: fixed device values + identity locale (returns the
-/// key text — the pseudo-locale used by host tests until v0.2a catalogs).
+/// Fixture environment: the full read-only device contract
+/// (docs/dev/dsl/profiles.md), host-injectable per golden variant. Field ids
+/// index `nexus-dsl-core::registry::DEVICE_FIELDS`:
+/// 0 profile, 1 posture, 2 orientation, 3 shellMode, 4 sizeClass,
+/// 5 dpiClass, 6 input.
 pub struct FixtureEnv {
     pub profile: &'static str,
+    pub posture: &'static str,
+    pub orientation: &'static str,
+    pub shell_mode: &'static str,
     pub size_class: &'static str,
+    pub dpi_class: &'static str,
+    /// Input capability names present on this device (`touch`, `mouse`, …).
+    pub input: &'static [&'static str],
 }
 
 impl Default for FixtureEnv {
     fn default() -> Self {
-        Self { profile: "desktop", size_class: "wide" }
+        Self::desktop()
+    }
+}
+
+impl FixtureEnv {
+    #[must_use]
+    pub fn desktop() -> Self {
+        Self {
+            profile: "desktop",
+            posture: "",
+            orientation: "landscape",
+            shell_mode: "desktop",
+            size_class: "wide",
+            dpi_class: "normal",
+            input: &["mouse", "kbd", "touch"],
+        }
+    }
+
+    #[must_use]
+    pub fn phone(orientation: &'static str) -> Self {
+        Self {
+            profile: "phone",
+            posture: "",
+            orientation,
+            shell_mode: "phone",
+            size_class: "compact",
+            dpi_class: "high",
+            input: &["touch"],
+        }
+    }
+
+    #[must_use]
+    pub fn tablet(orientation: &'static str) -> Self {
+        Self {
+            profile: "tablet",
+            posture: "",
+            orientation,
+            shell_mode: "tablet",
+            size_class: "regular",
+            dpi_class: "high",
+            input: &["touch", "kbd"],
+        }
+    }
+
+    /// A convertible in an explicit shell mode (`desktop` or `tablet`).
+    #[must_use]
+    pub fn convertible(shell_mode: &'static str) -> Self {
+        Self {
+            profile: "convertible",
+            posture: "",
+            orientation: "landscape",
+            shell_mode,
+            size_class: "regular",
+            dpi_class: "normal",
+            input: &["touch", "mouse", "kbd"],
+        }
     }
 }
 
 impl DeviceEnv for FixtureEnv {
     fn get(&self, field_id: u32) -> Value {
-        // Field order per nexus-dsl-core registry::DEVICE_FIELDS.
         match field_id {
             0 => Value::Str(String::from(self.profile)),
+            1 => Value::Str(String::from(self.posture)),
+            2 => Value::Str(String::from(self.orientation)),
+            3 => Value::Str(String::from(self.shell_mode)),
             4 => Value::Str(String::from(self.size_class)),
+            5 => Value::Str(String::from(self.dpi_class)),
+            6 => Value::List(
+                self.input.iter().map(|name| Value::Str(String::from(*name))).collect(),
+            ),
             _ => Value::Str(String::new()),
         }
     }
