@@ -56,7 +56,7 @@ pub(crate) fn topbar_menu_icon_hit(local_x: u32, local_y: u32, bar_w: u32) -> bo
 // The frosted-glass body alpha (`TINT[3]`) and hover-cell alpha (`HOVER_TINT[3]`)
 // are the SSOT for those translucencies; the theme swaps only the RGB per mode
 // (dark values here double as the fallback color).
-const TINT: [u8; 4] = [40, 34, 30, 150]; // BGRA, ~59% — reads as frosted glass
+pub(crate) const TINT: [u8; 4] = [40, 34, 30, 150]; // BGRA, ~59% — reads as frosted glass
 const HOVER_TINT: [u8; 4] = [120, 110, 100, 96]; // additive-ish lighter cell
 
 /// Pixel width of a label at the topbar font.
@@ -498,7 +498,7 @@ pub(crate) fn blend_icon_row(
 
 /// Write one straight-alpha BGRA span (no premultiply); gpud's layer blend does
 /// the SRC_ALPHA compositing over the (blurred) backdrop.
-fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
+pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
     let rp = (row.len() / 4) as u32;
     for px in x0.min(rp)..x1.min(rp) {
         let idx = px as usize * 4;

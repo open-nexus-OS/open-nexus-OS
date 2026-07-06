@@ -274,6 +274,7 @@ impl DisplayServerRuntime {
                     WindowId::Chat => self.chat.frame(),
                     WindowId::Search => self.search.frame(),
                     WindowId::Settings => self.settings_win.frame(),
+                    WindowId::DslDemo => self.dsl_win.frame(),
                 };
                 // Edge/corner grab RESIZES (floating windows only) — resolved
                 // before the title/body press so the border band wins.
@@ -295,6 +296,7 @@ impl DisplayServerRuntime {
                             }
                             WindowId::Search => self.close_search(),
                             WindowId::Settings => self.close_settings(),
+                            WindowId::DslDemo => self.close_dsl_demo(),
                         }
                     }
                     WindowPress::Minimize => {
@@ -312,6 +314,7 @@ impl DisplayServerRuntime {
                             WindowId::Chat => self.chat.begin_drag(cursor_x, cursor_y),
                             WindowId::Search => self.search.begin_drag(cursor_x, cursor_y),
                             WindowId::Settings => self.settings_win.begin_drag(cursor_x, cursor_y),
+                            WindowId::DslDemo => self.dsl_win.begin_drag(cursor_x, cursor_y),
                         }
                     }
                     WindowPress::Body => {
@@ -319,6 +322,13 @@ impl DisplayServerRuntime {
                         self.raise_window(wid);
                         // A click on the Settings "Theme" row toggles light/dark
                         // live (TASK-0072 Phase 9 — immediate-apply, no OK button).
+                        // A body click on the DSL window routes through the
+                        // interpreter's hit-testing (TASK-0076B).
+                        if matches!(wid, WindowId::DslDemo) && cursor_y >= frame.y {
+                            let local_x = cursor_x - frame.x;
+                            let local_y = cursor_y - frame.y;
+                            self.dsl_pointer_body(local_x, local_y);
+                        }
                         if matches!(wid, WindowId::Settings) && cursor_y >= frame.y {
                             use crate::compositor::desktop_layer::{settings_row_at, SETTINGS_ROW_THEME};
                             let local_y = (cursor_y - frame.y) as u32;
@@ -685,6 +695,9 @@ impl DisplayServerRuntime {
                 WindowId::Settings => {
                     self.settings_win.contains(self.state.cursor_x, self.state.cursor_y)
                 }
+                WindowId::DslDemo => {
+                    self.dsl_win.contains(self.state.cursor_x, self.state.cursor_y)
+                }
             });
             // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
             // even when nothing moves — the routing target + full scroll state, so a
@@ -699,6 +712,7 @@ impl DisplayServerRuntime {
                         Some(WindowId::Chat) => "chat",
                         Some(WindowId::Search) => "search",
                         Some(WindowId::Settings) => "settings",
+                        Some(WindowId::DslDemo) => "dsl",
                         None => "none",
                     },
                     self.state.cursor_x,
@@ -713,6 +727,8 @@ impl DisplayServerRuntime {
                 ));
             }
             match target {
+                // The DSL demo window has no scrollable body (v0.1).
+                Some(WindowId::DslDemo) => {}
                 // Coalesce: accumulate this event's notches; `commit_scroll_input`
                 // applies the frame's total ONCE (reactive, no per-event replay).
                 Some(WindowId::Chat) => {

@@ -30,6 +30,8 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, f
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
+nexus-dsl-runtime = { path = "../../../userspace/dsl/runtime", default-features = false }
+nexus-dsl-ir = { path = "../../../userspace/dsl/ir", default-features = false }
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-effects = { path = "../../../userspace/ui/effects" }
 animation = { path = "../../../userspace/ui/animation" }
@@ -52,5 +54,6 @@ chat-app = { path = "../../../userspace/apps/chat", default-features = false }
 
 [build-dependencies]
 fontdue = "0.9"
+nexus-dsl-core = { path = "../../../userspace/dsl/core" }
 nexus-theme = { path = "../../../userspace/ui/theme" }
 nexus-svg = { path = "../../../userspace/ui/svg" }

@@ -102,3 +102,95 @@ Visual proof:
 2. mount module + first visible frame [boot-verify]
 3. live interaction + selftest markers [boot-verify]
 4. execd isolation probe + docs/handoff notes [boot-verify, can ride with 3]
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+> UPDATE (evening): the first boot FAILED (windowd silently dead). Root-caused
+> headless + fixed; **`DSL: program loaded` + `DSL: first frame presented` now
+> prove out in my own headless runs** (ci-os-headless; selftest ladder count
+> identical with/without the mount — no regression). **AWAITING USER
+> BOOT-VERIFY in the visible lane** (interaction + optics).
+>
+> ### Debug findings (the hard-won facts — read before touching this area)
+> 1. **windowd binary size is a BOOT BUDGET.** Service images are allocated from
+>    the kernel's 96MB `VmoPool` (`syscall/api.rs::sys_exec`), and exhaustion is
+>    a SILENT `PermissionDenied` (the stats are discarded in the error path).
+>    +134KB of text (capnp writer + sha2 via hash-verify) killed windowd with
+>    zero output. Proven by a link-but-never-run probe (dead code stripped =
+>    boots; linked = dead). Fix: `nexus-dsl-ir` feature `hash-verify` (default
+>    ON; OFF for build-embedded payloads — the binary is the trust boundary;
+>    structural validation still runs). windowd builds lean (−16KB + avoided
+>    growth); app-host/CLI keep full hash verification.
+> 2. **Verdict folding swallows breadcrumbs**: windowd output before the present
+>    flush only prints if it matches the failure heuristic (`FAIL`/`error`/
+>    `denied` tokens) — diagnostics there must carry those tokens.
+> 3. **The compositor is reactive**: "retry next frame" never fires without
+>    damage. One-shot hooks belong at milestones (boot-open now runs at the
+>    present-visible milestone in `framebuffer.rs`), not in the frame loop.
+> 4. **Atlas pool budget**: the on-demand window pool had 71 rows free at the
+>    milestone — the DSL window needs 220. `WINDOW_POOL_ROWS` now reserves the
+>    DSL window's bands (content+blur), same pattern as Search. The failure
+>    marker carries values (`need=WxH rows_remaining=N`) — no more guessing.
+> 5. Embedded `.nxir` is 8-byte aligned (`AlignedNxir`) — capnp segments are
+>    word-aligned by contract; `include_bytes!` alone guarantees nothing.
+
+### ✅ DONE (built, boot-verify pending)
+
+- **`windowd/src/compositor/runtime/dsl_mount.rs`** (new module, ~370 LOC): the DSL demo
+  window — a fourth `ShellWindow` (`WindowId::DslDemo`, MAX_WINDOWS=4 exactly filled):
+  - `build.rs` compiles `examples/dsl/counter/counter.nx` → canonical `.nxir` at build time
+    (build-dep `nexus-dsl-core`, host-side); embedded via `include_bytes!`.
+  - Mount: fail-closed `Runtime::mount` (validate + hash) → `View::mount` → marker
+    `DSL: program loaded hash=<first 8 bytes>`; failure keeps the window closed with an
+    honest FAILED marker.
+  - **`BakedTextMeasure`**: pixel-accurate `MeasureText` over windowd's baked glyph tables
+    (`text::measure`/`line_height`) — the live-path measurer for `LayoutEngine::layout`.
+  - Render: shared title-bar chrome (`draw_title_bar_row`, close/min/max buttons work) +
+    frosted glass body + per-row LayoutBox walk (background fills via `write_tint_span`,
+    text matched to boxes by pre-order `node_id` via `collect_texts`, drawn with
+    `draw_text_row`). Marker `DSL: first frame presented` after the first render.
+  - **Live interaction**: body clicks route through `dsl_pointer_body` →
+    `View::pointer("Tap", x, y)` (the interpreter's hit-testing) → damage-driven
+    re-layout/re-render → marker `DSL: interaction visible ok` (once). Clicking the
+    counter's **+ / −** buttons visibly changes the number.
+  - Auto-opens once at boot (`maybe_boot_open_dsl` from the first scene build) so the page
+    is visible without input; drag/minimize/restore/close all work via the shared
+    ShellWindow machinery (fullscreen = no-op like Settings).
+- **Wiring**: `WindowId::DslDemo` through window_scene/mod/scene/input/wm (stack, z-order,
+  hit-order, cursor shapes, dock (reuses the search glyph for now), resize clamp, wheel no-op).
+- Consistency: windowd host tests 137 green; DSL host suites 37 green; riscv os-lite green.
+
+### ▶ USER BOOT-VERIFY (the gate for this task)
+
+`just start` (virgl) and check:
+1. UART: `DSL: program loaded hash=…` and `DSL: first frame presented` in the boot log
+   (`build/logs/manual--<ts>/uart.log`).
+2. Visible: a "DSL Demo" glass window (300×220, at 420/160) showing the counter page
+   (number + two buttons) alongside the existing desktop.
+3. Interaction: click **+** in the window body → the number increments visibly; UART shows
+   `DSL: interaction visible ok`.
+4. Regressions: greeter/login/chat/search/settings behave as before; 0 faults.
+
+### ⬜ OPEN (within this task)
+
+- **execd isolation probe**: the existing selftest exec phase already proves spawn+ELF load
+  (`M_EXECD_ELF_LOAD_OK`, IMG_HELLO). Still to add (also task #102 territory): spoof-requester
+  deny re-coverage (`execd_spawn_image_raw_requester` → STATUS_DENIED) + wait-exit assertion
+  markers. Additive selftest work in `phases/exec.rs` + `proof-manifest/markers/exec.toml`.
+- `SELFTEST: dsl visible mount ok` selftest marker (needs a windowd-side observable the
+  selftest can query, or promotion of the `DSL:` markers into the proof manifest).
+- Reopen trigger after closing the window (menu entry / Apps dropdown) — currently the demo
+  auto-opens once per boot; toggle was removed as dead code until a menu entry exists.
+- Theme-mode awareness for the DSL body (uses BaseTokens; dark/light switch re-render hooks in
+  with 0077's env work).
+
+### Notes for whoever continues
+
+- The mount deliberately renders via the ATLAS per-row seam (like Search/Settings), NOT via
+  windowd's SceneGraph — the box-walker is the honest v0.1 bridge; SceneGraph convergence is
+  TASK-0074 W6 / RFC-0067 territory.
+- `LayoutBox.node_id` is 1-based pre-order and matches the interpreter's handler box ids AND
+  `collect_texts` indices — three consumers of one numbering; don't reorder emission.
+- Body coordinates: interpreter space = window-local minus `DSL_TITLE_H`.

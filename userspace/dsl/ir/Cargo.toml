@@ -12,15 +12,20 @@ name = "nexus_dsl_ir"
 path = "src/lib.rs"
 
 [features]
-default = ["std"]
+default = ["std", "hash-verify"]
 # Host tooling: std IO + pretty output. Off => no_std+alloc reader for in-system use.
-std = ["capnp/std", "sha2/std"]
+std = ["capnp/std", "sha2?/std"]
 # Writer side (used by the compiler/CLI). Reader-only builds stay minimal.
-write = []
+write = ["hash-verify"]
+# programHash recomputation on validate (sha2 + capnp copy/canonicalize code).
+# Leave OFF for build-embedded payloads inside size-tight services: the
+# embedding binary is the trust boundary there; structural validation still
+# runs. Fetched payloads (app-host, CLI) keep this ON.
+hash-verify = ["dep:sha2"]
 
 [dependencies]
 capnp = { version = "0.24", default-features = false, features = ["alloc"] }
-sha2 = { version = "0.10", default-features = false }
+sha2 = { version = "0.10", default-features = false, optional = true }
 
 [build-dependencies]
 capnpc = "0.24"

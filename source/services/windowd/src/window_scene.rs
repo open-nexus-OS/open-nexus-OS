@@ -29,6 +29,9 @@ pub enum WindowId {
     Search,
     /// The settings window (TASK-0072: opened from the topbar Edit → Settings).
     Settings,
+    /// The DSL demo window (TASK-0076B: the visible in-compositor mount of a
+    /// compiled `.nxir` program — interpreter-rendered body).
+    DslDemo,
 }
 
 /// The composition-relevant state of one window.

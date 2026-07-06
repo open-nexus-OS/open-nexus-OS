@@ -205,6 +205,10 @@ impl DisplayServerRuntime {
         let _ = debug_println(SYSTEMUI_FIRST_FRAME_VISIBLE_MARKER);
         let _ = debug_println(PRESENT_VISIBLE_MARKER);
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
+        // TASK-0076B: the desktop is composited and the on-demand window pool
+        // is live — mount the DSL demo window now (one-shot; reactive pacing
+        // means "retry on a later frame" never fires without damage).
+        self.maybe_boot_open_dsl();
         self.emit_asset_markers();
         // First frame IS a real composition — set verified so emit_v3b_markers()
         // fires. The gate checks v3b_composition_verified before emitting.

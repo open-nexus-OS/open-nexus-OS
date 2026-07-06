@@ -18,7 +18,6 @@
 //! stays `validate_program`.
 
 use crate::{
-    hashing,
     ui_ir_capnp::{ui_program, view_node},
     IrError, DIGEST_LEN,
 };
@@ -35,7 +34,12 @@ pub fn validate_program(root: ui_program::Reader<'_>) -> Result<(), IrError> {
     if source_digest.len() != DIGEST_LEN {
         return Err(IrError::BadDigest);
     }
-    hashing::verify_program_hash(root)?;
+    // Hash recomputation is feature-gated: build-embedded payloads run inside
+    // their trust boundary (the binary), and the sha2 + capnp-writer code it
+    // pulls in is measurable text in size-tight services. Fetched payloads
+    // (app-host GET_PAYLOAD, CLI) build with `hash-verify` ON.
+    #[cfg(feature = "hash-verify")]
+    crate::hashing::verify_program_hash(root)?;
     check_symbols(root)?;
     check_refs(root)?;
     check_budgets(root)?;

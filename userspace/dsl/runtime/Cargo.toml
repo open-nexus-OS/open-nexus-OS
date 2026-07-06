@@ -18,6 +18,8 @@ std = []
 
 [dependencies]
 nexus-dsl-ir = { path = "../ir", default-features = false }
+# hash-verify intentionally NOT enabled here: hosts that fetch payloads
+# (app-host) turn it on themselves; embedded mounts stay lean.
 capnp = { version = "0.24", default-features = false, features = ["alloc"] }
 nexus-layout-types = { path = "../../ui/layout-types" }
 nexus-layout = { path = "../../ui/layout" }

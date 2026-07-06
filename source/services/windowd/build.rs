@@ -29,9 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={MOCU_DEFAULT}");
     println!("cargo:rerun-if-changed={THEMES_DIR}");
     println!("cargo:rerun-if-changed=src/proof_panel_spec.rs");
+    println!("cargo:rerun-if-changed={DSL_DEMO_NX}");
 
     let out_dir = env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
     let out_dir = Path::new(&out_dir);
+    compile_dsl_demo(out_dir)?;
     let font_bytes = fs::read(INTER_FONT)?;
     let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
         .map_err(|err| std::io::Error::other(format!("parse Inter font: {err:?}")))?;
@@ -557,4 +559,24 @@ fn normalized_mocu_cursor_svg() -> &'static str {
 <path d=\"M 2 2 L 2 29.5 L 9.9 26.2 L 13.3 34.6 L 17 33 L 13.6 24.7 L 21.5 21.4 Z\" fill=\"#1a1b1c\"/>\
 <path d=\"M 4 4 L 4 25 L 10.4 22.4 L 13.8 30.6 L 15.2 30 L 11.9 21.9 L 18.4 19.2 Z\" fill=\"#fafbfc\"/>\
 </svg>"
+}
+
+/// TASK-0076B: compile the DSL demo page (`.nx`) to canonical `.nxir` bytes
+/// embedded into windowd for the visible in-compositor mount. The compiler
+/// runs host-side (build script); the service only reads the canonical IR.
+const DSL_DEMO_NX: &str = "../../../examples/dsl/counter/counter.nx";
+
+fn compile_dsl_demo(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let source = fs::read_to_string(DSL_DEMO_NX)?;
+    let file = nexus_dsl_core::parse_file(&source)
+        .map_err(|d| std::io::Error::other(format!("dsl demo parse: {} {}", d.code, d.message)))?;
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    if nexus_dsl_core::has_errors(&diags) {
+        return Err(std::io::Error::other(format!("dsl demo check: {diags:?}")).into());
+    }
+    let canonical = nexus_dsl_core::format_file(&file);
+    let lowered = nexus_dsl_core::lower_file(&file, &model, &canonical)
+        .map_err(|d| std::io::Error::other(format!("dsl demo lower: {} {}", d.code, d.message)))?;
+    fs::write(out_dir.join("dsl_demo.nxir"), &lowered.nxir)?;
+    Ok(())
 }

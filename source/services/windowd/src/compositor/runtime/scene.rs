@@ -70,6 +70,12 @@ impl DisplayServerRuntime {
             self.render_settings_surface()?;
             self.settings_win.surface_dirty = false;
         }
+        // DSL demo window (TASK-0076B): re-render when dirty (mounted from
+        // the present-visible milestone, see framebuffer.rs).
+        if self.dsl_win.visible && self.dsl_win.surface_dirty {
+            self.render_dsl_surface()?;
+            self.dsl_win.surface_dirty = false;
+        }
         // Dock (TASK-0070 Phase 2): (re)render on membership change.
         if self.dock_dirty && self.dock_surface.is_some() {
             self.render_dock_surface()?;
@@ -126,6 +132,7 @@ impl DisplayServerRuntime {
         let mut built_search_blur = false;
         // `Some` only while the Settings window is mounted (shown) → composite it.
         let settings_glass = self.settings_win.glass_params();
+        let dsl_glass = self.dsl_win.glass_params();
         let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
@@ -309,6 +316,18 @@ impl DisplayServerRuntime {
                                     mode.width,
                                     mode.height,
                                 );
+                        }
+                    }
+                    // The DSL demo window — the SAME ShellWindow glass frame,
+                    // interpreter-rendered body (TASK-0076B).
+                    crate::window_scene::WindowId::DslDemo => {
+                        if let Some(p) = dsl_glass {
+                            let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
+                                &mut encoder,
+                                p,
+                                mode.width,
+                                mode.height,
+                            );
                         }
                     }
                 }

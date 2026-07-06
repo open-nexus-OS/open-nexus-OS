@@ -23,6 +23,7 @@ pub mod ui_ir_capnp {
     include!(concat!(env!("OUT_DIR"), "/ui_ir_capnp.rs"));
 }
 
+#[cfg(feature = "hash-verify")]
 pub mod hashing;
 pub mod node_id;
 pub mod read;

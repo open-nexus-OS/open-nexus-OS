@@ -108,6 +108,7 @@ mod input;
 mod chat_window;
 mod shell;
 mod search;
+mod dsl_mount;
 mod settings_window;
 mod present;
 mod scene;
@@ -406,6 +407,10 @@ pub(crate) struct DisplayServerRuntime {
     /// from the topbar Edit → Settings menu. Static body (no scroll) — its atlas
     /// surface is acquired on show and released on hide, like Search.
     settings_win: super::shell_window::ShellWindow,
+    /// The DSL demo window frame (TASK-0076B).
+    dsl_win: super::shell_window::ShellWindow,
+    /// Mounted DSL interpreter state (view + layout + markers).
+    dsl_mount: dsl_mount::DslMount,
     /// Prefix-filtered words shown in the Search window body.
     search_filtered: Vec<&'static str>,
     /// Search window scroll engine — the SAME shared `animation::ScrollMomentum`
@@ -779,10 +784,27 @@ impl DisplayServerRuntime {
             5,
             90,
         );
+        // The DSL demo window (TASK-0076B) — same reusable glass frame; the
+        // body is rendered from the DSL interpreter's retained scene.
+        let dsl_win = super::shell_window::ShellWindow::new(
+            "DSL Demo",
+            420,
+            160,
+            dsl_mount::DSL_WIN_W,
+            dsl_mount::DSL_WIN_H,
+            dsl_mount::DSL_TITLE_H,
+            dsl_mount::DSL_CLOSE_W,
+            dsl_mount::DSL_RADIUS,
+            18,
+            5,
+            90,
+        );
         // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
         // left for the on-demand window pool (content + blur cache); without this
         // reserve the panel's "take the rest" would starve a later search show.
-        const WINDOW_POOL_ROWS: u32 = 2 * super::desktop_layer::search_full_h() + 16;
+        const WINDOW_POOL_ROWS: u32 = 2 * super::desktop_layer::search_full_h()
+            + 2 * dsl_mount::DSL_WIN_H // DSL demo window: content + blur bands
+            + 16;
         let sidepanel_h = mode
             .height
             .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
@@ -901,6 +923,8 @@ impl DisplayServerRuntime {
             greeter: None,
             search,
             settings_win,
+            dsl_win,
+            dsl_mount: dsl_mount::DslMount::new(),
             search_filtered: {
                 let mut v = Vec::new();
                 super::desktop_layer::search_filter("", &mut v);
@@ -930,6 +954,7 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Search,
                 crate::window_scene::WindowId::Chat,
                 crate::window_scene::WindowId::Settings,
+                crate::window_scene::WindowId::DslDemo,
             ]),
             dock_surface: None,
             dock_rendered_n: 0,
@@ -996,6 +1021,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => "chat",
             crate::window_scene::WindowId::Search => "search",
             crate::window_scene::WindowId::Settings => "settings",
+            crate::window_scene::WindowId::DslDemo => "dsl",
         }
     }
 
@@ -1005,6 +1031,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => &self.chat,
             crate::window_scene::WindowId::Search => &self.search,
             crate::window_scene::WindowId::Settings => &self.settings_win,
+            crate::window_scene::WindowId::DslDemo => &self.dsl_win,
         };
         win.damage_rect(self.mode.width, self.mode.height)
     }
@@ -1032,6 +1059,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => self.chat.leave_fullscreen(),
             crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
             crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
+            crate::window_scene::WindowId::DslDemo => self.dsl_win.leave_fullscreen(),
         }
         self.update_dock();
         let after = self.windows.focused();

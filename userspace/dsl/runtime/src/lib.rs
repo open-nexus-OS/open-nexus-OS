@@ -26,6 +26,7 @@ pub mod store;
 pub mod view;
 
 pub use emit::{Damage, Dep};
+pub use nexus_theme_tokens as theme_tokens;
 pub use interact::HandlerEntry;
 pub use store::{StoreState, Value};
 pub use view::View;
