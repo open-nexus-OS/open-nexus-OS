@@ -195,3 +195,52 @@ reduce E {
     h.assert_field("S", "last", &Value::Str("hello".into()));
     h.assert_field("S", "n", &Value::Int(42));
 }
+
+#[test]
+fn navigation_routes_push_replace_back_with_typed_params() {
+    use nexus_dsl_runtime::Value;
+    let nxir = compile(
+        r#"
+Store S { current: Int = 0, }
+Event E { Noop, }
+reduce E { Noop => state.current = state.current, }
+Page Home { Stack { Text("home") } }
+Page Detail { Stack { Text("detail") } }
+Routes {
+    "/" -> Home;
+    "/detail/:id" -> Detail(id: Int);
+}
+"#,
+    );
+    let runtime = nexus_dsl_runtime::Runtime::mount(&nxir).expect("mounts");
+    let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&nxir).expect("reads");
+    let mut nav = nexus_dsl_runtime::Nav::mount(reader.root().expect("root")).expect("nav");
+    let _ = runtime;
+
+    // Entry = "/" route.
+    let home_page = nav.current().page;
+
+    // Typed param parses; wrong types don't match the route.
+    let entry = nav.push("/detail/7").expect("pushes").clone();
+    assert_ne!(entry.page, home_page);
+    assert_eq!(entry.params, vec![Value::Int(7)]);
+    assert!(nav.push("/detail/seven").is_err(), "Int-typed param rejects text");
+
+    // Replace keeps depth; back returns home and the root never pops.
+    let depth = nav.depth();
+    nav.replace("/detail/9").expect("replaces");
+    assert_eq!(nav.depth(), depth);
+    assert_eq!(nav.current().params, vec![Value::Int(9)]);
+    assert!(nav.back());
+    assert_eq!(nav.current().page, home_page);
+    assert!(!nav.back(), "the root entry always remains");
+
+    // Bounded history.
+    for i in 0..64 {
+        if nav.push("/detail/1").is_err() {
+            assert!(i >= 30, "budget kicks in at MAX_HISTORY");
+            return;
+        }
+    }
+    panic!("history must be bounded");
+}

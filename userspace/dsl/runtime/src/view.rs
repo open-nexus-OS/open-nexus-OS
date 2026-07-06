@@ -12,6 +12,7 @@
 
 use crate::emit::{self, Damage, Dep, EmitCtx};
 use crate::interact::{self, HandlerEntry};
+use crate::nav::Nav;
 use crate::store::Value;
 use crate::{DeviceEnv, EffectHost, LocaleSource, MountError, RtError, Runtime};
 use alloc::{vec, vec::Vec};
@@ -24,7 +25,8 @@ pub struct View<'p> {
     deps: Vec<Dep>,
     /// Interactive regions: (pre-order box id, handler).
     handlers: Vec<(usize, HandlerEntry)>,
-    entry: u32,
+    /// Route table + history; the active page drives emission.
+    pub nav: Nav,
     /// i18n key table (key index → symbol id) for locale sources.
     pub keys: Vec<u32>,
 }
@@ -44,7 +46,7 @@ impl<'p> View<'p> {
         let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(bytes)
             .map_err(MountError::Ir)?;
         let root = reader.root().map_err(MountError::Ir)?;
-        let entry = root.get_entry_page();
+        let nav = Nav::mount(root).map_err(MountError::Rt)?;
         let keys: Vec<u32> = root
             .get_i18n_keys()
             .map_err(|_| MountError::Ir(nexus_dsl_ir::IrError::Malformed))?
@@ -56,7 +58,7 @@ impl<'p> View<'p> {
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
             deps: Vec::new(),
             handlers: Vec::new(),
-            entry,
+            nav,
             keys,
         };
         view.emit(tokens, device, locale).map_err(MountError::Rt)?;
@@ -125,7 +127,7 @@ impl<'p> View<'p> {
         let bytes_reader = self.runtime.reader();
         let root = bytes_reader.root().map_err(|_| RtError::Malformed)?;
         let components = root.get_components().map_err(|_| RtError::Malformed)?;
-        let component = components.get(self.entry);
+        let component = components.get(self.nav.current().page);
         let view_root = component.get_view().map_err(|_| RtError::Malformed)?;
         let mut locals: Vec<Option<Value>> = vec![None; 64];
         self.deps.clear();
@@ -153,6 +155,42 @@ impl<'p> View<'p> {
             }
         }
         Ok(())
+    }
+
+    /// Navigates to a route path: pushes onto the bounded history and
+    /// re-emits the new page. Route params become the page's param slice
+    /// with the param-binding wave (TASK-0077 remainder).
+    ///
+    /// # Errors
+    /// Unmatched path, full history, or emission errors.
+    pub fn navigate(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        path: &str,
+    ) -> Result<Damage, RtError> {
+        self.nav.push(path)?;
+        self.emit(tokens, device, locale)?;
+        Ok(Damage::Layout)
+    }
+
+    /// Pops the route history (root always remains). Re-emits on change.
+    ///
+    /// # Errors
+    /// Emission errors.
+    pub fn navigate_back(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+    ) -> Result<Damage, RtError> {
+        if self.nav.back() {
+            self.emit(tokens, device, locale)?;
+            Ok(Damage::Layout)
+        } else {
+            Ok(Damage::None)
+        }
     }
 
     /// Dispatches an event; re-emits only when a visible dependency changed.

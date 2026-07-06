@@ -20,6 +20,7 @@ extern crate alloc;
 pub mod effects;
 pub mod emit;
 pub mod interact;
+pub mod nav;
 pub mod reduce;
 pub mod registry;
 pub mod store;
@@ -28,6 +29,7 @@ pub mod view;
 pub use emit::{Damage, Dep};
 pub use nexus_theme_tokens as theme_tokens;
 pub use interact::HandlerEntry;
+pub use nav::{Nav, NavEntry};
 pub use store::{StoreState, Value};
 pub use view::View;
 

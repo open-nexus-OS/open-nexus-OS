@@ -132,3 +132,33 @@ Unknown ids / incompatible profile-shell pairings reject deterministically.
 3. nav runtime + fixtures
 4. i18n compile + runtime + pseudo-locale
 5. env.rs + profile matrix goldens + docs
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+### ✅ DONE (first increment)
+
+- **Navigation runtime** (`userspace/dsl/runtime/src/nav.rs`): route table from the IR
+  (paths already land in `.nxir` since v1.0), segment matching with `:param`
+  placeholders, **typed param parsing** (Int-typed params reject non-numeric text —
+  the route simply doesn't match), bounded history (`MAX_HISTORY=32`, `RtError::Budget`),
+  push/replace/back with a never-empty root. `View` now renders `nav.current().page`
+  (entry = the `/` route, falling back to `entryPage`); `View::navigate/navigate_back`
+  re-emit with `Damage::Layout`. Conformance test: push/replace/back/typed-params/budget.
+- **Tooling prerequisite shipped** (user request, 2026-07-06): DSL chain tests with hop
+  markers — `tools/nx/src/chain/contract/dsl_mount.rs` (`DslMountContract`: healthy /
+  pool-starved / invalid-program modes) + `tools/nx/tests/chain_dsl_mount.rs` (4 tests:
+  happy chain, value-carrying atlas denial, fail-closed validation, reserve contract).
+  Boot regressions in the mount chain now name the exact failing hop host-side.
+
+### ⬜ OPEN (this task's remainder — see Goal)
+
+- Route-param **binding into page views** (needs lowering support: route params as the
+  page's param slice; pages currently take no params).
+- `navigate` as a DSL handler action (grammar/IR/lowering — today navigation is a host
+  API on `View`).
+- Multi-store programs, effect-scheduling determinism fixtures, i18n compiled catalogs +
+  locale switch, `device.*` from the systemui registry + profile-matrix goldens,
+  `ui/platform/<profile>/` build-time overrides, kept-alive route state contract,
+  windowed-List consumer contract (0077C core).
