@@ -301,6 +301,16 @@ pub fn build_widget(
     }
 }
 
+/// Index of the first *declared* child inside the produced node (structural
+/// slots the builder occupies come first — e.g. the Button label text).
+#[must_use]
+pub fn child_base_offset(kind: &str) -> u32 {
+    match kind {
+        "Button" => 1, // slot 0 = the label text node
+        _ => 0,
+    }
+}
+
 fn copy_layout(mods: &Mods) -> Mods {
     Mods {
         padding: mods.padding,

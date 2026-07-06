@@ -19,12 +19,14 @@ extern crate alloc;
 
 pub mod effects;
 pub mod emit;
+pub mod interact;
 pub mod reduce;
 pub mod registry;
 pub mod store;
 pub mod view;
 
 pub use emit::{Damage, Dep};
+pub use interact::HandlerEntry;
 pub use store::{StoreState, Value};
 pub use view::View;
 

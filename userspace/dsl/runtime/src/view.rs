@@ -11,6 +11,7 @@
 //! re-emit and arena-backed zero-alloc dispatch are recorded follow-ups.
 
 use crate::emit::{self, Damage, Dep, EmitCtx};
+use crate::interact::{self, HandlerEntry};
 use crate::store::Value;
 use crate::{DeviceEnv, EffectHost, LocaleSource, MountError, RtError, Runtime};
 use alloc::{vec, vec::Vec};
@@ -21,6 +22,8 @@ pub struct View<'p> {
     pub runtime: Runtime<'p>,
     scene: LayoutNode,
     deps: Vec<Dep>,
+    /// Interactive regions: (pre-order box id, handler).
+    handlers: Vec<(usize, HandlerEntry)>,
     entry: u32,
     /// i18n key table (key index → symbol id) for locale sources.
     pub keys: Vec<u32>,
@@ -52,6 +55,7 @@ impl<'p> View<'p> {
             runtime,
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
             deps: Vec::new(),
+            handlers: Vec::new(),
             entry,
             keys,
         };
@@ -70,6 +74,47 @@ impl<'p> View<'p> {
         &self.deps
     }
 
+    /// Interactive regions of the current scene.
+    #[must_use]
+    pub fn handlers(&self) -> &[(usize, HandlerEntry)] {
+        &self.handlers
+    }
+
+    /// Routes a pointer event: finds the innermost handler for `trigger`
+    /// (an interned symbol name, e.g. "Tap") containing the point and
+    /// dispatches its captured target. Returns the damage, or `None` if
+    /// nothing was hit.
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pointer(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        boxes: &[nexus_layout::LayoutBox],
+        trigger: &str,
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(trigger_sym) = self
+            .runtime
+            .symbols()
+            .iter()
+            .position(|s| s == trigger)
+            .map(|i| i as u32)
+        else {
+            return Ok(None);
+        };
+        let Some(entry) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
+            return Ok(None);
+        };
+        let (event, case, payload) = (entry.event, entry.case, entry.payload.clone());
+        self.dispatch(tokens, device, locale, host, event, case, payload).map(Some)
+    }
+
     /// Re-emits the scene from committed state.
     fn emit(
         &mut self,
@@ -85,6 +130,7 @@ impl<'p> View<'p> {
         let mut locals: Vec<Option<Value>> = vec![None; 64];
         self.deps.clear();
         let symbols = self.runtime.symbols().to_vec();
+        let mut handlers: Vec<HandlerEntry> = Vec::new();
         let mut ctx = EmitCtx {
             stores: self.runtime.stores(),
             locals: &mut locals,
@@ -94,9 +140,18 @@ impl<'p> View<'p> {
             tokens,
             symbols: &symbols,
             deps: &mut self.deps,
+            handlers: &mut handlers,
+            path: Vec::new(),
             components,
         };
         self.scene = emit::emit_view(&mut ctx, view_root)?;
+        // Resolve handler paths to pre-order box ids against the new scene.
+        self.handlers.clear();
+        for entry in handlers {
+            if let Some(box_id) = interact::path_to_box_id(&self.scene, &entry.path) {
+                self.handlers.push((box_id, entry));
+            }
+        }
         Ok(())
     }
 

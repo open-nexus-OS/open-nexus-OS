@@ -4,6 +4,7 @@
 //! View emission: IR view tree + committed state → `LayoutNode` scene,
 //! recording state→node dependencies with their invalidation class.
 
+use crate::interact::HandlerEntry;
 use crate::reduce::{eval, EvalCtx};
 use crate::registry::{self, Mods};
 use crate::store::{StoreState, Value};
@@ -38,8 +39,10 @@ pub(crate) struct EmitCtx<'a> {
     pub tokens: &'a dyn Tokens,
     pub symbols: &'a [String],
     pub deps: &'a mut Vec<Dep>,
-    /// Modifier table: modId → (name, class) — from the compiler registry,
-    /// mirrored here by name at mount.
+    /// Interactive regions collected during emission (paths in the final tree).
+    pub handlers: &'a mut Vec<HandlerEntry>,
+    /// Absolute child-index path of the node currently being emitted.
+    pub path: Vec<u32>,
     pub components: capnp::struct_list::Reader<'a, ir::component::Owned>,
 }
 
@@ -146,8 +149,11 @@ pub(crate) fn emit_view(
                 None => branch.get_else_body().map_err(|_| RtError::Malformed)?,
             };
             let mut children = Vec::with_capacity(body.len() as usize);
-            for child in body.iter() {
-                children.push(emit_view(ctx, child)?);
+            for (j, child) in body.iter().enumerate() {
+                ctx.path.push(j as u32);
+                let emitted = emit_view(ctx, child)?;
+                ctx.path.pop();
+                children.push(emitted);
             }
             // A transparent column wrapper keeps branch output a single node.
             Ok(registry::build_widget("Stack", &[], &Mods::default(), ctx.tokens, children))
@@ -180,7 +186,10 @@ pub(crate) fn emit_view(
                     }
                     seen_keys.push(bytes);
                 }
-                children.push(emit_view(ctx, template)?);
+                ctx.path.push(children.len() as u32);
+                let emitted = emit_view(ctx, template)?;
+                ctx.path.pop();
+                children.push(emitted);
             }
             Ok(registry::build_widget("Stack", &[], &Mods::default(), ctx.tokens, children))
         }
@@ -208,6 +217,7 @@ pub(crate) fn emit_view(
             // Emit the component body with its own params (locals shared —
             // slots are per-body and component bodies allocate fresh ones).
             let view = component.get_view().map_err(|_| RtError::Malformed)?;
+            let path = ctx.path.clone();
             let mut inner = EmitCtx {
                 stores: ctx.stores,
                 locals: ctx.locals,
@@ -217,6 +227,8 @@ pub(crate) fn emit_view(
                 tokens: ctx.tokens,
                 symbols: ctx.symbols,
                 deps: ctx.deps,
+                handlers: ctx.handlers,
+                path,
                 components: ctx.components,
             };
             emit_view(&mut inner, view)
@@ -246,11 +258,43 @@ fn emit_widget(
         apply_modifier(ctx, modifier, &mut mods)?;
     }
 
+    // Handlers: capture at emit time (payloads snapshot the current state /
+    // loop bindings — see module docs). Disabled nodes take no input.
+    if !mods.disabled {
+        for handler in widget.get_handlers().map_err(|_| RtError::Malformed)?.iter() {
+            use ir::handler::Which;
+            if let Ok(Which::Dispatch(Ok(dispatch))) = handler.which() {
+                let payload_list = dispatch.get_payload().map_err(|_| RtError::Malformed)?;
+                let mut payload = Vec::with_capacity(payload_list.len() as usize);
+                for arg in payload_list.iter() {
+                    // Payload state reads: Paint-class dep so any change
+                    // re-emits and re-captures the payload.
+                    ctx.record_deps(arg, Damage::Paint);
+                    payload.push(ctx.eval(arg)?);
+                }
+                let entry = HandlerEntry {
+                    path: ctx.path.clone(),
+                    trigger: handler.get_trigger(),
+                    event: dispatch.get_event(),
+                    case: dispatch.get_case(),
+                    payload,
+                };
+                ctx.handlers.push(entry);
+            }
+            // emitProp handlers route through component instances — wired
+            // with the instance/params work (see the task ledger).
+        }
+    }
+
     // Children.
     let child_list = widget.get_children().map_err(|_| RtError::Malformed)?;
+    let base = registry::child_base_offset(&kind);
     let mut children = Vec::with_capacity(child_list.len() as usize);
-    for child in child_list.iter() {
-        children.push(emit_view(ctx, child)?);
+    for (k, child) in child_list.iter().enumerate() {
+        ctx.path.push(base + k as u32);
+        let emitted = emit_view(ctx, child)?;
+        ctx.path.pop();
+        children.push(emitted);
     }
 
     Ok(registry::build_widget(&kind, &props, &mods, ctx.tokens, children))

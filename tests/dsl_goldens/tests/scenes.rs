@@ -101,3 +101,82 @@ fn scene_emission_is_deterministic() {
         "two mounts render identical bytes"
     );
 }
+
+#[test]
+fn live_pointer_tap_dispatches_through_hit_testing() {
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    let nxir = compile(COUNTER);
+    let mut mounted = Mounted::new(&nxir);
+    assert!(!mounted.view.handlers().is_empty(), "counter has Tap handlers");
+
+    // Lay out the scene, then tap inside the "+" button's box.
+    let engine = LayoutEngine::new();
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
+        .expect("lays out");
+    let plus_box_id = mounted.view.handlers().last().expect("has entries").0;
+    let plus_rect = result
+        .boxes
+        .iter()
+        .find(|b| b.node_id == plus_box_id)
+        .expect("plus button box")
+        .rect;
+    let (cx, cy) = (
+        FxPx::new(plus_rect.x.0 + plus_rect.width.0 / 2),
+        FxPx::new(plus_rect.y.0 + plus_rect.height.0 / 2),
+    );
+
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+    let damage = mounted
+        .view
+        .pointer(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &mut NoIo,
+            &result.boxes,
+            "Tap",
+            cx,
+            cy,
+        )
+        .expect("pointer routes");
+    assert_eq!(damage, Some(Damage::Layout), "Inc changes the counter text");
+    assert_eq!(
+        mounted.view.runtime.field("CounterStore", "value"),
+        Some(&Value::Int(1)),
+        "the + button dispatched Inc"
+    );
+
+    // A tap outside every handler hits nothing and changes nothing.
+    let missed = mounted
+        .view
+        .pointer(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &mut NoIo,
+            &result.boxes,
+            "Tap",
+            FxPx::new(159),
+            FxPx::new(9999),
+        )
+        .expect("pointer routes");
+    assert_eq!(missed, None);
+    assert_eq!(mounted.view.runtime.field("CounterStore", "value"), Some(&Value::Int(1)));
+}
+
+#[test]
+fn disabled_nodes_take_no_input() {
+    let nxir = compile(COUNTER);
+    let mut mounted = Mounted::new(&nxir);
+    let handlers_enabled = mounted.view.handlers().len();
+    // busy=true disables the "+" button → its handler disappears.
+    mounted.dispatch("CounterEvent", "SetBusy", vec![Value::Bool(true)]);
+    assert_eq!(
+        mounted.view.handlers().len(),
+        handlers_enabled - 1,
+        "the disabled button's Tap handler is not registered"
+    );
+}

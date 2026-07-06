@@ -28,7 +28,7 @@ pub const CANVAS_H: i32 = 96;
 const CANVAS_FILL: Rgba8 = Rgba8 { r: 0x30, g: 0x30, b: 0x30, a: 0xff };
 
 /// A no-op text measurer — the primitive fixtures carry no measured `Text`.
-struct NoText;
+pub struct NoText;
 
 impl MeasureText for NoText {
     fn prepare(&self, _content: &TextContent, _style: &TextStyle) -> PreparedTextHandle {

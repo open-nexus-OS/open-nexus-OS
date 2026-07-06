@@ -151,10 +151,21 @@ invalidation via IR field classes (paint-only must not re-layout); arenas at mou
 - **Example apps** `examples/dsl/{counter,todo}/` — the canonical teaching programs.
 - **CLI**: `nx-dsl run <file>` = compile+mount+first-frame summary.
 
+### ✅ DONE (second increment, 2026-07-06)
+
+- **Interaction routing** (`interact.rs` + emit/view wiring): handlers collected at emit time
+  with their path in the final scene tree (payloads evaluated at emit — collection items capture
+  correctly; payload state reads = Paint dep so re-emits re-capture); path → pre-order
+  `LayoutBox::node_id` conversion; `View::pointer(trigger, x, y)` = innermost-hit dispatch.
+  Disabled nodes register no handlers. Proven: live tap on the counter "+" box → Inc →
+  value=1 → Layout damage; miss → None; `.disabled` removes the handler (2 new tests, 66 total
+  across the DSL suites; ui_v10_goldens regression clean — NoText made pub).
+
 ### ⬜ OPEN (within this task)
 
-- **Two-way bindings** (TextField/Toggle write-back as built-in dispatched events) — input
-  routing design lands with the handler/interaction wiring (0076B needs it for live input).
+- **Two-way bindings** (TextField/Toggle write-back as built-in dispatched Change events on top
+  of the now-existing pointer path) — needed by 0077B ergonomics; 0076B's tap DoD is covered.
+- **emitProp handlers** (component `EventRef` props) — route through component instances.
 - **`nx-dsl snapshot`** (PNG/BGRA out): the painter lives in `tests/ui_v10_goldens`; promote it
   to a reusable lib crate (or add a painter dep to the CLI) — small, deliberate move.
 - **Zero-alloc steady state**: change-tracking avoids state snapshots, but paint-only dispatch

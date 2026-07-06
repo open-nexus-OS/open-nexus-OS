@@ -773,6 +773,8 @@ dependencies = [
  "nexus-dsl-core",
  "nexus-dsl-ir",
  "nexus-dsl-runtime",
+ "nexus-layout",
+ "nexus-layout-types",
  "nexus-theme-tokens",
  "ui_v10_goldens",
 ]
@@ -1841,6 +1843,7 @@ version = "0.1.0"
 dependencies = [
  "capnp",
  "nexus-dsl-ir",
+ "nexus-layout",
  "nexus-layout-types",
  "nexus-theme-tokens",
 ]

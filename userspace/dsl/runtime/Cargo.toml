@@ -20,4 +20,5 @@ std = []
 nexus-dsl-ir = { path = "../ir", default-features = false }
 capnp = { version = "0.24", default-features = false, features = ["alloc"] }
 nexus-layout-types = { path = "../../ui/layout-types" }
+nexus-layout = { path = "../../ui/layout" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
