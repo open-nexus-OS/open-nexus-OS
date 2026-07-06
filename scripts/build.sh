@@ -160,6 +160,14 @@ require_or_build() {
 declare -a SERVICES=()
 
 prepare_service_payloads() {
+  # TASK-0080D R1: the app-host runtime ELF is NOT a boot service (no
+  # nexus-service metadata; init never spawns it). Build it FIRST and hand the
+  # ELF to execd's build via EXECD_APPHOST_ELF — execd embeds it as the
+  # IMG_APPHOST payload for on-demand spawns.
+  local apphost_elf="$TARGET_ROOT/$TARGET/release/app-host"
+  require_or_build "$apphost_elf" "service:app-host" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p app-host --target "$TARGET" --release --no-default-features --features os-lite
+  set_env_var "EXECD_APPHOST_ELF" "$apphost_elf"
+
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
     INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
     export INIT_LITE_SERVICE_LIST

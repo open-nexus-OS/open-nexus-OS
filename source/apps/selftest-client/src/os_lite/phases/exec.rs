@@ -47,6 +47,15 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     emit_line(crate::markers::M_EXECD_ELF_LOAD_OK);
     emit_line(crate::markers::M_SELFTEST_E2E_EXEC_ELF_OK);
 
+    // TASK-0080D R1: spawn the app-host transport probe (IMG_APPHOST=4).
+    // The probe walks the ADR-0042 chain itself and emits `APPHOST: probe
+    // surface presented` when its window is live; a spawn refusal (e.g. no
+    // embedded payload in this image) is reported by value, not silence.
+    match services::execd::execd_spawn_image(&execd_client, "selftest-client", 4) {
+        Ok(_pid) => emit_line("SELFTEST: apphost spawn requested"),
+        Err(()) => emit_line("SELFTEST: apphost spawn refused"),
+    }
+
     // RFC-0068 exec migration: the old execd child-exec + crash/minidump proof (exit0 lifecycle /
     // minidump v1 / crash-report / forged-metadata + no-artifact + mismatched-build_id reject /
     // spoofed-requester deny / malformed-request reject) is retired here. Root cause: execd-spawned

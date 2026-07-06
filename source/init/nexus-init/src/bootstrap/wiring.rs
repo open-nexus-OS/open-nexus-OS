@@ -536,6 +536,30 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
                 }
+                // ADR-0042 / TASK-0080D R1: execd forwards a windowd client
+                // route to app processes it spawns (clones of these two caps
+                // land in the child's fixed slots 5/6). Slot-order contract:
+                // execd expects SEND at 8, RECV at 9 (APP_WINDOWD_*_SLOT) —
+                // the log line below is the boot-time proof.
+                {
+                    let window_req_clone =
+                        nexus_abi::cap_clone(window_req).map_err(InitError::Abi)?;
+                    let window_rsp_clone =
+                        nexus_abi::cap_clone(window_rsp).map_err(InitError::Abi)?;
+                    let app_send_slot =
+                        nexus_abi::cap_transfer(pid, window_req_clone, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                    let app_recv_slot =
+                        nexus_abi::cap_transfer(pid, window_rsp_clone, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                    if iw(init_wire, init_fold, "init:execd") {
+                        debug_write_bytes(b"init: execd windowd slots send=0x");
+                        debug_write_hex(app_send_slot as usize);
+                        debug_write_bytes(b" recv=0x");
+                        debug_write_hex(app_recv_slot as usize);
+                        debug_write_byte(b'\n');
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

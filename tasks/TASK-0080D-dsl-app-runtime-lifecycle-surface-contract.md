@@ -140,3 +140,85 @@ Marker chain in hop order:
 The DSL gives apps a shape; RFC-0065 gives identity + lifecycle + permission;
 ADR-0037/0042 give a surface. This task binds them so "a DSL app" and "a real app in
 the OS" are the same thing — search first, then chat, then the hard apps.
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+### ✅ BUILT — R1 transport chain, end to end (boot-verification pending)
+
+- **Kernel**: new syscall `VMO_READ` (47) — exact mirror of `VMO_WRITE`
+  (`Rights::MAP` derive, span checks, bounded copy OUT of the VMO). Needed
+  because userspace has NO VMO mapping path (`nexus_abi::vmo_map` was dead
+  code — no kernel handler); the compositor blit reads app pixels through it.
+  abi wrapper `nexus_abi::vmo_read`.
+- **Wire** (`nexus-display-proto::client_surface`): SURFACE_CREATE(8)/
+  PRESENT(9)/DESTROY(10) + ack codecs, `[I,N,ver,op]` envelope (windowd's
+  server family; input ops 1–4 collision pinned by test), damage ≤4 rects,
+  BGRA8888. 4 unit tests.
+- **windowd**: `client_surface.rs` bookkeeping (create validation
+  format/bounds/quota, STRICT seq (+1, one in flight), damage clamping;
+  6 host tests — 143 windowd tests green) + `compositor/runtime/app_window.rs`
+  (5th `ShellWindow`, `WindowId::AppClient`, MAX_WINDOWS=5, pool reserve
+  +2×392 rows; create retains the MOVED VMO cap (gpud-attach pattern,
+  `mem::forget` on the ReplyCap wrapper), present marks dirty + acks, render
+  blits rows `vmo_read`→`vmo_write` under a windowd-drawn title bar; close
+  frees atlas per ADR-0037). Server-loop dispatch for the three ops; acks via
+  the shared response endpoint (R1 single-app; see ADR deviations).
+- **app-host** (`source/services/app-host`, bin-only, NO nexus-service
+  metadata so init never spawns it): solid-teal probe — vmo_create/fill,
+  `cap_clone`+cap-move CREATE, seq=1 full-damage PRESENT, bounded retries on
+  the fixed slots 5/6 (the cap-transfer race, #123 lesson), markers
+  `apphost: start` → `APPHOST: surface created` → `APPHOST: probe surface
+  presented`.
+- **execd**: `IMG_APPHOST=4` ("app.probe"), payload embedded via
+  `build.rs` from `EXECD_APPHOST_ELF` (empty ⇒ UNSUPPORTED, fail-closed);
+  post-spawn `grant_windowd_route` clones its granted windowd caps into the
+  child's slots 5/6 (`cap_transfer_to_slot`). Slot-order contract: execd
+  expects its own pair at 8/9 — **verify against `init: execd windowd slots`
+  in the boot log** and adjust `APP_WINDOWD_*_SLOT` if the order differs.
+- **nexus-init**: execd wiring arm grants SEND on `window_req` + RECV on
+  `window_rsp` (cap clones; logged).
+- **Trigger**: selftest exec phase requests IMG_APPHOST after the hello
+  proof (`SELFTEST: apphost spawn requested|refused`); policyd's EXEC check
+  is requester-based (image_id reserved) — no policy change needed.
+- **build.sh**: builds app-host FIRST, exports `EXECD_APPHOST_ELF`.
+- **ADR-0042 → Accepted** with 5 recorded deviations (app-allocated VMO +
+  clone-move; vmo_read syscall; shared-channel acks; full-surface v1 blit;
+  envelope family).
+
+### ⚠ BLOCKER CONFIRMED BY THE PROBE (boot-iterated 2026-07-06, 4 runs)
+
+The R1 chain runs cleanly up to and including the spawn:
+`execd: apphost windowd route granted` + `execd: apphost probe autolaunch
+(R1)` at 0.33s — but the child NEVER emits `apphost: start` (its first
+`debug_println`), with **no fault/KPGF in the kernel log**. This is task
+#102 ("execd-spawned children LOAD but no longer execute") reproduced with a
+minimal, fully-instrumented payload. Diagnosis notes for the next move:
+
+- kernel `sys_exec` returns a pid; KSELFTEST kernel-side spawns DO execute
+  (`KSELFTEST: child entry/exit` in the same boots) and init-lite's `exec_v2`
+  services all run — the failure is specific to U-task-initiated `sys_exec`
+  children (scheduler enqueue/QoS/resume path, or .bss/stack setup for
+  Rust ELFs vs the 409-byte asm payload).
+- kernel `EXEC-ELF` trace lines are `log_debug!(target: "exec")` — quiet
+  default; a debug-log build shows segment mapping and entry values.
+- Boot-lane findings along the way: the selftest exec-phase trigger is
+  unusable in BOTH lanes (headless: pre-existing `netstackd: ready` stall
+  fails the ota ladder phase; interactive: netstackd isn't in the image and
+  the U-mode selftest never reaches phase 5) — hence the execd R1 autolaunch.
+- Trap ledger: post-`ready` `emit_line` folds into recall-only (probe
+  markers must use `debug_println`); `cap_query` answers ONLY Vmo/DeviceMmio
+  kinds (endpoint-slot polling needs a `cap_clone`+`cap_close` probe).
+
+### ⬜ OPEN
+
+- **#102 kernel diagnosis** (why U-task `sys_exec` children never run) — the
+  single gate in front of R1's visible window; everything downstream of the
+  spawn is already built and host-proven.
+- Boot-verify R1 (chain markers, then user visible-lane verify).
+- R2: manifest v2.1 `payloadKind`, nxb-pack `.nxir`, bundlemgrd GET_PAYLOAD
+  sourcing, validate/mount, first DSL app frame (counter).
+- R3: input routing by surface id, effects over real IPC, `@persist`,
+  stop/crash residency, per-app ack channels.
+- R4: AOT payloadKind dispatch (0079).

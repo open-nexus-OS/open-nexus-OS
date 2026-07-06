@@ -173,6 +173,16 @@ name = "api-diff"
 version = "0.1.0"
 
 [[package]]
+name = "app-host"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-display-proto",
+ "nexus-ipc",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "arch-check"
 version = "0.1.0"
 dependencies = [

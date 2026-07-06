@@ -637,6 +637,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_VMO_CREATE, sys_vmo_create);
     table.register(SYSCALL_VMO_WRITE, sys_vmo_write);
     table.register(crate::syscall::SYSCALL_VMO_DESTROY, sys_vmo_destroy);
+    table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);
@@ -2085,6 +2086,38 @@ fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let _ = ctx.tasks.current_caps_mut().take(slot)?;
     VMO_POOL.lock().free(base, len)?;
     Ok(0)
+}
+
+/// `SYSCALL_VMO_READ` (47): bounded copy OUT of a VMO into a caller buffer —
+/// the exact mirror of `sys_vmo_write`. Requires the same `Rights::MAP`
+/// derivation on the VMO capability; offsets/lengths are checked against the
+/// VMO span and the destination is validated as a user slice. The ADR-0042
+/// compositor damage-blit is the first consumer (windowd reads app surface
+/// pixels; userspace has no VMO mapping path).
+fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let typed = VmoWriteArgsTyped::decode(args)?;
+    typed.check()?;
+    let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
+    let (base, vmo_len) = match cap.kind {
+        CapabilityKind::Vmo { base, len } => (base, len),
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+    let span_end =
+        typed.offset.checked_add(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
+    if span_end > vmo_len {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    ensure_user_slice(typed.user_ptr, typed.len)?;
+    if typed.len != 0 {
+        unsafe {
+            ptr::copy_nonoverlapping(
+                (base + typed.offset) as *const u8,
+                typed.user_ptr as *mut u8,
+                typed.len,
+            );
+        }
+    }
+    Ok(typed.len)
 }
 
 fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {

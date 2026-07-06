@@ -30,6 +30,9 @@
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
+/// ADR-0042 client-surface transport (app process ↔ windowd).
+pub mod client_surface;
+
 // ── Opcodes (frame byte 0) ───────────────────────────────────────────────────
 
 /// Submit a serialized `CommittedBuffer` animation frame (no scanout update).

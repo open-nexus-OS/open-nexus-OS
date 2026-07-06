@@ -137,6 +137,11 @@ pub const SYSCALL_FENCE_WAIT: usize = 43;
 /// (46: 44/45 are DEBUG_WRITE/BOOT_MODE — a 44 collision once dispatched
 /// `vmo_destroy(slot)` into `debug_write(ptr, …)` and page-faulted the kernel.)
 pub const SYSCALL_VMO_DESTROY: usize = 46;
+/// Reads bytes out of a VMO into a caller buffer (mirror of `SYSCALL_VMO_WRITE`).
+/// Args: (vmo_cap_slot, offset, user_ptr, len). The compositor's ADR-0042
+/// damage-blit reads app surface VMOs through this — userspace has no VMO
+/// mapping path, so read, like write, is an explicit bounded copy.
+pub const SYSCALL_VMO_READ: usize = 47;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

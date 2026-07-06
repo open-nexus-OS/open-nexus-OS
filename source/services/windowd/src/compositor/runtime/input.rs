@@ -274,6 +274,7 @@ impl DisplayServerRuntime {
                     WindowId::Chat => self.chat.frame(),
                     WindowId::Search => self.search.frame(),
                     WindowId::Settings => self.settings_win.frame(),
+                    WindowId::AppClient => self.app_win.frame(),
                     WindowId::DslDemo => self.dsl_win.frame(),
                 };
                 // Edge/corner grab RESIZES (floating windows only) — resolved
@@ -297,6 +298,7 @@ impl DisplayServerRuntime {
                             WindowId::Search => self.close_search(),
                             WindowId::Settings => self.close_settings(),
                             WindowId::DslDemo => self.close_dsl_demo(),
+                            WindowId::AppClient => self.close_app_window(),
                         }
                     }
                     WindowPress::Minimize => {
@@ -315,6 +317,7 @@ impl DisplayServerRuntime {
                             WindowId::Search => self.search.begin_drag(cursor_x, cursor_y),
                             WindowId::Settings => self.settings_win.begin_drag(cursor_x, cursor_y),
                             WindowId::DslDemo => self.dsl_win.begin_drag(cursor_x, cursor_y),
+                            WindowId::AppClient => self.app_win.begin_drag(cursor_x, cursor_y),
                         }
                     }
                     WindowPress::Body => {
@@ -698,6 +701,9 @@ impl DisplayServerRuntime {
                 WindowId::DslDemo => {
                     self.dsl_win.contains(self.state.cursor_x, self.state.cursor_y)
                 }
+                WindowId::AppClient => {
+                    self.app_win.contains(self.state.cursor_x, self.state.cursor_y)
+                }
             });
             // Scroll diagnostic (rate-limited ~200ms): logs on every wheel input —
             // even when nothing moves — the routing target + full scroll state, so a
@@ -713,6 +719,7 @@ impl DisplayServerRuntime {
                         Some(WindowId::Search) => "search",
                         Some(WindowId::Settings) => "settings",
                         Some(WindowId::DslDemo) => "dsl",
+                        Some(WindowId::AppClient) => "app",
                         None => "none",
                     },
                     self.state.cursor_x,
@@ -727,8 +734,9 @@ impl DisplayServerRuntime {
                 ));
             }
             match target {
-                // The DSL demo window has no scrollable body (v0.1).
-                Some(WindowId::DslDemo) => {}
+                // The DSL demo window has no scrollable body (v0.1);
+                // the app-client window routes input in R3 (not scroll-R1).
+                Some(WindowId::DslDemo) | Some(WindowId::AppClient) => {}
                 // Coalesce: accumulate this event's notches; `commit_scroll_input`
                 // applies the frame's total ONCE (reactive, no per-event replay).
                 Some(WindowId::Chat) => {

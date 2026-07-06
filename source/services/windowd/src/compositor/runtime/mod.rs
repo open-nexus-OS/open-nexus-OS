@@ -109,6 +109,7 @@ mod chat_window;
 mod shell;
 mod search;
 mod dsl_mount;
+mod app_window;
 mod settings_window;
 mod present;
 mod scene;
@@ -409,6 +410,11 @@ pub(crate) struct DisplayServerRuntime {
     settings_win: super::shell_window::ShellWindow,
     /// The DSL demo window frame (TASK-0076B).
     dsl_win: super::shell_window::ShellWindow,
+    /// The cross-process app-client window (ADR-0042 R1): body pixels come
+    /// from the app process's surface VMO via the damage-blit.
+    app_win: super::shell_window::ShellWindow,
+    /// ADR-0042 surface table + flow control (host-tested bookkeeping).
+    client_surfaces: crate::client_surface::ClientSurfaces,
     /// Mounted DSL interpreter state (view + layout + markers).
     dsl_mount: dsl_mount::DslMount,
     /// Prefix-filtered words shown in the Search window body.
@@ -799,11 +805,27 @@ impl DisplayServerRuntime {
             5,
             90,
         );
+        // The app-client window (ADR-0042 R1) — same reusable glass frame; the
+        // body is blitted from the app's own surface VMO on present.
+        let app_win = super::shell_window::ShellWindow::new(
+            "App",
+            460,
+            420,
+            app_window::APP_WIN_MAX_W,
+            app_window::APP_WIN_MAX_H,
+            app_window::APP_TITLE_H,
+            app_window::APP_CLOSE_W,
+            dsl_mount::DSL_RADIUS,
+            18,
+            5,
+            90,
+        );
         // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
         // left for the on-demand window pool (content + blur cache); without this
         // reserve the panel's "take the rest" would starve a later search show.
         const WINDOW_POOL_ROWS: u32 = 2 * super::desktop_layer::search_full_h()
             + 2 * dsl_mount::DSL_WIN_H // DSL demo window: content + blur bands
+            + 2 * app_window::APP_WIN_MAX_H // app-client window (ADR-0042 R1)
             + 16;
         let sidepanel_h = mode
             .height
@@ -924,6 +946,8 @@ impl DisplayServerRuntime {
             search,
             settings_win,
             dsl_win,
+            app_win,
+            client_surfaces: crate::client_surface::ClientSurfaces::new(),
             dsl_mount: dsl_mount::DslMount::new(),
             search_filtered: {
                 let mut v = Vec::new();
@@ -955,6 +979,7 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Chat,
                 crate::window_scene::WindowId::Settings,
                 crate::window_scene::WindowId::DslDemo,
+                crate::window_scene::WindowId::AppClient,
             ]),
             dock_surface: None,
             dock_rendered_n: 0,
@@ -1022,6 +1047,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Search => "search",
             crate::window_scene::WindowId::Settings => "settings",
             crate::window_scene::WindowId::DslDemo => "dsl",
+            crate::window_scene::WindowId::AppClient => "app",
         }
     }
 
@@ -1032,6 +1058,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Search => &self.search,
             crate::window_scene::WindowId::Settings => &self.settings_win,
             crate::window_scene::WindowId::DslDemo => &self.dsl_win,
+            crate::window_scene::WindowId::AppClient => &self.app_win,
         };
         win.damage_rect(self.mode.width, self.mode.height)
     }
@@ -1060,6 +1087,7 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
             crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
             crate::window_scene::WindowId::DslDemo => self.dsl_win.leave_fullscreen(),
+            crate::window_scene::WindowId::AppClient => self.app_win.leave_fullscreen(),
         }
         self.update_dock();
         let after = self.windows.focused();

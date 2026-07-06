@@ -32,6 +32,9 @@ pub enum WindowId {
     /// The DSL demo window (TASK-0076B: the visible in-compositor mount of a
     /// compiled `.nxir` program — interpreter-rendered body).
     DslDemo,
+    /// A cross-process app client surface (ADR-0042 / TASK-0080D R1): the
+    /// body is blitted from the app process's own surface VMO.
+    AppClient,
 }
 
 /// The composition-relevant state of one window.
@@ -102,7 +105,7 @@ pub const BASE_ALWAYS_PRESENT: bool = true;
 /// (chat + search + settings + one spare) and, more importantly, for the atlas
 /// budget: every open window costs content + blur-cache rows from the shared
 /// pool, so "more windows" is an atlas-sizing decision, not just a constant.
-pub const MAX_WINDOWS: usize = 4;
+pub const MAX_WINDOWS: usize = 5;
 
 /// When `next_z` reaches this bound the stack renormalizes all z values to
 /// `0..len` (order-preserving). Keeps a long-lived session from ever

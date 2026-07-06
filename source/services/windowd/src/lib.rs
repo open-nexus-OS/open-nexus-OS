@@ -43,6 +43,10 @@ mod snap;
 // drives it from the abilitymgr launch handoff (TASK-0065 P4b).
 #[cfg(test)]
 mod app_surface;
+// ADR-0042 client-surface bookkeeping (TASK-0080D R1) — host-tested state
+// machine (create/seq/damage); the compositor runtime drives it on OS.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod client_surface;
 mod assets;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod atlas;

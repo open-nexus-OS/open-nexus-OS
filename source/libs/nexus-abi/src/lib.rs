@@ -3193,6 +3193,29 @@ pub fn vmo_write(_handle: Handle, _offset: usize, _bytes: &[u8]) -> Result<()> {
     }
 }
 
+/// Reads bytes out of the VMO starting at `offset` into `buf` — the mirror of
+/// [`vmo_write`] (syscall 47). The ADR-0042 compositor damage-blit is the
+/// first consumer: windowd reads app-surface pixels through this (userspace
+/// has no VMO mapping path).
+#[cfg(nexus_env = "os")]
+pub fn vmo_read(_handle: Handle, _offset: usize, _buf: &mut [u8]) -> Result<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    unsafe {
+        const SYSCALL_VMO_READ: usize = 47;
+        let len = _buf.len();
+        let ptr = _buf.as_mut_ptr() as usize;
+        let raw = ecall4(SYSCALL_VMO_READ, _handle as usize, _offset, ptr, len);
+        match decode_syscall(raw) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(IpcError::Unsupported),
+        }
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(IpcError::Unsupported)
+    }
+}
+
 /// Maps the VMO into the caller's address space at virtual address `va` with
 /// the requested flags. The mapping is read-only in the initial path.
 #[cfg(nexus_env = "os")]

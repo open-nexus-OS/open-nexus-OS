@@ -435,6 +435,38 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
                             let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
                         }
+                    } else if frame.get(3).copied()
+                        == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
+                    {
+                        // ADR-0042: the moved capability IS the app's surface
+                        // VMO (gpud-attach pattern), NOT a reply cap. Retain
+                        // its slot; the ack returns over the shared response
+                        // endpoint the app holds RECV on.
+                        let vmo_slot = moved_cap.take().map(|cap| {
+                            let slot = cap.slot();
+                            core::mem::forget(cap); // keep the slot alive (no close)
+                            slot
+                        });
+                        let ack = runtime.handle_surface_create(frame, vmo_slot);
+                        let _ = server.send(&ack, Wait::Blocking);
+                    } else if frame.get(3).copied()
+                        == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
+                    {
+                        let ack = runtime.handle_surface_present(frame);
+                        if let Some(reply) = moved_cap.take() {
+                            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
+                        } else {
+                            let _ = server.send(&ack, Wait::Blocking);
+                        }
+                    } else if frame.get(3).copied()
+                        == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
+                    {
+                        let ack = runtime.handle_surface_destroy(frame);
+                        if let Some(reply) = moved_cap.take() {
+                            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
+                        } else {
+                            let _ = server.send(&ack, Wait::Blocking);
+                        }
                     } else {
                         let op = frame.get(3).copied().unwrap_or(0);
                         let response = encode_status(op, STATUS_UNSUPPORTED);

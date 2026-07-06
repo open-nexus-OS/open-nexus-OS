@@ -1,6 +1,6 @@
 # ADR-0042: Cross-process surface transport — per-app VMO + present IPC + compositor blit (v1)
 
-- Status: Proposed (drafted for the DSL app-runtime track; implemented in TASK-0080D phase 6a)
+- Status: Accepted (implemented in TASK-0080D R1; deviations from the draft recorded below)
 - Created: 2026-07-06
 - Builds on: ADR-0037 (per-app surface VMO + lifecycle residency), ADR-0038 (display wire
   SSOT = `nexus-display-proto`; capnp display schemas are descriptive only), ADR-0036
@@ -73,3 +73,27 @@ today.
   one in-flight present per surface.
 - Sequencing: probe first — an app-host skeleton that fills its VMO with a solid color
   and presents, before any DSL involvement (TASK-0080D phase R1).
+
+## Implementation deviations (R1, recorded)
+
+1. **The APP allocates its surface VMO and moves a capability CLONE to windowd
+   with `SURFACE_CREATE`** (the proven windowd→gpud attach pattern), instead of
+   windowd allocating and returning the capability — IPC replies cannot carry a
+   capability today. Quota/lifetime authority stays with windowd (it validates
+   at create, closes its cap on destroy); ADR-0037's "windowd owns the memory"
+   becomes "windowd owns admission + the compositor-side reference".
+2. **New kernel syscall `VMO_READ` (47)** — the exact mirror of `VMO_WRITE`.
+   Userspace has no VMO mapping path (the abi `vmo_map` was dead code, no kernel
+   handler), so the damage-blit reads app pixels via a bounded explicit copy,
+   symmetric with how windowd already writes the framebuffer.
+3. **Acks return over windowd's shared response endpoint** (the same channel
+   inputd holds RECV on) rather than a per-app channel — single-probe-app-safe
+   for R1 because every other windowd client replies via moved reply caps.
+   Per-app channels (minted at launch by abilitymgr) arrive with R3 multi-app.
+4. **v1 blit granularity**: full-surface rows on present (bounded by the
+   create-validated dims); the damage list bounds the queued SCREEN region.
+   Blit-by-rect is the first recorded optimization.
+5. **Wire envelope**: the frames ride windowd's server endpoint, which speaks
+   the `[b'I', b'N', ver, op]` family — the codecs live in
+   `nexus-display-proto::client_surface` (the display SSOT), ops 8–10 in the
+   shared op space (collision pinned by test).

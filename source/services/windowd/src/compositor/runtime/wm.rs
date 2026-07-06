@@ -39,6 +39,7 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.end_drag(),
             WindowId::Settings => self.settings_win.end_drag(),
             WindowId::DslDemo => self.dsl_win.end_drag(),
+            WindowId::AppClient => self.app_win.end_drag(),
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
@@ -58,6 +59,7 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.blur_valid = false,
             WindowId::Settings => self.settings_win.blur_valid = false,
             WindowId::DslDemo => self.dsl_win.blur_valid = false,
+            WindowId::AppClient => self.app_win.blur_valid = false,
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -82,7 +84,7 @@ impl DisplayServerRuntime {
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::Settings | WindowId::DslDemo | WindowId::AppClient => {}
                 WindowId::Search => {
                     self.search.leave_fullscreen();
                     // Shrink the pool surfaces back to the floating size.
@@ -103,7 +105,7 @@ impl DisplayServerRuntime {
                     let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
                     self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
                 }
-                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::Settings | WindowId::DslDemo | WindowId::AppClient => {}
                 WindowId::Search => {
                     // TRUE fullscreen needs pool surfaces at display size; if
                     // the pool can't back them the toggle is refused honestly.
@@ -146,6 +148,7 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.contains(cx, cy),
             WindowId::Settings => self.settings_win.contains(cx, cy),
             WindowId::DslDemo => self.dsl_win.contains(cx, cy),
+            WindowId::AppClient => self.app_win.contains(cx, cy),
         });
         let want = |wid: WindowId, win: &super::super::shell_window::ShellWindow| -> Option<TitleButton> {
             if owner == Some(wid) {
@@ -185,6 +188,7 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.frame(),
             WindowId::Settings => self.settings_win.frame(),
             WindowId::DslDemo => self.dsl_win.frame(),
+            WindowId::AppClient => self.app_win.frame(),
         };
         self.raise_window(id);
         self.resize_drag = Some((id, edge, start, (cx, cy)));
@@ -212,6 +216,7 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.frame(),
             WindowId::Settings => self.settings_win.frame(),
             WindowId::DslDemo => self.dsl_win.frame(),
+            WindowId::AppClient => self.app_win.frame(),
         };
         if frame != current {
             self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);
@@ -226,6 +231,7 @@ impl DisplayServerRuntime {
                 WindowId::Search => (self.search.w, self.search.h),
                 WindowId::Settings => (self.settings_win.w, self.settings_win.h),
                 WindowId::DslDemo => (self.dsl_win.w, self.dsl_win.h),
+                WindowId::AppClient => (self.app_win.w, self.app_win.h),
             };
             let _ = debug_println(&alloc::format!(
                 "windowd: resize id={} w={w} h={h}",
@@ -305,6 +311,15 @@ impl DisplayServerRuntime {
                 let h = h.min(band_h);
                 self.settings_win.set_frame(x, y, w, h);
                 self.settings_win.surface_dirty = true;
+            }
+            WindowId::AppClient => {
+                // App-blitted body — clamp to the atlas band; the surface
+                // keeps its created size (resize negotiation is post-R1).
+                let band_h = self.app_win.atlas.map(|s| s.height).unwrap_or(h);
+                let w = w.min(self.mode.width);
+                let h = h.min(band_h);
+                self.app_win.set_frame(x, y, w, h);
+                self.app_win.surface_dirty = true;
             }
             WindowId::DslDemo => {
                 // Interpreter body — clamp to the atlas band; a resize keeps
@@ -386,6 +401,7 @@ impl DisplayServerRuntime {
                     WindowId::Search => self.search.frame(),
                     WindowId::Settings => self.settings_win.frame(),
                     WindowId::DslDemo => self.dsl_win.frame(),
+                    WindowId::AppClient => self.app_win.frame(),
                 };
                 if frame.contains(cx, cy) {
                     if !self.windows.is_fullscreen(wid) {
@@ -515,6 +531,10 @@ impl DisplayServerRuntime {
                     // Placeholder dock glyph until a gear icon is baked (Phase 10).
                     WindowId::Settings => {
                         (crate::assets::MENU_ICON_BGRA, crate::assets::MENU_ICON_DIM)
+                    }
+                    // App-client window reuses the search glyph for R1.
+                    WindowId::AppClient => {
+                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
                     }
                 };
                 let iy0 = cell.y + cell.height.saturating_sub(dim) / 2;

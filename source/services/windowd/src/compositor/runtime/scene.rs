@@ -76,6 +76,12 @@ impl DisplayServerRuntime {
             self.render_dsl_surface()?;
             self.dsl_win.surface_dirty = false;
         }
+        // App-client window (ADR-0042 R1): blit the app's surface VMO when
+        // a present marked it dirty.
+        if self.app_win.visible && self.app_win.surface_dirty {
+            self.render_app_surface()?;
+            self.app_win.surface_dirty = false;
+        }
         // Dock (TASK-0070 Phase 2): (re)render on membership change.
         if self.dock_dirty && self.dock_surface.is_some() {
             self.render_dock_surface()?;
@@ -133,6 +139,7 @@ impl DisplayServerRuntime {
         // `Some` only while the Settings window is mounted (shown) → composite it.
         let settings_glass = self.settings_win.glass_params();
         let dsl_glass = self.dsl_win.glass_params();
+        let app_glass = self.app_win.glass_params();
         let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
@@ -322,6 +329,18 @@ impl DisplayServerRuntime {
                     // interpreter-rendered body (TASK-0076B).
                     crate::window_scene::WindowId::DslDemo => {
                         if let Some(p) = dsl_glass {
+                            let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
+                                &mut encoder,
+                                p,
+                                mode.width,
+                                mode.height,
+                            );
+                        }
+                    }
+                    // App-client window (ADR-0042 R1) — same glass composite;
+                    // the body pixels were blitted from the app's VMO.
+                    crate::window_scene::WindowId::AppClient => {
+                        if let Some(p) = app_glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
                                 &mut encoder,
                                 p,
