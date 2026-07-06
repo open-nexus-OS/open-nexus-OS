@@ -115,6 +115,12 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.2 (2026-07-06, TASK-0077B)** — additive: `Handler.bind` (two-way
+  binding write target). Auto-synthesized at lowering when an interactive
+  kind's primary prop is `$state`-bound (`Toggle { checked: $state.on }` ⇒ a
+  Tap-bind flipping the Bool; `TextField { value: $state.q }` ⇒ a Change-bind
+  writing the text). The write goes through the store's compare-and-mark path
+  — the same single mutation machinery reducers use.
 - **v1.1 (2026-07-06, TASK-0077)** — additive: `Handler.navigate` (a Str-typed
   route-path expression; `on Tap -> navigate("/detail/7")`). Readers of 1.0
   see an unknown union variant and must treat such handlers as inert.

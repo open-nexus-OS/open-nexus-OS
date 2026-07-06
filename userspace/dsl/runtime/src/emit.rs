@@ -289,6 +289,14 @@ fn emit_widget(
                         _ => return Err(RtError::TypeMismatch),
                     }
                 }
+                Ok(Which::Bind(Ok(get))) => {
+                    let path_list = get.get_path().map_err(|_| RtError::Malformed)?;
+                    let mut path = Vec::with_capacity(path_list.len() as usize);
+                    for i in 0..path_list.len() {
+                        path.push(path_list.get(i));
+                    }
+                    Some(HandlerAction::Bind { store: get.get_store(), path })
+                }
                 // emitProp handlers route through component instances — wired
                 // with the instance/params work (see the task ledger).
                 _ => None,

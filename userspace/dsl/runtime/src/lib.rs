@@ -291,6 +291,36 @@ impl<'p> Runtime<'p> {
         &self.stores
     }
 
+    /// Two-way binding write: the ONE store mutation machinery reducers use
+    /// (compare-and-mark via `set_path`), driven by an interaction value.
+    /// Returns the changed fields like `dispatch`.
+    ///
+    /// # Errors
+    /// Unknown store/field or a type-mismatched write target.
+    pub fn write_binding(
+        &mut self,
+        store: u32,
+        path: &[u32],
+        value: Value,
+    ) -> Result<Vec<ChangedField>, RtError> {
+        self.changed.clear();
+        let state = self.stores.get_mut(store as usize).ok_or(RtError::UnknownField)?;
+        state.set_path(path, value)?;
+        let changed = &mut self.changed;
+        state.take_changes(|field| {
+            changed.push(ChangedField { store, field: field as u32 });
+        });
+        Ok(core::mem::take(&mut self.changed))
+    }
+
+    /// Reads a bound field's current value (for flip-style interactions).
+    #[must_use]
+    pub fn read_binding(&self, store: u32, path: &[u32]) -> Option<&Value> {
+        let state = self.stores.get(store as usize)?;
+        let index = state.field_index(*path.first()?).ok()?;
+        state.get(index).ok()
+    }
+
     /// Reads a store field by names (test/debug convenience).
     pub fn field(&self, store_name: &str, field_name: &str) -> Option<&Value> {
         let root = self.reader.root().ok()?;

@@ -91,3 +91,32 @@ beyond single-call): call → dispatch chains with explicit timeouts and cancell
 2. bindings for the seven controls + fixtures
 3. EffectPlan multi-step + cancellation + async-recipe fixtures
 4. docs (state/patterns/syntax)
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+### ✅ DONE (first increment)
+
+- **Two-way bindings, end-to-end (IR v1.2 `Handler.bind`)**: an interactive kind whose
+  primary prop is `$state`-bound gets a bind handler **auto-synthesized at lowering** —
+  `Toggle { checked: $state.dark }` ⇒ Tap-bind (flips the Bool),
+  `TextField/TextArea { value: $state.q }` ⇒ Change-bind (writes the text). The write
+  goes through `Runtime::write_binding` = the SAME compare-and-mark store path reducers
+  use (one mutation machinery, no side door); changed fields map onto the dep set via
+  the shared `View::apply_changes` (dispatch + bindings, one damage pipeline).
+  `View::text_input(boxes, x, y, text)` is the host/OS text entry point until focus
+  lands. Scene test: tap flips the toggle → branch re-renders ("dark on"); text input
+  writes the bound field → bound `Text($state.query)` shows it. Schema minor bump 1.2 +
+  ir.md changelog + IR goldens regenerated.
+
+### ⬜ OPEN (this task's remainder)
+
+- Checkbox/Slider/Select/Stepper bindings (same auto-bind pattern; Slider needs a
+  value-carrying interaction, Select an options contract).
+- **`$state` locals** (component-level state → implicit per-instance stores; needs a
+  grammar `state:` block + instance identity from keyed NodeIds).
+- **Async recipes**: multi-step EffectPlan chains with explicit cancellation tokens
+  (a newer trigger cancels the stale plan's pending dispatches) + timeout/error-code
+  promotion of NX0407/NX0409 to errors.
+- Focus model (text input currently targets by hit point, not focus).

@@ -120,7 +120,86 @@ impl<'p> View<'p> {
             HandlerAction::Navigate { path } => {
                 self.navigate(tokens, device, locale, &path).map(Some)
             }
+            HandlerAction::Bind { store, path } => {
+                // Tap on a bound Bool flips it (the Toggle contract); other
+                // value kinds arrive via `text_input`-style entry points.
+                let current = self.runtime.read_binding(store, &path).cloned();
+                let next = match current {
+                    Some(Value::Bool(b)) => Value::Bool(!b),
+                    _ => return Ok(None),
+                };
+                let changes = self.runtime.write_binding(store, &path, next)?;
+                self.apply_changes(tokens, device, locale, &changes).map(Some)
+            }
         }
+    }
+
+    /// Writes text into the innermost Change-bound field containing (x, y)
+    /// (the host/OS text-input entry point until focus lands).
+    ///
+    /// # Errors
+    /// Runtime errors from the write/emission.
+    pub fn text_input(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        boxes: &[nexus_layout::LayoutBox],
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+        text: &str,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(trigger_sym) = self
+            .runtime
+            .symbols()
+            .iter()
+            .position(|s| s == "Change")
+            .map(|i| i as u32)
+        else {
+            return Ok(None);
+        };
+        let Some(entry) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
+            return Ok(None);
+        };
+        let HandlerAction::Bind { store, path } = entry.action.clone() else {
+            return Ok(None);
+        };
+        let changes = self.runtime.write_binding(
+            store,
+            &path,
+            Value::Str(alloc::string::String::from(text)),
+        )?;
+        self.apply_changes(tokens, device, locale, &changes).map(Some)
+    }
+
+    /// Maps changed fields onto the dep set (shared by dispatch + bindings).
+    fn apply_changes(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        changes: &[crate::ChangedField],
+    ) -> Result<Damage, RtError> {
+        let mut damage = Damage::None;
+        for change in changes {
+            let Some(field_sym) = self
+                .runtime
+                .stores()
+                .get(change.store as usize)
+                .and_then(|s| s.field_sym(change.field as usize))
+            else {
+                continue;
+            };
+            for dep in &self.deps {
+                if dep.store == change.store && dep.field == field_sym {
+                    damage = damage.max(dep.damage);
+                }
+            }
+        }
+        if damage != Damage::None {
+            self.emit(tokens, device, locale)?;
+        }
+        Ok(damage)
     }
 
     /// Re-emits the scene from committed state.
@@ -214,26 +293,6 @@ impl<'p> View<'p> {
         payload: Vec<Value>,
     ) -> Result<Damage, RtError> {
         let changes = self.runtime.dispatch(device, locale, host, event, case, payload)?;
-        let mut damage = Damage::None;
-        for change in &changes {
-            // Deps store field SYMBOLS; changes carry field indices.
-            let Some(field_sym) = self
-                .runtime
-                .stores()
-                .get(change.store as usize)
-                .and_then(|s| s.field_sym(change.field as usize))
-            else {
-                continue;
-            };
-            for dep in &self.deps {
-                if dep.store == change.store && dep.field == field_sym {
-                    damage = damage.max(dep.damage);
-                }
-            }
-        }
-        if damage != Damage::None {
-            self.emit(tokens, device, locale)?;
-        }
-        Ok(damage)
+        self.apply_changes(tokens, device, locale, &changes)
     }
 }

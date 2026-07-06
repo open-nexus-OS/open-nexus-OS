@@ -25,6 +25,10 @@ pub enum HandlerAction {
     Dispatch { event: u32, case: u32, payload: Vec<Value> },
     /// Navigate to a route path (evaluated at emit time).
     Navigate { path: alloc::string::String },
+    /// Two-way binding write target: (store index, field symbol path).
+    /// The interaction supplies the value (Tap on a bound Toggle flips the
+    /// Bool; text input writes the new text).
+    Bind { store: u32, path: Vec<u32> },
 }
 
 /// One interactive region.

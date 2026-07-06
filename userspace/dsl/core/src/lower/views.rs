@@ -590,9 +590,26 @@ fn lower_widget(
 
     lower_modifiers(ctx, env, &widget.modifiers, &mut w)?;
 
+    // Auto-synthesized two-way bindings: interactive kind + $state-bound
+    // primary prop ⇒ a bind handler (docs/dev/dsl/ir.md v1.2).
+    let mut binds: Vec<(u32, &crate::ast::Expr)> = Vec::new();
+    for (name, value) in &widget.props {
+        if let Expr::StateRef { .. } = value {
+            let trigger = match (widget.name.text.as_str(), name.text.as_str()) {
+                ("Toggle", "checked") => Some("Tap"),
+                ("TextField", "value") | ("TextArea", "value") => Some("Change"),
+                _ => None,
+            };
+            if let Some(trigger) = trigger {
+                binds.push((ctx.sym(trigger), value));
+            }
+        }
+    }
+
     // Handlers.
     {
-        let mut handlers = w.reborrow().init_handlers(widget.handlers.len() as u32);
+        let mut handlers =
+            w.reborrow().init_handlers((widget.handlers.len() + binds.len()) as u32);
         for (i, handler) in widget.handlers.iter().enumerate() {
             let mut hb = handlers.reborrow().get(i as u32);
             hb.set_trigger(ctx.sym(&handler.trigger.text));
@@ -618,6 +635,24 @@ fn lower_widget(
                         lower_expr(env, arg, payload.reborrow().get(j as u32))?;
                     }
                 }
+            }
+        }
+        for (i, (trigger, state_ref)) in binds.iter().enumerate() {
+            let mut hb = handlers.reborrow().get((widget.handlers.len() + i) as u32);
+            hb.set_trigger(*trigger);
+            let Expr::StateRef { path, span } = state_ref else { continue };
+            let Some(first) = path.first() else {
+                return Err(unsupported(*span, "empty binding path"));
+            };
+            let store = match ctx.store_of_field(&first.text) {
+                Ok(store) => store,
+                Err(_) => return Err(unsupported(*span, "an unresolvable bound field")),
+            };
+            let mut get = hb.init_bind();
+            get.set_store(store);
+            let mut segs = get.init_path(path.len() as u32);
+            for (j, seg) in path.iter().enumerate() {
+                segs.set(j as u32, ctx.sym(&seg.text));
             }
         }
     }

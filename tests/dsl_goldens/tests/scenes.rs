@@ -347,3 +347,110 @@ Routes {
     assert_eq!(damage, Damage::Layout);
     assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("home screen")));
 }
+
+/// Two-way bindings (IR v1.2 auto-bind): a tap on a bound Toggle flips the
+/// field; text input on a bound TextField writes it — both through the one
+/// store mutation path, both re-rendering via the dep set.
+#[test]
+fn two_way_bindings_flip_toggle_and_write_textfield() {
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    let nxir = compile(
+        r#"
+Store S {
+    dark: Bool = false,
+    query: Str = "",
+}
+Event E { Noop, }
+reduce E { Noop => state.dark = state.dark, }
+Page P {
+    Stack {
+        Toggle { checked: $state.dark, label: "Dark" }
+        TextField { label: "Search", value: $state.query }
+        if $state.dark {
+            Text("dark on")
+        } else {
+            Text("dark off")
+        }
+        Text($state.query)
+    }
+    .padding(2)
+    .gap(2)
+}
+"#,
+    );
+    let mut mounted = Mounted::new(&nxir);
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("dark off")));
+
+    let engine = LayoutEngine::new();
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
+        .expect("lays out");
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+
+    // Tap the toggle (its bind handler is the Tap-triggered one).
+    let toggle_box = mounted
+        .view
+        .handlers()
+        .iter()
+        .find(|(_, h)| {
+            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
+        })
+        .expect("bind handler")
+        .0;
+    let rect = result.boxes.iter().find(|b| b.node_id == toggle_box).expect("box").rect;
+    let damage = mounted
+        .view
+        .pointer(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &mut NoIo,
+            &result.boxes,
+            "Tap",
+            FxPx::new(rect.x.0 + rect.width.0 / 2),
+            FxPx::new(rect.y.0 + rect.height.0 / 2),
+        )
+        .expect("routes");
+    assert_eq!(damage, Some(Damage::Layout), "the branch flips");
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("dark on")));
+    assert_eq!(
+        mounted.view.runtime.field("S", "dark"),
+        Some(&nexus_dsl_runtime::Value::Bool(true))
+    );
+
+    // Text input into the bound field (re-layout first: the scene changed).
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
+        .expect("relays");
+    let field_box = mounted
+        .view
+        .handlers()
+        .iter()
+        .filter(|(_, h)| {
+            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
+        })
+        .nth(1)
+        .expect("textfield bind")
+        .0;
+    let rect = result.boxes.iter().find(|b| b.node_id == field_box).expect("box").rect;
+    let damage = mounted
+        .view
+        .text_input(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &result.boxes,
+            FxPx::new(rect.x.0 + rect.width.0 / 2),
+            FxPx::new(rect.y.0 + rect.height.0 / 2),
+            "glass",
+        )
+        .expect("writes");
+    assert_eq!(damage, Some(Damage::Layout));
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("glass")));
+    assert_eq!(
+        mounted.view.runtime.field("S", "query"),
+        Some(&nexus_dsl_runtime::Value::Str("glass".into()))
+    );
+}

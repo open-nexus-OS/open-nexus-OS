@@ -19,7 +19,7 @@
 #   - field numbers are append-only; minor bump = additive with defaults;
 #     major bump = readers reject (docs/dev/dsl/ir.md#schema-evolution-rules)
 #
-# VERSION: 1.1 (TASK-0077: Handler.navigate)
+# VERSION: 1.2 (TASK-0077B: Handler.bind)
 
 struct UiProgram {
   schemaVersionMajor @0 :UInt16;   # readers reject unknown majors
@@ -310,6 +310,10 @@ struct Handler {
     dispatch @1 :DispatchStep;  # dispatch a store event
     emitProp @2 :EmitProp;      # emit an EventRef prop (components)
     navigate @3 :Expr;          # v1.1: route path expression (Str-typed)
+    bind @4 :FieldGet;          # v1.2: two-way binding write target — the
+                                # interaction value writes this state path
+                                # (auto-synthesized for `checked:/value:`
+                                # props bound to $state on interactive kinds)
   }
 }
 

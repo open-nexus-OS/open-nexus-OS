@@ -319,6 +319,22 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
         match node {
             ViewNode::Widget(widget) => {
                 set.insert(widget.name.text.clone());
+                // Auto-bind triggers: a $state-bound primary prop on an
+                // interactive kind synthesizes a bind handler at lowering —
+                // its trigger symbol must exist.
+                for (name, value) in &widget.props {
+                    if matches!(value, Expr::StateRef { .. }) {
+                        match (widget.name.text.as_str(), name.text.as_str()) {
+                            ("Toggle", "checked") => {
+                                set.insert(alloc::string::String::from("Tap"));
+                            }
+                            ("TextField", "value") | ("TextArea", "value") => {
+                                set.insert(alloc::string::String::from("Change"));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 if let Some(positional) = &widget.positional {
                     walk_expr(positional, set, i18n);
                     // The positional sugar becomes the registry primary prop
