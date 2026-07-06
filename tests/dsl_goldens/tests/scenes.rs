@@ -454,3 +454,87 @@ Page P {
         Some(&nexus_dsl_runtime::Value::Str("glass".into()))
     );
 }
+
+/// The master–detail example app builds from a PROJECT DIRECTORY (multi-file
+/// merge + phone override) and drives list-tap → detail → back through the
+/// interpreter — the Phase-6 launch-demo payload, proven host-side.
+#[test]
+fn masterdetail_project_navigates_and_respects_phone_override() {
+    use nexus_dsl_core::{canonical_source_set, merge_project, SourceFile};
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    // Load the example app the same way the CLI project mode does.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/dsl/masterdetail");
+    let mut files = Vec::new();
+    let mut stack = vec![root.join("ui")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("readable").flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|e| e.to_str()) == Some("nx") {
+                files.push(SourceFile {
+                    path: p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"),
+                    source: std::fs::read_to_string(&p).expect("readable"),
+                });
+            }
+        }
+    }
+    let merged = merge_project(&files).expect("merges");
+    let (model, diags) = nexus_dsl_core::check_file(&merged);
+    assert!(!nexus_dsl_core::has_errors(&diags), "{diags:?}");
+    let canonical = canonical_source_set(&files);
+    let nxir = nexus_dsl_core::lower_file(&merged, &model, &canonical).expect("lowers").nxir;
+
+    // Desktop: list page → tap the first card → detail page → back.
+    let mut mounted = Mounted::new(&nxir);
+    assert!(dsl_goldens::texts(mounted.view.scene()).contains(&String::from("library.title")));
+    let engine = LayoutEngine::new();
+    let result = engine
+        .layout(mounted.view.scene(), FxPx::new(160), &ui_v10_goldens::NoText)
+        .expect("lays out");
+    let nav_box = mounted
+        .view
+        .handlers()
+        .iter()
+        .find(|(_, h)| {
+            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Navigate { .. })
+        })
+        .expect("card navigate handler")
+        .0;
+    let rect = result.boxes.iter().find(|b| b.node_id == nav_box).expect("box").rect;
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+    mounted
+        .view
+        .pointer(
+            &BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            &mut NoIo,
+            &result.boxes,
+            "Tap",
+            FxPx::new(rect.x.0 + rect.width.0 / 2),
+            FxPx::new(rect.y.0 + rect.height.0 / 2),
+        )
+        .expect("routes");
+    let texts = dsl_goldens::texts(mounted.view.scene());
+    assert!(texts.contains(&String::from("library.detail")), "desktop detail: {texts:?}");
+
+    // Phone: the platform override drops the heading row.
+    let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+    let keys = i18n_keys(&nxir);
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut phone =
+        View::mount(&nxir, &BaseTokens, &FixtureEnv::phone("portrait"), &locale).expect("mounts");
+    phone
+        .navigate(&BaseTokens, &FixtureEnv::phone("portrait"), &locale, "/detail")
+        .expect("navigates");
+    let texts = dsl_goldens::texts(phone.scene());
+    assert!(
+        !texts.contains(&String::from("library.detail")),
+        "phone override has no heading: {texts:?}"
+    );
+    assert!(texts.contains(&String::from("common.back")));
+}

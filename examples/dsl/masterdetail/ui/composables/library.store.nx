@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The master–detail store: a keyed list + a selection, loaded via an effect.
+
+Store LibraryStore {
+    items: List<Str> = ["Alpha", "Beta", "Gamma"],
+    selected: Str = "",
+    query: Str = "",
+    loading: Bool = false,
+}
+
+Event LibraryEvent {
+    Refresh,
+    Loaded(List<Str>),
+    Select(Str),
+}
+
+reduce LibraryEvent {
+    Refresh => state.loading = true,
+    Loaded(items) => {
+        state.items = items;
+        state.loading = false;
+    },
+    Select(name) => state.selected = name,
+}
+
+@effect on Refresh {
+    let items = svc.library.list(timeoutMs: 250);
+    dispatch(Loaded(items));
+}

@@ -105,3 +105,29 @@ host-side. OS markers formerly listed here move to Phase 6 (launch e2e).
 2. error/timeout discipline + fixtures
 3. CLI verbs + generators + scaffold tests
 4. master-detail demo + i18n packs + goldens + docs
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+### ✅ DONE (first increment — pulled forward with the 0077 finish)
+
+- **CLI project mode**: `nx-dsl build|… <appdir>` walks `ui/**.nx` (sorted paths) through
+  `merge_project` + `canonical_source_set` — platform overrides included. Single-file mode
+  unchanged.
+- **`examples/dsl/masterdetail/`** — the canonical multi-file app (and the intended
+  Phase-6 launch-demo payload): `ui/composables/library.store.nx` (store/events/reduce/
+  effect), `ui/pages/{ListPage,DetailPage,Routes}.nx`, `ui/platform/phone/pages/
+  DetailPage.nx` override. Exercises routes + `navigate` handlers + keyed List + Card +
+  two-way TextField binding + `@t` keys + effect-loaded data. Scene test proves:
+  project builds to ONE `.nxir`; desktop list-tap → detail → back; the phone fixture
+  renders the override layout from the same bytes.
+
+### ⬜ OPEN (this task's core)
+
+- Typed `svc.*` adapters generated from the real IDL schemas (frontend signature checks
+  NX0302/unknown-service; currently svc calls are opaque and host-scripted).
+- TranscriptHost (record/replay transcript files; the conformance `Script` host is the
+  in-memory precursor).
+- `i18n extract|compile` verbs; generators (`init`, `add …`); `run --route/--locale/--profile`.
+- en/de catalogs for masterdetail (runtime `Catalog` machinery is ready).

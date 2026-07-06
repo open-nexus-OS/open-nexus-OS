@@ -59,6 +59,63 @@ fn report(path: &str, source: &str, diag: &nexus_dsl_core::Diagnostic) {
     eprintln!("{path}:{line}:{col}: {sev}[{}]: {}", diag.code, diag.message);
 }
 
+/// Loads a `.nx` file or an app directory (walks `ui/**.nx` in sorted order
+/// through `merge_project` — platform overrides included).
+fn load_input(
+    path: &str,
+) -> Result<(nexus_dsl_core::ast::File, String, String), ExitCode> {
+    let meta = std::fs::metadata(path).map_err(|e| {
+        eprintln!("nx-dsl: cannot read `{path}`: {e}");
+        ExitCode::from(2)
+    })?;
+    if meta.is_file() {
+        let source = read(path)?;
+        let file = match parse_file(&source) {
+            Ok(f) => f,
+            Err(diag) => {
+                report(path, &source, &diag);
+                return Err(ExitCode::from(1));
+            }
+        };
+        let canonical = format_file(&file);
+        return Ok((file, canonical, source));
+    }
+    // Project directory: collect ui/**.nx (sorted paths, deterministic).
+    let mut files: Vec<nexus_dsl_core::SourceFile> = Vec::new();
+    let root = Path::new(path);
+    let mut stack = vec![root.join("ui")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().and_then(|e| e.to_str()) == Some("nx") {
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let source = std::fs::read_to_string(&p).map_err(|e| {
+                    eprintln!("nx-dsl: cannot read `{}`: {e}", p.display());
+                    ExitCode::from(2)
+                })?;
+                files.push(nexus_dsl_core::SourceFile { path: rel, source });
+            }
+        }
+    }
+    if files.is_empty() {
+        eprintln!("nx-dsl: no ui/**.nx files under `{path}`");
+        return Err(ExitCode::from(2));
+    }
+    let canonical = nexus_dsl_core::canonical_source_set(&files);
+    let merged = nexus_dsl_core::merge_project(&files).map_err(|diag| {
+        eprintln!("{path}: error[{}]: {}", diag.code, diag.message);
+        ExitCode::from(1)
+    })?;
+    Ok((merged, canonical, String::new()))
+}
+
 fn nx_files(args: &[String]) -> Vec<String> {
     args.iter().filter(|a| !a.starts_with("--") && !a.starts_with('-')).cloned().collect()
 }
@@ -159,16 +216,9 @@ fn cmd_build(args: &[String]) -> ExitCode {
         eprintln!("nx-dsl build: no input file");
         return ExitCode::from(2);
     };
-    let source = match read(path) {
-        Ok(s) => s,
+    let (file, canonical, source) = match load_input(path) {
+        Ok(loaded) => loaded,
         Err(code) => return code,
-    };
-    let file = match parse_file(&source) {
-        Ok(f) => f,
-        Err(diag) => {
-            report(path, &source, &diag);
-            return ExitCode::from(1);
-        }
     };
     let (model, diags) = check_file(&file);
     for diag in &diags {
@@ -177,7 +227,6 @@ fn cmd_build(args: &[String]) -> ExitCode {
     if has_errors(&diags) {
         return ExitCode::from(1);
     }
-    let canonical = format_file(&file);
     let lowered = match lower_file(&file, &model, &canonical) {
         Ok(l) => l,
         Err(diag) => {

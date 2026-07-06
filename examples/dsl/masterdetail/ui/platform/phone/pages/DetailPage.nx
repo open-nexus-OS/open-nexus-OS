@@ -1,0 +1,14 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Phone override: a compact single-column detail (no heading row).
+
+Page DetailPage {
+    Stack {
+        Text($state.selected).textSize(base)
+        Button { label: @t("common.back") }
+        on Tap -> navigate("/")
+    }
+    .padding(2)
+    .gap(2)
+}

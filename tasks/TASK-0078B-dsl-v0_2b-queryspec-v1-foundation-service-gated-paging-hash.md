@@ -129,3 +129,46 @@ Booting queryd into the topology rides with Phase 6 (TASK-0080C).
 4. DSL value/syntax/effect step + gating lints
 5. queryd skeleton (loopback) + permission registration
 6. master-detail consumer + docs
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+### ✅ DONE — plan items 1–3 (the `nexus-query` engine, host-proven)
+
+`source/libs/nexus-query` (no_std+alloc, **zero dependencies**, `forbid(unsafe)`,
+riscv64 no_std check green, clippy clean, 21 tests):
+
+- **`encoding`**: order-preserving key codec (Int/Fx sign-flip→BE; Str 0x00-escape +
+  double-0x00 terminator, self-terminating for tuple concatenation) + deterministic
+  bounded row codec. Exhaustive pair property tests (sign, prefix, NUL, tuples).
+- **`kv`**: ordered `Kv` trait (get/put/delete/scan/scan_rev) + host `MemKv` —
+  identical engine over statefsd (queryd) later; host proofs transfer structurally.
+- **`spec`**: QuerySpec v1 value (eq conjunction, ≤1 range on the ORDER column,
+  one orderBy, mandatory limit), canonical bytes (eq sorted by column) + FNV-1a64
+  hash **pinned by a golden** (0x724d_3c50_22ec_6e82 — recompute only on a
+  documented canonicalization change), `Page` + hash-bound opaque `PageToken`.
+- **`engine`**: `TableDef` catalog; `put` replace-semantics with stale-index removal;
+  `delete`; index-driven `query` (order col must be indexed; range rides the index;
+  **no post-sort**; pk tie-break part of the contract; MAX_SCAN=4096 hostile bound);
+  keyset resume asc=strictly-after / desc=exclusive-end; stable `QueryError` enum
+  (UnknownTable/UnknownColumn/TypeMismatch/Unsupported/BadToken/Corrupt).
+- **Integration proof** (`tests/engine_paging.rs`): paged walk == one-shot result at
+  many page sizes (asc/desc/filtered/ranged/pk-ordered — no dups, no gaps);
+  interleaved-write keyset contract (behind-cursor inserts don't resurface, ahead
+  ones appear); foreign/malformed token rejection; token wire round-trip; hash
+  order-independence + pinned golden.
+- **Docs**: `docs/dev/dsl/db-queries.md` extended to reference grade — engine
+  decision + rationale, key-encoding spec, storage layout, v1 shape, canonical
+  form/hash, keyset paging contract, v1 non-goals.
+
+### ⬜ OPEN (rest of this task)
+
+- `tools/nexus-idl/schemas/queryspec.capnp` wire schema + idl-runtime module.
+- DSL surface: QuerySpec value/syntax + `query` effect step + pure-build/effect-execute
+  gating lints (plan item 4).
+- `queryd` skeleton (opcodes over `[opcode u8][capnp]`, namespace derivation,
+  fail-closed permission contract, host-loopback tests) + register
+  `nexus.permission.QUERY` in abilitymgr (plan item 5).
+- master-detail consumer switch to QuerySpec paging (plan item 6);
+  `docs/dev/dsl/services.md` query-step section.

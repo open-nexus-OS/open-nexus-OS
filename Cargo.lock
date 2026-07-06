@@ -2066,6 +2066,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-query"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-sched"
 version = "0.1.0"
 

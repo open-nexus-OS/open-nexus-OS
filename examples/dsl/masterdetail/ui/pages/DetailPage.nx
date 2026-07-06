@@ -1,0 +1,13 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+Page DetailPage {
+    Stack {
+        Text(@t("library.detail")).textSize(lg)
+        Text($state.selected)
+        Button { label: @t("common.back") }
+        on Tap -> navigate("/")
+    }
+    .padding(4)
+    .gap(3)
+}

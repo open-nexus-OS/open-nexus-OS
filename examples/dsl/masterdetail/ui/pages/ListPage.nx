@@ -1,0 +1,24 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+Page ListPage {
+    Stack {
+        Text(@t("library.title")).textSize(lg)
+        TextField { label: @t("library.filter"), value: $state.query }
+        if $state.loading {
+            Text(@t("common.loading"))
+        } else {
+            List($state.items) { item in
+                Card {
+                    Text(item)
+                }
+                .key(item)
+                on Tap -> navigate("/detail")
+            }
+        }
+        Button { label: @t("library.refresh") }
+        on Tap -> dispatch(Refresh)
+    }
+    .padding(4)
+    .gap(2)
+}
