@@ -48,9 +48,34 @@ reduce CounterEvent {
 
 ## Local component state
 
-Components may declare local `$state` fields (ergonomic sugar): they compile to an
-implicit per-instance store with the same reducer machinery — no second semantics.
-Local state survives keyed reorders in collections (identity via `.key(expr)`).
+Components declare local state in a `state:` block:
+
+```nx
+Component Disclosure {
+    state: {
+        open: Bool = false,
+    }
+    Stack {
+        Toggle { checked: $state.open, label: @t("more") }
+        if $state.open { Text(@t("details")) } else { Text(@t("collapsed")) }
+    }
+}
+```
+
+It compiles to an **implicit store** (same machinery, no second semantics);
+`$state.field` resolves locally first. Mutations flow through two-way bindings
+and handlers — the one mutation path. **v1 restriction:** a stateful component
+is instantiated exactly once (a second instance or a use inside a collection is
+a build error) until per-instance keyed storage lands with the retained-
+instance work.
+
+## Effect cancellation (latest wins)
+
+Re-firing a trigger **cancels the previous plan's pending follow-ups**: each
+`(event, case)` carries a generation; follow-up dispatches are tagged with the
+generation of the trigger that produced them and are dropped if it has
+advanced by the time they dequeue. The canonical search-as-you-type recipe
+gets this for free — stale results never overwrite newer ones.
 
 ## Session vs durable vs queryable
 

@@ -442,3 +442,114 @@ fn collect_texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
     walk(scene, &mut out);
     out
 }
+
+#[test]
+fn stale_effect_followups_are_cancelled_when_the_trigger_refires() {
+    // Search's effect echoes its argument back through Found. Firing Search
+    // twice IN ONE CASCADE (via a driver event) means: by the time Search#1's
+    // Found("old") dequeues, Search has re-fired — generation advanced —
+    // stale follow-up dropped. Only "new" lands. Latest wins.
+    let nxir = compile(
+        r#"
+Store S { result: Str = "none", }
+Event E {
+    Kick,
+    Search(Str),
+    Found(Str),
+}
+reduce E {
+    Kick => state.result = state.result,
+    Search(q) => state.result = state.result,
+    Found(r) => state.result = r,
+}
+@effect on Kick {
+    dispatch(Search("old"));
+    dispatch(Search("new"));
+}
+@effect on Search(q) {
+    dispatch(Found(q));
+}
+"#,
+    );
+    let mut h = Harness::mount(&nxir);
+    h.dispatch(&mut NoIo, "E", "Kick", vec![]);
+    // Queue trace: [Search(old), Search(new)] → Search(old) enqueues
+    // Found(old)@gen1 → Search(new) BUMPS the Search generation → Found(old)
+    // is stale and dropped → Found(new)@gen2 lands.
+    h.assert_field("S", "result", &Value::Str("new".into()));
+}
+
+#[test]
+fn component_local_state_via_state_block_and_binding() {
+    use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+    let nxir = compile(
+        r#"
+Store S { n: Int = 0, }
+Event E { Noop, }
+reduce E { Noop => state.n = state.n, }
+Component Disclosure {
+    state: {
+        open: Bool = false,
+    }
+    Stack {
+        Toggle { checked: $state.open, label: "More" }
+        if $state.open {
+            Text("details visible")
+        } else {
+            Text("collapsed")
+        }
+    }
+}
+Page P {
+    Stack {
+        Disclosure { }
+    }
+}
+"#,
+    );
+    let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+    let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+    let mut view =
+        View::mount(&nxir, &nexus_dsl_runtime::theme_tokens::BaseTokens, &FixtureEnv::default(), &locale)
+            .expect("mounts");
+    assert!(collect_texts(view.scene()).contains(&String::from("collapsed")));
+
+    // The auto-bind handler targets the implicit local store — flip it.
+    let (store, path) = view
+        .handlers()
+        .iter()
+        .find_map(|(_, h)| match &h.action {
+            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path } => {
+                Some((*store, path.clone()))
+            }
+            _ => None,
+        })
+        .expect("bind handler on the local field");
+    let changes = view.runtime.write_binding(store, &path, Value::Bool(true)).expect("writes");
+    assert!(!changes.is_empty());
+    let damage = {
+        let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+        view.dispatch_noop_reemit(&nexus_dsl_runtime::theme_tokens::BaseTokens, &FixtureEnv::default(), &locale, &changes)
+    };
+    let _ = damage;
+    assert!(collect_texts(view.scene()).contains(&String::from("details visible")));
+}
+
+#[test]
+fn stateful_component_used_twice_is_rejected() {
+    let src = r#"
+Component C {
+    state: { active: Bool = false, }
+    Stack { Toggle { checked: $state.active, label: "x" } }
+}
+Page P { Stack { C { } C { } } }
+Store S { n: Int = 0, }
+Event E { X, }
+reduce E { X => state.n = state.n, }
+"#;
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags));
+    let canonical = nexus_dsl_core::format_file(&file);
+    assert!(nexus_dsl_core::lower_file(&file, &model, &canonical).is_err());
+}

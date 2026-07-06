@@ -172,6 +172,21 @@ impl<'p> View<'p> {
         self.apply_changes(tokens, device, locale, &changes).map(Some)
     }
 
+    /// Test/host helper: map externally produced changes onto the dep set
+    /// and re-emit (the pointer/text paths call this internally).
+    ///
+    /// # Errors
+    /// Emission errors.
+    pub fn dispatch_noop_reemit(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        changes: &[crate::ChangedField],
+    ) -> Damage {
+        self.apply_changes(tokens, device, locale, changes).unwrap_or(Damage::None)
+    }
+
     /// Maps changed fields onto the dep set (shared by dispatch + bindings).
     fn apply_changes(
         &mut self,

@@ -23,9 +23,11 @@ pub(super) fn build_state(
     model: &Model<'_>,
     program: &mut ir::ui_program::Builder<'_>,
 ) -> Result<(), Diagnostic> {
-    // Stores (canonical order).
+    // Stores (canonical order): named stores, then component-local implicit
+    // stores (`state:` blocks) in component-name order.
     {
-        let mut stores = program.reborrow().init_stores(ctx.store_order.len() as u32);
+        let total = ctx.store_order.len() + ctx.local_stores.len();
+        let mut stores = program.reborrow().init_stores(total as u32);
         for (i, &model_idx) in ctx.store_order.iter().enumerate() {
             let store = model.stores[model_idx];
             let mut b = stores.reborrow().get(i as u32);
@@ -35,6 +37,22 @@ pub(super) fn build_state(
                 let mut fb = fields.reborrow().get(j as u32);
                 fb.set_name(ctx.sym(&field.name.text));
                 fb.set_persist(field.persist);
+                lower_type(&field.ty, fb.reborrow().init_type());
+                if let Some(default) = &field.default {
+                    let env = Env::new(ctx);
+                    lower_expr(&env, default, fb.init_default())?;
+                }
+            }
+        }
+        for (offset, (component_name, _, comp_idx)) in ctx.local_stores.iter().enumerate() {
+            let component = model.components[*comp_idx];
+            let mut b = stores.reborrow().get((ctx.store_order.len() + offset) as u32);
+            b.set_name(ctx.sym(&alloc::format!("__local_{component_name}")));
+            let mut fields = b.init_fields(component.state.len() as u32);
+            for (j, field) in component.state.iter().enumerate() {
+                let mut fb = fields.reborrow().get(j as u32);
+                fb.set_name(ctx.sym(&field.name.text));
+                fb.set_persist(false);
                 lower_type(&field.ty, fb.reborrow().init_type());
                 if let Some(default) = &field.default {
                     let env = Env::new(ctx);
@@ -596,7 +614,7 @@ fn lower_widget(
     for (name, value) in &widget.props {
         if let Expr::StateRef { .. } = value {
             let trigger = match (widget.name.text.as_str(), name.text.as_str()) {
-                ("Toggle", "checked") => Some("Tap"),
+                ("Toggle" | "Checkbox", "checked") => Some("Tap"),
                 ("TextField", "value") | ("TextArea", "value") => Some("Change"),
                 _ => None,
             };

@@ -147,6 +147,23 @@ fn decl_to(out: &mut String, decl: &Decl) {
                 indent_to(out, 1);
                 out.push_str("}\n");
             }
+            if !component.state.is_empty() {
+                indent_to(out, 1);
+                out.push_str("state: {\n");
+                for field in &component.state {
+                    indent_to(out, 2);
+                    out.push_str(&field.name.text);
+                    out.push_str(": ");
+                    type_to(out, &field.ty);
+                    if let Some(default) = &field.default {
+                        out.push_str(" = ");
+                        expr_to(out, default, 0);
+                    }
+                    out.push_str(",\n");
+                }
+                indent_to(out, 1);
+                out.push_str("}\n");
+            }
             view_to(out, &component.view, 1);
             out.push_str("}\n");
         }

@@ -95,6 +95,10 @@ pub(super) struct Ctx<'a> {
     /// Store field name → canonical store index. `Err(())` = the name exists
     /// in more than one store (ambiguous — using it is a lowering error).
     field_store: BTreeMap<String, Result<u32, ()>>,
+    /// Component-owned implicit stores (`state:` blocks), appended AFTER the
+    /// named stores in canonical order: (component name, canonical store
+    /// index, model component index).
+    pub local_stores: Vec<(String, u32, usize)>,
 }
 
 #[derive(Clone, Copy)]
@@ -179,6 +183,43 @@ impl<'a> Ctx<'a> {
             }
         }
 
+        // Component `state:` blocks → implicit stores appended after the
+        // named ones (sorted by component name — deterministic). v1 rule:
+        // a stateful component is instantiated exactly ONCE (per-instance
+        // keyed storage rides with the retained-instance work) — enforced
+        // below by the usage counter.
+        let mut local_stores: Vec<(String, u32, usize)> = Vec::new();
+        {
+            let mut stateful: Vec<usize> = model
+                .components
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !c.state.is_empty())
+                .map(|(i, _)| i)
+                .collect();
+            stateful.sort_by_key(|&i| model.components[i].name.text.as_str());
+            for &comp_idx in &stateful {
+                let component = model.components[comp_idx];
+                let store_idx = (store_order.len() + local_stores.len()) as u32;
+                // Local fields participate in global resolution too (so
+                // bindings/deps work); collisions poison like store fields.
+                for field in &component.state {
+                    field_store
+                        .entry(field.name.text.clone())
+                        .and_modify(|entry| *entry = Err(()))
+                        .or_insert(Ok(store_idx));
+                }
+                local_stores.push((component.name.text.clone(), store_idx, comp_idx));
+                let usage = count_component_usage(model, &component.name.text);
+                if usage != 1 {
+                    return Err(unsupported(
+                        component.name.span,
+                        "a stateful component instantiated other than exactly once                          (per-instance local state lands with the retained-instance work)",
+                    ));
+                }
+            }
+        }
+
         Ok(Self {
             symbols,
             symbol_ids,
@@ -191,6 +232,7 @@ impl<'a> Ctx<'a> {
             entry_page,
             case_map,
             field_store,
+            local_stores,
         })
     }
 
@@ -325,7 +367,7 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                 for (name, value) in &widget.props {
                     if matches!(value, Expr::StateRef { .. }) {
                         match (widget.name.text.as_str(), name.text.as_str()) {
-                            ("Toggle", "checked") => {
+                            ("Toggle" | "Checkbox", "checked") => {
                                 set.insert(alloc::string::String::from("Tap"));
                             }
                             ("TextField", "value") | ("TextArea", "value") => {
@@ -468,6 +510,15 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                     set.insert(prop.name.text.clone());
                     walk_type(&prop.ty, set);
                 }
+                for field in &component.state {
+                    set.insert(field.name.text.clone());
+                    walk_type(&field.ty, set);
+                    if let Some(default) = &field.default {
+                        walk_expr(default, set, i18n);
+                    }
+                    // Implicit store name symbol.
+                    set.insert(alloc::format!("__local_{}", component.name.text));
+                }
                 walk_view(&component.view, set, i18n);
             }
             Decl::Routes(routes) => {
@@ -481,6 +532,52 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
             }
         }
     }
+}
+
+/// Counts `componentRef` instantiations of `name` across every view.
+/// A use inside a collection template counts as many (dynamic).
+fn count_component_usage(model: &Model<'_>, name: &str) -> usize {
+    fn walk(node: &crate::ast::ViewNode, name: &str, in_collection: bool) -> usize {
+        use crate::ast::ViewNode as V;
+        match node {
+            V::Widget(widget) => {
+                let own = if widget.name.text == name {
+                    if in_collection { 2 } else { 1 }
+                } else {
+                    0
+                };
+                own + widget
+                    .children
+                    .iter()
+                    .map(|child| walk(child, name, in_collection))
+                    .sum::<usize>()
+            }
+            V::If { arms, els, .. } => {
+                arms.iter()
+                    .flat_map(|(_, body)| body.iter())
+                    .chain(els.iter())
+                    .map(|child| walk(child, name, in_collection))
+                    .sum()
+            }
+            V::For { body, .. } => {
+                body.iter().map(|child| walk(child, name, true)).sum()
+            }
+            V::Collection(collection) => {
+                collection.body.iter().map(|child| walk(child, name, true)).sum()
+            }
+            V::Match { arms, .. } => arms
+                .iter()
+                .flat_map(|arm| arm.body.iter())
+                .map(|child| walk(child, name, in_collection))
+                .sum(),
+        }
+    }
+    model
+        .pages
+        .iter()
+        .map(|p| walk(&p.view, name, false))
+        .chain(model.components.iter().map(|c| walk(&c.view, name, false)))
+        .sum()
 }
 
 /// Builds the full message with the given `programHash` value and returns the

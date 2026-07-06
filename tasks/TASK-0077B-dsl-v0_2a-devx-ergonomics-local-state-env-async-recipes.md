@@ -110,10 +110,26 @@ beyond single-call): call → dispatch chains with explicit timeouts and cancell
   writes the bound field → bound `Text($state.query)` shows it. Schema minor bump 1.2 +
   ir.md changelog + IR goldens regenerated.
 
+### ✅ DONE (second increment, 2026-07-06)
+
+- **`$state` locals**: `state:` block on components (grammar/AST/fmt) → **implicit store**
+  appended after the named stores (`__local_<Component>`, canonical order); `$state.field`
+  and auto-bindings resolve local fields through the same field→store map; defaults eval
+  like store defaults. **v1 single-use rule enforced at lowering**: a stateful component
+  instantiated ≠ 1× (incl. any use inside a collection template) is a build error —
+  per-instance keyed storage rides with the retained-instance work. Conformance: toggle
+  bound to a local flips the component's branch; two instances rejected.
+- **Async cancellation (latest wins)**: per-(event,case) generations in the runtime;
+  effect follow-ups are tagged with their trigger's generation and dropped at dequeue if
+  it advanced. Conformance: double-fired Search in one cascade — the stale `Found("old")`
+  is cancelled, only `"new"` lands.
+- Checkbox joins the auto-bind table (same Tap-flip contract as Toggle).
+- docs/dev/dsl/state.md: local-state + cancellation chapters current.
+- TRAP (fixture): `on` is a keyword — state fields can't be named `on`.
+
 ### ⬜ OPEN (this task's remainder)
 
-- Checkbox/Slider/Select/Stepper bindings (same auto-bind pattern; Slider needs a
-  value-carrying interaction, Select an options contract).
+- Slider/Select/Stepper bindings (value-carrying interactions / options contract).
 - **`$state` locals** (component-level state → implicit per-instance stores; needs a
   grammar `state:` block + instance identity from keyed NodeIds).
 - **Async recipes**: multi-step EffectPlan chains with explicit cancellation tokens

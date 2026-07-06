@@ -19,9 +19,14 @@ pub(crate) struct Pending {
     pub event: u32,
     pub case: u32,
     pub payload: Vec<Value>,
+    /// The (event, case, generation) of the trigger whose plan enqueued this.
+    /// `None` = a root dispatch (user/handler) — never cancelled.
+    pub origin: Option<(u32, u32, u32)>,
 }
 
 pub(crate) struct EffectCtx<'a> {
+    /// The running plan's trigger identity + generation (for cancellation).
+    pub origin: (u32, u32, u32),
     pub stores: &'a [StoreState],
     pub locals: &'a mut [Option<Value>],
     pub device: &'a dyn DeviceEnv,
@@ -108,7 +113,12 @@ fn enqueue(
     for arg in payload_list.iter() {
         payload.push(eval_in(ctx, arg)?);
     }
-    queue.push(Pending { event: dispatch.get_event(), case: dispatch.get_case(), payload });
+    queue.push(Pending {
+        event: dispatch.get_event(),
+        case: dispatch.get_case(),
+        payload,
+        origin: Some(ctx.origin),
+    });
     Ok(())
 }
 

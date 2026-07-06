@@ -237,6 +237,9 @@ pub struct PageDecl {
 pub struct ComponentDecl {
     pub name: Ident,
     pub props: Vec<PropDecl>,
+    /// Local `$state` fields (`state: { open: Bool = false, }`) — lowered to
+    /// an implicit store owned by this component.
+    pub state: Vec<StoreField>,
     pub view: ViewNode,
     pub span: Span,
 }

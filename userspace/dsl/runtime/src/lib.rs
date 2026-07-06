@@ -35,7 +35,7 @@ pub use nav::{Nav, NavEntry};
 pub use store::{StoreState, Value};
 pub use view::View;
 
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 use effects::Pending;
 use nexus_dsl_ir::read::ProgramReader;
 use nexus_dsl_ir::IrError;
@@ -202,6 +202,11 @@ pub struct Runtime<'p> {
     locals: Vec<Option<Value>>,
     /// Reusable change accumulator (drained by `dispatch`).
     changed: Vec<ChangedField>,
+    /// Cancellation generations per (event, case): re-triggering a case
+    /// bumps its generation; pending follow-ups from an older generation of
+    /// that trigger are dropped when dequeued (latest wins — the async
+    /// recipe contract, docs/dev/dsl/state.md).
+    generations: BTreeMap<(u32, u32), u32>,
 }
 
 impl<'p> Runtime<'p> {
@@ -272,6 +277,7 @@ impl<'p> Runtime<'p> {
             stores,
             locals: vec![None; max_locals],
             changed: Vec::new(),
+            generations: BTreeMap::new(),
         })
     }
 
@@ -374,13 +380,21 @@ impl<'p> Runtime<'p> {
         // FIFO: follow-up dispatches run in the order effects produced them
         // (a LIFO Vec::pop would reverse sibling dispatches — observed-order
         // determinism is part of the written semantics).
-        let mut queue: Vec<Pending> = vec![Pending { event, case, payload }];
+        let mut queue: Vec<Pending> =
+            vec![Pending { event, case, payload, origin: None }];
         let mut steps = 0usize;
         while !queue.is_empty() {
             let pending = queue.remove(0);
             steps += 1;
             if steps > MAX_DISPATCH_CASCADE {
                 return Err(RtError::Budget);
+            }
+            // Cancellation: a follow-up whose originating trigger has been
+            // re-fired since it was enqueued is stale — latest wins.
+            if let Some((oe, oc, ogen)) = pending.origin {
+                if self.generations.get(&(oe, oc)).copied().unwrap_or(0) != ogen {
+                    continue;
+                }
             }
             self.dispatch_one(env, locale, host, &pending, &mut queue)?;
         }
@@ -438,13 +452,20 @@ impl<'p> Runtime<'p> {
             }
         }
 
-        // 2. Effects (post-commit; follow-ups enter the queue).
+        // 2. Effects (post-commit; follow-ups enter the queue). Firing this
+        // trigger bumps its generation — older in-flight follow-ups die.
+        let generation = {
+            let slot = self.generations.entry((pending.event, pending.case)).or_insert(0);
+            *slot += 1;
+            *slot
+        };
         for plan in root.get_effects().map_err(|_| RtError::Malformed)?.iter() {
             if plan.get_event() != pending.event || plan.get_case() != pending.case {
                 continue;
             }
             self.locals.fill(None);
             let mut ctx = effects::EffectCtx {
+                origin: (pending.event, pending.case, generation),
                 stores: &self.stores,
                 locals: &mut self.locals,
                 device: env,

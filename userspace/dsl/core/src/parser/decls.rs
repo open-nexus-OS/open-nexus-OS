@@ -142,10 +142,32 @@ impl Parser<'_> {
                 props.push(PropDecl { name: prop_name, ty, span: prop_span });
             }
         }
+        let mut state = Vec::new();
+        if self.peek() == &TokenKind::KwState {
+            self.bump();
+            self.expect(&TokenKind::Colon, "`:`")?;
+            self.expect(&TokenKind::LBrace, "`{`")?;
+            while !self.eat(&TokenKind::RBrace) {
+                let field_name = self.ident("a state field name")?;
+                self.expect(&TokenKind::Colon, "`:`")?;
+                let ty = self.type_expr()?;
+                let default =
+                    if self.eat(&TokenKind::Eq) { Some(self.expr()?) } else { None };
+                let field_span = field_name.span.to(self.prev_span());
+                self.expect(&TokenKind::Comma, "`,` after the state field")?;
+                state.push(crate::ast::StoreField {
+                    name: field_name,
+                    ty,
+                    default,
+                    persist: false,
+                    span: field_span,
+                });
+            }
+        }
         let view = self.view_node()?;
         self.expect(&TokenKind::RBrace, "`}` closing the component")?;
         let span = start.to(self.prev_span());
-        Ok(ComponentDecl { name, props, view, span })
+        Ok(ComponentDecl { name, props, state, view, span })
     }
 
     /// `Routes { "/path/:id" -> Page(id: Int); ... }`
