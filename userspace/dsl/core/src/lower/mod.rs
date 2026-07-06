@@ -92,6 +92,9 @@ pub(super) struct Ctx<'a> {
     pub entry_page: u32,
     /// Case name → (canonical event index, case index). Unambiguous only.
     case_map: BTreeMap<String, (u32, u32)>,
+    /// Store field name → canonical store index. `Err(())` = the name exists
+    /// in more than one store (ambiguous — using it is a lowering error).
+    field_store: BTreeMap<String, Result<u32, ()>>,
 }
 
 #[derive(Clone, Copy)]
@@ -165,6 +168,17 @@ impl<'a> Ctx<'a> {
             }
         }
 
+        // Field name → owning store (canonical index); duplicates poison.
+        let mut field_store: BTreeMap<String, Result<u32, ()>> = BTreeMap::new();
+        for (canonical_idx, &model_idx) in store_order.iter().enumerate() {
+            for field in &model.stores[model_idx].fields {
+                field_store
+                    .entry(field.name.text.clone())
+                    .and_modify(|entry| *entry = Err(()))
+                    .or_insert(Ok(canonical_idx as u32));
+            }
+        }
+
         Ok(Self {
             symbols,
             symbol_ids,
@@ -176,12 +190,23 @@ impl<'a> Ctx<'a> {
             i18n_keys: i18n.into_iter().collect(),
             entry_page,
             case_map,
+            field_store,
         })
     }
 
     /// (canonical event index, case index) for an unambiguous case name.
     pub(super) fn event_case(&self, case: &str) -> Option<(u32, u32)> {
         self.case_map.get(case).copied()
+    }
+
+    /// The canonical store owning `field`. `Err(true)` = ambiguous across
+    /// stores, `Err(false)` = unknown field.
+    pub(super) fn store_of_field(&self, field: &str) -> Result<u32, bool> {
+        match self.field_store.get(field) {
+            Some(Ok(store)) => Ok(*store),
+            Some(Err(())) => Err(true),
+            None => Err(false),
+        }
     }
 
     pub(super) fn sym(&self, text: &str) -> u32 {

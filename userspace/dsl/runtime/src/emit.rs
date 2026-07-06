@@ -303,14 +303,22 @@ fn emit_widget(
         }
     }
 
-    // Children.
+    // Children. Their final-tree position depends on the kit builder's
+    // structure (registry::child_path) — prefix + base keep handler/text
+    // paths honest.
     let child_list = widget.get_children().map_err(|_| RtError::Malformed)?;
-    let base = registry::child_base_offset(&kind);
+    let (prefix, base) = registry::child_path(&kind);
     let mut children = Vec::with_capacity(child_list.len() as usize);
     for (k, child) in child_list.iter().enumerate() {
+        for &seg in prefix {
+            ctx.path.push(seg);
+        }
         ctx.path.push(base + k as u32);
         let emitted = emit_view(ctx, child)?;
         ctx.path.pop();
+        for _ in prefix {
+            ctx.path.pop();
+        }
         children.push(emitted);
     }
 

@@ -183,27 +183,22 @@ pub fn build_widget(
 ) -> LayoutNode {
     let prop = |name: &str| props.iter().find(|(n, _)| n == name).map(|(_, v)| v);
     match kind {
-        "Stack" | "Card" | "List" => {
-            // Card gets a surface + radius default when unstyled.
-            let mut mods_out = Mods {
-                padding: mods.padding,
-                gap: mods.gap,
-                direction: mods.direction,
-                align: mods.align,
-                justify: mods.justify,
-                bg: mods.bg.or(if kind == "Card" { Some(ColorToken::Surface) } else { None }),
-                fg: mods.fg,
-                rounded: mods
-                    .rounded
-                    .or(if kind == "Card" { Some(FxPx::new(8)) } else { None }),
-                text_size: mods.text_size,
-                opacity: mods.opacity,
-                disabled: mods.disabled,
-            };
-            if kind == "Card" && mods.padding == EdgeInsets::zero() {
-                mods_out.padding = EdgeInsets::all(spacing(3));
+        "Stack" | "List" => plain_stack(mods, tokens, children),
+        "Card" => {
+            // Kit promotion: GlassCard (Panel + material tokens) is the SSOT.
+            let mut card = nexus_widget_card::GlassCard::new()
+                .padding(if mods.padding == EdgeInsets::zero() {
+                    spacing(3)
+                } else {
+                    mods.padding.top
+                });
+            if mods.direction == Some(Direction::Row) {
+                card = card.row();
             }
-            plain_stack(&mods_out, tokens, children)
+            for child in children {
+                card = card.child(child);
+            }
+            card.build(tokens)
         }
         "Spacer" => LayoutNode::Spacer(Spacer::default()),
         "Text" => {
@@ -211,115 +206,107 @@ pub fn build_widget(
             text_node(value, mods, tokens)
         }
         "Button" => {
+            // Kit promotion: the design-system GlassButton is the SSOT for
+            // button visuals; DSL modifiers select variant/state, the kit
+            // decides the look. Structure: root → content stack (index 0) →
+            // label text (0) + declared children (1+) — `child_path_prefix`
+            // mirrors this for handler/child paths.
             let label = prop("label").map(value_text).unwrap_or_default();
-            let mut inner = Mods::default();
-            inner.fg = Some(mods.fg.unwrap_or(ColorToken::OnAccent));
-            inner.text_size = mods.text_size;
-            let mut wrapper = Mods {
-                padding: if mods.padding == EdgeInsets::zero() {
-                    EdgeInsets::symmetric(spacing(2), spacing(4))
-                } else {
-                    mods.padding
-                },
-                gap: mods.gap,
+            let variant = if mods.bg == Some(ColorToken::Danger) {
+                nexus_widget_button::ButtonVariant::Destructive
+            } else if mods.bg == Some(ColorToken::SurfaceVariant) {
+                nexus_widget_button::ButtonVariant::Secondary
+            } else {
+                nexus_widget_button::ButtonVariant::Default
+            };
+            let state = if mods.disabled {
+                nexus_style::InteractionState::Disabled
+            } else {
+                nexus_style::InteractionState::Default
+            };
+            let label_mods = Mods {
+                fg: Some(mods.fg.unwrap_or(ColorToken::OnAccent)),
+                text_size: mods.text_size,
+                ..Mods::default()
+            };
+            let mut content = alloc::vec![text_node(label, &label_mods, tokens)];
+            content.extend(children);
+            let content_mods = Mods {
                 direction: Some(Direction::Row),
                 align: Some(Align::Center),
-                justify: Some(Justify::Center),
-                bg: Some(mods.bg.unwrap_or(ColorToken::Accent)),
-                fg: mods.fg,
-                rounded: Some(mods.rounded.unwrap_or(FxPx::new(8))),
-                text_size: None,
-                opacity: mods.opacity,
-                disabled: mods.disabled,
+                gap: mods.gap,
+                ..Mods::default()
             };
-            if wrapper.disabled {
-                wrapper.opacity = Some(140);
-            }
-            let mut content = alloc::vec![text_node(label, &inner, tokens)];
-            content.extend(children);
-            plain_stack(&wrapper, tokens, content)
+            nexus_widget_button::GlassButton::new()
+                .variant(variant)
+                .state(state)
+                .content(plain_stack(&content_mods, tokens, content))
+                .build(tokens)
         }
         "TextField" => {
-            let label = prop("label").map(value_text).unwrap_or_default();
-            let value = prop("value")
-                .map(value_text)
-                .filter(|v| !v.is_empty())
-                .or_else(|| prop("placeholder").map(value_text))
-                .unwrap_or_default();
-            let label_mods = Mods {
-                fg: Some(ColorToken::OnSurfaceVariant),
-                text_size: Some(TypographyToken::Sm),
-                ..Mods::default()
-            };
-            let field_mods = Mods {
-                padding: EdgeInsets::all(spacing(2)),
-                bg: Some(ColorToken::SurfaceVariant),
-                rounded: Some(FxPx::new(6)),
-                ..Mods::default()
-            };
-            let field = plain_stack(
-                &field_mods,
-                tokens,
-                alloc::vec![text_node(value, &Mods::default(), tokens)],
-            );
-            let column = Mods { gap: spacing(1), ..copy_layout(mods) };
-            plain_stack(&column, tokens, alloc::vec![
-                text_node(label, &label_mods, tokens),
-                field,
-            ])
+            // Kit promotion: GlassTextField (label + field + focus tokens).
+            let mut field = nexus_widget_text_field::GlassTextField::new();
+            if let Some(label) = prop("label").map(value_text) {
+                field = field.label(label);
+            }
+            if let Some(value) = prop("value").map(value_text).filter(|v| !v.is_empty()) {
+                field = field.value(value);
+            }
+            if let Some(placeholder) = prop("placeholder").map(value_text) {
+                field = field.placeholder(placeholder);
+            }
+            field.build(tokens)
         }
         "Toggle" => {
             let checked = matches!(prop("checked"), Some(Value::Bool(true)));
-            let track = Mods {
-                padding: EdgeInsets::all(FxPx::new(2)),
-                direction: Some(Direction::Row),
-                justify: Some(if checked { Justify::End } else { Justify::Start }),
-                bg: Some(if checked { ColorToken::Accent } else { ColorToken::SurfaceVariant }),
-                rounded: Some(FxPx::new(10)),
-                ..copy_layout(mods)
-            };
-            let knob = Mods {
-                bg: Some(ColorToken::Surface),
-                rounded: Some(FxPx::new(8)),
-                padding: EdgeInsets::all(FxPx::new(8)),
-                ..Mods::default()
-            };
-            plain_stack(&track, tokens, alloc::vec![plain_stack(&knob, tokens, alloc::vec![])])
+            let mut toggle = nexus_widget_toggle::GlassToggle::new().checked(checked);
+            if mods.disabled {
+                toggle = toggle.state(nexus_style::InteractionState::Disabled);
+            }
+            toggle.build(tokens)
         }
         "Icon" => {
-            // A tinted square placeholder box; the vector symbol path is the
-            // in-compositor mount's job (ShapeKind rendering, TASK-0076B+).
-            let box_mods = Mods {
-                bg: Some(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant)),
-                rounded: Some(FxPx::new(3)),
-                padding: EdgeInsets::all(FxPx::new(8)),
-                ..Mods::default()
+            // Kit promotion: the vector Icon primitive (symbol name → Symbol).
+            let symbol = match prop("symbol").map(value_text).as_deref() {
+                Some("plus") => Some(nexus_widget_icon::Symbol::Plus),
+                Some("minus") => Some(nexus_widget_icon::Symbol::Minus),
+                Some("close") => Some(nexus_widget_icon::Symbol::Close),
+                Some("star") => Some(nexus_widget_icon::Symbol::Star),
+                Some("chevronRight") => Some(nexus_widget_icon::Symbol::ChevronRight),
+                Some("chevronLeft") => Some(nexus_widget_icon::Symbol::ChevronLeft),
+                Some("chevronDown") => Some(nexus_widget_icon::Symbol::ChevronDown),
+                Some("chevronUp") => Some(nexus_widget_icon::Symbol::ChevronUp),
+                _ => None,
             };
-            plain_stack(&box_mods, tokens, alloc::vec![])
+            match symbol {
+                Some(symbol) => nexus_widget_icon::Icon::new(symbol)
+                    .size(16)
+                    .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
+                    .build(tokens),
+                None => {
+                    // Unknown symbol: honest tinted placeholder box.
+                    let box_mods = Mods {
+                        bg: Some(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant)),
+                        rounded: Some(FxPx::new(3)),
+                        padding: EdgeInsets::all(FxPx::new(8)),
+                        ..Mods::default()
+                    };
+                    plain_stack(&box_mods, tokens, alloc::vec![])
+                }
+            }
         }
         _ => plain_stack(mods, tokens, children),
     }
 }
 
-/// Index of the first *declared* child inside the produced node (structural
-/// slots the builder occupies come first — e.g. the Button label text).
+/// Where a kind's *declared* children live inside the produced tree:
+/// (path prefix from the widget root, index of the first declared child).
+/// Mirrors the kit builders' structure — update together with `build_widget`.
 #[must_use]
-pub fn child_base_offset(kind: &str) -> u32 {
+pub fn child_path(kind: &str) -> (&'static [u32], u32) {
     match kind {
-        "Button" => 1, // slot 0 = the label text node
-        _ => 0,
-    }
-}
-
-fn copy_layout(mods: &Mods) -> Mods {
-    Mods {
-        padding: mods.padding,
-        gap: mods.gap,
-        direction: mods.direction,
-        align: mods.align,
-        justify: mods.justify,
-        opacity: mods.opacity,
-        disabled: mods.disabled,
-        ..Mods::default()
+        // GlassButton: root → content stack (0) → label (0), children (1+).
+        "Button" => (&[0], 1),
+        _ => (&[], 0),
     }
 }

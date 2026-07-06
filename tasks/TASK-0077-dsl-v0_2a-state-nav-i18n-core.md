@@ -180,11 +180,35 @@ Unknown ids / incompatible profile-shell pairings reject deterministically.
   `nav.push` + re-emit). Proven by a scene test: live tap on a Button switches Home →
   Detail through real hit-testing, `navigate_back` returns.
 
+### ✅ DONE (fourth increment, 2026-07-06)
+
+- **Multi-store programs**: field-name → owning-store resolution at lowering (`Ctx::
+  store_of_field`; a name in two stores = ambiguous = error, rename it). Each reducer
+  binds ONE store, resolved from the state fields its arms touch; mixing two stores in
+  one reducer = error (write two reducers on the same event — dispatch already runs all
+  matching reducers). `$state.field` in views resolves the same way. Conformance: two
+  stores/shared event, ambiguity reject, cross-store-reducer reject (11 cases total).
+- **Kit promotion (user request)**: `registry::build_widget` now renders through the
+  design-system crates — **GlassButton** (variant from `.bg(danger|surfaceVariant)`,
+  `InteractionState::Disabled`), **GlassCard** (material tokens, `.row()`),
+  **GlassTextField** (label/value/placeholder), **GlassToggle**, **Icon** (symbol-name →
+  vector `Symbol`, unknown → honest placeholder box). Children/handler paths follow the
+  kit trees via `registry::child_path(kind) -> (prefix, base)` (GlassButton: content
+  stack at 0, label 0, children 1+). Scene goldens regenerated; all live tests
+  (hit-testing, disabled, navigate) green through the kit structures.
+- **⚠ windowd size budget is CRITICAL**: kit promotion put windowd at 4,515,692 text —
+  996 bytes under the proven-dead 4,516,688 line (the exact limit is runtime-dependent;
+  the current boot passes headless: `DSL: first frame presented`). Any further windowd
+  growth can silently kill the boot again. Escalation options for the owner: bump the
+  kernel `USER_VMO_ARENA_LEN` (one line, kernel territory, overlaps uncommitted #124
+  work) and/or a windowd wallpaper-rodata diet (~4MB), and/or a CI contract test
+  gating windowd text size (chain-test follow-up).
+
 ### ⬜ OPEN (this task's remainder — see Goal)
 
 - Route-param **binding into page views** (needs lowering support: route params as the
   page's param slice; pages currently take no params).
-- Multi-store programs, effect-scheduling determinism fixtures, i18n compiled catalogs +
-  locale switch, `device.*` from the systemui registry + profile-matrix goldens,
-  `ui/platform/<profile>/` build-time overrides, kept-alive route state contract,
-  windowed-List consumer contract (0077C core).
+- Effect-scheduling determinism fixtures, i18n catalog compile verb, `device.*` from the
+  systemui registry (OS side), `ui/platform/<profile>/` build-time overrides, route
+  params bound into page views, kept-alive route state contract, windowed-List consumer
+  contract (0077C core).

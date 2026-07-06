@@ -23,4 +23,10 @@ nexus-dsl-ir = { path = "../ir", default-features = false }
 capnp = { version = "0.24", default-features = false, features = ["alloc"] }
 nexus-layout-types = { path = "../../ui/layout-types" }
 nexus-layout = { path = "../../ui/layout" }
+nexus-style = { path = "../../ui/style" }
+nexus-widget-button = { path = "../../ui/widgets/button" }
+nexus-widget-card = { path = "../../ui/widgets/card" }
+nexus-widget-text-field = { path = "../../ui/widgets/text_field" }
+nexus-widget-toggle = { path = "../../ui/widgets/toggle" }
+nexus-widget-icon = { path = "../../ui/widgets/icon" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }

@@ -13,16 +13,14 @@ use nexus_dsl_ir::ui_ir_capnp as ir;
 /// Lexical environment for one body/view.
 pub(super) struct Env<'a> {
     pub ctx: &'a Ctx<'a>,
-    /// Canonical store index `$state`/`state` reads resolve against.
-    pub store: Option<u32>,
     pub locals: BTreeMap<String, u32>,
     pub params: BTreeMap<String, u32>,
     pub next_slot: u32,
 }
 
 impl<'a> Env<'a> {
-    pub(super) fn new(ctx: &'a Ctx<'a>, store: Option<u32>) -> Self {
-        Self { ctx, store, locals: BTreeMap::new(), params: BTreeMap::new(), next_slot: 0 }
+    pub(super) fn new(ctx: &'a Ctx<'a>) -> Self {
+        Self { ctx, locals: BTreeMap::new(), params: BTreeMap::new(), next_slot: 0 }
     }
 
     pub(super) fn bind_local(&mut self, name: &str) -> u32 {
@@ -112,8 +110,22 @@ pub(super) fn lower_expr(
         }
         Expr::StateRef { path, span } => {
             set_opaque_type(&mut b);
-            let Some(store) = env.store else {
-                return Err(unsupported(*span, "`$state` outside a single-store program"));
+            let Some(first) = path.first() else {
+                return Err(unsupported(*span, "empty `$state` path"));
+            };
+            // Multi-store: the field name resolves its owning store; a name
+            // shared by several stores is ambiguous and must be renamed.
+            let store = match env.ctx.store_of_field(&first.text) {
+                Ok(store) => store,
+                Err(true) => {
+                    return Err(unsupported(
+                        *span,
+                        "a state field named in more than one store (rename it)",
+                    ));
+                }
+                Err(false) => {
+                    return Err(unsupported(*span, "a state field no store declares"));
+                }
             };
             let mut get = b.init_field_get();
             get.set_store(store);

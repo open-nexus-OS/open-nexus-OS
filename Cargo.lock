@@ -1845,7 +1845,13 @@ dependencies = [
  "nexus-dsl-ir",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-style",
  "nexus-theme-tokens",
+ "nexus-widget-button",
+ "nexus-widget-card",
+ "nexus-widget-icon",
+ "nexus-widget-text-field",
+ "nexus-widget-toggle",
 ]
 
 [[package]]

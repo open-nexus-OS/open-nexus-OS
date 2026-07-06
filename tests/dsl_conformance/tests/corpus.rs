@@ -244,3 +244,68 @@ Routes {
     }
     panic!("history must be bounded");
 }
+
+#[test]
+fn multi_store_programs_bind_reducers_by_touched_fields() {
+    // Two stores, one shared event: each reducer binds its own store
+    // (resolved from the fields it touches); dispatch runs both.
+    let nxir = compile(
+        r#"
+Store CartStore {
+    items: Int = 0,
+}
+Store SessionStore {
+    actions: Int = 0,
+}
+Event E {
+    AddItem,
+}
+reduce E {
+    AddItem => state.items += 1,
+}
+Page P {
+    Stack {
+        Text($state.items)
+        Text($state.actions)
+    }
+}
+"#,
+    );
+    let mut h = Harness::mount(&nxir);
+    h.dispatch(&mut NoIo, "E", "AddItem", vec![]);
+    h.dispatch(&mut NoIo, "E", "AddItem", vec![]);
+    h.assert_field("CartStore", "items", &Value::Int(2));
+    h.assert_field("SessionStore", "actions", &Value::Int(0));
+}
+
+#[test]
+fn ambiguous_field_names_across_stores_are_rejected() {
+    let src = r#"
+Store A { n: Int = 0, }
+Store B { n: Int = 0, }
+Event E { X, }
+reduce E { X => state.n += 1, }
+"#;
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags));
+    let canonical = nexus_dsl_core::format_file(&file);
+    let outcome = nexus_dsl_core::lower_file(&file, &model, &canonical);
+    let Err(err) = outcome else { panic!("ambiguous field must not lower") };
+    assert_eq!(err.code, nexus_dsl_core::DiagCode::LoweringUnsupported);
+}
+
+#[test]
+fn one_reducer_touching_two_stores_is_rejected() {
+    let src = r#"
+Store A { left: Int = 0, }
+Store B { right: Int = 0, }
+Event E { X, }
+reduce E { X => { state.left += 1; state.right += 1; }, }
+"#;
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags));
+    let canonical = nexus_dsl_core::format_file(&file);
+    assert!(nexus_dsl_core::lower_file(&file, &model, &canonical).is_err());
+}

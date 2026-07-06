@@ -37,7 +37,7 @@ pub(super) fn build_state(
                 fb.set_persist(field.persist);
                 lower_type(&field.ty, fb.reborrow().init_type());
                 if let Some(default) = &field.default {
-                    let env = Env::new(ctx, None);
+                    let env = Env::new(ctx);
                     lower_expr(&env, default, fb.init_default())?;
                 }
             }
@@ -63,8 +63,9 @@ pub(super) fn build_state(
         }
     }
 
-    // Reducers: single-store binding (v0.1); arms sorted by case index.
-    let single_store: Option<u32> = if ctx.store_order.len() == 1 { Some(0) } else { None };
+    // Reducers: each binds ONE store, resolved from the state fields its
+    // arms touch (assignments + reads). Cross-store updates are separate
+    // reducers listening to the same event — dispatch runs them all.
     {
         let mut reducers = program.reborrow().init_reducers(model.reduces.len() as u32);
         // Canonical order: by event canonical index.
@@ -74,11 +75,9 @@ pub(super) fn build_state(
         });
         for (i, &model_idx) in order.iter().enumerate() {
             let reduce = model.reduces[model_idx];
-            if single_store.is_none() {
-                return Err(unsupported(reduce.span, "multi-store `reduce` binding"));
-            }
+            let bound_store = resolve_reducer_store(ctx, reduce)?;
             let mut b = reducers.reborrow().get(i as u32);
-            b.set_store(0);
+            b.set_store(bound_store);
             b.set_event(
                 ctx.event_index.get(reduce.event.text.as_str()).copied().unwrap_or(0),
             );
@@ -92,7 +91,7 @@ pub(super) fn build_state(
                 ab.set_case(
                     ctx.event_case(arm.pattern.case.text.as_str()).map(|(_, c)| c).unwrap_or(0),
                 );
-                let mut env = Env::new(ctx, single_store);
+                let mut env = Env::new(ctx);
                 {
                     let slots: Vec<u32> = arm
                         .pattern
@@ -124,7 +123,7 @@ pub(super) fn build_state(
                 ctx.event_case(effect.trigger.case.text.as_str()).unwrap_or((0, 0));
             b.set_event(event_idx);
             b.set_case(case_idx);
-            let mut env = Env::new(ctx, if ctx.store_order.len() == 1 { Some(0) } else { None });
+            let mut env = Env::new(ctx);
             {
                 let slots: Vec<u32> = effect
                     .trigger
@@ -141,6 +140,113 @@ pub(super) fn build_state(
         }
     }
     Ok(())
+}
+
+/// Resolves the single store a reducer's arms touch via `state.<field>`
+/// paths (assign targets and reads). One reducer = one store; mixing is a
+/// lowering error (write two reducers on the same event instead).
+fn resolve_reducer_store(
+    ctx: &Ctx<'_>,
+    reduce: &crate::ast::ReduceDecl,
+) -> Result<u32, Diagnostic> {
+    fn walk_expr(ctx: &Ctx<'_>, expr: &Expr, found: &mut Option<u32>) -> Result<(), Diagnostic> {
+        match expr {
+            Expr::StateRef { path, span } => {
+                if let Some(first) = path.first() {
+                    match ctx.store_of_field(&first.text) {
+                        Ok(store) => match found {
+                            Some(existing) if *existing != store => {
+                                return Err(unsupported(
+                                    *span,
+                                    "one reducer touching two stores (split it)",
+                                ));
+                            }
+                            _ => *found = Some(store),
+                        },
+                        Err(_) => {
+                            return Err(unsupported(*span, "an unresolvable state field"));
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Expr::Unary { operand, .. } => walk_expr(ctx, operand, found),
+            Expr::Binary { lhs, rhs, .. } => {
+                walk_expr(ctx, lhs, found)?;
+                walk_expr(ctx, rhs, found)
+            }
+            Expr::List { items, .. } | Expr::EnumLit { args: items, .. } => {
+                for item in items {
+                    walk_expr(ctx, item, found)?;
+                }
+                Ok(())
+            }
+            Expr::I18n { args, .. } => {
+                for arg in args {
+                    walk_expr(ctx, arg, found)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+    fn walk_stmts(
+        ctx: &Ctx<'_>,
+        stmts: &[Stmt],
+        found: &mut Option<u32>,
+    ) -> Result<(), Diagnostic> {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Assign { path, value, span, .. } => {
+                    if let Some(first) = path.first() {
+                        match ctx.store_of_field(&first.text) {
+                            Ok(store) => match found {
+                                Some(existing) if *existing != store => {
+                                    return Err(unsupported(
+                                        *span,
+                                        "one reducer touching two stores (split it)",
+                                    ));
+                                }
+                                _ => *found = Some(store),
+                            },
+                            Err(_) => {
+                                return Err(unsupported(
+                                    *span,
+                                    "an unresolvable state field",
+                                ));
+                            }
+                        }
+                    }
+                    walk_expr(ctx, value, found)?;
+                }
+                Stmt::Let { value, .. } => walk_expr(ctx, value, found)?,
+                Stmt::If { cond, then, els, .. } => {
+                    walk_expr(ctx, cond, found)?;
+                    walk_stmts(ctx, then, found)?;
+                    walk_stmts(ctx, els, found)?;
+                }
+                Stmt::Match { scrutinee, arms, .. } => {
+                    walk_expr(ctx, scrutinee, found)?;
+                    for arm in arms {
+                        walk_stmts(ctx, &arm.body, found)?;
+                    }
+                }
+                Stmt::Dispatch { args, .. } => {
+                    for arg in args {
+                        walk_expr(ctx, arg, found)?;
+                    }
+                }
+                Stmt::ExprStmt { expr, .. } => walk_expr(ctx, expr, found)?,
+            }
+        }
+        Ok(())
+    }
+    let mut found = None;
+    for arm in &reduce.arms {
+        walk_stmts(ctx, &arm.body, &mut found)?;
+    }
+    // A no-op reducer (touches nothing) binds store 0 deterministically.
+    Ok(found.unwrap_or(0))
 }
 
 /// Effect bodies → bounded step lists. Semantics: steps run in order; a call
@@ -283,13 +389,12 @@ pub(super) fn build_components(
     model: &Model<'_>,
     program: &mut ir::ui_program::Builder<'_>,
 ) -> Result<(), Diagnostic> {
-    let single_store: Option<u32> = if ctx.store_order.len() == 1 { Some(0) } else { None };
     let mut components =
         program.reborrow().init_components(ctx.component_order.len() as u32);
     for (i, (name, source)) in ctx.component_order.iter().enumerate() {
         let mut b = components.reborrow().get(i as u32);
         b.set_name(ctx.sym(name));
-        let mut env = Env::new(ctx, single_store);
+        let mut env = Env::new(ctx);
         let view = match source {
             ComponentSource::Page(idx) => {
                 b.set_is_page(true);
