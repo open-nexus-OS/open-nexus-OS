@@ -1,0 +1,41 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The canonical counter — the smallest complete program: one store, three
+// events, a reducer, and a page that reads `$state` and dispatches on Tap.
+
+Store CounterStore {
+    value: Int = 0,
+    busy: Bool = false,
+}
+
+Event CounterEvent {
+    Inc,
+    Dec,
+    SetBusy(Bool),
+}
+
+reduce CounterEvent {
+    Inc => state.value += 1,
+    Dec => state.value -= 1,
+    SetBusy(flag) => state.busy = flag,
+}
+
+Page CounterPage {
+    Stack {
+        Text($state.value).textSize(xl)
+        Stack {
+            Button { label: "-" }
+                .bg(surfaceVariant)
+                .fg(onSurface)
+            on Tap -> dispatch(Dec)
+            Button { label: "+" }
+                .disabled($state.busy)
+            on Tap -> dispatch(Inc)
+        }
+        .direction(row)
+        .gap(2)
+    }
+    .padding(4)
+    .gap(3)
+}

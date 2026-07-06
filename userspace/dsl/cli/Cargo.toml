@@ -14,3 +14,5 @@ path = "src/main.rs"
 [dependencies]
 nexus-dsl-core = { path = "../core" }
 nexus-dsl-ir = { path = "../ir", features = ["write"] }
+nexus-dsl-runtime = { path = "../runtime" }
+nexus-theme-tokens = { path = "../../ui/theme-tokens" }

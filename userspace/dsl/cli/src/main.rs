@@ -23,6 +23,7 @@ fn main() -> ExitCode {
         "fmt" => cmd_fmt(rest),
         "lint" | "check" => cmd_lint(rest, verb == "check"),
         "build" => cmd_build(rest),
+        "run" => cmd_run(rest),
         "hash" => cmd_hash(rest),
         "explain" => cmd_explain(rest),
         _ => {
@@ -33,6 +34,7 @@ fn main() -> ExitCode {
                  \x20 lint [--deny-warn] <files…> parse + check, report diagnostics\n\
                  \x20 check <files…>              lint + lowering dry-run\n\
                  \x20 build [-o DIR] <file>       emit canonical .nxir (+ --emit-json summary)\n\
+                 \x20 run <file>                  compile + mount + first-frame summary\n\
                  \x20 hash <file.nx|file.nxir>    print the program hash\n\
                  \x20 explain <NXcode>            explain a diagnostic code"
             );
@@ -247,6 +249,82 @@ fn summary_json(lowered: &nexus_dsl_core::Lowered) -> String {
     }
     out.push_str("}\n");
     out
+}
+
+/// Headless run: compile → validate → mount → emit the first scene, then
+/// report. The graphical snapshot harness lives in `tests/dsl_goldens`.
+fn cmd_run(args: &[String]) -> ExitCode {
+    let files = nx_files(args);
+    let Some(path) = files.first() else {
+        eprintln!("nx-dsl run: no input file");
+        return ExitCode::from(2);
+    };
+    let source = match read(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let file = match parse_file(&source) {
+        Ok(f) => f,
+        Err(diag) => {
+            report(path, &source, &diag);
+            return ExitCode::from(1);
+        }
+    };
+    let (model, diags) = check_file(&file);
+    for diag in &diags {
+        report(path, &source, diag);
+    }
+    if has_errors(&diags) {
+        return ExitCode::from(1);
+    }
+    let canonical = format_file(&file);
+    let lowered = match lower_file(&file, &model, &canonical) {
+        Ok(l) => l,
+        Err(diag) => {
+            report(path, &source, &diag);
+            return ExitCode::from(1);
+        }
+    };
+    let symbols;
+    let keys;
+    {
+        let runtime = match nexus_dsl_runtime::Runtime::mount(&lowered.nxir) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("nx-dsl run: mount failed: {e:?}");
+                return ExitCode::from(1);
+            }
+        };
+        symbols = runtime.symbols().to_vec();
+        keys = {
+            let reader =
+                nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(&lowered.nxir)
+                    .expect("just built");
+            reader
+                .root()
+                .expect("root")
+                .get_i18n_keys()
+                .map(|list| list.iter().map(|k| k.get_key()).collect::<Vec<u32>>())
+                .unwrap_or_default()
+        };
+    }
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = nexus_dsl_runtime::FixtureEnv::default();
+    let locale = nexus_dsl_runtime::IdentityLocale { symbols: &symbols, keys: &keys };
+    match nexus_dsl_runtime::View::mount(&lowered.nxir, &tokens, &device, &locale) {
+        Ok(view) => {
+            println!(
+                "mounted: hash {}, {} deps, scene ok",
+                hex(&lowered.program_hash),
+                view.deps().len()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("nx-dsl run: view mount failed: {e:?}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_hash(args: &[String]) -> ExitCode {

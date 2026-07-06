@@ -758,6 +758,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsl_conformance"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
+ "nexus-dsl-runtime",
+]
+
+[[package]]
+name = "dsl_goldens"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
+ "nexus-dsl-runtime",
+ "nexus-theme-tokens",
+ "ui_v10_goldens",
+]
+
+[[package]]
 name = "dsl_v0_1a_host"
 version = "0.1.0"
 dependencies = [
@@ -1816,6 +1836,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-dsl-runtime"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-dsl-ir",
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-e2e"
 version = "0.1.0"
 dependencies = [
@@ -2544,6 +2574,8 @@ version = "0.1.0"
 dependencies = [
  "nexus-dsl-core",
  "nexus-dsl-ir",
+ "nexus-dsl-runtime",
+ "nexus-theme-tokens",
 ]
 
 [[package]]

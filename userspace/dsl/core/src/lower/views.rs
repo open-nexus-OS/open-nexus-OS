@@ -174,9 +174,12 @@ fn lower_effect_steps(
             }
             Stmt::Match { scrutinee: Expr::Call { path, args, span }, arms, .. } => {
                 // `match svc.x.y(...) { Ok(v) => dispatch(..), Err(e) => dispatch(..), }`
+                // Ok and Err arms share ONE result slot: only one path runs
+                // (Ok -> the call result, Err -> the stable error code).
                 let mut call = step.init_call();
                 fill_call(ctx, env, path, args, *span, &mut call)?;
-                call.set_result_slot(u32::MAX);
+                let shared_slot = env.bind_local("__call_result");
+                call.set_result_slot(shared_slot);
                 for arm in arms {
                     let is_ok = arm.pattern.case.text == "Ok";
                     let is_err = arm.pattern.case.text == "Err";
@@ -189,13 +192,9 @@ fn lower_effect_steps(
                             "call-result arms beyond a single dispatch",
                         ));
                     };
-                    let slots: Vec<u32> = arm
-                        .pattern
-                        .binds
-                        .iter()
-                        .map(|bind| env.bind_local(&bind.text))
-                        .collect();
-                    let _ = slots;
+                    if let Some(bind) = arm.pattern.binds.first() {
+                        env.bind_local_to(&bind.text, shared_slot);
+                    }
                     let mut target = if is_ok {
                         call.reborrow().init_on_ok()
                     } else {

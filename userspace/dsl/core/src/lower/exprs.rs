@@ -31,6 +31,12 @@ impl<'a> Env<'a> {
         self.locals.insert(String::from(name), slot);
         slot
     }
+
+    /// Binds a name to an existing slot (Ok/Err arms of one call share the
+    /// result slot -- only one path ever runs).
+    pub(super) fn bind_local_to(&mut self, name: &str, slot: u32) {
+        self.locals.insert(String::from(name), slot);
+    }
 }
 
 /// Lowers a type annotation. Unknown named types lower to `opaque` in v0.1

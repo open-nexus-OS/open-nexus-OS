@@ -1,0 +1,48 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The canonical list app: async load through an effect, a keyed collection,
+// and a loading branch — the "shape of a program" from the overview.
+
+Store TodoStore {
+    items: List<Str> = ["one", "two", "three"],
+    loading: Bool = false,
+}
+
+Event TodoEvent {
+    Refresh,
+    Loaded(List<Str>),
+}
+
+reduce TodoEvent {
+    Refresh => state.loading = true,
+    Loaded(items) => {
+        state.items = items;
+        state.loading = false;
+    },
+}
+
+@effect on Refresh {
+    let items = svc.todos.list(timeoutMs: 250);
+    dispatch(Loaded(items));
+}
+
+Page TodoPage {
+    Stack {
+        Text(@t("todo.title")).textSize(lg)
+        if $state.loading {
+            Text(@t("common.loading"))
+        } else {
+            List($state.items) { item in
+                Card {
+                    Text(item)
+                }
+                .key(item)
+            }
+        }
+        Button { label: @t("todo.refresh") }
+        on Tap -> dispatch(Refresh)
+    }
+    .padding(4)
+    .gap(2)
+}

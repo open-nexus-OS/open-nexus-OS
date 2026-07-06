@@ -71,6 +71,17 @@ Effects execute service calls through typed adapters with mandatory timeouts; re
 re-enter the app as dispatched events. On the host, the same adapters run against
 recorded transcripts — app logic is fully testable without the OS.
 
+## Host harness (shipped, TASK-0076)
+
+On the host the same runtime mounts under a fixture environment: `FixtureEnv`
+(fixed `device.*` values), the identity locale (a key formats as its own text —
+the pseudo-locale), and scripted/`NoIo` effect hosts. `View::dispatch` returns
+the damage class — `Paint` means the existing layout geometry stays valid
+(repaint only), `Layout` means re-layout, `None` means nothing visible changed.
+The scene-golden suite (`tests/dsl_goldens`) renders retained scenes through
+the shared BGRA painter; the conformance corpus (`tests/dsl_conformance`)
+pins `(state, event) → state'` semantics for the later AOT parity gate.
+
 ## Persistence tiers
 
 1. Session state (default) — in-memory per app instance.
