@@ -239,18 +239,6 @@ pub const FONT_FAMILY: &str = generated::FONT_FAMILY;
 /// switch — see [`crate::theme`].
 pub const THEME_DARK: crate::theme::ThemeTokens = generated::THEME_DARK;
 pub const THEME_LIGHT: crate::theme::ThemeTokens = generated::THEME_LIGHT;
-pub const FONT13_ASCENT: i32 = generated::FONT13_ASCENT;
-pub const FONT13_LINE_H: u32 = generated::FONT13_LINE_H;
-pub const FONT13_AVG_ADVANCE: u32 = generated::FONT13_AVG_ADVANCE;
-pub const FONT13_COV: &[u8] = generated::FONT13_COV;
-pub const FONT13_GLYPHS: &[(u32, u16, u16, i16, i16, u16); 95] = generated::FONT13_GLYPHS;
-pub const FONT13_KERN: &[(u8, u8, i8)] = generated::FONT13_KERN;
-pub const FONT16_ASCENT: i32 = generated::FONT16_ASCENT;
-pub const FONT16_LINE_H: u32 = generated::FONT16_LINE_H;
-pub const FONT16_AVG_ADVANCE: u32 = generated::FONT16_AVG_ADVANCE;
-pub const FONT16_COV: &[u8] = generated::FONT16_COV;
-pub const FONT16_GLYPHS: &[(u32, u16, u16, i16, i16, u16); 95] = generated::FONT16_GLYPHS;
-pub const FONT16_KERN: &[(u8, u8, i8)] = generated::FONT16_KERN;
 
 #[cfg(test)]
 mod tests {

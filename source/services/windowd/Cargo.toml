@@ -43,6 +43,7 @@ nexus-virtual-list = { path = "../../../userspace/ui/widgets/virtual_list", defa
 nexus-shell-desktop = { path = "../../../userspace/ui/shells/desktop" }
 nexus-widget-window = { path = "../../../userspace/ui/widgets/window" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
+nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false }
 # RFC-0065 / ADR-0037 step 1: the search window's content (word list + filter) is
 # owned by the real search app crate, not duplicated in the compositor. windowd
 # keeps only the window chrome + rendering; the app owns its data.

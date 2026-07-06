@@ -306,10 +306,46 @@ IR-determinism thesis, proven on hardware). Implementation:
   is promoted out of windowd, RFC-0067 P5), fills pass only (page base +
   per-box `visual.background`). Text glyphs are the known gap.
 
+### ✅ TEXT SSOT PROMOTED + REAL GLYPHS IN THE APP FRAME (boot 10, 2026-07-07)
+
+`nexus-text-baked` (userspace/ui/text-baked): windowd's baked-atlas text
+pipeline promoted VERBATIM (RFC-0067 P5 discipline) — build-time A8 atlases
+(13/16px Inter, ASCII + sparse kerning, fontdue in build.rs only), no_std
+measurement + row-based glyph blending, plus the pixel-real
+`BakedTextMeasure` (feature `layout`). windowd's `text.rs` is now a thin
+re-export (its baking left build.rs/assets.rs; 5 text tests moved with the
+code); the app-host renders the counter with REAL Inter glyphs — same
+atlases, same blender, same measurement as the compositor. Full chain green
+in boot 10; windowd size contract 79%.
+
+### ✅ R3 INPUT PATH BUILT (2026-07-07; boot-regression green, click verify = user lane)
+
+- Wire: `OP_SURFACE_INPUT` (11) — windowd → app, surface-LOCAL body
+  coordinates, `INPUT_KIND_TAP` (motion/keys land with the focus model).
+- windowd: a body press on the app window forwards the tap over the app's
+  response channel (`send_app_input`, slot-4 send, non-blocking — input must
+  never stall the compositor) + `WINDOWD: surface input routed` marker;
+  windowd keeps focus/raise/drag only. Apps get pixels + events — nothing
+  else.
+- app-host: the blocking idle recv IS the event loop now — tap →
+  `View::pointer` (interpreter hit-testing over the CURRENT LayoutBoxes) →
+  visible damage ⇒ re-layout + re-render + strictly-sequenced present
+  (`APPHOST: interactive frame presented`). v1 limitation recorded: taps
+  arriving during an ack wait are skipped.
+- Verification note: a QMP click-injection attempt hit the launcher lane
+  (the visible-input autoinjector runs its own script; my grid clicks left
+  no windowd echo) — the definitive check is a REAL mouse click on the "+"
+  button in the visible lane: the counter value must increment on screen
+  (DoD: "click inside the app window dispatches an event visibly").
+
 ### ⬜ OPEN
 
-- User visible-lane verify: drag fix + the counter scene (color fills) in
-  the app window instead of the teal probe.
+- USER VERIFY: click "+"/"−" in the app window → number changes (R3 DoD),
+  text + drag if not yet verified.
+- R2 remainder: bundle GET_PAYLOAD (os-lite opcode) + abilitymgr launch
+  replacing the autolaunch; `@persist` via statefsd; stop/crash residency.
+- R4 payloadKind dispatch (with 0079). Then 0080B/0080C 
+  (DSL shell + greeter, launcher e2e) complete phase 6.
 - R2 runtime half — RECON FINDING: os-lite bundlemgrd has NO GET_PAYLOAD
   opcode today (only the std_server speaks it); the R2 payload fetch needs
   either that opcode added os-lite-side (payload bytes → VMO + cap-move

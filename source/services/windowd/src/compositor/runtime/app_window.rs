@@ -266,6 +266,33 @@ impl DisplayServerRuntime {
     pub(super) fn app_window_rect(&self) -> DamageRect {
         self.app_win.damage_rect(self.mode.width, self.mode.height)
     }
+
+    /// Routes a body tap to the surface's owning app process (R3): the event
+    /// travels over windowd's response endpoint (slot 4, the channel the app
+    /// holds RECV on). Best-effort non-blocking — input must never stall the
+    /// compositor; a full queue drops the tap (the app is wedged anyway).
+    pub(crate) fn send_app_input(&mut self, local_x: i32, local_y: i32) {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(client) = self.client_surfaces.get() else { return };
+            let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
+            let frame = nexus_display_proto::client_surface::encode_surface_input(
+                client.id,
+                nexus_display_proto::client_surface::INPUT_KIND_TAP,
+                x,
+                y,
+            );
+            if let Ok(tx) = nexus_ipc::KernelClient::new_with_slots(4, 3) {
+                use nexus_ipc::Client as _;
+                let _ = tx.send(&frame, nexus_ipc::Wait::NonBlocking);
+                let _ = debug_println("WINDOWD: surface input routed");
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (local_x, local_y);
+        }
+    }
 }
 
 /// Thin cap-close shim so the handlers above read cleanly on host builds

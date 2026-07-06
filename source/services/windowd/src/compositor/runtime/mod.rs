@@ -109,7 +109,7 @@ mod chat_window;
 mod shell;
 mod search;
 mod dsl_mount;
-mod app_window;
+pub(crate) mod app_window;
 mod settings_window;
 mod present;
 mod scene;

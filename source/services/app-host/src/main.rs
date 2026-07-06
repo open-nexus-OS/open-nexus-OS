@@ -100,18 +100,21 @@ mod probe {
 
         // 2. Mount + render the DSL program into the VMO (R2); the R1 solid
         //    fill stays as the fail-closed VISIBLE fallback.
-        if render_dsl_frame(vmo) {
-            raw_marker("APPHOST: dsl frame rendered");
-        } else {
-            raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
-            let mut row = [0u8; SURFACE_W as usize * 4];
-            for px in row.chunks_exact_mut(4) {
-                px.copy_from_slice(&FILL_BGRA);
-            }
-            let row_bytes = SURFACE_W as usize * 4;
-            for y in 0..SURFACE_H as usize {
-                vmo_write(vmo, y * row_bytes, &row)
-                    .map_err(|_| "apphost: vmo fill failed")?;
+        let mut app = DslApp::mount();
+        match &app {
+            Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
+            _ => {
+                app = None;
+                raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
+                let mut row = [0u8; SURFACE_W as usize * 4];
+                for px in row.chunks_exact_mut(4) {
+                    px.copy_from_slice(&FILL_BGRA);
+                }
+                let row_bytes = SURFACE_W as usize * 4;
+                for y in 0..SURFACE_H as usize {
+                    vmo_write(vmo, y * row_bytes, &row)
+                        .map_err(|_| "apphost: vmo fill failed")?;
+                }
             }
         }
         raw_marker("apphost: vmo filled");
@@ -135,154 +138,245 @@ mod probe {
         let _ = recv_ack(&client, wire::OP_SURFACE_PRESENT)?;
         raw_marker("APPHOST: probe surface presented");
 
-        // 5. Stay alive on a BLOCKING recv (R3 turns this into the input
-        //    loop). Never a yield-spin: on the strict-priority scheduler a
-        //    Normal-QoS yield loop starves every Idle-QoS service forever
-        //    (netstackd's exact failure mode).
-        let mut idle_frame = [0u8; 64];
+        // 5. The event loop (R3): BLOCKING recv on the app channel — windowd
+        //    routes body taps here (`OP_SURFACE_INPUT`, surface-local
+        //    coordinates). A tap runs the interpreter's hit-testing
+        //    (`View::pointer`); visible damage re-lays-out + re-renders the
+        //    VMO and presents the next strictly-sequenced frame. Never a
+        //    yield-spin: a Normal-QoS yield loop starves every Idle-QoS
+        //    service (netstackd's exact failure mode). v1 limitation
+        //    (recorded): taps arriving while we wait for a present ack are
+        //    skipped by `recv_ack` as unrelated frames.
+        let mut seq: u32 = 1;
+        let mut event_frame = [0u8; 64];
         loop {
-            let _ = client.recv_into(Wait::Blocking, &mut idle_frame);
+            let Ok(len) = client.recv_into(Wait::Blocking, &mut event_frame) else {
+                let _ = yield_();
+                continue;
+            };
+            let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len])
+            else {
+                continue; // stale ack / unrelated frame on the shared channel
+            };
+            if kind != wire::INPUT_KIND_TAP {
+                continue;
+            }
+            let Some(dsl) = app.as_mut() else { continue };
+            if !dsl.tap(i32::from(x), i32::from(y)) {
+                continue; // no handler hit / no visible change
+            }
+            if !dsl.render(vmo) {
+                raw_marker("apphost: FAIL interactive render");
+                continue;
+            }
+            seq = seq.wrapping_add(1);
+            let len = wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
+            if send_retry(&client, &buf[..len]).is_err()
+                || recv_ack(&client, wire::OP_SURFACE_PRESENT).is_err()
+            {
+                raw_marker("apphost: FAIL interactive present");
+                continue;
+            }
+            raw_marker("APPHOST: interactive frame presented");
         }
     }
 
-    /// Text measurement estimate (8px advance / 16px line) — honest
-    /// placeholder until the shared text SSOT is promoted out of windowd
-    /// (RFC-0067 P5); layout structure is real, glyphs are not drawn yet.
-    struct EstimateMeasure;
-
-    impl nexus_layout_types::MeasureText for EstimateMeasure {
-        fn prepare(
-            &self,
-            content: &nexus_layout_types::TextContent,
-            _style: &nexus_layout_types::TextStyle,
-        ) -> nexus_layout_types::PreparedTextHandle {
-            let width = content.as_str().chars().count() * 8;
-            nexus_layout_types::PreparedTextHandle((16usize << 20) | (width & 0xF_FFFF))
-        }
-
-        fn measure_width(
-            &self,
-            handle: &nexus_layout_types::PreparedTextHandle,
-        ) -> nexus_layout_types::FxPx {
-            nexus_layout_types::FxPx::new((handle.0 & 0xF_FFFF) as i32)
-        }
-
-        fn layout_lines(
-            &self,
-            handle: &nexus_layout_types::PreparedTextHandle,
-            width: nexus_layout_types::FxPx,
-            max_lines: Option<u32>,
-        ) -> nexus_layout_types::LineLayout {
-            let natural_width = self.measure_width(handle);
-            let line_height = nexus_layout_types::FxPx::new((handle.0 >> 20) as i32);
-            let line = nexus_layout_types::LineMetrics {
-                text_range: 0..1,
-                width: natural_width.min(width.max(nexus_layout_types::FxPx::ONE)),
-                baseline: line_height,
-                height: line_height,
-            };
-            let lines = if matches!(max_lines, Some(0)) {
-                alloc::vec![]
-            } else {
-                alloc::vec![line]
-            };
-            nexus_layout_types::LineLayout { lines, natural_width }
-        }
+    /// The mounted DSL app: interpreter view + current layout + text runs.
+    /// Owned state so the event loop can re-layout/re-render after taps.
+    struct DslApp {
+        view: nexus_dsl_runtime::View<'static>,
+        symbols: alloc::vec::Vec<alloc::string::String>,
+        keys: alloc::vec::Vec<u32>,
+        layout: nexus_layout::LayoutResult,
+        texts: alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
     }
 
-    /// Validates + mounts the embedded program, lays it out at surface size
-    /// and writes the scene's FILLS into the VMO (BGRA rows). Returns false
-    /// on any failure — the caller keeps the visible probe-fill fallback.
-    fn render_dsl_frame(vmo: u32) -> bool {
-        use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+    impl DslApp {
+        /// Validates + mounts the embedded program and lays it out at
+        /// surface size. `None` on any failure (fail-closed; caller shows
+        /// the probe fill).
+        fn mount() -> Option<Self> {
+            use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
-        // Symbols + i18n keys for the identity locale (windowd's demo-mount
-        // recipe: interpreter mount first, then the key table).
-        let Ok(runtime) = nexus_dsl_runtime::Runtime::mount(APP_NXIR) else {
-            return false;
-        };
-        let symbols = runtime.symbols().to_vec();
-        let hash_prefix: u64 = {
-            let bytes = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+            let runtime = nexus_dsl_runtime::Runtime::mount(APP_NXIR).ok()?;
+            let symbols = runtime.symbols().to_vec();
+            emit_mounted_hash_marker();
+            let keys: alloc::vec::Vec<u32> =
+                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+                    .and_then(|r| {
+                        r.root().map(|root| {
+                            root.get_i18n_keys()
+                                .map(|l| l.iter().map(|k| k.get_key()).collect())
+                        })
+                    }) {
+                    Ok(Ok(keys)) => keys,
+                    _ => alloc::vec::Vec::new(),
+                };
+            let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
+            let device = FixtureEnv::default();
+            let view = {
+                let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+                View::mount(APP_NXIR, &tokens, &device, &locale).ok()?
+            };
+            let engine = nexus_layout::LayoutEngine::new();
+            let layout = engine
+                .layout(
+                    view.scene(),
+                    nexus_layout_types::FxPx::new(SURFACE_W as i32),
+                    &nexus_text_baked::measure_text::BakedTextMeasure,
+                )
+                .ok()?;
+            let mut texts = alloc::vec::Vec::new();
+            collect_texts(view.scene(), &mut 0, &mut texts);
+            Some(Self { view, symbols, keys, layout, texts })
+        }
+
+        /// Runs the interpreter's hit-testing for a body tap; on visible
+        /// damage re-lays-out + refreshes the text runs. Returns whether a
+        /// re-render is needed.
+        fn tap(&mut self, x: i32, y: i32) -> bool {
+            use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, NoIo};
+            let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
+            let device = FixtureEnv::default();
+            let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+            let damage = self
+                .view
+                .pointer(
+                    &tokens,
+                    &device,
+                    &locale,
+                    &mut NoIo,
+                    &self.layout.boxes,
+                    "Tap",
+                    nexus_layout_types::FxPx::new(x),
+                    nexus_layout_types::FxPx::new(y),
+                )
                 .ok()
-                .and_then(|r| r.root().ok().map(|root| root.get_program_hash().ok().map(
-                    |h| {
+                .flatten();
+            if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
+                return false;
+            }
+            let engine = nexus_layout::LayoutEngine::new();
+            let Ok(layout) = engine.layout(
+                self.view.scene(),
+                nexus_layout_types::FxPx::new(SURFACE_W as i32),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            ) else {
+                return false;
+            };
+            self.layout = layout;
+            self.texts.clear();
+            collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            true
+        }
+
+        /// Writes the current scene (fills + glyph runs) into the VMO.
+        fn render(&self, vmo: u32) -> bool {
+            let row_bytes = SURFACE_W as usize * 4;
+            let mut row = alloc::vec![0u8; row_bytes];
+            for y in 0..SURFACE_H as i32 {
+                for px in row.chunks_exact_mut(4) {
+                    px.copy_from_slice(&[0x20, 0x1c, 0x18, 0xFF]);
+                }
+                for b in &self.layout.boxes {
+                    let (bx, by, bw, bh) =
+                        (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                    if bw <= 0 || bh <= 0 || y < by || y >= by + bh {
+                        continue;
+                    }
+                    if let Some(bg) = b.visual.background {
+                        let x0 = bx.max(0) as usize;
+                        let x1 = ((bx + bw).max(0) as usize).min(SURFACE_W as usize);
+                        for px in row[x0 * 4..x1 * 4].chunks_exact_mut(4) {
+                            px.copy_from_slice(&[bg.b, bg.g, bg.r, bg.a]);
+                        }
+                    }
+                    // Glyph pass: the shared text SSOT (same blender windowd
+                    // uses) blends the run slice intersecting this row.
+                    if let Some((_, content, font, color)) =
+                        self.texts.iter().find(|(id, _, _, _)| *id == b.node_id)
+                    {
+                        nexus_text_baked::draw_text_row(
+                            &mut row,
+                            y as u32,
+                            by,
+                            bx.max(0) as u32,
+                            SURFACE_W as u32,
+                            content.chars(),
+                            *font,
+                            *color,
+                        );
+                    }
+                }
+                if vmo_write(vmo, y as usize * row_bytes, &row).is_err() {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+
+    /// `APPHOST: mounted hash=<first-16-hex>` — the R2 DoD marker.
+    fn emit_mounted_hash_marker() {
+        let hash_prefix: u64 = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+            .ok()
+            .and_then(|r| {
+                r.root().ok().map(|root| {
+                    root.get_program_hash().ok().map(|h| {
                         let mut v = [0u8; 8];
                         let n = h.len().min(8);
                         v[..n].copy_from_slice(&h[..n]);
                         u64::from_be_bytes(v)
-                    },
-                )))
-                .flatten();
-            bytes.unwrap_or(0)
-        };
-        let keys: alloc::vec::Vec<u32> =
-            match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
-                .and_then(|r| {
-                    r.root().map(|root| {
-                        root.get_i18n_keys()
-                            .map(|l| l.iter().map(|k| k.get_key()).collect())
                     })
-                }) {
-                Ok(Ok(keys)) => keys,
-                _ => alloc::vec::Vec::new(),
-            };
-        let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
-        let device = FixtureEnv::default();
-        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-        let Ok(view) = View::mount(APP_NXIR, &tokens, &device, &locale) else {
-            return false;
-        };
-        {
-            // `APPHOST: mounted hash=<first-16-hex>` — the R2 DoD marker.
-            let mut line = [0u8; 64];
-            let prefix = b"APPHOST: mounted hash=";
-            line[..prefix.len()].copy_from_slice(prefix);
-            let mut pos = prefix.len();
-            for i in 0..16 {
-                let nibble = ((hash_prefix >> (60 - i * 4)) & 0xF) as u8;
-                line[pos] = if nibble < 10 { b'0' + nibble } else { b'a' + nibble - 10 };
-                pos += 1;
-            }
-            line[pos] = b'\n';
-            let _ = nexus_abi::debug_write(&line[..pos + 1]);
+                })
+            })
+            .flatten()
+            .unwrap_or(0);
+        let mut line = [0u8; 64];
+        let prefix = b"APPHOST: mounted hash=";
+        line[..prefix.len()].copy_from_slice(prefix);
+        let mut pos = prefix.len();
+        for i in 0..16 {
+            let nibble = ((hash_prefix >> (60 - i * 4)) & 0xF) as u8;
+            line[pos] = if nibble < 10 { b'0' + nibble } else { b'a' + nibble - 10 };
+            pos += 1;
         }
+        line[pos] = b'\n';
+        let _ = nexus_abi::debug_write(&line[..pos + 1]);
+    }
 
-        let engine = nexus_layout::LayoutEngine::new();
-        let Ok(layout) = engine.layout(
-            view.scene(),
-            nexus_layout_types::FxPx::new(SURFACE_W as i32),
-            &EstimateMeasure,
-        ) else {
-            return false;
-        };
-
-        // Fills pass: page background, then each box's background rect.
-        let row_bytes = SURFACE_W as usize * 4;
-        let mut row = alloc::vec![0u8; row_bytes];
-        for y in 0..SURFACE_H as i32 {
-            // Page base: near-black panel so fills read against it.
-            for px in row.chunks_exact_mut(4) {
-                px.copy_from_slice(&[0x20, 0x1c, 0x18, 0xFF]);
+    /// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;
+    /// the same three-consumer numbering as windowd's demo mount — do not
+    /// reorder emission).
+    fn collect_texts(
+        node: &nexus_layout_types::LayoutNode,
+        index: &mut usize,
+        out: &mut alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+    ) {
+        use nexus_layout_types::LayoutNode as N;
+        *index += 1;
+        match node {
+            N::Text(text, _) => {
+                let font = if text.style.font_size.0 >= 15 {
+                    nexus_text_baked::FontSize::Body
+                } else {
+                    nexus_text_baked::FontSize::Small
+                };
+                let c = text.style.color;
+                out.push((
+                    *index,
+                    alloc::string::String::from(text.content.as_str()),
+                    font,
+                    [c.b, c.g, c.r, c.a],
+                ));
             }
-            for b in &layout.boxes {
-                let (bx, by, bw, bh) =
-                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-                if bw <= 0 || bh <= 0 || y < by || y >= by + bh {
-                    continue;
-                }
-                let Some(bg) = b.visual.background else { continue };
-                let x0 = bx.max(0) as usize;
-                let x1 = ((bx + bw).max(0) as usize).min(SURFACE_W as usize);
-                for px in row[x0 * 4..x1 * 4].chunks_exact_mut(4) {
-                    px.copy_from_slice(&[bg.b, bg.g, bg.r, bg.a]);
+            N::Stack(_, _, children) | N::Grid(_, _, children) => {
+                for child in children {
+                    collect_texts(child, index, out);
                 }
             }
-            if vmo_write(vmo, y as usize * row_bytes, &row).is_err() {
-                return false;
-            }
+            _ => {}
         }
-        true
     }
 
     /// Sends with bounded retries: the fixed slots may not be populated yet

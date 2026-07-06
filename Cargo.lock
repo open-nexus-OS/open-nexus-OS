@@ -185,6 +185,7 @@ dependencies = [
  "nexus-layout",
  "nexus-layout-types",
  "nexus-service-entry",
+ "nexus-text-baked",
  "nexus-theme-tokens",
 ]
 
@@ -2153,6 +2154,14 @@ dependencies = [
 [[package]]
 name = "nexus-sync"
 version = "0.1.0"
+
+[[package]]
+name = "nexus-text-baked"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "nexus-layout-types",
+]
 
 [[package]]
 name = "nexus-theme"
@@ -4522,6 +4531,7 @@ dependencies = [
  "nexus-service-entry",
  "nexus-shell-desktop",
  "nexus-svg",
+ "nexus-text-baked",
  "nexus-theme",
  "nexus-theme-tokens",
  "nexus-virtual-list",

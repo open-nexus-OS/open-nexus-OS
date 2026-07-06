@@ -1,0 +1,27 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-text-baked"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexus_text_baked"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+# Host conveniences only; the renderer itself is no_std (the tables are
+# baked at build time — no runtime font parsing anywhere).
+std = []
+# The pixel-real `MeasureText` implementation over these atlases (used by
+# the DSL layout path in windowd's demo mount and the app-host runtime).
+layout = ["dep:nexus-layout-types"]
+
+[dependencies]
+nexus-layout-types = { path = "../layout-types", optional = true }
+
+[build-dependencies]
+fontdue = "0.9"

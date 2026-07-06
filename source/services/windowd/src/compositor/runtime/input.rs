@@ -332,6 +332,18 @@ impl DisplayServerRuntime {
                             let local_y = cursor_y - frame.y;
                             self.dsl_pointer_body(local_x, local_y);
                         }
+                        // A body click on an app-client window is the APP's
+                        // event (ADR-0042 R3): forward surface-local body
+                        // coordinates; windowd keeps focus/raise only.
+                        if matches!(wid, WindowId::AppClient) && cursor_y >= frame.y {
+                            let local_x = cursor_x - frame.x;
+                            let body_y = cursor_y
+                                - frame.y
+                                - crate::compositor::runtime::app_window::APP_TITLE_H as i32;
+                            if body_y >= 0 {
+                                self.send_app_input(local_x, body_y);
+                            }
+                        }
                         if matches!(wid, WindowId::Settings) && cursor_y >= frame.y {
                             use crate::compositor::desktop_layer::{settings_row_at, SETTINGS_ROW_THEME};
                             let local_y = (cursor_y - frame.y) as u32;

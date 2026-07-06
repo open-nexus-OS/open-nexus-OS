@@ -113,8 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // manifest-driven default behind the prepared `ui.font.family` settings key;
     // live switching is a follow-up.
     writeln!(generated, "pub const FONT_FAMILY: &str = \"inter\";")?;
-    emit_glyph_atlas(&mut generated, out_dir, &font, 13.0, "FONT13")?;
-    emit_glyph_atlas(&mut generated, out_dir, &font, 16.0, "FONT16")?;
+    // Glyph atlases: PROMOTED to `nexus-text-baked` (RFC-0067 P5) — windowd
+    // consumes the shared SSOT; `font` below only prerenders panel texts.
 
     let cursor_svg = normalized_mocu_cursor_svg();
     // The Mocu cursor's path geometry runs to y≈35.3 / x≈22.7, but its canvas was
@@ -290,77 +290,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// `(cov_offset, w, h, left_bearing, top_from_band_top, advance_px)` where
 /// `top_from_band_top = ascent − (ymin + height)` places the bitmap in a text
 /// band whose baseline sits `ascent` pixels below the band top.
-fn emit_glyph_atlas(
-    generated: &mut File,
-    out_dir: &Path,
-    font: &fontdue::Font,
-    px: f32,
-    name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    const FIRST: u32 = 32;
-    const LAST: u32 = 126;
-    let lm = font
-        .horizontal_line_metrics(px)
-        .ok_or_else(|| format!("{name}: no horizontal line metrics"))?;
-    let ascent = lm.ascent.round() as i32;
-    let line_h = (lm.ascent - lm.descent).ceil() as u32;
-
-    let mut cov: Vec<u8> = Vec::new();
-    let mut glyphs = String::new();
-    let mut advance_sum = 0u32;
-    let mut advance_max = 0u32;
-    for code in FIRST..=LAST {
-        let ch = char::from_u32(code).ok_or("ascii range")?;
-        let (m, bitmap) = font.rasterize(ch, px);
-        let off = cov.len() as u32;
-        cov.extend_from_slice(&bitmap);
-        let top = ascent - (m.ymin + m.height as i32);
-        let adv = m.advance_width.round().max(1.0) as u32;
-        advance_sum += adv;
-        advance_max = advance_max.max(adv);
-        glyphs.push_str(&format!(
-            "({off}, {}, {}, {}, {}, {adv}), ",
-            m.width, m.height, m.xmin, top
-        ));
-    }
-    let n = LAST - FIRST + 1;
-    let cov_path = out_dir.join(format!("{}.a8", name.to_lowercase()));
-    fs::write(&cov_path, &cov)?;
-    writeln!(generated, "pub const {name}_ASCENT: i32 = {ascent};")?;
-    writeln!(generated, "pub const {name}_LINE_H: u32 = {line_h};")?;
-    writeln!(generated, "pub const {name}_AVG_ADVANCE: u32 = {};", advance_sum / n)?;
-    writeln!(generated, "pub const {name}_MAX_ADVANCE: u32 = {advance_max};")?;
-    writeln!(
-        generated,
-        "pub const {name}_COV: &[u8] = include_bytes!(r#\"{}\"#);",
-        cov_path.display()
-    )?;
-    writeln!(
-        generated,
-        "pub const {name}_GLYPHS: &[(u32, u16, u16, i16, i16, u16); {n}] = &[{glyphs}];"
-    )?;
-    // Sparse kerning: only ASCII pairs whose kern rounds to a non-zero pixel
-    // count at this size (most round to 0 at 13–16 px). Indices are glyph
-    // indices (code − 32).
-    let mut kern = String::new();
-    let mut kern_n = 0usize;
-    for l in FIRST..=LAST {
-        for r in FIRST..=LAST {
-            let (lc, rc) = (char::from_u32(l).unwrap_or(' '), char::from_u32(r).unwrap_or(' '));
-            if let Some(k) = font.horizontal_kern(lc, rc, px) {
-                let kpx = k.round() as i32;
-                if kpx != 0 {
-                    kern.push_str(&format!("({}, {}, {kpx}), ", l - FIRST, r - FIRST));
-                    kern_n += 1;
-                }
-            }
-        }
-    }
-    let _ = kern_n;
-    writeln!(generated, "pub const {name}_KERN: &[(u8, u8, i8)] = &[{kern}];")?;
-    Ok(())
-}
-
 struct RenderedText {
     width: usize,
     height: usize,

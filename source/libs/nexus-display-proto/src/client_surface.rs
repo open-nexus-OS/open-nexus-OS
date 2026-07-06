@@ -30,6 +30,12 @@ pub const OP_SURFACE_CREATE: u8 = 8;
 pub const OP_SURFACE_PRESENT: u8 = 9;
 /// Destroys a surface. Payload: `surface_id:u32`.
 pub const OP_SURFACE_DESTROY: u8 = 10;
+/// windowd → app: an input event routed to the surface (R3). Payload:
+/// `surface_id:u32, kind:u8, x:u16, y:u16` — surface-LOCAL body pixels.
+pub const OP_SURFACE_INPUT: u8 = 11;
+
+/// Input kinds (v1: taps; motion/keys land with the focus model).
+pub const INPUT_KIND_TAP: u8 = 0;
 
 /// Pixel format tags. v1: BGRA8888 only.
 pub const FORMAT_BGRA8888: u8 = 0;
@@ -169,6 +175,40 @@ pub fn decode_surface_destroy(frame: &[u8]) -> Option<u32> {
     Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
 }
 
+// ------------------------------------------------------------------- input
+
+pub const SURFACE_INPUT_FRAME_LEN: usize = HEADER_LEN + 9;
+
+#[must_use]
+pub fn encode_surface_input(
+    surface_id: u32,
+    kind: u8,
+    x: u16,
+    y: u16,
+) -> [u8; SURFACE_INPUT_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_INPUT_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_INPUT));
+    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
+    f[8] = kind;
+    f[9..11].copy_from_slice(&x.to_le_bytes());
+    f[11..13].copy_from_slice(&y.to_le_bytes());
+    f
+}
+
+/// `(surface_id, kind, x, y)`.
+#[must_use]
+pub fn decode_surface_input(frame: &[u8]) -> Option<(u32, u8, u16, u16)> {
+    if !has_op(frame, OP_SURFACE_INPUT) || frame.len() != SURFACE_INPUT_FRAME_LEN {
+        return None;
+    }
+    Some((
+        u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]),
+        frame[8],
+        u16::from_le_bytes([frame[9], frame[10]]),
+        u16::from_le_bytes([frame[11], frame[12]]),
+    ))
+}
+
 // -------------------------------------------------------------------- acks
 
 /// Ack layout (all ops): `[hdr(op | 0x80), status, value:u32]` — `value` is
@@ -237,8 +277,15 @@ mod tests {
     #[test]
     fn ops_do_not_collide_with_the_input_family() {
         // input-live-protocol occupies 1–4 on the same endpoint envelope.
-        for op in [OP_SURFACE_CREATE, OP_SURFACE_PRESENT, OP_SURFACE_DESTROY] {
+        for op in [OP_SURFACE_CREATE, OP_SURFACE_PRESENT, OP_SURFACE_DESTROY, OP_SURFACE_INPUT] {
             assert!(op > 4, "op {op} collides with the input family");
         }
+    }
+
+    #[test]
+    fn input_round_trip() {
+        let f = encode_surface_input(3, INPUT_KIND_TAP, 120, 88);
+        assert_eq!(decode_surface_input(&f), Some((3, INPUT_KIND_TAP, 120, 88)));
+        assert_eq!(decode_surface_input(&f[..f.len() - 1]), None);
     }
 }

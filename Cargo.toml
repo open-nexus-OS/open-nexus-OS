@@ -27,6 +27,7 @@ members = [
     "userspace/ui/effects",
     "userspace/ui/msdf",
     "userspace/ui/sdf",
+    "userspace/ui/text-baked",
     "userspace/ui/animation",
     "userspace/ui/style",
     "userspace/ui/theme-tokens",
