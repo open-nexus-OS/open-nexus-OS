@@ -1,174 +1,92 @@
 ---
-title: TASK-0075 DSL v0.1a: lexer/parser→AST + Scene-IR + lowering + nx dsl (fmt/lint/build) + host goldens
+title: TASK-0075 DSL v0.1a: frontend (lexer/parser/AST/typecheck/lints/fmt) + canonical capnp IR + nx-dsl CLI backend + host proofs
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2025-12-23
+updated: 2026-07-06
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - UI runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - UI layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Language reference (SSOT this task implements): docs/dev/dsl/grammar.md, docs/dev/dsl/types.md,
+    docs/dev/dsl/modifiers.md, docs/dev/dsl/principles.md, docs/dev/dsl/ir.md
+  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - CLI shim this backend satisfies: tools/nx/src/commands/dsl.rs (NX_DSL_BACKEND delegation)
+  - IDL convention: tools/nexus-idl/schemas/ (new ui_ir.capnp lives here)
   - UI layout pipeline contract: docs/dev/ui/foundations/layout/layout-pipeline.md
-  - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
+  - Design-system consumer baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-We want a declarative DSL for UI that targets the existing stack (runtime/layout/kit/theme), but we must start with
-deterministic foundations:
+The DSL is 0% implemented: the only code is the `nx dsl` CLI shim
+(`tools/nx/src/commands/dsl.rs`) which delegates `fmt/lint/build` to an external
+`NX_DSL_BACKEND` binary that does not exist. The language reference in `docs/dev/dsl/`
+(grammar/types/modifiers/principles/ir) is the normative SSOT this task turns into code.
 
-- grammar + parser + AST with good diagnostics,
-- a stable Scene-IR suitable for goldens,
-- a lowering pass (AST → IR) with validation (keys, a11y hints),
-- CLI tooling for fmt/lint/build.
+This task delivers the deterministic foundations — frontend, canonical IR, CLI — for the
+**v1 canonical surface** (see `grammar.md#changelog`): direct store fields, top-level
+`Event`/`reduce`/`@effect on`, `if/else` view conditionals, chained hybrid-utility
+modifiers (`.padding(4) .bg(accent) .textSize(sm) .rounded(md)`), `Page` body = view,
+`List(expr) { item in … }` keyed collections.
 
-Interpreter + snapshots + OS demo is deferred to v0.1b (`TASK-0076`).
-Even at this host-first stage, the syntax/IR should be shaped around the shared visible proof surface rather than a
-special DSL-only demo hierarchy.
-
-## Canonical UI project layout (v0.x convention; no auto-import)
-
-This DSL is intended to support a Nuxt-like *project structure* (without auto-import magic).
-The loader and tooling must behave deterministically given the same file set.
-
-Recommended layout (apps and SystemUI can both follow this shape):
-
-- `ui/pages/**.nx` — top-level pages/screens
-- `ui/components/**.nx` — reusable components
-- `ui/composables/**.nx` — **pure** helpers and store definitions (no IO; deterministic only)
-- (optional) `ui/services/**.nx` — service adapters called from **effects only** (no reducers; v0.2+)
-- `ui/themes/**.nxtheme.toml` — theme/token mappings (authoring; human-editable)
-  - compiled artifact (canonical, Cap'n Proto): `**.nxtheme` (optional in v0.1; see `TASK-0076`)
-- `ui/platform/<profile>/**` — profile overrides (resolution rules are defined in v0.2; see `TASK-0077`)
-- `ui/tests/**` — host fixtures / goldens / interaction scripts
-  - keep v0.1 minimal; v0.2 introduces optional sub-layout via generators (see below)
-
-### Canonical page/module shape (v0.x)
-
-The canonical DSL authoring shape for a user-facing page is:
-
-- `Store` — durable UI state for that page/flow
-- `Event` — the bounded set of things that can happen
-- `reduce <Event>` — pure state transitions only
-- `@effect on <Event>` — service calls / side effects only
-- `Page` — declarative UI that reads `$state` and emits events
-
-Recommended posture:
-
-- small pages may colocate `Store`, `Event`, `reduce`, `@effect`, and `Page` in `ui/pages/<Page>.nx`
-- once a page grows, extract pure store logic to `ui/composables/**.store.nx`
-- extract effect-side adapters to `ui/services/**.service.nx`
-- reducers stay pure; `svc.*` calls are only legal from effects
-
-This means code shaped like:
-
-- `ui/pages/UserListPage.nx` containing `Store UserListStore`, `Event UserListEvent`, `reduce UserListEvent`, `@effect on LoadUsers`, and `Page UserListPage`
-
-is canonical and should be supported directly by the syntax/AST/lowering path.
-
-### Layout posture: minimal by default; expanded by generators
-
-We intentionally do **not** force a heavy scaffold (lots of empty folders/files) in v0.1.
-Instead, `nx dsl` provides generators that create an expanded structure **only when needed**, keeping repos small and avoiding “fake structure”.
-
-Recommended (optional) conventions once an app grows:
-
-- Naming (recommended, not required):
-  - `ui/composables/**.store.nx` — store definitions (state/events/reducers/effects; v0.2+)
-  - `ui/services/**.service.nx` — effect-side service adapters (v0.2b+)
-- Tests (optional structure):
-  - `ui/tests/unit/{stores,services,composables}/`
-  - `ui/tests/component/{pages,components}/`
-  - `ui/tests/e2e/`
-  - `ui/tests/fixtures/` + `ui/tests/goldens/`
+**Fixed architecture decisions (masterplan 2026-07-06):**
+- Reducers/effects lower to **typed total expression trees** (no bytecode VM);
+  termination by construction; numerics = `Int`(i64) + `Fx`(Q32.32), no floats.
+- Canonical IR = Cap'n Proto (`tools/nexus-idl/schemas/ui_ir.capnp`), derived
+  `.nxir.json` for goldens only. Determinism: `build; build; cmp` byte-identical.
+- The checker core must be **no_std-capable** so it can later run in-system
+  (host tests now, on-device validation later).
+- No godfiles: module layout per crate is pinned in the masterplan (≤ ~600 LOC/file).
 
 ## Goal
 
-Deliver:
-
-1. Workspace skeleton:
-   - `userspace/dsl/nx_syntax` (lexer+parser → AST + formatter)
-   - `userspace/dsl/nx_ir` (Scene-IR types + stable hashing + serializer)
-   - (lowering lives in either `nx_syntax` or a dedicated crate; keep boundaries clean)
-   - CLI `tools/nx-dsl` (fmt/lint/build)
-2. Minimal DSL grammar (v0.1 subset):
-   - Page/Component/Store/Event/reduce/@effect/State/Prop/Import/@computed
-   - view expressions (Stack/Text/Image/Icon/Button/Card/TextField/List/Spacer)
-     - optional escape hatch: `NativeWidget(handle, props)` for rare custom widgets
-       - deterministic given inputs; bounded CPU/memory
-       - no direct IO inside the widget; IO is only via `svc.*` in effects
-       - must provide a11y semantics or be lint-rejected where required
-   - modifiers (styling/layout annotations):
-     - canonical form: `modifier { ... }`
-     - syntactic sugar: chaining (`.padding(2).bg(accent)`) lowers to an equivalent `modifier { ... }`
-     - deterministic conflict posture: duplicate setters are rejected by lint (preferred) or deterministically resolved (documented)
-     - initial set (v0.1): padding/margin/size/opacity/cornerRadius/color(role)
-   - bindings ($state read/write) and events (on Tap → set/emit/navigate)
-   - canonical state/update flow:
-     - `Store` declares state
-     - `Event` declares actions
-     - `reduce <Event>` performs pure updates
-     - `@effect on <Event>` performs side effects and dispatches follow-up events
-3. Deterministic Scene-IR:
-   - stable ordering, stable subtree hashes
-   - preserve stable node identity/keys needed by retained measurement and placement caches
-   - **canonical on-disk format**: Cap'n Proto binary (`.nxir`) for determinism + bounded parsing + future OS use
-   - **derived view**: stable canonical JSON (`.nxir.json`) for host goldens, diffs, and debugging
-4. Host tests:
-   - parse/format idempotence
-   - AST→IR golden JSON stability (JSON is a view derived from canonical IR)
-   - diagnostics for missing @key and missing a11y label hints
-   - at least one fixture page models the shared visible proof surface targets (text, icon/cursor, scroll/list, overlay shell areas)
-
-5. Module resolution (no auto-import; deterministic):
-   - explicit `import "..."`
-   - optional stable alias roots (e.g. `@app/...`) configured by tooling (documented in `docs/dev/dsl/cli.md`)
-   - stable conflict errors (same symbol defined in two imports is an error with deterministic ordering)
-
-### Lint posture (v0.1a)
-
-The v0.1a lints are intentionally small but strict and deterministic:
-
-- missing list keys (`@key`) is an error (with spans + stable diagnostic codes)
-- missing a11y label hints is an error (with spans + stable diagnostic codes)
-- module/import conflicts are errors with deterministic ordering
-
-Follow-ups that are **out of scope for v0.1a** (tracked in v0.2+ tasks):
-
-- naming conventions (Page/Component/Store/Event suffixes)
-- unused symbol detection (unused state fields / unused events)
-- boundedness hints (e.g. large lists without virtualization/budgets)
+1. **Crates** (explicit members in root `Cargo.toml`):
+   - `userspace/dsl/core` (`nexus-dsl-core`, no_std+alloc, feature `std` for host IO/
+     pretty diagnostics): `lexer.rs`, `parser/` (one module per construct), `ast.rs`,
+     `resolve.rs`, `typeck/`, `lint/` (one module per lint + registry), `canon.rs`,
+     `fmt.rs`, `diag.rs` (structured diagnostics: code/span/message-id), `lower/`.
+     Contains `modifiers.toml` (SSOT: modifier catalog + field classes layout/paint/
+     semantics); `build.rs` generates the Rust table + the `docs/dev/dsl/modifiers.md`
+     catalog table.
+   - `userspace/dsl/ir` (`nexus-dsl-ir`, no_std+alloc): typed zero-copy wrappers over
+     the generated `ui_ir` capnp module, structural validation (budgets, version gate,
+     re-typecheck), canonical hashing, stable NodeId derivation, field-class table.
+     Writer side behind feature `write`.
+   - `userspace/dsl/cli` (`nx-dsl` bin, std): satisfies the shim's delegation contract
+     (`fmt`/`lint`/`build` argv), plus direct verbs `check`, `hash`, `explain <code>`.
+     `NX_DSL_BACKEND` gets wired by the justfile/dev scripts.
+2. **Grammar v1** per `docs/dev/dsl/grammar.md` (the whole surface: stores/events/
+   reducers/effects, pages/components/props, if/for/match/collections, modifiers,
+   handlers, routes, `@t`, `$state`/`$props`/`device.*`, `NativeWidget` parse-only).
+3. **IR v1.0** per `docs/dev/dsl/ir.md`: `UiProgram` with interned sorted symbols,
+   expression-tree reducer bodies, bounded effect plans, persisted stable NodeIds
+   (`hash64(component ∥ path ∥ key)`), field classes per binding site, budgets,
+   `programHash`/`sourceDigest`, canonical encoding.
+4. **Lints (Error unless noted)**: reducer purity; unhandled `Result` arms; missing
+   `.key(expr)` on collection items; missing `.label()` on unlabeled interactive nodes;
+   duplicate modifiers; non-exhaustive match; unbounded `for`; import conflicts
+   (deterministic ordering); `if device.profile` without final `else` (Warning,
+   `--deny-warn` promotes). Spans + stable diagnostic codes on everything.
+5. **Module resolution**: explicit `import` only; stable alias roots (`@app/...`);
+   deterministic conflict errors.
 
 ## Non-Goals
 
+- Interpreter/rendering/snapshots (TASK-0076), stores runtime (TASK-0077),
+  codegen (TASK-0079), OS anything.
 - Kernel changes.
-- Codegen.
-- Interpreter bridge / rendering / snapshots / SystemUI demo (v0.1b).
-- Profile/override semantics beyond parsing (tracked in v0.2; see `TASK-0077`).
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic formatting, hashing, and IR serialization.
-- Bounded parsing:
-  - cap file size,
-  - cap recursion depth,
-  - cap identifier lengths.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## v1 readiness gates (DevX, directional)
-
-This task anchors the “feel” of the DSL by making the surface deterministic and easy:
-
-- `$state.field` remains the canonical, intuitive state access idiom (bindings are explicit; IO stays out of view/reducers).
-- Modifiers remain token-driven and deterministic (`modifier {}` canonical; chaining sugar lowers 1:1).
-- `@when ... @else ...` is canonical; `match(expr) { ... else ... }` is sugar only and lowers 1:1.
-- The formatter/linter/IR must stay stable to support a SwiftUI/ArkUI/Compose-like iteration loop (goldens, snapshots).
-
-Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+- Deterministic formatting, hashing, IR serialization; no host timestamps/paths in
+  outputs.
+- Bounded parsing: cap file size, recursion depth, identifier length.
+- `nexus-dsl-core` + `nexus-dsl-ir` build for `riscv64imac-unknown-none-elf`
+  (no_std check in CI) — the in-system-checker requirement.
+- No `unwrap/expect`; no blanket `allow(dead_code)`; no company/product names.
+- No godfiles (module layouts above are binding).
 
 ## Stop conditions (Definition of Done)
 
@@ -176,34 +94,45 @@ Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 `tests/dsl_v0_1a_host/`:
 
-- parse→fmt→parse is idempotent (AST equality / structural equality)
-- AST→IR produces golden JSON files that are stable
-- lint diagnostics include source spans and stable codes
+- parser corpus: accept + reject fixtures with snapshotted diagnostic codes/spans;
+- `parse → fmt → parse` idempotent (structural AST equality); `fmt(fmt(x)) == fmt(x)`;
+- `nx dsl build` twice → **byte-identical** `.nxir` (`cmp`); IR golden fixtures
+  (canonical bytes + derived JSON) stable;
+- the load-time validator rejects: budget overflow, unknown major version, type
+  mismatch, dangling symbol refs (fixture per case);
+- capnp no_std probe: a ≥100 KB `.nxir` fixture read with bounded traversal limits on
+  the riscv target build (unit test compiled for host, build-checked for riscv).
 
 CLI:
 
-- `nx dsl fmt --check` exits non-zero on needed changes
-- `nx dsl lint` returns non-zero on errors (warnings are reported but do not fail unless `--deny-warn`)
-- `nx dsl build` emits **canonical** `.nxir` under `target/nxir/` deterministically
-- `nx dsl build --emit-json` also emits `.nxir.json` under `target/nxir/` deterministically (derived view for goldens)
+- `nx dsl fmt --check` non-zero on needed changes; `nx dsl lint` non-zero on errors;
+  `nx dsl build` emits canonical `.nxir` under `target/dsl/<app>/`;
+  `--emit-json` adds `.nxir.json`;
+- the existing shim (`tools/nx dsl …`) round-trips through `NX_DSL_BACKEND` (delegation
+  smoke test).
 
-Visible-proof-surface handoff:
+Fixtures include one page modeling the shared proof surface (text, icon, list,
+overlay areas) so later interpreter/OS tasks mount the same structure.
 
-- the canonical fixture app/page for v0.1a already maps to the shared proof-surface targets,
-- later interpreter/OS tasks must mount that same structure instead of inventing a separate DSL demo layout.
+### Docs — required (reference grade)
+
+- `docs/dev/dsl/{syntax,cli,modifiers}.md` current with the shipped surface;
+  `modifiers.md` table generated from `modifiers.toml`;
+- `docs/dev/dsl/ir.md` changelog entry v1.0 + regenerated IR goldens;
+- diagnostics catalog (`nx dsl explain`) documented in `cli.md`.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsl/nx_syntax/` (new)
-- `userspace/dsl/nx_ir/` (new)
-- `tools/nx-dsl/` (new)
+- `userspace/dsl/{core,ir,cli}/` (new), root `Cargo.toml` (members)
+- `tools/nexus-idl/schemas/ui_ir.capnp` (new) + `userspace/nexus-idl-runtime` (module)
 - `tests/dsl_v0_1a_host/` (new)
-- `docs/dev/dsl/overview.md` + `docs/dev/dsl/syntax.md` + `docs/dev/dsl/ir.md` + `docs/dev/dsl/cli.md` (new)
+- `docs/dev/dsl/{syntax,cli,modifiers,ir}.md`, `justfile` (NX_DSL_BACKEND wiring)
 
 ## Plan (small PRs)
 
-1. repo scaffolding for syntax/ir/cli
-2. lexer+parser+AST+pretty printer + diagnostics
-3. IR + stable hashing + serializer
-4. lowering pass + semantic lint rules (keys/a11y)
-5. host tests + docs
+1. crate scaffolding + `ui_ir.capnp` v1.0 + idl-runtime module + no_std CI checks
+2. lexer + parser + AST + diagnostics (per-construct parser modules)
+3. resolve + typecheck + lint registry
+4. canonicalize + fmt (idempotence proofs)
+5. lower/ (AST → IR) + validation + hashing + NodeIds
+6. `nx-dsl` CLI + shim wiring + determinism proofs + docs

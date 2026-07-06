@@ -1,148 +1,169 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Syntax (v0.x)
+# Syntax Tour
 
-This page documents the v0.x syntax at a high level. Exact grammar evolves with tasks; the CLI is the source of truth for errors and formatting.
-
-See also: recommended patterns (components/props, builder specs, slots) in `docs/dev/dsl/patterns.md`.
+A guided tour of the `.nx` surface. The normative grammar is `grammar.md`; the compiler
+is the executable source of truth for errors and formatting.
 
 ## Conventions
 
-- explicit `import "..."` (no auto-import)
-- stable formatting via `nx dsl fmt`
+- explicit `import "..."` — no auto-import, resolution is reproducible;
+- one canonical layout, produced by `nx dsl fmt` (`parse → fmt → parse` is idempotent);
+- files: pages/components under `ui/pages|components/**.nx`, stores under
+  `ui/composables/**.store.nx` (see `project-layout.md`).
+
+## Stores, events, reducers, effects
+
+State fields are declared directly in the store; events, reducers, and effects are
+top-level declarations — the file reads top-to-bottom as *what we keep → what can
+happen → how state changes → what side effects run*:
+
+```nx
+Store UserListStore {
+    users: List<User> = [],
+    loading: Bool = false,
+}
+
+Event UserListEvent {
+    LoadUsers,
+    UsersLoaded(List<User>),
+}
+
+reduce UserListEvent {
+    LoadUsers => state.loading = true,
+    UsersLoaded(users) => {
+        state.users = users;
+        state.loading = false;
+    },
+}
+
+@effect on LoadUsers {
+    let users = svc.users.list();
+    dispatch(UsersLoaded(users));
+}
+```
+
+Reducers are pure (no IO, no `svc.*`, no time/randomness — compile error otherwise).
+Effects run after commit, own all IO, and must handle both `Ok` and `Err` of every
+service call.
+
+## Pages and components
+
+A `Page` body **is** its view. Components declare `props` first:
+
+```nx
+Page UserListPage {
+    Stack {
+        if $state.loading {
+            Text(@t("common.loading"))
+        } else {
+            List($state.users) { user in
+                UserRow { user: user, onOpen: UserListEvent::Open }.key(user.id)
+            }
+        }
+    }
+    .padding(4)
+    .gap(2)
+}
+
+Component UserRow {
+    props: {
+        user: User,
+        onOpen: EventRef,
+    }
+    Stack {
+        Avatar { initials: $props.user.initials }
+        Text($props.user.name).textSize(base)
+    }
+    .direction(row)
+    .gap(3)
+    on Tap -> emit($props.onOpen)
+}
+```
+
+Single-primary-prop widgets accept positional sugar: `Text("Hi")` ≡
+`Text { value: "Hi" }`.
 
 ## Conditionals
 
-Canonical form:
+Plain `if/else`, including on the device environment:
 
 ```nx
-@when device.profile == phone { Stack { /* ... */ } }
-@when device.profile == tablet { Stack { /* ... */ } }
-@else { Stack { /* default */ } }
-```
-
-Notes:
-
-- `@when` is evaluated top-to-bottom; first match wins.
-- `match(device.profile) { ... else ... }` may exist as syntactic sugar and must lower to the same IR.
-
-## Loops (bounded)
-
-Loops are allowed, but must be bounded in v0.x (no unbounded `while(true)` patterns).
-
-Example (illustrative):
-
-```nx
-for filter in filters {
-  // build-only (pure) operations are allowed here
-  query = query.where(filter.field, filter.value)
+if device.profile == desktop {
+    SplitView { /* sidebar + content */ }
+} else {
+    Stack { /* single column */ }
 }
 ```
 
-## Modifiers (styling/layout)
+`if` on `device.profile` without a final `else` is a warning (a device you didn't
+think of gets the default branch, not a blank screen). `match` is available and must
+be exhaustive.
 
-Modifiers are styling/layout annotations applied to a view node.
+## Loops and collections
 
-### Canonical form: `modifier { ... }`
+- `for x in xs { … }` — bounded iteration for building static structure (the bound
+  must be statically known);
+- `List($state.items) { item in … }` — the keyed, virtualizable collection template.
+  Every item needs a stable `.key(expr)`.
 
-```nx
-Button { label: "Continue" }
-modifier {
-  padding(2)
-  bg(accent)
-  radius(md)
-}
-```
+## Modifiers
 
-### Sugar: chaining
-
-Chaining is syntactic sugar and lowers to the equivalent modifier block:
+Chained utility calls with token arguments (full catalog: `modifiers.md`):
 
 ```nx
-Button { label: "Continue" }
-  .padding(2)
+Button { label: @t("cta") }
+  .padding(4)
   .bg(accent)
-  .radius(md)
+  .fg(onAccent)
+  .textSize(sm)
+  .rounded(md)
+  .shadow(sm)
 ```
 
-Determinism rules:
+- duplicate modifiers on one node = error;
+- modifiers are pure;
+- arguments are semantic tokens — raw hex/px values are not expressible in app code
+  (they belong to theme authoring, see `docs/dev/ui/foundations/visual/colors.md`).
 
-- duplicate setters should be rejected by lint (preferred), or must follow a documented deterministic rule (e.g. last-wins)
-- modifiers must be pure (no IO, no `svc.*`)
-- prefer **semantic tokens** for styling (e.g. `bg(accent)`) rather than arbitrary colors; theme authoring is where raw values belong (see `docs/dev/ui/foundations/visual/colors.md`)
+### Motion
 
-### Motion modifiers
-
-Animation should use **semantic motion tokens** with explicit categories rather than a CSS-style free-form animation
-language.
-
-Recommended surface:
+Semantic motion tokens with explicit categories — no free-form animation language:
 
 ```nx
-Button { label: "Continue" }
+Button { label: @t("cta") }
   .animate(snappy, value: $state.enabled)
   .transition(fadeScale)
   .effect(wiggle, trigger: $state.nudgeTick)
 ```
 
-Meaning:
+- `.animate(token, value:)` — animate state-driven property changes;
+- `.transition(token)` — insert/remove/open/close lifecycle motion;
+- `.effect(token, trigger:)` — bounded attention effect when the trigger changes.
 
-- `.animate(token, value: expr)`
-  - animate value/state-driven property changes
-- `.transition(token)`
-  - define insert/remove/open/close lifecycle motion
-- `.effect(token, trigger: expr)`
-  - run a bounded attention effect when the trigger changes
+Reduced-motion behavior is part of each token's contract. There are no CSS-style
+keyframes, no free-form animation variables, no magic one-off utilities.
 
-Recommended posture:
+## Escape hatch: `NativeWidget`
 
-- keep the token set curated and semantic (`snappy`, `smooth`, `fadeScale`, `wiggle`, ...)
-- reduced-motion behavior is part of the token contract
-- prefer trigger-based effects over permanent/infinite motion
-- keep motion lowering backend-neutral (DOM/Canvas/SVG/NativeWidget shell)
-
-Avoid as the default DSL model:
-
-- CSS-like global `@keyframes`,
-- free-form `--animate-*` custom variables,
-- or many single-purpose magic utility modifiers such as `.wiggle`, `.shake`, `.bounce` as the primary syntax.
-
-Those may inspire ergonomics, but the core contract should stay tokenized, typed, and deterministic.
-
-## Escape hatch: `NativeWidget` (custom widgets)
-
-The DSL is intentionally bounded and token-driven. For rare cases where a design requires behavior that is not yet
-expressible with first-party primitives, an optional escape hatch may be used.
-
-Concept:
-
-- `NativeWidget(handle: NativeWidgetHandle, props: NativeProps)` is a view node implemented in Rust.
-- The handle is **capability-gated/registered** by the platform or app package (no dynamic code loading in v0.x).
-
-Constraints (must remain true in both interpreter and AOT):
-
-- deterministic rendering given the same inputs (no wallclock / RNG unless injected and declared)
-- bounded resource usage (memory, CPU per frame)
-- no direct filesystem/DB/network access from the widget (use `svc.*` via effects for IO)
-- a11y contract: provide semantics/roles/labels or the node is lint-rejected where required
-
-Example (illustrative):
+For surfaces the first-party catalog cannot express (document canvas, waveform,
+video preview), a capability-gated native view node exists:
 
 ```nx
 Page FancyChartPage {
-  NativeWidget(handle: "com.acme.widgets.ChartV1", props: { seriesId: $state.seriesId })
+    NativeWidget(handle: "org.example.widgets.ChartV1", props: { seriesId: $state.seriesId })
 }
 ```
 
-## Example (illustrative)
+Constraints (interpreter and AOT alike): deterministic rendering for the same inputs,
+bounded resources, no direct IO (services via effects only), a11y contract required.
+No dynamic code loading.
 
-```nx
-import "@app/ui/components/Card"
+## Changelog
 
-Component CardRow {
-  view: Card {
-    Text { value: "Hello" }
-  }
-}
-```
+- **v1 (2026-07-06)** — canonical surface normalized (see `grammar.md#changelog`):
+  direct store fields, top-level `Event`/`reduce`/`@effect on`, `if/else` replaces
+  `@when/@else`, `Page` body is the view, chained modifiers are the single modifier
+  form (the `modifier { }` block is removed), positional sugar, `.key()` required on
+  collection items.

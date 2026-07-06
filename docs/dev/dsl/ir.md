@@ -1,34 +1,118 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Scene IR (`.nxir`)
+# The Canonical IR (`.nxir`)
 
-The DSL lowers source (`.nx`) into a deterministic Scene IR.
+`nx dsl build` lowers `.nx` source into a deterministic, bounded, binary IR. The IR is
+**the contract of the whole system**: the interpreter, the app-host, and the AOT
+codegen all execute the same IR under one written semantics — nothing may be
+implemented in only one tier.
 
 ## Formats
 
-- **Canonical**: `.nxir` (Cap'n Proto; deterministic, bounded parsing)
-- **Derived**: `.nxir.json` (deterministic view for host goldens/debug)
+- **Canonical**: `.nxir` — Cap'n Proto (schema: `tools/nexus-idl/schemas/ui_ir.capnp`),
+  chosen for zero-parse bounded reads (an app mount validates and indexes; it never
+  parses text or compiles).
+- **Derived**: `.nxir.json` — deterministic JSON view for host goldens and debugging
+  only. Never consumed at runtime.
 
-## Determinism rules
+## Top-level structure
 
-- stable ordering for maps/lists in IR
-- stable ids/hashes where required
-- no host-dependent timestamps
+```capnp
+struct UiProgram {
+  schemaVersion :UInt16;   # major.minor; readers reject unknown majors
+  programHash   :Data;     # SHA-256 over canonical bytes with this field zeroed
+  sourceDigest  :Data;     # digest of the canonical source set (build provenance)
+  symbols       :List(Text);      # interned, sorted, unique; all refs are u32 ids
+  stores        :List(Store);
+  events        :List(EventDecl);
+  reducers      :List(Reducer);   # (store, event) -> Body
+  effects       :List(EffectPlan);
+  components    :List(Component); # includes Pages; view templates
+  routes        :List(Route);
+  i18nKeys      :List(I18nKey);
+  querySpecs    :List(QuerySpec);
+  conditions    :List(DeviceCond);# device.* branch conditions, deduplicated
+  assets        :List(AssetRef);  # name, kind, digest
+  budgets       :Budgets;         # caps: nodes, expr size, list len, str len, ...
+}
+```
 
-## Retained identity posture
+## Reducers and effects: total expression trees
 
-The IR should preserve enough stable identity for retained measurement and placement caches:
+Reducer bodies and effect plans are stored as **typed expression/statement trees**, not
+bytecode. The representation has no back-edges, so **termination holds by
+construction** — no verifier, no fuel counters. Iteration exists only as capped
+collection combinators (`map`, `filter`, `findFirst`, `removeWhere`, `append`-with-cap).
 
-- layout-relevant nodes should carry stable ids / subtree hashes where the runtime needs reuse,
-- list-like regions should preserve stable child keys,
-- equivalent recompilations must not change identity purely because of incidental formatting or file traversal order.
+- The interpreter walks the trees directly over Cap'n Proto readers (zero-parse).
+- AOT lowers each tree to straight-line native code.
+- Both implement the same small-step semantics document; a shared conformance corpus
+  (`(state, event) → state'` fixtures) is executed by both and must agree exactly.
+- Every expression node carries its type; the loader **re-typechecks on mount**
+  (fail-closed against tampered bundles).
+
+Effect plans are bounded step lists (`call` with timeout + `onOk`/`onErr` dispatches,
+`dispatch`, `query`), not general code.
+
+## Stable node identity
+
+Every layout-relevant view node carries a persisted 64-bit id:
+
+```text
+nodeId = hash64(component symbol ∥ structural path ∥ optional user key)
+```
+
+Collection items derive ids at runtime from their `.key(expr)` value with the same
+hash. Consequences:
+
+- the retained instance tree, AOT output, golden snapshots, and a11y references all
+  agree on identity across rebuilds;
+- equivalent recompilations never change identity because of formatting or file
+  traversal order;
+- keyed items keep their local state across reorders.
 
 ## Field classification
 
-IR producers and consumers should distinguish between:
+Every widget property and modifier is classified in the compiler SSOT
+(`userspace/dsl/core/modifiers.toml`, mirrored in `modifiers.md`):
 
-- **layout-affecting fields**: constraints, text content, typography, visibility, width-bucket-sensitive structure,
-- **paint-only fields**: color/token/opacity and similar values that should not force remeasurement by default,
-- **semantics/a11y fields**: accessibility labels/roles and related metadata that affect semantics but not geometry unless
-  a task explicitly says otherwise.
+- **layout** — constraints, spacing, text content/typography, visibility: dirties
+  measurement + placement;
+- **paint** — colors, tokens, opacity, shape, motion: repaint only, never remeasure;
+- **semantics** — labels, roles, hints: a11y tree only, no pixels.
+
+Each binding site in the IR records which classes it can dirty; the runtime's
+dependency index (store field → binding sites) turns a dispatched event into a minimal,
+class-partitioned dirty set. This is the mechanism behind microsecond-scale reactive
+updates.
+
+## Canonicalization (determinism)
+
+- symbols sorted and unique; all order-insensitive lists sorted by symbol id;
+- modifier lists in catalog order; duplicate modifiers are a build error;
+- canonical Cap'n Proto encoding; no host timestamps, paths, or environment leakage;
+- `programHash` computed over the canonical bytes;
+- **invariant proven in CI**: building the same source twice yields byte-identical
+  `.nxir` (`build; build; cmp`).
+
+## Schema evolution rules
+
+1. Field numbers are **append-only**; nothing is renumbered or reused.
+2. **Minor** version bump = additive fields with defaults; older readers keep working.
+3. **Major** version bump = readers reject; requires a migration note.
+4. Every schema change requires (a) an entry in the changelog below, (b) regenerated IR
+   golden fixtures (byte-compared in CI).
+5. The validator and the runtime must agree exactly: the runtime never tolerates what
+   the validator rejects.
+
+## Budgets & validation on load
+
+`Budgets` caps the whole program (node count, expression sizes, list/string caps,
+effect steps, route count). The app-host validates budgets, types, symbol references,
+and the program hash before mounting; any failure is a deterministic launch error —
+never a partial mount.
+
+## Changelog
+
+- **v1.0 (planned, TASK-0075)** — initial schema as sketched above.

@@ -116,3 +116,54 @@ best impl, then delete the bespoke loser — this is where the triple structure 
 4. W6 windowd convergence — one surface per PR, boot-verified then bespoke deleted.
 5. SystemUI + app (launcher/notes/settings) adoption + markers.
 6. OS selftests + docs + postflight.
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+> Durable done/open record. **Nothing in this task has started yet** — it is unblocked now that
+> TASK-0073's primitive kit + token SSOT + Icon system + goldens/a11y harness are in place (host-safe,
+> mostly committed). Overlay primitives are host-safe; the modal manager, App Shell adoption, and the
+> whole W6 convergence + palette/bake/glass work are **[BOOT-GATED]** (touch running services + QEMU
+> markers → need a user boot-verify per phase).
+
+### Ready to build on (from TASK-0073, DONE)
+- The kit crates `userspace/ui/widgets/*` (32 components), `Icon`/`Icon::lucide`, `Text`, `InteractionState`.
+- Token SSOT (`resolve_material`/glass materials incl. `MaterialToken::Overlay` + `scrim` tokens for overlay surfaces), `ShapeKind::Vector` (icons).
+- Golden + a11y harness `tests/ui_v10_goldens/` (extend with overlay/app-shell goldens; painter is shape-aware).
+
+### ⬜ OPEN — W4 overlays wave (host-safe, this task) — 0 of 9
+- **Modal**, **ActionSheet**, **Alert**, Popover/PopoverItem, Menu/ContextMenu, Tooltip, FAB.
+- Build on the dense **overlay** glass material (`MaterialToken::Overlay`) + `scrim` token; each a pure `LayoutNode` builder like the kit; add host goldens.
+
+### ⬜ OPEN — Modal manager (host-safe logic + [BOOT-GATED] input routing)
+- Userspace modal stack (bounded depth), backdrop, focus trap, ESC. Focus traps must route via
+  `windowd` focus/input (no background leak) — **[BOOT-GATED]** live QEMU pointer/keyboard proof.
+- Unified `ToastView` + the **5-surface notification routing** (Activity Runner / Mitteilungen /
+  Control Center / System-Toast / Background Jobs) — behavioural (see design_handoff README).
+
+### ⬜ OPEN — App Shell — 0 of 2 window-compose
+- **AppWindow** (sidebar·content·properties, responsive collapse ≥820/≥560/<560), **WindowActionBar**.
+  Compose from TASK-0073 `Window`/`Sidebar`/`WindowPane`/`WindowControls`. Host snapshots first.
+
+### ⬜ OPEN — [BOOT-GATED] the live-path bundle (needs user boot-verify)
+1. **Palette shift**: retune core neutrals (`surface/fg/bg/accent`) in `.nxtheme.toml` to the handoff
+   pure-grey palette (updates value-pinning tests + changes windowd's baked look).
+2. **windowd `theme.rs`/`assets::THEME_*`** → point at the shared generation (one bake path).
+3. **Glass primitive D4**: extend `nexus-gfx` `LayerBackdrop` with tint/shine/border from material
+   tokens; route windowd's baked-tint path through it (the TASK-0073 "one glass draw" golden).
+4. **windowd renders `ShapeKind`** (Path/Vector/Triangle) so kit icons/chevrons appear in the live OS.
+5. **W6 convergence**: collapse `windowd/src/compositor/runtime/*` (~15k LOC bespoke row-renderers)
+   onto `LayoutNode → LayoutEngine → SceneGraph → nexus-gfx`, one surface per PR
+   (chat→search→settings→desktop_layer→greeter), each boot-verified identical, then delete the
+   bespoke renderer. This is the RFC-0067 windowd-slimming and the "one path" endgame.
+
+### ⬜ OPEN — Adoption + proof (per this task's DoD)
+- SystemUI overlays + apps (launcher/notes/settings) adopt the kit; markers `design: kit adopted (...)`,
+  `SELFTEST: ui v10 ...`, `windowd: surface converged (...)`; postflight.
+
+### Notes for whoever continues
+- Overlay primitives + App Shell + modal-manager LOGIC are host-safe (build like TASK-0073, add
+  goldens). Everything that touches windowd rendering or running services is boot-gated → stage per
+  phase with a user boot-verify. Architecture SSOT = **RFC-0070** (one declarative path, promote the
+  best impl not the incumbent). windowd convergence detail = **RFC-0067**.

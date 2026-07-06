@@ -1,238 +1,97 @@
 ---
-title: TASK-0077 DSL v0.2a: stores/reducers/effects + routes/navigation + i18n keys (syntax/IR/lowering + interp runtimes)
+title: TASK-0077 DSL v0.2a: stores/effects scheduling + routes/navigation + i18n + device-env/profile overrides (host)
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2025-12-23
-depends-on: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
 follow-up-tasks:
-  - TASK-0077B
-  - TASK-0077C
+  - tasks/TASK-0077B-dsl-v0_2a-devx-ergonomics-local-state-env-async-recipes.md
+  - tasks/TASK-0077C-dsl-v0_2c-pro-primitives-nativewidget-virtual-tables-timelines.md
+  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL v0.1a foundations: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v0.1b interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - UI runtime baseline: tasks/TASK-0062-ui-v5a-reactive-runtime-animation-transitions.md
-  - UI layout baseline: tasks/TASK-0058-ui-v3a-layout-wrapping-deterministic.md
-  - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Language reference: docs/dev/dsl/{grammar,state,navigation,i18n,profiles}.md
+  - Device-env SSOT (EXISTS, ADR-0035): source/services/systemui/manifests/{products,profiles,shells}/
+    + source/services/systemui/src/{registry,product,profile,shell}.rs
+  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-DSL v0.2 adds “real app mechanics” on top of v0.1:
+v0.1 gives us a mounted, reactive page. v0.2a adds the app mechanics: multi-store
+programs with deterministic effect scheduling, routes/navigation, i18n, and the
+responsive story — a **default UI plus per-device overrides**, driven by a read-only
+`device.*` environment.
 
-- state management (stores/reducers/events),
-- deterministic effects scheduling,
-- navigation/routes with params/history,
-- i18n key collection and locale switching.
+**IST correction:** the profile/shell registry this task once proposed now EXISTS as
+the SystemUI shell-config registry (ADR-0035): `product.toml` selects profile+shell+
+theme; `profile.toml` carries `[input]` flags and `[display_defaults]`
+(orientation/dpi_class/size_class); `shell.toml` carries `dsl_root` +
+`supported_profiles` + `[first_frame]`. The DSL device environment is **derived from
+that registry** — this task must not invent a second one. App-side profile overrides
+(`ui/platform/<profile>/…`) remain an app-project concept resolved at build time.
 
-This task (v0.2a) focuses on language + IR + interpreter runtime foundations. Service-call stubs and the
-master-detail demo app are handled in v0.2b (`TASK-0078`).
-The new state/nav/i18n machinery must remain aligned with the shared visible proof surface so later DSL mounts can
-switch routes/locales on the same desktop/test targets instead of a separate navigation demo.
+**Syntax note:** the canonical conditional is `if/else` (grammar.md v1); the former
+`@when/@else` form is gone. `match` is exhaustive.
 
-## Device/profile environment contract (v0.2a)
+## Device environment contract (read-only)
 
-To support “one DSL across phone/tablet/desktop/TV/auto/foldable” deterministically, the runtime exposes a small,
-read-only device environment. Host tests provide fixtures; OS wiring provides real values later.
+- `device.profile` — validated profile id (`phone|tablet|desktop|tv|auto|foldable|convertible` baseline; forks may add ids via manifests)
+- `device.posture` — `{flat, half_fold, tent, book}` (only when foldable)
+- `device.orientation` — `{portrait, landscape}`
+- `device.shellMode` — validated shell id (explicit operating mode, never a hardware proxy)
+- `device.sizeClass` — `{compact, regular, wide}`
+- `device.dpiClass` — `{low, normal, high}`
+- `device.input` — flags `{touch, mouse, kbd, remote, rotary}`
 
-Expose (read-only):
+Values resolve from the systemui registry types on OS; host tests inject fixtures.
+Unknown ids / incompatible profile-shell pairings reject deterministically.
 
-- `device.profile`: validated profile ID string
-- `device.posture`: enum `{ flat, half_fold, tent, book }` (optional; only valid when `profile==foldable`)
-- `device.orientation`: enum `{ portrait, landscape }`
-- `device.shellMode`: validated shell ID string
-- `device.sizeClass`: enum `{ compact, regular, wide }`
-- `device.dpiClass`: enum `{ low, normal, high }`
-- `device.input`: flags `{ touch, mouse, kbd, remote, rotary }`
+## Profile overrides (build-time, deterministic)
 
-Baseline built-in IDs shipped by upstream:
-
-- profile IDs include at least `{ phone, tablet, desktop, tv, auto, foldable, convertible }`
-- shell IDs include at least `{ phone, tablet, desktop, tv, auto }`
-- forks/product trees may add more IDs via declarative manifests without changing the core runtime contract
-
-## Declarative profile/shell registry
-
-Tooling/runtime should prefer a manifest-backed registry over scattered hardcoded lists:
-
-- `ui/profiles/<id>/profile.toml`
-- `ui/shells/<id>/shell.toml`
-- optional `ui/products/<id>/product.toml`
-
-Contract:
-
-- TOML is the authoring format
-- manifests are schema-validated before runtime use
-- runtime sees resolved IDs + derived device environment values
-- unknown IDs or incompatible profile/shell pairings reject deterministically
-- later compiled/canonical artifacts are allowed, but should preserve the TOML authoring story
-
-## Profile overrides (path-based; no auto-import)
-
-Tooling may support *deterministic* profile overrides via a fixed resolution order (no globbing at runtime):
-
-- If present, `ui/platform/<profile>/pages/<Page>.nx` overrides `ui/pages/<Page>.nx`
-- If present, `ui/platform/<profile>/components/<Comp>.nx` overrides `ui/components/<Comp>.nx`
-- Otherwise, fall back to the base file.
-
-Override resolution must be:
-
-- deterministic (fixed precedence; no filesystem iteration order dependence),
-- explicit (missing override falls back cleanly),
-- linted (ambiguity/conflicts are errors).
-
-Inline branching (`@when device.profile==... { ... }`) is allowed, but must lower to deterministic IR with bounded
-branch evaluation (no hidden time-based switching).
-
-Profile/orientation posture:
-
-- `device.profile` is the primary cross-device hardware/profile key.
-- `device.orientation` may refine responsive behavior within the same profile (for example phone/tablet portrait vs landscape)
-  without forcing separate “phone-portrait” and “phone-landscape” profile names into the DSL.
-- `device.shellMode` is the active shell posture for surfaces that care about system shell shape
-  (for example `convertible` switching between `desktop` and `tablet`, or future dock/TV shells).
-- Path-based overrides remain **profile-based** by default; orientation-sensitive layout differences should normally use
-  deterministic conditional branching unless a later task explicitly introduces a second override axis.
-
-Shell-mode posture:
-
-- apps and shared components should usually branch on responsive layout + `device.profile` first,
-- SystemUI and shell-owned surfaces may additionally branch on `device.shellMode`,
-- `device.shellMode` must not be a hidden substitute for hardware identity; it is an explicit operating mode.
-- DSL code must not assume the upstream built-in IDs are the only valid IDs; forks may provide additional validated IDs.
-
-### Canonical conditional form (v0.x)
-
-We standardize on one canonical conditional form for UI branching:
-
-- **canonical**: `@when <cond> { ... }` with optional `@else { ... }`
-- **sugar**: `match(device.profile) { ... else ... }` lowers to an equivalent `@when` chain (no new semantics)
-
-Lint posture:
-
-- `@when` chains are evaluated top-to-bottom; first match wins.
-- For profile-driven layout branching, **missing `@else` is a lint warning by default** (upgradeable via `--deny-warn`).
-  (Rationale: avoid “works on phone, broken on tv” drift.)
+- `ui/platform/<profile>/pages/<Page>.nx` overrides `ui/pages/<Page>.nx` (same for
+  components); fixed precedence, no filesystem-order dependence; conflicts are lint
+  errors; the merge happens at `nx dsl build` with **provenance recorded in the IR**.
+- Inline branching `if device.profile == … { } else { }` lowers to IR `DeviceCond`
+  branches; missing final `else` on profile branches = Warning (`--deny-warn`).
+- Overrides stay profile-keyed; orientation/shell-mode differences use inline branches.
+- Apps branch on responsive layout + `device.profile` first; only shell-owned surfaces
+  additionally branch on `device.shellMode`.
 
 ## Goal
 
-Deliver:
-
-1. Syntax/AST extensions:
-   - Store, event enum, reduce blocks (pure)
-   - @effect blocks triggered by event matches
-   - Routes block + navigate actions
-   - i18n key declarations and `@t("key")` usage
-2. IR extensions:
-   - IrStore / IrReducer / IrEffect / IrRoutes / IrI18n
-   - stable hashing remains deterministic
-   - IR serialization:
-     - canonical: Cap'n Proto (`.nxir`)
-     - derived: canonical JSON view (`.nxir.json`) remains deterministic for host goldens/debugging
-3. Lowering validations:
-   - reducers are pure (no IO, no service calls)
-   - exhaustive event enums / unreachable diagnostics (where feasible)
-   - unique routes, param type validation
-   - `@t("key")` keys exist and are collected
-4. Interpreter runtime additions:
-   - store runtime:
-     - **model**: state + events + reducers + effects (JS “getters/actions” naming is avoided; reducers/effects match the language semantics)
-     - dispatch → reduce (pure) → commit → schedule effects (effect steps are abstract in v0.2a)
-     - **boundaries**:
-       - reducers are pure: no IO, no `svc.*`, no DB, no file access
-       - effects may call service adapters (v0.2b) and must be bounded/time-limited
-   - navigation runtime: history push/replace/back, param parsing, subtree mount/unmount
-   - i18n runtime: locale packs loader + `t(key)` lookup + locale switch signal
-     - authoring packs may be JSON for human editing
-     - runtime prefers compiled, compact binary catalogs when available (see `TASK-0240/0241`)
-   - device env runtime: fixture-backed on host; plumbed from OS later
-     - host/QEMU fixtures must be able to force at least:
-       - `phone + portrait`
-       - `phone + landscape`
-       - `tablet + portrait`
-       - `tablet + landscape`
-       - `desktop + landscape`
-       - `convertible + desktop shell`
-       - `convertible + tablet shell`
-   - markers:
-     - `dsl: store runtime on`
-     - `dsl: nav runtime on`
-     - `dsl: i18n on`
-   - visible-proof-surface posture:
-     - route and locale changes must be able to drive the shared visible proof targets later without DSL-specific forks
-
-### Lint posture (v0.2a)
-
-Severity rule of thumb:
-
-- **Errors**: anything that breaks determinism, correctness, or boundaries (must not ship / must not run).
-- **Warnings**: quality/UX/style issues that are safe to ship but should be cleaned up; can be promoted via `--deny-warn`.
-
-Required **errors** in v0.2a:
-
-- reducer purity violations (reducers must be pure; reject `svc.*` / IO / side-effects in reducers)
-- invalid/non-deterministic navigation (duplicate routes, invalid param types, non-deterministic resolution)
-- i18n correctness (missing keys referenced by `@t("...")`)
-- boundedness invariants (exceeding configured caps for history/event/effect queues)
-
-Recommended **warnings** (v0.2a+ follow-ups):
-
-- naming conventions (Page/Component/Store/Event suffixes for readability)
-- unused events/state fields (dead logic / AI-generated leftovers)
-- UX rails (missing loading/error/empty states) where applicable
-- scalability hints (large lists without virtualization / missing budgets), unless a hard cap is exceeded
+1. **Grammar/IR/lowering** (extend `userspace/dsl/{core,ir}`): multi-store programs,
+   `Routes { "/" -> Home; "/detail/:id" -> Detail(id: UserId); }` + navigate handlers,
+   `@t("key", args…)` collection, `DeviceCond` dedup, override-merge provenance,
+   `@persist` field flag (restore/persist semantics land with the OS substrate).
+2. **Runtime** (extend `userspace/dsl/runtime`, module layout pinned):
+   - `store.rs`/`effects.rs`: dispatch → reduce (pure) → commit → scheduled effects
+     (bounded queue, deterministic order); effect steps abstract until TASK-0078;
+   - `nav.rs`: typed params, push/replace/back, bounded history, subtree mount/unmount
+     through the retained tree (state of kept-alive routes per contract);
+   - `i18n.rs`: compiled locale catalogs (authoring JSON → compiled binary per
+     ADR-0021), `@t` lookup, locale switch = paint-class invalidation of bound sites,
+     fallback chain, pseudo-locale for tests;
+   - `env.rs`: DeviceEnv trait + fixture impl (host) + registry-derived impl (OS, used
+     by 0076B mount and later phases).
+3. **Virtualized collection groundwork**: the keyed `List` template gains a windowed
+   mode contract (full virtualization behavior in TASK-0077C consumer wave).
 
 ## Non-Goals
 
-- Kernel changes.
-- IDL service call stubs and effect “svc.*” calls (v0.2b).
-- Full-blown language semantics (exceptions/try/catch syntax can be stubbed or rejected in v0.2a).
+- Real `svc.*` IPC (TASK-0078); QuerySpec (TASK-0078B); local `$state` sugar +
+  async recipes (TASK-0077B); OS wiring beyond keeping 0076B green. Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic reducer behavior and update ordering.
-- Side-effects must not run inside reducers; effects are scheduled after state commit.
-- Bounded runtime:
-  - cap queued events per frame,
-  - cap effect queue length,
-  - cap route history length.
-- Bounded language constructs:
-  - loops are allowed, but must be **bounded** (no unbounded `while`/infinite loops in v0.x).
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## Session management + persistence posture (v0.2a guidance)
-
-This task does not implement a DB, but it must keep app state architecture clean and deterministic.
-Recommended tiering (applies to both interpreter and AOT):
-
-1. **Session state (default)**:
-   - in-memory store state scoped to the app instance/window/session
-   - examples: selection, scroll position, in-flight request state, current route history
-2. **Durable small state (typed snapshots)**:
-   - persisted via a typed snapshot (`.nxs`) through the platform preferences/settings substrate
-   - examples: last-opened page/doc id, user UI prefs, locale preference, pinned items
-3. **Durable large/queryable state (DB)**:
-   - only when real querying/indexing is required (notes content, message history, search index)
-   - must be host-first and OS-gated; do not make v0.2a semantics depend on DB availability
-
-Tooling implication:
-
-- `nx dsl lint` may warn when reducers attempt to encode persistence/IO logic (even if syntactically allowed elsewhere),
-  and should guide developers toward “effects + adapters + snapshots” instead.
-
-## v1 readiness gates (DevX, directional)
-
-v0.2 is where the DSL becomes app-capable. For v1 “feel”, we also require:
-
-- Local state ergonomics and bindings remain intuitive (`$state.field`) without hidden magic (tracked in `TASK-0077B`).
-- Environment (theme/locale/device) is fixture-testable and deterministic (avoid host-dependent behavior).
-- Navigation is simple and deterministic (typed params, bounded history; deep link shape is explicit).
-- Large data surfaces do not require DSL “power language”: pro primitives + NativeWidget are the path (tracked in `TASK-0077C`).
-
-Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+- Deterministic update ordering; effects never run inside reducers; bounded queues
+  (events/effects/history caps from IR budgets).
+- Zero-alloc steady state preserved (locale switch and route change may allocate at
+  transition, never per-frame).
+- riscv no_std build stays green for core/ir/runtime.
+- No `unwrap/expect`; no godfiles; no company/product names.
 
 ## Stop conditions (Definition of Done)
 
@@ -240,26 +99,36 @@ Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 `tests/dsl_v0_2a_host/`:
 
-- reducer purity lint: reducers that attempt “svc.*” are rejected
-- store runtime: dispatch event updates state deterministically
-- navigation runtime: route push/params parse/replace/back behavior deterministic
-- i18n: required_keys extracted from IR; locale switch updates `t(key)` values deterministically (host fixture packs)
-- device env: `device.profile` fixture changes branch selection deterministically (no layout/IR drift beyond the intended variant)
+- reducer purity: `svc.*` in a reducer = stable diagnostic (fixture);
+- store runtime: multi-store dispatch deterministic; effect scheduling order
+  deterministic (fixture with competing effects);
+- navigation: push/params/replace/back fixtures; history cap enforced; deep-link
+  parse round-trips; back restores kept-alive state per contract;
+- i18n: required keys extracted; missing key = error; locale switch updates all bound
+  sites (paint-only — layout untouched unless metrics change); fallback chain +
+  pseudo-locale goldens;
+- device env: profile fixture matrix goldens — at minimum `phone±portrait/landscape`,
+  `tablet±portrait/landscape`, `desktop`, `convertible+desktop-shell`,
+  `convertible+tablet-shell`; file-override fixture proves precedence + provenance;
+- conformance corpus extended (nav + i18n + multi-store cases).
+
+### Docs — required (reference grade)
+
+- `docs/dev/dsl/{navigation,i18n,profiles}.md` to full reference chapters (profiles.md
+  documents the registry derivation — SSOT = systemui manifests, ADR-0035);
+- `state.md` updated for effect scheduling semantics.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsl/nx_syntax/` (extend)
-- `userspace/dsl/nx_ir/` (extend)
-- `userspace/dsl/nx_interp/` (extend: store/nav/i18n runtimes)
-- `userspace/dsl/nx_env/` (new or in `nx_interp`: device env types + host fixtures)
-- `tests/dsl_v0_2a_host/` (new)
-- `docs/dev/dsl/state.md` + `docs/dev/dsl/navigation.md` + `docs/dev/dsl/i18n.md` (new/extend)
-- `docs/dev/dsl/profiles.md` (new: device env + override resolution rules)
+- `userspace/dsl/{core,ir,runtime}/` (extend), `userspace/dsl/cli/` (build override
+  merge, i18n extract groundwork)
+- `tests/dsl_v0_2a_host/` (new), `tests/dsl_conformance/` (extend)
+- `docs/dev/dsl/{state,navigation,i18n,profiles}.md`
 
 ## Plan (small PRs)
 
-1. grammar/AST extensions + formatter updates
-2. IR nodes + stable hashing/serializer updates
-3. lowering validations and diagnostics
-4. interpreter store/nav/i18n runtimes + markers
-5. host tests + docs
+1. grammar/IR: routes + i18n keys + DeviceCond + override merge (+ fmt)
+2. store/effect scheduling runtime + purity/queue proofs
+3. nav runtime + fixtures
+4. i18n compile + runtime + pseudo-locale
+5. env.rs + profile matrix goldens + docs

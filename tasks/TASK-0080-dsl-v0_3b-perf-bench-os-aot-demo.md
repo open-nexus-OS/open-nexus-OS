@@ -1,106 +1,99 @@
 ---
-title: TASK-0080 DSL v0.3b: perf benchmarks (AOT vs interp) + AOT demo integration + OS selftests/postflight + docs
+title: TASK-0080 DSL v0.3b (partly OS-gated): perf benches (AOT vs interp) + cold-start budget breakdown + AOT demo launch + CI perf gates
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2025-12-23
-depends-on: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
+  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
 follow-up-tasks: []
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL v0.3a codegen foundation: tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md
-  - DSL v0.2 demo baseline: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - UI v6b launcher integration (tiles): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Testing contract: scripts/qemu-test.sh
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Perf contract this task fills with numbers: docs/dev/dsl/perf.md
+  - Launch pipeline being measured: tasks/TASK-0080D (app-host), docs/adr/0042-cross-process-surface-transport.md
+  - Metrics substrate: source/services/metricsd (RFC-0024); markers via scripts/qemu-test.sh
+  - Bench home: tools/bench/ (exists)
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-With an AOT codegen path available (v0.3a), we need:
-
-- measurable performance deltas (first frame, steady-state CPU),
-- an OS-visible AOT demo side-by-side with interpreter,
-- parity checks between AOT and interpreter (lightweight checksum),
-- postflight scripts that prove “real behavior” (host tests + perf + QEMU markers).
+Both execution tiers exist (interpreter app-host from 0080D, AOT ELF from 0079) and
+the launch pipeline is live (0080C). This task makes performance a **measured,
+CI-gated property**: the masterplan's promise is app cold-start in the class of the
+fastest mobile platforms — that only holds if we measure per stage and gate
+regressions.
 
 ## Goal
 
-Deliver:
-
-1. Perf benchmarks (host):
-   - new bench tool `dsl_aot_vs_interp` comparing:
-     - first frame ms
-     - steady-state CPU ms/frame
-   - scenes:
-     - simple controls
-     - list scene
-     - SVG + shaped text scene
-   - output JSON report under `target/bench/dsl_perf.json`
-   - marker: `bench: dsl aot vs interp done`
-2. AOT demo integration:
-   - build an AOT variant of the v0.2 master-detail app (generated crate + runner shim)
-   - SystemUI shows two launcher tiles:
-     - “DSL MasterDetail (Interp)”
-     - “DSL MasterDetail (AOT)”
-   - markers:
-     - `dsl: aot demo launched`
-     - `dsl: aot first frame ok`
-3. OS selftests:
-   - launch AOT demo and verify:
-     - boot ok marker
-     - route nav parity vs interpreter via a scene checksum helper
-     - locale switch changes visible strings
-4. Postflight:
-   - host tests + perf run + QEMU marker checks
-5. Docs:
-   - how to interpret perf JSON
-   - when to use AOT vs interpreter
+1. **Host bench tool** `tools/bench/dsl_aot_vs_interp/`:
+   - scenes: simple controls, windowed list (1k rows via QuerySpec transcript),
+     vector/text-heavy page;
+   - metrics: mount time, first-frame time, steady-state dispatch→scene time,
+     allocations per steady-state dispatch (must be 0);
+   - fixed seeds/iteration counts; JSON report `target/bench/dsl_perf.json` with a
+     stable schema; comparison mode fails on regression beyond threshold
+     (**CI perf gate**).
+2. **OS cold-start budget breakdown** (markers, timestamped):
+   - `APPHOST: spawn→payload <ms>`, `payload→validated <ms>`, `validated→mounted
+     <ms>`, `mounted→first-present <ms>`, and the total
+     `PERF: cold_start_ms=<n> tier=interp|aot app=<id>`;
+   - measured for the master-detail demo in both tiers from a launcher click;
+   - budgets recorded in `docs/dev/dsl/perf.md` after first real measurements
+     (living numbers, then regression-gated in postflight).
+3. **AOT demo integration**: master-detail AOT variant installed as a second bundle;
+   launcher shows both tiles (interp/AOT); parity spot-check on OS via scene checksum
+   marker (`SELFTEST: dsl v0.3 aot parity ok`).
+4. **Steady-state OS proof**: live interaction on the AOT app; allocation-audit debug
+   assert stays silent (the app-host zero-alloc rule, on hardware).
+5. Postflight `tools/postflight-dsl-v0-3.sh`: host suites + bench run + QEMU marker
+   chain, delegating to canonical mechanisms.
 
 ## Non-Goals
 
-- Kernel changes.
-- Guarantee that AOT is always faster (bench is for regression tracking; deltas may vary).
+- Guaranteeing AOT is always faster (bench tracks reality; deltas may vary and are
+  documented). Kernel changes. New scenes beyond the three (grow with consumer apps).
 
 ## Constraints / invariants (hard requirements)
 
-- Bench determinism:
-  - fixed scene seeds
-  - stable iteration counts
-  - stable output JSON schema
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-- Postflight must delegate to canonical proof mechanisms (cargo test, qemu-test).
+- Bench determinism: fixed seeds, stable iteration counts, stable JSON schema.
+- OS timing from existing marker/timestamp infrastructure — no new ad-hoc clocks;
+  headless-icount caveat documented (timing claims need the real virgl lane).
+- No fake proof: perf markers carry measured numbers, never unconditional "ok".
+- No `unwrap/expect`; no godfiles.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-- `cargo test -p dsl_v0_3_host` green (or equivalent host suite)
-- `cargo run -p dsl_aot_vs_interp -- --scenes all --iters N` produces `dsl_perf.json`
+- `tests/dsl_v0_3_host/` green;
+- `cargo run -p dsl_aot_vs_interp -- --scenes all --iters N` → `dsl_perf.json`;
+  re-run stable within tolerance; regression mode exits non-zero on injected slowdown
+  (fixture);
+- zero-alloc metric = 0 for both tiers on all scenes.
 
-### Proof (OS/QEMU) — gated
+### Proof (OS/QEMU) — gated (user boot-verify)
 
-UART markers:
+- cold-start marker chain with plausible stage numbers for interp AND aot tiles;
+- `SELFTEST: dsl v0.3 aot {boot,parity,i18n} ok`;
+- live-pointer interaction on the AOT app visible; 0 faults.
 
-- `dsl: aot codegen on`
-- `dsl: aot demo launched`
-- `dsl: aot first frame ok`
-- `SELFTEST: dsl v0.3 aot boot ok`
-- `SELFTEST: dsl v0.3 aot parity ok`
-- `SELFTEST: dsl v0.3 aot i18n ok`
+### Docs — required
+
+- `docs/dev/dsl/perf.md` becomes the living budget page: measured cold-start stage
+  table (interp vs AOT), steady-state numbers, gate thresholds, when-to-AOT guidance.
 
 ## Touched paths (allowlist)
 
-- `tools/bench/dsl_aot_vs_interp/` (new)
-- `userspace/apps/examples/dsl_masterdetail_aot/` or generated app wiring
-- SystemUI launcher tiles
-- `source/apps/selftest-client/` (markers)
-- `tools/postflight-dsl-v0-3.sh` (delegates)
-- `docs/dev/dsl/perf.md` (new)
-- `docs/dev/dsl/cli.md` (extend: --aot perf/watch)
+- `tools/bench/dsl_aot_vs_interp/` (new), `tools/postflight-dsl-v0-3.sh` (new)
+- AOT demo bundle wiring (`bundles/`, generated crate from 0079)
+- `source/services/app-host/` (stage timestamps), `source/apps/selftest-client/`
+- `tests/dsl_v0_3_host/` (new)
+- `docs/dev/dsl/{perf,cli}.md`
 
 ## Plan (small PRs)
 
-1. bench tool + JSON output
-2. AOT demo app integration + SystemUI tiles + markers
-3. OS selftest parity + i18n markers
-4. postflight + docs
+1. bench tool + JSON + regression mode (host)
+2. app-host stage markers + cold-start chain [boot-verify]
+3. AOT bundle + launcher tile + parity/i18n selftests [boot-verify]
+4. perf.md budgets + postflight + CI gate wiring

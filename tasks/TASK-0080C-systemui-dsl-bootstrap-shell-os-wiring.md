@@ -1,95 +1,108 @@
 ---
-title: TASK-0080C SystemUI DSL bootstrap shell (OS/QEMU): visible launcher mount + app launch selftests
+title: TASK-0080C SystemUI DSL shell + greeter (OS/QEMU): boot→greeter→login→shell→launcher-click→app end-to-end
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2026-03-28
+updated: 2026-07-06
 depends-on:
-  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md  # the app runtime the launch path mounts through
-follow-up-tasks: []
+  - tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
+  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
+follow-up-tasks:
+  - tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - App runtime + lifecycle/surface contract: tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
-  - Bootstrap shell host phase: tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md
-  - Dev display/profile presets follow-up: tasks/TASK-0055D-ui-v1e-dev-display-profile-presets-qemu-hz.md
-  - Visible input baseline: tasks/TASK-0056B-ui-v2a-visible-input-cursor-focus-click.md
-  - SystemUI DSL migration phase 1b follow-up: tasks/TASK-0120-systemui-dsl-migration-phase1b-os-wiring-postflight.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Shell registry wiring point (EXISTS): source/services/systemui/manifests/shells/*/shell.toml
+    (`dsl_root` resolves the compiled shell program; [first_frame] dims; ADR-0035)
+  - Session gate (EXISTS, TASK-0065B): sessiond authority + greeter handoff,
+    docs/dev/ui/shell/session.md
+  - Query service boot wiring (from TASK-0078B): source/services/queryd → nexus-init topology
+    (RFC-0069 service manifest)
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-Host launcher proofs are not enough for app testing. We need the bootstrap shell from `TASK-0080B` mounted into the
-live OS so that Files/Text/Images and other app tasks can launch from a visible desktop before the broader SystemUI DSL
-phases land.
+The end-to-end payoff of the whole track: the OS boots into the **DSL greeter**, login
+(decided by sessiond) hands off to the **DSL shell**, and a live pointer click on a
+launcher entry launches a **real app process** (0080D app-host) whose frame appears on
+screen. One SystemUI shell path — the shell registry's `dsl_root` now resolves to the
+compiled 0080B programs; the native greeter view is replaced (same sessiond contract).
 
-This task is the first OS-mounted Orbital-Level shell proof: live QEMU pointer input must
-hover and click launcher entries, launch a real app window, and preserve the single
-SystemUI shell path.
-It should also become the live OS container for the shared visible proof surface used across the fast lane.
+Boot-gated throughout: three user boot-verifies are expected (greeter+shell visible,
+launch e2e, selftest suite green).
 
 ## Goal
 
-Deliver:
-
-1. Visible bootstrap shell mount in OS:
-   - SystemUI boots into the DSL bootstrap shell by default in the early UI profile
-   - launcher is visible in the QEMU window
-   - the mounted shell consumes the same profile/orientation device environment that later canonical SystemUI DSL phases use
-   - shell appears after the `TASK-0065B` greeter/dev-session handoff when that gate is active
-   - the shell hosts the shared proof-surface targets rather than a launcher-only screen
-2. Real launch integration:
-   - live QEMU pointer hover/click selects a launcher entry and launches a real app window
-   - return/focus behavior is deterministic enough for selftests
-3. Marker-driven proof for app bring-up:
-   - launcher visible
-   - app launch initiated
-   - launched app frame appears
+1. **Shell/greeter mount wiring**: build pipeline compiles `userspace/systemui/`
+   programs to `.nxir` in the image; systemui resolves the product → profile → shell
+   chain (existing registry code) and mounts via the 0076B in-compositor path;
+   `[first_frame]` respected; device.* env fed from the resolved profile (the
+   registry-derived `DeviceEnv` impl).
+2. **Session gate**: boot shows the DSL greeter; sessiond authenticates; handoff to
+   the DSL shell per the TASK-0065B contract (authority unchanged, markers align with
+   the existing session chain).
+3. **Launch e2e**: live QEMU pointer hover/click on a launcher entry →
+   `abilitymgr` launch → execd spawns app-host → app surface visible (ADR-0042
+   transport) → focus/return behavior deterministic.
+4. **queryd boot wiring** (from 0078B): service enters the nexus-init topology
+   (RFC-0069 manifest entry, slot/grant discipline per the bootstrap-ordering rules);
+   `@persist` restore path live via statefsd.
+5. Selftests + postflight `tools/postflight-systemui-bootstrap-shell.sh`.
 
 ## Non-Goals
 
-- Full Quick Settings mount.
-- Full SystemUI migration.
-- Full session-aware launcher variants; only the greeter/dev-session handoff gate is required if `TASK-0065B` has landed.
+- Quick settings/notifications/media migration (TASK-0119/0120+). Multi-user/lock
+  screen surfaces (0109/0110 track). New session semantics. Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Keep one SystemUI shell path; no temporary alternate desktop app.
-- Use feature flags only as bounded migration aids.
-- Markers must reflect real visible launcher mount and real app launch.
-- Launch success markers must require live routed pointer input, not selftest-only launch mutation.
+- **One shell path** — the DSL shell replaces the native shell view in the default
+  product; feature flag only as a bounded migration aid (removed in TASK-0120).
+- Launch/login success markers require **live routed input** (0080C's defining rule:
+  no selftest-only mutation, no fake proof).
+- Existing boot marker chain (reveal, session) stays intact; new markers additive.
+- Bootstrap-ordering discipline: queryd + app-host follow the pre-grant rules
+  (empty-waitset-park lessons); no early-recv hazards.
+- No `unwrap/expect`; no godfiles.
 
 ## Stop conditions (Definition of Done)
 
-### Proof (OS/QEMU) — required
+### Proof (OS/QEMU) — required (user boot-verify ×3)
 
-UART markers:
+UART marker chain (order-tolerant within stages):
 
-- `systemui:dsl bootstrap shell on`
-- `systemui:dsl launcher visible`
-- `systemui:dsl launcher hover visible`
-- `launcher: app launch request ok`
-- `launcher: app frame visible`
-- `SELFTEST: systemui live launcher click ok`
-- `SELFTEST: systemui bootstrap launcher ok`
+- `DSL: greeter visible` → sessiond login chain (existing markers) →
+  `systemui: dsl shell on` → `systemui: dsl launcher visible`
+- hover: `systemui: dsl launcher hover visible`
+- click → `abilitymgr: launch (app=<id> …)` → `APPHOST: mounted <id>@<ver>` →
+  `WINDOWD: surface presented id=<n>` → `launcher: app frame visible`
+- `queryd: ready` in the boot chain; `@persist` restore marker for the demo app
+- `SELFTEST: systemui live launcher click ok`,
+  `SELFTEST: systemui bootstrap greeter ok`, `SELFTEST: dsl app launch e2e ok`
 
 Visual proof:
 
-- launcher is visible in the QEMU window
-- moving the host pointer over a launcher entry shows hover/focus state
-- clicking the launcher entry opens a visible app frame
-- the same screen can host the shared text/scroll/list/settings/modal proof targets as they land in later tasks
+- greeter → login → shell → launcher hover state → click → visible app window, all
+  with the live host pointer in the QEMU window; 0 faults; boot timing not regressed
+  (reveal chain unchanged).
+
+### Docs — required
+
+- `docs/systemui/dsl-migration.md` phase record; `docs/dev/dsl/runtime.md` OS-mount
+  section final; `docs/dev/ui/shell/session.md` notes the DSL greeter view.
 
 ## Touched paths (allowlist)
 
-- SystemUI mount points / bootstrap selection
-- launcher app integration
-- `source/apps/selftest-client/`
-- `tools/postflight-systemui-bootstrap-shell.sh` (new)
-- `docs/systemui/dsl-migration.md`
+- `source/services/systemui/` (mount wiring, registry-derived DeviceEnv), image/build
+  wiring for shell `.nxir`
+- `source/init/nexus-init/` (queryd topology entry), `source/services/queryd/`
+- `source/apps/selftest-client/`, `tools/postflight-systemui-bootstrap-shell.sh` (new)
+- `docs/systemui/dsl-migration.md`, `docs/dev/dsl/runtime.md`,
+  `docs/dev/ui/shell/session.md`
 
 ## Plan (small PRs)
 
-1. OS mount + feature flag
-2. launch/focus selftests
-3. postflight + docs
+1. shell `.nxir` build wiring + registry resolution + DSL shell mount [boot-verify 1]
+2. greeter swap behind the session gate [rides with 1 or own verify]
+3. launch e2e via app-host + focus/return [boot-verify 2]
+4. queryd topology + @persist + selftests + postflight [boot-verify 3]

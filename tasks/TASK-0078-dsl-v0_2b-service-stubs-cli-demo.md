@@ -1,99 +1,72 @@
 ---
-title: TASK-0078 DSL v0.2b: IDL client stubs + nx dsl run/i18n extract + master-detail demo + host/OS proofs
+title: TASK-0078 DSL v0.2b: typed svc.* adapters from the real IDL + transcript testing + CLI generators + master-detail demo (host)
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+follow-up-tasks:
+  - tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL services/effects posture: docs/dev/dsl/services.md
-  - DSL state tiers: docs/dev/dsl/state.md
-  - Zero-Copy App Platform (svc.* consumers): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
-  - Office Suite (reference apps): tasks/TRACK-OFFICE-SUITE.md
-  - NexusMedia SDK track (audio/video/image): tasks/TRACK-NEXUSMEDIA-SDK.md
-  - NexusGame SDK track (games): tasks/TRACK-NEXUSGAME-SDK.md
-  - NexusNet SDK track (cloud + DSoftBus): tasks/TRACK-NEXUSNET-SDK.md
-  - DSL v0.2a core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - DSL v0.1 CLI baseline: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v0.1 interpreter baseline: tasks/TASK-0076-dsl-v0_1b-interpreter-snapshots-os-demo.md
-  - Search service (example stub target): tasks/TASK-0071-ui-v9a-searchd-command-palette.md
-  - App lifecycle launch (demo integration): tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - Virtualized list (demo uses it if present): tasks/TASK-0063-ui-v5b-virtualized-list-theme-tokens.md
-  - QuerySpec v1 foundation: tasks/TASK-0078B-dsl-v0_2b-queryspec-v1-foundation-service-gated-paging-hash.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Services contract: docs/dev/dsl/services.md
+  - Real IDL SSOT the stubs generate from: tools/nexus-idl/schemas/*.capnp
+    + userspace/nexus-idl-runtime (generated modules; IPC frame = [opcode u8][capnp])
+  - QuerySpec sibling: tasks/TASK-0078B (the demo's list data comes through it)
+  - Data formats rubric: docs/adr/0021-structured-data-formats-json-vs-capnp.md
   - Testing contract: scripts/qemu-test.sh
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-DSL v0.2a introduces stores/effects/navigation/i18n. v0.2b makes effects useful by allowing service calls
-via typed stubs, and provides end-to-end tooling and a demo app.
-That demo app should become a visible data-window target on the shared proof surface rather than a detached DSL-only sample.
+Effects become useful: `svc.*` calls execute against **typed adapters generated from
+the repo's real IDL** (`tools/nexus-idl/schemas/*.capnp` — the same schemas every
+service speaks). This closes the gap the old spec left open ("typed handles from
+schema/IDL" was aspirational): the DSL service surface **is** the platform IDL, not a
+parallel definition.
+
+Host-first: adapters run against **record/replay transcripts** (deterministic recorded
+request→response exchanges), so full app logic is provable without the OS. The real
+IPC `EffectHost` lands in the app-host (TASK-0080D); this task keeps everything
+host-side. OS markers formerly listed here move to Phase 6 (launch e2e).
 
 ## Goal
 
-Deliver:
-
-1. IDL client stub registry:
-   - new crate `userspace/dsl/nx_stubs`
-   - typed, minimal clients (Cap’n Proto) for a small set of services (e.g., `users`, `search`)
-   - mock mode for host tests
-   - effect runner integration: `Call(ServiceFn)` with timeouts and error mapping
-2. `nx dsl` CLI upgrades:
-   - `nx dsl run <appdir> --route ... --locale ... --profile ...` (headless run; OS mount optional)
-   - `nx dsl i18n extract <appdir> -o i18n/en.json` (authoring/view output; human-editable)
-   - (optional) `nx dsl i18n compile <appdir> --locale en --out pkg://i18n/catalogs/en.lc` (compiled runtime catalog; see `TASK-0240/0241`)
-   - stronger lint rules (reducers pure, routes unique, i18n coverage)
-   - generator commands (keep default scaffold minimal; expand structure only when needed):
-     - `nx dsl init <appdir>` creates `ui/pages`, `ui/components`, `ui/composables`, `ui/themes`, `ui/tests` (minimal)
-     - `nx dsl add page <Name>` adds a page under `ui/pages/`
-     - `nx dsl add component <Name>` adds a component under `ui/components/`
-     - `nx dsl add store <Name> [--scope session|durable]`:
-       - creates `ui/composables/<name>.store.nx` with a skeleton for `State/Event/reducers/effects`
-       - if `--scope durable`, includes a comment block pointing to typed snapshot persistence (`.nxs`) instead of DB
-     - `nx dsl add service <Name>` adds `ui/services/<name>.service.nx` (effect-only adapter; reducers remain pure)
-     - `nx dsl add test <unit|component|e2e> <target>` places tests under `ui/tests/{unit,component,e2e}/...`
-     - (optional) `nx dsl session {inspect|clear|export --json}` for debugging session state during host runs
-3. Example app: `dsl_masterdetail`
-   - routes `/` and `/detail/:id`
-   - store loads data via stub service call
-   - i18n packs `en` and `de`
-   - mounts as the shared visible list/detail proof target when shown on-screen
-4. SystemUI launcher entry and OS markers:
-   - `dsl: example masterdetail launched`
-   - `dsl: nav to /detail/... ok`
-   - selftest markers for load/nav/i18n
-5. Host tests + OS postflight.
+1. **svc adapter layer** (`userspace/dsl/runtime/src/svc/`, generated + thin manual
+   glue — no new crate): typed clients for an initial service set (`appState`
+   (statefsd-backed contract), `search`, `users` demo schema), uniform
+   `Result<T, ErrCode>` mapping, mandatory `timeoutMs`, byte/row budgets.
+   `EffectHost` impls: `TranscriptHost` (host: record/replay) — real IPC host later.
+2. **Frontend knowledge of services**: `svc.<service>.<method>` typechecks against the
+   generated signatures (unknown service/method/arity = stable diagnostic).
+3. **CLI upgrades** (`nx-dsl`):
+   - `run` gains `--route/--locale/--profile` (headless run against transcripts);
+   - `i18n extract <appdir> -o i18n/en.json` (authoring view) + `i18n compile`
+     (binary catalog);
+   - generators, minimal scaffold posture: `init`, `add page|component|store|service|
+     test`, `session inspect|clear|export --json` (host debugging);
+   - lint growth: i18n coverage, route uniqueness (already Error), transcript
+     staleness warning.
+4. **Example app `examples/dsl/masterdetail`**: routes `/` + `/detail/:id`, list loads
+   via a `svc` call (swaps to QuerySpec paging when 0078B lands), `en`+`de` catalogs,
+   windowed list; becomes the Phase-6 launch-demo payload and the shared list/detail
+   proof target.
 
 ## Non-Goals
 
-- Kernel changes.
-- Full codegen and schema-driven stub generation (manual stubs only in v0.2b).
-- Full service coverage.
-- QuerySpec v1 foundation and lazy-data follow-ups are split into `TASK-0078B`, `TASK-0274`, and `TASK-0275`.
+- Real IPC execution (TASK-0080D app-host). QuerySpec itself (TASK-0078B). Full
+  service coverage. OS markers/selftests (Phase 6). Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic effect scheduling:
-  - effects run after reducer commit,
-  - bounded concurrency and timeouts.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## v1 readiness gates (DevX, directional)
-
-This task is the “apps feel real” bridge:
-
-- `svc.*` calls must be bounded (timeouts/bytes/rows) and return stable error codes (no stringly failures).
-- The “build spec (pure) / execute in effect (IO)” pattern is the default for queries/connectors (no raw unbounded GraphQL/SQL everywhere).
-- QuerySpec itself is intentionally split: `TASK-0078B` establishes the v1 foundation, `TASK-0274` hardens the surface,
-  and `TASK-0275` adds lazy-data/virtual-list consumption contracts.
-- Demo apps should model first-party patterns (search-first surfaces, master-detail, i18n) to teach developers the right mental model.
-
-Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+- Adapters generated from the IDL SSOT — no hand-maintained parallel signatures.
+- Deterministic effect scheduling with bounded concurrency; every call has an explicit
+  timeout; stable error-code enums (no stringly failures).
+- Transcripts are checked-in fixtures; replay is byte-deterministic; recording only
+  via an explicit dev flag (no fake success: a replay miss is a test failure, never a
+  silent default).
+- No `unwrap/expect`; no godfiles; no company/product names.
 
 ## Stop conditions (Definition of Done)
 
@@ -101,43 +74,34 @@ Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 `tests/dsl_v0_2_host/`:
 
-- mock service call returns deterministic data; `LoadRequested` results in `Loaded` and state update
-- navigation to `/detail/7` mounts correct route subtree and snapshot matches golden
-- locale switch changes rendered strings deterministically
-- `nx dsl run` prints expected markers and exits 0
-- profile fixtures: `--profile desktop` vs `--profile tv` produces deterministically different (but stable) snapshots for the demo app
+- transcript call: `LoadRequested` → adapter replay → `Loaded` state update
+  (deterministic golden);
+- timeout + error paths: transcripted `Err` and timeout produce the canonical
+  error-state transitions (stable codes);
+- unknown service/method fixture = stable frontend diagnostic;
+- master-detail: nav to `/detail/7` snapshot golden; locale switch golden;
+  `--profile desktop` vs `--profile tv` stable distinct snapshots;
+- `nx dsl run` exits 0 with expected output; generators produce buildable scaffolds
+  (init → build green);
+- conformance corpus extended (effect call/err/timeout cases).
 
-### Proof (OS/QEMU) — gated
+### Docs — required (reference grade)
 
-UART markers:
-
-- `dsl: store runtime on`
-- `dsl: nav runtime on`
-- `dsl: i18n on`
-- `SELFTEST: dsl v0.2 load ok`
-- `SELFTEST: dsl v0.2 nav ok`
-- `SELFTEST: dsl v0.2 i18n ok`
-
-### Visual proof handoff — required
-
-- the master-detail example is suitable for the shared visible list/data window,
-- later OS mounts reuse this same list/detail target instead of inventing a second data demo.
+- `docs/dev/dsl/services.md` to full reference (adapter generation, transcripts,
+  budgets, error-code discipline); `cli.md` complete for the new verbs/generators.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsl/nx_stubs/` (new)
-- `userspace/dsl/nx_interp/` (extend: effect runner calls stub registry)
-- `tools/nx-dsl/` (extend: run + i18n extract)
-- `userspace/apps/examples/dsl_masterdetail/` (new)
-- SystemUI launcher entries (demo)
-- `tests/dsl_v0_2_host/` (new)
-- `source/apps/selftest-client/` (markers)
-- `tools/postflight-dsl-v0-2.sh` (delegates)
-- `docs/dev/dsl/services.md` + `docs/dev/dsl/cli.md` (extend)
+- `userspace/dsl/runtime/` (svc/ module + EffectHost transcript impl)
+- `userspace/dsl/core/` (svc signature typecheck), `userspace/dsl/cli/` (verbs +
+  generators)
+- `examples/dsl/masterdetail/` (new), `tests/dsl_v0_2_host/` (new)
+- `tools/nexus-idl/schemas/` (demo `users.capnp` if needed)
+- `docs/dev/dsl/{services,cli}.md`
 
 ## Plan (small PRs)
 
-1. stub registry + mock mode + effect runner integration
-2. nx dsl run + i18n extract + improved lint
-3. master-detail example + i18n packs + markers
-4. host tests + OS selftest + postflight + docs
+1. adapter generation from IDL + TranscriptHost + typecheck integration
+2. error/timeout discipline + fixtures
+3. CLI verbs + generators + scaffold tests
+4. master-detail demo + i18n packs + goldens + docs

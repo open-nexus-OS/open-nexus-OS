@@ -1,5 +1,5 @@
 ---
-title: TRACK DSL v1 DevX (SwiftUI/ArkUI/Compose-inspired): intuitive ergonomics + pro capability via bounded primitives (no “QML power”)
+title: TRACK DSL v1 DevX: declarative-framework ergonomics + pro capability via bounded primitives (no unbounded scripting power)
 status: Living
 owner: @ui @runtime
 created: 2026-01-26
@@ -22,17 +22,41 @@ links:
   - Zero-copy VMOs (keystone data plane): tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
 ---
 
+## STATUS (2026-07-06): masterplan approved — fixed decisions
+
+The full track (TASK-0075…0080D) was planned and approved 2026-07-06; all task files
+were refreshed to the current repo state and raised to a production-grade bar. The
+language reference skeleton exists (`docs/dev/dsl/{principles,grammar,types,modifiers,
+runtime}.md` + expanded `overview/ir/syntax/state`). Decisions fixed by the masterplan:
+
+1. **Canonical surface** = the "beautiful form": direct store fields, top-level
+   `Event`/`reduce`/`@effect on`, `if/else` (no `@when`), `Page` body = view,
+   `List(expr) { item in … }` (see `docs/dev/dsl/grammar.md#changelog`).
+2. **Modifiers** = hybrid utility vocabulary (`.padding(4) .bg(accent) .textSize(sm)
+   .rounded(md)`), token args only.
+3. **IR** = typed **total expression trees** (no bytecode VM); `Int`+`Fx` numerics,
+   no floats; canonical capnp `.nxir`, byte-reproducible.
+4. **App runtime v1** = **app-host process** (one runtime ELF, real process per app,
+   `.nxir` payload in `.nxb`, cross-process surface per ADR-0042); AOT = second tier,
+   golden-parity mandatory.
+5. **QuerySpec engine** = pure-Rust `nexus-query` + `queryd` over statefsd —
+   no C SQL engine.
+6. **The DSL also authors the system shell AND the login greeter** (authority stays in
+   sessiond/abilitymgr — DSL is the view layer).
+7. **No godfiles**; docs grow to reference-manual grade every phase; user boot-verifies
+   each OS-gated phase.
+
 ## Goal (track-level)
 
 Make the DSL:
 
-- **as intuitive as SwiftUI/ArkUI/Compose** for common app work,
-- **powerful enough for “hard apps”** (Office/DAW/Studio/Video) by pairing the DSL shell with pro primitives and native widgets,
+- **as intuitive as the best declarative UI frameworks** for common app work,
+- **powerful enough for “hard apps”** (office/audio/studio/video) by pairing the DSL shell with pro primitives and native widgets,
 - while staying aligned with Open Nexus OS invariants:
   - determinism (goldens, stable artifacts),
   - boundedness (no unbounded work),
   - capability-first security (IO only via `svc.*` in effects/services),
-  - no “QML-style unbounded scripting language” creep.
+  - no unbounded-scripting-language creep inside UI code.
 
 ## Core stance (don’t copy, take the best)
 
@@ -104,16 +128,19 @@ For hard apps, assume pro surfaces exist as native widgets:
 The DSL remains the shell: layout, inspectors/toolbars, routing, state, effects.
 The shell still follows the shared text-prep/measure/place contract even when a heavy native surface is embedded.
 
-## Mapping to tasks (anti-drift)
+## Mapping to tasks (anti-drift; masterplan phase order 2026-07-06)
 
-- v0.1a foundations: `TASK-0075`
-- interpreter + snapshots: `TASK-0076`
-- stores/nav/i18n core: `TASK-0077`
-- svc.* + stubs + demo: `TASK-0078`
-- QuerySpec v1 foundation: `TASK-0078B`
-- QuerySpec v2 hardening: `TASK-0274`
-- QuerySpec v3 lazy data surfaces: `TASK-0275`
-- AOT/codegen: `TASK-0079`
+| Phase | Task(s) | Gate |
+|---|---|---|
+| 1 — frontend + IR + CLI | `TASK-0075` | host |
+| 2 — interpreter + goldens + conformance corpus | `TASK-0076` | host |
+| 3 — visible in-compositor mount + execd isolation probe | `TASK-0076B` | **boot-verify** |
+| 4 — stores/nav/i18n/device-env + DevX (+ windowed list core) | `TASK-0077`, `TASK-0077B` (+ list core of `TASK-0077C`) | host |
+| 5 — svc.* adapters + QuerySpec v1 engine | `TASK-0078`, `TASK-0078B` | host |
+| 6 — app runtime (app-host + ADR-0042 surface) → shell+greeter authoring → OS e2e | `TASK-0080D` → `TASK-0080B` → `TASK-0080C` | **boot-verify ×3** |
+| 7 — AOT codegen + incremental + parity | `TASK-0079` | host |
+| 8 — perf benches + cold-start budgets + CI gates | `TASK-0080` | host + **boot-verify** |
+| later | QuerySpec v2 `TASK-0274`, v3 lazy `TASK-0275`; pro primitives rest of `TASK-0077C` (demand-gated) | — |
 
 ## App-driven capability expansion map
 
@@ -191,7 +218,7 @@ These are still DSL-first at the visible shell layer, but their authority remain
 
 ## Blessed primitives / embedded surfaces to standardize
 
-To stay "as intuitive as SwiftUI/ArkUI/Compose" while supporting real apps, we should standardize a **small** set of
+To stay as intuitive as the best declarative UI frameworks while supporting real apps, we should standardize a **small** set of
 bounded blessed primitives instead of inventing ad-hoc custom views in each task:
 
 - document canvas / page viewport

@@ -1,101 +1,114 @@
 ---
-title: TASK-0080B SystemUI DSL bootstrap shell (host-first): desktop background + launcher + app launch contract
+title: TASK-0080B SystemUI DSL bootstrap shell + login greeter (host-first): desktop + launcher grid + greeter pages in .nx
 status: Draft
 owner: @ui
 created: 2026-03-28
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md
+  - tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
+  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+follow-up-tasks:
+  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md
+  - tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL visible mount baseline: tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md
-  - DSL v0.3 demo/perf task: tasks/TASK-0080-dsl-v0_3b-perf-bench-os-aot-demo.md
-  - DSL profile/runtime contract: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - App lifecycle baseline: tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md
-  - SystemUI DSL migration phase 1a: tasks/TASK-0119-systemui-dsl-migration-phase1a-launcher-qs-host.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Shell registry the shell plugs into (EXISTS, ADR-0035): source/services/systemui/manifests/
+    (shell.toml `dsl_root` + features + [first_frame]; product selects profile/shell/theme)
+  - App registry feeding the launcher (EXISTS): source/services/bundlemgrd (ENUMERATE → AppRecord)
+  - Launch authority (EXISTS): source/services/abilitymgr (launch_with_caps, fail-closed)
+  - Session/login authority the greeter renders for (EXISTS, TASK-0065B): source/services/sessiond
+    + contract docs/dev/ui/shell/session.md
+  - Design kit consumed: userspace/ui/widgets/* (TASK-0073) via the DSL widget registry
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-By the time DSL v0.3 exists, we should not still be testing apps only through demo tiles and markers.
-We need a **real but minimal SystemUI shell** that can host app launch from a visible desktop before the broader
-SystemUI migration is complete.
+The system's own chrome becomes DSL: this task authors the **bootstrap shell**
+(wallpaper/desktop + launcher) **and the login greeter** as real `.nx` programs,
+host-first with snapshots. OS mount + live-input proof land in TASK-0080C via the
+in-compositor mount from TASK-0076B.
 
-This task intentionally extracts the **Launcher-first** slice from the later SystemUI DSL migration so app tasks in
-the `0081–0118` range can be tested against a visible shell.
-
-It is also the host-side shape of the Orbital-Level UX floor: desktop/shell/launcher are real
-SystemUI DSL surfaces, app launch uses `appmgrd`, and icons/vector art are SVG-sourced.
-OS/live-input proof lands in `TASK-0080C`.
-The bootstrap shell should host the shared visible proof surface so later tasks reuse one desktop/test screen instead
-of growing parallel launcher/settings/demo shells.
+**IST corrections vs the old draft:**
+- ~~`appmgrd`~~ does not exist. The launcher's app list comes from **bundlemgrd
+  ENUMERATE** (`AppRecord { id, displayName, launchAbility, requiredCaps }`) and
+  launch goes through **abilitymgr** — both exist and are already wired for
+  fail-closed capability checks.
+- The shell-config registry exists (ADR-0035); `shell.toml` already carries
+  `dsl_root` — this task creates what that field points at.
+- The greeter exists as a native surface (TASK-0065B, shipped): this task re-authors
+  its **view** in DSL. **Authority stays in sessiond** — the DSL greeter renders and
+  dispatches; sessiond decides login/session (masterplan decision; no auth logic in
+  the shell).
 
 ## Goal
 
-Deliver:
-
-1. Bootstrap SystemUI DSL workspace:
-   - `userspace/systemui/dsl/pages/BootstrapShellPage.nx`
-   - `userspace/systemui/dsl/pages/LauncherPage.nx`
-   - `userspace/systemui/dsl/components/**.nx`
-   - `userspace/systemui/dsl/composables/**.nx`
-   - optional `userspace/systemui/dsl/services/**.nx` effect adapters
-2. Visible bootstrap shell:
-   - deterministic background/wallpaper
-   - launcher grid/list of apps from `appmgrd`
-   - app launch action wiring
-   - SVG-sourced app/icon assets; PNGs only as derived goldens/snapshots
-   - host fixtures may force a small baseline set of profiles/orientations (desktop, phone/tablet portrait/landscape)
-     so the bootstrap shell is profile-aware from the start instead of becoming desktop-only by accident
-   - provides the host shape for the shared proof-surface targets (text, vector/cursor/icon area, scroll/data window, overlays/app launch)
-3. Canonical DSL page structure:
-   - page files follow the `Store` + `Event` + `reduce` + `@effect` + `Page` shape from `TASK-0075`
-   - pure state logic stays pure; service calls only in effects
-4. Host-first proof:
-   - snapshots for bootstrap shell and launcher
-   - interaction tests for search/filter/app launch request emission
+1. **Shell DSL workspace** `userspace/systemui/` (what `dsl_root` resolves to):
+   - `shells/desktop/` — `ShellPage.nx` (wallpaper, desktop chrome per shell.toml
+     `[features]`), `LauncherPage.nx` (grid/list from the app registry, search/filter,
+     windowed collection);
+   - `greeter/GreeterPage.nx` — user list + password field + submit; states
+     idle/authenticating/failure from the TASK-0065B contract;
+   - shared `components/` + `composables/` following the canonical
+     Store/Event/reduce/@effect/Page shape; effects call `svc.bundlemgr.enumerate`,
+     `svc.ability.launch`, `svc.session.*` via typed adapters (transcripts on host).
+2. **Profile-aware from the start**: host fixtures force desktop, tablet
+   portrait/landscape (+ convertible shell modes) so the shell never becomes
+   desktop-only by accident; per-profile overrides via `ui/platform/<profile>/` where
+   layout diverges structurally.
+3. **Icons**: SVG-sourced through the Icon primitive/Lucide import (TASK-0073);
+   hover/focus/pressed via `InteractionState`-mapped tokens; PNGs only as goldens.
+4. **Host proofs**: snapshot matrix + interaction fixtures (launcher tap emits the
+   launch request with the right app id; greeter submit dispatches the sessiond
+   login effect; failure state renders deterministically).
 
 ## Non-Goals
 
-- Full Quick Settings migration.
-- Notifications Center.
-- Media mini-player.
-- Full session/login/auth; consume the greeter/dev-session floor from `TASK-0065B` once it exists.
+- OS wiring/live input (TASK-0080C). Quick settings/notifications/media (TASK-0119+).
+  Any auth/session logic in the shell (sessiond only). Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- This is a real SystemUI shell path, not a temporary side app.
-- Launcher page becomes the base for `TASK-0119` rather than a disposable prototype.
-- App launch uses the real app lifecycle/service contract, not mock-only shell behavior.
-- Launcher state/action model must be ready for live pointer focus/hover/click in `TASK-0080C`.
-- SVG sources are canonical for shell/launcher icons.
-- Deterministic host fixtures for app list and shell state.
+- Real shell path, not a prototype: LauncherPage is the base TASK-0119 extends;
+  the greeter replaces the native greeter view in 0080C, same sessiond contract.
+- Launch/login flows use the real service contracts (transcript-tested on host) —
+  no mock-only shell behavior.
+- State/action model ready for live pointer focus/hover/click (0080C) — id-based
+  target-action, no synthetic-only paths.
+- Deterministic fixtures for app list + session states; no company/product names.
+- No `unwrap/expect` in bridge code; no godfiles.
 
 ## Stop conditions (Definition of Done)
 
 ### Proof (Host) — required
 
-- bootstrap shell/launcher DSL snapshots are stable
-- search/filter is deterministic
-- launcher tap emits the expected launch request
-- launcher visuals use SVG-source icons and stable hover/focus/pressed states
+`tests/systemui_bootstrap_shell_host/`:
 
-### Visible proof surface — required
+- shell + launcher + greeter snapshot matrix stable (profiles × dark/light);
+- launcher search/filter deterministic; tap fixture emits
+  `launch(app_id=<from AppRecord>)` through the effect path;
+- greeter: submit dispatches the login effect; transcripted success/failure drive the
+  canonical state transitions; failure golden;
+- windowed launcher grid behaves (reorder/insert fixtures);
+- all pages pass the a11y lints (labels on interactive nodes).
 
-- the bootstrap shell layout is the host container for the shared desktop/test targets,
-- launcher/icons stay SVG-sourced and aligned with the BreezeX-oriented cursor asset path once cursor theming is mounted visibly.
+### Docs — required
+
+- `docs/dev/dsl/patterns.md` gains the "system surface" chapter (shell/greeter as
+  DSL consumers, authority-stays-in-services rule);
+- `docs/dev/ui/shell/session.md` cross-linked (greeter view now DSL; contract
+  unchanged); `docs/systemui/dsl-migration.md` updated.
 
 ## Touched paths (allowlist)
 
-- `userspace/systemui/dsl/`
-- `userspace/systemui/dsl_bridge/`
-- `tests/systemui_bootstrap_shell_host/` (new)
-- `docs/systemui/dsl-migration.md`
-- `docs/dev/dsl/overview.md`
+- `userspace/systemui/` (new: shells/desktop, greeter, components, composables)
+- `userspace/dsl/runtime/` (svc adapters for bundlemgr/ability/session if not yet
+  generated), `tests/systemui_bootstrap_shell_host/` (new)
+- `docs/systemui/dsl-migration.md`, `docs/dev/dsl/patterns.md`
 
 ## Plan (small PRs)
 
-1. bootstrap shell page + launcher page
-2. bridge adapters for app list/launch
-3. host snapshots + interactions
-4. handoff to `TASK-0080C` and `TASK-0119`
+1. shell page + wallpaper/chrome + snapshots
+2. launcher page + registry adapter + interaction fixtures
+3. greeter page + sessiond adapter + state fixtures
+4. profile matrix + a11y pass + docs + handoff notes for 0080C

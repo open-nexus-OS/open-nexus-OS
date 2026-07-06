@@ -1,146 +1,142 @@
 ---
-title: "TASK-0080D DSL App Runtime: app-host + RFC-0065 lifecycle/registry/caps bridge + per-app surface (ADR-0037)"
+title: "TASK-0080D DSL App Runtime: app-host process + packaging (.nxir in .nxb) + execd spawn + cross-process surface (ADR-0042)"
 status: Draft
 owner: "@ui @runtime"
 created: 2026-06-23
+updated: 2026-07-06
 depends-on:
-  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md   # visible DSL mount in windowd/SystemUI
-  - tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md  # AOT'd app crates under userspace/apps/generated
-  - tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md  # abilitymgr/bundlemgrd/notifd spine
+  - tasks/TASK-0076B-dsl-v0_1c-visible-os-mount-first-frame.md   # visible mount + the execd isolation probe
+  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md          # svc adapters the effect host speaks
+  - tasks/TASK-0065-ui-v6b-app-lifecycle-notifications-navigation.md  # abilitymgr/bundlemgrd spine
 follow-up-tasks:
-  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md   # launcher launch path consumes this runtime
+  - tasks/TASK-0080C-systemui-dsl-bootstrap-shell-os-wiring.md   # launcher e2e consumes this runtime
+  - tasks/TASK-0079-dsl-v0_3a-aot-codegen-incremental-assets.md  # AOT ELFs ride the same payloadKind dispatch
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
-  - App lifecycle contract (RFC): docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md
-  - Service split (ADR): docs/adr/0036-ability-lifecycle-vs-process-vs-registry-service-split.md
-  - Per-app surface lifecycle (ADR): docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
-  - Registry SSOT (build-time, from manifests): source/services/bundlemgrd/build.rs
-  - Launch caps authority: source/services/abilitymgr/src/caps.rs
-  - Testing contract: scripts/qemu-test.sh
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Surface transport (drafted, finalize here): docs/adr/0042-cross-process-surface-transport.md
+  - Per-app surface ownership: docs/adr/0037-per-app-surface-lazy-vmo-lifecycle.md
+  - Service split: docs/adr/0036; lifecycle RFC: docs/rfcs/RFC-0065
+  - Display wire SSOT: source/libs/nexus-display-proto (ADR-0038)
+  - Packaging (EXISTS): docs/packaging/nxb.md, tools/nexus-idl/schemas/manifest.capnp,
+    tools/nxb-pack, source/services/{bundlemgrd,packagefsd}
+  - Spawn path (EXISTS, probe-gated): source/services/execd + userspace/nexus-loader
+  - Lifecycle contract page: docs/dev/dsl/runtime.md
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-The DSL track (TASK-0075…0080C) makes apps *authorable* (syntax/IR → interpreter → AOT Rust crates under
-`userspace/apps/generated/<app>_dsl/`) and *mountable* into the live shell. But it never defines the **app
-runtime itself** — the thing that turns a DSL program into a *real app in the running system*. Today the
-launcher tasks (TASK-0080B/C) say "app launch uses the real app lifecycle/service contract" but no task
-specifies:
+**Masterplan decision: the v1 app runtime is a real separate process** — one optimized
+`app_host` runtime ELF; execd spawns it per app; it loads the app's compiled `.nxir`
+(zero-parse capnp) from the installed bundle and presents through its own
+cross-process windowd surface (ADR-0042). This supersedes this task's earlier
+"v1 = in-process host" fallback.
 
-- **What executes the app** (the runtime host) and where it lives (in the shell process vs a separate app
-  process),
-- **Who owns the app's surface** (the shell's shared atlas vs an app-owned VMO — ADR-0037),
-- **How the app is discovered + launched + permission-gated** (the RFC-0065 spine: bundlemgrd registry →
-  abilitymgr launch authority → caps), versus the DSL launcher just calling `mount(...)` directly and
-  bypassing it.
+**Reality check on the spawn constraint (corrected):** the 2026-06-23 note said execd
+only runs hand-assembled stubs. That describes the os-lite demo image table; the real
+ELF spawn path EXISTS (`exec_elf`: GET_PAYLOAD → nexus-loader `parse_elf64_riscv` →
+`as_create` Sv39 → VMO staging → W^X → `spawn` + `cap_transfer` + restart reaper) but
+is **not the live boot flow** and carries a contradictory shared-address-space comment.
+That is exactly what the **TASK-0076B isolation probe** settles first. If the probe
+fails, a dedicated execd-hardening sub-task blocks this task (and only this task —
+everything else is host-side).
 
-### The hard constraint this task must record (discovered 2026-06-23)
-
-The kernel's `execd` spawn path **only runs hand-assembled RISC-V syscall stubs** (see
-`userspace/apps/demo-exit0/build.rs`, which emits machine code via `encode_addi`/`encode_auipc`; the image
-table in `execd/src/os_lite.rs` is `IMG_HELLO`/`IMG_EXIT0`/`IMG_EXIT42`). **It does not run compiled Rust
-binaries.** Therefore "a DSL app as a separately spawned ELF process" is NOT available until a real userspace
-app runtime exists (heap, no_std entry, syscall surface, linker layout). The v1 app runtime is consequently
-**in-process mount** (the DSL App Host runs inside the shell runtime), with a clean boundary so the host can
-later move to its own process without changing the app contract.
-
-### What already exists (do not rebuild)
-
-- **Registry from real manifests:** `bundlemgrd` generates `APP_REGISTRY` at build time from
-  `bundles/<app>/manifest.toml` (no hand-maintained list; a phantom cannot appear without a manifest).
-- **Launch caps authority:** `abilitymgr` resolves an app's manifest-declared `caps` and **fails closed** on
-  an unknown permission (`Broker::launch_with_caps` → `STATUS_DENIED`); boot self-check emits
-  `abilitymgr: caps ok app=<id> (n=…)`. `KNOWN_PERMISSIONS` = `nexus.permission.{WINDOW,NOTIFY,STATE}`.
-- **App owns its data/surface content (ADR-0037 step 1):** `search-app` (`no_std`) owns the search window's
-  data; windowd hosts it. The per-app *VMO* surface boundary is the remaining ADR-0037 work.
-- **Dynamic Apps menu:** windowd builds the launcher list from the registry (`windowd: apps ok (n=…)`).
+What already exists and is built on, not around: build-time `APP_REGISTRY` from
+`bundles/<app>/manifest.toml`; abilitymgr `launch_with_caps` fail-closed
+(`KNOWN_PERMISSIONS = nexus.permission.{WINDOW,NOTIFY,STATE}` + QUERY from 0078B);
+`.nxb` bundles + `nxb-pack` (payload today = placeholder ELF); packagefsd;
+windowd `create_surface`/`destroy_surface` + `app_surface` residency (ADR-0037).
 
 ## Goal
 
-Define and deliver the **DSL App Runtime** — the contract that makes every DSL app a real, registered,
-permission-gated, surface-owning app — bridging the DSL track to the RFC-0065 lifecycle spine.
-
-Deliver:
-
-1. **App Host (`userspace/dsl/nx_app_host` or equivalent):** a bounded runtime that, given an app id, loads
-   the app's page graph (interpreter today; AOT `mount_<page>` when available), drives its `Store/reduce/
-   @effect/Page` lifecycle, and produces frames into a surface it owns. Host-tested headless first.
-2. **Manifest is the app's identity (SSOT):** every DSL app ships `bundles/<app>/manifest.toml`
-   (`name`, `abilities`, `caps`, `bundle_type=app`). The registry (`bundlemgrd`) and the launch caps
-   (`abilitymgr`) both derive from it — no second source. A DSL app with no manifest does not appear and
-   cannot launch.
-3. **Launch goes through the spine, not around it:** the launcher (TASK-0080C) launches an app id by asking
-   `abilitymgr` (which enforces manifest caps), NOT by calling `mount(...)` directly. abilitymgr resolves the
-   app → tells the App Host to mount it → the surface is hosted by windowd. The hop order is observable.
-4. **Per-app surface ownership (ADR-0037):** the App Host renders into an app-owned surface (its own VMO /
-   `OwnedSurface`), composited by windowd as a per-app layer — lazily acquired on launch, released on close.
-   `nexus.permission.WINDOW` gates the surface bind.
-5. **Process-boundary forward path (design, not built here):** document the seam so the App Host can become a
-   separate process once the userspace app runtime exists; record the asm-stub spawn constraint above as the
-   reason v1 is in-process.
+1. **Packaging**: `manifest.capnp` v2.1 gains `payloadKind` (append-only field;
+   `elf | uiProgram`); `nxb-pack` packs `payload.nxir` for DSL apps; bundlemgrd
+   install/digest/enumerate unchanged (payload-agnostic).
+2. **app_host** (`source/services/app-host/`, no_std, modules pinned: `payload.rs`,
+   `surface.rs`, `input.rs`, `render_loop.rs`, `effect_host/` (one module per svc),
+   `persist.rs`): argv `<name@ver>` → fetch payload (v1 GET_PAYLOAD; packagefs
+   VMO-map recorded as the zero-copy upgrade) → validate IR (nexus-dsl-ir, fail-closed)
+   → mount (nexus-dsl-runtime) → ADR-0042 surface → render loop (nexus-layout +
+   renderer into the surface VMO; arenas at mount, steady-state zero-alloc,
+   debug alloc-assert) → present with damage → input events in → effects over real
+   IPC adapters.
+3. **execd dispatch**: `payloadKind == uiProgram` ⇒ spawn app_host with the app id +
+   transfer the granted caps (windowd client cap gated by `WINDOW`, statefsd by
+   `STATE`, queryd by `QUERY`); restart policy per manifest.
+4. **windowd transport (ADR-0042 finalized here)**: `SURFACE_CREATE/PRESENT/DESTROY`
+   in nexus-display-proto; damage-blit into the atlas region backing the app's layer;
+   seq/ack flow control; input routed by surface id. New windowd code in its own
+   modules (`client_surface.rs`, `surface_transport.rs`) — no godfile growth.
+5. **Lifecycle**: RFC-0065 hop order observable (registry → caps → launch → mount →
+   visible); suspend persists `@persist` fields via statefsd; stop destroys the
+   surface (ADR-0037 lazy residency); reaper handles crashes per restart policy.
+6. **Probe-first sequencing**: R1 is a solid-color app_host (no DSL) proving
+   spawn + VMO + present before anything else.
 
 ## Non-Goals
 
-- A general compiled-Rust process spawner / userspace ELF runtime (separate, larger track; this task only
-  records the seam and constraint).
-- Migrating chat to a DSL app (search is the first; chat follows).
-- Quick Settings / full SystemUI migration (owned by the SystemUI DSL phases).
-- Notifications/state permission *enforcement* beyond declaring `NOTIFY`/`STATE` in `KNOWN_PERMISSIONS`
-  (their service-side gating is RFC-0065 follow-up).
+- Launcher/shell wiring (0080C). AOT codegen (0079 — but its ELFs launch through the
+  same payloadKind dispatch, forward-compatible here). Notifications/state permission
+  service-side enforcement beyond declaration (RFC-0065 follow-up). Migrating
+  chat/search content apps (follow-up wave). Kernel changes (probe-driven execd fixes
+  excepted, staged separately if needed).
 
 ## Constraints / invariants (hard requirements)
 
-- **Manifest is the only source of an app's identity + caps.** Registry and launch authority both derive from
-  it; never hardcode an app list or its permissions.
-- **Launch is capability-gated and fail-closed:** an app requesting an unknown/denied permission is refused
-  with a clear marker, never silently mounted.
-- **One launch path:** the launcher routes through `abilitymgr`; no direct `mount()` shortcut in the live
-  launcher (a host fixture may mount directly for snapshot tests only).
-- **App owns its surface; the compositor hosts it** (ADR-0037) — apps do not draw into the shell's shared
-  atlas.
-- **Bounded:** per-frame interpreter/host work is capped (node + event-queue caps, per TASK-0076); no
-  unbounded scripting.
-- **In-process is the v1 runtime** (asm-stub spawn constraint); the app contract must not assume same-process
-  so the later out-of-process move is a wiring change, not an app rewrite.
+- **Manifest = the app's only identity/caps source**; registry + launch authority
+  derive from it; a DSL app without a manifest does not exist.
+- **Fail-closed everywhere**: unknown permission ⇒ denied (existing); invalid/tampered
+  IR (hash/type/budget) ⇒ deterministic launch error, never a partial mount.
+- **One launch path** through abilitymgr — no `mount()` shortcut in live paths (host
+  fixtures may mount directly for snapshots only).
+- **Apps get pixels + events, nothing else**: no scene-graph access, no shell atlas
+  writes (information hiding at the process boundary; ADR-0037/0042).
+- Bounded: per-frame work capped by IR budgets; one in-flight present; damage list
+  capped; `MAX_APP_SURFACES` respected.
+- Steady-state zero heap allocation in app_host (bump-allocator rule; debug assert).
+- No `unwrap/expect`; no godfiles; no company/product names.
 
 ## Stop conditions (Definition of Done)
 
-### Host — required
+### Proof (Host) — required
 
-- App Host mounts a DSL app by id and produces a deterministic first frame (snapshot parity with the shared
-  visible proof surface). Marker: `dsl: app-host mount ok`.
-- Launch authority: launching an app whose manifest declares only known caps succeeds; an app declaring an
-  unknown permission is denied (reuses `abilitymgr::caps`). Host test asserts both.
-- Registry/manifest round-trip: the app id served by the registry matches a real `bundles/<app>/manifest.toml`
-  (cross-checked, like the existing nxb-pack `repo_bundles` test).
+- app_host logic host-tested: payload validate/mount against fixtures; effect host
+  against transcripts; surface module against a stub sink (frame bytes golden);
+  manifest payloadKind round-trip (nxb-pack → parse); registry/manifest cross-check
+  (extends the existing `repo_bundles` test).
 
-### Proof (OS/QEMU) — required
+### Proof (OS/QEMU) — required (user boot-verify, staged)
 
-UART markers (in hop order):
+Marker chain in hop order:
 
-- `windowd: apps ok (n=…)` — launcher list from the registry (exists).
-- `abilitymgr: caps ok app=<id> (n=…)` — launch authority validated the app's manifest caps (exists).
-- `abilitymgr: launch (app=<id>, inst=…)` — launch authorized + lifecycle instance created.
-- `dsl: app-host mount on` — the App Host mounted the app's page graph.
-- `dsl: app surface visible` — the app-owned surface is composited by windowd and on screen.
+- R1: `APPHOST: probe surface presented` + visible solid-color window (no DSL)
+- `windowd: apps ok (n=…)` → `abilitymgr: caps ok app=<id> (n=…)` →
+  `abilitymgr: launch (app=<id>, inst=…)` → `APPHOST: mounted <name>@<ver> hash=<h>` →
+  `WINDOWD: surface presented id=<n> seq=<k>` → `dsl: app surface visible`
+- input: click inside the app window dispatches an event visibly (state change on
+  screen); no background leak to the shell
+- suspend/stop: `APPHOST: persisted (fields=<n>)` + surface destroyed
+  (ADR-0037 marker); crash → reaper restart per policy
+- denied fixture app (unknown permission) refused with the existing denial marker
 
-Live QEMU pointer click on the launcher entry must drive the chain (not a selftest-only mutation).
+### Docs — required
 
-## Phasing
+- ADR-0042 Status → Accepted (with any deviations recorded);
+  `docs/dev/dsl/runtime.md` lifecycle/launch sections final;
+  `docs/packaging/nxb.md` payloadKind section.
 
-- **R1 — App Host (host-tested):** the bounded runtime + `mount(app_id)` over the interpreter; snapshot proof.
-- **R2 — Lifecycle bridge:** launcher → `abilitymgr` launch (caps enforced) → App Host mount; the
-  `mount()`-shortcut removed from the live path. Reuses the done registry + caps work.
-- **R3 — Per-app surface (ADR-0037):** app-owned VMO surface composited by windowd as a layer; lazy
-  acquire/release; `WINDOW` permission gates the bind. (search is the first real app surface.)
-- **R4 — Process boundary (design/seam only):** document + stub the seam for an out-of-process App Host,
-  blocked on the userspace app runtime (asm-stub constraint). No spawn built here.
+## Phasing (each boot-verified)
+
+- **R1 — transport probe**: solid-color app_host spawned by execd, ADR-0042
+  create/present, visible window. De-risks everything.
+- **R2 — real payload**: manifest v2.1 + nxb-pack `.nxir` + bundlemgrd fetch +
+  validate/mount + first DSL app frame (counter demo).
+- **R3 — interaction + lifecycle**: input routing, effects over real IPC, `@persist`
+  suspend/restore, stop/crash residency.
+- **R4 — AOT forward-compat**: payloadKind dispatch verified against a generated-ELF
+  bundle (lands with 0079/0080).
 
 ## Notes
 
-This task is the missing center of the "real app runtime": the DSL gives apps a *shape*, RFC-0065 gives them
-*identity + lifecycle + permission*, ADR-0037 gives them a *surface*. TASK-0080D is the contract that binds
-the three so "a DSL app" and "a real app in the OS" are the same thing. Every app (search first, then chat,
-then the hard apps) ships as a DSL app + manifest and runs on this host.
+The DSL gives apps a shape; RFC-0065 gives identity + lifecycle + permission;
+ADR-0037/0042 give a surface. This task binds them so "a DSL app" and "a real app in
+the OS" are the same thing — search first, then chat, then the hard apps.

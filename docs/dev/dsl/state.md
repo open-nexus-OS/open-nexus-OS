@@ -3,71 +3,80 @@
 
 # State, Events, Reducers, Effects
 
-The DSL model is:
+The state model is:
 
-- **State**: serializable, deterministic data
-- **Events**: what UI dispatches
-- **Reducers**: **pure** state transitions (no IO)
-- **Effects**: run after commit; may perform IO through service adapters; must be bounded
+- **Store**: typed, serializable state a feature owns — the only place state lives;
+- **Event**: what the UI (or an effect) can dispatch;
+- **reduce**: **pure** state transitions (no IO, no time, no randomness);
+- **@effect**: runs after commit; owns all IO through `svc.*` adapters; bounded.
 
-## Why not “getters/actions”?
+The UI only ever sees committed snapshots (`$state.field`); a reducer's intermediate
+writes are never observable. This is dataflow instead of shared state — see
+`principles.md` for why each rule exists.
 
-We use *reducers/effects* to match the semantics and enforce purity deterministically.
+## Why reducers/effects (not getters/actions)?
 
-## Example (illustrative)
+Purity has to be *checkable*. With reducers, "no IO in state transitions" is a
+compile-time property; with free-form actions it would be a convention.
+
+## Canonical example
 
 ```nx
 Store CounterStore {
-  State { value: Int }
-  Event { Inc, Dec, SaveRequested }
+    value: Int = 0 @persist,
+}
 
-  reduce(state, event) -> state {
-    match event {
-      Inc => state.value += 1
-      Dec => state.value -= 1
-      SaveRequested => state // reducers stay pure
-    }
-  }
+Event CounterEvent {
+    Inc,
+    Dec,
+    SaveRequested,
+}
 
-  effect(event) {
-    match event {
-      SaveRequested => {
-        // v0.2b: call service adapters from effects only
-        // svc.settings.set("counter.value", state.value) (pseudo)
-      }
+reduce CounterEvent {
+    Inc => state.value += 1,
+    Dec => state.value -= 1,
+    SaveRequested => state.value = state.value,  // reducers stay pure; the effect saves
+}
+
+@effect on SaveRequested {
+    match svc.appState.put("counter.value", $state.value, timeoutMs = 250) {
+        Ok(_) => dispatch(Saved),
+        Err(e) => dispatch(SaveFailed(e.code)),
     }
-  }
 }
 ```
 
-## Session vs durable vs DB
+## Local component state
 
-Recommended tiering:
+Components may declare local `$state` fields (ergonomic sugar): they compile to an
+implicit per-instance store with the same reducer machinery — no second semantics.
+Local state survives keyed reorders in collections (identity via `.key(expr)`).
 
-1. **Session state** (default): in-memory store state per app instance/window.
-2. **Durable small**: typed snapshots (`.nxs`) via settings/app-state substrate.
-3. **Durable large/queryable**: queryable storage only when required (indexing/query/history).
+## Session vs durable vs queryable
 
-Notes:
+1. **Session state** (default): in-memory store state per app instance.
+2. **Durable small**: store fields marked `@persist` — typed snapshots written on
+   suspend via the state substrate, restored on mount.
+3. **Durable large/queryable**: only through the query service contract
+   (see `db-queries.md`) — apps never open storage directly.
 
-- “queryable” does not automatically mean “SQL database”.
-- Prefer a typed snapshot/log substrate first when it can satisfy the query/history/index contract deterministically.
-- Add a DB/libSQL-style backend only when it materially improves the storage/query story and still sits behind the same
-  service/query contract.
+"Queryable" does not mean "SQL database": the QuerySpec contract is engine-agnostic
+and the platform engine is a deterministic, bounded, pure-Rust store.
 
-## Lint rules summary (v0.x)
+## Lint/error posture (v1)
 
-This is the “default posture” the DSL aims to enforce. Exact severities may evolve per task, but the intent is stable.
+- **Reducer purity (Error)** — no IO, no `svc.*`, no DB/files, no time/RNG.
+- **Effects handle failures (Error)** — both `Ok` and `Err` of every `Result`; stable
+  error codes, never formatted strings, for user-facing flows.
+- **Profile fallback (Warning)** — `if device.profile == …` without a final `else`
+  (upgradeable with `--deny-warn`).
+- **Bounded loops (Error)** — `for` requires a statically known bound.
+- **Keys + a11y (Error)** — collection items need `.key(expr)`; unlabeled interactive
+  nodes need `.label(…)`.
+- **Exhaustive match (Error)** — over events and enums.
 
-- **Reducer purity (Error)**:
-  - reducers must be pure: no IO, no `svc.*`, no DB/files, no time/RNG dependence.
-- **Effects handle failures (Error)**:
-  - effects must not ignore `Result<T, E>`; handle both success and failure deterministically.
-  - prefer stable error codes/enums over `to_string()` for user-facing flows.
-- **Profile branching fallback (Warning)**:
-  - for profile-driven layout branching with `@when`, missing `@else` is a warning (upgradeable with `--deny-warn`).
-- **Bounded loops (Error)**:
-  - loops are allowed, but must be bounded in v0.x (no unbounded/infinite loops).
-- **A11y and list keys (Error)**:
-  - list items require stable keys (`@key`)
-  - missing a11y label hints are rejected where required by the lane’s lint posture.
+## Changelog
+
+- **v1 (2026-07-06)** — canonical shape normalized (direct store fields, top-level
+  `Event`/`reduce`/`@effect on`, `@persist` on fields); local `$state` defined as
+  implicit stores; lint posture consolidated.

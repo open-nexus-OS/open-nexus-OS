@@ -1,132 +1,131 @@
 ---
-title: TASK-0078B DSL v0.2b QuerySpec v1: foundation + service-gated execution + syntax/paging/hash floor + host proofs
+title: TASK-0078B QuerySpec v1: typed query values + canonical hash + keyset paging + the pure-Rust engine (nexus-query/queryd)
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2026-04-03
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+follow-up-tasks:
+  - tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
+  - tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL query posture: docs/dev/dsl/db-queries.md
-  - DSL services/effects posture: docs/dev/dsl/services.md
-  - DSL state tiers: docs/dev/dsl/state.md
-  - DSL v0.2b stubs + demo baseline: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - DSL v0.1 CLI baseline: tasks/TASK-0075-dsl-v0_1a-syntax-ir-cli.md
-  - DSL v0.2a core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - QuerySpec v2 hardening: tasks/TASK-0274-dsl-v0_2c-db-query-objects-builder-defaults-paging-deterministic.md
-  - QuerySpec v3 lazy data surfaces: tasks/TASK-0275-ui-v5c-lazy-data-loading-virtual-list-paging-contract.md
-  - Document picker consumer: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
-  - Files consumer: tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
-  - Zero-Copy App Platform (connectors/query IR): tasks/TRACK-ZEROCOPY-APP-PLATFORM.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Query contract: docs/dev/dsl/db-queries.md
+  - Persistence substrate the engine sits on: source/services/statefsd (journaled KV over
+    virtio-blk, ADR-0023/RFC-0018)
+  - Permission gate: source/services/abilitymgr (KNOWN_PERMISSIONS + fail-closed)
+  - Consumers: tasks/TASK-0083 (document picker), TASK-0086 (files), master-detail demo (0078)
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-`TASK-0078` gives the DSL real effect-side service calls via typed stubs. That is the right layer to establish the first
-usable **QuerySpec foundation** so early data-heavy surfaces do not wait for later ergonomics/hardening tasks.
+**Engine decision (masterplan 2026-07-06, supersedes the open "libSQL-style backend"
+question):** the platform query engine is **pure Rust** — no C SQL engine. A C engine
+is unworkable in no_std riscv64 services and its query planner breaks the determinism
+charter. Instead:
 
-We want:
+- `source/libs/nexus-query` (no_std+alloc): typed table schemas (Bool/Int/Fx/Str/Enum
+  columns), storage behind a `Kv` trait (get/put/ordered scan-prefix), primary rows +
+  secondary index keys maintained transactionally, **order-preserving key encoding**
+  for Int/Fx/Str (the core correctness artifact — property-tested);
+- `source/services/queryd`: hosts the engine over statefsd (journal gives atomicity),
+  capnp IPC (`tools/nexus-idl/schemas/queryspec.capnp`), per-app namespaces from
+  bundle identity, gated by a new `nexus.permission.QUERY` registered in abilitymgr;
+- host tests run the **identical engine** over an in-memory ordered map ⇒ host/OS
+  parity is structural.
 
-- a first-class structured query value in DSL/runtime code,
-- a minimal syntax surface that is already usable in host demos and real app tasks,
-- deterministic canonicalization/hashing and a small paging floor,
-- execution only through typed service stubs/effects,
-- and a base that early consumers such as Document Picker and Files can extend with domain-specific helpers without
-  inventing their own query core.
+The QuerySpec **contract** stays engine-agnostic (SQL-style semantics behind the
+service boundary; engine swappable later without observable difference — canonical
+ordering fully specified, page tokens opaque).
 
-Even though this slice is host-first, its consumer fixture should line up with the shared visible proof surface
-(for example the virtual-list/data window) instead of a detached query-only demo.
-
-This task is intentionally the **v1 foundation** only. Stronger defaults, richer builder ergonomics, and hardening stay in
-`TASK-0274`. Large lazy/virtualized data surfaces stay in `TASK-0275`.
+This task is host-first: engine + contract + DSL integration + queryd skeleton.
+Booting queryd into the topology rides with Phase 6 (TASK-0080C).
 
 ## Goal
 
-Deliver host-first support for:
-
-1. **QuerySpec v1 core in IR/runtime**:
-   - first-class `IrQuerySpec` / runtime query value
-   - fields sufficient for v1 floor:
-     - source/table handle
-     - predicates (v1 minimal: equality only)
-     - ordering
-     - limit
-     - opaque page token
-   - query values are immutable/persistent in semantics
-2. **Minimal DSL syntax floor**:
-   - enough syntax to create and pass QuerySpec values in DSL code
-   - syntax may be smaller than the later v2 builder, but must already support:
-     - selecting a root/source
-     - equality predicates
-     - explicit ordering
-     - explicit limit
-     - explicit page token passing
-3. **Canonicalization + hash floor**:
-   - identical logical QuerySpec inputs produce identical canonical form + hash across runs
-   - canonical form is stable enough for host proofs, caches, and query equality checks
-4. **Paging floor**:
-   - `PageToken` is an opaque value passed through DSL/runtime/stubs unchanged
-   - request/response contracts can carry `next`/continuation values deterministically
-   - no ad-hoc timer- or offset-based paging behavior in the DSL layer
-5. **Service-gated execution only**:
-   - QuerySpec can be passed to typed stubs and executed only in effects/services
-   - reducers/composables may build/manipulate QuerySpec as pure values
-   - UI never opens DB files or executes ad-hoc query strings
-6. **Host proofs + one real consumer path**:
-   - extend the demo/test path so QuerySpec is exercised through the effect runner and stub registry
-   - prove at least one realistic query-shaped flow (e.g. master-detail list source or a small content-style fixture)
-   - keep that consumer path compatible with the shared visible list/data proof target
+1. **QuerySpec v1 value** (IR + runtime, per `db-queries.md`):
+   - source/table handle (generated typed handles), predicates = **conjunction of
+     typed comparisons** (`=, <, <=, >, >=`; at most one range column), `orderBy` one
+     column asc/desc, `limit ≤ budget`, opaque page token;
+   - built purely (reducers/helpers); executed only via the `query` effect step;
+   - immutable value semantics; **canonical form + hash**: identical logical queries ⇒
+     identical bytes/hash across runs (the identity for caches and later
+     subscriptions).
+2. **Keyset paging floor**: page token = capnp-encoded (queryHash, last sort key,
+   last pk) + integrity digest, opaque to apps; token from a different queryHash is
+   rejected; no offset paging anywhere.
+3. **DSL syntax floor**: build/pass QuerySpec with source selection, comparisons,
+   `orderBy`, `limit`, page-token passing (builder ergonomics grow in TASK-0274).
+4. **nexus-query engine**: schemas, write path (row + index maintenance, transactional
+   via the journal), query path (index selection for the v1 shape is trivial and
+   deterministic — no planner), scan bounds, key-encoding module.
+5. **queryd skeleton**: opcodes `CREATE_TABLE/PUT/DELETE/QUERY/QUERY_PAGE` over
+   `[opcode u8][capnp]`; namespace derivation; permission check contract
+   (fail-closed); host-loopback tested. Boot wiring deferred to Phase 6.
+6. **Consumer path**: master-detail (0078) list source switches to QuerySpec paging;
+   fixture lines up with the shared list/data proof target.
 
 ## Non-Goals
 
-- Full QuerySpec v2 ergonomics/defaults/hardening; that remains in `TASK-0274`.
-- Lazy-loading/viewport/provider contracts; that remains in `TASK-0275`.
-- Joins, OR, ranges, full-text search, or arbitrary SQL/GraphQL text.
-- A new DB authority or direct UI-owned storage engine.
+- v2 ergonomics/defaults (TASK-0274); lazy/virtual providers (TASK-0275).
+- OR, joins, aggregation, full-text, arbitrary SQL/query strings (documented
+  non-goals with the intended v2 shape).
+- A DB authority in UI/runtime code; direct storage access from apps — never.
+- Boot-topology wiring (Phase 6). Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- **Pure vs IO split**:
-  - building/manipulating QuerySpec is pure,
-  - execution is effect-only and service-gated.
-- **Determinism**:
-  - canonicalization/hashing must be stable across runs,
-  - ordering and page token propagation must be explicit and deterministic.
-- **Bounds**:
-  - explicit row/byte/time caps remain enforced at the service boundary,
-  - the DSL/runtime must not encourage unbounded result handling.
-- **No authority drift**:
-  - QuerySpec is a value contract, not a license for direct DB access from UI/runtime code.
-- **Extension posture**:
-  - early consumers (Document Picker, Files, similar content/provider surfaces) may add domain-specific helpers or presets
-    on top of QuerySpec,
-  - but they must not fork canonicalization, execution rules, or invent a parallel query core.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- Pure-build / effect-execute split (compiler-enforced: `query` step is the only
+  execution site).
+- Determinism: canonical bytes/hash stable across runs and platforms; fully specified
+  ordering incl. tie-breaks (pk as final key); cross-page no-dup/no-gap under
+  interleaved writes per the written contract.
+- Bounds: row/byte/time caps at the service boundary; scan work bounded by
+  limit+index (no full-table scans for indexed v1 shapes).
+- Engine swappability: nothing observable identifies the engine (error codes,
+  ordering, tokens all contract-defined).
+- No `unwrap/expect`; no godfiles; no company/product names.
 
-## Proof (Host) — required
+## Stop conditions (Definition of Done)
 
-`tests/dsl_queryspec_v1_host/`:
+### Proof (Host) — required
 
-- the same logical QuerySpec yields the same canonical form/hash across runs
-- QuerySpec built in pure DSL/store code is passed to a typed stub only from an effect
-- mock stub receives predicates/order/limit/page token deterministically
-- a paged response with `next` token roundtrips deterministically through runtime state
-- one consumer-shaped fixture proves that app-facing helpers can build on the shared QuerySpec core without changing its
-  execution rules
+`tests/dsl_queryspec_v1_host/` + engine unit/property tests:
+
+- **key-encoding order property tests**: encoded-key order == typed-value order for
+  Int (incl. negatives), Fx, Str (prefix cases) — the correctness core;
+- same logical QuerySpec ⇒ identical canonical bytes + hash across runs (golden);
+- paging: full walk via tokens = no duplicates/no gaps; token round-trip; token with
+  foreign queryHash rejected; interleaved-write fixture matches the written contract;
+- index maintenance: put/delete keep secondary indexes consistent (property test);
+- effect gating: QuerySpec built purely, executed only via the `query` step (lint
+  fixture rejects execution elsewhere);
+- queryd loopback: opcode round-trips; namespace isolation fixture; permission-denied
+  fixture (fail-closed);
+- master-detail consumer fixture green on QuerySpec paging.
+
+### Docs — required (reference grade)
+
+- `docs/dev/dsl/db-queries.md` to full reference: the engine decision + rationale,
+  canonicalization spec, paging contract, v1 shape + v2/v3 non-goals;
+- `docs/dev/dsl/services.md` query-step section.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsl/nx_syntax/` (extend: minimal QuerySpec syntax)
-- `userspace/dsl/nx_ir/` (extend: QuerySpec core + canonicalization/hash floor)
-- `userspace/dsl/nx_interp/` (extend: runtime value model + effect-side transport)
-- `userspace/dsl/nx_stubs/` (extend: typed stub QuerySpec parameter support)
-- `tests/dsl_queryspec_v1_host/` (new)
-- `docs/dev/dsl/db-queries.md` + `docs/dev/dsl/services.md`
+- `source/libs/nexus-query/` (new), `source/services/queryd/` (new, skeleton)
+- `tools/nexus-idl/schemas/queryspec.capnp` (new) + idl-runtime module
+- `userspace/dsl/{core,ir,runtime}/` (QuerySpec value/syntax/effect step)
+- `source/services/abilitymgr/` (register `nexus.permission.QUERY`)
+- `examples/dsl/masterdetail/` (consumer), `tests/dsl_queryspec_v1_host/` (new)
+- `docs/dev/dsl/{db-queries,services}.md`
 
 ## Plan (small PRs)
 
-1. QuerySpec core + canonical form/hash floor in IR/runtime
-2. minimal DSL syntax + effect/stub transport
-3. host tests + demo/consumer-shaped fixture + docs
+1. key encoding + property tests (the correctness core, standalone)
+2. nexus-query schemas/write/query paths over Kv + in-memory host Kv
+3. queryspec.capnp + canonical hash + paging tokens
+4. DSL value/syntax/effect step + gating lints
+5. queryd skeleton (loopback) + permission registration
+6. master-detail consumer + docs

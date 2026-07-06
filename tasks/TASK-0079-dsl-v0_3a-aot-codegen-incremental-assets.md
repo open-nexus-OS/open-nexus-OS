@@ -1,106 +1,78 @@
 ---
-title: TASK-0079 DSL v0.3a: IR stabilization + AOT Rust codegen + incremental rebuilds/tree-shaking + asset embedding + nx dsl --aot
+title: TASK-0079 DSL v0.3a: AOT Rust codegen (behavior-identical tier) + incremental rebuilds/tree-shaking + asset embedding (host)
 status: Draft
-owner: @ui
+owner: @ui @runtime
 created: 2025-12-23
-depends-on: []
-follow-up-tasks: []
+updated: 2026-07-06
+depends-on:
+  - tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
+  - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md
+follow-up-tasks:
+  - tasks/TASK-0080-dsl-v0_3b-perf-bench-os-aot-demo.md
 links:
-  - Vision: docs/agents/VISION.md
-  - Playbook: docs/agents/PLAYBOOK.md
-  - DSL v0.2 core: tasks/TASK-0077-dsl-v0_2a-state-nav-i18n-core.md
-  - DSL v0.2 stubs/CLI/demo: tasks/TASK-0078-dsl-v0_2b-service-stubs-cli-demo.md
-  - UI kit baseline: tasks/TASK-0073-ui-v10a-design-system-primitives-goldens.md
-  - UI svg safe subset baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
-  - DevX CLI: tasks/TASK-0045-devx-nx-cli-v1.md
-  - Data formats rubric (JSON vs Cap'n Proto): docs/adr/0021-structured-data-formats-json-vs-capnp.md
-  - DSL v1 DevX track: tasks/TRACK-DSL-V1-DEVX.md
+  - Track: tasks/TRACK-DSL-V1-DEVX.md
+  - Codegen contract: docs/dev/dsl/{codegen,incremental,ir}.md
+  - Parity anchor: tests/dsl_conformance/ (corpus from TASK-0076+) + tests/dsl_goldens/
+  - SVG safe subset baseline: tasks/TASK-0057-ui-v2b-text-shaping-svg-pipeline.md
 ---
 
-## Context
+## Context (updated 2026-07-06)
 
-Interpreter mode is great for iteration, but AOT codegen can reduce startup cost and improve steady-state CPU.
-DSL v0.3 introduces an optional AOT path:
+The interpreter (in the app-host process) is the v1 execution tier. AOT is the
+optimizing tier: the **same canonical `.nxir`** lowered to a per-app Rust crate → own
+ELF, spawned by execd like any other app payload. Because reducers/effects are typed
+expression trees (masterplan decision — no bytecode), codegen is **straight-line
+lowering** of the same trees the interpreter walks: parity is structural, then proven.
 
-- stabilize IR (canonical ordering + stable IDs),
-- generate plain Rust that constructs the same runtime/layout/kit graph,
-- incremental rebuilds with tree-shaking from routes,
-- embed assets (SVG/text/i18n) deterministically,
-- add `nx dsl --aot` commands.
+IR stabilization asked for by the old draft (stable ids, canonical ordering) already
+landed in v0.1a by design (persisted NodeIds, canonical encoding) — this task adds the
+**route-reachability graph** for tree-shaking and the codegen/incremental machinery.
 
-The parity target must remain the shared visible proof surface, not a separate AOT-only showcase.
-
-Perf benchmarking and OS demo integration is handled in v0.3b (`TASK-0080`).
+Note the depends-on: the AOT ELF is launched through the 0080D app-runtime contract
+(payloadKind dispatch), so the runtime contract must exist first; the codegen itself
+is pure host work.
 
 ## Goal
 
-Deliver:
-
-1. IR stabilization in `nx_ir`:
-   - canonical ordering for props/children
-   - stable `ir_id` values across runs
-   - component/page defs (`IrComponentDef`, `IrPageDef`)
-   - reachability graph from Routes for tree-shaking
-   - marker string: `dsl: ir stable` (host-visible; OS marker only in v0.3b)
-2. `nx_codegen` crate:
-   - input: canonical `.nxir` (Cap'n Proto) (+ assets)
-     - optional derived view input for tooling/debug: `.nxir.json` (must be derived from the canonical IR)
-   - output: generated Rust crate under `userspace/apps/generated/<app>_dsl/`
-   - generated API: `mount_<page>(...) -> ViewRootHandle`
-   - router generation for routes
-   - marker string: `dsl: aot codegen on`
-   - profile semantics:
-     - AOT must preserve the same `device.*` environment contract as interpreter mode (`TASK-0077`)
-     - if IR contains `@when device.*` branches, codegen must emit deterministic branch evaluation and must not
-       change behavior between interpreter and AOT (goldens prove parity)
-3. Incremental rebuilds & tree-shaking:
-   - content hashes per module
-   - stable file paths per component/page
-   - regenerate only changed modules
-   - shake unreachable components from routes
-   - summary marker: `dsl: aot gen (modules=<n> reused=<m> shaken=<k>)`
-4. Asset embedding:
-   - SVG: pre-parse safe subset to compact binary and embed via `include_bytes!`
-   - locale packs: embed selected packs as bytes; runtime fallback to external packs
-   - generated crate `build.rs` verifies asset hashes
-   - marker: `dsl: assets embedded (svg=<n> locales=<m>)`
-5. `nx dsl` CLI upgrades (host-first):
-   - `nx dsl build <appdir> --aot [--release]`
-   - `nx dsl run <appdir> --aot ... --profile ...` (headless run)
-   - `nx dsl watch <appdir> --aot` (fs notify loop)
-   - structured outputs under `target/nxir/`
-6. Host tests for determinism and incremental behavior (no QEMU):
-   - codegen determinism (byte-for-byte)
-   - compile+run generated crate headless
-   - incremental rebuild touches only the expected modules
-   - tree-shaking removes unreachable components
-   - build.rs asset verification fails on corruption
+1. `userspace/dsl/codegen` (`nexus-dsl-codegen`, std): input canonical `.nxir` →
+   output a generated Rust crate:
+   - static view construction (same NodeIds, same widget-registry calls),
+     straight-line reducer/effect lowering, generated router;
+   - links `nexus-dsl-runtime`'s value/registry/instance types (one runtime library,
+     two front doors — no duplicated semantics);
+   - deterministic output: stable formatting, module names, file paths (byte-for-byte
+     reproducible).
+2. **Tree-shaking** from route reachability (unreachable components/pages dropped;
+   summary `dsl: aot gen (modules=<n> reused=<m> shaken=<k>)`).
+3. **Incremental rebuilds**: per-module content hashes keyed on `sourceDigest`;
+   single-leaf change regenerates only affected modules; `nx dsl watch --aot`
+   (debounced).
+4. **Asset embedding**: SVG safe-subset pre-parsed to compact binary + locale
+   catalogs embedded via `include_bytes!`; generated `build.rs` verifies asset hashes
+   (corruption = deterministic build failure).
+5. CLI: `nx dsl build --aot [--release]`, `run --aot`, `watch --aot`; outputs under
+   `target/dsl/<app>/aot/`.
+6. **Parity gates** (the point of the task):
+   - the conformance corpus (`(state,event) → state'`) re-executed by generated code —
+     must agree exactly with the interpreter;
+   - **byte-identical golden snapshots** interpreter vs AOT for the same
+     `{route, locale, profile}` fixture matrix, including the shared proof-surface
+     page.
 
 ## Non-Goals
 
-- Kernel changes.
-- OS/QEMU integration markers (v0.3b).
-- Full SDK/codegen stability guarantees beyond v0.3 scope (documented as “experimental AOT”).
+- OS/QEMU integration + perf measurement (TASK-0080). Codegen API stability promises
+  ("experimental AOT" documented). Kernel changes.
 
 ## Constraints / invariants (hard requirements)
 
-- Deterministic generation:
-  - stable ordering and stable formatting in generated Rust
-  - stable file paths and module names
-- Bounded tool behavior:
-  - cap app size (files/assets) to avoid runaway generation
-  - guard watch mode from infinite loops (debounce)
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
-
-## v1 readiness gates (DevX, directional)
-
-AOT is optional, but it must never change “the feel”:
-
-- Interpreter and AOT must be behavior-identical for the same `{locale, profile, env}` inputs (goldens prove parity).
-- Asset embedding (SVG/i18n) must remain deterministic so “first-party polish” doesn’t become flaky.
-- Codegen must preserve boundedness (no unbounded compile-time explosion, stable module counts).
-
-Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
+- **Nothing implemented in only one tier**: any semantics change lands in the
+  semantics doc + interpreter + codegen + corpus in one change.
+- Deterministic generation (N runs byte-identical); bounded tool behavior (app-size
+  caps, debounced watch).
+- Generated crates are normal workspace members under `userspace/apps/generated/`
+  (explicit members), riscv-buildable, no godfiles (one module per component/page).
+- No `unwrap/expect`; no company/product names (also in generated code headers).
 
 ## Stop conditions (Definition of Done)
 
@@ -108,31 +80,36 @@ Track reference: `tasks/TRACK-DSL-V1-DEVX.md`.
 
 `tests/dsl_v0_3a_host/`:
 
-- determinism: N runs generate identical Rust output
-- compile+run: generated crate builds and renders headless successfully
-- incremental: single-leaf change regenerates only expected module(s)
-- tree-shaking: removing a route increases “shaken” count and drops generated modules
-- assets: hash mismatch makes `build.rs` fail deterministically
-- parity: for a fixture app/page, interpreter snapshot and AOT snapshot match for the same `{locale, profile}` inputs
+- determinism: N runs ⇒ identical generated bytes;
+- generated crate builds + renders headless (host golden harness);
+- **corpus parity**: conformance corpus green under generated code, results equal to
+  interpreter;
+- **snapshot parity**: interpreter vs AOT goldens byte-identical across the fixture
+  matrix (incl. device-env branches — `if device.*` behavior identical);
+- incremental: single-leaf change regenerates only expected modules (file-hash
+  assertion); route removal increases shaken count;
+- assets: embedded hash mismatch fails `build.rs` deterministically.
 
-Visible-proof-surface handoff:
+### Docs — required (reference grade)
 
-- the parity fixture/page should correspond to the shared visible proof targets,
-- later visible OS/AOT tasks must mount that same surface rather than creating an AOT-specific demo scene.
+- `docs/dev/dsl/codegen.md` + `incremental.md` from stubs to full reference
+  (lowering rules, parity contract, module layout, rebuild keys);
+- `ir.md` changelog if the schema gained the reachability section.
 
 ## Touched paths (allowlist)
 
-- `userspace/dsl/nx_ir/` (stabilization)
-- `userspace/dsl/nx_codegen/` (new)
-- `tools/nx-dsl/` (extend: --aot build/run/watch)
+- `userspace/dsl/codegen/` (new), `userspace/dsl/cli/` (--aot verbs)
+- `userspace/dsl/ir/` (reachability graph)
+- `userspace/apps/generated/` (generated crates, checked in per policy or
+  target-dir only — decide in PR 1 and document)
 - `tests/dsl_v0_3a_host/` (new)
-- `docs/dev/dsl/codegen.md` + `docs/dev/dsl/incremental.md` (new)
+- `docs/dev/dsl/{codegen,incremental,ir}.md`
 
 ## Plan (small PRs)
 
-1. IR stabilization + reachability graph
-2. codegen crate + generated crate template + deterministic output rules
-3. incremental rebuild graph + tree-shaking
-4. asset embedding + build.rs verification
-5. nx dsl CLI upgrades
-6. host tests + docs
+1. reachability graph + generated-crate template + output-determinism rules
+   (+ checked-in-vs-generated policy decision)
+2. view/router lowering + snapshot parity for static pages
+3. reducer/effect lowering + corpus parity
+4. incremental graph + tree-shaking + watch
+5. asset embedding + build.rs verification + docs
