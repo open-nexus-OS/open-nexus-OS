@@ -62,12 +62,16 @@ members = [
     "userspace/ui/widgets/avatar",
     "userspace/ui/widgets/chip",
     "userspace/ui/shells/desktop",
+    "userspace/dsl/core",
+    "userspace/dsl/ir",
+    "userspace/dsl/cli",
     "userspace/nexus-gfx",
     "tests/ui_v3a_host",
     "tests/ui_v3b_host",
     "tests/ui_v4_host",
     "tests/ui_v5b_host",
     "tests/ui_v10_goldens",
+    "tests/dsl_v0_1a_host",
     "tests/e2e",
     "tests/e2e_policy",
     "tests/logd_e2e",
@@ -86,6 +90,7 @@ exclude = [
     # treating it as a workspace member without its own Cargo.toml.
     "userspace/apps",
     "userspace/ui",
+    "userspace/dsl",
     # Vendored patch crate; not a first-class workspace member.
     "vendor/smoltcp",
     # QEMU source and patch artifacts (not a Rust crate).

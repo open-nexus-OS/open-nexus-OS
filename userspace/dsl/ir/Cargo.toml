@@ -1,0 +1,26 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-dsl-ir"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexus_dsl_ir"
+path = "src/lib.rs"
+
+[features]
+default = ["std"]
+# Host tooling: std IO + pretty output. Off => no_std+alloc reader for in-system use.
+std = ["capnp/std", "sha2/std"]
+# Writer side (used by the compiler/CLI). Reader-only builds stay minimal.
+write = []
+
+[dependencies]
+capnp = { version = "0.24", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.10", default-features = false }
+
+[build-dependencies]
+capnpc = "0.24"

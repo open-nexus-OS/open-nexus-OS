@@ -758,6 +758,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsl_v0_1a_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
+]
+
+[[package]]
 name = "dsoftbus"
 version = "0.1.0"
 dependencies = [
@@ -1791,6 +1799,23 @@ name = "nexus-driverkit"
 version = "0.1.0"
 
 [[package]]
+name = "nexus-dsl-core"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "nexus-dsl-ir",
+]
+
+[[package]]
+name = "nexus-dsl-ir"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
+ "sha2",
+]
+
+[[package]]
 name = "nexus-e2e"
 version = "0.1.0"
 dependencies = [
@@ -2511,6 +2536,14 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "nx-dsl"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
 ]
 
 [[package]]

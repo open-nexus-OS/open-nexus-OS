@@ -115,4 +115,12 @@ never a partial mount.
 
 ## Changelog
 
-- **v1.0 (planned, TASK-0075)** — initial schema as sketched above.
+- **v1.0 (2026-07-06, TASK-0075)** — initial schema
+  (`tools/nexus-idl/schemas/ui_ir.capnp`): `UiProgram` with interned sorted
+  symbols, budgets, expression-tree reducers, linear effect plans
+  (call/dispatch/query steps; a call binds its result on Ok and continues,
+  dispatches `onErr` and stops on Err), components/pages with persisted
+  NodeIds, routes, i18n keys, QuerySpec skeleton, assets. `TypeRef` includes
+  an `opaque` placeholder for not-yet-statically-known types (service/domain
+  schemas replace it in v0.2b); the loader skips re-typecheck for
+  opaque-typed nodes. Golden: `tests/dsl_v0_1a_host/goldens/proof_surface.nxir`.

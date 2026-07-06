@@ -15,6 +15,20 @@ export CARGO_TARGET_DIR := cargo_target_dir
 default: help
 
 # -----------------------------------------------------------------------------
+# DSL toolchain (TASK-0075): builds the nx-dsl backend and runs it directly,
+# or through the `nx dsl` shim (NX_DSL_BACKEND delegation).
+#   just dsl lint ui/pages/Home.nx      just dsl build -o target/dsl app.nx
+# -----------------------------------------------------------------------------
+dsl *ARGS:
+    @cargo build -q -p nx-dsl
+    @target/debug/nx-dsl {{ARGS}}
+
+# The same via the `nx` CLI shim (proves the delegation contract).
+nx-dsl-shim ACTION *ARGS:
+    @cargo build -q -p nx-dsl -p nx
+    @NX_DSL_BACKEND=target/debug/nx-dsl target/debug/nx dsl {{ACTION}} -- {{ARGS}}
+
+# -----------------------------------------------------------------------------
 # Help & Task Catalog
 # -----------------------------------------------------------------------------
 help:

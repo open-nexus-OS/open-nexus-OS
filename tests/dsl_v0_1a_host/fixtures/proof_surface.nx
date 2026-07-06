@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The shared visible proof-surface fixture: real text, an icon slot, a keyed
+// scrolling list, an interactive control, and an overlay-ish card region.
+// Later interpreter/OS tasks mount THIS page (TASK-0075 handoff contract).
+
+Store ProofStore {
+    items: List<Item> = [],
+    filter: Str = "",
+    busy: Bool = false,
+}
+
+Event ProofEvent {
+    Refresh,
+    Loaded(List<Item>),
+    FilterChanged(Str),
+}
+
+reduce ProofEvent {
+    Refresh => state.busy = true,
+    Loaded(items) => {
+        state.items = items;
+        state.busy = false;
+    },
+    FilterChanged(text) => state.filter = text,
+}
+
+@effect on Refresh {
+    let items = svc.catalog.list(timeoutMs: 250);
+    dispatch(Loaded(items));
+}
+
+Page ProofSurfacePage {
+    Stack {
+        Text(@t("proof.title")).textSize(lg)
+        TextField {
+            label: @t("proof.filter"),
+            value: $state.filter,
+        }
+        if $state.busy {
+            Text(@t("common.loading"))
+        } else {
+            List($state.items) { item in
+                Card {
+                    Icon(item.glyph)
+                    Text(item.title)
+                }
+                .key(item.id)
+                .padding(3)
+                .rounded(md)
+            }
+        }
+        Button { label: @t("proof.refresh") }
+            .bg(accent)
+            .fg(onAccent)
+        on Tap -> dispatch(Refresh)
+    }
+    .padding(4)
+    .gap(3)
+}
+
+Routes {
+    "/" -> ProofSurfacePage;
+}

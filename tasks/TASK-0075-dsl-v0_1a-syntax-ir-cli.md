@@ -136,3 +136,69 @@ overlay areas) so later interpreter/OS tasks mount the same structure.
 4. canonicalize + fmt (idempotence proofs)
 5. lower/ (AST → IR) + validation + hashing + NodeIds
 6. `nx-dsl` CLI + shim wiring + determinism proofs + docs
+
+---
+
+## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+
+> First implementation day. The end-to-end chain **works**: `.nx` source →
+> lexer → parser → checker → canonical fmt → lowering → canonical `.nxir`
+> (capnp, byte-deterministic, hash-verified) → CLI. All host tests green
+> (23 core units + 3 ir units + 8 host-suite), riscv no_std green for
+> core+ir (incl. capnp+sha2), workspace metadata intact. Uncommitted.
+
+### ✅ DONE
+
+- **Crates**: `userspace/dsl/{core,ir,cli}` (workspace members + `userspace/dsl` excluded from the glob).
+  Module layout as pinned (no godfiles): core = `lexer/ast/diag/parser{mod,decls,stmt,expr,view}/fmt/registry/check{mod,names,lints}/lower{mod,exprs,views}`.
+- **Schema**: `tools/nexus-idl/schemas/ui_ir.capnp` v1.0 (UiProgram, budgets, expression-tree
+  reducers, linear effect plans w/ onOk/onErr semantics, persisted NodeIds, TypeRef incl.
+  `opaque` placeholder). Changelog entry in `docs/dev/dsl/ir.md`.
+- **nexus-dsl-ir**: bounded `ProgramReader` (traversal/nesting limits, single-segment form),
+  `validate_program` (major gate, hash recompute via re-canonicalization, symbol canonicality,
+  ref bounds, view budgets), SHA-256 `programHash`, FNV-1a-64 NodeIds (`static_node_id`/`keyed_item_id`).
+- **Lexer** (bounded: 512KiB file, 128B idents; Fx=Q32.32 pure integer math) + **parser**
+  (full v1 grammar: stores/events/reduce/@effect/pages/components/props/routes, if/for/match,
+  collections `List(e){x in}`, positional sugar, modifiers, handlers; fail-fast, nesting≤64).
+- **Formatter**: canonical layout, `fmt∘parse∘fmt = fmt` proven; precedence-exact paren
+  re-emission; Fx 10-digit round-trip-exact printing.
+- **Checker** (collects all diagnostics): duplicates, unknown event/case/widget/modifier/
+  device-field, reduce exhaustiveness + binds arity, dispatch arity, route dup/unknown page,
+  reducer purity, collection `.key` (incl. through if/match branch roots), a11y labels,
+  duplicate modifiers, bounded `for`, profile-else warning, svc timeout/result (warnings in
+  v0.1, → errors with 0077B/0078).
+- **Lowering**: interned sorted symbols; stores/events/components/routes/reducers/effects in
+  canonical order (decl order proven not to leak); expression lowering (state/props/device/
+  locals/record-get chains/i18n); effect plans (`let x = svc…` = call step + continue-on-Ok,
+  `match svc…{Ok/Err}` → onOk/onErr); NodeIds persisted; **build×2 byte-identical**;
+  self-validating incl. hash; tamper test fails closed. v0.1 subset limits report `NX0501`.
+- **CLI `nx-dsl`**: fmt/lint/check/build(-o/--emit-json)/hash/explain; satisfies the
+  `nx dsl` shim (`NX_DSL_BACKEND` delegation verified); `just dsl` + `just nx-dsl-shim`.
+- **Host suite** `tests/dsl_v0_1a_host/`: reject corpus w/ stable codes, accept corpus,
+  byte-determinism, IR golden (`goldens/proof_surface.nxir`, UPDATE_GOLDENS=1), loader
+  reject tests, fmt-reflow-same-IR. Proof-surface fixture = the shared mount target for 0076B+.
+- **Docs**: `cli.md` reference-grade (shipped vs planned); `ir.md` changelog v1.0.
+
+### ⬜ OPEN (within this task)
+
+- **Full type inference** (typeck/): v0.1 lowers unknown/derived types as `opaque` (validator
+  skips those); real inference + `Result`-arm typing lands before the interpreter needs it
+  (with 0076) or as a follow-up increment here. `NX0301/0306/0307` are defined but not yet raised.
+- **Module resolution** (`import`, `@app/…` roots, cross-file merge): parsed but single-file
+  programs only; multi-file + conflict codes (NX0203) pending.
+- **`modifiers.md` table generation** from `registry.rs` (SSOT exists in code; docs table is
+  hand-maintained until the emit verb lands — decision: const table in `registry.rs` replaced
+  the planned modifiers.toml, same SSOT function, zero build deps).
+- **capnp no_std riscv READ probe as a runtime test** (build-check green; an on-target read
+  exercise rides with 0076B's selftest).
+- justfile `NX_DSL_BACKEND` default export for dev shells (recipes exist; env wiring optional).
+
+### Notes for whoever continues
+
+- Semantics decisions already binding: effect-plan step semantics (continue-on-Ok,
+  onErr-stops), `state.x` (reducers) ≡ `$state.x` (views), single-store v0.1 binding,
+  match-view lowers to equality branch chain (binds unsupported → NX0501).
+- Canonical-source contract: `build` lowers from the **formatted** text (sourceDigest =
+  sha256(canonical source)), so fmt-then-build == build.
+- Never change NodeId hashing or canonicalization within schema major 1 — goldens +
+  `docs/dev/dsl/ir.md#schema-evolution-rules` enforce.
