@@ -764,6 +764,7 @@ dependencies = [
  "nexus-dsl-core",
  "nexus-dsl-ir",
  "nexus-dsl-runtime",
+ "nexus-layout-types",
 ]
 
 [[package]]

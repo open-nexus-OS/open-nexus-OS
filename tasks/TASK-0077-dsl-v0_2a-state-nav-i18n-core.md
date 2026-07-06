@@ -204,11 +204,27 @@ Unknown ids / incompatible profile-shell pairings reject deterministically.
   work) and/or a windowd wallpaper-rodata diet (~4MB), and/or a CI contract test
   gating windowd text size (chain-test follow-up).
 
+### ✅ DONE (fifth increment, 2026-07-06)
+
+- **Effect-scheduling determinism**: the dispatch queue is now **FIFO** (was LIFO via
+  `Vec::pop` — sibling dispatches ran reversed; caught while writing the fixture, exactly
+  what fixtures are for). Fixtures: trace-ordered multi-effect/multi-dispatch
+  (`go;a;b;c;`) + a self-re-dispatching effect deterministically hits the cascade budget
+  (`RtError::Budget`, cap 64).
+- **`ui/platform/<profile>/` build-time overrides** (`core/src/project.rs`):
+  `merge_project(&[SourceFile])` merges files in sorted path order; a platform page
+  wraps its base as `if device.profile == <p> { override } else { base }` (arms sorted
+  by profile) — **one canonical `.nxir` serves every profile**, the runtime branches on
+  the device env. Override without base page / non-Page decls in platform files =
+  errors. `canonical_source_set` = sorted path-prefixed provenance for `sourceDigest`.
+  Conformance: desktop mounts base, phone mounts override, from the SAME bytes.
+  (15 conformance cases total.)
+
 ### ⬜ OPEN (this task's remainder — see Goal)
 
 - Route-param **binding into page views** (needs lowering support: route params as the
   page's param slice; pages currently take no params).
-- Effect-scheduling determinism fixtures, i18n catalog compile verb, `device.*` from the
-  systemui registry (OS side), `ui/platform/<profile>/` build-time overrides, route
-  params bound into page views, kept-alive route state contract, windowed-List consumer
-  contract (0077C core).
+- CLI project mode (`nx dsl build <appdir>` walking ui/** into `merge_project` — the
+  core API exists, the dir-walk wiring is mechanical), i18n catalog compile verb,
+  `device.*` from the systemui registry (OS side), route params bound into page views,
+  kept-alive route state contract, windowed-List consumer contract (0077C core).

@@ -309,3 +309,136 @@ reduce E { X => { state.left += 1; state.right += 1; }, }
     let canonical = nexus_dsl_core::format_file(&file);
     assert!(nexus_dsl_core::lower_file(&file, &model, &canonical).is_err());
 }
+
+#[test]
+fn effect_scheduling_is_fifo_and_declaration_ordered() {
+    // Two effects on the SAME trigger + multi-step follow-ups: the trace in
+    // state must reflect declaration order and FIFO queue draining.
+    let nxir = compile(
+        r#"
+Store S {
+    trace: Str = "",
+}
+Event E {
+    Go,
+    Mark(Str),
+}
+reduce E {
+    Go => state.trace = state.trace + "go;",
+    Mark(tag) => state.trace = state.trace + tag,
+}
+@effect on Go {
+    dispatch(Mark("a;"));
+    dispatch(Mark("b;"));
+}
+@effect on Go {
+    dispatch(Mark("c;"));
+}
+"#,
+    );
+    let mut h = Harness::mount(&nxir);
+    h.dispatch(&mut NoIo, "E", "Go", vec![]);
+    // reduce(Go) commits first; effect 1 queues a,b; effect 2 queues c;
+    // FIFO drains a, b, c.
+    h.assert_field("S", "trace", &Value::Str("go;a;b;c;".into()));
+}
+
+#[test]
+fn cascade_budget_stops_runaway_dispatch_loops() {
+    // An effect that re-dispatches its own trigger must hit the bounded
+    // cascade budget deterministically instead of spinning forever.
+    let nxir = compile(
+        r#"
+Store S { n: Int = 0, }
+Event E { Tick, }
+reduce E { Tick => state.n += 1, }
+@effect on Tick {
+    dispatch(Tick);
+}
+"#,
+    );
+    let mut h = Harness::mount(&nxir);
+    let (e, c) = h.runtime.event_case("E", "Tick").expect("case");
+    let symbols = h.runtime.symbols().to_vec();
+    let locale = nexus_dsl_runtime::IdentityLocale { symbols: &symbols, keys: &[] };
+    let outcome = h.runtime.dispatch(&h.env, &locale, &mut NoIo, e, c, vec![]);
+    assert_eq!(outcome, Err(nexus_dsl_runtime::RtError::Budget));
+}
+
+#[test]
+fn platform_overrides_wrap_the_base_page_per_profile() {
+    use nexus_dsl_core::{merge_project, SourceFile};
+    use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+
+    let files = [
+        SourceFile {
+            path: "ui/pages/Home.nx".into(),
+            source: r#"
+Store S { n: Int = 0, }
+Event E { Noop, }
+reduce E { Noop => state.n = state.n, }
+Page Home {
+    Stack {
+        Text("base layout")
+    }
+}
+"#
+            .into(),
+        },
+        SourceFile {
+            path: "ui/platform/phone/pages/Home.nx".into(),
+            source: r#"
+Page Home {
+    Stack {
+        Text("phone layout")
+    }
+}
+"#
+            .into(),
+        },
+    ];
+    let merged = merge_project(&files).expect("merges");
+    let (model, diags) = nexus_dsl_core::check_file(&merged);
+    assert!(!nexus_dsl_core::has_errors(&diags), "{diags:?}");
+    let canonical = nexus_dsl_core::canonical_source_set(&files);
+    let nxir = nexus_dsl_core::lower_file(&merged, &model, &canonical).expect("lowers").nxir;
+
+    // One canonical .nxir serves both profiles via the device env.
+    let mount = |env: FixtureEnv| -> Vec<String> {
+        let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+        let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+        let view = View::mount(&nxir, &nexus_dsl_runtime::theme_tokens::BaseTokens, &env, &locale)
+            .expect("mounts");
+        collect_texts(view.scene())
+    };
+    assert!(mount(FixtureEnv::desktop()).contains(&String::from("base layout")));
+    assert!(mount(FixtureEnv::phone("portrait")).contains(&String::from("phone layout")));
+}
+
+#[test]
+fn platform_override_without_base_page_is_rejected() {
+    use nexus_dsl_core::{merge_project, SourceFile};
+    let files = [SourceFile {
+        path: "ui/platform/tv/pages/Ghost.nx".into(),
+        source: "Page Ghost { Stack { } }".into(),
+    }];
+    assert!(merge_project(&files).is_err());
+}
+
+fn collect_texts(scene: &nexus_layout_types::LayoutNode) -> Vec<String> {
+    fn walk(node: &nexus_layout_types::LayoutNode, out: &mut Vec<String>) {
+        use nexus_layout_types::LayoutNode as N;
+        match node {
+            N::Text(text, _) => out.push(String::from(text.content.as_str())),
+            N::Stack(_, _, children) | N::Grid(_, _, children) => {
+                for child in children {
+                    walk(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(scene, &mut out);
+    out
+}

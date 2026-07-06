@@ -341,9 +341,13 @@ impl<'p> Runtime<'p> {
         payload: Vec<Value>,
     ) -> Result<Vec<ChangedField>, RtError> {
         self.changed.clear();
+        // FIFO: follow-up dispatches run in the order effects produced them
+        // (a LIFO Vec::pop would reverse sibling dispatches — observed-order
+        // determinism is part of the written semantics).
         let mut queue: Vec<Pending> = vec![Pending { event, case, payload }];
         let mut steps = 0usize;
-        while let Some(pending) = queue.pop() {
+        while !queue.is_empty() {
+            let pending = queue.remove(0);
             steps += 1;
             if steps > MAX_DISPATCH_CASCADE {
                 return Err(RtError::Budget);

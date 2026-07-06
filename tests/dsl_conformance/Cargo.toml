@@ -14,3 +14,4 @@ path = "src/lib.rs"
 nexus-dsl-core = { path = "../../userspace/dsl/core" }
 nexus-dsl-ir = { path = "../../userspace/dsl/ir" }
 nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }
+nexus-layout-types = { path = "../../userspace/ui/layout-types" }

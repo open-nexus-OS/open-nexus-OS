@@ -23,10 +23,12 @@ pub mod fmt;
 pub mod lexer;
 pub mod lower;
 pub mod parser;
+pub mod project;
 pub mod registry;
 
 pub use check::{check_file, has_errors};
 pub use lower::{lower_file, Lowered};
+pub use project::{canonical_source_set, merge_project, SourceFile};
 pub use diag::{DiagCode, Diagnostic, Severity, Span};
 pub use fmt::format_file;
 pub use parser::parse_file;
