@@ -1,0 +1,31 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+# NOTE: deliberately NO `[package.metadata.nexus-service]` block — the probe is
+# NOT a boot service (init must never spawn it). execd spawns it ONCE after
+# `ready` as the #102-family regression gate: an exec'd child parked in a
+# BLOCKING ipc recv must be woken by a plain sender (`SELFTEST: exec child
+# blocking recv wake ok`). build.sh builds it and hands the ELF to execd's
+# build via `EXECD_RECVWAKE_ELF` (the app-host embedding pattern).
+
+[package]
+name = "recv-wake-probe"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+os-lite = [
+    "dep:nexus-service-entry",
+    "dep:nexus-abi",
+]
+
+[[bin]]
+name = "recv-wake-probe"
+path = "src/main.rs"
+
+[dependencies]
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }

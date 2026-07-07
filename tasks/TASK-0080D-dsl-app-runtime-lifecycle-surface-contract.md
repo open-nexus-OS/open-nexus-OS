@@ -509,3 +509,28 @@ in boot 10; windowd size contract 79%.
   öffnet aber KEIN Fenster mehr; `DSL: first frame presented` entfällt —
   Postflight-Stufe umgestellt; tools/nx-Chain-Tests sind Host-Simulationen
   (unberührt). `open_dsl_demo` bleibt als 0080C-Fenster-Pfad (allow(dead_code)).
+
+### 2026-07-07 spätabends (Closure-Plan P0.2, uncommitted): recv-wake-Gate + app-host auf Wait::Blocking
+
+- **Regressionsgate `recv-wake-probe`** (neues no_std-Kind unter
+  source/services/recv-wake-probe, EXECD_RECVWAKE_ELF-Embed wie app-host):
+  execd spawnt es EINMAL nach ready — armed→BLOCKING-recv-Park→execd-Ping→
+  woke-Reply (zwei init-geminte one-way Endpoints, execd-Slots 13–16,
+  Kind-Slots 5/6, grants-before-resume, 30ms-Park-Fenster, jeder Hop
+  fail-loud). Boot-Verdict `SELFTEST: exec child blocking recv wake ok` +
+  Postflight-Stufe. BEFUND: der Sender-Wake eines geparkten exec'd-Kindes
+  funktioniert mit dem aktuellen Kernel — die 12-12-27-These reproduziert
+  sich nicht mehr; das Gate hält die Klasse ab jetzt jeden Boot unter Beweis.
+- **app-host Event-Loop: Timeout(30ms)-ÜBERGANG ENTFERNT → Wait::Blocking**
+  (reaktiv, null Polls) auf der Basis des grünen Gates. USER-VERIFY offen:
+  Apps→counter, „+"-Klick → Zahl steigt (jetzt über den blocking-Pfad).
+- **Kernel fail-loud**: observe_wake_outcome druckt one-shot
+  `KERNEL: FAIL ipc wake (task-not-found|enqueue-rejected)` — ein gepoppter
+  Waiter, dessen Wake scheitert, kann nie mehr still verloren gehen.
+- **Neue Falle (#123-Klasse, dokumentiert)**: execd resumed BEVOR inits
+  Wiring-Arm die Slots transferiert (Probe fand Slots 4..24 leer bei
+  0.124s) — jeder Post-ready-Cap-Zugriff in execd braucht den bounded
+  cap_clone-Poll (Muster im Probe-Runner).
+- Beweise: Boot 20-06-16 — 0 FAIL/PANIC/KPGF, Postflight alle Stufen OK
+  (inkl. recv-wake-Gate + display truth); execd/init/kernel/app-host/probe
+  riscv-Checks grün; Kernel-Host-Tests 16 grün.

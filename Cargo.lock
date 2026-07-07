@@ -3081,6 +3081,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "recv-wake-probe"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-service-entry",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

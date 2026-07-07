@@ -605,6 +605,45 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
                 }
+                // P0.2 recv-wake regression gate: TWO one-way endpoint pairs
+                // for execd's post-ready probe child (a single shared queue
+                // would let execd's reply-wait steal its own ping). Slot-order
+                // contract: execd expects ping SEND at 13, ping RECV at 14,
+                // reply SEND at 15, reply RECV at 16 (PROBE_*_SLOT) — the log
+                // line below is the boot-time proof.
+                {
+                    let ping_ep =
+                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 4)
+                            .map_err(InitError::Abi)?;
+                    let ping_send_slot =
+                        nexus_abi::cap_transfer(pid, ping_ep, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                    let ping_recv_slot =
+                        nexus_abi::cap_transfer(pid, ping_ep, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                    let _ = nexus_abi::cap_close(ping_ep);
+                    let reply_ep =
+                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 4)
+                            .map_err(InitError::Abi)?;
+                    let reply_send_slot =
+                        nexus_abi::cap_transfer(pid, reply_ep, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                    let reply_recv_slot =
+                        nexus_abi::cap_transfer(pid, reply_ep, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                    let _ = nexus_abi::cap_close(reply_ep);
+                    if iw(init_wire, init_fold, "init:execd") {
+                        debug_write_bytes(b"init: execd recv-wake slots ping=0x");
+                        debug_write_hex(ping_send_slot as usize);
+                        debug_write_bytes(b"/0x");
+                        debug_write_hex(ping_recv_slot as usize);
+                        debug_write_bytes(b" reply=0x");
+                        debug_write_hex(reply_send_slot as usize);
+                        debug_write_bytes(b"/0x");
+                        debug_write_hex(reply_recv_slot as usize);
+                        debug_write_byte(b'\n');
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

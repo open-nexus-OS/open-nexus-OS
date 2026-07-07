@@ -190,6 +190,12 @@ ci-os-headless:
 contract-windowd-size:
     @scripts/check-windowd-size.sh
 
+# CI contract (P0.1 layout fragility): boot survives image-size perturbation
+# (baseline + 3 rodata pads, marker ladder must stay green). Boot-based —
+# expects a completed build; ~15 min. See scripts/contract-image-layout.sh.
+contract-image-layout:
+    @scripts/contract-image-layout.sh
+
 ci-os-display-gpu-pci:
     GPU_MODE=pci just test-os display-gpu
 

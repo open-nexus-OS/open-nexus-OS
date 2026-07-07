@@ -33,4 +33,31 @@ fn main() {
             .expect("write apphost payload shim");
         }
     }
+
+    // P0.2 recv-wake regression gate: embed the probe child ELF when the
+    // build orchestration provides it (same pattern as EXECD_APPHOST_ELF).
+    // Absent, the probe run is skipped with a visible marker — never faked.
+    println!("cargo:rerun-if-env-changed=EXECD_RECVWAKE_ELF");
+    let dest = out.join("recvwake_payload.rs");
+    match std::env::var("EXECD_RECVWAKE_ELF") {
+        Ok(path) if !path.trim().is_empty() => {
+            println!("cargo:rerun-if-changed={path}");
+            std::fs::write(
+                &dest,
+                format!(
+                    "/// recv-wake probe ELF (built by scripts/build.sh).\n\
+                     pub static RECVWAKE_ELF: &[u8] = include_bytes!({path:?});\n"
+                ),
+            )
+            .expect("write recvwake payload shim");
+        }
+        _ => {
+            std::fs::write(
+                &dest,
+                "/// No recv-wake probe ELF provided at build time (plain cargo build).\n\
+                 pub static RECVWAKE_ELF: &[u8] = &[];\n",
+            )
+            .expect("write recvwake payload shim");
+        }
+    }
 }

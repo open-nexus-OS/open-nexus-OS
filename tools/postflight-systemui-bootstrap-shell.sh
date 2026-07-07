@@ -94,6 +94,11 @@ check_any "greeter/shell surface" \
   "(OK|WARN) +windowd"
 check "DSL in-compositor mount (mount-only since demo retirement)" \
   "DSL: program loaded hash="
+# P0.2 regression gate: an exec'd child parked in a BLOCKING ipc recv must be
+# woken by a plain sender (execd spawns recv-wake-probe once after ready).
+# app-host's event loop runs Wait::Blocking on the strength of this gate.
+check "recv-wake regression gate (#102 family)" \
+  "SELFTEST: exec child blocking recv wake ok"
 
 echo "== launch e2e (RFC-0065 + ADR-0042 + GET_PAYLOAD) =="
 interactive "launch chain" \

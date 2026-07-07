@@ -559,12 +559,38 @@ impl<'a> Context<'a> {
 
 #[inline]
 fn observe_wake_outcome(outcome: task::WakeOutcome) {
+    // P0.2 fail-loud: a wake that silently fails IS the "parked forever"
+    // class — the waiter was popped from the endpoint, so nobody will ever
+    // retry it. One raw line per failure kind per boot (no UART storm), with
+    // the kind named so the log pins the mechanism directly.
     match outcome {
         task::WakeOutcome::Woken
         | task::WakeOutcome::WokenNoopSelftest
-        | task::WakeOutcome::TaskNotBlocked
-        | task::WakeOutcome::TaskNotFound
-        | task::WakeOutcome::EnqueueRejected => {}
+        | task::WakeOutcome::TaskNotBlocked => {}
+        task::WakeOutcome::TaskNotFound => {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            {
+                use core::sync::atomic::{AtomicBool, Ordering};
+                static LOGGED: AtomicBool = AtomicBool::new(false);
+                if !LOGGED.swap(true, Ordering::Relaxed) {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "KERNEL: FAIL ipc wake (task-not-found)");
+                }
+            }
+        }
+        task::WakeOutcome::EnqueueRejected => {
+            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+            {
+                use core::sync::atomic::{AtomicBool, Ordering};
+                static LOGGED: AtomicBool = AtomicBool::new(false);
+                if !LOGGED.swap(true, Ordering::Relaxed) {
+                    use core::fmt::Write as _;
+                    let mut u = crate::uart::raw_writer();
+                    let _ = writeln!(u, "KERNEL: FAIL ipc wake (enqueue-rejected)");
+                }
+            }
+        }
     }
 }
 

@@ -222,6 +222,38 @@ impl KernelState {
             extern "C" {
                 static __bss_end: u8;
             }
+            // P0.1 perturbation-gate anchor: a compile-time-sized rodata pad
+            // that is genuinely REFERENCED (volatile read below), so no
+            // linker pass can ever collect it. Appending an unreferenced
+            // `#[used] #[no_mangle]` static to a compiled file proved to be
+            // a PLACEBO — gc-sections dropped it and the gate's landing
+            // check (`pad did not land`) caught exactly that. Sized via
+            // `NEURON_LAYOUT_PAD` (contract-image-layout.sh); 0 = zero cost.
+            const LAYOUT_PAD_LEN: usize = {
+                match option_env!("NEURON_LAYOUT_PAD") {
+                    Some(s) => {
+                        let b = s.as_bytes();
+                        let mut v = 0usize;
+                        let mut i = 0;
+                        while i < b.len() {
+                            if b[i] >= b'0' && b[i] <= b'9' {
+                                v = v * 10 + (b[i] - b'0') as usize;
+                            }
+                            i += 1;
+                        }
+                        v
+                    }
+                    None => 0,
+                }
+            };
+            static LAYOUT_PAD: [u8; LAYOUT_PAD_LEN] = [0xA5; LAYOUT_PAD_LEN];
+            let pad_probe: usize = if LAYOUT_PAD_LEN > 0 {
+                // Volatile read takes the array's ADDRESS — the pad must
+                // exist in the image (no const-fold, no GC).
+                unsafe { core::ptr::read_volatile(LAYOUT_PAD.as_ptr()) as usize }
+            } else {
+                0
+            };
             let image_end = core::ptr::addr_of!(__bss_end) as usize;
             let pool_base = crate::mm::KERNEL_PAGE_POOL_BASE;
             let pool_end = pool_base + crate::mm::KERNEL_PAGE_POOL_LEN;
@@ -247,14 +279,21 @@ impl KernelState {
             // Headroom report (values, not vibes): how far the image may
             // still grow before it hits the pool window.
             let headroom = pool_base.saturating_sub(image_end);
+            // Armed pad must really be in memory with its fill byte — the
+            // volatile read above took its address, this checks its content.
+            if LAYOUT_PAD_LEN > 0 && pad_probe != 0xA5 {
+                log_error!("LAYOUT: pad probe mismatch (read 0x{:x}, want 0xa5)", pad_probe);
+                ok = false;
+            }
             if ok {
                 log_info!(
                     target: "kmain",
-                    "KERNEL: layout ok (image_end=0x{:x} pool=0x{:x} headroom={}K arena_end=0x{:x})",
+                    "KERNEL: layout ok (image_end=0x{:x} pool=0x{:x} headroom={}K arena_end=0x{:x} pad={})",
                     image_end,
                     pool_base,
                     headroom / 1024,
-                    arena_end
+                    arena_end,
+                    LAYOUT_PAD_LEN
                 );
             }
             // Under 64K of slack is a red flag long before it is a failure.

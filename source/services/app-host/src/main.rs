@@ -250,18 +250,15 @@ mod probe {
         let mut tap_miss_markers: u32 = 0;
         raw_marker("APPHOST: event loop armed");
         loop {
-            // TIMED recv, not Wait::Blocking: an exec'd child parked in a
-            // blocking recv is NEVER woken by a sender (kernel finding,
-            // #102 family — boot 2026-07-07T12-12 proved delivered taps
-            // with the receiver silent forever). TRANSITIONAL until the
-            // kernel sender-wake fix (closure plan P0.2); the timer
-            // deadline-wake path is proven generic, so a timed park wakes
-            // at the deadline and polls again — bounded latency, no
-            // Normal-QoS yield-spin.
-            let len = match events.recv_into(
-                Wait::Timeout(core::time::Duration::from_millis(30)),
-                &mut event_frame,
-            ) {
+            // Plain BLOCKING recv (P0.2): the sender-wake of an exec'd child
+            // parked in a blocking recv is PROVEN every boot by the
+            // recv-wake regression gate (`SELFTEST: exec child blocking recv
+            // wake ok` — execd spawns recv-wake-probe post-ready). The
+            // earlier Timeout(30ms) loop was a transitional workaround for
+            // the #102-family finding (boot 2026-07-07T12-12); with the gate
+            // green the reactive park is the production path — zero polls,
+            // the kernel wakes us on message arrival.
+            let len = match events.recv_into(Wait::Blocking, &mut event_frame) {
                 Ok(len) => {
                     recv_err_marked = false;
                     len

@@ -168,6 +168,13 @@ prepare_service_payloads() {
   require_or_build "$apphost_elf" "service:app-host" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p app-host --target "$TARGET" --release --no-default-features --features os-lite
   set_env_var "EXECD_APPHOST_ELF" "$apphost_elf"
 
+  # P0.2 recv-wake regression gate: the probe child execd spawns once after
+  # `ready` (blocking-recv sender-wake proof, #102 family). Same embedding
+  # pattern as app-host: built first, handed to execd via EXECD_RECVWAKE_ELF.
+  local recvwake_elf="$TARGET_ROOT/$TARGET/release/recv-wake-probe"
+  require_or_build "$recvwake_elf" "service:recv-wake-probe" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p recv-wake-probe --target "$TARGET" --release --no-default-features --features os-lite
+  set_env_var "EXECD_RECVWAKE_ELF" "$recvwake_elf"
+
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
     INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
     export INIT_LITE_SERVICE_LIST

@@ -209,3 +209,32 @@ in dieser Lane nicht mehr präsent. OFFEN (User-Lane): Plan-Gate „5 Erste-
 Boots-nach-Build unter Host-Last" — der NACK-Requeue-Pfad selbst feuert nur
 bei einem echten kalten Deadline-Miss; seine Buchhaltung ist os-only
 (compositor kompiliert host-seitig nicht — bewusst KEIN Placebo-Unit-Test).
+
+### P0.1 Nachtrag (2026-07-07 spätabends, uncommitted): Perturbations-Gate ENTPLACEBOT
+
+Der erste volle Gate-Lauf schlug EHRLICH fehl: `FAIL (pad4096) — pad did not
+land (image_end unchanged)` — die Landeprüfung fing exakt die Placebo-Klasse,
+für die sie gebaut wurde. Ursache (ELF-verifiziert, Map + compile_error-Probe):
+das an diag/log.rs angehängte `#[used] #[no_mangle]`-Static KOMPILIERT zwar
+in die neuron-lib, wird aber vom Linker (gc-sections) VERWORFEN — `#[used]`
+garantiert nur die Objekt-Emission, nicht das Überleben des Links. Fix
+(production-grade, keine Datei-Mutation mehr): kmain assert_memory_layout
+trägt jetzt einen REFERENZIERTEN rodata-Pad-Anker — Größe compile-zeitlich
+aus `NEURON_LAYOUT_PAD` (const-Parser über option_env!, 0 = default = null
+Kosten), volatile-gelesen + Inhalts-Check (`LAYOUT: pad probe mismatch`),
+Banner erweitert um `pad=N`. contract-image-layout.sh baut pro Lauf nur noch
+mit gesetztem Env (cargo env-dep-tracking rebuildet den Kernel), prüft
+Banner-`pad=N` UND image_end-Verschiebung. ELF-Beweis: .rodata +0x1070,
+LAYOUT_PAD in der Map, .bss verschoben. Gate-Lauf-Ergebnis: siehe nächste
+Zeile im Ledger.
+
+### P0.1 Gate-Ergebnis (gleicher Abend): ALL GREEN
+
+`scripts/contract-image-layout.sh` (env-Pad-Mechanismus): baseline
+image_end=0x80ba2280/375K → pad4096 0x80ba3280/371K → pad8192
+0x80ba4280/367K → pad65536 0x80bb2280/311K — image_end wandert exakt um
+die Pad-Größe, Banner-`pad=N` bestätigt, Marker-Ladder + visible chain in
+allen 4 Boots grün, KEINE Tripwires (StackExhausted/STACK-POOL/VMO-POOL/
+LAYOUT:). Das P0.1-Perturbations-Gate ist damit GESCHLOSSEN; `just
+contract-image-layout` = CI-Rezept. Die log_error-Zeile in VmoPool bleibt
+dauerhaft drin (Plan-Forderung; VMO-Erschöpfung ist jetzt LAUT).

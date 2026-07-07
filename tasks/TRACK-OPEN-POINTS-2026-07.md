@@ -168,10 +168,29 @@ Wurzeln, in dieser Reihenfolge:
    Gate OFFEN: 5 Erste-Boots-nach-Build unter Host-Last, visual-postflight
    grün (User-Lane; NACK-Pfad braucht einen echten kalten Erst-Boot).
 2. **Kernel: Sender-Wake für exec'd-Kinder in blocking recv (#102-Familie)**
-   — sys_ipc_recv park/wake: Kinder werden vom Sender nicht geweckt (Beweis
-   Boot 12-12-27). Fix im Kernel (Waiter-Registrierung/Wake-Pfad für
-   U-Task-Kinder identisch zu Boot-Services), DANN app-host zurück auf
-   `Wait::Blocking` (der Timeout-Loop ist als Übergang markiert und fliegt
-   raus). Gate: Klick-Test + retired Selftest-Exec-Chain reaktivieren.
+   — STATUS 2026-07-07 abends: **Regressionsgate GEBAUT und GRÜN.**
+   a) [x] Deterministischer Reproducer/Gate: `recv-wake-probe` (neues
+      no_std-Kind), von execd EINMAL nach ready gespawnt (init mintet 2
+      Pairs → execd-Slots 13–16, Kind-Slots 5/6, grants-before-resume,
+      armed→park→ping→woke-Handshake mit 30ms-Park-Fenster, alle Hops
+      fail-loud). Boot-Verdict: `SELFTEST: exec child blocking recv wake ok`
+      — der Sender-Wake eines in blocking recv GEPARKTEN exec'd-Kindes
+      FUNKTIONIERT mit dem aktuellen Kernel. Die 12-12-27-These reproduziert
+      sich deterministisch NICHT mehr (seither: Kernel-Hardening-Batch
+      committet; oder damals andere Ursache in der Kanal-Umbauphase).
+      Postflight-Stufe „recv-wake regression gate" wacht ab jetzt jeden Boot.
+   b) [x] Kernel-Wake-Ausgänge LAUT: `observe_wake_outcome` druckt one-shot
+      `KERNEL: FAIL ipc wake (task-not-found|enqueue-rejected)` — ein still
+      verlorener Wake (Waiter gepoppt, nie enqueued) kann nicht mehr stumm
+      passieren. Boot: 0 solcher Zeilen.
+   c) [x] app-host Event-Loop: Timeout(30ms)-Übergang RAUS →
+      `Wait::Blocking` (reaktiv, null Polls), abgesichert durchs Gate.
+   d) NEUE FALLE dokumentiert (#123-Klasse): execd resumed BEVOR inits
+      Wiring-Arm transferiert (Slots 4..24 leer bei 0.124s, `init:
+      settingsd slots` später) — Probe wartet bounded (5s cap_clone-Poll
+      auf Slot 16). Gilt für JEDEN execd-Post-ready-Cap-Zugriff.
+   OFFEN: User-Klick-Test („+" im Counter → Zahl steigt, jetzt über
+   blocking recv); retired Selftest-Exec-Chain-Reaktivierung (hello/exit0/
+   minidump) als Folgezug.
 3. Danach erst wieder Feature-Arbeit (0080C Shell-Mount auf der dann
    verlässlichen Pipeline).
