@@ -27,6 +27,7 @@ extern crate alloc;
 pub mod caps;
 pub mod handoff;
 pub mod lifecycle;
+pub mod mediation;
 pub mod protocol;
 pub mod wire;
 

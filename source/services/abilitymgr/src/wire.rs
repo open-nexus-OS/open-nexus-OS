@@ -51,6 +51,7 @@ pub fn dispatch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         OP_LAUNCH => dispatch_launch(broker, frame),
         OP_TRANSITION => dispatch_transition(broker, frame),
         OP_RECENTS => dispatch_recents(broker, frame),
+        OP_RESOLVE_EXPORT => dispatch_resolve_export(frame),
         other => Dispatched { response: resp_status(other, STATUS_MALFORMED), event: None },
     }
 }
@@ -136,6 +137,38 @@ fn header(op: u8, status: u8) -> Vec<u8> {
     out.push(op | OP_RESPONSE);
     out.push(status);
     out
+}
+
+/// `OP_RESOLVE_EXPORT`: consumer app + ability → exporter app id.
+/// Grant checks live in `crate::mediation` (fail-closed both sides); the
+/// consumer's caps come from ITS manifest (`caps::required_caps`).
+fn dispatch_resolve_export(frame: &[u8]) -> Dispatched {
+    let Some((consumer, rest)) = take_lp_str(&frame[4..]) else {
+        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+    };
+    let Some((ability, rest)) = take_lp_str(rest) else {
+        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+    };
+    if !rest.is_empty() {
+        return Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED), event: None };
+    }
+    let consumer_caps = crate::caps::required_caps(&consumer);
+    match crate::mediation::resolve_export(consumer_caps, &ability) {
+        Ok(resolved) => {
+            let mut response = Vec::with_capacity(6 + resolved.exporter.len());
+            response.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_RESOLVE_EXPORT | 0x80]);
+            response.push(STATUS_OK);
+            response.push(resolved.exporter.len() as u8);
+            response.extend_from_slice(resolved.exporter.as_bytes());
+            Dispatched { response, event: None }
+        }
+        Err(crate::mediation::MediationError::UnknownAbility) => {
+            Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_UNKNOWN), event: None }
+        }
+        Err(crate::mediation::MediationError::ConsumerNotGranted) => {
+            Dispatched { response: resp_status(OP_RESOLVE_EXPORT, STATUS_DENIED), event: None }
+        }
+    }
 }
 
 fn resp_status(op: u8, status: u8) -> Vec<u8> {
@@ -250,5 +283,47 @@ mod tests {
         assert_eq!(resp_op_status(&d.response), (OP_RECENTS | OP_RESPONSE, STATUS_OK));
         let count = u16::from_le_bytes([d.response[5], d.response[6]]);
         assert_eq!(count, 2);
+    }
+}
+
+/// Encodes a resolve-export request frame (for callers/tests).
+pub fn encode_resolve_export(consumer: &str, ability: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.push(MAGIC0);
+    out.push(MAGIC1);
+    out.push(VERSION);
+    out.push(OP_RESOLVE_EXPORT);
+    out.push(consumer.len() as u8);
+    out.extend_from_slice(consumer.as_bytes());
+    out.push(ability.len() as u8);
+    out.extend_from_slice(ability.as_bytes());
+    out
+}
+
+#[cfg(test)]
+mod resolve_export_tests {
+    use super::*;
+
+    fn dispatch_frame(frame: &[u8]) -> Vec<u8> {
+        let mut broker = Broker::new();
+        dispatch(&mut broker, frame).response
+    }
+
+    #[test]
+    fn resolve_export_wire_matrix() {
+        // Unknown ability → STATUS_UNKNOWN.
+        let rsp = dispatch_frame(&encode_resolve_export("search", "chat.Delete"));
+        assert_eq!(rsp[3], OP_RESOLVE_EXPORT | 0x80);
+        assert_eq!(rsp[4], STATUS_UNKNOWN);
+
+        // Known ability, consumer WITHOUT the permission → STATUS_DENIED
+        // (search's manifest declares only nexus.permission.WINDOW).
+        let rsp = dispatch_frame(&encode_resolve_export("search", "chat.Send"));
+        assert_eq!(rsp[4], STATUS_DENIED);
+
+        // Truncated frame → MALFORMED.
+        let good = encode_resolve_export("search", "chat.Send");
+        let rsp = dispatch_frame(&good[..good.len() - 1]);
+        assert_eq!(rsp[4], STATUS_MALFORMED);
     }
 }

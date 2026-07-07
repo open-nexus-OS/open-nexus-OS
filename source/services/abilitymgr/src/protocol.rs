@@ -37,6 +37,20 @@ pub const OP_TRANSITION: u8 = 2;
 /// Response: `[A,M,ver,OP_RECENTS|0x80, status, count:u16le]`
 pub const OP_RECENTS: u8 = 3;
 
+/// Resolve an app-to-app export (TASK-0081, manifest v2.2): the consumer
+/// asks WHO serves `ability`; abilitymgr checks the export exists AND the
+/// consumer's manifest holds the app-owned permission (fail-closed both
+/// sides) and answers with the exporter's app id — the "mediated" half;
+/// the endpoint mint + direct channel ride with the OS loop.
+/// IDENTITY: the OS loop binds `consumer` to the VERIFIED sender (kernel
+/// sender id), never to the string alone — the frame field is display/
+/// lookup, the channel is the authority (the execd requester pattern).
+/// Request:  `[A,M,ver,OP_RESOLVE_EXPORT, consumer_len:u8, consumer...,
+///             abil_len:u8, ability...]`
+/// Response: `[A,M,ver,OP_RESOLVE_EXPORT|0x80, status,
+///             exporter_len:u8, exporter...]`
+pub const OP_RESOLVE_EXPORT: u8 = 4;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

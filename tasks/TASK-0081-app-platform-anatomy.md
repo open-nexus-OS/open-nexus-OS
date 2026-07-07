@@ -184,3 +184,23 @@ liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
   VERMITTLUNG selbst (Broker: resolve→Grant-Check beide Seiten→Launch→
   Endpoint-Mint→direkte IPC) + generierte svc.app_<bundle>.*-Signaturen.
 - repo_bundles-Tests auf userspace/apps umgezogen (Konsolidierungs-Folge).
+
+### Nachtrag 2 (gleicher Tag, uncommitted): Vermittlungs-Kern + Wire GELIEFERT
+
+- **C2 Vermittlung (host-Hälfte) DONE**: `abilitymgr::mediation` —
+  `resolve_export(consumer_caps, ability)` prüft BEIDE Seiten fail-closed
+  (Export existiert via `caps::find_export`; Consumer-Manifest hält die
+  app-eigene Permission), stabile Fehler (UnknownAbility/
+  ConsumerNotGranted); Grant-Matrix-Test. Wire: `OP_RESOLVE_EXPORT(4)`
+  `[A,M,1,4,consumer_len,consumer,abil_len,ability]` →
+  `[…|0x80,status,exporter_len,exporter]` mit STATUS_UNKNOWN/DENIED/
+  MALFORMED-Matrix-Tests + `encode_resolve_export`. abilitymgr 31/31,
+  riscv 0 Fehler. Läuft im os-lite-Loop automatisch mit (wire::dispatch).
+- **OFFEN (explizit, fail-closed dokumentiert im protocol.rs-Kommentar)**:
+  (a) IDENTITÄTSBINDUNG im OS-Loop — der `consumer`-Frame-String muss
+  gegen die Kernel-sender-id verifiziert werden (execd-requester-Muster),
+  Frame-Feld ist nur Anzeige/Lookup; (b) die „dann direkt"-Hälfte:
+  Exporter ggf. launchen (spawn_app existiert) + Endpoint-Pair-Mint
+  (init-Factory-Muster wie App-Event-Kanal) + Cap-Übergabe an beide
+  Seiten; (c) `svc.app_<bundle>.<method>()`-Signatur-Codegen für den
+  DSL-Checker (dsl_services-Mechanik) — mit dem Companion-Tooling.

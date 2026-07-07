@@ -56,6 +56,17 @@ pub fn is_exported_permission(cap: &str) -> bool {
         .any(|(_, entries)| entries.iter().any(|(_, permission)| *permission == cap))
 }
 
+/// Finds the app exporting `ability` → `(exporter, ability, permission)`.
+/// The resolve primitive of the mediation core (`crate::mediation`).
+pub fn find_export(ability: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    APP_EXPORTS.iter().find_map(|(app, entries)| {
+        entries
+            .iter()
+            .find(|(a, _)| *a == ability)
+            .map(|(a, p)| (*app, *a, *p))
+    })
+}
+
 /// The exports of one app: `(ability, app-owned permission)` pairs — the
 /// resolve source for the mediated-then-direct app-to-app channel
 /// (TASK-0081 decision C2; mediation itself rides with the broker).
