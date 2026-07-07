@@ -196,7 +196,30 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
         return Err(alloc::format!("no .nx sources under {}", ui.display()));
     }
     let merged = merge_project(&files).map_err(|d| alloc::format!("merge: {d:?}"))?;
+    // Companion surface (TASK-0081 C1): `native/surface.toml` extends the
+    // checker's svc table with `svc.<app>.*` for THIS project's check —
+    // the app id is the folder name (the manifest SSOT next to it). The
+    // guard serializes parallel project checks (global table).
+    let _surface_guard = crate::registry::app_surface_guard();
+    let surface_path = root.join("native/surface.toml");
+    if surface_path.is_file() {
+        let app = root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| String::from("project root has no folder name"))?
+            .to_string();
+        let text = std::fs::read_to_string(&surface_path)
+            .map_err(|e| alloc::format!("read {}: {e}", surface_path.display()))?;
+        let methods = parse_native_surface(&text)
+            .map_err(|e| alloc::format!("{}: {e}", surface_path.display()))?;
+        crate::registry::set_app_surface(
+            methods.into_iter().map(|(m, arity)| (app.clone(), m, arity)).collect(),
+        );
+    } else {
+        crate::registry::set_app_surface(alloc::vec::Vec::new());
+    }
     let (model, diags) = crate::check_file(&merged);
+    crate::registry::set_app_surface(alloc::vec::Vec::new());
     if crate::has_errors(&diags) {
         return Err(alloc::format!("check: {diags:?}"));
     }
@@ -204,4 +227,137 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
     crate::lower_file(&merged, &model, &canonical)
         .map(|lowered| lowered.nxir)
         .map_err(|d| alloc::format!("lower: {d:?}"))
+}
+
+/// Parses a companion `native/surface.toml` (TASK-0081 C1) — the ONE place
+/// a developer declares the app's native service surface. Line-based on
+/// purpose (no TOML dependency in the checker core); the accepted shape is
+/// exactly what `nx-dsl add native` scaffolds:
+///
+/// ```toml
+/// [[method]]
+/// name = "transcode"
+/// args = ["Str", "Int"]
+/// result = "Str"
+/// ```
+///
+/// Returns `(method name, positional arity)` entries.
+///
+/// # Errors
+/// A human-readable reason for malformed declarations (fail-closed: a
+/// broken surface file fails the BUILD, it never silently shrinks the
+/// checker surface).
+#[cfg(feature = "std")]
+pub fn parse_native_surface(text: &str) -> Result<alloc::vec::Vec<(String, usize)>, String> {
+    let mut out: alloc::vec::Vec<(String, usize)> = alloc::vec::Vec::new();
+    let mut current: Option<(Option<String>, Option<usize>)> = None;
+    let mut flush = |current: &mut Option<(Option<String>, Option<usize>)>| -> Result<(), String> {
+        if let Some((name, arity)) = current.take() {
+            let name = name.ok_or("`[[method]]` without `name`")?;
+            let arity = arity.ok_or_else(|| alloc::format!("method `{name}` without `args`"))?;
+            out.push((name, arity));
+        }
+        Ok(())
+    };
+    for (number, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line == "[[method]]" {
+            flush(&mut current)?;
+            current = Some((None, None));
+            continue;
+        }
+        let Some((entry_name, entry_arity)) = current.as_mut() else {
+            return Err(alloc::format!("line {}: entry outside `[[method]]`", number + 1));
+        };
+        if let Some(rest) = line.strip_prefix("name") {
+            let value = rest.trim_start().strip_prefix('=').map(str::trim).unwrap_or("");
+            let value = value.trim_matches('"');
+            if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(alloc::format!("line {}: bad method name", number + 1));
+            }
+            *entry_name = Some(String::from(value));
+        } else if let Some(rest) = line.strip_prefix("args") {
+            let value = rest.trim_start().strip_prefix('=').map(str::trim).unwrap_or("");
+            if !value.starts_with('[') || !value.ends_with(']') {
+                return Err(alloc::format!("line {}: `args` must be a one-line array", number + 1));
+            }
+            *entry_arity = Some(value.matches('"').count() / 2);
+        } else if line.starts_with("result") {
+            // Result type recorded for codegen later; the checker only needs arity.
+        } else {
+            return Err(alloc::format!("line {}: unknown key", number + 1));
+        }
+    }
+    flush(&mut current)?;
+    Ok(out)
+}
+
+#[cfg(all(test, feature = "std"))]
+mod native_surface_tests {
+    use super::*;
+
+    fn temp_app(tag: &str, with_surface: bool) -> std::path::PathBuf {
+        let root = std::env::temp_dir()
+            .join(format!("nx-native-{tag}-{}", std::process::id()))
+            .join("myapp");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("ui/pages")).expect("mkdir");
+        std::fs::write(
+            root.join("ui/pages/Main.nx"),
+            r#"Store S { last: Str = "", busy: Bool = false, }
+Event E { Kick, Done(Str), Failed(Int), }
+reduce E {
+    Kick => state.busy = true,
+    Done(text) => { state.last = text; state.busy = false; },
+    Failed(code) => state.busy = false,
+}
+@effect on Kick {
+    match svc.myapp.transcode(state.last, timeoutMs: 500) {
+        Ok(text) => dispatch(Done(text)),
+        Err(e) => dispatch(Failed(e)),
+    }
+}
+Page Main { Stack { Text($state.last) } }
+"#,
+        )
+        .expect("write page");
+        if with_surface {
+            std::fs::create_dir_all(root.join("native")).expect("mkdir native");
+            std::fs::write(
+                root.join("native/surface.toml"),
+                "[[method]]\nname = \"transcode\"\nargs = [\"Str\"]\nresult = \"Str\"\n",
+            )
+            .expect("write surface");
+        }
+        root
+    }
+
+    #[test]
+    fn companion_surface_extends_the_checker_for_one_project() {
+        // WITH the declared surface: svc.myapp.transcode(1 arg) compiles.
+        let root = temp_app("ok", true);
+        compile_project_dir(&root).expect("compiles with declared surface");
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+
+        // WITHOUT native/surface.toml: unknown service, fail-closed.
+        let root = temp_app("missing", false);
+        let err = compile_project_dir(&root).expect_err("must fail without surface");
+        assert!(err.contains("UnknownService") || err.contains("NX0207"), "got: {err}");
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn surface_toml_parses_and_rejects_malformed() {
+        let ok = parse_native_surface(
+            "# c\n[[method]]\nname = \"a\"\nargs = []\n[[method]]\nname = \"b\"\nargs = [\"Str\", \"Int\"]\nresult = \"Str\"\n",
+        )
+        .expect("parses");
+        assert_eq!(ok, vec![("a".to_string(), 0), ("b".to_string(), 2)]);
+        assert!(parse_native_surface("name = \"x\"\n").is_err(), "entry outside method");
+        assert!(parse_native_surface("[[method]]\nargs = []\n").is_err(), "missing name");
+        assert!(parse_native_surface("[[method]]\nname = \"x\"\n").is_err(), "missing args");
+    }
 }

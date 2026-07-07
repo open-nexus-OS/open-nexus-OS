@@ -204,3 +204,28 @@ liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
   (init-Factory-Muster wie App-Event-Kanal) + Cap-Übergabe an beide
   Seiten; (c) `svc.app_<bundle>.<method>()`-Signatur-Codegen für den
   DSL-Checker (dsl_services-Mechanik) — mit dem Companion-Tooling.
+
+### Nachtrag 3 (gleicher Tag, uncommitted): C1 Companion-Tooling-Kern GELIEFERT
+
+- **Surface-Deklaration EINMAL, Checker liest sie bei jedem Build**:
+  `userspace/apps/<name>/native/surface.toml` (`[[method]] name/args/result`,
+  zeilenbasierter fail-closed Parser `nexus_dsl_core::parse_native_surface`
+  — kaputte Datei = Build-Fehler, nie stilles Schrumpfen).
+  `compile_project_dir` installiert die Surface für GENAU einen Check
+  (Mutex-Guard gegen parallele Projekt-Builds); `svc.<app>.<method>()` ist
+  damit checkbar wie jede Plattform-Methode (App-Id = Ordnername = Manifest-
+  SSOT). Registry-Refactor: `SvcLookup::Found{arity}` (statt 'static-Ref) +
+  std-gated APP_SURFACE — no_std-Lint sieht weiterhin NUR die Plattform.
+- **`nx-dsl add native <appdir>`**: scaffoldet native/{surface.toml,
+  Cargo.toml,src/lib.rs} (Surface-Trait-Skeleton, SDK-Kuratierungs-Hinweise,
+  Doku-Header); verweigert Überschreiben. CLI-E2E-Test: scaffold →
+  `svc.demoapp.ping` kompiliert im Projekt-Build → Re-Run verweigert. 6/6.
+- Suiten-Sweep nach dem Checker-Refactor: core/runtime/conformance/goldens/
+  v0_1a/systemui alle grün; riscv no_std core 0 Fehler.
+- **OFFEN C1**: Codegen Surface→Rust-Dispatch (heute nur Trait-Skeleton,
+  Typen aus surface.toml noch nicht in den Trait generiert), Manifest-
+  Segment (`provides`/bundleType=service append), Companion-SPAWN
+  (execd, grants-before-resume, #102-Disziplin), Transcript-Fixtures für
+  `svc.<app>.*`. Exports-svc-Codegen (`svc.app_<bundle>.*`) nutzt DENSELBEN
+  App-Surface-Mechanismus (registry::set_app_surface) — Anschlusspunkt
+  steht.

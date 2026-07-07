@@ -30,7 +30,7 @@ pub use check::{check_file, has_errors};
 pub use lower::{lower_file, Lowered};
 pub use project::{canonical_source_set, merge_project, SourceFile};
 #[cfg(feature = "std")]
-pub use project::compile_project_dir;
+pub use project::{compile_project_dir, parse_native_surface};
 pub use diag::{DiagCode, Diagnostic, Severity, Span};
 pub use fmt::format_file;
 pub use parser::parse_file;

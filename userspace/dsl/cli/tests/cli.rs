@@ -177,3 +177,43 @@ fn i18n_extract_and_compile_round_trip() {
     assert_eq!(formatted, "Library");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// TASK-0081 C1: `add native` scaffolds the companion (surface.toml +
+/// Cargo.toml + Surface-trait skeleton) exactly once; the scaffolded
+/// surface makes `svc.<app>.ping` checkable via the project build.
+#[test]
+fn add_native_scaffolds_companion_and_enables_svc_surface() {
+    let root = std::env::temp_dir().join(format!("nx-add-native-{}", std::process::id()));
+    let app = root.join("demoapp");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(app.join("ui/pages")).expect("mkdir");
+    std::fs::write(app.join("manifest.toml"), "name = \"demoapp\"\n").expect("manifest");
+    std::fs::write(
+        app.join("ui/pages/Main.nx"),
+        "Store S { v: Str = \"\", }\nEvent E { Go, Got(Str), Bad(Int), }\nreduce E {\n    Go => state.v = state.v,\n    Got(t) => state.v = t,\n    Bad(c) => state.v = state.v,\n}\n@effect on Go {\n    match svc.demoapp.ping(state.v, timeoutMs: 250) {\n        Ok(t) => dispatch(Got(t)),\n        Err(e) => dispatch(Bad(e)),\n    }\n}\nPage Main { Stack { Text($state.v) } }\n",
+    )
+    .expect("page");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_nx-dsl"))
+        .args(["add", "native", app.to_str().expect("utf8 path")])
+        .output()
+        .expect("spawn");
+    assert!(out.status.success(), "add native failed: {}", String::from_utf8_lossy(&out.stderr));
+    for rel in ["native/surface.toml", "native/Cargo.toml", "native/src/lib.rs"] {
+        assert!(app.join(rel).is_file(), "{rel} missing");
+    }
+    let skeleton = std::fs::read_to_string(app.join("native/src/lib.rs")).expect("lib");
+    assert!(skeleton.contains("pub trait Surface"), "trait skeleton: {skeleton}");
+    assert!(skeleton.contains("svc.demoapp.ping"), "app-specific doc: {skeleton}");
+
+    // The scaffolded surface makes the project compile (checker knows the svc).
+    nexus_dsl_core::compile_project_dir(&app).expect("project compiles with scaffolded surface");
+
+    // Re-run refuses (never overwrites developer code).
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_nx-dsl"))
+        .args(["add", "native", app.to_str().expect("utf8 path")])
+        .output()
+        .expect("spawn");
+    assert!(!out.status.success(), "re-run must refuse");
+    let _ = std::fs::remove_dir_all(&root);
+}
