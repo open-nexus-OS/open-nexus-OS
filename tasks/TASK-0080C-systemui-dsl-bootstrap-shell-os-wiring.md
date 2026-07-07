@@ -106,3 +106,26 @@ Visual proof:
 2. greeter swap behind the session gate [rides with 1 or own verify]
 3. launch e2e via app-host + focus/return [boot-verify 2]
 4. queryd topology + @persist + selftests + postflight [boot-verify 3]
+
+## STATUS / PROGRESS LEDGER (2026-07-07)
+
+Partial delivery (autonomous phase-6 batch, uncommitted):
+
+- **Postflight script DONE**: `tools/postflight-systemui-bootstrap-shell.sh`
+  — stage ladder over the newest uart.log; base stages green on the current
+  boot; live-click stages report PEND (never fake-passed); unlanded wiring
+  stages report SKIP with their gating step. Handles interactive verdict
+  FOLDING (`OK/WARN <svc>` accepted where raw markers fold).
+- **Registry truthing DONE**: desktop `shell.toml` `dsl_root` now points at
+  the real 0080B tree (`userspace/systemui/shells/desktop`).
+- **OPEN (boot-verify lanes, in plan order)**:
+  1. shell `.nxir` build wiring + mount via the 0076B in-compositor path
+     [boot-verify 1] — the compiler-side blocker (single-segment abort on
+     shell-sized programs) was fixed with 0080B.
+  2. greeter swap behind the session gate.
+  3. launch e2e selftest markers (`SELFTEST: systemui live launcher click ok`).
+  4. queryd topology: BLOCKED on a no_std conversion of nexus-idl-runtime
+     (its capnp dep is std-only today; feature unification would poison the
+     riscv graph) — do that conversion as its own gated step, THEN the
+     os-lite queryd loop (server.rs is alloc-clean except std::collections).
+     `@persist` OS wiring rides here (runtime core landed with 0080D).

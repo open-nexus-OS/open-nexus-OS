@@ -1,0 +1,43 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The launcher page (TASK-0080B): registry-driven app grid + service-side
+// search. Every card taps into `dispatch(Launch(app.id))` — the id comes
+// from the AppRecord the registry returned, never a hardcoded list. The
+// desktop layout is a wrapping card grid; the phone override
+// (`ui/platform/phone/pages/LauncherPage.nx`) swaps it for a single-column
+// list (structural divergence, not a modifier tweak).
+
+Page LauncherPage {
+    Stack {
+        Stack {
+            Button { label: @t("launcher.back") }
+                .bg(surfaceVariant)
+                .fg(onSurface)
+                .rounded(md)
+            on Tap -> navigate("/")
+            Text(@t("launcher.title")).textSize(lg).fg(onSurface)
+        }
+        .direction(row)
+        .gap(2)
+        TextField { label: @t("launcher.search"), value: $state.query }
+        on Change -> dispatch(QueryChanged)
+        if $state.loading {
+            Text(@t("common.loading")).fg(onSurfaceVariant)
+        } else {
+            List($state.apps) { app in
+                Card {
+                    Text(app.label).fg(onSurface)
+                }
+                .key(app.id)
+                on Tap -> dispatch(Launch(app.id))
+            }
+            .direction(row)
+            .wrap(true)
+            .gap(2)
+        }
+    }
+    .padding(4)
+    .gap(3)
+    .bg(surface)
+}

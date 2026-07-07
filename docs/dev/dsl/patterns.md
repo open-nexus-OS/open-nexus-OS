@@ -159,3 +159,27 @@ Full generics typically imply:
 - a larger surface area for “magic” behavior
 
 That conflicts with v0.x goals: **determinism**, **boundedness**, and **front-end friendly ergonomics**.
+
+## System surfaces: shell + greeter as DSL consumers (TASK-0080B)
+
+The system's own chrome is written in the same DSL as apps —
+`userspace/systemui/shells/desktop/` (ShellPage + LauncherPage) and
+`userspace/systemui/greeter/` (GreeterPage) are ordinary project trees
+compiled by the ordinary project mode. Two rules make a system surface:
+
+1. **Authority stays in services.** The launcher ASKS `svc.ability.launch`
+   (abilitymgr decides, fail-closed); the greeter ASKS `svc.session.login`
+   (sessiond decides, TASK-0065B contract, `docs/dev/ui/shell/session.md`).
+   A system page never contains auth/launch logic — it renders state and
+   dispatches. If a flow needs a decision, that decision is a service method
+   on the generated surface, not an `if` in the page.
+2. **Data comes from the real registries.** The launcher's app list is
+   `svc.bundlemgr.enumerate(query)` — filtering happens AT the service (the
+   canonical search-as-you-type recipe: every keystroke re-dispatches; stale
+   responses are dropped by per-(event,case) generations). No hardcoded app
+   lists anywhere in the shell.
+
+Host proofs live in `tests/systemui_bootstrap_shell_host/`: profile matrix
+(desktop/phone/tablet + the phone launcher override), transcripted launch and
+login flows (byte-exact replay — a miss can never look like success), and the
+lint gate both trees must pass.

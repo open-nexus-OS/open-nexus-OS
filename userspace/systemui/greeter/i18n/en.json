@@ -1,0 +1,7 @@
+{
+  "greeter.title": "Sign in",
+  "greeter.secret": "Password",
+  "greeter.login": "Log in",
+  "greeter.authenticating": "Checking…",
+  "greeter.failed": "Login failed"
+}

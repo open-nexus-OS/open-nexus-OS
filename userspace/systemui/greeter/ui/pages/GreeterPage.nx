@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The login greeter page (TASK-0080B): user list + secret field + submit,
+// rendering the TASK-0065B session contract. The failure banner and the
+// authenticating state are DRIVEN by SessionStore.phase (0 idle /
+// 1 authenticating / 2 failure) — sessiond's answers, never local guesses.
+
+Page GreeterPage {
+    Stack {
+        Spacer
+        Card {
+            Stack {
+                Text(@t("greeter.title")).textSize(lg).fg(onSurface)
+                List($state.users) { user in
+                    Button { label: user }
+                        .bg(surfaceVariant)
+                        .fg(onSurface)
+                        .rounded(md)
+                        .key(user)
+                    on Tap -> dispatch(Pick(user))
+                }
+                .direction(row)
+                .wrap(true)
+                .gap(2)
+                Text($state.selected).fg(onSurfaceVariant)
+                TextField { label: @t("greeter.secret"), value: $state.secret }
+                if $state.phase == 1 {
+                    Text(@t("greeter.authenticating")).fg(onSurfaceVariant)
+                } else {
+                    if $state.phase == 2 {
+                        Text(@t("greeter.failed")).fg(danger)
+                    } else {
+                        Spacer
+                    }
+                }
+                Button { label: @t("greeter.login") }
+                    .disabled($state.phase == 1)
+                on Tap -> dispatch(Submit)
+            }
+            .gap(3)
+            .padding(4)
+        }
+        Spacer
+    }
+    .align(center)
+    .padding(4)
+    .bg(background)
+}

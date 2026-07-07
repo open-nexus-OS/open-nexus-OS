@@ -85,3 +85,12 @@ the users manifest instead. The required marker ladder includes
 Credential auth behind OP_LOGIN (keystored-backed), lock/unlock UI (`Locked`
 reserved), session switching, multi-user avatar grid, per-app session scoping
 (TASK-0080D app runtime).
+
+## DSL greeter view (TASK-0080B)
+
+The greeter's VIEW is re-authored in the DSL
+(`userspace/systemui/greeter/`, host proofs in
+`tests/systemui_bootstrap_shell_host/`) — **this contract is unchanged**:
+the DSL page renders `svc.session.users` and dispatches
+`svc.session.login`; sessiond remains the sole session authority. The OS
+swap (DSL greeter replacing the native view) lands with TASK-0080C.

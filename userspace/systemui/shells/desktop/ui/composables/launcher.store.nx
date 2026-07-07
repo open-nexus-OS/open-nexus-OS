@@ -1,0 +1,70 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The launcher store (TASK-0080B): the installed-app list comes from the
+// REAL registry surface (`svc.bundlemgr.enumerate`, bundlemgrd ENUMERATE) —
+// filtering happens AT the service (the shell sends the query; the registry
+// matches), so search-as-you-type is the canonical async recipe: every
+// keystroke re-dispatches Refresh and stale responses are dropped by the
+// per-(event,case) generation rule. Launching goes through the launch
+// authority (`svc.ability.launch`, abilitymgr fail-closed) — the shell only
+// ASKS; abilitymgr decides.
+
+Store LauncherStore {
+    apps: List<AppEntry> = [],
+    query: Str = "",
+    loading: Bool = false,
+    lastError: Int = 0,
+    launching: Str = "",
+}
+
+Event LauncherEvent {
+    Refresh,
+    Loaded(List<AppEntry>),
+    LoadFailed(Int),
+    QueryChanged,
+    Launch(Str),
+    LaunchDone(Bool),
+    LaunchFailed(Int),
+}
+
+reduce LauncherEvent {
+    Refresh => state.loading = true,
+    Loaded(apps) => {
+        state.apps = apps;
+        state.loading = false;
+        state.lastError = 0;
+    },
+    LoadFailed(code) => {
+        state.lastError = code;
+        state.loading = false;
+    },
+    QueryChanged => state.loading = true,
+    Launch(id) => state.launching = id,
+    LaunchDone(ok) => state.launching = "",
+    LaunchFailed(code) => {
+        state.launching = "";
+        state.lastError = code;
+    },
+}
+
+@effect on Refresh {
+    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+        Ok(apps) => dispatch(Loaded(apps)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+
+@effect on QueryChanged {
+    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+        Ok(apps) => dispatch(Loaded(apps)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+
+@effect on Launch(id) {
+    match svc.ability.launch(id, timeoutMs: 500) {
+        Ok(ok) => dispatch(LaunchDone(ok)),
+        Err(e) => dispatch(LaunchFailed(e)),
+    }
+}

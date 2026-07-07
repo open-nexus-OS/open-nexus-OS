@@ -660,8 +660,20 @@ fn build_message(
         }
     }
 
-    // Canonicalize to a single segment.
-    let mut canonical = capnp::message::Builder::new_default();
+    // Canonicalize to a single segment. `set_root_canonical` asserts the
+    // output landed in ONE segment, so the first segment must be big enough
+    // up front — size it from the working message (default-allocator growth
+    // would add a second segment and abort on larger programs, e.g. the
+    // 0080B shell).
+    let total_words: usize = message
+        .get_segments_for_output()
+        .iter()
+        .map(|segment| segment.len() / 8)
+        .sum();
+    let mut canonical = capnp::message::Builder::new(
+        capnp::message::HeapAllocator::new()
+            .first_segment_words(u32::try_from(total_words + 64).unwrap_or(u32::MAX)),
+    );
     canonical
         .set_root_canonical(
             message

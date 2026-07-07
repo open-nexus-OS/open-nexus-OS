@@ -553,3 +553,73 @@ reduce E { X => state.n = state.n, }
     let canonical = nexus_dsl_core::format_file(&file);
     assert!(nexus_dsl_core::lower_file(&file, &model, &canonical).is_err());
 }
+
+#[test]
+fn persist_snapshot_restores_marked_fields_across_mounts() {
+    use nexus_dsl_runtime::{NoIo, Value};
+    let nxir = compile(
+        r#"
+Store S {
+    count: Int = 0 @persist,
+    label: Str = "start" @persist,
+    scratch: Int = 0,
+}
+Event E { Bump, }
+reduce E {
+    Bump => {
+        state.count = state.count + 1;
+        state.label = "bumped";
+        state.scratch = 9;
+    },
+}
+Page P { Stack { Text("p") } }
+"#,
+    );
+    // First instance: mutate, snapshot.
+    let mut h = Harness::mount(&nxir);
+    assert!(h.runtime.has_persist_fields());
+    h.dispatch(&mut NoIo, "E", "Bump", vec![]);
+    let snap = h.runtime.persist_snapshot().expect("snapshot with persist fields");
+
+    // Second instance (fresh mount = defaults), restore: @persist fields come
+    // back, the unmarked field stays at its default.
+    let mut h2 = Harness::mount(&nxir);
+    h2.assert_field("S", "count", &Value::Int(0));
+    assert_eq!(h2.runtime.persist_restore(&snap), 2);
+    h2.assert_field("S", "count", &Value::Int(1));
+    h2.assert_field("S", "label", &Value::Str("bumped".into()));
+    h2.assert_field("S", "scratch", &Value::Int(0));
+
+    // Garbage bytes restore nothing (fail-closed).
+    assert_eq!(h2.runtime.persist_restore(b"not a snapshot"), 0);
+}
+
+#[test]
+fn persist_restore_skips_fields_that_changed_shape() {
+    use nexus_dsl_runtime::{NoIo, Value};
+    let v1 = compile(
+        r#"
+Store S { count: Int = 0 @persist, }
+Event E { Bump, }
+reduce E { Bump => state.count = state.count + 1, }
+Page P { Stack { Text("p") } }
+"#,
+    );
+    let mut h = Harness::mount(&v1);
+    h.dispatch(&mut NoIo, "E", "Bump", vec![]);
+    let snap = h.runtime.persist_snapshot().expect("snapshot");
+
+    // "v2" of the app: same field name, DIFFERENT type — the entry is
+    // skipped, the default survives (never a type-confused restore).
+    let v2 = compile(
+        r#"
+Store S { count: Str = "none" @persist, }
+Event E { Bump, }
+reduce E { Bump => state.count = state.count, }
+Page P { Stack { Text("p") } }
+"#,
+    );
+    let mut h2 = Harness::mount(&v2);
+    assert_eq!(h2.runtime.persist_restore(&snap), 0);
+    h2.assert_field("S", "count", &Value::Str("none".into()));
+}

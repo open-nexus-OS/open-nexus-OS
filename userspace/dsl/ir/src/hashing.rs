@@ -36,8 +36,16 @@ pub fn zeroed_canonical_bytes(root: ui_program::Reader<'_>) -> Result<Vec<u8>, I
             copy.get_root().map_err(|_| IrError::Malformed)?;
         program.set_program_hash(&ZERO_DIGEST);
     }
-    // Canonicalize: single segment, canonical layout.
-    let mut canonical = capnp::message::Builder::new_default();
+    // Canonicalize: single segment, canonical layout. `set_root_canonical`
+    // ASSERTS the output landed in one segment, so the first segment must be
+    // sized up front (the default allocator would grow by adding a second
+    // segment and abort on larger programs).
+    let total_words: usize =
+        copy.get_segments_for_output().iter().map(|segment| segment.len() / 8).sum();
+    let mut canonical = capnp::message::Builder::new(
+        capnp::message::HeapAllocator::new()
+            .first_segment_words(u32::try_from(total_words + 64).unwrap_or(u32::MAX)),
+    );
     canonical
         .set_root_canonical(
             copy.get_root_as_reader::<ui_program::Reader<'_>>()

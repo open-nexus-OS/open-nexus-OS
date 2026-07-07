@@ -652,9 +652,95 @@ pub mod bundlemgrd {
         Some((frame[4], u16::from_le_bytes([frame[5], frame[6]])))
     }
 
+    /// Fetch an app's UI-program payload into a caller-provided VMO
+    /// (TASK-0080D GET_PAYLOAD). Request:
+    /// `[B, N, ver, OP_GET_PAYLOAD, id_len:u8, id...]` with the payload VMO
+    /// capability MOVED alongside the message (CAP_MOVE — the gpud-attach /
+    /// ADR-0042 SURFACE_CREATE pattern; the message's single cap slot carries
+    /// the VMO, so there is no reply frame). bundlemgrd writes the payload
+    /// bytes at [`PAYLOAD_DATA_OFFSET`], then the header LAST (header-last =
+    /// release ordering for the single writer); the consumer polls the header.
+    pub const OP_GET_PAYLOAD: u8 = 6;
+
+    /// Payload-VMO header magic (`"NXPL"`), written after the payload bytes.
+    pub const PAYLOAD_MAGIC: [u8; 4] = *b"NXPL";
+    /// Header length; the payload bytes start here (8-byte aligned for the
+    /// canonical `.nxir` capnp contract).
+    pub const PAYLOAD_DATA_OFFSET: usize = 16;
+    /// Header status: payload written completely.
+    pub const PAYLOAD_STATUS_OK: u8 = 1;
+    /// Header status: the app id has no ui-program payload.
+    pub const PAYLOAD_STATUS_UNKNOWN: u8 = 2;
+    /// Header status: the payload exceeds the provided VMO.
+    pub const PAYLOAD_STATUS_TOO_LARGE: u8 = 3;
+
+    /// Encodes a GET_PAYLOAD request; returns the frame length
+    /// (`None` when the id is empty or exceeds the routing name bound).
+    pub fn encode_get_payload(app_id: &[u8], out: &mut [u8]) -> Option<usize> {
+        if app_id.is_empty() || app_id.len() > 48 || out.len() < 5 + app_id.len() {
+            return None;
+        }
+        out[0] = MAGIC0;
+        out[1] = MAGIC1;
+        out[2] = VERSION;
+        out[3] = OP_GET_PAYLOAD;
+        out[4] = app_id.len() as u8;
+        out[5..5 + app_id.len()].copy_from_slice(app_id);
+        Some(5 + app_id.len())
+    }
+
+    /// Decodes a GET_PAYLOAD request body → the app id bytes.
+    pub fn decode_get_payload(frame: &[u8]) -> Option<&[u8]> {
+        if decode_request_op(frame)? != OP_GET_PAYLOAD || frame.len() < 6 {
+            return None;
+        }
+        let n = frame[4] as usize;
+        if n == 0 || n > 48 || frame.len() != 5 + n {
+            return None;
+        }
+        Some(&frame[5..])
+    }
+
+    /// Encodes the 16-byte payload-VMO header (`magic, status, len:u32le`).
+    pub fn encode_payload_header(status: u8, len: u32) -> [u8; PAYLOAD_DATA_OFFSET] {
+        let mut hdr = [0u8; PAYLOAD_DATA_OFFSET];
+        hdr[..4].copy_from_slice(&PAYLOAD_MAGIC);
+        hdr[4] = status;
+        hdr[8..12].copy_from_slice(&len.to_le_bytes());
+        hdr
+    }
+
+    /// Decodes a payload-VMO header → `(status, len)`; `None` while the
+    /// header has not been written yet (or is not a payload header).
+    pub fn decode_payload_header(hdr: &[u8]) -> Option<(u8, u32)> {
+        if hdr.len() < PAYLOAD_DATA_OFFSET || hdr[..4] != PAYLOAD_MAGIC {
+            return None;
+        }
+        Some((hdr[4], u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]])))
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn get_payload_round_trip() {
+            let mut buf = [0u8; 64];
+            let n = encode_get_payload(b"counter", &mut buf).unwrap();
+            assert_eq!(&buf[..n], &[b'B', b'N', 1, OP_GET_PAYLOAD, 7, b'c', b'o', b'u', b'n', b't', b'e', b'r']);
+            assert_eq!(decode_get_payload(&buf[..n]).unwrap(), b"counter");
+            // Truncated / empty ids rejected.
+            assert!(decode_get_payload(&buf[..n - 1]).is_none());
+            assert!(encode_get_payload(b"", &mut buf).is_none());
+        }
+
+        #[test]
+        fn payload_header_round_trip() {
+            let hdr = encode_payload_header(PAYLOAD_STATUS_OK, 4096);
+            assert_eq!(decode_payload_header(&hdr), Some((PAYLOAD_STATUS_OK, 4096)));
+            // An unwritten (zeroed) header decodes to None — the poll contract.
+            assert_eq!(decode_payload_header(&[0u8; PAYLOAD_DATA_OFFSET]), None);
+        }
 
         #[test]
         fn list_req_golden() {

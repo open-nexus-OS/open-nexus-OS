@@ -1,0 +1,20 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "systemui_bootstrap_shell_host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nexus-dsl-core = { path = "../../userspace/dsl/core" }
+nexus-dsl-ir = { path = "../../userspace/dsl/ir" }
+nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }
+nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
+nexus-layout = { path = "../../userspace/ui/layout" }
+nexus-layout-types = { path = "../../userspace/ui/layout-types" }
+ui_v10_goldens = { path = "../ui_v10_goldens" }

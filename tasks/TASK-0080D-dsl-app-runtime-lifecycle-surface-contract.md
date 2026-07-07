@@ -355,7 +355,19 @@ in boot 10; windowd size contract 79%.
   R1 autolaunch DELETED. Registry apps without a spawnable payload
   (chat/search placeholder ELFs) report `launch spawn skipped` by value.
   Boot 13: `registry ok (n=3)` + `caps ok app=counter` — counter is in the
-  Apps menu. Click verify = user lane (post-login, session gate applies).
+  Apps menu. **USER-VERIFIED 2026-07-07**: Apps→counter opens the app window
+  through the full chain. Two launch-path fixes on the way: (a) `new_for` is
+  ONE ~100ms routing window — retry + cache the client (inputd lesson);
+  (b) ROOT CAUSE: the runtime routing responder answers from init's STATIC
+  RouteTable (nothing minted on demand) — both routes had to be provisioned:
+  abilitymgr server pair PRE-MINTED (sessiond pattern, so windowd's route
+  targets the pair abilitymgr actually serves) + `provision_windowd_ability_
+  route` + abilitymgr→execd grant in the declarative arm. Markers:
+  `init: windowd route->abilitymgr ok`, `init: abilitymgr route->execd ok`.
+  KNOWN COSMETIC ISSUE (next small fix): the app frame renders on a
+  near-black page base and the counter buttons (surfaceVariant bg) have too
+  little contrast — user cannot SEE the buttons to verify R3 clicks. Fix =
+  lighter page base / token-correct surface color in app-host `render`.
   The v1 app→image table (`image_for_app`) is the seam GET_PAYLOAD replaces.
   THEN: bundle GET_PAYLOAD (os-lite opcode; payload → VMO → cap-move to the
   spawned app-host, child slot 7) replaces the embedded `.nxir` + the image
@@ -379,3 +391,65 @@ in boot 10; windowd size contract 79%.
 - R3: input routing by surface id, effects over real IPC, `@persist`,
   stop/crash residency, per-app ack channels.
 - R4: AOT payloadKind dispatch (0079).
+
+### 2026-07-07 (autonomous phase-6 completion batch, uncommitted)
+
+- **Contrast fix DONE**: app-host `render` page base is now the theme's
+  Surface token (`BaseTokens.color(ColorToken::Surface)` = #f8f9fa) instead
+  of the hardcoded near-black — the counter's surfaceVariant buttons and
+  onSurface text are specified against exactly this base. USER-VERIFY: "+"
+  click increments visibly.
+- **GET_PAYLOAD CHAIN BUILT** (replaces the embedded `.nxir` byte source +
+  the hand-maintained image table):
+  - Wire: `nexus_abi::bundlemgrd::OP_GET_PAYLOAD(6)` — request
+    `[B,N,1,op,id_len,id]` with the payload VMO cap MOVED alongside
+    (ADR-0042 SURFACE_CREATE pattern; the message's single cap slot carries
+    the VMO, so there is NO reply frame). bundlemgrd writes payload bytes at
+    offset 16, then the 16-byte header (`NXPL`, status, len) LAST —
+    header-last release ordering; consumers poll the header. Codecs + tests
+    in nexus-abi (`encode/decode_get_payload`, `encode/decode_payload_header`).
+  - bundlemgrd: build.rs compiles every `payload_kind = "ui-program"` bundle
+    (source convention `examples/dsl/<name>/<name>.nx` until the TASK-0081
+    consolidation) into `APP_PAYLOADS`; os-lite serves OP_GET_PAYLOAD
+    (moved-cap take via ReplyCap::slot + mem::forget — the windowd CREATE
+    pattern), markers `bundlemgrd: payload served` / `FAIL get_payload`.
+    execd added to the sender allowlist.
+  - init wiring: execd arm gets a CLONE of bundlemgrd's request SEND at
+    slot 10 (slot-order contract; marker `init: execd bundle slot send=0xa`).
+  - abilitymgr: `image_for_app` is now MANIFEST-DRIVEN (`APP_UI_PROGRAMS`
+    generated from `payload_kind = "ui-program"`); the exec frame carries an
+    append-only app-id extension (`…requester, app_len, app`).
+  - execd: parses the app id; for IMG_APPHOST creates the payload VMO
+    (16 + 256KB budget), fires GET_PAYLOAD (bounded non-blocking send,
+    fire-and-forget — the CHILD polls), transfers the ORIGINAL cap to child
+    slot 7 (`Rights::MAP`) after the windowd grants, before resume. Markers
+    `execd: app payload requested/granted` + FAIL variants; VMO closed on
+    every failure path.
+  - app-host: `resolve_payload()` — slot-7 presence probe (cap_clone+close),
+    header poll (3s budget; the fetch starts before our ELF even loads),
+    `AlignedBytes` read (NEW in nexus-dsl-ir::read — u64-backed 8-aligned
+    owned bytes, the runtime counterpart of the repr(align(8)) embed),
+    leaked once per process. Marker `APPHOST: payload source=bundle` (or
+    `source=embedded (<reason>)` — the embed stays as the fail-closed,
+    visibly-marked fallback). Determinism cross-check: the mounted hash
+    must STAY `5f1a6f3ab24e3dde` (same canonical compile in bundlemgrd).
+- **@persist RUNTIME CORE DONE** (host-proven): `nexus-dsl-runtime::persist`
+  — NAME-keyed `NXPS` v1 snapshots of `@persist` store fields
+  (`Runtime::persist_snapshot/persist_restore/has_persist_fields`);
+  per-entry tolerant restore (missing field / no-longer-persist / type
+  change ⇒ skip, never poisoned state); records persist field names by
+  STRING (symbol ids are compile-run-specific). 3 unit + 2 conformance
+  tests (round-trip across mounts incl. non-persist field isolation;
+  type-change skip). **OS wiring deliberately deferred**: no shipped app
+  declares `nexus.permission.STATE` or `@persist` yet — granting statefsd
+  routes to app children today would be a dead cap leak (fail-closed rule).
+  Lands with 0080C step 4 (queryd/statefsd wiring) or the first persisting
+  app.
+- **Stop/crash residency + reaper: OPEN** (documented, not faked): nobody
+  waits on app-host children today (OP_WAIT_PID is a synchronous
+  selftest-lane op); the async exit→abilitymgr-transition→window-close
+  protocol is boot-iterated work, queued behind the 0080C mount steps.
+- Boot-verified (manual--2026-07-07T10-05-27 + final re-boot): 0 FAILs,
+  launch routes + registry + caps + DSL chain green. The GET_PAYLOAD
+  runtime markers appear on the USER's Apps→counter click (see
+  `tools/postflight-systemui-bootstrap-shell.sh`, "payload chain" stage).

@@ -22,6 +22,7 @@ pub mod emit;
 pub mod i18n;
 pub mod interact;
 pub mod nav;
+pub mod persist;
 pub mod reduce;
 pub mod registry;
 pub mod store;
@@ -335,6 +336,12 @@ impl<'p> Runtime<'p> {
     #[must_use]
     pub fn stores(&self) -> &[StoreState] {
         &self.stores
+    }
+
+    /// Mutable store access for the `@persist` restore path (crate-internal;
+    /// hosts restore through [`Runtime::persist_restore`]).
+    pub(crate) fn stores_mut(&mut self) -> &mut [StoreState] {
+        &mut self.stores
     }
 
     /// Two-way binding write: the ONE store mutation machinery reducers use

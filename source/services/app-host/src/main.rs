@@ -64,9 +64,11 @@ mod probe {
     const WINDOWD_SEND_SLOT: u32 = 5;
     const WINDOWD_RECV_SLOT: u32 = 6;
 
-    /// The compiled DSL payload (R2a: embedded by `build.rs`; the bundle
-    /// GET_PAYLOAD step swaps the byte source, not this code). 8-byte
-    /// aligned — capnp segments are word-aligned by contract and
+    /// The embedded fallback payload (compiled by `build.rs`). Since the
+    /// GET_PAYLOAD step (TASK-0080D R2 remainder) the PRIMARY payload source
+    /// is the VMO execd grants into [`PAYLOAD_VMO_SLOT`] — this embed is the
+    /// fail-closed fallback (missing/late VMO, bad header), always marked.
+    /// 8-byte aligned — capnp segments are word-aligned by contract and
     /// `include_bytes!` alone guarantees nothing (riscv misaligned-u64
     /// hazard).
     #[repr(C, align(8))]
@@ -75,6 +77,75 @@ mod probe {
         { include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")).len() },
     > = AlignedNxir(*include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")));
     static APP_NXIR: &[u8] = &APP_NXIR_ALIGNED.0;
+
+    /// Fixed child slot holding the payload VMO (execd's
+    /// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
+    /// header LAST (`nexus_abi::bundlemgrd::encode_payload_header`).
+    const PAYLOAD_VMO_SLOT: u32 = 7;
+    /// Header-poll budget: the fetch is kicked BEFORE our ELF even loads, so
+    /// the header normally beats us; the budget only bounds failure.
+    const PAYLOAD_BUDGET_NS: u64 = 3_000_000_000;
+    /// Upper payload bound accepted from the header (matches execd's VMO
+    /// budget; anything larger is a malformed header by contract).
+    const PAYLOAD_MAX_LEN: usize = 256 * 1024;
+
+    /// Resolves the program bytes: the granted payload VMO when present and
+    /// well-formed (leaked once — the app-host process IS one app instance,
+    /// so the payload lives for the process), otherwise the embedded
+    /// fallback. Marked on both paths (`APPHOST: payload source=…`).
+    fn resolve_payload() -> &'static [u8] {
+        use nexus_abi::{bundlemgrd as wire, cap_clone, cap_close, vmo_read};
+        let start = nsec().unwrap_or(0);
+        // Slot presence probe: cap_clone+close (cap_query answers only for a
+        // subset of kinds — the established probe pattern).
+        loop {
+            match cap_clone(PAYLOAD_VMO_SLOT) {
+                Ok(probe) => {
+                    let _ = cap_close(probe);
+                    break;
+                }
+                Err(_) => {
+                    if nsec().unwrap_or(u64::MAX).saturating_sub(start) > PAYLOAD_BUDGET_NS {
+                        raw_marker("APPHOST: payload source=embedded (no vmo)");
+                        return APP_NXIR;
+                    }
+                    let _ = yield_();
+                }
+            }
+        }
+        // Header poll: bundlemgrd writes the header AFTER the payload bytes
+        // (header-last release ordering), so a decodable header means the
+        // payload is complete.
+        let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
+        loop {
+            if vmo_read(PAYLOAD_VMO_SLOT, 0, &mut hdr).is_ok() {
+                if let Some((status, len)) = wire::decode_payload_header(&hdr) {
+                    if status != wire::PAYLOAD_STATUS_OK
+                        || len == 0
+                        || len as usize > PAYLOAD_MAX_LEN
+                        || len % 8 != 0
+                    {
+                        raw_marker("APPHOST: payload source=embedded (header status)");
+                        return APP_NXIR;
+                    }
+                    let mut buf = nexus_dsl_ir::read::AlignedBytes::zeroed(len as usize);
+                    if vmo_read(PAYLOAD_VMO_SLOT, wire::PAYLOAD_DATA_OFFSET, buf.as_bytes_mut())
+                        .is_err()
+                    {
+                        raw_marker("APPHOST: payload source=embedded (vmo read)");
+                        return APP_NXIR;
+                    }
+                    raw_marker("APPHOST: payload source=bundle");
+                    return alloc::boxed::Box::leak(alloc::boxed::Box::new(buf)).as_bytes();
+                }
+            }
+            if nsec().unwrap_or(u64::MAX).saturating_sub(start) > PAYLOAD_BUDGET_NS {
+                raw_marker("APPHOST: payload source=embedded (header timeout)");
+                return APP_NXIR;
+            }
+            let _ = yield_();
+        }
+    }
 
     /// Probe surface: well under the transport bounds.
     const SURFACE_W: u16 = 320;
@@ -99,8 +170,11 @@ mod probe {
         let vmo = vmo_create(bytes).map_err(|_| "apphost: vmo create failed")?;
 
         // 2. Mount + render the DSL program into the VMO (R2); the R1 solid
-        //    fill stays as the fail-closed VISIBLE fallback.
-        let mut app = DslApp::mount();
+        //    fill stays as the fail-closed VISIBLE fallback. The program
+        //    bytes come from the GET_PAYLOAD VMO (slot 7) when execd granted
+        //    one, else the embedded fallback — both marked.
+        let payload = resolve_payload();
+        let mut app = DslApp::mount(payload);
         match &app {
             Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
@@ -192,17 +266,17 @@ mod probe {
     }
 
     impl DslApp {
-        /// Validates + mounts the embedded program and lays it out at
+        /// Validates + mounts the program bytes and lays them out at
         /// surface size. `None` on any failure (fail-closed; caller shows
         /// the probe fill).
-        fn mount() -> Option<Self> {
+        fn mount(nxir: &'static [u8]) -> Option<Self> {
             use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
-            let runtime = nexus_dsl_runtime::Runtime::mount(APP_NXIR).ok()?;
+            let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
             let symbols = runtime.symbols().to_vec();
-            emit_mounted_hash_marker();
+            emit_mounted_hash_marker(nxir);
             let keys: alloc::vec::Vec<u32> =
-                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+                match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
                     .and_then(|r| {
                         r.root().map(|root| {
                             root.get_i18n_keys()
@@ -216,7 +290,7 @@ mod probe {
             let device = FixtureEnv::default();
             let view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-                View::mount(APP_NXIR, &tokens, &device, &locale).ok()?
+                View::mount(nxir, &tokens, &device, &locale).ok()?
             };
             let engine = nexus_layout::LayoutEngine::new();
             let layout = engine
@@ -270,13 +344,18 @@ mod probe {
             true
         }
 
-        /// Writes the current scene (fills + glyph runs) into the VMO.
+        /// Writes the current scene (fills + glyph runs) into the VMO. The
+        /// page base is the theme's Surface token — the scene's own boxes
+        /// (surfaceVariant buttons, onSurface text) are specified against it.
         fn render(&self, vmo: u32) -> bool {
+            use nexus_dsl_runtime::theme_tokens::{ColorToken, Tokens};
+            let s = nexus_dsl_runtime::theme_tokens::BaseTokens.color(ColorToken::Surface);
+            let base = [s.b, s.g, s.r, s.a];
             let row_bytes = SURFACE_W as usize * 4;
             let mut row = alloc::vec![0u8; row_bytes];
             for y in 0..SURFACE_H as i32 {
                 for px in row.chunks_exact_mut(4) {
-                    px.copy_from_slice(&[0x20, 0x1c, 0x18, 0xFF]);
+                    px.copy_from_slice(&base);
                 }
                 for b in &self.layout.boxes {
                     let (bx, by, bw, bh) =
@@ -317,8 +396,8 @@ mod probe {
     }
 
     /// `APPHOST: mounted hash=<first-16-hex>` — the R2 DoD marker.
-    fn emit_mounted_hash_marker() {
-        let hash_prefix: u64 = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(APP_NXIR)
+    fn emit_mounted_hash_marker(nxir: &[u8]) {
+        let hash_prefix: u64 = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
             .ok()
             .and_then(|r| {
                 r.root().ok().map(|root| {

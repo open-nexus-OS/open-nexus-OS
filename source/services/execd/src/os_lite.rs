@@ -129,6 +129,15 @@ const APP_WINDOWD_RECV_SLOT: u32 = 9;
 /// The child slots the app-host expects them in (its fixed constants).
 const CHILD_WINDOWD_SEND_SLOT: u32 = 5;
 const CHILD_WINDOWD_RECV_SLOT: u32 = 6;
+/// GET_PAYLOAD (TASK-0080D): execd's own slot holding the bundlemgrd request
+/// SEND cap (granted by nexus-init in the execd arm — slot-order contract,
+/// proven by `init: execd bundle slot send=0xa`).
+const BUNDLE_SEND_SLOT: u32 = 10;
+/// The child slot receiving the payload VMO (app-host's fixed constant).
+const CHILD_PAYLOAD_SLOT: u32 = 7;
+/// Payload VMO budget: 16-byte header + up to ~256KB canonical `.nxir`
+/// (counter is ~4KB; the bound is the transport contract, not a hint).
+const PAYLOAD_VMO_BYTES: usize = 16 + 256 * 1024;
 // Bring-up alias: kernel currently reports selftest-client under this stable sender ID.
 // Keep identity binding strict by accepting only this exact alternate for that requester.
 const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
@@ -656,10 +665,24 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let image_id = frame[4];
     let stack_pages = frame[5].max(1) as usize;
     let req_len = frame[6] as usize;
-    if req_len == 0 || req_len > 48 || frame.len() != 7 + req_len {
+    if req_len == 0 || req_len > 48 || frame.len() < 7 + req_len {
         return rsp(op, STATUS_MALFORMED, 0).to_vec();
     }
-    let requester = &frame[7..];
+    let requester = &frame[7..7 + req_len];
+    // Append-only extension (TASK-0080D GET_PAYLOAD): an optional app id
+    // (`app_len:u8, app...`) names the ui-program payload to fetch from
+    // bundlemgrd for the spawned app-host. Absent = legacy frame.
+    let app_id = match frame.len() - (7 + req_len) {
+        0 => None,
+        n if n >= 2 => {
+            let alen = frame[7 + req_len] as usize;
+            if alen == 0 || alen > 48 || n != 1 + alen {
+                return rsp(op, STATUS_MALFORMED, 0).to_vec();
+            }
+            Some(&frame[8 + req_len..])
+        }
+        _ => return rsp(op, STATUS_MALFORMED, 0).to_vec(),
+    };
 
     // Security hardening: bind requester identity to the IPC channel.
     // The requester string is treated as *display* only; the authoritative identity is the
@@ -767,6 +790,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         IMG_APPHOST if !apphost_payload::APPHOST_ELF.is_empty() => apphost_payload::APPHOST_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
+    // GET_PAYLOAD (TASK-0080D): kick the payload fetch BEFORE the ELF load so
+    // bundlemgrd fills the VMO while we spawn; the child polls the VMO header,
+    // so no wait is needed here. `None` = the child falls back to its embedded
+    // payload (fail-closed, visibly marked on both sides).
+    let payload_vmo = match (image_id, app_id) {
+        (IMG_APPHOST, Some(app)) => fetch_app_payload(app),
+        _ => None,
+    };
     let start_ns = nsec().ok().unwrap_or(0);
     let local = EXEC_SPAN_LOCAL.fetch_add(1, Ordering::Relaxed);
     let span_id = SpanId(((sender_service_id & 0xffff_ffff) << 32) | (local & 0xffff_ffff));
@@ -778,6 +809,9 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             state.track_child(pid as u32, image_id);
             if image_id == IMG_APPHOST {
                 grant_windowd_route(pid as u32);
+                if let Some(vmo) = payload_vmo {
+                    grant_payload_vmo(pid as u32, vmo);
+                }
             }
             // #102 ROOT CAUSE FIX: `spawn_inner` starts EVERY task Suspended
             // (the grants-before-resume hardening); nexus-init resumes its
@@ -793,10 +827,100 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             rsp(op, STATUS_OK, pid as u32).to_vec()
         }
         Err(_) => {
+            if let Some(vmo) = payload_vmo {
+                let _ = nexus_abi::cap_close(vmo);
+            }
             metrics_counter_inc_best_effort("execd.spawn.fail");
             let end_ns = nsec().ok().unwrap_or(start_ns);
             metrics_span_end_best_effort(span_id, end_ns, 1, b"result=fail\n");
             rsp(op, STATUS_FAILED, 0).to_vec()
+        }
+    }
+}
+
+/// GET_PAYLOAD (TASK-0080D): creates the payload VMO and asks bundlemgrd to
+/// fill it (request + CAP_MOVE of a VMO clone — the message's single cap slot
+/// carries the VMO, so bundlemgrd's reply is the header IT writes into the
+/// VMO, header-last). Fire-and-forget: the child polls the header with its
+/// own budget. Returns the ORIGINAL VMO cap (destined for child slot 7), or
+/// `None` on any failure (marked; the child falls back to its embed).
+fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
+    let vmo = match nexus_abi::vmo_create(PAYLOAD_VMO_BYTES) {
+        Ok(v) => v,
+        Err(_) => {
+            emit_line("execd: FAIL app payload (vmo create)");
+            return None;
+        }
+    };
+    let mut frame = [0u8; 64];
+    let Some(len) = nexus_abi::bundlemgrd::encode_get_payload(app_id, &mut frame) else {
+        emit_line("execd: FAIL app payload (encode)");
+        let _ = nexus_abi::cap_close(vmo);
+        return None;
+    };
+    let clone = match nexus_abi::cap_clone(vmo) {
+        Ok(c) => c,
+        Err(_) => {
+            emit_line("execd: FAIL app payload (cap clone)");
+            let _ = nexus_abi::cap_close(vmo);
+            return None;
+        }
+    };
+    let hdr = nexus_abi::MsgHeader::new(
+        clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        len as u32,
+    );
+    // Bounded non-blocking send (bundlemgrd may be busy; never stall execd).
+    let deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
+    loop {
+        match nexus_abi::ipc_send_v1(
+            BUNDLE_SEND_SLOT,
+            &hdr,
+            &frame[..len],
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => {
+                emit_line("execd: app payload requested");
+                return Some(vmo);
+            }
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if nsec().ok().unwrap_or(u64::MAX) >= deadline {
+                    emit_line("execd: FAIL app payload (send timeout)");
+                    let _ = nexus_abi::cap_close(clone);
+                    let _ = nexus_abi::cap_close(vmo);
+                    return None;
+                }
+                let _ = yield_();
+            }
+            Err(_) => {
+                emit_line("execd: FAIL app payload (send)");
+                let _ = nexus_abi::cap_close(clone);
+                let _ = nexus_abi::cap_close(vmo);
+                return None;
+            }
+        }
+    }
+}
+
+/// Moves the payload VMO into the child's fixed payload slot
+/// (`CHILD_PAYLOAD_SLOT`, Rights::MAP — `vmo_read` is all the child needs).
+fn grant_payload_vmo(child_pid: u32, vmo: u32) {
+    match nexus_abi::cap_transfer_to_slot(
+        child_pid as nexus_abi::Pid,
+        vmo,
+        nexus_abi::Rights::MAP,
+        CHILD_PAYLOAD_SLOT,
+    ) {
+        Ok(_) => {
+            let _ = nexus_abi::debug_println("execd: app payload granted");
+        }
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL app payload grant");
+            let _ = nexus_abi::cap_close(vmo);
         }
     }
 }

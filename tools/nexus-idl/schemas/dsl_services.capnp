@@ -23,15 +23,23 @@ struct DslMethod {
 }
 
 const dslSurface :List(DslMethod) = [
+  # -- launch authority (abilitymgr, RFC-0065; TASK-0080B shell surface)
+  (service = "ability", method = "launch", args = ["Str"], result = "Bool"),
   # -- app state (statefsd-backed contract)
   (service = "appState", method = "get", args = ["Str"], result = "Str"),
   (service = "appState", method = "put", args = ["Str", "Str"], result = "Bool"),
+  # -- app registry (bundlemgrd ENUMERATE; filter = "" lists all)
+  (service = "bundlemgr", method = "enumerate", args = ["Str"], result = "List<AppEntry>"),
   # -- demo/test surface (conformance corpus + example apps)
   (service = "catalog", method = "list", args = [], result = "List<Str>"),
   (service = "db", method = "put", args = ["Str", "Str"], result = "Bool"),
   (service = "library", method = "get", args = ["Str"], result = "Str"),
   (service = "library", method = "list", args = [], result = "List<Str>"),
   (service = "search", method = "query", args = ["Str"], result = "List<Str>"),
+  # -- session authority (sessiond, TASK-0065B contract; the DSL greeter
+  #    renders and dispatches — sessiond DECIDES (authority stays there))
+  (service = "session", method = "login", args = ["Str", "Str"], result = "Bool"),
+  (service = "session", method = "users", args = [], result = "List<Str>"),
   (service = "stats", method = "count", args = ["Str"], result = "Int"),
   (service = "todos", method = "list", args = [], result = "List<Str>"),
   (service = "users", method = "list", args = [], result = "List<User>"),

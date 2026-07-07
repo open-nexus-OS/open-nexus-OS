@@ -76,6 +76,7 @@ members = [
     "tests/dsl_v0_1a_host",
     "tests/dsl_conformance",
     "tests/dsl_goldens",
+    "tests/systemui_bootstrap_shell_host",
     "tests/e2e",
     "tests/e2e_policy",
     "tests/logd_e2e",
@@ -95,6 +96,8 @@ exclude = [
     "userspace/apps",
     "userspace/ui",
     "userspace/dsl",
+    # DSL-only source tree (shell + greeter .nx programs, TASK-0080B) — no crate.
+    "userspace/systemui",
     # Vendored patch crate; not a first-class workspace member.
     "vendor/smoltcp",
     # QEMU source and patch artifacts (not a Rust crate).

@@ -560,6 +560,24 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
                 }
+                // TASK-0080D GET_PAYLOAD: execd fetches ui-program payloads
+                // from bundlemgrd for the app processes it spawns (fire-and-
+                // forget request + VMO cap move; the child polls the VMO
+                // header). Slot-order contract: execd expects SEND at 10
+                // (BUNDLE_SEND_SLOT) — the log line is the boot-time proof.
+                // CLONE (not move): `bnd_req` stays available for later arms.
+                {
+                    let bnd_req_clone =
+                        nexus_abi::cap_clone(bnd_req).map_err(InitError::Abi)?;
+                    let bundle_send_slot =
+                        nexus_abi::cap_transfer(pid, bnd_req_clone, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                    if iw(init_wire, init_fold, "init:execd") {
+                        debug_write_bytes(b"init: execd bundle slot send=0x");
+                        debug_write_hex(bundle_send_slot as usize);
+                        debug_write_byte(b'\n');
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

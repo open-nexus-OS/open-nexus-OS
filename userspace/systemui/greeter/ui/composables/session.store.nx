@@ -1,0 +1,59 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The greeter session store (TASK-0080B): renders the TASK-0065B login
+// contract (docs/dev/ui/shell/session.md). AUTHORITY STAYS IN SESSIOND —
+// this store only asks (`svc.session.login`) and mirrors the answer into
+// view state; it never decides. Phases: 0 = idle, 1 = authenticating,
+// 2 = failure (deterministic Int phases — the state machine the host
+// fixtures pin).
+
+Store SessionStore {
+    users: List<Str> = [],
+    selected: Str = "",
+    secret: Str = "",
+    phase: Int = 0,
+    lastError: Int = 0,
+}
+
+Event SessionEvent {
+    Load,
+    UsersLoaded(List<Str>),
+    UsersFailed(Int),
+    Pick(Str),
+    Submit,
+    LoginOk(Bool),
+    LoginFailed(Int),
+}
+
+reduce SessionEvent {
+    Load => state.phase = 0,
+    UsersLoaded(users) => state.users = users,
+    UsersFailed(code) => state.lastError = code,
+    Pick(name) => state.selected = name,
+    Submit => state.phase = 1,
+    LoginOk(ok) => {
+        state.phase = 0;
+        state.secret = "";
+        state.lastError = 0;
+    },
+    LoginFailed(code) => {
+        state.phase = 2;
+        state.secret = "";
+        state.lastError = code;
+    },
+}
+
+@effect on Load {
+    match svc.session.users(timeoutMs: 250) {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(UsersFailed(e)),
+    }
+}
+
+@effect on Submit {
+    match svc.session.login(state.selected, state.secret, timeoutMs: 1000) {
+        Ok(ok) => dispatch(LoginOk(ok)),
+        Err(e) => dispatch(LoginFailed(e)),
+    }
+}

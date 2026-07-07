@@ -112,3 +112,45 @@ in-compositor mount from TASK-0076B.
 2. launcher page + registry adapter + interaction fixtures
 3. greeter page + sessiond adapter + state fixtures
 4. profile matrix + a11y pass + docs + handoff notes for 0080C
+
+## STATUS / PROGRESS LEDGER (2026-07-07)
+
+**HOST-SIDE DoD DELIVERED (uncommitted)** — autonomous phase-6 batch:
+
+- **Workspace** `userspace/systemui/` (workspace-glob EXCLUDED in root
+  Cargo.toml — DSL-only tree, the tools/__pycache__ lesson):
+  - `shells/desktop/ui/` — ShellPage (top bar + Apps entry → navigate
+    "/launcher"), LauncherPage (registry grid via
+    `svc.bundlemgr.enumerate(query)` — filtering AT the service, canonical
+    search-as-you-type; tap → `dispatch(Launch(app.id))` →
+    `svc.ability.launch`), phone override (single-column list, structural
+    divergence), Routes, launcher.store.nx; i18n/{en,de}.json.
+  - `greeter/ui/` — GreeterPage (users via `svc.session.users`, secret
+    TextField binding, submit → `svc.session.login`; phases 0 idle /
+    1 authenticating / 2 failure mirror the TASK-0065B contract),
+    session.store.nx, Routes; i18n/{en,de}.json.
+- **Service surface** (dsl_services.capnp, sorted): `ability.launch(Str)`,
+  `bundlemgr.enumerate(Str) -> List<AppEntry>`, `session.login(Str,Str)`,
+  `session.users() -> List<Str>` — generated into the checker + app-host
+  surface as always.
+- **Host proofs** `tests/systemui_bootstrap_shell_host/` (7 green):
+  profile matrix (desktop/phone/tablet), transcripted launch by AppRecord id
+  (byte-exact replay, `is_clean()`), service-side search refilter, phone
+  override structural divergence, greeter success/failure state machine
+  (secret cleared on BOTH outcomes), keyed grid reorder/insert, lint/a11y
+  gate for both trees.
+- **COMPILER FIX ON THE WAY** (pre-existing, the shell was the first program
+  big enough to hit it): `set_root_canonical` ASSERTS single-segment output —
+  the default allocator grew by adding a second segment and ABORTED the
+  build. Both canonicalization sites (core lower/mod.rs + ir hashing.rs) now
+  size the first segment from the source message. Canonical bytes are
+  unchanged (goldens prove it); all DSL suites green.
+- **Docs**: patterns.md "System surfaces" chapter; session.md DSL-greeter
+  note (contract unchanged); docs/systemui/dsl-migration.md created.
+- **Icons (DoD item 3): DEFERRED** — the DSL Icon primitive renders via the
+  widget registry, but the launcher v1 uses text cards; the Lucide-sourced
+  icon pass rides with the 0080C mount (needs the asset pipeline wiring,
+  TASK-0081 item 3).
+
+OPEN → 0080C: OS mount (registry `dsl_root` now points at this tree),
+greeter swap, live-input launch e2e.

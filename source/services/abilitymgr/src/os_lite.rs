@@ -356,15 +356,19 @@ fn session_gate_active() -> bool {
     }
 }
 
-/// v1 app-id → execd image-id table. The counter demo is the only
-/// uiProgram payload execd embeds today; the bundle GET_PAYLOAD step
-/// (TASK-0080D R2 remainder / TASK-0081) replaces this table with
-/// manifest-driven payload sourcing.
+/// execd image id of the shared app-host runtime (execd os_lite
+/// `IMG_APPHOST`) — the ONE process image every ui-program app runs in; the
+/// per-app payload arrives via bundlemgrd GET_PAYLOAD (child VMO slot 7).
+const IMG_APPHOST: u8 = 4;
+
+/// app-id → execd image id, manifest-driven: any bundle declaring
+/// `payload_kind = "ui-program"` (build-time `APP_UI_PROGRAMS` table from
+/// `bundles/<app>/manifest.toml`) spawns the app-host runtime.
 fn image_for_app(app_id: &str) -> Option<u8> {
-    match app_id {
-        "counter" => Some(4), // IMG_APPHOST (execd os_lite)
-        _ => None,
-    }
+    crate::caps::APP_UI_PROGRAMS
+        .iter()
+        .any(|id| *id == app_id)
+        .then_some(IMG_APPHOST)
 }
 
 /// Requests the process spawn from execd (`OP_EXEC_IMAGE` frame, requester
@@ -381,9 +385,16 @@ fn spawn_app(app_id: &str) {
         emit_line("abilitymgr: FAIL launch spawn (execd unreachable)");
         return;
     };
-    // Request v1: [E, X, ver, op=1, image_id, stack_pages, requester_len, requester...]
+    // Request v1 (+append-only app-id extension, TASK-0080D GET_PAYLOAD):
+    // [E, X, ver, op=1, image_id, stack_pages, requester_len, requester...,
+    //  app_len:u8, app...] — execd resolves the payload for the app id.
     const REQUESTER: &[u8] = b"abilitymgr";
-    let mut req = [0u8; 32];
+    let app = app_id.as_bytes();
+    if app.is_empty() || app.len() > 48 {
+        emit_line("abilitymgr: FAIL launch spawn (app id length)");
+        return;
+    }
+    let mut req = [0u8; 128];
     req[0] = b'E';
     req[1] = b'X';
     req[2] = 1;
@@ -392,7 +403,10 @@ fn spawn_app(app_id: &str) {
     req[5] = 8; // stack pages (service default)
     req[6] = REQUESTER.len() as u8;
     req[7..7 + REQUESTER.len()].copy_from_slice(REQUESTER);
-    let len = 7 + REQUESTER.len();
+    let mut len = 7 + REQUESTER.len();
+    req[len] = app.len() as u8;
+    req[len + 1..len + 1 + app.len()].copy_from_slice(app);
+    len += 1 + app.len();
     let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
         emit_line("abilitymgr: FAIL launch spawn (client)");
         return;

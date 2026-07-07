@@ -312,6 +312,7 @@ dependencies = [
  "keystored",
  "memchr",
  "nexus-abi",
+ "nexus-dsl-core",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
@@ -3812,6 +3813,19 @@ dependencies = [
  "jpeg-decoder",
  "nexus-abi",
  "nexus-service-entry",
+]
+
+[[package]]
+name = "systemui_bootstrap_shell_host"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-ir",
+ "nexus-dsl-runtime",
+ "nexus-layout",
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+ "ui_v10_goldens",
 ]
 
 [[package]]

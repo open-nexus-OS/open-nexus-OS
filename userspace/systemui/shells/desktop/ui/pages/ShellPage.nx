@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The bootstrap desktop shell page (TASK-0080B): wallpaper surface + top bar
+// with the Apps entry point. Deliberately minimal chrome — this is the base
+// TASK-0119 extends (quick settings/notifications land there), NOT a
+// prototype: the Apps button navigates to the real launcher, which drives
+// the real registry + launch authority.
+
+Page ShellPage {
+    Stack {
+        Stack {
+            Text(@t("shell.product")).textSize(sm).fg(onSurface)
+            Spacer
+            Button { label: @t("shell.apps") }
+                .bg(surfaceVariant)
+                .fg(onSurface)
+                .rounded(md)
+            on Tap -> navigate("/launcher")
+        }
+        .direction(row)
+        .padding(2)
+        .gap(2)
+        .bg(surface)
+        Stack {
+            Spacer
+        }
+        .grow(1)
+        .bg(background)
+    }
+    .gap(0)
+}
