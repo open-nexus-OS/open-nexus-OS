@@ -33,6 +33,13 @@ pub const OP_SURFACE_DESTROY: u8 = 10;
 /// windowd → app: an input event routed to the surface (R3). Payload:
 /// `surface_id:u32, kind:u8, x:u16, y:u16` — surface-LOCAL body pixels.
 pub const OP_SURFACE_INPUT: u8 = 11;
+/// execd → windowd: attaches the app's DEDICATED event channel. The message
+/// MOVES the channel's SEND capability; windowd retains it and delivers ALL
+/// app-bound frames (input events + surface acks) on it. Replaces the shared
+/// `window_rsp` delivery, which raced with inputd's ack drain — a tap sent on
+/// the shared channel could be consumed by ANY receiver (the R3 "buttons do
+/// nothing" bug). Header-only frame.
+pub const OP_SURFACE_EVENTS: u8 = 12;
 
 /// Input kinds (v1: taps; motion/keys land with the focus model).
 pub const INPUT_KIND_TAP: u8 = 0;
@@ -209,6 +216,21 @@ pub fn decode_surface_input(frame: &[u8]) -> Option<(u32, u8, u16, u16)> {
     ))
 }
 
+// ------------------------------------------------------------------ events
+
+pub const SURFACE_EVENTS_FRAME_LEN: usize = HEADER_LEN;
+
+/// Header-only attach frame (the moved SEND capability rides the message).
+#[must_use]
+pub fn encode_surface_events() -> [u8; SURFACE_EVENTS_FRAME_LEN] {
+    header(OP_SURFACE_EVENTS)
+}
+
+#[must_use]
+pub fn is_surface_events(frame: &[u8]) -> bool {
+    has_op(frame, OP_SURFACE_EVENTS) && frame.len() == SURFACE_EVENTS_FRAME_LEN
+}
+
 // -------------------------------------------------------------------- acks
 
 /// Ack layout (all ops): `[hdr(op | 0x80), status, value:u32]` — `value` is
@@ -277,9 +299,25 @@ mod tests {
     #[test]
     fn ops_do_not_collide_with_the_input_family() {
         // input-live-protocol occupies 1–4 on the same endpoint envelope.
-        for op in [OP_SURFACE_CREATE, OP_SURFACE_PRESENT, OP_SURFACE_DESTROY, OP_SURFACE_INPUT] {
+        for op in [
+            OP_SURFACE_CREATE,
+            OP_SURFACE_PRESENT,
+            OP_SURFACE_DESTROY,
+            OP_SURFACE_INPUT,
+            OP_SURFACE_EVENTS,
+        ] {
             assert!(op > 4, "op {op} collides with the input family");
         }
+    }
+
+    #[test]
+    fn events_attach_frame_round_trip() {
+        let f = encode_surface_events();
+        assert!(is_surface_events(&f));
+        assert!(!is_surface_events(&f[..f.len() - 1]));
+        let mut wrong = f;
+        wrong[3] = OP_SURFACE_INPUT;
+        assert!(!is_surface_events(&wrong));
     }
 
     #[test]

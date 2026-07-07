@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn real_app_manifests_only_declare_known_permissions() {
-        // The shipped bundles (generated from bundles/<app>/manifest.toml) must not
+        // The shipped bundles (generated from userspace/apps/<app>/manifest.toml) must not
         // drift to an unrecognized permission — caught here at `cargo test`.
         for (app, caps) in APP_MANIFEST_CAPS {
             assert!(

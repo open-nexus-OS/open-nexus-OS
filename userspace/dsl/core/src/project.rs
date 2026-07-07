@@ -156,3 +156,52 @@ pub fn canonical_source_set(files: &[SourceFile]) -> String {
     }
     out
 }
+
+/// Compiles an app project directory (`<root>/ui/**.nx`, the
+/// docs/dev/dsl/project-layout.md tree) to canonical `.nxir` bytes — the ONE
+/// build-time compile path every generator uses (bundlemgrd payload table,
+/// windowd demo mount, app-host build), so a payload can never diverge from
+/// the CLI's project mode: walk `ui/`, merge, check, lower.
+///
+/// # Errors
+/// A human-readable reason (unreadable tree, parse/check/lower diagnostics) —
+/// build scripts fail the BUILD with it (fail-closed, no phantom payloads).
+#[cfg(feature = "std")]
+pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>, String> {
+    let ui = root.join("ui");
+    let mut files: alloc::vec::Vec<SourceFile> = alloc::vec::Vec::new();
+    let mut stack = alloc::vec![ui.clone()];
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|e| alloc::format!("read {}: {e}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("nx") {
+                let source = std::fs::read_to_string(&path)
+                    .map_err(|e| alloc::format!("read {}: {e}", path.display()))?;
+                files.push(SourceFile {
+                    path: path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    source,
+                });
+            }
+        }
+    }
+    if files.is_empty() {
+        return Err(alloc::format!("no .nx sources under {}", ui.display()));
+    }
+    let merged = merge_project(&files).map_err(|d| alloc::format!("merge: {d:?}"))?;
+    let (model, diags) = crate::check_file(&merged);
+    if crate::has_errors(&diags) {
+        return Err(alloc::format!("check: {diags:?}"));
+    }
+    let canonical = canonical_source_set(&files);
+    crate::lower_file(&merged, &model, &canonical)
+        .map(|lowered| lowered.nxir)
+        .map_err(|d| alloc::format!("lower: {d:?}"))
+}

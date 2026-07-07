@@ -36,6 +36,24 @@ pub struct ProductManifest {
     pub policy_preset: String,
     /// Optional deployment tag, e.g. `warehouse-floor` (empty when unset).
     pub deployment: String,
+    /// Session mode (TASK-0081 boot TOML): how the device enters a session.
+    /// `Greeter` shows the login greeter (default — the TASK-0065B contract);
+    /// `Auto` logs the sole/default user in directly (kiosk/single-purpose).
+    pub session: SessionMode,
+    /// Greeter APP id (empty = the built-in greeter view). Any app
+    /// implementing the greeter contract (`svc.session.*`) can be the
+    /// greeter — the registry resolves it like the shell; AUTHORITY is
+    /// unchanged (sessiond decides, this only picks the renderer).
+    pub greeter: String,
+}
+
+/// How the device enters a session at boot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionMode {
+    /// Show the login greeter; sessiond gates the shell (default).
+    Greeter,
+    /// Auto-login the default user (kiosk/single-purpose devices).
+    Auto,
 }
 
 pub fn parse_product_manifest(input: &str) -> Result<ProductManifest> {
@@ -47,6 +65,12 @@ pub fn parse_product_manifest(input: &str) -> Result<ProductManifest> {
         theme: optional_string_field(&entries, "", "theme")?.unwrap_or_default(),
         policy_preset: optional_string_field(&entries, "", "policy_preset")?.unwrap_or_default(),
         deployment: optional_string_field(&entries, "", "deployment")?.unwrap_or_default(),
+        session: match optional_string_field(&entries, "", "session")?.as_deref() {
+            None | Some("greeter") => SessionMode::Greeter,
+            Some("auto") => SessionMode::Auto,
+            Some(_) => return Err(SystemUiError::InvalidManifest),
+        },
+        greeter: optional_string_field(&entries, "", "greeter")?.unwrap_or_default(),
     };
     validate_product(&manifest)?;
     Ok(manifest)
@@ -58,5 +82,42 @@ pub fn validate_product(manifest: &ProductManifest) -> Result<()> {
     if manifest.id.is_empty() || manifest.profile.is_empty() || manifest.shell.is_empty() {
         return Err(SystemUiError::InvalidManifest);
     }
+    // Auto-login must not ALSO name a greeter app: the pair is contradictory
+    // and a kiosk misconfiguration should fail at parse, not at boot.
+    if manifest.session == SessionMode::Auto && !manifest.greeter.is_empty() {
+        return Err(SystemUiError::InvalidManifest);
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base(extra: &str) -> String {
+        format!("id = \"p\"\nprofile = \"desktop\"\nshell = \"desktop\"\n{extra}\n")
+    }
+
+    #[test]
+    fn session_defaults_to_greeter() {
+        let m = parse_product_manifest(&base("")).expect("parses");
+        assert_eq!(m.session, SessionMode::Greeter);
+        assert!(m.greeter.is_empty());
+    }
+
+    #[test]
+    fn session_auto_and_greeter_app_parse() {
+        let m = parse_product_manifest(&base("session = \"auto\"")).expect("parses");
+        assert_eq!(m.session, SessionMode::Auto);
+        let m = parse_product_manifest(&base("session = \"greeter\"\ngreeter = \"login-app\""))
+            .expect("parses");
+        assert_eq!(m.session, SessionMode::Greeter);
+        assert_eq!(m.greeter, "login-app");
+    }
+
+    #[test]
+    fn invalid_session_and_contradictory_auto_greeter_fail_closed() {
+        assert!(parse_product_manifest(&base("session = \"maybe\"")).is_err());
+        assert!(parse_product_manifest(&base("session = \"auto\"\ngreeter = \"x\"")).is_err());
+    }
 }

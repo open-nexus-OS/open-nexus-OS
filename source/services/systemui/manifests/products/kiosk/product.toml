@@ -15,3 +15,5 @@ shell = "kiosk"
 theme = "acme-industrial"
 policy_preset = "locked-down"
 deployment = "warehouse-floor"
+# Kiosk boots STRAIGHT into its shell app — no greeter (TASK-0081 boot TOML).
+session = "auto"

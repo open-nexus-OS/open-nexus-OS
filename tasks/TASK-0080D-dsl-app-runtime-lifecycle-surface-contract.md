@@ -453,3 +453,59 @@ in boot 10; windowd size contract 79%.
   launch routes + registry + caps + DSL chain green. The GET_PAYLOAD
   runtime markers appear on the USER's Apps→counter click (see
   `tools/postflight-systemui-bootstrap-shell.sh`, "payload chain" stage).
+
+### 2026-07-07 (R3 input ROOT CAUSE + fix, uncommitted)
+
+- **User-Verify des Launch-Batches**: Fenster erscheint, Kontrast ok,
+  GET_PAYLOAD-Kette komplett auf dem User-Boot bewiesen
+  (`APPHOST: payload source=bundle`, hash unverändert) — aber BUTTONS TOT.
+- **ROOT CAUSE (aus dem Code, kein Boot-Loop)**: OP_SURFACE_INPUT lief über
+  den GETEILTEN `window_rsp`-Kanal — auf dem hält AUCH inputd ein RECV und
+  drainiert ihn permanent (Ack-Lesen nach jedem Visible-State-Push): Taps
+  wurden von inputd KONSUMIERT, bevor der app-host sie sah. Der Marker
+  `WINDOWD: surface input routed` war zudem HOHL (druckte vor bekannter
+  Zustellung — die vom User geforderte Fehlermeldungs-Klasse).
+- **FIX = ADR-0042 Deviation 6, dedizierter Per-App-Event-Kanal**:
+  init mintet das Pair im execd-Arm (`init: execd app-event slots send=0xb
+  recv=0xc`, Slot-Order-Kontrakt); execd bewegt den SEND-Clone per
+  `OP_SURFACE_EVENTS`(12)+CAP_MOVE an windowd (VOR dem resume, gleiche
+  Request-Queue wie das spätere SURFACE_CREATE ⇒ Attach-vor-Create
+  garantiert) und grantet RECV an Kind-Slot 8; windowd liefert Input UND
+  Acks auf dem Kanal (Fallback shared nur noch markiert für alte Wiring);
+  app-host recv't blocking auf Slot 8 (`APPHOST: events
+  source=dedicated`).
+- **Observability-Härtung** (Konsequenz aus dem User-Feedback): `routed`
+  nur noch bei zugestelltem Send; `WINDOWD: FAIL surface input (no event
+  channel)/send`; app-host bounded-Marker für recv-Fehler, Nicht-Input-
+  Frames und Tap-Misses (Koordinaten-Bugs sähen exakt so aus). Postflight
+  hat eine neue Stufe „app event channel (dedicated)".
+- Proto-Op + Codec getestet (nexus-display-proto 9 Tests inkl.
+  Kollisions-Pin); windowd 138+ Tests grün, Size-Contract 79%.
+- USER-VERIFY: Apps→counter → „+" klicken → Zahl steigt; Postflight zeigt
+  die Event-Kanal-Stufe + `APPHOST: interactive frame presented`.
+
+### 2026-07-07 (Runde 2: recv-Wake-Befund + Demo-Retirement, uncommitted)
+
+- User-Test nach dem Event-Kanal-Fix: Kette VOLLSTÄNDIG grün (sent →
+  granted → attached → source=dedicated → routed×N, `routed` druckt nur
+  noch bei zugestellter Nachricht) — und der app-host blieb TROTZDEM stumm
+  (kein tap-miss, kein event-frame-skipped, kein recv-FAIL). Einziger
+  offener Hop: das BLOCKING recv selbst.
+- **KERNEL-BEFUND (#102-Familie): ein exec'd-Kind, das in `Wait::Blocking`
+  recv parkt, wird von einem Sender NIE geweckt.** Die Acks kamen nur an,
+  weil `recv_ack` NonBlocking pollt. Diagnose-Anker: Boot
+  manual--2026-07-07T12-12-27 (zugestellte Frames, Empfänger für immer
+  still). Kernel-Fix (Sender-Wake für U-Task-Kinder) = eigener Zug.
+- **WORKAROUND im app-host**: Event-Loop auf `Wait::Timeout(30ms)` —
+  der Timer-Deadline-Wake (`wake_expired_ipc_deadlines`) ist bewiesen
+  generisch; timed park wacht spätestens am Deadline und pollt neu
+  (bounded Latenz, kein Normal-QoS-yield-spin). Neuer Marker
+  `APPHOST: event loop armed` schließt die letzte stumme Lücke
+  (Loop-Eintritt ist jetzt beweisbar).
+- **DSL-Demo-Fenster RETIRED (User-Entscheidung: nur EIN Counter)**:
+  `maybe_boot_open_dsl` mountet weiterhin (Marker `DSL: program loaded
+  hash=` bleibt der Headless-Beweis des In-Compositor-Pfads, den 0080C
+  wiederverwendet; neuer Marker `DSL: demo window retired (mount-only)`),
+  öffnet aber KEIN Fenster mehr; `DSL: first frame presented` entfällt —
+  Postflight-Stufe umgestellt; tools/nx-Chain-Tests sind Host-Simulationen
+  (unberührt). `open_dsl_demo` bleibt als 0080C-Fenster-Pfad (allow(dead_code)).

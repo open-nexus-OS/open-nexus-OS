@@ -64,6 +64,11 @@ hier abgehakt UND im jeweiligen Ledger geschlossen.
       Stack 8→32 Pages ohne Wirkung; init meldet up (exec_v2+resume ok).
       Diagnose braucht Kernel-Build mit `exec`-Debug-Log.
       (Details: TASK-0080D-Ledger „SEPARATE PRE-EXISTING FINDING".)
+- [ ] **NEU (#102-Familie): Blocking-recv-Wake für exec'd-Kinder tot** —
+      ein Kind in `Wait::Blocking` recv wird vom Sender nie geweckt (Beweis:
+      Boot 2026-07-07T12-12, zugestellte OP_SURFACE_INPUT-Frames, Empfänger
+      still; app-host-Workaround = Wait::Timeout(30ms)-Loop). Kernel-Fix:
+      Sender-Wake-Pfad für U-Task-Kinder prüfen (park/wake in sys_ipc_recv).
 - [ ] **#102-Folge**: den stillgelegten Selftest-Exec/exit0/Minidump-Chain
       auf dem Resume-Fix wiederherstellen (Root Cause: execd resumte seine
       suspended-gespawnten Kinder nie — behoben in 0080D R1).
@@ -82,8 +87,10 @@ hier abgehakt UND im jeweiligen Ledger geschlossen.
       W4-Overlays (0074), boot-gated Palette/Glass/W6. Der Design-Contract
       liegt fertig in `docs/dev/design_handoff_open_nexus_os/` (54
       Components / 67 Interfaces) — Maßstab für das System-Widget-Set.
-- [ ] DSL-Demo-Fenster: kein Scroll-Body (v0.1); Reopen-Trigger nach dem
-      Schließen fehlt (0076B-Ledger).
+- [x] DSL-Demo-Fenster RETIRED 2026-07-07 (User: nur EIN Counter) — Mount
+      bleibt als Headless-Beweis (`DSL: program loaded hash=` +
+      `DSL: demo window retired (mount-only)`); Fenster-Pfad wartet auf den
+      0080C-Shell-Mount.
 
 ## App-Plattform (Diskussionsergebnis 2026-07-07 → TASK-0081)
 
@@ -133,3 +140,34 @@ stall"). Konsequenz = bessere, display-seitige Tests:
 - [ ] Bestehende Hollow-Marker-Audit fortführen ([[fake-proof-marker-audit]]):
       `windowd: full-window color visible` in die Liste (Behauptung ohne
       Scanout-Beweis).
+
+## ARCHITEKTUR-AUFTRAG (User 2026-07-07): production-grade statt Workarounds
+
+Direktive: Apple-Qualität, Hardening an der Wurzel, keine Brücken. Die zwei
+Wurzeln, in dieser Reihenfolge:
+
+1. **Display-Pipeline-Recovery (das wiederkehrende Schwarz)** — Diagnose:
+   alle Schwarz-Boots waren ERSTE Boots nach frischem Build (kalter Cache /
+   Host-IO); Warmstart-Serien (12×) immer gut. Klasse: erster großer
+   virgl-Compose frisst das 500ms-Deadline-Budget → gpud bricht den Frame
+   ab → REAKTIVER Compositor ohne neues Damage recomposed NIE → RT bleibt
+   schwarz, Marker bleiben grün. Production-grade Fix (kein Retry-Hack):
+   a) gpud: Present-Ausgang EHRLICH machen — Deadline-Miss ⇒ Present-NACK
+      an windowd (Wire hat Status; heute wird Erfolg angenommen) +
+      `gpud: FAIL present deadline (cmd=N)`-Marker;
+   b) windowd: NACK ⇒ Frame als NICHT präsentiert buchen, Damage
+      REQUEUEN (self-heal beim nächsten Tick; bounded Retry-Zähler +
+      Marker `windowd: present retry n=`);
+   c) gpud one-shot Scanout-Readback nach erstem G4
+      (virgl_transfer_from_host-Seam) → `gpud: scanout sample ok/FAIL
+      scanout black` + SELFTEST `display nonblack ok` — Display-Wahrheit im
+      UART, headless-gate-fähig.
+   Gate: 5 Erste-Boots-nach-Build unter Host-Last, visual-postflight grün.
+2. **Kernel: Sender-Wake für exec'd-Kinder in blocking recv (#102-Familie)**
+   — sys_ipc_recv park/wake: Kinder werden vom Sender nicht geweckt (Beweis
+   Boot 12-12-27). Fix im Kernel (Waiter-Registrierung/Wake-Pfad für
+   U-Task-Kinder identisch zu Boot-Services), DANN app-host zurück auf
+   `Wait::Blocking` (der Timeout-Loop ist als Übergang markiert und fliegt
+   raus). Gate: Klick-Test + retired Selftest-Exec-Chain reaktivieren.
+3. Danach erst wieder Feature-Arbeit (0080C Shell-Mount auf der dann
+   verlässlichen Pipeline).

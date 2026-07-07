@@ -578,6 +578,33 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
                 }
+                // ADR-0042 per-app event channel: a DEDICATED endpoint pair
+                // for windowd→app delivery (input events + surface acks).
+                // The shared `window_rsp` channel raced with inputd's ack
+                // drain — any receiver could consume an app's tap. execd
+                // hands RECV to the spawned app (child slot 8) and moves a
+                // SEND clone to windowd (`OP_SURFACE_EVENTS`). Slot-order
+                // contract: execd expects SEND at 11, RECV at 12
+                // (APP_EVENT_*_SLOT) — the log line is the proof.
+                {
+                    let event_ep =
+                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+                            .map_err(InitError::Abi)?;
+                    let event_send_slot =
+                        nexus_abi::cap_transfer(pid, event_ep, Rights::SEND)
+                            .map_err(InitError::Abi)?;
+                    let event_recv_slot =
+                        nexus_abi::cap_transfer(pid, event_ep, Rights::RECV)
+                            .map_err(InitError::Abi)?;
+                    let _ = nexus_abi::cap_close(event_ep);
+                    if iw(init_wire, init_fold, "init:execd") {
+                        debug_write_bytes(b"init: execd app-event slots send=0x");
+                        debug_write_hex(event_send_slot as usize);
+                        debug_write_bytes(b" recv=0x");
+                        debug_write_hex(event_recv_slot as usize);
+                        debug_write_byte(b'\n');
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

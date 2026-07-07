@@ -267,10 +267,57 @@ impl DisplayServerRuntime {
         self.app_win.damage_rect(self.mode.width, self.mode.height)
     }
 
-    /// Routes a body tap to the surface's owning app process (R3): the event
-    /// travels over windowd's response endpoint (slot 4, the channel the app
-    /// holds RECV on). Best-effort non-blocking — input must never stall the
-    /// compositor; a full queue drops the tap (the app is wedged anyway).
+    /// Stores the app's dedicated event channel (SEND cap slot moved with an
+    /// `OP_SURFACE_EVENTS` frame, execd-attached). A relaunch replaces the
+    /// channel — the previous cap is closed, never leaked.
+    #[allow(unused_variables)]
+    pub(crate) fn attach_app_event_channel(&mut self, send_slot: Option<u32>) {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(slot) = send_slot else {
+                let _ = debug_println("WINDOWD: FAIL app event channel (no cap)");
+                return;
+            };
+            if let Some(old) = self.app_event_channel.replace(slot) {
+                let _ = nexus_abi_cap_close(old);
+            }
+            let _ = debug_println("WINDOWD: app event channel attached");
+        }
+    }
+
+    /// Sends one app-bound frame (input event or surface ack) on the
+    /// dedicated event channel. Returns false when no channel is attached
+    /// (caller falls back to the shared response endpoint) — a SEND failure
+    /// on an attached channel is reported, not silently dropped.
+    #[allow(unused_variables)]
+    pub(crate) fn send_app_frame(&mut self, frame: &[u8]) -> bool {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(slot) = self.app_event_channel else { return false };
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => true,
+                Err(_) => {
+                    // The channel exists but is full/broken: report it and
+                    // claim delivery — falling back to the shared endpoint
+                    // would reintroduce the ack race this channel removes.
+                    let _ = debug_println("WINDOWD: FAIL app event send");
+                    true
+                }
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = frame;
+            false
+        }
+    }
+
+    /// Routes a body tap to the surface's owning app process (R3) over the
+    /// DEDICATED event channel (the shared response endpoint raced with
+    /// inputd's ack drain — a tap there could be consumed by any receiver).
+    /// Best-effort non-blocking — input must never stall the compositor.
+    /// Markers are honest: `routed` prints only on a delivered send.
     pub(crate) fn send_app_input(&mut self, local_x: i32, local_y: i32) {
         #[cfg(nexus_env = "os")]
         {
@@ -282,10 +329,18 @@ impl DisplayServerRuntime {
                 x,
                 y,
             );
-            if let Ok(tx) = nexus_ipc::KernelClient::new_with_slots(4, 3) {
-                use nexus_ipc::Client as _;
-                let _ = tx.send(&frame, nexus_ipc::Wait::NonBlocking);
-                let _ = debug_println("WINDOWD: surface input routed");
+            let Some(slot) = self.app_event_channel else {
+                let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
+                return;
+            };
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => {
+                    let _ = debug_println("WINDOWD: surface input routed");
+                }
+                Err(_) => {
+                    let _ = debug_println("WINDOWD: FAIL surface input send");
+                }
             }
         }
         #[cfg(not(nexus_env = "os"))]

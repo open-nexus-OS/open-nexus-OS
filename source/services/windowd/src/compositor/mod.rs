@@ -435,24 +435,43 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
                         }
                     } else if frame.get(3).copied()
+                        == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
+                    {
+                        // ADR-0042 per-app event channel: the moved capability
+                        // is the channel's SEND half (execd-attached). All
+                        // app-bound frames (input events + surface acks) go
+                        // out on it — the shared response endpoint raced with
+                        // inputd's ack drain (any receiver could consume a
+                        // tap). No reply frame; the attach marker is the proof.
+                        let send_slot = moved_cap.take().map(|cap| {
+                            let slot = cap.slot();
+                            core::mem::forget(cap); // keep the slot alive (no close)
+                            slot
+                        });
+                        runtime.attach_app_event_channel(send_slot);
+                    } else if frame.get(3).copied()
                         == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
                     {
                         // ADR-0042: the moved capability IS the app's surface
                         // VMO (gpud-attach pattern), NOT a reply cap. Retain
-                        // its slot; the ack returns over the shared response
-                        // endpoint the app holds RECV on.
+                        // its slot; the ack returns over the app's dedicated
+                        // event channel (fallback: shared response endpoint).
                         let vmo_slot = moved_cap.take().map(|cap| {
                             let slot = cap.slot();
                             core::mem::forget(cap); // keep the slot alive (no close)
                             slot
                         });
                         let ack = runtime.handle_surface_create(frame, vmo_slot);
-                        let _ = server.send(&ack, Wait::Blocking);
+                        if !runtime.send_app_frame(&ack) {
+                            let _ = server.send(&ack, Wait::Blocking);
+                        }
                     } else if frame.get(3).copied()
                         == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
                     {
                         let ack = runtime.handle_surface_present(frame);
-                        if let Some(reply) = moved_cap.take() {
+                        if runtime.send_app_frame(&ack) {
+                            // delivered on the dedicated channel
+                        } else if let Some(reply) = moved_cap.take() {
                             let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
                         } else {
                             let _ = server.send(&ack, Wait::Blocking);
@@ -461,7 +480,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
                     {
                         let ack = runtime.handle_surface_destroy(frame);
-                        if let Some(reply) = moved_cap.take() {
+                        if runtime.send_app_frame(&ack) {
+                            // delivered on the dedicated channel
+                        } else if let Some(reply) = moved_cap.take() {
                             let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
                         } else {
                             let _ = server.send(&ack, Wait::Blocking);

@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed={MOCU_DEFAULT}");
     println!("cargo:rerun-if-changed={THEMES_DIR}");
     println!("cargo:rerun-if-changed=src/proof_panel_spec.rs");
-    println!("cargo:rerun-if-changed={DSL_DEMO_NX}");
 
     let out_dir = env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
     let out_dir = Path::new(&out_dir);
@@ -493,19 +492,14 @@ fn normalized_mocu_cursor_svg() -> &'static str {
 /// TASK-0076B: compile the DSL demo page (`.nx`) to canonical `.nxir` bytes
 /// embedded into windowd for the visible in-compositor mount. The compiler
 /// runs host-side (build script); the service only reads the canonical IR.
-const DSL_DEMO_NX: &str = "../../../examples/dsl/counter/counter.nx";
+const DSL_DEMO_APP: &str = "../../../userspace/apps/counter";
 
 fn compile_dsl_demo(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let source = fs::read_to_string(DSL_DEMO_NX)?;
-    let file = nexus_dsl_core::parse_file(&source)
-        .map_err(|d| std::io::Error::other(format!("dsl demo parse: {} {}", d.code, d.message)))?;
-    let (model, diags) = nexus_dsl_core::check_file(&file);
-    if nexus_dsl_core::has_errors(&diags) {
-        return Err(std::io::Error::other(format!("dsl demo check: {diags:?}")).into());
-    }
-    let canonical = nexus_dsl_core::format_file(&file);
-    let lowered = nexus_dsl_core::lower_file(&file, &model, &canonical)
-        .map_err(|d| std::io::Error::other(format!("dsl demo lower: {} {}", d.code, d.message)))?;
-    fs::write(out_dir.join("dsl_demo.nxir"), &lowered.nxir)?;
+    // TASK-0081 consolidation: the app SSOT is `userspace/apps/counter/`
+    // (project tree); compiled through the ONE shared project-compile path.
+    println!("cargo:rerun-if-changed={DSL_DEMO_APP}");
+    let nxir = nexus_dsl_core::compile_project_dir(Path::new(DSL_DEMO_APP))
+        .map_err(|e| std::io::Error::other(format!("dsl demo: {e}")))?;
+    fs::write(out_dir.join("dsl_demo.nxir"), &nxir)?;
     Ok(())
 }

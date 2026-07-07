@@ -46,7 +46,7 @@ pub use frame::{
 };
 pub use greeter::{greeter_config, parse_greeter_manifest, validate_greeter, GreeterConfig};
 pub use ime_overlay::ImeOverlayState;
-pub use product::{parse_product_manifest, validate_product, ProductManifest};
+pub use product::{parse_product_manifest, validate_product, ProductManifest, SessionMode};
 pub use profile::{
     desktop_profile, parse_profile_manifest, validate_profile, DeviceInput, DisplayDefaults,
     ProfileManifest, SystemUiError, KNOWN_DPI_CLASSES, KNOWN_ORIENTATIONS, KNOWN_SIZE_CLASSES,

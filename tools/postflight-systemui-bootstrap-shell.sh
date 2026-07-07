@@ -92,8 +92,8 @@ check_any "sessiond up" \
 check_any "greeter/shell surface" \
   "windowd: greeter visible" \
   "(OK|WARN) +windowd"
-check "DSL demo mount" \
-  "DSL: first frame presented"
+check "DSL in-compositor mount (mount-only since demo retirement)" \
+  "DSL: program loaded hash="
 
 echo "== launch e2e (RFC-0065 + ADR-0042 + GET_PAYLOAD) =="
 interactive "launch chain" \
@@ -109,6 +109,11 @@ interactive "app surface" \
   "APPHOST: mounted hash=" \
   "WINDOWD: surface created" \
   "WINDOWD: surface presented"
+interactive "app event channel (dedicated)" \
+  "execd: app event channel sent" \
+  "execd: app event channel granted" \
+  "WINDOWD: app event channel attached" \
+  "APPHOST: events source=dedicated"
 interactive "app input" \
   "WINDOWD: surface input routed" \
   "APPHOST: interactive frame presented"

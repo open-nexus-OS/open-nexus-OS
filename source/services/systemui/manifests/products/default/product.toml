@@ -12,3 +12,7 @@ id = "default"
 profile = "desktop"
 shell = "desktop"
 theme = "nexus-default"
+# Boot session mode (TASK-0081): show the login greeter; sessiond decides.
+# `greeter` may name any app implementing the greeter contract (svc.session.*);
+# empty = the built-in greeter view (until TASK-0080C swaps the DSL greeter).
+session = "greeter"

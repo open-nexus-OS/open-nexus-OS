@@ -97,3 +97,21 @@ today.
    the `[b'I', b'N', ver, op]` family — the codecs live in
    `nexus-display-proto::client_surface` (the display SSOT), ops 8–10 in the
    shared op space (collision pinned by test).
+
+## Deviation 6 (2026-07-07): dedicated per-app event channel replaces shared window_rsp delivery
+
+The R1 shortcut (deviation 3: acks over the shared `window_rsp` endpoint)
+was UNSOUND for input: `inputd` holds a RECV on the same endpoint and drains
+it continuously for its own acks, so an `OP_SURFACE_INPUT` frame could be
+consumed by ANY receiver — live taps never reached the app (the R3 "buttons
+do nothing" failure; the `WINDOWD: surface input routed` marker was also
+hollow, printing before delivery was known). Now: nexus-init mints a
+dedicated endpoint pair in the execd arm (`init: execd app-event slots`),
+execd moves a SEND clone to windowd (`OP_SURFACE_EVENTS`, cap-move — sent on
+the same request queue BEFORE the child resumes, so windowd attaches the
+channel before any surface op arrives) and grants RECV to the child
+(slot 8). windowd delivers ALL app-bound frames (input events + surface
+acks) on this channel; the shared endpoint remains only as a marked fallback
+for old wiring. Markers are honest: `routed` prints only on a delivered
+send, and every silent path in the app-host event loop is bounded-marked
+(recv errors, non-input frames, tap misses).

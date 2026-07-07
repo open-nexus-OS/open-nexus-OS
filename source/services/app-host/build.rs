@@ -12,22 +12,14 @@
 
 use std::path::Path;
 
-const DSL_APP_NX: &str = "../../../examples/dsl/counter/counter.nx";
+const DSL_APP_DIR: &str = "../../../userspace/apps/counter";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo::rustc-check-cfg=cfg(nexus_env, values(\"os\",\"host\"))");
-    println!("cargo:rerun-if-changed={DSL_APP_NX}");
+    println!("cargo:rerun-if-changed={DSL_APP_DIR}");
     let out_dir = std::env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
-    let source = std::fs::read_to_string(DSL_APP_NX)?;
-    let file = nexus_dsl_core::parse_file(&source)
-        .map_err(|d| std::io::Error::other(format!("app payload parse: {} {}", d.code, d.message)))?;
-    let (model, diags) = nexus_dsl_core::check_file(&file);
-    if nexus_dsl_core::has_errors(&diags) {
-        return Err(std::io::Error::other(format!("app payload check: {diags:?}")).into());
-    }
-    let canonical = nexus_dsl_core::format_file(&file);
-    let lowered = nexus_dsl_core::lower_file(&file, &model, &canonical)
-        .map_err(|d| std::io::Error::other(format!("app payload lower: {} {}", d.code, d.message)))?;
-    std::fs::write(Path::new(&out_dir).join("app_payload.nxir"), &lowered.nxir)?;
+    let nxir = nexus_dsl_core::compile_project_dir(Path::new(DSL_APP_DIR))
+        .map_err(|e| std::io::Error::other(format!("app payload: {e}")))?;
+    std::fs::write(Path::new(&out_dir).join("app_payload.nxir"), &nxir)?;
     Ok(())
 }

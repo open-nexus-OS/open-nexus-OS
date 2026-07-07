@@ -127,3 +127,36 @@ Dieser Task definiert die VOLLE App-Anatomie darauf — festgelegt wurden:
   ruft die generierte svc-Signatur (Transcript-Test).
 - Exports: Vermittlungs-Statemachine host-getestet (Grant-Matrix fail-closed).
 - Libraries: byte-deterministisches .nxir mit/ohne Library-Dep-Auflösung.
+
+## STATUS / PROGRESS LEDGER (2026-07-07, uncommitted)
+
+**Phase 1+2 (Docs+Konsolidierung) GELIEFERT, Boot-TOML GELIEFERT:**
+
+- **C4 Konsolidierung DONE (host-grün)**: `bundles/` GELÖSCHT; Manifeste
+  leben in `userspace/apps/<name>/manifest.toml` (chat/search neben ihren
+  Crates; counter mit ui/pages/CounterPage.nx + i18n/ + assets/-Gerüst).
+  NEUER SSOT-Compile-Pfad `nexus_dsl_core::compile_project_dir(root)`
+  (project.rs, std-gated): ui/-Walk → merge → check → lower — von ALLEN
+  vier Generatoren benutzt (bundlemgrd build.rs APP_PAYLOADS, abilitymgr
+  build.rs Caps/UI-Programs, windowd dsl_demo, app-host payload) — ein
+  Payload kann nie mehr vom CLI-Projektmodus abweichen.
+  `examples/dsl/counter` bleibt als Lehr-Beispiel (dsl_goldens nutzt es).
+  HINWEIS: programHash des counter ändert sich (sourceDigest = Projektbaum
+  statt Einzeldatei) — Parität windowd↔app-host bleibt (gleicher Baum,
+  gleicher Helper). Tests: bundlemgrd 27+13, abilitymgr, systemui grün;
+  riscv os-lite 0 Fehler.
+- **B2 Boot-TOML DONE (host-grün)**: `ProductManifest.session`
+  (greeter|auto, Default greeter) + `.greeter` (App-Id, leer = eingebaute
+  Greeter-View); Validierung fail-closed (auto+greeter-App = Widerspruch =
+  Parse-Fehler; unbekannter Mode = Fehler). default-Produkt: explizit
+  `session = "greeter"`; kiosk: `session = "auto"` (Single-Purpose bootet
+  direkt in die Shell-App). 3 neue Unit-Tests; 19 systemui-Tests grün.
+  PARSER-FALLE: leere String-Werte (`greeter = ""`) lehnt parse_entries ab
+  — Default = Zeile weglassen. OS-Konsum (sessiond/windowd lesen
+  session/greeter) = 0080C-Gate.
+
+**OFFEN (in Plan-Reihenfolge):** assets/+i18n-Wiring (AssetRef-Pipeline),
+Companion-Tooling (`nx dsl add native` + Codegen), Manifest v2.2 `exports`
+(+abilitymgr-Vermittlung; nxb-pack ist zeilenbasiert — Export-Syntax
+liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
+(docs/dev/sdk/crates.md + Dep-Gate).

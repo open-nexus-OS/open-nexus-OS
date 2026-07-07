@@ -124,11 +124,36 @@ impl DisplayServerRuntime {
             return;
         }
         self.dsl_mount.boot_open_done = true;
-        self.open_dsl_demo();
+        // RETIRED as a visible window (user decision 2026-07-07): the real
+        // counter now runs as an app process (launch → app-host, ADR-0042) —
+        // two counters on screen were confusing. The MOUNT still runs at
+        // boot: `DSL: program loaded hash=` stays the headless proof of the
+        // in-compositor interpreter path, which the 0080C shell mount
+        // reuses. The window machinery stays (0080C mounts the SHELL here).
+        if self.ensure_dsl_view() {
+            let _ = debug_println("DSL: demo window retired (mount-only)");
+        }
+        // Deterministic post-reveal repaint: the demo window's boot-open used
+        // to queue damage here, forcing a SECOND full composition after the
+        // reveal — retiring the window removed that tick and the desktop
+        // stayed on the FIRST composition alone, which can abort under host
+        // load (virgl command-deadline class) with no recovery in a reactive
+        // compositor ⇒ deterministic black screen. Requeue the full frame
+        // once; the honest per-present NACK/requeue recovery is the recorded
+        // architecture item (TRACK "Display-Pipeline-Recovery").
+        self.queue_dirty_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: self.mode.width,
+            height: self.mode.height,
+        });
     }
 
     /// Show the DSL demo window (mirrors `open_settings`): mount the
     /// interpreter (once), acquire atlas surfaces, damage the region.
+    /// No caller since the demo-window retirement — kept as the in-compositor
+    /// window-open path the 0080C shell mount reuses.
+    #[allow(dead_code)]
     pub(super) fn open_dsl_demo(&mut self) {
         if self.shell_config.locked {
             return;
