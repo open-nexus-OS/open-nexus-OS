@@ -138,6 +138,16 @@ const CHILD_PAYLOAD_SLOT: u32 = 7;
 /// Payload VMO budget: 16-byte header + up to ~256KB canonical `.nxir`
 /// (counter is ~4KB; the bound is the transport contract, not a hint).
 const PAYLOAD_VMO_BYTES: usize = 16 + 256 * 1024;
+/// ADR-0042 per-app event channel (init-minted pair; slot-order contract,
+/// proven by `init: execd app-event slots send=0xb recv=0xc`): windowd gets
+/// a SEND clone (`OP_SURFACE_EVENTS`, cap-move) and delivers input events +
+/// surface acks on it; the child gets a RECV clone. Replaces the shared
+/// `window_rsp` delivery, which raced with inputd's ack drain (taps were
+/// consumed by inputd before the app ever saw them).
+const APP_EVENT_SEND_SLOT: u32 = 11;
+const APP_EVENT_RECV_SLOT: u32 = 12;
+/// The child slot receiving the event-channel RECV (app-host's constant).
+const CHILD_EVENTS_SLOT: u32 = 8;
 // Bring-up alias: kernel currently reports selftest-client under this stable sender ID.
 // Keep identity binding strict by accepting only this exact alternate for that requester.
 const SID_SELFTEST_CLIENT_ALT: u64 = 0x68c1_66c3_7bcd_7154;
@@ -812,6 +822,12 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
                 if let Some(vmo) = payload_vmo {
                     grant_payload_vmo(pid as u32, vmo);
                 }
+                // Dedicated event channel: attach windowd's SEND half FIRST
+                // (same request queue the child's SURFACE_CREATE uses, so
+                // windowd holds the channel before the create), then hand
+                // the RECV half to the child — all before resume.
+                attach_event_channel_to_windowd();
+                grant_event_channel(pid as u32);
             }
             // #102 ROOT CAUSE FIX: `spawn_inner` starts EVERY task Suspended
             // (the grants-before-resume hardening); nexus-init resumes its
@@ -902,6 +918,77 @@ fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
                 let _ = nexus_abi::cap_close(vmo);
                 return None;
             }
+        }
+    }
+}
+
+/// Attaches the app event channel to windowd: moves a SEND clone with an
+/// `OP_SURFACE_EVENTS` frame over execd's windowd route. Sent BEFORE the
+/// child resumes, on the same request queue the child's `SURFACE_CREATE`
+/// travels — windowd therefore holds the channel before it acks anything.
+fn attach_event_channel_to_windowd() {
+    let clone = match nexus_abi::cap_clone(APP_EVENT_SEND_SLOT) {
+        Ok(c) => c,
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL app event channel (clone)");
+            return;
+        }
+    };
+    let frame = nexus_display_proto::client_surface::encode_surface_events();
+    let hdr = nexus_abi::MsgHeader::new(
+        clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
+    let deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
+    loop {
+        match nexus_abi::ipc_send_v1(
+            APP_WINDOWD_SEND_SLOT,
+            &hdr,
+            &frame,
+            nexus_abi::IPC_SYS_NONBLOCK,
+            0,
+        ) {
+            Ok(_) => {
+                let _ = nexus_abi::debug_println("execd: app event channel sent");
+                return;
+            }
+            Err(nexus_abi::IpcError::QueueFull) => {
+                if nsec().ok().unwrap_or(u64::MAX) >= deadline {
+                    let _ = nexus_abi::debug_println("execd: FAIL app event channel (send timeout)");
+                    let _ = nexus_abi::cap_close(clone);
+                    return;
+                }
+                let _ = yield_();
+            }
+            Err(_) => {
+                let _ = nexus_abi::debug_println("execd: FAIL app event channel (send)");
+                let _ = nexus_abi::cap_close(clone);
+                return;
+            }
+        }
+    }
+}
+
+/// Hands the child its RECV half of the dedicated event channel
+/// (`CHILD_EVENTS_SLOT`).
+fn grant_event_channel(child_pid: u32) {
+    match nexus_abi::cap_clone(APP_EVENT_RECV_SLOT).and_then(|clone| {
+        nexus_abi::cap_transfer_to_slot(
+            child_pid as nexus_abi::Pid,
+            clone,
+            nexus_abi::Rights::RECV,
+            CHILD_EVENTS_SLOT,
+        )
+        .map_err(|_| nexus_abi::AbiError::Unsupported)
+    }) {
+        Ok(_) => {
+            let _ = nexus_abi::debug_println("execd: app event channel granted");
+        }
+        Err(_) => {
+            let _ = nexus_abi::debug_println("execd: FAIL app event channel grant");
         }
     }
 }

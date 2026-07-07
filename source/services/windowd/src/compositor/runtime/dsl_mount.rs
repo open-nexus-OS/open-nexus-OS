@@ -124,14 +124,13 @@ impl DisplayServerRuntime {
             return;
         }
         self.dsl_mount.boot_open_done = true;
-        // RETIRED as a visible window (user decision 2026-07-07): the real
-        // counter now runs as an app process (launch → app-host, ADR-0042) —
-        // two counters on screen were confusing. The MOUNT still runs at
-        // boot: `DSL: program loaded hash=` stays the headless proof of the
-        // in-compositor interpreter path, which the 0080C shell mount
-        // reuses. The window machinery stays (0080C mounts the SHELL here).
-        if self.ensure_dsl_view() {
-            let _ = debug_println("DSL: demo window retired (mount-only)");
+        // 0080C step 1: the mounted program IS the DSL SHELL now (windowd
+        // build.rs resolves it from the registry's `dsl_root`) — the
+        // retired counter-demo window is superseded by the real shell
+        // surface. Marker = the 0080C boot-verify anchor.
+        self.open_dsl_demo();
+        if self.dsl_win.visible {
+            let _ = debug_println("systemui: dsl shell on");
         }
         // Deterministic post-reveal repaint: the demo window's boot-open used
         // to queue damage here, forcing a SECOND full composition after the
@@ -347,7 +346,7 @@ impl DisplayServerRuntime {
                     ly,
                     row,
                     w,
-                    "DSL Demo",
+                    "Shell",
                     DSL_TITLE_H,
                     DSL_CLOSE_W,
                     title_hover,

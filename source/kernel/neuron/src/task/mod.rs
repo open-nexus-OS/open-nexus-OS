@@ -110,9 +110,29 @@ impl StackPool {
         if self.cursor == 0 {
             self.cursor = STACK_POOL_LIMIT;
         }
+        // Integrity gate (P0.1 layout audit): a cursor OUTSIDE the pool window
+        // means the `.data` initializer was corrupted/mis-loaded — say the
+        // VALUE loudly (the value fingerprints the writer) instead of failing
+        // as an anonymous StackExhausted at some later spawn.
+        if self.cursor < STACK_POOL_BASE || self.cursor > STACK_POOL_LIMIT {
+            log_error!(
+                "STACK-POOL cursor corrupt: 0x{:x} (window 0x{:x}..0x{:x}) — image/.data integrity",
+                self.cursor,
+                STACK_POOL_BASE,
+                STACK_POOL_LIMIT
+            );
+            self.cursor = STACK_POOL_LIMIT;
+        }
         let bytes = pages.checked_mul(PAGE_SIZE)?;
         let next = self.cursor.checked_sub(bytes)?;
         if next < STACK_POOL_BASE {
+            log_error!(
+                "STACK-POOL exhausted: cursor=0x{:x} want={} pages (window 0x{:x}..0x{:x})",
+                self.cursor,
+                pages,
+                STACK_POOL_BASE,
+                STACK_POOL_LIMIT
+            );
             None
         } else {
             self.cursor = next;

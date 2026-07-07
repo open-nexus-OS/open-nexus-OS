@@ -956,6 +956,7 @@ dependencies = [
  "demo-exit0",
  "exec-payloads",
  "nexus-abi",
+ "nexus-display-proto",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-loader",

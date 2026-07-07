@@ -492,14 +492,32 @@ fn normalized_mocu_cursor_svg() -> &'static str {
 /// TASK-0076B: compile the DSL demo page (`.nx`) to canonical `.nxir` bytes
 /// embedded into windowd for the visible in-compositor mount. The compiler
 /// runs host-side (build script); the service only reads the canonical IR.
-const DSL_DEMO_APP: &str = "../../../userspace/apps/counter";
+/// The shell registry manifest (ADR-0035) — its `dsl_root` names the DSL
+/// shell project windowd mounts (0080C step 1: registry-driven, no
+/// hardcoded shell source).
+const SHELL_MANIFEST: &str = "../systemui/manifests/shells/desktop/shell.toml";
 
 fn compile_dsl_demo(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    // TASK-0081 consolidation: the app SSOT is `userspace/apps/counter/`
-    // (project tree); compiled through the ONE shared project-compile path.
-    println!("cargo:rerun-if-changed={DSL_DEMO_APP}");
-    let nxir = nexus_dsl_core::compile_project_dir(Path::new(DSL_DEMO_APP))
-        .map_err(|e| std::io::Error::other(format!("dsl demo: {e}")))?;
+    // 0080C step 1: the mounted program is the DSL SHELL, resolved from the
+    // registry's `dsl_root` (repo-relative) — the product picks the shell,
+    // windowd never hardcodes it. Compiled through the ONE shared
+    // project-compile path (TASK-0081).
+    println!("cargo:rerun-if-changed={SHELL_MANIFEST}");
+    let manifest = fs::read_to_string(SHELL_MANIFEST)?;
+    let dsl_root = manifest
+        .lines()
+        .find_map(|line| {
+            let line = line.trim();
+            line.strip_prefix("dsl_root")
+                .and_then(|rest| rest.trim_start().strip_prefix('='))
+                .map(|rest| rest.trim().trim_matches('"').to_string())
+        })
+        .ok_or("shell.toml: missing dsl_root")?;
+    // windowd lives at source/services/windowd → repo root is three up.
+    let project = Path::new("../../..").join(&dsl_root);
+    println!("cargo:rerun-if-changed={}", project.join("ui").display());
+    let nxir = nexus_dsl_core::compile_project_dir(&project)
+        .map_err(|e| std::io::Error::other(format!("dsl shell ({dsl_root}): {e}")))?;
     fs::write(out_dir.join("dsl_demo.nxir"), &nxir)?;
     Ok(())
 }

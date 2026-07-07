@@ -129,3 +129,39 @@ Partial delivery (autonomous phase-6 batch, uncommitted):
      riscv graph) — do that conversion as its own gated step, THEN the
      os-lite queryd loop (server.rs is alloc-clean except std::collections).
      `@persist` OS wiring rides here (runtime core landed with 0080D).
+
+### 2026-07-07 abends (Closure-Plan P0.1/P1.1/P1.2, uncommitted)
+
+- **P0.1 Layout-Hardening**: kmain-Layout-Assert (`KERNEL: layout ok` mit
+  image_end/pool/headroom-WERTEN + LAYOUT:-Fehlerpfade + <64K-Warnung);
+  StackPool-Cursor-Korruptions-Diagnose mit Wert; VMO-Pool-Erschöpfung
+  jetzt permanent log_error (bootet grün — die 14:3x-StackExhausted-Fails
+  waren NICHT diese Zeile; Klasse jetzt mit Tripwires bewaffnet);
+  `scripts/contract-image-layout.sh` Perturbations-Gate (Pad braucht
+  #[no_mangle] gegen Linker-GC; Landeprüfung image_end≠baseline = offener
+  Feinschliff).
+- **P1.1 Event-Kanal komplett re-applied** (execd+app-host-Hälften laut
+  0080D-Ledger Runde 2, Timeout(30ms)-Übergangsloop bis P0.2): Boot 0 Fails.
+  USER-VERIFY: „+"-Klick.
+- **P1.2 = 0080C SCHRITT 1 LIVE**: windowd build.rs löst `dsl_root` aus der
+  Registry (shells/desktop/shell.toml) und kompiliert das Shell-Projekt via
+  compile_project_dir; Fenster öffnet als „Shell" mit Marker
+  `systemui: dsl shell on` (hash cc27bc354c380b0f); Postflight-Stufe aktiv.
+  Texte zeigen i18n-Keys (IdentityLocale) bis P2.3-Kataloge. Counter-Demo-
+  Embed in windowd damit ERSETZT durch die Shell (ein Programm, Registry-
+  getrieben).
+- OFFEN hier: Greeter-Swap (Schritt 2), Launch-e2e-Selftests (Schritt 3),
+  Vollflächen-Shell statt Fenster (mit Fokus-/Layer-Arbeit), P0.3-Recovery
+  (meine VNC-Lane zeigt weiterhin host-klassiges Schwarz bei grüner Kette).
+
+### P0.3-Kernstück (gleicher Abend, uncommitted): Display-Wahrheit LIVE
+
+`gpud: scanout sample ok` — one-shot Readback der LIVE-Scanout-RT
+(GL_SCANOUT_RES 0xE0) von der Host-GPU nach dem ersten erfolgreichen
+Present (gl_scanout.rs `scanout_sample` + service.rs-Report). BEFUND: die
+angezeigte Fläche ENTHÄLT Pixel ⇒ das Guest-Rendering ist korrekt; das
+seit nachmittags beobachtete Schwarz (User-GTK + VNC) liegt im
+HOST-Display-Pfad. Diagnose-Regel ab jetzt: `scanout sample ok` + schwarzer
+Schirm = Host-Lane (QEMU/GL), `FAIL scanout black` = Guest-Compose. OFFEN
+P0.3: Present-NACK + Damage-Requeue (transiente Guest-Fälle), SELFTEST
+`display nonblack ok`.

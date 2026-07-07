@@ -206,6 +206,65 @@ impl KernelState {
         write_line("");
         write_line("    neuron vers. 0.1.0  ·  One OS. Many Devices.");
         write_line("");
+        self.assert_memory_layout();
+    }
+
+    /// P0.1 layout audit (2026-07-07): the boot proceeds over several
+    /// FIXED-ADDRESS windows (stack pool, kernel page pool, user VMO arena)
+    /// whose neighbors move with the image. A silent overlap corrupts
+    /// distant subsystems (the `.data`-cursor zero-guards in StackPool /
+    /// alloc_init_page exist BECAUSE this happened before). Check the
+    /// invariants ONCE at boot and report loudly — with values — instead of
+    /// failing later as an anonymous StackExhausted/oom.
+    fn assert_memory_layout(&self) {
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        {
+            extern "C" {
+                static __bss_end: u8;
+            }
+            let image_end = core::ptr::addr_of!(__bss_end) as usize;
+            let pool_base = crate::mm::KERNEL_PAGE_POOL_BASE;
+            let pool_end = pool_base + crate::mm::KERNEL_PAGE_POOL_LEN;
+            let arena_base = crate::mm::USER_VMO_ARENA_BASE;
+            let arena_end = arena_base + crate::mm::USER_VMO_ARENA_LEN;
+            let mut ok = true;
+            if image_end > pool_base {
+                log_error!(
+                    "LAYOUT: kernel image end 0x{:x} overlaps page pool 0x{:x} — image grew past the window",
+                    image_end,
+                    pool_base
+                );
+                ok = false;
+            }
+            if pool_end > arena_base {
+                log_error!(
+                    "LAYOUT: page pool end 0x{:x} overlaps VMO arena 0x{:x}",
+                    pool_end,
+                    arena_base
+                );
+                ok = false;
+            }
+            // Headroom report (values, not vibes): how far the image may
+            // still grow before it hits the pool window.
+            let headroom = pool_base.saturating_sub(image_end);
+            if ok {
+                log_info!(
+                    target: "kmain",
+                    "KERNEL: layout ok (image_end=0x{:x} pool=0x{:x} headroom={}K arena_end=0x{:x})",
+                    image_end,
+                    pool_base,
+                    headroom / 1024,
+                    arena_end
+                );
+            }
+            // Under 64K of slack is a red flag long before it is a failure.
+            if ok && headroom < 64 * 1024 {
+                log_error!(
+                    "LAYOUT: only {} bytes headroom between kernel image and page pool",
+                    headroom
+                );
+            }
+        }
     }
 
     #[allow(dead_code)]

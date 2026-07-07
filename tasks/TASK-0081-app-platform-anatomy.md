@@ -229,3 +229,21 @@ liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
   `svc.<app>.*`. Exports-svc-Codegen (`svc.app_<bundle>.*`) nutzt DENSELBEN
   App-Surface-Mechanismus (registry::set_app_surface) — Anschlusspunkt
   steht.
+
+### Nachtrag 4 (gleicher Tag, uncommitted): C3 Widget-Libraries GELIEFERT
+
+- **Build-zeitliche Auflösung DONE**: `manifest.toml dependencies = ["<lib>"]`
+  → Geschwister-Ordner `userspace/apps/<lib>/` (bundle_type=library);
+  `compile_project_dir` kompiliert deren `ui/components/*.nx` INS eine
+  kanonische `.nxir` (Quell-Provenienz `dep:<lib>/…` im sourceDigest —
+  Determinismus-Test byte-gleich über zwei Compiles). KEIN Laufzeit-Loading.
+- **Governance fail-closed im Build**: Library-Dateien dürfen NUR
+  `Component`-Deklarationen enthalten (Komposition der System-Primitives);
+  Page/Store/… in einer Library = Build-Fehler mit Begründung; fehlende
+  Dependency = Build-Fehler. Versions-Constraint (`name@^1.0`) bleibt
+  nxb-packs Feld; der Build-Resolver nutzt den Namen (SemVer-Auflösung =
+  Folgeschritt, wenn mehrere Versionen existieren können).
+- 3/3 neue Tests (deterministisch/Governance/missing); Konformanz+Shell-
+  Suiten + Generator-Consumer grün. project-layout.md dokumentiert.
+- 0081-REST: assets/i18n-Wiring (AssetRef-Pipeline), C1-Rest (Typ-Codegen/
+  Manifest-Segment/Spawn), C2-Kanalhälfte.

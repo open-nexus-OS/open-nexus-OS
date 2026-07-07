@@ -69,3 +69,15 @@ contract): `native/` may only link the curated SDK crate set; component
 libraries resolve at BUILD time into the single canonical `.nxir`; every
 capability — system or app-defined — is declared in the manifest and enforced
 fail-closed.
+
+## Widget libraries (TASK-0081 C3)
+
+An app's `manifest.toml` may declare `dependencies = ["<lib>"]` — sibling
+folders under `userspace/apps/` with `bundle_type = "library"`. At BUILD
+time (`compile_project_dir` / `nx dsl build`) every library's
+`ui/components/*.nx` compiles INTO the app's one canonical `.nxir` — there
+is no runtime component loading (one-program-one-hash and AOT parity stay).
+Governance, fail-closed at build: a library file may declare **components
+only** (compositions of system primitives — no pages/stores/events/routes,
+no own modifiers or primitives); a violation or a missing dependency fails
+the build with the reason.

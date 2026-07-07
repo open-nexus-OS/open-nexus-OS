@@ -120,7 +120,8 @@ interactive "app input" \
 
 echo "== DSL shell/greeter (0080C wiring pending) =="
 skip "DSL greeter visible" "mount swap lands with TASK-0080C step 2"
-skip "systemui: dsl shell on" "mount wiring lands with TASK-0080C step 1"
+check "DSL shell mounted (0080C step 1)" \
+  "systemui: dsl shell on"
 skip "queryd: ready" "os-lite queryd + idl-runtime no_std land with TASK-0080C step 4"
 
 echo

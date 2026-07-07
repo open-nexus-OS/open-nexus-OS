@@ -37,6 +37,8 @@ stack_pages = 0
 
 [dependencies]
 nexus-abi = { path = "../../../source/libs/nexus-abi" }
+# ADR-0042 client-surface wire (OP_SURFACE_EVENTS attach frame).
+nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 exec-payloads = { path = "../../../userspace/exec-payloads", optional = true }
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }

@@ -63,6 +63,12 @@ mod probe {
     /// first use retries bounded (the #123 empty-slot lesson).
     const WINDOWD_SEND_SLOT: u32 = 5;
     const WINDOWD_RECV_SLOT: u32 = 6;
+    /// The app's DEDICATED event channel (ADR-0042): windowd delivers input
+    /// events AND surface acks here — the shared response endpoint (slot 6)
+    /// raced with inputd's ack drain, so a tap sent there could be consumed
+    /// by any receiver. Slot 6 stays as the fallback for older wiring
+    /// (marked).
+    const EVENTS_RECV_SLOT: u32 = 8;
 
     /// The embedded fallback payload (compiled by `build.rs`). Since the
     /// GET_PAYLOAD step (TASK-0080D R2 remainder) the PRIMARY payload source
@@ -195,13 +201,29 @@ mod probe {
 
         let client = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
             .map_err(|_| "apphost: client slots")?;
+        // The DEDICATED event channel: acks + input arrive here. execd
+        // grants the slot before resume — a presence probe decides the
+        // source honestly (fallback keeps older wiring alive, marked).
+        let events = match cap_clone(EVENTS_RECV_SLOT) {
+            Ok(probe) => {
+                let _ = nexus_abi::cap_close(probe);
+                raw_marker("APPHOST: events source=dedicated");
+                KernelClient::new_with_slots(WINDOWD_SEND_SLOT, EVENTS_RECV_SLOT)
+                    .map_err(|_| "apphost: event slots")?
+            }
+            Err(_) => {
+                raw_marker("APPHOST: events source=shared (fallback)");
+                KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
+                    .map_err(|_| "apphost: event slots")?
+            }
+        };
 
         // 3. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
         //    (the gpud-attach pattern); the original stays ours for redraws.
         let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
         let create = wire::encode_surface_create(SURFACE_W, SURFACE_H, wire::FORMAT_BGRA8888);
         send_retry_cap(&client, &create, clone)?;
-        let surface_id = recv_ack(&client, wire::OP_SURFACE_CREATE)?;
+        let surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
         raw_marker("APPHOST: surface created");
 
         // 4. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
@@ -209,7 +231,7 @@ mod probe {
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
-        let _ = recv_ack(&client, wire::OP_SURFACE_PRESENT)?;
+        let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT)?;
         raw_marker("APPHOST: probe surface presented");
 
         // 5. The event loop (R3): BLOCKING recv on the app channel — windowd
@@ -223,21 +245,60 @@ mod probe {
         //    skipped by `recv_ack` as unrelated frames.
         let mut seq: u32 = 1;
         let mut event_frame = [0u8; 64];
+        let mut recv_err_marked = false;
+        let mut odd_frame_markers: u32 = 0;
+        let mut tap_miss_markers: u32 = 0;
+        raw_marker("APPHOST: event loop armed");
         loop {
-            let Ok(len) = client.recv_into(Wait::Blocking, &mut event_frame) else {
-                let _ = yield_();
-                continue;
+            // TIMED recv, not Wait::Blocking: an exec'd child parked in a
+            // blocking recv is NEVER woken by a sender (kernel finding,
+            // #102 family — boot 2026-07-07T12-12 proved delivered taps
+            // with the receiver silent forever). TRANSITIONAL until the
+            // kernel sender-wake fix (closure plan P0.2); the timer
+            // deadline-wake path is proven generic, so a timed park wakes
+            // at the deadline and polls again — bounded latency, no
+            // Normal-QoS yield-spin.
+            let len = match events.recv_into(
+                Wait::Timeout(core::time::Duration::from_millis(30)),
+                &mut event_frame,
+            ) {
+                Ok(len) => {
+                    recv_err_marked = false;
+                    len
+                }
+                Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
+                    continue;
+                }
+                Err(_) => {
+                    if !recv_err_marked {
+                        recv_err_marked = true;
+                        raw_marker("apphost: FAIL event recv (yield pacing)");
+                    }
+                    let _ = yield_();
+                    continue;
+                }
             };
             let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len])
             else {
-                continue; // stale ack / unrelated frame on the shared channel
+                // Stale ack / unrelated frame — bounded marker, never silent.
+                if odd_frame_markers < 8 {
+                    odd_frame_markers += 1;
+                    raw_marker("apphost: event frame skipped (not input)");
+                }
+                continue;
             };
             if kind != wire::INPUT_KIND_TAP {
                 continue;
             }
             let Some(dsl) = app.as_mut() else { continue };
             if !dsl.tap(i32::from(x), i32::from(y)) {
-                continue; // no handler hit / no visible change
+                // No handler hit / no visible change: report the first few
+                // (coordinate-mapping bugs look exactly like this).
+                if tap_miss_markers < 8 {
+                    tap_miss_markers += 1;
+                    raw_marker("apphost: input tap miss");
+                }
+                continue;
             }
             if !dsl.render(vmo) {
                 raw_marker("apphost: FAIL interactive render");
@@ -246,7 +307,7 @@ mod probe {
             seq = seq.wrapping_add(1);
             let len = wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
             if send_retry(&client, &buf[..len]).is_err()
-                || recv_ack(&client, wire::OP_SURFACE_PRESENT).is_err()
+                || recv_ack(&events, wire::OP_SURFACE_PRESENT).is_err()
             {
                 raw_marker("apphost: FAIL interactive present");
                 continue;

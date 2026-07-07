@@ -3157,8 +3157,7 @@ impl VmoPool {
             // (TASK-0076B): a service image allocation failing here kills the
             // spawn with no output anywhere. Say what ran out, with values.
             let pressure = self.stats();
-            log_debug!(
-                target: "vmo",
+            log_error!(
                 "VMO-POOL exhausted: want=0x{:x} used=0x{:x} remaining=0x{:x} peak=0x{:x}",
                 aligned,
                 pressure.used,

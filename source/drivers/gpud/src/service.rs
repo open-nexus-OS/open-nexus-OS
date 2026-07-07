@@ -365,6 +365,35 @@ fn service_requests(
                                             );
                                             // Whole chain reached the end: stop tracing.
                                             chain_trace_done = true;
+                                            // P0.3 display truth (one-shot): read the LIVE
+                                            // scanout RT back from the host GPU. A black
+                                            // sample with a green marker chain = the silent
+                                            // scanout class — now loud, from inside.
+                                            #[cfg(feature = "virgl")]
+                                            {
+                                                match backend.scanout_sample() {
+                                                    Some(px)
+                                                        if (px[0] as u32
+                                                            + px[1] as u32
+                                                            + px[2] as u32)
+                                                            > 24 =>
+                                                    {
+                                                        let _ = debug_println(
+                                                            "gpud: scanout sample ok",
+                                                        );
+                                                    }
+                                                    Some(_) => {
+                                                        let _ = debug_println(
+                                                            "gpud: FAIL scanout black",
+                                                        );
+                                                    }
+                                                    None => {
+                                                        let _ = debug_println(
+                                                            "gpud: scanout sample unavailable",
+                                                        );
+                                                    }
+                                                }
+                                            }
                                         } else {
                                             let _ = debug_println(
                                                 crate::markers::GPUD_CHAIN_SCANOUT_FAIL,

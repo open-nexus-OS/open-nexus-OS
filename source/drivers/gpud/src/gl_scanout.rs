@@ -191,6 +191,43 @@ const FS_BLIT_TINT: &str = "FRAG\n\
     END\n";
 
 impl VirtioGpuBackend {
+    /// P0.3 display truth: reads a small strip of the LIVE scanout render
+    /// target back from the host GPU and returns the brightest pixel
+    /// (BGRA). `None` when the GL scanout is not active. One-shot caller
+    /// (first successful present) — this is the only place display-side
+    /// truth exists WITHOUT host tooling: markers above this line are
+    /// compositor claims, this is what the screen actually holds.
+    pub(crate) fn scanout_sample(&mut self) -> Option<[u8; 4]> {
+        if self.gl_scanout_backing_va == 0 {
+            return None;
+        }
+        const SAMPLE_W: u32 = 64;
+        const SAMPLE_H: u32 = 4;
+        let x = (SCREEN_W - SAMPLE_W) / 2;
+        let y = (SCREEN_H - SAMPLE_H) / 2;
+        self.virgl_transfer_from_host(GL_SCANOUT_RES, x, y, SAMPLE_W, SAMPLE_H, FB_STRIDE)
+            .ok()?;
+        let mut best = [0u8; 4];
+        let mut best_sum: u32 = 0;
+        for row in 0..SAMPLE_H {
+            for col in 0..SAMPLE_W {
+                let off = ((y + row) * FB_STRIDE + (x + col) * 4) as usize;
+                let px = unsafe {
+                    core::ptr::read_volatile(
+                        (self.gl_scanout_backing_va + off) as *const [u8; 4],
+                    )
+                };
+                let sum = px[0] as u32 + px[1] as u32 + px[2] as u32;
+                if sum > best_sum {
+                    best_sum = sum;
+                    best = px;
+                }
+            }
+        }
+        Some(best)
+    }
+
+
     /// G0: create the GL scanout render target, point the display at it, and
     /// prove the GPU can put pixels on it (clear + flush). Requires the virgl
     /// draw pipeline (boot self-tests green) and the framebuffer handoff
