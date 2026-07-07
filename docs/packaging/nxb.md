@@ -142,3 +142,14 @@ folder itself (`userspace/apps/<app>/manifest.toml`, next to `ui/`, `i18n/`,
 `assets/`, `native/`) — one app, one folder. `nxb-pack` and the build-time
 registry generators (abilitymgr/bundlemgrd `build.rs`) switch to that source;
 the packed `.nxb` layout is unchanged.
+
+## Manifest v2.2: app-to-app exports (TASK-0081)
+
+`exports = [{ ability = "chat.Send", permission = "app.chat.SEND" }, …]` —
+an app exposes abilities under its OWN permission namespace
+(`app.<bundle>.<CAP>`; a foreign namespace fails at PACK time). Consumers
+declare the permission in `caps`; abilitymgr accepts an `app.*` cap iff some
+installed app actually exports it (fail-closed, `caps::is_exported_permission`).
+Exports survive the digest rewrite. The mediated-then-direct channel
+(resolve → grant check both sides → launch if needed → endpoint mint →
+direct IPC) rides on `caps::exports_of` with the broker work.

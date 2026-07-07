@@ -1,0 +1,37 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The curated App-SDK crate list (TASK-0081 decision C0) — the SSOT
+# deciding which system crates an app's `native/` companion or AOT ELF may
+# link DIRECTLY. Everything NOT listed here is OS-internal (raw syscall
+# layers, kernel-adjacent libs) and stays behind `svc.*` services + caps.
+# The companion dep-gate (rides with the `nx dsl add native` tooling) and
+# `tests/sdk_surface` read THIS file — never a hand-maintained copy.
+#
+# Rule of thumb: a crate PROCESSES data → SDK-eligible; a crate ACTUATES
+# hardware or global state → service + capability, never SDK.
+
+[sdk]
+# UI / rendering (process-side; presenting goes through windowd + WINDOW cap)
+"nexus-gfx" = { path = "userspace/nexus-gfx", area = "2D raster/vector processing" }
+"nexus-text-baked" = { path = "userspace/ui/text-baked", area = "glyph measurement + row rendering" }
+"nexus-layout" = { path = "userspace/ui/layout", area = "flex/grid layout engine" }
+"nexus-layout-types" = { path = "userspace/ui/layout-types", area = "layout tree types" }
+"nexus-theme-tokens" = { path = "userspace/ui/theme-tokens", area = "design tokens" }
+"nexus-virtual-list" = { path = "userspace/ui/widgets/virtual_list", area = "list virtualization/fling physics" }
+# DSL runtime (AOT apps link it; companions may host-embed for tooling)
+"nexus-dsl-runtime" = { path = "userspace/dsl/runtime", area = ".nxir interpreter" }
+"nexus-dsl-ir" = { path = "userspace/dsl/ir", area = ".nxir reading/validation" }
+# Data
+"nexus-query" = { path = "source/libs/nexus-query", area = "QuerySpec engine (in-process views)" }
+
+[planned]
+# Target picture (decision C0): processing-side media libs. Device OUTPUT
+# (audio sink, camera, GPU present) stays service+cap (MEDIA permission).
+"nexus-audio" = { area = "audio codecs/DSP (processing only)" }
+"nexus-video" = { area = "video codecs (processing only)" }
+
+[forbidden-examples]
+# Named so reviews have an anchor — NEVER SDK-public:
+# nexus-abi (raw syscalls), nexus-ipc (kernel IPC), nexus-service-entry
+# (boot-service bootstrap), neuron/* (kernel), nexus-driverkit (drivers).

@@ -18,3 +18,10 @@ abilities = ["chat.MainAbility"]
 caps = ["nexus.permission.WINDOW"]
 provides = []
 resources = []
+# v2.2 (TASK-0081): the reference app-to-app exports — other apps (or an AI
+# action like "new appointment") send/receive through the chat app under
+# CHAT-owned permissions; consumers declare them in their own `caps`.
+exports = [
+    { ability = "chat.Send", permission = "app.chat.SEND" },
+    { ability = "chat.Receive", permission = "app.chat.RECEIVE" },
+]

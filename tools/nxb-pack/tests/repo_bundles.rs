@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// CONTEXT: Proves the repo app bundles (`bundles/<app>/manifest.toml`) pack into
+// CONTEXT: Proves the repo app bundles (`userspace/apps/<app>/manifest.toml`) pack into
 // a real `.nxb` with a valid Cap'n Proto `manifest.nxb` carrying the app id +
 // launch ability — the data `bundlemgrd` enumerates and `abilitymgr` resolves
 // from (RFC-0065 — chat/search as real apps).
@@ -18,11 +18,11 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("repo root")
 }
 
-/// Packs `bundles/<app>/manifest.toml` with a placeholder payload and returns the
+/// Packs `userspace/apps/<app>/manifest.toml` with a placeholder payload and returns the
 /// parsed manifest fields `(name, abilities, capabilities)`.
 fn pack_and_read(app: &str) -> (String, Vec<String>, Vec<String>) {
     let root = repo_root();
-    let toml = root.join("bundles").join(app).join("manifest.toml");
+    let toml = root.join("userspace/apps").join(app).join("manifest.toml");
     assert!(toml.is_file(), "missing bundle manifest: {}", toml.display());
 
     let tmp = tempfile::tempdir().expect("tempdir");

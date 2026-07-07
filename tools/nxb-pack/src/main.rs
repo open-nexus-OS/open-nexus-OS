@@ -221,6 +221,16 @@ fn rewrite_manifest_with_digests(
         for idx in 0..src_caps.len() {
             dst_caps.set(idx, src_caps.get(idx)?.to_str()?);
         }
+        // v2.2: exports survive the digest rewrite (the v2.0 LIST fields
+        // below still drop until first use — recorded gap).
+        let src_exports = src.get_exports()?;
+        let mut dst_exports = dst.reborrow().init_exports(src_exports.len());
+        for idx in 0..src_exports.len() {
+            let se = src_exports.get(idx);
+            let mut de = dst_exports.reborrow().get(idx);
+            de.set_ability(se.get_ability()?.to_str()?);
+            de.set_permission(se.get_permission()?.to_str()?);
+        }
     }
 
     let mut out: Vec<u8> = Vec::new();
@@ -336,6 +346,38 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
     let provides = opt_str_array(table, "provides")?;
     // v2.0: resources
     let res_toml = opt_str_array(table, "resources")?;
+    // v2.2: app-to-app exports (TASK-0081): array of inline tables
+    // `{ ability = "chat.Send", permission = "app.chat.SEND" }`. The
+    // permission MUST live in the app's OWN namespace `app.<name>.<CAP>` —
+    // validated HERE so a foreign-namespace export never ships (fail-closed
+    // at pack time, not at launch time).
+    let mut exports_toml: Vec<(String, String)> = Vec::new();
+    if let Some(value) = table.get("exports") {
+        let items = value
+            .as_array()
+            .ok_or_else(|| "manifest.toml `exports` must be an array".to_string())?;
+        for item in items {
+            let entry = item
+                .as_table()
+                .ok_or_else(|| "manifest.toml `exports` entries must be tables".to_string())?;
+            let ability = entry
+                .get("ability")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "export missing `ability`".to_string())?;
+            let permission = entry
+                .get("permission")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "export missing `permission`".to_string())?;
+            let own_prefix = format!("app.{name}.");
+            if !permission.starts_with(&own_prefix) || permission.len() == own_prefix.len() {
+                return Err(format!(
+                    "export permission `{permission}` must be `{own_prefix}<CAP>` (app-owned namespace)"
+                )
+                .into());
+            }
+            exports_toml.push((ability.to_string(), permission.to_string()));
+        }
+    }
 
     let mut builder = Builder::new_default();
     let mut msg = builder.init_root::<bundle_manifest::Builder>();
@@ -379,6 +421,15 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         let mut p = msg.reborrow().init_provided_services(provides.len() as u32);
         for (i, s) in provides.iter().enumerate() {
             p.set(i as u32, s);
+        }
+    }
+    // v2.2: exports
+    {
+        let mut ex = msg.reborrow().init_exports(exports_toml.len() as u32);
+        for (i, (ability, permission)) in exports_toml.iter().enumerate() {
+            let mut e = ex.reborrow().get(i as u32);
+            e.set_ability(ability);
+            e.set_permission(permission);
         }
     }
     // v2.0: resources (format: "kind:path", e.g. "icon:icons/app.svg")

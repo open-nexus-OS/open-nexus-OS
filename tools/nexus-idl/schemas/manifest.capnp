@@ -13,6 +13,8 @@
 #   - v1.1: Add payloadDigest + payloadSize (TASK-0034)
 #   - v1.2: Add sbomDigest + reproDigest (TASK-0029)
 #   - v2.0: bundleType + dependencies + providedServices + resources
+#   - v2.2: exports (TASK-0081 — app-owned permission namespaces for
+#     app-to-app abilities; mediated-then-direct via abilitymgr).
 #   - v2.1: payloadKind (TASK-0080D — DSL apps ship payload.nxir; execd
 #           dispatches uiProgram payloads to the app-host runtime)
 #
@@ -101,6 +103,20 @@ struct BundleManifest {
   # UI program (`payload.nxir`, loaded by the app-host runtime process).
   # Append-only; readers of older manifests see the `elf` default.
   payloadKind @16 :PayloadKind = elf;
+
+  # v2.2 addition (TASK-0081 decision C2): app-to-app exports. An app
+  # exposes abilities under its OWN permission namespace
+  # (`app.<bundle>.<CAP>`); consumers declare that permission in `caps`.
+  # abilitymgr checks BOTH sides fail-closed, launches the exporter if
+  # needed, mints the endpoint pair — then the apps talk DIRECTLY
+  # (mediated-then-direct; no broker in the data path). Append-only.
+  exports @17 :List(ExportDecl);
+}
+
+# One exported ability + the app-owned permission gating its consumers.
+struct ExportDecl {
+  ability @0 :Text;      # e.g. "chat.Send"
+  permission @1 :Text;   # e.g. "app.chat.SEND" (MUST be app.<bundle>.<CAP>)
 }
 
 enum PayloadKind {

@@ -40,9 +40,31 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     "nexus.permission.QUERY",
 ];
 
-/// `true` if `cap` is a recognized platform permission.
+/// `true` if `cap` is a recognized platform permission — OR an app-owned
+/// permission (`app.<bundle>.<CAP>`, manifest v2.2 exports) that some
+/// installed app actually EXPORTS. Fail-closed: an `app.*` cap nobody
+/// exports is unknown, exactly like a typoed platform permission.
 pub fn is_known_permission(cap: &str) -> bool {
-    KNOWN_PERMISSIONS.contains(&cap)
+    KNOWN_PERMISSIONS.contains(&cap) || is_exported_permission(cap)
+}
+
+/// `true` if some installed app exports `cap` under its own namespace
+/// (build-time `APP_EXPORTS` table from `userspace/apps/*/manifest.toml`).
+pub fn is_exported_permission(cap: &str) -> bool {
+    APP_EXPORTS
+        .iter()
+        .any(|(_, entries)| entries.iter().any(|(_, permission)| *permission == cap))
+}
+
+/// The exports of one app: `(ability, app-owned permission)` pairs — the
+/// resolve source for the mediated-then-direct app-to-app channel
+/// (TASK-0081 decision C2; mediation itself rides with the broker).
+pub fn exports_of(app_id: &str) -> &'static [(&'static str, &'static str)] {
+    APP_EXPORTS
+        .iter()
+        .find(|(app, _)| *app == app_id)
+        .map(|(_, entries)| *entries)
+        .unwrap_or(&[])
 }
 
 /// The capabilities an app's manifest declares, or `&[]` if the app has no
@@ -108,5 +130,32 @@ mod tests {
         assert!(required_caps("search").contains(&"nexus.permission.WINDOW"));
         // An app with no manifest entry has no required caps.
         assert_eq!(required_caps("definitely-not-installed"), &[] as &[&str]);
+    }
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    #[test]
+    fn chat_reference_exports_are_known_consumer_permissions() {
+        // The manifest-driven table carries the chat exports…
+        let exports = exports_of("chat");
+        assert!(
+            exports.contains(&("chat.Send", "app.chat.SEND")),
+            "chat.Send export missing: {exports:?}"
+        );
+        assert!(exports.contains(&("chat.Receive", "app.chat.RECEIVE")));
+        // …and a CONSUMER may declare them in caps (validate() accepts).
+        assert!(is_known_permission("app.chat.SEND"));
+        assert!(validate(&["nexus.permission.WINDOW", "app.chat.RECEIVE"]).is_ok());
+    }
+
+    #[test]
+    fn unexported_app_permissions_stay_unknown_fail_closed() {
+        assert!(!is_known_permission("app.chat.DELETE"), "nobody exports it");
+        assert!(!is_known_permission("app.ghost.SEND"), "no such app");
+        assert!(validate(&["app.ghost.SEND"]).is_err());
+        assert!(exports_of("counter").is_empty());
     }
 }

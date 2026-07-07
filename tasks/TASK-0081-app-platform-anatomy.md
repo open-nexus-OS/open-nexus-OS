@@ -160,3 +160,27 @@ Companion-Tooling (`nx dsl add native` + Codegen), Manifest v2.2 `exports`
 (+abilitymgr-Vermittlung; nxb-pack ist zeilenbasiert — Export-Syntax
 liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
 (docs/dev/sdk/crates.md + Dep-Gate).
+
+### Nachtrag (gleicher Tag, uncommitted): SDK-SSOT + exports v2.2 GELIEFERT
+
+- **C0 SDK-Kuratierung DONE**: `docs/dev/sdk/crates.toml` (maschinenlesbare
+  SSOT: 9 SDK-Crates mit Pfad+Bereich, [planned] audio/video, benannte
+  Verbotsbeispiele) + `docs/dev/sdk/crates.md` (Regel: Verarbeiten=Lib,
+  Betätigen=Service+Cap; Änderungsprozess). Guard `tests/sdk_surface`
+  (Workspace-Member): jeder Eintrag ist eine echte Crate mit passendem
+  Namen; Trust-Boundary-Crates (nexus-abi/ipc/service-entry/neuron/
+  driverkit) niemals SDK-public. 2/2 grün. Companion-Dep-Gate = mit dem
+  `nx dsl add native`-Tooling.
+- **C2 exports v2.2 DONE (Schema+Pack+Konsumenten-Validierung)**:
+  manifest.capnp `exports @17 :List(ExportDecl{ability,permission})`;
+  nxb-pack parst Inline-Table-Arrays, validiert Eigen-Namespace
+  `app.<name>.<CAP>` FAIL-CLOSED ZUR PACK-ZEIT, exports überleben den
+  Digest-Rewrite (CLI-Round-Trip-Test); abilitymgr build.rs generiert
+  APP_EXPORTS (Namespace-Assert im Build), caps.rs:
+  `is_known_permission` akzeptiert `app.*` NUR wenn exportiert,
+  `is_exported_permission` + `exports_of` (Resolve-Quelle der Vermittlung);
+  chat-Manifest trägt die Referenz-Exports (Send/Receive). abilitymgr
+  29/29, nxb-pack 6/6 grün, riscv 0 Fehler. OFFEN aus C2: die
+  VERMITTLUNG selbst (Broker: resolve→Grant-Check beide Seiten→Launch→
+  Endpoint-Mint→direkte IPC) + generierte svc.app_<bundle>.*-Signaturen.
+- repo_bundles-Tests auf userspace/apps umgezogen (Konsolidierungs-Folge).

@@ -82,3 +82,52 @@ fn default_manifests_stay_elf_backward_compatible() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+
+fn run_pack_expect_failure(dir: &PathBuf, toml: &str) {
+    let toml_path = dir.join("manifest.toml");
+    let payload_path = dir.join("payload.bin");
+    std::fs::write(&toml_path, toml).expect("write toml");
+    std::fs::write(&payload_path, b"x").expect("write payload");
+    let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
+        .arg("--toml")
+        .arg(&toml_path)
+        .arg(&payload_path)
+        .arg(dir.join("out"))
+        .status()
+        .expect("spawn nxb-pack");
+    assert!(!status.success(), "nxb-pack must reject this manifest");
+}
+
+/// v2.2 (TASK-0081): the chat reference case — exports pack + survive the
+/// digest rewrite; a foreign-namespace permission fails at PACK time.
+#[test]
+fn exports_round_trip_and_foreign_namespace_rejected() {
+    let mut toml = manifest_toml(None);
+    toml = toml.replace("name = \"demo.dslapp\"", "name = \"chat\"");
+    toml.push_str(
+        "exports = [\n    { ability = \"chat.Send\", permission = \"app.chat.SEND\" },\n    { ability = \"chat.Receive\", permission = \"app.chat.RECEIVE\" },\n]\n",
+    );
+    let dir = temp_dir("exports");
+    run_pack(&dir, &toml, b"\x7fELF fake");
+    let bytes = std::fs::read(dir.join("out/manifest.nxb")).expect("manifest.nxb");
+    let reader =
+        capnp::serialize::read_message(bytes.as_slice(), Default::default()).expect("read");
+    let manifest = reader
+        .get_root::<nexus_idl_runtime::manifest_capnp::bundle_manifest::Reader<'_>>()
+        .expect("root");
+    let exports = manifest.get_exports().expect("exports");
+    assert_eq!(exports.len(), 2);
+    assert_eq!(exports.get(0).get_ability().unwrap().to_str().unwrap(), "chat.Send");
+    assert_eq!(exports.get(0).get_permission().unwrap().to_str().unwrap(), "app.chat.SEND");
+    assert_eq!(exports.get(1).get_permission().unwrap().to_str().unwrap(), "app.chat.RECEIVE");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Fail-closed at pack time: foreign namespace + empty CAP.
+    let dir = temp_dir("exports-foreign");
+    run_pack_expect_failure(&dir, &toml.replace("app.chat.SEND", "app.other.SEND"));
+    let _ = std::fs::remove_dir_all(&dir);
+    let dir = temp_dir("exports-empty");
+    run_pack_expect_failure(&dir, &toml.replace("app.chat.SEND", "app.chat."));
+    let _ = std::fs::remove_dir_all(&dir);
+}

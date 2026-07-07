@@ -77,6 +77,7 @@ members = [
     "tests/dsl_conformance",
     "tests/dsl_goldens",
     "tests/systemui_bootstrap_shell_host",
+    "tests/sdk_surface",
     "tests/e2e",
     "tests/e2e_policy",
     "tests/logd_e2e",
