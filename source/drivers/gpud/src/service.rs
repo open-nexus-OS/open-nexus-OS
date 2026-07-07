@@ -18,6 +18,8 @@ use nexus_gfx::backend::types::Rect;
 use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use crate::backend::VirtioGpuBackend;
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+use crate::backend::IRQ_DEADLINE_EXPIRED_COUNT;
 use crate::markers::{
     GPUD_CURSOR_ON, GPUD_DISPLAY_READY, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY,
     GPUD_SCANOUT_MODE, GPUD_SCANOUT_OK, GPUD_VIRTIO_GPU_PROBED,
@@ -323,6 +325,17 @@ fn service_requests(
                         // BlitSurface commands describing all damage regions.
                         let handoff_id =
                             decode_handoff_id_present(frame).unwrap_or(active_handoff_id);
+                        // P0.3 present truth: snapshot the ring's deadline-expiry
+                        // counter around the whole present. The ring's degraded
+                        // recovery (reset/abandon after GPU_WAIT_DEADLINE_NS)
+                        // deliberately returns success so the loop never wedges —
+                        // but a present that lost commands that way must NOT be
+                        // acked as shown. The counter delta catches every such
+                        // case, including error paths swallowed inside optional
+                        // draws (`let _ =`), at the one seam they all share.
+                        #[cfg(all(feature = "os-lite", target_os = "none"))]
+                        let deadline_expiries_before =
+                            IRQ_DEADLINE_EXPIRED_COUNT.load(core::sync::atomic::Ordering::Relaxed);
                         let trace = !chain_trace_done;
                         if trace {
                             let _ = debug_println(crate::markers::GPUD_CHAIN_RECV);
@@ -381,6 +394,14 @@ fn service_requests(
                                                         let _ = debug_println(
                                                             "gpud: scanout sample ok",
                                                         );
+                                                        // P0.3c: MEASURED display
+                                                        // truth (host-GPU readback
+                                                        // of the live scanout RT),
+                                                        // not a compositor claim —
+                                                        // #98 discipline.
+                                                        let _ = debug_println(
+                                                            "SELFTEST: display nonblack ok",
+                                                        );
                                                     }
                                                     Some(_) => {
                                                         let _ = debug_println(
@@ -432,6 +453,23 @@ fn service_requests(
                             }
                         } else {
                             handle_present_damage(&mut backend, frame)
+                        };
+                        // P0.3: honest present outcome — commands that ran into the
+                        // 500ms deadline net were abandoned by the ring's degraded
+                        // recovery; the frame is (partially) lost even though every
+                        // call above returned "success". NACK it so windowd requeues
+                        // the damage instead of booking a black frame as presented.
+                        #[cfg(all(feature = "os-lite", target_os = "none"))]
+                        let status = {
+                            let expired = IRQ_DEADLINE_EXPIRED_COUNT
+                                .load(core::sync::atomic::Ordering::Relaxed)
+                                .wrapping_sub(deadline_expiries_before);
+                            if expired > 0 {
+                                emit_present_deadline_fail(expired);
+                                STATUS_DEVICE_ERROR
+                            } else {
+                                status
+                            }
                         };
                         if status == STATUS_OK {
                             active_handoff_id = handoff_id;
@@ -687,6 +725,48 @@ fn emit_handoff_timing(ms: u32) {
     put(&mut buf, &mut p, b"gpud: timing handoff_to_ready_ms=");
     put_dec(&mut buf, &mut p, ms);
     put(&mut buf, &mut p, b"\n");
+    let _ = debug_write(&buf[..p]);
+}
+
+/// P0.3 honest-present marker: `gpud: FAIL present deadline (cmd=N)` — N
+/// completion waits ran into the `GPU_WAIT_DEADLINE_NS` net during ONE present,
+/// so its commands were abandoned by the ring's degraded recovery and the frame
+/// is (partially) lost. The present is NACKed; windowd requeues the damage.
+/// No-alloc (bump heap, degraded path may repeat).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn emit_present_deadline_fail(expired: u32) {
+    let mut buf = [0u8; 64];
+    let mut p = 0usize;
+    let put = |buf: &mut [u8; 64], p: &mut usize, s: &[u8]| {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    };
+    let put_dec = |buf: &mut [u8; 64], p: &mut usize, mut v: u32| {
+        let mut tmp = [0u8; 10];
+        let mut n = 0usize;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            n += 1;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            if *p < buf.len() {
+                buf[*p] = tmp[n];
+                *p += 1;
+            }
+        }
+    };
+    put(&mut buf, &mut p, b"gpud: FAIL present deadline (cmd=");
+    put_dec(&mut buf, &mut p, expired);
+    put(&mut buf, &mut p, b")\n");
     let _ = debug_write(&buf[..p]);
 }
 

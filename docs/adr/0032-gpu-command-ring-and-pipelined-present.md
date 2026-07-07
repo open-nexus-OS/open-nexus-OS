@@ -96,3 +96,33 @@ ring** and a **pipelined, enqueue-only present**.
   golden tests) stay green.
 - Boot proofs (`scripts/qemu-test.sh`, `GPU_MODE=virgl` and mmio): present-stats
   `gpud: present us` shows uniform low `max`; `0 alloc-fail`.
+
+## Addendum (2026-07-07): honest present outcome + NACK requeue (P0.3)
+
+The ring's degraded recovery (reset/abandon after `GPU_WAIT_DEADLINE_NS`)
+deliberately returns success so the single-threaded loop can never wedge — but
+that made a deadline-missed present indistinguishable from a shown frame. On a
+REACTIVE compositor that is fatal: windowd books the frame as presented, no new
+damage arrives, and the (partially) lost frame stays on screen forever — the
+"black RT with a green marker chain" class.
+
+- **gpud**: the `OP_PRESENT_DAMAGE` handler snapshots the ring-wide
+  `IRQ_DEADLINE_EXPIRED_COUNT` around the whole present. A non-zero delta means
+  commands were abandoned — including failures swallowed inside optional draws
+  (`let _ =`) — so the reply status becomes `STATUS_DEVICE_ERROR` (NACK) and
+  `gpud: FAIL present deadline (cmd=N)` is emitted (no-alloc formatter; the
+  counter delta is the one seam all deadline paths share).
+- **windowd**: `drain_gpud_replies` treats a ≥5-byte non-OK reply as a present
+  NACK: the frame is completed in the flow-control sense (slot freed, seq
+  advanced so the stall watchdog keeps tracking genuine no-reply hangs), but
+  FULL-frame damage is requeued — after an abandoned batch the RT state is
+  undefined, so a partial repaint could leave stale regions. Bounded: 8
+  consecutive retries (`windowd: present retry n=`), then one loud
+  `windowd: FAIL present retries exhausted (n=)`. A clean ack resets the
+  budget. The client reset (route teardown) is reserved for protocol garbage.
+- **Pacing**: `frames_in_flight() > 0` keeps windowd's 120 Hz pacer armed so a
+  NACK arriving while idle is drained within a tick, not on the next input.
+- **Display truth**: the one-shot scanout readback after the first clean G4
+  emits `gpud: scanout sample ok` → `SELFTEST: display nonblack ok` (measured
+  host-GPU readback, #98 discipline) or `gpud: FAIL scanout black`; the
+  postflight ladder consumes it three-valued (ok/FAIL/SKIP for 2D boots).

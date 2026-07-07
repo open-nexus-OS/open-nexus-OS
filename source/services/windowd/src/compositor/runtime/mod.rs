@@ -319,6 +319,13 @@ pub(crate) struct DisplayServerRuntime {
     /// of every retry (which would flood the UART at ~120 Hz during the very stall
     /// we want to read). Cleared on the next successful send.
     present_fail_reported: bool,
+    /// P0.3 self-heal: consecutive present NACKs from gpud (deadline-missed /
+    /// lost-command frames). Each NACK requeues full-frame damage; the budget
+    /// bounds the retries so a permanently failing device degrades loudly
+    /// (FAIL marker) instead of re-presenting forever. Reset on a clean ack.
+    present_retry_count: u32,
+    /// One-shot latch for the retries-exhausted FAIL marker (per episode).
+    present_retry_exhausted: bool,
     /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
     /// Toggled after each successful present. gpud scanout follows on swap.
     current_display_slot: u8,
@@ -916,6 +923,8 @@ impl DisplayServerRuntime {
             stall_last_seq: 0,
             stall_reported: false,
             present_fail_reported: false,
+            present_retry_count: 0,
+            present_retry_exhausted: false,
             frames_in_flight: 0,
             last_completed_seq: 0,
             current_display_slot: 0,

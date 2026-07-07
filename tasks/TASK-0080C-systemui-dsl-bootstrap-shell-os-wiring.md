@@ -165,3 +165,47 @@ HOST-Display-Pfad. Diagnose-Regel ab jetzt: `scanout sample ok` + schwarzer
 Schirm = Host-Lane (QEMU/GL), `FAIL scanout black` = Guest-Compose. OFFEN
 P0.3: Present-NACK + Damage-Requeue (transiente Guest-Fälle), SELFTEST
 `display nonblack ok`.
+
+### P0.3 KOMPLETT (2026-07-07 abends, uncommitted): Present-NACK + Requeue + SELFTEST
+
+Closure-Plan P0.3 a–c geliefert (ADR-0032-Addendum dokumentiert den Kontrakt):
+
+- **a) gpud Present-NACK**: `OP_PRESENT_DAMAGE` snapshottet das ring-weite
+  `IRQ_DEADLINE_EXPIRED_COUNT` um den GANZEN Present; Delta > 0 ⇒
+  `STATUS_DEVICE_ERROR` + `gpud: FAIL present deadline (cmd=N)` (no-alloc
+  Emitter). Das Counter-Delta ist der eine Seam, den ALLE Deadline-Pfade
+  teilen — auch `let _ =`-geschluckte Optionaldraws und die abandon/reset-
+  Recovery von `alloc_free_slot`/`wait_slot`, die bewusst Erfolg zurückgibt.
+- **b) windowd Requeue**: drain_gpud_replies unterscheidet jetzt Present-NACK
+  (n≥5, status≠OK) von Protokoll-Garbage: NACK ⇒ note_present_nacked —
+  in-flight-Slot frei + seq advance (Watchdog bleibt für echte No-Reply-
+  Stalls), VOLLFRAME-Requeue (RT nach abgebrochenem Batch undefiniert),
+  bounded 8 + `windowd: present retry n=` / `windowd: FAIL present retries
+  exhausted (n=)`; sauberer Ack resettet das Budget (note_present_acked_clean).
+  Client-Reset nur noch bei Garbage. Pacer: `frames_in_flight() > 0` hält den
+  120Hz-Pacer an, damit ein NACK im Idle binnen eines Ticks gedraint wird.
+- **c) SELFTEST-Anschluss**: `SELFTEST: display nonblack ok` direkt nach dem
+  GEMESSENEN `gpud: scanout sample ok` (#98: Messung, keine Behauptung);
+  Postflight-Stufe „display truth (P0.3 scanout readback)" dreiwertig
+  (ok/FAIL/SKIP für 2D-Boots) + Retry-Marker-Auswertung (Retries = Recovery
+  arbeitet; FAIL nur bei erschöpftem Budget).
+
+Beweise: windowd Host 138+2+9 grün, gpud Host 9+4+16 grün, riscv-Checks
+gpud (virgl+mmio) & windowd 0 Fehler / keine NEUEN Warnungen. Boot-Gate
+(Marker-Ladder + Postflight) siehe nächster Ledger-Eintrag; das volle
+Plan-Gate (5 Erste-Boots-nach-Build unter Host-Last) = User-Lane.
+
+### P0.3 Boot-Gate (gleicher Abend): 2 Boots grün + VISUELLER Beweis
+
+Zwei frische virgl-Boots (manual--19-33-04, manual--19-34-43): Ladder komplett
+grün (`KERNEL: layout ok` mit Werten, `systemui: dsl shell on`, `chain G4
+scanout ok` → `gpud: scanout sample ok` → `SELFTEST: display nonblack ok`),
+0 FAIL/PANIC/KPGF-Zeilen; KEINE Retry-Marker = gesunder Boot, NACK-Pfad
+korrekt still. Postflight: alle Basis-Stufen OK inkl. neuer „display truth"-
+Stufe (Klick-Stufen PEND, bekannte Wirings SKIP). VISUELL: visual-postflight
+gegen die LIVE-VNC-Lane = **OK, mean luma 119.9** — Frame zeigt den Greeter
+(Wallpaper + Avatar + Cursor). Die Host-Schwarz-Episode vom Nachmittag ist
+in dieser Lane nicht mehr präsent. OFFEN (User-Lane): Plan-Gate „5 Erste-
+Boots-nach-Build unter Host-Last" — der NACK-Requeue-Pfad selbst feuert nur
+bei einem echten kalten Deadline-Miss; seine Buchhaltung ist os-only
+(compositor kompiliert host-seitig nicht — bewusst KEIN Placebo-Unit-Test).

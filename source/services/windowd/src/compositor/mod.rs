@@ -346,8 +346,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
             // `ui.theme.mode` from settingsd once it binds; bounded, then default.
             let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            // Un-acked presents keep the pacer alive too: gpud's ack/NACK replies
+            // arrive on the gpud client, not the server recv below — an idle-blocked
+            // windowd would otherwise only drain a present NACK (P0.3 requeue
+            // self-heal) on the next unrelated input. Bounded: acks normally land
+            // within a frame, so this costs at most a tick or two.
             let needs_pacing = runtime.has_active_animations()
                 || runtime.has_pending_damage()
+                || runtime.frames_in_flight() > 0
                 || session_pending
                 || theme_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {

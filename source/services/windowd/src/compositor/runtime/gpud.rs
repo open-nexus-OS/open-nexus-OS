@@ -111,7 +111,21 @@ impl DisplayServerRuntime {
                         // or they corrupt the frames-in-flight accounting.
                         if n >= 5 {
                             self.note_present_completed();
+                            self.note_present_acked_clean();
                         }
+                    } else if n >= 5 {
+                        // Present NACK (P0.3): gpud measured a failed/deadline-missed
+                        // present (`gpud: FAIL present deadline`). The ROUTE is
+                        // healthy — the FRAME failed. Requeue the damage (bounded,
+                        // self-heal) instead of resetting the client: a reset never
+                        // re-presented anything, leaving the stale/black RT on
+                        // screen until unrelated damage arrived.
+                        if let Some(status) = status {
+                            let _ = debug_println(&alloc::format!(
+                                "windowd: gpud present nack status=0x{status:02x}"
+                            ));
+                        }
+                        self.note_present_nacked();
                     } else if n == 1 {
                         // Failed fire-and-forget op (cursor move). Soft-fail: drop to
                         // the software cursor path but keep the present pipeline alive.

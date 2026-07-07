@@ -383,6 +383,49 @@ impl DisplayServerRuntime {
             || self.pending_cursor_rect.is_some()
     }
 
+    /// P0.3 self-heal: gpud NACKed a present (`gpud: FAIL present deadline` — its
+    /// commands ran into the ring's 500ms net and were abandoned). The frame is
+    /// done in the flow-control sense (slot freed, seq advanced so the watchdog
+    /// tracks genuine no-reply stalls, not this handled case) but its pixels never
+    /// reached the screen. Requeue FULL-frame damage — after an abandoned GPU
+    /// batch the RT state is unknown, so a partial repaint could leave stale
+    /// regions — under a bounded budget: a permanently failing device degrades
+    /// to ONE loud FAIL marker instead of an infinite repaint loop.
+    pub(super) fn note_present_nacked(&mut self) {
+        const MAX_PRESENT_RETRIES: u32 = 8;
+        self.last_completed_seq = self.present_seq;
+        self.frames_in_flight = self.frames_in_flight.saturating_sub(1);
+        self.present_retry_count = self.present_retry_count.saturating_add(1);
+        if self.present_retry_count <= MAX_PRESENT_RETRIES {
+            let _ = debug_println(&alloc::format!(
+                "windowd: present retry n={}",
+                self.present_retry_count
+            ));
+            self.queue_dirty_rect(DamageRect {
+                x: 0,
+                y: 0,
+                width: self.mode.width,
+                height: self.mode.height,
+            });
+            // Full recompose, not a paint-only patch: the failed frame's GPU
+            // state is undefined.
+            self.paint_only_damage = false;
+        } else if !self.present_retry_exhausted {
+            self.present_retry_exhausted = true;
+            let _ = debug_println(&alloc::format!(
+                "windowd: FAIL present retries exhausted (n={})",
+                self.present_retry_count
+            ));
+        }
+    }
+
+    /// P0.3: a clean present ack ends any NACK episode — reset the retry budget
+    /// so the next degradation gets a fresh bounded recovery (and its markers).
+    pub(super) fn note_present_acked_clean(&mut self) {
+        self.present_retry_count = 0;
+        self.present_retry_exhausted = false;
+    }
+
     /// Stall watchdog — call once per present-loop iteration with `now_ns`.
     ///
     /// Detects the "scrolled and it stopped responding" failure: the loop is still

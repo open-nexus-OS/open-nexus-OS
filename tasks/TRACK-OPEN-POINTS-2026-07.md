@@ -126,17 +126,16 @@ stall"). Konsequenz = bessere, display-seitige Tests:
       Exit 1 = schwarz, 2 = kein Display.
 - [x] **Postflight `--visual`-Stufe** (POSTFLIGHT_VISUAL=1): schlägt hart
       fehl, wenn die Marker grün sind, aber das Display schwarz ist.
-- [ ] **gpud Scanout-Readback-Selbstcheck** (designed, boot-iteriert):
-      EINMALIG nach dem ersten G4-Scanout eine kleine RT-Zeile per
-      `virgl_transfer_from_host` (Seam existiert: virgl_vector.rs nutzt es
-      für 0xF8) zurücklesen und samplen → `gpud: scanout sample ok
-      (rgb=…)` bzw. `gpud: FAIL scanout black` — die EINZIGE Stelle, die
-      display-seitige Wahrheit OHNE Host-Tooling beweisen kann; macht den
-      intermittenten Schwarz-Boot im UART sichtbar statt stumm. Bounded:
-      one-shot, kleine Fläche, nach Handoff.
-- [ ] **Selftest-Ladder-Anschluss**: `SELFTEST: display nonblack ok` auf
-      Basis des gpud-Samples (pure observer, #98-Disziplin) — dann fängt
-      auch `just test-os` diese Klasse.
+- [x] **gpud Scanout-Readback-Selbstcheck** (GELIEFERT, boot-bewiesen
+      2026-07-07): one-shot nach erstem G4 `scanout_sample` (gl_scanout.rs,
+      TRANSFER_FROM_HOST auf GL_SCANOUT_RES) → `gpud: scanout sample ok` /
+      `gpud: FAIL scanout black` / `sample unavailable`. Boot-Befund: sample
+      ok bei schwarzem Host-Fenster ⇒ Schwarz-Klasse war HOST-Display-Pfad.
+- [x] **Selftest-Ladder-Anschluss** (GELIEFERT 2026-07-07 abends):
+      `SELFTEST: display nonblack ok` direkt nach dem GEMESSENEN
+      `scanout sample ok` (#98-Disziplin: Messung, keine Behauptung) +
+      Postflight-Stufe „display truth (P0.3 scanout readback)" (ok/FAIL/
+      SKIP-dreiwertig; 2D/mmio-Boots = SKIP, nicht FAIL).
 - [ ] Bestehende Hollow-Marker-Audit fortführen ([[fake-proof-marker-audit]]):
       `windowd: full-window color visible` in die Liste (Behauptung ohne
       Scanout-Beweis).
@@ -152,17 +151,22 @@ Wurzeln, in dieser Reihenfolge:
    virgl-Compose frisst das 500ms-Deadline-Budget → gpud bricht den Frame
    ab → REAKTIVER Compositor ohne neues Damage recomposed NIE → RT bleibt
    schwarz, Marker bleiben grün. Production-grade Fix (kein Retry-Hack):
-   a) gpud: Present-Ausgang EHRLICH machen — Deadline-Miss ⇒ Present-NACK
-      an windowd (Wire hat Status; heute wird Erfolg angenommen) +
-      `gpud: FAIL present deadline (cmd=N)`-Marker;
-   b) windowd: NACK ⇒ Frame als NICHT präsentiert buchen, Damage
-      REQUEUEN (self-heal beim nächsten Tick; bounded Retry-Zähler +
-      Marker `windowd: present retry n=`);
-   c) gpud one-shot Scanout-Readback nach erstem G4
-      (virgl_transfer_from_host-Seam) → `gpud: scanout sample ok/FAIL
-      scanout black` + SELFTEST `display nonblack ok` — Display-Wahrheit im
-      UART, headless-gate-fähig.
-   Gate: 5 Erste-Boots-nach-Build unter Host-Last, visual-postflight grün.
+   a) [x] GELIEFERT (2026-07-07 abends): gpud Present-Ausgang EHRLICH —
+      Delta des ring-weiten `IRQ_DEADLINE_EXPIRED_COUNT` um den ganzen
+      Present (service.rs OP_PRESENT_DAMAGE) fängt JEDEN Deadline-Miss,
+      auch in `let _ =`-geschluckten Optionaldraws ⇒ STATUS_DEVICE_ERROR
+      (NACK) + `gpud: FAIL present deadline (cmd=N)` (no-alloc Emitter);
+   b) [x] GELIEFERT (gleicher Abend): windowd NACK-Pfad in
+      drain_gpud_replies — Frame nicht als präsentiert gebucht, VOLLFRAME-
+      Damage-Requeue (RT-Zustand nach abgebrochenem Batch ist undefiniert),
+      bounded (8) + `windowd: present retry n=` / `windowd: FAIL present
+      retries exhausted (n=)`; Route-Reset nur noch für echte Protokoll-
+      Garbage. Pacer bleibt bei frames_in_flight>0 aktiv, damit ein NACK
+      im Idle gedraint wird (nicht erst beim nächsten Input);
+   c) [x] GELIEFERT: Scanout-Readback + `SELFTEST: display nonblack ok`
+      + Postflight-Stufe (siehe Display-Wahrheit-Sektion oben).
+   Gate OFFEN: 5 Erste-Boots-nach-Build unter Host-Last, visual-postflight
+   grün (User-Lane; NACK-Pfad braucht einen echten kalten Erst-Boot).
 2. **Kernel: Sender-Wake für exec'd-Kinder in blocking recv (#102-Familie)**
    — sys_ipc_recv park/wake: Kinder werden vom Sender nicht geweckt (Beweis
    Boot 12-12-27). Fix im Kernel (Waiter-Registrierung/Wake-Pfad für

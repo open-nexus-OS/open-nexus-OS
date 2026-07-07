@@ -124,6 +124,30 @@ check "DSL shell mounted (0080C step 1)" \
   "systemui: dsl shell on"
 skip "queryd: ready" "os-lite queryd + idl-runtime no_std land with TASK-0080C step 4"
 
+echo "== display truth (P0.3 scanout readback) =="
+# Measured host-GPU readback of the LIVE scanout RT (not a compositor claim):
+#   ok          → the displayed surface contains pixels (guest rendering correct;
+#                 a black screen despite this marker = HOST display lane).
+#   black       → guest compose actually produced black — a real FAIL.
+#   unavailable → non-virgl/2D boot, no readback seam — SKIP, not a failure.
+if grep -qF -- "SELFTEST: display nonblack ok" "$log"; then
+  echo "  OK    scanout readback nonblack"
+elif grep -qF -- "gpud: FAIL scanout black" "$log"; then
+  echo "  FAIL  scanout readback BLACK (guest compose broken)"
+  fails=$((fails + 1))
+else
+  echo "  SKIP  scanout readback — no virgl readback in this boot (2D/mmio lane)"
+fi
+# Honest present outcome (P0.3): a deadline-missed present must be NACKed and
+# requeued, never booked as shown. These markers appearing is not a failure —
+# they are the RECOVERY working; a FAIL here means the retry budget ran out.
+if grep -qF -- "windowd: FAIL present retries exhausted" "$log"; then
+  echo "  FAIL  present retry budget exhausted (device permanently failing)"
+  fails=$((fails + 1))
+elif grep -qF -- "windowd: present retry n=" "$log"; then
+  echo "  OK    present NACK self-heal engaged ($(grep -cF -- 'windowd: present retry n=' "$log") retries)"
+fi
+
 echo
 if [[ $fails -gt 0 ]]; then
   echo "postflight: $fails stage(s) FAILED"
