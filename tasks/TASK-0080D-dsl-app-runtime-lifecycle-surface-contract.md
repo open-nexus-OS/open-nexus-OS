@@ -342,8 +342,23 @@ in boot 10; windowd size contract 79%.
 
 - USER VERIFY: click "+"/"−" in the app window → number changes (R3 DoD),
   text + drag if not yet verified.
-- R2 remainder: bundle GET_PAYLOAD (os-lite opcode) + abilitymgr launch
-  replacing the autolaunch; `@persist` via statefsd; stop/crash residency.
+- R2 remainder — LAUNCH-PATH PLAN (recon 2026-07-07, everything verified in
+  source): the USER-driven path already half-exists and is the right shape:
+  windowd's Apps dropdown lists REGISTRY apps (a `bundles/counter` manifest
+  auto-appears, n=3) and unknown ids hit `launch_app(id)` — today a STUB
+  (`shell.rs:99`, marker only). Wire it: (1) windowd → abilitymgr client
+  route (init wiring; windowd has session/registry routes as the pattern),
+  (2) abilitymgr OP_LAUNCH handler resolves the app + requests execd
+  (abilitymgr already holds `proc.spawn` policy — the "only abilitymgr
+  spawns apps" invariant; needs the abilitymgr → execd route in init +
+  request per the selftest `execd_spawn_image` frame format), (3) marker
+  `abilitymgr: launch (app=…, inst=…)`, (4) DELETE execd's R1 autolaunch
+  (grant+resume already live in the central OP_EXEC_IMAGE path). NOTE: the
+  session gate (`is_launch_request` deny until ACTIVE) applies — launches
+  ride user clicks, which only happen post-login; no boot-time gate fight.
+  THEN: bundle GET_PAYLOAD (os-lite opcode; payload → VMO → cap-move to the
+  spawned app-host, child slot 7) replaces the embedded `.nxir`;
+  `@persist` via statefsd; stop/crash residency.
 - R4 payloadKind dispatch (with 0079). Then 0080B/0080C 
   (DSL shell + greeter, launcher e2e) complete phase 6.
 - R2 runtime half — RECON FINDING: os-lite bundlemgrd has NO GET_PAYLOAD

@@ -41,3 +41,31 @@ We avoid heavy scaffolds with empty files. Instead, `nx dsl` creates structure *
 - `nx dsl add test ...`
 
 See: `docs/dev/dsl/cli.md`.
+
+## Target app layout (TASK-0081, decided 2026-07-07)
+
+A FULL app in `userspace/apps/<name>/` carries everything one app is, in one
+folder (the `bundles/` split is being consolidated away):
+
+```
+userspace/apps/<name>/
+  manifest.toml            # identity, caps, payload_kind, exports, dependencies
+  ui/pages/**.nx           # the ui/ layout above, unchanged
+  ui/components/**.nx
+  ui/composables/**.store.nx
+  ui/services/**.service.nx
+  ui/platform/<profile>/**
+  i18n/<locale>.json       # authored catalogs (nx-dsl i18n extract/compile)
+  assets/**                # images/icons/sounds → manifest `resources`,
+                           # referenced from DSL via the Image/Icon primitives
+                           # (IR AssetRef; wiring lands with TASK-0081)
+  native/ (optional)       # companion Rust crate: the tooling turns it into
+                           # its OWN process with its OWN manifest caps; the
+                           # DSL app calls it through generated svc.* signatures
+```
+
+Rules that keep this from becoming a wild west (see TASK-0081 for the full
+contract): `native/` may only link the curated SDK crate set; component
+libraries resolve at BUILD time into the single canonical `.nxir`; every
+capability — system or app-defined — is declared in the manifest and enforced
+fail-closed.

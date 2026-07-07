@@ -134,3 +134,11 @@ manifests see the `elf` default). `nxb-pack` names the packed payload file by
 the kind; the digest/size fields (`payloadDigest`/`payloadSize`) are
 payload-agnostic, so bundlemgrd install/enumerate/GET_PAYLOAD are unchanged.
 Round-trip pinned by `tools/nxb-pack/tests/payload_kind.rs`.
+
+## Source consolidation (planned, TASK-0081)
+
+The bundle SOURCE moves from `bundles/<app>/manifest.toml` into the app
+folder itself (`userspace/apps/<app>/manifest.toml`, next to `ui/`, `i18n/`,
+`assets/`, `native/`) — one app, one folder. `nxb-pack` and the build-time
+registry generators (abilitymgr/bundlemgrd `build.rs`) switch to that source;
+the packed `.nxb` layout is unchanged.

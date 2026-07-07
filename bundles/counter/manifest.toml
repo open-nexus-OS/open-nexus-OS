@@ -1,0 +1,22 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Counter — the first DSL app bundle (TASK-0080D R2): the payload is
+# a compiled UI program (`payload.nxir`, `examples/dsl/counter/counter.nx`),
+# launched via abilitymgr → execd → the app-host runtime process, presenting
+# through its own cross-process windowd surface (ADR-0042).
+# Compiled to `manifest.nxb` (Cap'n Proto) by `tools/nxb-pack` and installed
+# into the `bundlemgrd` registry; `abilitymgr` resolves the launch from here.
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+#
+# NOTE: `publisher`/`sig` are zero placeholders (unsigned bring-up bundle).
+
+name = "counter"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "app"
+payload_kind = "ui-program"
+abilities = ["counter.MainAbility"]
+caps = ["nexus.permission.WINDOW"]
+provides = []
+resources = []

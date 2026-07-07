@@ -116,6 +116,25 @@ Bad fit: command actions, mutations/settings writes, send/launch/open side
 effects, protocol/session control flows — those remain domain-specific
 service calls even if they internally consult queryable storage.
 
+## App-native services + app exports (planned, TASK-0081)
+
+Two service classes extend the surface beyond the platform set — both keep
+the exact `svc.*` mechanics above:
+
+- **Companion services** (`native/` in the app folder): a normal Rust crate
+  the tooling turns into the app's OWN process with its OWN manifest caps.
+  The developer declares the surface once; the build generates the Rust
+  server skeleton, the `svc.<app>.<method>()` checker signatures, and the
+  manifest segment. Qt-like convenience, process-hard capability boundary.
+  Companion crates may link only the curated SDK crate set (audio/video/gfx/
+  text processing); device actuation stays behind platform services + caps.
+- **App exports** (manifest v2.2 `exports`): an app exposes abilities under
+  its OWN permission namespace (`app.<bundle>.<CAP>`); consumers declare the
+  permission in `caps`. abilitymgr checks both sides fail-closed, launches
+  the target if needed, mints the channel — then the apps talk DIRECTLY
+  (no broker in the data path). The consumer sees generated
+  `svc.app_<bundle>.<method>()` signatures.
+
 ## Changelog
 
 - **v0.2b (2026-07-06, TASK-0078/0078B)** — generated signature table from
