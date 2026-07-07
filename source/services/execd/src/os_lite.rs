@@ -153,12 +153,6 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         Err(_) => KernelServer::new_with_slots(3, 4).map_err(|_| ServerError::Unsupported)?,
     };
     let mut state = State::new();
-    // TASK-0080D R1: one-shot transport-probe autolaunch. Present only while
-    // the image carries the probe payload; replaced by the abilitymgr launch
-    // path in R2 (the selftest exec-phase trigger is blocked behind the
-    // pre-existing netstackd-ready stall in both boot lanes). Waits bounded
-    // for init's windowd-route grant (slots 8/9 land AFTER ready).
-    autolaunch_apphost_probe(&mut state);
     loop {
         match server.recv_with_header_meta(Wait::Blocking) {
             Ok((_hdr, sender_service_id, frame)) => {
@@ -816,48 +810,6 @@ fn rsp(op: u8, status: u8, pid: u32) -> [u8; 9] {
     out[4] = status;
     out[5..9].copy_from_slice(&pid.to_le_bytes());
     out
-}
-
-/// TASK-0080D R1: spawns the app-host transport probe once at boot when the
-/// image embeds it. Waits (bounded) until nexus-init's wiring phase has
-/// granted execd the windowd client route (`init: execd windowd slots`),
-/// because the grant lands after `execd: ready`.
-fn autolaunch_apphost_probe(state: &mut State) {
-    if apphost_payload::APPHOST_ELF.is_empty() {
-        return; // image without the probe payload — nothing to do
-    }
-    // Grant probe: `cap_clone` succeeds exactly when the slot holds a cap
-    // (`cap_query` only answers Vmo/DeviceMmio kinds — unusable for endpoint
-    // slots; learned the hard way in the first R1 boot).
-    let mut granted = false;
-    for _ in 0..200_000 {
-        if let Ok(clone) = nexus_abi::cap_clone(APP_WINDOWD_SEND_SLOT) {
-            let _ = nexus_abi::cap_close(clone);
-            granted = true;
-            break;
-        }
-        let _ = yield_();
-    }
-    if !granted {
-        let _ = nexus_abi::debug_println("execd: FAIL apphost probe (windowd route never granted)");
-        return;
-    }
-    match exec(apphost_payload::APPHOST_ELF, 8, 0) {
-        Ok(pid) => {
-            state.track_child(pid as u32, IMG_APPHOST);
-            grant_windowd_route(pid as u32);
-            // Grants-before-resume (#102 fix): the child spawns Suspended;
-            // enqueue it only now that its slots are populated.
-            if nexus_abi::task_resume(pid as u32).is_err() {
-                let _ = nexus_abi::debug_println("execd: FAIL apphost probe resume");
-                return;
-            }
-            let _ = nexus_abi::debug_println("execd: apphost probe autolaunch (R1)");
-        }
-        Err(_) => {
-            let _ = nexus_abi::debug_println("execd: FAIL apphost probe spawn");
-        }
-    }
 }
 
 /// ADR-0042: hands the spawned app process its windowd client route —

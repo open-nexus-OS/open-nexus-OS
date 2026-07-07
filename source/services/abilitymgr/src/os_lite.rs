@@ -18,7 +18,7 @@ use core::time::Duration;
 
 use nexus_abi::{debug_putc, yield_};
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::lifecycle::{AbilityState, Broker};
 use crate::wire::{dispatch, Event};
@@ -102,6 +102,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                 };
                 if let Some(event) = out.event {
                     emit_event(&event);
+                    // RFC-0065 launch chain, spawn hop (TASK-0080D): the
+                    // broker approved the launch — abilitymgr (the ONLY
+                    // spawner of apps, policy `proc.spawn`) now asks execd
+                    // for the process. Failures are markers, never silent.
+                    if let crate::wire::Event::Launched { app_id, .. } = &event {
+                        spawn_app(app_id);
+                    }
                 }
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&out.response);
@@ -347,6 +354,72 @@ fn session_gate_active() -> bool {
             Err(_) => return false,
         }
     }
+}
+
+/// v1 app-id → execd image-id table. The counter demo is the only
+/// uiProgram payload execd embeds today; the bundle GET_PAYLOAD step
+/// (TASK-0080D R2 remainder / TASK-0081) replaces this table with
+/// manifest-driven payload sourcing.
+fn image_for_app(app_id: &str) -> Option<u8> {
+    match app_id {
+        "counter" => Some(4), // IMG_APPHOST (execd os_lite)
+        _ => None,
+    }
+}
+
+/// Requests the process spawn from execd (`OP_EXEC_IMAGE` frame, requester
+/// = "abilitymgr"; policyd verifies identity + `proc.spawn`). Bounded reply
+/// wait; every failure path is a marker.
+fn spawn_app(app_id: &str) {
+    let Some(image_id) = image_for_app(app_id) else {
+        // Registry apps without a spawnable payload (chat/search placeholder
+        // ELFs) launch their windowd-hosted windows instead — by value.
+        emit_line("abilitymgr: launch spawn skipped (no payload image)");
+        return;
+    };
+    let Some((send_slot, recv_slot)) = route_blocking(b"execd") else {
+        emit_line("abilitymgr: FAIL launch spawn (execd unreachable)");
+        return;
+    };
+    // Request v1: [E, X, ver, op=1, image_id, stack_pages, requester_len, requester...]
+    const REQUESTER: &[u8] = b"abilitymgr";
+    let mut req = [0u8; 32];
+    req[0] = b'E';
+    req[1] = b'X';
+    req[2] = 1;
+    req[3] = 1; // OP_EXEC_IMAGE
+    req[4] = image_id;
+    req[5] = 8; // stack pages (service default)
+    req[6] = REQUESTER.len() as u8;
+    req[7..7 + REQUESTER.len()].copy_from_slice(REQUESTER);
+    let len = 7 + REQUESTER.len();
+    let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
+        emit_line("abilitymgr: FAIL launch spawn (client)");
+        return;
+    };
+    if client.send(&req[..len], Wait::Blocking).is_err() {
+        emit_line("abilitymgr: FAIL launch spawn (send)");
+        return;
+    }
+    // Bounded reply wait: [E,X,ver,op|0x80,status,pid:u32le].
+    let mut rsp = [0u8; 16];
+    for _ in 0..20_000 {
+        match client.recv_into(Wait::NonBlocking, &mut rsp) {
+            Ok(n) if n >= 9 && rsp[3] == 0x81 => {
+                if rsp[4] == 0 {
+                    emit_line("abilitymgr: spawn ok");
+                } else {
+                    emit_line("abilitymgr: FAIL launch spawn (execd status)");
+                }
+                return;
+            }
+            Ok(_) => {} // unrelated frame on the shared channel — keep waiting
+            Err(_) => {
+                let _ = nexus_abi::yield_();
+            }
+        }
+    }
+    emit_line("abilitymgr: FAIL launch spawn (reply timeout)");
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {

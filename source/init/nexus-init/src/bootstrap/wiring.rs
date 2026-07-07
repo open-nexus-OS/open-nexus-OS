@@ -81,7 +81,7 @@ pub(crate) fn wire_services(
         exe_rsp, key_req, key_rsp, state_req, state_rsp, rng_req, rng_rsp, timed_req, timed_rsp,
         window_req, window_rsp, input_req, input_rsp, gpud_req, gpud_rsp, net_req, net_rsp,
         net_selftest_rsp, net_dsoft_rsp, dsoft_req, dsoft_rsp, dsoft_reply_ep, execd_reply_ep,
-        reply_ep, log_req, log_rsp, metrics_req, metrics_rsp, sess_req, ..
+        reply_ep, log_req, log_rsp, metrics_req, metrics_rsp, sess_req, abil_req, abil_rsp, ..
     } = *eps;
 
     // Services are suspended; they will be resumed atomically at the end
@@ -814,6 +814,10 @@ pub(crate) fn wire_services(
                     if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
                         provision_windowd_settings_route(pid, settings_req, chan);
                     }
+                    // Launch route (TASK-0080D): windowd → abilitymgr OP_LAUNCH.
+                    if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
+                        provision_windowd_ability_route(pid, req, rsp, chan);
+                    }
                     continue;
                 }
                 let recv_slot = nexus_abi::cap_transfer(pid, window_req, Rights::RECV)
@@ -842,6 +846,10 @@ pub(crate) fn wire_services(
                 // endpoint, same shared reply inbox as session/registry.
                 if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
                     provision_windowd_settings_route(pid, settings_req, chan);
+                }
+                // Launch route (TASK-0080D): windowd → abilitymgr OP_LAUNCH.
+                if let (Some(req), Some(rsp)) = (abil_req, abil_rsp) {
+                    provision_windowd_ability_route(pid, req, rsp, chan);
                 }
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
@@ -1229,6 +1237,22 @@ pub(crate) fn wire_services(
                                 }
                             }
                         };
+                        // Launch spawn hop (TASK-0080D): the lifecycle broker
+                        // is the ONLY app spawner — grant it the execd route.
+                        if name == "abilitymgr" {
+                            if let (Ok(req_c), Ok(rsp_c)) =
+                                (nexus_abi::cap_clone(exe_req), nexus_abi::cap_clone(exe_rsp))
+                            {
+                                if let (Ok(send), Ok(recv)) = (
+                                    nexus_abi::cap_transfer(pid, req_c, Rights::SEND),
+                                    nexus_abi::cap_transfer(pid, rsp_c, Rights::RECV),
+                                ) {
+                                    chan.set_send(ServiceId::Execd, send);
+                                    chan.set_recv(ServiceId::Execd, recv);
+                                    debug_write_bytes(b"init: abilitymgr route->execd ok\n");
+                                }
+                            }
+                        }
                         match slots {
                             Some((recv_slot, send_slot)) => {
                                 if announce && iw(init_wire, init_fold, name) {
@@ -1483,6 +1507,26 @@ fn provision_windowd_settings_route(pid: u32, settings_req: u32, chan: &mut Ctrl
         chan.set_send(ServiceId::Settingsd, s);
         chan.set_recv(ServiceId::Settingsd, reply_recv);
         debug_write_bytes(b"init: windowd route->settingsd ok\n");
+    }
+}
+
+/// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
+/// pre-minted request endpoint + RECV on its response endpoint, so the Apps
+/// menu's `OP_LAUNCH` reaches the lifecycle broker and the status reply
+/// returns. Best-effort: without it, launch requests log a route FAIL.
+fn provision_windowd_ability_route(pid: u32, abil_req: u32, abil_rsp: u32, chan: &mut CtrlChannel) {
+    let (Ok(req_clone), Ok(rsp_clone)) =
+        (nexus_abi::cap_clone(abil_req), nexus_abi::cap_clone(abil_rsp))
+    else {
+        return;
+    };
+    if let (Ok(s), Ok(r)) = (
+        nexus_abi::cap_transfer(pid, req_clone, Rights::SEND),
+        nexus_abi::cap_transfer(pid, rsp_clone, Rights::RECV),
+    ) {
+        chan.set_send(ServiceId::Abilitymgr, s);
+        chan.set_recv(ServiceId::Abilitymgr, r);
+        debug_write_bytes(b"init: windowd route->abilitymgr ok\n");
     }
 }
 

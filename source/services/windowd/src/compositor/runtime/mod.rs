@@ -415,6 +415,11 @@ pub(crate) struct DisplayServerRuntime {
     app_win: super::shell_window::ShellWindow,
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
+    /// Cached lifecycle-broker route (resolved lazily with retries — a
+    /// single `new_for` attempt is one 100ms routing window and fails
+    /// under load; the inputd windowd-route lesson).
+    #[cfg(nexus_env = "os")]
+    abilitymgr_client: Option<nexus_ipc::KernelClient>,
     /// Mounted DSL interpreter state (view + layout + markers).
     dsl_mount: dsl_mount::DslMount,
     /// Prefix-filtered words shown in the Search window body.
@@ -948,6 +953,8 @@ impl DisplayServerRuntime {
             dsl_win,
             app_win,
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
+            #[cfg(nexus_env = "os")]
+            abilitymgr_client: None,
             dsl_mount: dsl_mount::DslMount::new(),
             search_filtered: {
                 let mut v = Vec::new();

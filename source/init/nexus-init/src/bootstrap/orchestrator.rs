@@ -473,6 +473,20 @@ where
     } else {
         (None, None)
     };
+    // Ability-lifecycle route (TASK-0080D launch path): pre-mint abilitymgr's
+    // server pair — like sessiond's — so windowd's launch-request route can
+    // be granted from the SAME endpoints the declarative arm hands abilitymgr
+    // (a fresh per-arm pair would orphan the client side).
+    let abilitymgr_pid = find_pid(&ctrl_channels, "abilitymgr");
+    let (abil_req, abil_rsp) = if let Some(pid) = abilitymgr_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -491,7 +505,7 @@ where
         rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
         gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
         dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
-        metrics_rsp, sess_req, sess_rsp,
+        metrics_rsp, sess_req, sess_rsp, abil_req, abil_rsp,
     };
     crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
 

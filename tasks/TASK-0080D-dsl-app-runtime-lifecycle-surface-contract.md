@@ -342,23 +342,24 @@ in boot 10; windowd size contract 79%.
 
 - USER VERIFY: click "+"/"−" in the app window → number changes (R3 DoD),
   text + drag if not yet verified.
-- R2 remainder — LAUNCH-PATH PLAN (recon 2026-07-07, everything verified in
-  source): the USER-driven path already half-exists and is the right shape:
-  windowd's Apps dropdown lists REGISTRY apps (a `bundles/counter` manifest
-  auto-appears, n=3) and unknown ids hit `launch_app(id)` — today a STUB
-  (`shell.rs:99`, marker only). Wire it: (1) windowd → abilitymgr client
-  route (init wiring; windowd has session/registry routes as the pattern),
-  (2) abilitymgr OP_LAUNCH handler resolves the app + requests execd
-  (abilitymgr already holds `proc.spawn` policy — the "only abilitymgr
-  spawns apps" invariant; needs the abilitymgr → execd route in init +
-  request per the selftest `execd_spawn_image` frame format), (3) marker
-  `abilitymgr: launch (app=…, inst=…)`, (4) DELETE execd's R1 autolaunch
-  (grant+resume already live in the central OP_EXEC_IMAGE path). NOTE: the
-  session gate (`is_launch_request` deny until ACTIVE) applies — launches
-  ride user clicks, which only happen post-login; no boot-time gate fight.
+- ✅ **LAUNCH PATH BUILT (2026-07-07)** — the real RFC-0065 chain, simpler
+  than planned because BOTH sides route at runtime (`route_blocking`/
+  `KernelClient::new_for`, no init wiring needed):
+  Apps-dropdown click "counter" → windowd `launch_app` sends `OP_LAUNCH`
+  (`[A,M,1,1,len,app,len,"main"]`) to abilitymgr → session gate + caps check
+  (existing) → broker `launch_with_caps` → `abilitymgr: launch (app=counter,
+  inst=…)` (existing event marker) → NEW spawn hop: `spawn_app` maps
+  counter→IMG_APPHOST(4) and requests execd (`OP_EXEC_IMAGE`, requester
+  "abilitymgr", policyd-verified `proc.spawn`) → `abilitymgr: spawn ok` →
+  execd grant_windowd_route + resume (central path) → app window. execd's
+  R1 autolaunch DELETED. Registry apps without a spawnable payload
+  (chat/search placeholder ELFs) report `launch spawn skipped` by value.
+  Boot 13: `registry ok (n=3)` + `caps ok app=counter` — counter is in the
+  Apps menu. Click verify = user lane (post-login, session gate applies).
+  The v1 app→image table (`image_for_app`) is the seam GET_PAYLOAD replaces.
   THEN: bundle GET_PAYLOAD (os-lite opcode; payload → VMO → cap-move to the
-  spawned app-host, child slot 7) replaces the embedded `.nxir`;
-  `@persist` via statefsd; stop/crash residency.
+  spawned app-host, child slot 7) replaces the embedded `.nxir` + the image
+  table; `@persist` via statefsd; stop/crash residency.
 - R4 payloadKind dispatch (with 0079). Then 0080B/0080C 
   (DSL shell + greeter, launcher e2e) complete phase 6.
 - R2 runtime half — RECON FINDING: os-lite bundlemgrd has NO GET_PAYLOAD

@@ -96,8 +96,62 @@ impl DisplayServerRuntime {
     /// windowd only requests it. For now this records the intent via a marker — the
     /// abilitymgr launch handoff lands with the per-app-surface compositor path
     /// (TASK-0065 P4b). Named app so the chain is observable end-to-end.
+    /// Requests an app launch from the lifecycle broker (RFC-0065: SystemUI
+    /// only REQUESTS; abilitymgr owns lifecycle + spawn). Wire:
+    /// `[A,M,ver,OP_LAUNCH, app_len, app…, abil_len, abil…]`; the reply is
+    /// drained bounded so the shared response queue never fills up.
     pub(super) fn launch_app(&mut self, app_id: &str) {
         let _ = debug_println(&alloc::format!("windowd: launch request app={app_id}"));
+        #[cfg(nexus_env = "os")]
+        {
+            use nexus_ipc::Client as _;
+            // Resolve the broker route lazily WITH retries and cache it:
+            // one `new_for` = one ~100ms routing window ("caller-level
+            // retries handle longer waits" — the query_route contract);
+            // a single attempt failed live (user report 2026-07-07).
+            if self.abilitymgr_client.is_none() {
+                for _ in 0..20 {
+                    if let Ok(resolved) = nexus_ipc::KernelClient::new_for("abilitymgr") {
+                        self.abilitymgr_client = Some(resolved);
+                        break;
+                    }
+                    let _ = nexus_abi::yield_();
+                }
+            }
+            let Some(client) = self.abilitymgr_client.as_ref() else {
+                let _ = debug_println("windowd: FAIL launch route (abilitymgr)");
+                return;
+            };
+            let app = app_id.as_bytes();
+            const ABIL: &[u8] = b"main";
+            let mut req = alloc::vec::Vec::with_capacity(6 + app.len() + ABIL.len());
+            req.extend_from_slice(&[b'A', b'M', 1, 1]); // MAGIC, ver, OP_LAUNCH
+            req.push(app.len() as u8);
+            req.extend_from_slice(app);
+            req.push(ABIL.len() as u8);
+            req.extend_from_slice(ABIL);
+            if client.send(&req, nexus_ipc::Wait::NonBlocking).is_err() {
+                let _ = debug_println("windowd: FAIL launch send");
+                return;
+            }
+            // Drain the reply bounded (status logging only — the launch
+            // outcome is abilitymgr's marker chain).
+            let mut rsp = [0u8; 16];
+            for _ in 0..2_000 {
+                match client.recv_into(nexus_ipc::Wait::NonBlocking, &mut rsp) {
+                    Ok(n) if n >= 5 && rsp[3] == 0x81 => {
+                        if rsp[4] != 0 {
+                            let _ = debug_println("windowd: launch denied");
+                        }
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        let _ = nexus_abi::yield_();
+                    }
+                }
+            }
+        }
     }
 
     /// Cycle to the next registered product's shell (desktop → tablet → kiosk → …)

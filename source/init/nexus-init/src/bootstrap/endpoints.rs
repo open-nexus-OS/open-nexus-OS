@@ -112,6 +112,11 @@ pub(crate) struct Endpoints {
     pub sess_req: Option<u32>,
     /// sessiond server response endpoint.
     pub sess_rsp: Option<u32>,
+    /// abilitymgr server request endpoint (pre-minted so windowd's
+    /// launch-request route can be granted — TASK-0080D launch path).
+    pub abil_req: Option<u32>,
+    /// abilitymgr server response endpoint.
+    pub abil_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -151,6 +156,9 @@ impl Endpoints {
             // Session authority (TASK-0065B): pre-minted so windowd/abilitymgr
             // client routes exist long before sessiond (spawned last) binds.
             ServiceId::Sessiond => self.sess_req.zip(self.sess_rsp),
+            // Launch authority (TASK-0080D): pre-minted so windowd's
+            // OP_LAUNCH route targets the pair abilitymgr actually serves.
+            ServiceId::Abilitymgr => self.abil_req.zip(self.abil_rsp),
             _ => None,
         }
     }
