@@ -104,7 +104,17 @@ impl DisplayServerRuntime {
                 ));
                 wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, wire::SURFACE_STATUS_OK, seq)
             }
-            Err(status) => wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, status, seq),
+            Err(status) => {
+                // A rejected present is otherwise silent — name the status +
+                // seq so a seq/surface mismatch is diagnosable (bounded).
+                if self.app_present_reject_markers < 8 {
+                    self.app_present_reject_markers += 1;
+                    let _ = debug_println(&alloc::format!(
+                        "WINDOWD: FAIL surface present rejected id={surface_id} seq={seq} status={status}"
+                    ));
+                }
+                wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, status, seq)
+            }
         }
     }
 

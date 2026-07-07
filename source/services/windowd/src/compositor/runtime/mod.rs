@@ -326,6 +326,9 @@ pub(crate) struct DisplayServerRuntime {
     present_retry_count: u32,
     /// One-shot latch for the retries-exhausted FAIL marker (per episode).
     present_retry_exhausted: bool,
+    /// Bounded counter for the app-surface present-rejection diagnostic
+    /// (P0.2 tap repro): a rejected client present is otherwise silent.
+    app_present_reject_markers: u32,
     /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
     /// Toggled after each successful present. gpud scanout follows on swap.
     current_display_slot: u8,
@@ -925,6 +928,7 @@ impl DisplayServerRuntime {
             present_fail_reported: false,
             present_retry_count: 0,
             present_retry_exhausted: false,
+            app_present_reject_markers: 0,
             frames_in_flight: 0,
             last_completed_seq: 0,
             current_display_slot: 0,

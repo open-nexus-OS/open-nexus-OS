@@ -534,3 +534,42 @@ in boot 10; windowd size contract 79%.
 - Beweise: Boot 20-06-16 — 0 FAIL/PANIC/KPGF, Postflight alle Stufen OK
   (inkl. recv-wake-Gate + display truth); execd/init/kernel/app-host/probe
   riscv-Checks grün; Kernel-Host-Tests 16 grün.
+
+### 2026-07-07 nachts: +/- reagieren nur einmal — ROOT-CAUSED + GEFIXT (uncommitted)
+
+User-Report: Counter-Buttons reagieren nur beim ERSTEN Klick. Automatisiert
+reproduziert (QMP-Klicks auf „+" @ 526,520): Tap 1 → Frame, Taps 2-5 → tot.
+
+**Fehldiagnose zuerst (verworfen):** „wake-then-lost" im Kernel. Widerlegt
+durch die auf ZWEI Zyklen erweiterte recv-wake-Probe (grün) — der Kernel-
+Sender-Wake für geparkte exec'd-Kinder funktioniert wiederholt einwandfrei.
+
+**ECHTE URSACHE (bewiesen durch schrittweise Instrumentierung):** windowd
+hatte den Server-Protokoll-Dispatch DOPPELT — im Drain-Batch (vollständig)
+UND im Idle-Blocking-Recv (nur OP_GET/UPDATE_VISIBLE_STATE, alles andere →
+UNSUPPORTED). Sobald der Desktop idle ist (keine Animation, kein pending
+damage — genau nach App-Öffnen + Tap), blockiert windowd im zweiten Recv.
+Das App-Present (OP_SURFACE_PRESENT) landet dort → UNSUPPORTED → VERWORFEN
+(kein Ack). Das Probe-Present (seq=1) klappte nur, weil windowd beim Boot
+noch beschäftigt war und den ersten (vollständigen) Recv-Pfad nutzte.
+Beweis-Kette: `APPHOST: present send slot=5 seq=2 ok=true` aber windowd
+empfängt op=9 nie ausserhalb des Boots.
+
+**FIX (production-grade, keine Doppelstruktur):** `dispatch_client_frame()`
+als EINE SSOT für das gesamte Server-Protokoll (compositor/mod.rs); beide
+Recv-Stellen rufen sie — eine fehlende Branch ist damit strukturell
+unmöglich. `nexus_ipc::ReplyCap` dafür public exportiert.
+
+**ZWEITER FIX (app-host Event-Loop):** war `tap→render→present→recv_ack`,
+wobei recv_ack denselben Event-Kanal blockierend drainierte und interleavte
+Input-Frames VERWARF („keep waiting"). Jetzt EIN vereinheitlichter Blocking-
+Recv: jeder Tap wird SOFORT aufs Modell angewandt (Counter zählt immer),
+Present via `present_in_flight`-Flag entkoppelt (max. 1 in flight, Coalescing
+per `dirty`), Present-Ack ist reine Flusskontrolle — nie wieder ein Tap
+verworfen.
+
+**Beweis:** 5×„+" → 5 interactive frames (vorher 1), Counter sichtbar
+inkrementiert; danach 3×„−" → Counter zeigt **2** (visual-postflight grün,
+Screenshot). Host-Suiten: windowd 138+2+9, kernel 16, nexus-ipc 31 grün;
+riscv-Checks kernel/windowd/app-host 0 Fehler. Diagnostik wieder entfernt;
+der ehrliche Reject-Marker `WINDOWD: FAIL surface present rejected` bleibt.

@@ -1137,71 +1137,76 @@ fn run_recv_wake_probe() {
             return;
         }
     }
-    // 2. Park window: between the child's ARMED send and its park lies ONE
-    //    recv syscall — a 30ms bounded wait makes the park (near-)certain.
-    //    Implemented as a timed recv on the reply endpoint that is EXPECTED
-    //    to time out; a message here is a protocol violation.
-    let park_deadline = nsec().ok().unwrap_or(0).saturating_add(30_000_000);
-    match nexus_abi::ipc_recv_v1(
-        PROBE_REPLY_RECV_SLOT,
-        &mut hdr,
-        &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        park_deadline,
-    ) {
-        Ok(_) => {
-            emit_line("execd: FAIL recv-wake probe (early reply)");
-            return;
-        }
-        Err(_) => {}
-    }
-    // 3. THE TEST: send one byte to the parked child (bounded send).
-    let ping = [0xB1u8];
-    let ping_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
-    let send_deadline = nsec().ok().unwrap_or(0).saturating_add(1_000_000_000);
-    loop {
-        match nexus_abi::ipc_send_v1(
-            PROBE_PING_SEND_SLOT,
-            &ping_hdr,
-            &ping,
-            nexus_abi::IPC_SYS_NONBLOCK,
-            0,
+    // 2. TWO park/wake cycles (the counter repro proved wake 1 can succeed
+    //    while the SECOND park is never woken again — wake-then-lost class;
+    //    a single-cycle gate is half a gate). Per cycle: bounded park window
+    //    (timed recv EXPECTED to time out), one ping to the parked child,
+    //    bounded wait for its woke-reply.
+    for cycle in 0..2u32 {
+        let park_deadline = nsec().ok().unwrap_or(0).saturating_add(30_000_000);
+        match nexus_abi::ipc_recv_v1(
+            PROBE_REPLY_RECV_SLOT,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            park_deadline,
         ) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nsec().ok().unwrap_or(u64::MAX) >= send_deadline {
-                    emit_line("execd: FAIL recv-wake probe (ping send timeout)");
+            Ok(_) => {
+                emit_line("execd: FAIL recv-wake probe (early reply)");
+                return;
+            }
+            Err(_) => {}
+        }
+        let ping = [0xB1u8];
+        let ping_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
+        let send_deadline = nsec().ok().unwrap_or(0).saturating_add(1_000_000_000);
+        loop {
+            match nexus_abi::ipc_send_v1(
+                PROBE_PING_SEND_SLOT,
+                &ping_hdr,
+                &ping,
+                nexus_abi::IPC_SYS_NONBLOCK,
+                0,
+            ) {
+                Ok(_) => break,
+                Err(nexus_abi::IpcError::QueueFull) => {
+                    if nsec().ok().unwrap_or(u64::MAX) >= send_deadline {
+                        emit_line("execd: FAIL recv-wake probe (ping send timeout)");
+                        return;
+                    }
+                    let _ = yield_();
+                }
+                Err(_) => {
+                    emit_line("execd: FAIL recv-wake probe (ping send)");
                     return;
                 }
-                let _ = yield_();
+            }
+        }
+        let woke_deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
+        match nexus_abi::ipc_recv_v1(
+            PROBE_REPLY_RECV_SLOT,
+            &mut hdr,
+            &mut buf,
+            nexus_abi::IPC_SYS_TRUNCATE,
+            woke_deadline,
+        ) {
+            Ok(n) if n >= 1 && buf[0] == PROBE_MSG_WOKE => {}
+            Ok(_) => {
+                emit_line("execd: FAIL recv-wake probe (protocol woke)");
+                return;
             }
             Err(_) => {
-                emit_line("execd: FAIL recv-wake probe (ping send)");
+                emit_line(if cycle == 0 {
+                    "execd: FAIL recv-wake probe (child never woke from blocking recv)"
+                } else {
+                    "execd: FAIL recv-wake probe (child never woke AGAIN — second park lost)"
+                });
                 return;
             }
         }
     }
-    // 4. Verdict: the woken child replies within 2s, or the #102-family bug
-    //    is reproduced (ping sits in the child's queue, child parked forever).
-    let woke_deadline = nsec().ok().unwrap_or(0).saturating_add(2_000_000_000);
-    match nexus_abi::ipc_recv_v1(
-        PROBE_REPLY_RECV_SLOT,
-        &mut hdr,
-        &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE,
-        woke_deadline,
-    ) {
-        Ok(n) if n >= 1 && buf[0] == PROBE_MSG_WOKE => {
-            emit_line("execd: recv-wake probe ok");
-            let _ = nexus_abi::debug_println("SELFTEST: exec child blocking recv wake ok");
-        }
-        Ok(_) => {
-            emit_line("execd: FAIL recv-wake probe (protocol woke)");
-        }
-        Err(_) => {
-            emit_line("execd: FAIL recv-wake probe (child never woke from blocking recv)");
-        }
-    }
+    emit_line("execd: recv-wake probe ok");
+    let _ = nexus_abi::debug_println("SELFTEST: exec child blocking recv wake ok");
 }
 
 /// Hands the child its RECV half of the dedicated event channel

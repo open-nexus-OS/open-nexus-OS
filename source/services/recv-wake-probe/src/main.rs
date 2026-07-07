@@ -93,28 +93,38 @@ mod probe {
             return Err(e);
         }
 
-        // 2. THE TEST: park in a plain blocking recv (no deadline, no poll).
-        //    A correct kernel wakes us when execd's ping lands; the #102-family
-        //    bug leaves us parked forever with the ping sitting in the queue
-        //    (execd then reports the FAIL side after its bounded wait).
+        // 2. THE TEST — TWO full park/wake cycles. Cycle 1 alone passed while
+        //    the real app still hung on its SECOND park (counter repro
+        //    2026-07-07: tap 1 processed, tap 2 delivered but the child never
+        //    ran again, not blocked, no failed wake — the wake-then-lost
+        //    class). A regression gate that only proves the first wake is
+        //    half a gate.
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 16];
-        match ipc_recv_v1(PING_RECV_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0) {
-            Ok(_) => {}
-            Err(_) => {
-                raw_marker("RECVWAKE: FAIL blocking recv errored");
-                return Err("recv failed");
+        for cycle in 0..2u32 {
+            match ipc_recv_v1(PING_RECV_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0) {
+                Ok(_) => {}
+                Err(_) => {
+                    raw_marker(if cycle == 0 {
+                        "RECVWAKE: FAIL blocking recv errored (cycle 1)"
+                    } else {
+                        "RECVWAKE: FAIL blocking recv errored (cycle 2)"
+                    });
+                    return Err("recv failed");
+                }
             }
+            // Round-trip proof per cycle: the reply is measured evidence the
+            // child actually RAN again after the wake.
+            if let Err(e) = send_byte(REPLY_SEND_SLOT, MSG_WOKE) {
+                raw_marker("RECVWAKE: FAIL woke send");
+                return Err(e);
+            }
+            raw_marker(if cycle == 0 {
+                "RECVWAKE: woke from blocking recv"
+            } else {
+                "RECVWAKE: woke twice (park/wake cycle repeats)"
+            });
         }
-
-        // 3. Round-trip proof: report the wake back to execd, then exit(0)
-        //    via the entry wrapper. execd prints the SELFTEST verdict — the
-        //    reply is measured evidence the child actually ran again.
-        if let Err(e) = send_byte(REPLY_SEND_SLOT, MSG_WOKE) {
-            raw_marker("RECVWAKE: FAIL woke send");
-            return Err(e);
-        }
-        raw_marker("RECVWAKE: woke from blocking recv");
         Ok(())
     }
 }

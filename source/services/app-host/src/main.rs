@@ -234,30 +234,36 @@ mod probe {
         let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT)?;
         raw_marker("APPHOST: probe surface presented");
 
-        // 5. The event loop (R3): BLOCKING recv on the app channel — windowd
-        //    routes body taps here (`OP_SURFACE_INPUT`, surface-local
-        //    coordinates). A tap runs the interpreter's hit-testing
-        //    (`View::pointer`); visible damage re-lays-out + re-renders the
-        //    VMO and presents the next strictly-sequenced frame. Never a
-        //    yield-spin: a Normal-QoS yield loop starves every Idle-QoS
-        //    service (netstackd's exact failure mode). v1 limitation
-        //    (recorded): taps arriving while we wait for a present ack are
-        //    skipped by `recv_ack` as unrelated frames.
+        // 5. The event loop (R3): ONE unified BLOCKING recv on the app event
+        //    channel. windowd delivers BOTH body taps (`OP_SURFACE_INPUT`,
+        //    surface-local coordinates) AND present-acks here.
+        //
+        //    The earlier design did `dsl.tap → render → present → recv_ack`,
+        //    where `recv_ack` blocked the loop draining the SAME channel and
+        //    DISCARDED any input frame that interleaved with the ack ("keep
+        //    waiting"). Result: the first tap worked, every tap arriving
+        //    during a present's ack-wait was silently dropped — the "+ reacts
+        //    only once" bug (counter repro 2026-07-07). It also stalled 30s
+        //    when the ack raced behind queued taps.
+        //
+        //    Fixed design — never drop a tap, decouple the present:
+        //    * every tap is applied to the MODEL immediately (the counter
+        //      increments even if the display lags);
+        //    * a present-ack is pure flow control (clears `present_in_flight`);
+        //    * at most one present is outstanding; taps that arrive while one
+        //      is in flight set `dirty`, and the next ack triggers a single
+        //      coalesced present of the latest state.
+        //    Plain blocking recv (P0.2): the sender-wake of an exec'd child in
+        //    blocking recv is proven every boot by the recv-wake gate.
         let mut seq: u32 = 1;
         let mut event_frame = [0u8; 64];
         let mut recv_err_marked = false;
         let mut odd_frame_markers: u32 = 0;
         let mut tap_miss_markers: u32 = 0;
+        let mut present_in_flight = false;
+        let mut dirty = false;
         raw_marker("APPHOST: event loop armed");
         loop {
-            // Plain BLOCKING recv (P0.2): the sender-wake of an exec'd child
-            // parked in a blocking recv is PROVEN every boot by the
-            // recv-wake regression gate (`SELFTEST: exec child blocking recv
-            // wake ok` — execd spawns recv-wake-probe post-ready). The
-            // earlier Timeout(30ms) loop was a transitional workaround for
-            // the #102-family finding (boot 2026-07-07T12-12); with the gate
-            // green the reactive park is the production path — zero polls,
-            // the kernel wakes us on message arrival.
             let len = match events.recv_into(Wait::Blocking, &mut event_frame) {
                 Ok(len) => {
                     recv_err_marked = false;
@@ -275,41 +281,48 @@ mod probe {
                     continue;
                 }
             };
-            let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len])
-            else {
-                // Stale ack / unrelated frame — bounded marker, never silent.
-                if odd_frame_markers < 8 {
-                    odd_frame_markers += 1;
-                    raw_marker("apphost: event frame skipped (not input)");
+            // Classify the frame: present-ack (flow control) vs input vs other.
+            if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
+                present_in_flight = false;
+            } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
+                if kind == wire::INPUT_KIND_TAP {
+                    if let Some(dsl) = app.as_mut() {
+                        if dsl.tap(i32::from(x), i32::from(y)) {
+                            dirty = true;
+                        } else if tap_miss_markers < 8 {
+                            // No handler hit / no visible change: report the
+                            // first few (coordinate-mapping bugs look like this).
+                            tap_miss_markers += 1;
+                            raw_marker("apphost: input tap miss");
+                        }
+                    }
                 }
-                continue;
-            };
-            if kind != wire::INPUT_KIND_TAP {
-                continue;
+            } else if odd_frame_markers < 8 {
+                // Unrelated frame — bounded marker, never silent.
+                odd_frame_markers += 1;
+                raw_marker("apphost: event frame skipped (not input)");
             }
-            let Some(dsl) = app.as_mut() else { continue };
-            if !dsl.tap(i32::from(x), i32::from(y)) {
-                // No handler hit / no visible change: report the first few
-                // (coordinate-mapping bugs look exactly like this).
-                if tap_miss_markers < 8 {
-                    tap_miss_markers += 1;
-                    raw_marker("apphost: input tap miss");
+            // Coalesced present: render + present the latest model once the
+            // previous present is acked. Runs in the same iteration an ack
+            // clears the in-flight slot, so a tap that arrived mid-present is
+            // shown without waiting for the next input.
+            if dirty && !present_in_flight {
+                let Some(dsl) = app.as_mut() else { continue };
+                if !dsl.render(vmo) {
+                    raw_marker("apphost: FAIL interactive render");
+                    dirty = false;
+                    continue;
                 }
-                continue;
+                seq = seq.wrapping_add(1);
+                let plen = wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
+                if send_retry(&client, &buf[..plen]).is_err() {
+                    raw_marker("apphost: FAIL interactive present");
+                    continue;
+                }
+                present_in_flight = true;
+                dirty = false;
+                raw_marker("APPHOST: interactive frame presented");
             }
-            if !dsl.render(vmo) {
-                raw_marker("apphost: FAIL interactive render");
-                continue;
-            }
-            seq = seq.wrapping_add(1);
-            let len = wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
-            if send_retry(&client, &buf[..len]).is_err()
-                || recv_ack(&events, wire::OP_SURFACE_PRESENT).is_err()
-            {
-                raw_marker("apphost: FAIL interactive present");
-                continue;
-            }
-            raw_marker("APPHOST: interactive frame presented");
         }
     }
 

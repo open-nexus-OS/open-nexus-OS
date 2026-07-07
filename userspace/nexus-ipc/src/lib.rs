@@ -167,7 +167,9 @@ pub use os::{set_default_target, KernelClient, KernelServer};
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
 mod os_kernel;
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
-pub use os_kernel::{set_default_target, supports_service_routing, KernelClient, KernelServer};
+pub use os_kernel::{
+    set_default_target, supports_service_routing, KernelClient, KernelServer, ReplyCap,
+};
 
 // no_std OS-lite backend (a lightweight in-kernel IPC), enabled via feature flag
 #[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]

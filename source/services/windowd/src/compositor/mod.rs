@@ -247,6 +247,102 @@ fn decode_timer_fired_now_ns(frame: &[u8]) -> Option<u64> {
     ]))
 }
 
+/// Dispatch ONE client request frame (input state, surface create/present/
+/// destroy/events, or an unknown op). The SINGLE source of truth for the
+/// windowd server protocol — called from BOTH recv sites (the drain batch AND
+/// the idle blocking recv). The idle recv previously handled only the two
+/// visible-state ops and answered everything else UNSUPPORTED: a client
+/// surface present arriving while the desktop was idle (the exact state after
+/// an app window opens and the user taps) was silently dropped — the "+ reacts
+/// only once" bug. Factoring both sites through here makes a missing branch
+/// impossible.
+#[cfg(nexus_env = "os")]
+fn dispatch_client_frame(
+    runtime: &mut DisplayServerRuntime,
+    server: &KernelServer,
+    frame: &[u8],
+    mut moved_cap: Option<nexus_ipc::ReplyCap>,
+) {
+    use nexus_ipc::Server as _;
+    if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
+        let response = encode_visible_state_frame(runtime.visible_state());
+        if let Some(reply) = moved_cap.take() {
+            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+        } else {
+            let _ = server.send(&response, Wait::Blocking);
+        }
+    } else if frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
+        // Frame-aligned coalescing: STAGE the update (latest sample wins,
+        // wheel sums); applied ONCE per frame by apply_staged_input. Reply
+        // immediately so inputd is never blocked.
+        let status = match decode_update_visible_state(frame) {
+            Some(state) => runtime.stage_input_state(state),
+            None => STATUS_MALFORMED,
+        };
+        if let Some(reply) = moved_cap.take() {
+            let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
+            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+        }
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
+    {
+        // ADR-0042 per-app event channel: the moved capability is the
+        // channel's SEND half (execd-attached). All app-bound frames go out
+        // on it. No reply frame; the attach marker is the proof.
+        let send_slot = moved_cap.take().map(|cap| {
+            let slot = cap.slot();
+            core::mem::forget(cap); // keep the slot alive (no close)
+            slot
+        });
+        runtime.attach_app_event_channel(send_slot);
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
+    {
+        // ADR-0042: the moved capability IS the app's surface VMO (gpud-attach
+        // pattern), NOT a reply cap. Retain its slot; the ack returns over the
+        // app's dedicated event channel (fallback: shared response endpoint).
+        let vmo_slot = moved_cap.take().map(|cap| {
+            let slot = cap.slot();
+            core::mem::forget(cap); // keep the slot alive (no close)
+            slot
+        });
+        let ack = runtime.handle_surface_create(frame, vmo_slot);
+        if !runtime.send_app_frame(&ack) {
+            let _ = server.send(&ack, Wait::Blocking);
+        }
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
+    {
+        let ack = runtime.handle_surface_present(frame);
+        if runtime.send_app_frame(&ack) {
+            // delivered on the dedicated channel
+        } else if let Some(reply) = moved_cap.take() {
+            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
+        } else {
+            let _ = server.send(&ack, Wait::Blocking);
+        }
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
+    {
+        let ack = runtime.handle_surface_destroy(frame);
+        if runtime.send_app_frame(&ack) {
+            // delivered on the dedicated channel
+        } else if let Some(reply) = moved_cap.take() {
+            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
+        } else {
+            let _ = server.send(&ack, Wait::Blocking);
+        }
+    } else {
+        let op = frame.get(3).copied().unwrap_or(0);
+        let response = encode_status(op, STATUS_UNSUPPORTED);
+        if let Some(reply) = moved_cap.take() {
+            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+        } else {
+            let _ = server.send(&response, Wait::Blocking);
+        }
+    }
+}
+
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Verdict folding: fold windowd's scattered `debug_println` bring-up markers (route/shell/
     // wallpaper/handoff/present…) into one `windowd N/N` grid line in interactive boots. Flushed
@@ -420,88 +516,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         }
                         continue;
                     }
-                    if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                        let response = encode_visible_state_frame(runtime.visible_state());
-                        if let Some(reply) = moved_cap.take() {
-                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                        } else {
-                            let _ = server.send(&response, Wait::Blocking);
-                        }
-                    } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
-                        // Frame-aligned coalescing: STAGE the update (latest sample
-                        // wins, wheel sums); the whole frame's input is applied ONCE
-                        // after this drain (apply_staged_input). Reply immediately so
-                        // inputd is never blocked.
-                        let status = match decode_update_visible_state(&frame) {
-                            Some(state) => runtime.stage_input_state(state),
-                            None => STATUS_MALFORMED,
-                        };
-                        if let Some(reply) = moved_cap.take() {
-                            let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
-                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                        }
-                    } else if frame.get(3).copied()
-                        == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
-                    {
-                        // ADR-0042 per-app event channel: the moved capability
-                        // is the channel's SEND half (execd-attached). All
-                        // app-bound frames (input events + surface acks) go
-                        // out on it — the shared response endpoint raced with
-                        // inputd's ack drain (any receiver could consume a
-                        // tap). No reply frame; the attach marker is the proof.
-                        let send_slot = moved_cap.take().map(|cap| {
-                            let slot = cap.slot();
-                            core::mem::forget(cap); // keep the slot alive (no close)
-                            slot
-                        });
-                        runtime.attach_app_event_channel(send_slot);
-                    } else if frame.get(3).copied()
-                        == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
-                    {
-                        // ADR-0042: the moved capability IS the app's surface
-                        // VMO (gpud-attach pattern), NOT a reply cap. Retain
-                        // its slot; the ack returns over the app's dedicated
-                        // event channel (fallback: shared response endpoint).
-                        let vmo_slot = moved_cap.take().map(|cap| {
-                            let slot = cap.slot();
-                            core::mem::forget(cap); // keep the slot alive (no close)
-                            slot
-                        });
-                        let ack = runtime.handle_surface_create(frame, vmo_slot);
-                        if !runtime.send_app_frame(&ack) {
-                            let _ = server.send(&ack, Wait::Blocking);
-                        }
-                    } else if frame.get(3).copied()
-                        == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
-                    {
-                        let ack = runtime.handle_surface_present(frame);
-                        if runtime.send_app_frame(&ack) {
-                            // delivered on the dedicated channel
-                        } else if let Some(reply) = moved_cap.take() {
-                            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
-                        } else {
-                            let _ = server.send(&ack, Wait::Blocking);
-                        }
-                    } else if frame.get(3).copied()
-                        == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
-                    {
-                        let ack = runtime.handle_surface_destroy(frame);
-                        if runtime.send_app_frame(&ack) {
-                            // delivered on the dedicated channel
-                        } else if let Some(reply) = moved_cap.take() {
-                            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
-                        } else {
-                            let _ = server.send(&ack, Wait::Blocking);
-                        }
-                    } else {
-                        let op = frame.get(3).copied().unwrap_or(0);
-                        let response = encode_status(op, STATUS_UNSUPPORTED);
-                        if let Some(reply) = moved_cap.take() {
-                            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                        } else {
-                            let _ = server.send(&response, Wait::Blocking);
-                        }
-                    }
+                    dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take());
                 }
                 Err(IpcError::WouldBlock)
                 | Err(IpcError::Timeout)
@@ -565,33 +580,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     }
                     continue;
                 }
-                if frame_has_op(&frame, OP_GET_VISIBLE_STATE) {
-                    let response = encode_visible_state_frame(runtime.visible_state());
-                    if let Some(reply) = moved_cap.take() {
-                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                    } else {
-                        let _ = server.send(&response, Wait::Blocking);
-                    }
-                } else if frame_has_op(&frame, OP_UPDATE_VISIBLE_STATE) {
-                    // Stage (frame-aligned); applied once at the top of the next
-                    // iteration via apply_staged_input — same coalescing as the batch.
-                    let status = match decode_update_visible_state(&frame) {
-                        Some(state) => runtime.stage_input_state(state),
-                        None => STATUS_MALFORMED,
-                    };
-                    if let Some(reply) = moved_cap.take() {
-                        let response = encode_status(OP_UPDATE_VISIBLE_STATE, status);
-                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                    }
-                } else {
-                    let op = frame.get(3).copied().unwrap_or(0);
-                    let response = encode_status(op, STATUS_UNSUPPORTED);
-                    if let Some(reply) = moved_cap.take() {
-                        let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-                    } else {
-                        let _ = server.send(&response, Wait::Blocking);
-                    }
-                }
+                // Same complete dispatch as the drain batch — surface
+                // create/present/destroy/events are handled here too. The idle
+                // recv used to answer them UNSUPPORTED (a client present while
+                // the desktop was idle was dropped → the "+ reacts once" bug).
+                dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take());
             }
             Err(IpcError::Timeout) | Err(IpcError::WouldBlock) => {
                 // No message ready. If an animation is running, this is our
