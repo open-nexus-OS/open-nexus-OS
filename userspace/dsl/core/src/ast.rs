@@ -38,6 +38,49 @@ pub enum Decl {
     Page(PageDecl),
     Routes(RoutesDecl),
     Query(QueryDecl),
+    Window(WindowDecl),
+}
+
+// --------------------------------------------------------------- window intent
+
+/// App-owned window intent (`Window { style: …, mode: …, level: …, resizable: … }`).
+/// At most one per program; absent = the defaults below. The compositor composes
+/// the frame under the active windowing policy — see
+/// `docs/dev/ui/patterns/windowing/window-intent.md`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowDecl {
+    pub style: WindowStyle,
+    pub mode: WindowMode,
+    pub level: WindowLevel,
+    pub resizable: bool,
+    pub span: Span,
+}
+
+/// How much frame the app *wants* (the policy may clamp it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowStyle {
+    #[default]
+    Titlebar,
+    HiddenTitlebar,
+    Plain,
+}
+
+/// Preferred default window mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowMode {
+    #[default]
+    Auto,
+    Freeform,
+    Fullscreen,
+}
+
+/// Z-band. `desktop` is capability-gated (only the product's selected shell).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowLevel {
+    #[default]
+    Normal,
+    Desktop,
+    Overlay,
 }
 
 // ------------------------------------------------------------------- state

@@ -7,6 +7,16 @@
 // prototype: the Apps button navigates to the real launcher, which drives
 // the real registry + launch authority.
 
+// The shell is the desktop: a chromeless, full-screen surface at the desktop
+// z-band. Under Desktop windowing policy the compositor draws no title bar and
+// no window controls (docs/dev/ui/patterns/windowing/window-intent.md).
+Window {
+    style: plain,
+    mode: fullscreen,
+    level: desktop,
+    resizable: false,
+}
+
 Page ShellPage {
     Stack {
         Stack {

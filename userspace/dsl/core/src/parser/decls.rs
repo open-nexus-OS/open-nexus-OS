@@ -6,7 +6,8 @@
 use super::Parser;
 use crate::ast::{
     ComponentDecl, EffectDecl, EventCase, EventDecl, Pattern, PageDecl, PropDecl, QueryDecl,
-    ReduceArm, ReduceDecl, Route, RoutesDecl, StoreDecl, StoreField,
+    ReduceArm, ReduceDecl, Route, RoutesDecl, StoreDecl, StoreField, WindowDecl, WindowLevel,
+    WindowMode, WindowStyle,
 };
 use crate::diag::{DiagCode, Diagnostic};
 use crate::lexer::TokenKind;
@@ -331,4 +332,83 @@ impl Parser<'_> {
         let span = start.to(self.prev_span());
         Ok(RoutesDecl { routes, span })
     }
+
+    /// `Window { style: plain, mode: fullscreen, level: desktop, resizable: false }`
+    /// — app-owned window intent (docs/dev/ui/patterns/windowing/window-intent.md).
+    /// Fields are optional and order-free; omitted fields take the AST defaults
+    /// (titlebar/auto/normal/false). At most one per program (enforced in lowering).
+    pub(super) fn window_decl(&mut self) -> Result<WindowDecl, Diagnostic> {
+        let start = self.expect(&TokenKind::KwWindow, "`Window`")?;
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        let mut style = WindowStyle::default();
+        let mut mode = WindowMode::default();
+        let mut level = WindowLevel::default();
+        let mut resizable = false;
+        while !self.eat(&TokenKind::RBrace) {
+            let key = self.ident("a window field (style, mode, level, resizable)")?;
+            self.expect(&TokenKind::Colon, "`:`")?;
+            match key.text.as_str() {
+                "style" => {
+                    let v = self.ident("a window style (titlebar, hiddenTitlebar, plain)")?;
+                    style = match v.text.as_str() {
+                        "titlebar" => WindowStyle::Titlebar,
+                        "hiddenTitlebar" => WindowStyle::HiddenTitlebar,
+                        "plain" => WindowStyle::Plain,
+                        other => return Err(enum_err(v.span, "style", other)),
+                    };
+                }
+                "mode" => {
+                    let v = self.ident("a window mode (auto, freeform, fullscreen)")?;
+                    mode = match v.text.as_str() {
+                        "auto" => WindowMode::Auto,
+                        "freeform" => WindowMode::Freeform,
+                        "fullscreen" => WindowMode::Fullscreen,
+                        other => return Err(enum_err(v.span, "mode", other)),
+                    };
+                }
+                "level" => {
+                    let v = self.ident("a window level (normal, desktop, overlay)")?;
+                    level = match v.text.as_str() {
+                        "normal" => WindowLevel::Normal,
+                        "desktop" => WindowLevel::Desktop,
+                        "overlay" => WindowLevel::Overlay,
+                        other => return Err(enum_err(v.span, "level", other)),
+                    };
+                }
+                "resizable" => {
+                    resizable = match self.peek() {
+                        TokenKind::KwTrue => {
+                            self.bump();
+                            true
+                        }
+                        TokenKind::KwFalse => {
+                            self.bump();
+                            false
+                        }
+                        _ => return Err(self.unexpected("`true` or `false`")),
+                    };
+                }
+                other => {
+                    return Err(Diagnostic::new(
+                        DiagCode::UnknownField,
+                        key.span,
+                        format!("unknown window field `{other}` (expected style, mode, level, resizable)"),
+                    ));
+                }
+            }
+            // Fields separated by `,` or `;`; the last may omit it.
+            let _ = self.eat(&TokenKind::Comma) || self.eat(&TokenKind::Semi);
+        }
+        let span = start.to(self.prev_span());
+        Ok(WindowDecl { style, mode, level, resizable, span })
+    }
+}
+
+/// Diagnostic for an unrecognized window enum value.
+fn enum_err(span: crate::diag::Span, field: &str, got: &str) -> Diagnostic {
+    Diagnostic::new(
+        DiagCode::UnknownEnumCase,
+        span,
+        format!("unknown window {field} `{got}`"),
+    )
 }

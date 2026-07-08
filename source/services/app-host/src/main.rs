@@ -353,6 +353,7 @@ mod probe {
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
             let symbols = runtime.symbols().to_vec();
             emit_mounted_hash_marker(nxir);
+            emit_window_intent_marker(nxir);
             let keys: alloc::vec::Vec<u32> =
                 match nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir)
                     .and_then(|r| {
@@ -513,6 +514,43 @@ mod probe {
         }
         line[pos] = b'\n';
         let _ = nexus_abi::debug_write(&line[..pos + 1]);
+    }
+
+    /// `apphost: window intent style=… mode=… level=… resizable=…` — the app's
+    /// declared window intent read from the payload (TASK-0080C #17 Slice 1a).
+    /// This is the app-owned axis of `chrome = intent ⟂ policy`
+    /// (docs/dev/ui/patterns/windowing/window-intent.md); windowd composes the
+    /// frame from it under the active windowing policy (Slice 1b). Absent
+    /// `Window {}` decodes to the defaults (titlebar/auto/normal).
+    fn emit_window_intent_marker(nxir: &[u8]) {
+        use nexus_dsl_ir::ui_ir_capnp::{WindowLevel, WindowMode, WindowStyle};
+        let Ok(reader) = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir) else {
+            return;
+        };
+        let Ok(root) = reader.root() else { return };
+        let Ok(win) = root.get_window() else { return };
+        let style = match win.get_style() {
+            Ok(WindowStyle::Titlebar) => "titlebar",
+            Ok(WindowStyle::HiddenTitlebar) => "hiddenTitlebar",
+            Ok(WindowStyle::Plain) => "plain",
+            Err(_) => "?",
+        };
+        let mode = match win.get_mode() {
+            Ok(WindowMode::Auto) => "auto",
+            Ok(WindowMode::Freeform) => "freeform",
+            Ok(WindowMode::Fullscreen) => "fullscreen",
+            Err(_) => "?",
+        };
+        let level = match win.get_level() {
+            Ok(WindowLevel::Normal) => "normal",
+            Ok(WindowLevel::Desktop) => "desktop",
+            Ok(WindowLevel::Overlay) => "overlay",
+            Err(_) => "?",
+        };
+        raw_marker(&alloc::format!(
+            "apphost: window intent style={style} mode={mode} level={level} resizable={}",
+            win.get_resizable()
+        ));
     }
 
     /// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;

@@ -238,6 +238,38 @@ fn decl_to(out: &mut String, decl: &Decl) {
             }
             out.push_str("}\n");
         }
+        Decl::Window(window) => {
+            use crate::ast::{WindowLevel, WindowMode, WindowStyle};
+            out.push_str("Window {\n");
+            indent_to(out, 1);
+            out.push_str("style: ");
+            out.push_str(match window.style {
+                WindowStyle::Titlebar => "titlebar",
+                WindowStyle::HiddenTitlebar => "hiddenTitlebar",
+                WindowStyle::Plain => "plain",
+            });
+            out.push_str(",\n");
+            indent_to(out, 1);
+            out.push_str("mode: ");
+            out.push_str(match window.mode {
+                WindowMode::Auto => "auto",
+                WindowMode::Freeform => "freeform",
+                WindowMode::Fullscreen => "fullscreen",
+            });
+            out.push_str(",\n");
+            indent_to(out, 1);
+            out.push_str("level: ");
+            out.push_str(match window.level {
+                WindowLevel::Normal => "normal",
+                WindowLevel::Desktop => "desktop",
+                WindowLevel::Overlay => "overlay",
+            });
+            out.push_str(",\n");
+            indent_to(out, 1);
+            out.push_str("resizable: ");
+            out.push_str(if window.resizable { "true" } else { "false" });
+            out.push_str(",\n}\n");
+        }
     }
 }
 

@@ -559,6 +559,8 @@ fn collect_symbols(file: &File, set: &mut BTreeSet<String>, i18n: &mut BTreeSet<
                     walk_expr(&pred.value, set, i18n);
                 }
             }
+            // Window intent carries no symbols or i18n keys (enum fields only).
+            Decl::Window(_) => {}
         }
     }
 }
@@ -625,6 +627,33 @@ fn build_message(
         program.set_program_hash(hash);
         program.set_source_digest(&hashing::sha256(source.as_bytes()));
         program.set_entry_page(ctx.entry_page);
+
+        {
+            // App-owned window intent. Absent = the default-initialized struct
+            // (titlebar/auto/normal/false) — the ordinary-window default. The
+            // compositor composes the frame under the active windowing policy
+            // (docs/dev/ui/patterns/windowing/window-intent.md).
+            use crate::ast::{WindowLevel, WindowMode, WindowStyle};
+            let mut w = program.reborrow().init_window();
+            if let Some(intent) = model.window {
+                w.set_style(match intent.style {
+                    WindowStyle::Titlebar => ir::WindowStyle::Titlebar,
+                    WindowStyle::HiddenTitlebar => ir::WindowStyle::HiddenTitlebar,
+                    WindowStyle::Plain => ir::WindowStyle::Plain,
+                });
+                w.set_mode(match intent.mode {
+                    WindowMode::Auto => ir::WindowMode::Auto,
+                    WindowMode::Freeform => ir::WindowMode::Freeform,
+                    WindowMode::Fullscreen => ir::WindowMode::Fullscreen,
+                });
+                w.set_level(match intent.level {
+                    WindowLevel::Normal => ir::WindowLevel::Normal,
+                    WindowLevel::Desktop => ir::WindowLevel::Desktop,
+                    WindowLevel::Overlay => ir::WindowLevel::Overlay,
+                });
+                w.set_resizable(intent.resizable);
+            }
+        }
 
         {
             let mut symbols = program.reborrow().init_symbols(ctx.symbols.len() as u32);

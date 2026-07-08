@@ -39,7 +39,23 @@ struct UiProgram {
   querySpecs         @14 :List(QuerySpec);  # v1 skeleton; grows in QuerySpec v1 task
   assets             @15 :List(AssetRef);
   entryPage          @16 :UInt32;           # index into components (must be a page)
+  window             @17 :WindowIntent;     # app-owned window intent (default = titlebar/auto/normal)
 }
+
+# App-owned window intent (docs/dev/ui/patterns/windowing/window-intent.md).
+# The app declares what it IS; the compositor composes the frame under the
+# active windowing policy (`chrome = intent ⟂ policy`). An app with no `Window`
+# block gets the default-initialized struct (titlebar/auto/normal) — the sensible
+# ordinary-window default; the shell declares plain/fullscreen/desktop.
+struct WindowIntent {
+  style     @0 :WindowStyle;
+  mode      @1 :WindowMode;
+  level     @2 :WindowLevel;
+  resizable @3 :Bool;
+}
+enum WindowStyle { titlebar @0; hiddenTitlebar @1; plain @2; }
+enum WindowMode  { auto @0; freeform @1; fullscreen @2; }
+enum WindowLevel { normal @0; desktop @1; overlay @2; }
 
 struct Budgets {
   maxViewNodes   @0 :UInt32;

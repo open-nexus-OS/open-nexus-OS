@@ -176,11 +176,12 @@ impl<'t> Parser<'t> {
             TokenKind::KwComponent => self.component_decl().map(Decl::Component),
             TokenKind::KwPage => self.page_decl().map(Decl::Page),
             TokenKind::KwRoutes => self.routes_decl().map(Decl::Routes),
+            TokenKind::KwWindow => self.window_decl().map(Decl::Window),
             // `Query` is contextual (declaration position only), so `query`
             // stays usable as a field/binding name.
             TokenKind::Ident(text) if text == "Query" => self.query_decl().map(Decl::Query),
             _ => Err(self.unexpected(
-                "a declaration (Store, Event, reduce, @effect, Component, Page, Routes, Query)",
+                "a declaration (Store, Event, reduce, @effect, Component, Page, Routes, Window, Query)",
             )),
         }
     }

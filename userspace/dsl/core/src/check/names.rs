@@ -29,6 +29,7 @@ pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Mo
         query_by_name: BTreeMap::new(),
         case_lookup: BTreeMap::new(),
         i18n_keys: Vec::new(),
+        window: None,
     };
 
     let dup = |diags: &mut Vec<Diagnostic>, span: Span, kind: &str, name: &str| {
@@ -97,6 +98,13 @@ pub(super) fn build_model<'a>(file: &'a File, diags: &mut Vec<Diagnostic>) -> Mo
                     dup(diags, query.name.span, "query", &query.name.text);
                 }
                 model.queries.push(query);
+            }
+            Decl::Window(window) => {
+                if model.window.is_some() {
+                    dup(diags, window.span, "Window", "Window");
+                } else {
+                    model.window = Some(window);
+                }
             }
         }
     }

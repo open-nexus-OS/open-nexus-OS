@@ -12,7 +12,7 @@ mod lints;
 mod names;
 
 use crate::ast::{
-    ComponentDecl, EventDecl, File, PageDecl, QueryDecl, ReduceDecl, Route, StoreDecl,
+    ComponentDecl, EventDecl, File, PageDecl, QueryDecl, ReduceDecl, Route, StoreDecl, WindowDecl,
 };
 use crate::diag::{Diagnostic, Severity};
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
@@ -38,6 +38,9 @@ pub struct Model<'a> {
     pub case_lookup: BTreeMap<&'a str, (usize, usize)>,
     /// All `@t("…")` keys in reference order (deduped, sorted at lowering).
     pub i18n_keys: Vec<String>,
+    /// The app-owned window intent (`Window { … }`), if declared. At most one
+    /// per program (a duplicate is a diagnostic). `None` = frame defaults.
+    pub window: Option<&'a WindowDecl>,
 }
 
 /// Checks one file (v0.1: single-file programs; multi-file merge lands with
