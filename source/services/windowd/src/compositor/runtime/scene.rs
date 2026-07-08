@@ -139,7 +139,16 @@ impl DisplayServerRuntime {
         // `Some` only while the Settings window is mounted (shown) → composite it.
         let settings_glass = self.settings_win.glass_params();
         let dsl_glass = self.dsl_win.glass_params();
-        let app_glass = self.app_win.glass_params();
+        // Fullscreen drops the rounded corners + shadow (nothing to round or
+        // shadow against the display edges — edge-to-edge fill), same as the
+        // other windows.
+        let app_glass = self.app_win.glass_params().map(|mut p| {
+            if fullscreen_id == Some(crate::window_scene::WindowId::AppClient) {
+                p.radius = 0;
+                p.shadow_alpha = 0;
+            }
+            p
+        });
         // R1 layer seam: snapshot the app's material-tagged glass regions + the
         // app-window geometry (atlas band origin, on-screen origin, title-bar
         // offset) so the AppClient branch can composite each region as a

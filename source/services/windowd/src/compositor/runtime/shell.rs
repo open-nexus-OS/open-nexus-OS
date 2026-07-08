@@ -248,6 +248,8 @@ impl DisplayServerRuntime {
             return;
         }
         self.theme_mode = mode;
+        // Live re-theme: tell the app-client so it re-renders in the new mode.
+        self.push_app_theme();
         self.shell_surface_dirty = true;
         self.sidepanel_surface_dirty = true;
         self.dropdown_surface_dirty = true;

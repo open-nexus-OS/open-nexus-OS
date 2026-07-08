@@ -77,7 +77,13 @@ impl DisplayServerRuntime {
     pub(super) fn toggle_fullscreen(&mut self, id: WindowId) {
         // The Settings panel is a fixed-size static window (its atlas surface
         // can't cover the display), so its "□" is a no-op — never fullscreen it.
-        if matches!(id, WindowId::Settings) {
+        // The app-client window is likewise a no-op FOR NOW: TRUE maximize needs
+        // the app to re-render at display size (the resize path — windowd
+        // resizes the band + pushes the new content rect over OP_SURFACE_RECT,
+        // the app re-creates its surface). Until that lands, don't enter the
+        // half-state (fullscreen flag set without a resize). Tracked with the
+        // windows-as-widgets / scene-graph work.
+        if matches!(id, WindowId::Settings | WindowId::AppClient) {
             return;
         }
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);

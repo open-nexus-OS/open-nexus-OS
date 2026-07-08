@@ -194,6 +194,11 @@ mod probe {
             }
         };
 
+        // 1b. Theme: the compositor pushes the active mode (`OP_SURFACE_THEME`)
+        //     when the event channel attaches — capture it BEFORE mount so the
+        //     app renders with the same tokens as the desktop.
+        let mut theme_mode = wait_for_theme(&events);
+
         // 2. The DSL payload + its window intent → the geometry handshake. The
         //    WM owns geometry: a desktop/full-screen surface asks windowd for
         //    its content rect (`chrome = intent ⟂ policy`); a normal app uses
@@ -215,7 +220,7 @@ mod probe {
 
         // 4. Mount + render the DSL program into the VMO; the solid fill stays
         //    as the fail-closed VISIBLE fallback.
-        let mut app = DslApp::mount(payload, surf_w, surf_h);
+        let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode);
         match &app {
             Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
@@ -301,9 +306,22 @@ mod probe {
                     continue;
                 }
             };
-            // Classify the frame: present-ack (flow control) vs input vs other.
+            // Classify the frame: present-ack (flow control) vs input vs theme vs other.
             if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
                 present_in_flight = false;
+            } else if let Some(mode) = wire::decode_surface_theme(&event_frame[..len]) {
+                // Live re-theme: re-mount with the new tokens (state is rebuilt
+                // from the payload — a theme toggle is rare; per-token re-emit
+                // without a remount is a later refinement) and repaint.
+                if mode != theme_mode {
+                    theme_mode = mode;
+                    app = DslApp::mount(payload, surf_w, surf_h, theme_mode);
+                    if let Some(dsl) = app.as_ref() {
+                        let _ = dsl.render(vmo);
+                    }
+                    dirty = true;
+                    raw_marker("apphost: re-themed");
+                }
             } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
                 if kind == wire::INPUT_KIND_TAP {
                     if let Some(dsl) = app.as_mut() {
@@ -365,13 +383,16 @@ mod probe {
         /// own size.
         w: u32,
         h: u32,
+        /// Active theme mode (`THEME_*`, pushed by windowd). Selects the token
+        /// set for every render so the app matches the compositor.
+        theme_mode: u8,
     }
 
     impl DslApp {
         /// Validates + mounts the program bytes and lays them out at
         /// surface size. `None` on any failure (fail-closed; caller shows
         /// the probe fill).
-        fn mount(nxir: &'static [u8], w: u32, h: u32) -> Option<Self> {
+        fn mount(nxir: &'static [u8], w: u32, h: u32, theme_mode: u8) -> Option<Self> {
             use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
@@ -389,11 +410,11 @@ mod probe {
                     Ok(Ok(keys)) => keys,
                     _ => alloc::vec::Vec::new(),
                 };
-            let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
+            let tokens = tokens_for(theme_mode);
             let device = FixtureEnv::default();
             let mut view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-                View::mount(nxir, &tokens, &device, &locale).ok()?
+                View::mount(nxir, tokens, &device, &locale).ok()?
             };
             // Declarative initial load (principles.md §5): an `@effect` event
             // dispatched by NOTHING is a ROOT — it runs once at mount. Fire the
@@ -403,7 +424,7 @@ mod probe {
             let mut host = crate::effect_host::AppEffectHost::new(&symbols);
             {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
-                match view.run_initial_effects(&tokens, &device, &locale, &mut host) {
+                match view.run_initial_effects(tokens, &device, &locale, &mut host) {
                     Ok(_) => raw_marker("APPHOST: initial effects ran"),
                     Err(_) => raw_marker("apphost: FAIL initial effects"),
                 }
@@ -418,7 +439,7 @@ mod probe {
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self { view, symbols, keys, layout, texts, host, w, h })
+            Some(Self { view, symbols, keys, layout, texts, host, w, h, theme_mode })
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
@@ -426,13 +447,13 @@ mod probe {
         /// re-render is needed.
         fn tap(&mut self, x: i32, y: i32) -> bool {
             use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale};
-            let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
+            let tokens = tokens_for(self.theme_mode);
             let device = FixtureEnv::default();
             let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
             let damage = self
                 .view
                 .pointer(
-                    &tokens,
+                    tokens,
                     &device,
                     &locale,
                     &mut self.host,
@@ -506,8 +527,14 @@ mod probe {
         /// (surfaceVariant buttons, onSurface text) are specified against it.
         fn render(&self, vmo: u32) -> bool {
             use nexus_dsl_runtime::theme_tokens::{ColorToken, Tokens};
-            let s = nexus_dsl_runtime::theme_tokens::BaseTokens.color(ColorToken::Surface);
-            let base = [s.b, s.g, s.r, s.a];
+            let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
+            // TRANSLUCENT page background so the window's frosted-glass backdrop
+            // (windowd blurs the wallpaper behind the surface) reads through —
+            // a frosted window, not a flat opaque fill. Content (cards/text) is
+            // painted opaque on top. (Design-system "Window" glass material;
+            // proper per-panel control arrives with `.material()`, R1/R3.)
+            const WINDOW_GLASS_ALPHA: u8 = 190;
+            let base = [s.b, s.g, s.r, WINDOW_GLASS_ALPHA];
             let surf_w = self.w as usize;
             let row_bytes = surf_w * 4;
             let mut row = alloc::vec![0u8; row_bytes];
@@ -617,6 +644,45 @@ mod probe {
             "apphost: window intent style={style} mode={mode} level={level} resizable={}",
             win.get_resizable()
         ));
+    }
+
+    // Static theme token sets (ZSTs) → a runtime-selectable `&'static dyn Tokens`.
+    static BASE_TOKENS: nexus_dsl_runtime::theme_tokens::BaseTokens =
+        nexus_dsl_runtime::theme_tokens::BaseTokens;
+    static DARK_TOKENS: nexus_dsl_runtime::theme_tokens::DarkTokens =
+        nexus_dsl_runtime::theme_tokens::DarkTokens;
+    static LIGHT_TOKENS: nexus_dsl_runtime::theme_tokens::LightTokens =
+        nexus_dsl_runtime::theme_tokens::LightTokens;
+
+    /// The token set for a wire theme mode — so the app renders with the SAME
+    /// tokens the compositor pushed (dark desktop ⇒ dark app).
+    fn tokens_for(mode: u8) -> &'static dyn nexus_dsl_runtime::theme_tokens::Tokens {
+        match mode {
+            wire::THEME_DARK => &DARK_TOKENS,
+            wire::THEME_LIGHT => &LIGHT_TOKENS,
+            _ => &BASE_TOKENS,
+        }
+    }
+
+    /// Bounded wait for windowd's initial theme push (`OP_SURFACE_THEME`, sent
+    /// when the event channel attaches — before we mount). Defaults to dark (the
+    /// compositor default) if none arrives; the app still renders, just possibly
+    /// not theme-matched.
+    fn wait_for_theme(events: &KernelClient) -> u8 {
+        let start = nsec().unwrap_or(0);
+        let mut frame = [0u8; 64];
+        loop {
+            if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
+                if let Some(mode) = wire::decode_surface_theme(&frame[..len]) {
+                    raw_marker("APPHOST: theme received");
+                    return mode;
+                }
+            }
+            if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 500_000_000 {
+                return wire::THEME_DARK;
+            }
+            let _ = yield_();
+        }
     }
 
     /// Reads the app's window intent from the payload as the `WIN_*` wire tags

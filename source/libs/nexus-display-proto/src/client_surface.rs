@@ -150,6 +150,35 @@ pub fn decode_surface_layers(
     Some(count)
 }
 
+/// windowd → app: the active theme mode, so an app renders with the SAME
+/// tokens as the compositor (dark desktop ⇒ dark app) and re-themes on a live
+/// light/dark toggle. Sent when the app event channel attaches (before the app
+/// mounts) and again on every theme change. Payload: `mode:u8` (`THEME_*`).
+pub const OP_SURFACE_THEME: u8 = 16;
+/// Theme modes (align with windowd `ThemeMode` + the DSL `LightTokens`/`DarkTokens`).
+pub const THEME_LIGHT: u8 = 0;
+pub const THEME_DARK: u8 = 1;
+
+pub const SURFACE_THEME_FRAME_LEN: usize = HEADER_LEN + 1;
+
+/// Encodes the theme mode.
+#[must_use]
+pub fn encode_surface_theme(mode: u8) -> [u8; SURFACE_THEME_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_THEME_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_THEME));
+    f[4] = mode;
+    f
+}
+
+/// `mode`.
+#[must_use]
+pub fn decode_surface_theme(frame: &[u8]) -> Option<u8> {
+    if !has_op(frame, OP_SURFACE_THEME) || frame.len() != SURFACE_THEME_FRAME_LEN {
+        return None;
+    }
+    Some(frame[4])
+}
+
 /// Window-intent wire tags (mirror the IR `WindowStyle`/`WindowLevel`/
 /// `WindowMode` enum ordinals; both ends agree on these, not the capnp type).
 pub const WIN_STYLE_TITLEBAR: u8 = 0;
@@ -462,6 +491,16 @@ mod tests {
         let mut wrong = f;
         wrong[3] = OP_SURFACE_CREATE;
         assert_eq!(decode_surface_intent(&wrong), None);
+    }
+
+    #[test]
+    fn theme_round_trip_and_guards() {
+        let f = encode_surface_theme(THEME_DARK);
+        assert_eq!(decode_surface_theme(&f), Some(THEME_DARK));
+        assert_eq!(decode_surface_theme(&f[..f.len() - 1]), None);
+        let mut wrong = f;
+        wrong[3] = OP_SURFACE_RECT;
+        assert_eq!(decode_surface_theme(&wrong), None);
     }
 
     #[test]

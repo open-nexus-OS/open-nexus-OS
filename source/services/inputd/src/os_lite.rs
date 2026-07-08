@@ -291,7 +291,10 @@ impl LiveRouteRuntime {
             Ok(batch) => batch,
             Err(reject) => {
                 self.chain.record_wire_reject(reject);
-                let _ = debug_println(&format!("inputd: reject {}", reject.label()));
+                // Alloc-free: a `format!` here leaks a String on the non-freeing
+                // bump heap on every reject — under an input flood that exhausts
+                // inputd's heap. `label()` is a `&'static str`; print it directly.
+                let _ = debug_println(reject.label());
                 return reject.status();
             }
         };
@@ -755,8 +758,13 @@ impl InputdChainTelemetry {
             .saturating_mul(1_000_000_000)
             .checked_div(elapsed)
             .unwrap_or(0);
-        // #region agent log — periodic inputd counter dump (off by default; one runtime
-        // flag away via the verbosity knob). Phase 3 promotes these to metricsd counters.
+        // #region agent log — periodic inputd counter dump. MUST stay behind
+        // this const gate: the `format!` allocates a ~600-byte String that the
+        // non-freeing bump allocator never reclaims, so an ungated periodic dump
+        // steadily exhausts inputd's heap (the resize-flood OOM crash). Off by
+        // default; Phase 3 promotes these to metricsd counters (alloc-free).
+        const INPUTD_FPS_TRACE: bool = false;
+        if INPUTD_FPS_TRACE {
         let _ = debug_trace(&format!(
             "fps: inputd recv_hz={} hid_ok_hz={} poll_hz={} hid_push={} hid_ok={} malformed={} hid_unsupported={} overflow={} frame_malformed={} wire_count={} wire_kind={} wire_source={} wire_event={} wire_mode={} abs_cal={} abs_axis={} apply_ovf={} deliver_ovf={} raw_events={} norm_events={} dispatch={} delivered={} ptr_d={} kbd_d={} ptr_deliv={} kbd_deliv={} poll_reply={} idle_yields={} pointer_live={} keyboard_live={}",
             recv_hz,
@@ -790,6 +798,7 @@ impl InputdChainTelemetry {
             u8::from(state.pointer_route_live),
             u8::from(state.keyboard_route_live)
         ));
+        }
         // #endregion
         self.last_report_ns = now_ns;
         self.total_frames = 0;

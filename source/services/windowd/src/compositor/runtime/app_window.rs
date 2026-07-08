@@ -53,21 +53,22 @@ impl DisplayServerRuntime {
         };
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
-                // Apply the window intent to the frame BEFORE the atlas band is
-                // allocated: a desktop/full-screen surface fills the display at
-                // the origin; a `plain` one is chromeless (no title bar). This
-                // is `chrome = intent ⟂ policy` at the surface level.
-                if self.app_is_desktop_surface() {
-                    self.app_win.w = self.mode.width;
-                    self.app_win.h = self.mode.height;
-                    self.app_win.x = 0;
-                    self.app_win.y = 0;
-                    self.windows
-                        .set_fullscreen(crate::window_scene::WindowId::AppClient, true);
-                }
+                // P3.1 (windows-as-widgets): size the window FRAME to the actual
+                // surface content (+ the title bar), via `window::frame`, BEFORE
+                // the atlas band is allocated. The frame/shadow track the
+                // content instead of a fixed window max — no full-screen band
+                // for a small window, no oversized shadow. Chrome per intent: a
+                // `plain` surface drops the title bar (`chrome = intent ⟂ policy`).
                 if self.app_intent_style == wire::WIN_STYLE_PLAIN {
                     self.app_win.title_h = 0;
                 }
+                let content_h = u32::from(height).saturating_add(self.app_win.title_h);
+                self.app_win.set_frame(
+                    self.app_win.x,
+                    self.app_win.y,
+                    u32::from(width),
+                    content_h,
+                );
                 if !self.open_app_window() {
                     // Atlas exhausted: roll the registration back fail-closed.
                     let _ = self.client_surfaces.destroy(id);
@@ -371,7 +372,23 @@ impl DisplayServerRuntime {
                 let _ = nexus_abi_cap_close(old);
             }
             let _ = debug_println("WINDOWD: app event channel attached");
+            // Push the active theme mode NOW (before the app mounts) so it
+            // renders with the same tokens as the compositor (dark desktop ⇒
+            // dark app). On a live toggle, `push_app_theme` is re-sent.
+            self.push_app_theme();
         }
+    }
+
+    /// Sends the active theme mode to the app on its event channel (`chrome =
+    /// intent ⟂ policy` for colours too: the WM owns the theme, apps follow).
+    pub(crate) fn push_app_theme(&mut self) {
+        use nexus_display_proto::client_surface as wire;
+        let mode = match self.theme_mode {
+            crate::theme::ThemeMode::Dark => wire::THEME_DARK,
+            crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
+        };
+        let frame = wire::encode_surface_theme(mode);
+        let _ = self.send_app_frame(&frame);
     }
 
     /// Sends one app-bound frame (input event or surface ack) on the
