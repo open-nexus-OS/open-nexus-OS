@@ -175,39 +175,11 @@ mod probe {
     pub(super) fn run() -> Result<(), &'static str> {
         raw_marker("apphost: start");
 
-        // 1. The app's own surface VMO (per-app isolation, ADR-0037).
-        let bytes = SURFACE_W as usize * SURFACE_H as usize * 4;
-        let vmo = vmo_create(bytes).map_err(|_| "apphost: vmo create failed")?;
-
-        // 2. Mount + render the DSL program into the VMO (R2); the R1 solid
-        //    fill stays as the fail-closed VISIBLE fallback. The program
-        //    bytes come from the GET_PAYLOAD VMO (slot 7) when execd granted
-        //    one, else the embedded fallback — both marked.
-        let payload = resolve_payload();
-        let mut app = DslApp::mount(payload);
-        match &app {
-            Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
-            _ => {
-                app = None;
-                raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
-                let mut row = [0u8; SURFACE_W as usize * 4];
-                for px in row.chunks_exact_mut(4) {
-                    px.copy_from_slice(&FILL_BGRA);
-                }
-                let row_bytes = SURFACE_W as usize * 4;
-                for y in 0..SURFACE_H as usize {
-                    vmo_write(vmo, y * row_bytes, &row)
-                        .map_err(|_| "apphost: vmo fill failed")?;
-                }
-            }
-        }
-        raw_marker("apphost: vmo filled");
-
+        // 1. windowd client + the app's DEDICATED event channel come up FIRST:
+        //    the geometry handshake's content-rect reply (and later acks/input)
+        //    arrive on the event channel, before any surface exists.
         let client = KernelClient::new_with_slots(WINDOWD_SEND_SLOT, WINDOWD_RECV_SLOT)
             .map_err(|_| "apphost: client slots")?;
-        // The DEDICATED event channel: acks + input arrive here. execd
-        // grants the slot before resume — a presence probe decides the
-        // source honestly (fallback keeps older wiring alive, marked).
         let events = match cap_clone(EVENTS_RECV_SLOT) {
             Ok(probe) => {
                 let _ = nexus_abi::cap_close(probe);
@@ -222,21 +194,65 @@ mod probe {
             }
         };
 
-        // 3. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
+        // 2. The DSL payload + its window intent → the geometry handshake. The
+        //    WM owns geometry: a desktop/full-screen surface asks windowd for
+        //    its content rect (`chrome = intent ⟂ policy`); a normal app uses
+        //    the probe default. Fail-soft — if windowd does not answer, default.
+        let payload = resolve_payload();
+        let (style, level, mode) = read_window_intent_tags(payload);
+        let (surf_w, surf_h) = if level == wire::WIN_LEVEL_DESKTOP
+            || mode == wire::WIN_MODE_FULLSCREEN
+        {
+            request_content_rect(&client, &events, style, level, mode)
+                .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
+        } else {
+            (SURFACE_W as u32, SURFACE_H as u32)
+        };
+
+        // 3. The app's own surface VMO, sized to the content rect (ADR-0037).
+        let vmo = vmo_create(surf_w as usize * surf_h as usize * 4)
+            .map_err(|_| "apphost: vmo create failed")?;
+
+        // 4. Mount + render the DSL program into the VMO; the solid fill stays
+        //    as the fail-closed VISIBLE fallback.
+        let mut app = DslApp::mount(payload, surf_w, surf_h);
+        match &app {
+            Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
+            _ => {
+                app = None;
+                raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
+                let row_bytes = surf_w as usize * 4;
+                let mut row = alloc::vec![0u8; row_bytes];
+                for px in row.chunks_exact_mut(4) {
+                    px.copy_from_slice(&FILL_BGRA);
+                }
+                for y in 0..surf_h as usize {
+                    vmo_write(vmo, y * row_bytes, &row).map_err(|_| "apphost: vmo fill failed")?;
+                }
+            }
+        }
+        raw_marker("apphost: vmo filled");
+
+        // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
         //    (the gpud-attach pattern); the original stays ours for redraws.
         let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
-        let create = wire::encode_surface_create(SURFACE_W, SURFACE_H, wire::FORMAT_BGRA8888);
+        let create =
+            wire::encode_surface_create(surf_w as u16, surf_h as u16, wire::FORMAT_BGRA8888);
         send_retry_cap(&client, &create, clone)?;
         let surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
         raw_marker("APPHOST: surface created");
 
-        // 4. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
-        let damage = [wire::DamageRect { x: 0, y: 0, width: SURFACE_W, height: SURFACE_H }];
+        // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
+        let damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
         let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT)?;
         raw_marker("APPHOST: probe surface presented");
+        // R1 layer seam: declare the initial glass regions to windowd.
+        if let Some(dsl) = app.as_ref() {
+            dsl.submit_layers(&client);
+        }
 
         // 5. The event loop (R3): ONE unified BLOCKING recv on the app event
         //    channel. windowd delivers BOTH body taps (`OP_SURFACE_INPUT`,
@@ -326,6 +342,8 @@ mod probe {
                 present_in_flight = true;
                 dirty = false;
                 raw_marker("APPHOST: interactive frame presented");
+                // Re-declare glass regions: a re-layout may have moved/resized them.
+                dsl.submit_layers(&client);
             }
         }
     }
@@ -341,13 +359,19 @@ mod probe {
         /// The service seam: `svc.*` effects (tap handlers AND the root
         /// initial-load effects) call through this over the provisioned slots.
         host: crate::effect_host::AppEffectHost,
+        /// Surface dimensions (the WM-composed content rect, or the probe
+        /// default). Layout width + render bounds derive from these — a
+        /// full-screen shell lays out at the display size, a windowed app at its
+        /// own size.
+        w: u32,
+        h: u32,
     }
 
     impl DslApp {
         /// Validates + mounts the program bytes and lays them out at
         /// surface size. `None` on any failure (fail-closed; caller shows
         /// the probe fill).
-        fn mount(nxir: &'static [u8]) -> Option<Self> {
+        fn mount(nxir: &'static [u8], w: u32, h: u32) -> Option<Self> {
             use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
@@ -388,13 +412,13 @@ mod probe {
             let layout = engine
                 .layout(
                     view.scene(),
-                    nexus_layout_types::FxPx::new(SURFACE_W as i32),
+                    nexus_layout_types::FxPx::new(w as i32),
                     &nexus_text_baked::measure_text::BakedTextMeasure,
                 )
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self { view, symbols, keys, layout, texts, host })
+            Some(Self { view, symbols, keys, layout, texts, host, w, h })
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
@@ -425,7 +449,7 @@ mod probe {
             let engine = nexus_layout::LayoutEngine::new();
             let Ok(layout) = engine.layout(
                 self.view.scene(),
-                nexus_layout_types::FxPx::new(SURFACE_W as i32),
+                nexus_layout_types::FxPx::new(self.w as i32),
                 &nexus_text_baked::measure_text::BakedTextMeasure,
             ) else {
                 return false;
@@ -436,6 +460,47 @@ mod probe {
             true
         }
 
+        /// R1 layer seam: submit the material-tagged glass regions of the current
+        /// layout to windowd (`OP_SURFACE_LAYERS`). Each `LayoutBox` whose
+        /// `.material()` is glass becomes a `LayerDesc` (surface-local rect +
+        /// level + radius + shadow); windowd composites each as a real frosted
+        /// `nexus-gfx` layer over the wallpaper. Re-sent whenever the layout
+        /// changes (mount + re-layout). No glass nodes ⇒ empty list ⇒ windowd
+        /// composites the surface with the default treatment (unchanged).
+        fn submit_layers(&self, client: &KernelClient) {
+            use nexus_layout_types::{GlassLevel, SurfaceMaterial};
+            let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
+            let mut layers = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
+            let mut n = 0;
+            for b in &self.layout.boxes {
+                if n >= wire::MAX_SURFACE_LAYERS {
+                    break;
+                }
+                let glass_level = match b.visual.material {
+                    SurfaceMaterial::Glass(GlassLevel::Panel) => wire::GLASS_PANEL,
+                    SurfaceMaterial::Glass(GlassLevel::Card) => wire::GLASS_CARD,
+                    SurfaceMaterial::Glass(GlassLevel::Subtle) => wire::GLASS_SUBTLE,
+                    SurfaceMaterial::Glass(GlassLevel::Window) => wire::GLASS_WINDOW,
+                    SurfaceMaterial::Opaque => continue,
+                };
+                layers[n] = wire::LayerDesc {
+                    x: clamp(b.rect.x.0),
+                    y: clamp(b.rect.y.0),
+                    w: clamp(b.rect.width.0),
+                    h: clamp(b.rect.height.0),
+                    material: wire::MATERIAL_GLASS,
+                    glass_level,
+                    radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
+                    shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },
+                };
+                n += 1;
+            }
+            let mut buf = [0u8; wire::SURFACE_LAYERS_MAX_LEN];
+            let len = wire::encode_surface_layers(&layers[..n], &mut buf);
+            let _ = client.send(&buf[..len], Wait::NonBlocking);
+            raw_marker(&alloc::format!("apphost: submitted {n} layers"));
+        }
+
         /// Writes the current scene (fills + glyph runs) into the VMO. The
         /// page base is the theme's Surface token — the scene's own boxes
         /// (surfaceVariant buttons, onSurface text) are specified against it.
@@ -443,9 +508,10 @@ mod probe {
             use nexus_dsl_runtime::theme_tokens::{ColorToken, Tokens};
             let s = nexus_dsl_runtime::theme_tokens::BaseTokens.color(ColorToken::Surface);
             let base = [s.b, s.g, s.r, s.a];
-            let row_bytes = SURFACE_W as usize * 4;
+            let surf_w = self.w as usize;
+            let row_bytes = surf_w * 4;
             let mut row = alloc::vec![0u8; row_bytes];
-            for y in 0..SURFACE_H as i32 {
+            for y in 0..self.h as i32 {
                 for px in row.chunks_exact_mut(4) {
                     px.copy_from_slice(&base);
                 }
@@ -457,7 +523,7 @@ mod probe {
                     }
                     if let Some(bg) = b.visual.background {
                         let x0 = bx.max(0) as usize;
-                        let x1 = ((bx + bw).max(0) as usize).min(SURFACE_W as usize);
+                        let x1 = ((bx + bw).max(0) as usize).min(surf_w);
                         for px in row[x0 * 4..x1 * 4].chunks_exact_mut(4) {
                             px.copy_from_slice(&[bg.b, bg.g, bg.r, bg.a]);
                         }
@@ -472,7 +538,7 @@ mod probe {
                             y as u32,
                             by,
                             bx.max(0) as u32,
-                            SURFACE_W as u32,
+                            self.w,
                             content.chars(),
                             *font,
                             *color,
@@ -551,6 +617,75 @@ mod probe {
             "apphost: window intent style={style} mode={mode} level={level} resizable={}",
             win.get_resizable()
         ));
+    }
+
+    /// Reads the app's window intent from the payload as the `WIN_*` wire tags
+    /// (style, level, mode). Absent `Window {}` ⇒ the ordinary defaults.
+    fn read_window_intent_tags(nxir: &[u8]) -> (u8, u8, u8) {
+        use nexus_dsl_ir::ui_ir_capnp::{WindowLevel, WindowMode, WindowStyle};
+        let default = (wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO);
+        let Ok(reader) = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(nxir) else {
+            return default;
+        };
+        let Ok(root) = reader.root() else { return default };
+        let Ok(win) = root.get_window() else { return default };
+        let style = match win.get_style() {
+            Ok(WindowStyle::HiddenTitlebar) => wire::WIN_STYLE_HIDDEN_TITLEBAR,
+            Ok(WindowStyle::Plain) => wire::WIN_STYLE_PLAIN,
+            _ => wire::WIN_STYLE_TITLEBAR,
+        };
+        let level = match win.get_level() {
+            Ok(WindowLevel::Desktop) => wire::WIN_LEVEL_DESKTOP,
+            Ok(WindowLevel::Overlay) => wire::WIN_LEVEL_OVERLAY,
+            _ => wire::WIN_LEVEL_NORMAL,
+        };
+        let mode = match win.get_mode() {
+            Ok(WindowMode::Freeform) => wire::WIN_MODE_FREEFORM,
+            Ok(WindowMode::Fullscreen) => wire::WIN_MODE_FULLSCREEN,
+            _ => wire::WIN_MODE_AUTO,
+        };
+        (style, level, mode)
+    }
+
+    /// Geometry handshake: send the window intent (`OP_SURFACE_INTENT`) and wait
+    /// (bounded) for windowd's composed content rect (`OP_SURFACE_RECT`) on the
+    /// event channel. `None` if windowd never answers (older WM) — the caller
+    /// falls back to the probe default. The WM owns geometry; the app sizes its
+    /// VMO to whatever rect it gets.
+    fn request_content_rect(
+        client: &KernelClient,
+        events: &KernelClient,
+        style: u8,
+        level: u8,
+        mode: u8,
+    ) -> Option<(u32, u32)> {
+        let intent = wire::encode_surface_intent(style, level, mode, false);
+        let mut sent = false;
+        for _ in 0..SEND_RETRIES {
+            if client.send(&intent, Wait::NonBlocking).is_ok() {
+                sent = true;
+                break;
+            }
+            let _ = yield_();
+        }
+        if !sent {
+            return None;
+        }
+        let start = nsec().unwrap_or(0);
+        let mut frame = [0u8; 64];
+        loop {
+            if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
+                if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
+                    raw_marker("APPHOST: content rect received");
+                    return Some((u32::from(w), u32::from(h)));
+                }
+            }
+            if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 2_000_000_000 {
+                raw_marker("apphost: no content rect (fallback)");
+                return None;
+            }
+            let _ = yield_();
+        }
     }
 
     /// Pre-order text collection (index parallels `LayoutBox::node_id` − 1;

@@ -53,6 +53,21 @@ impl DisplayServerRuntime {
         };
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
+                // Apply the window intent to the frame BEFORE the atlas band is
+                // allocated: a desktop/full-screen surface fills the display at
+                // the origin; a `plain` one is chromeless (no title bar). This
+                // is `chrome = intent ⟂ policy` at the surface level.
+                if self.app_is_desktop_surface() {
+                    self.app_win.w = self.mode.width;
+                    self.app_win.h = self.mode.height;
+                    self.app_win.x = 0;
+                    self.app_win.y = 0;
+                    self.windows
+                        .set_fullscreen(crate::window_scene::WindowId::AppClient, true);
+                }
+                if self.app_intent_style == wire::WIN_STYLE_PLAIN {
+                    self.app_win.title_h = 0;
+                }
                 if !self.open_app_window() {
                     // Atlas exhausted: roll the registration back fail-closed.
                     let _ = self.client_surfaces.destroy(id);
@@ -162,7 +177,15 @@ impl DisplayServerRuntime {
                 ));
                 return false;
             };
-            let blur = self.atlas_alloc.alloc(w, h); // best-effort
+            // A desktop/full-screen surface uses the R1 layer path
+            // (`BackdropCache::None`), so it needs NO per-window blur band — a
+            // full-screen blur band would starve the atlas. Windowed apps keep
+            // the cached-blur band.
+            let blur = if self.app_is_desktop_surface() {
+                None
+            } else {
+                self.atlas_alloc.alloc(w, h) // best-effort
+            };
             self.app_win.mount(content, blur);
         }
         self.app_win.visible = true;
@@ -220,24 +243,28 @@ impl DisplayServerRuntime {
                 dsl_mount::DSL_RADIUS
             };
         let tk = self.theme();
+        // Chromeless when `title_h == 0` (a `plain`/desktop-style surface, e.g.
+        // the shell): the title-bar block never runs and the body fills from
+        // row 0. A normal window keeps `APP_TITLE_H` — the WM-drawn frame.
+        let title_h = self.app_win.title_h;
         for ly in 0..win_h {
             let row_bytes = win_w as usize * 4;
             let row = &mut self.band_scratch[0..stride];
             row[..row_bytes].fill(0);
-            if ly < APP_TITLE_H {
+            if ly < title_h {
                 crate::compositor::shell_window::draw_title_bar_row(
                     ly,
                     row,
                     win_w,
                     "App",
-                    APP_TITLE_H,
+                    title_h,
                     APP_CLOSE_W,
                     title_hover,
                     corner_radius,
                     tk,
                 )?;
             } else {
-                let body_y = ly - APP_TITLE_H;
+                let body_y = ly - title_h;
                 if body_y < client.height as u32 {
                     // The damage-blit: one surface row out of the app's VMO.
                     #[cfg(nexus_env = "os")]
@@ -275,6 +302,58 @@ impl DisplayServerRuntime {
 
     pub(super) fn app_window_rect(&self) -> DamageRect {
         self.app_win.damage_rect(self.mode.width, self.mode.height)
+    }
+
+    /// Window intent (`OP_SURFACE_INTENT`, sent before create): store the
+    /// style/level/mode and answer the composed **content rect** the app sizes
+    /// its surface VMO to (the WM owns geometry — no display-mode query). Under
+    /// the v1 Desktop policy a `desktop`/`fullscreen` surface fills the display;
+    /// otherwise it gets the default window body size. Reply rides the app event
+    /// channel; if it is not attached yet the app's bounded wait falls back.
+    pub(crate) fn handle_surface_intent(&mut self, frame: &[u8]) {
+        let Some((style, level, mode, _resizable)) = wire::decode_surface_intent(frame) else {
+            return;
+        };
+        self.app_intent_style = style;
+        self.app_intent_level = level;
+        self.app_intent_mode = mode;
+        let (rw, rh) = if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN {
+            (self.mode.width as u16, self.mode.height as u16)
+        } else {
+            (
+                self.app_win.w as u16,
+                self.app_win.h.saturating_sub(self.app_win.title_h) as u16,
+            )
+        };
+        let rect = wire::encode_surface_rect(0, 0, rw, rh);
+        let _ = self.send_app_frame(&rect);
+        let _ = debug_println(&alloc::format!(
+            "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
+        ));
+    }
+
+    /// True when the app declared a desktop/full-screen surface (chromeless,
+    /// screen-sized, no per-window blur band).
+    fn app_is_desktop_surface(&self) -> bool {
+        self.app_intent_level == wire::WIN_LEVEL_DESKTOP
+            || self.app_intent_mode == wire::WIN_MODE_FULLSCREEN
+    }
+
+    /// R1 layer seam: store the app's material-tagged glass regions
+    /// (`OP_SURFACE_LAYERS`, surface-local) and repaint the window so the new
+    /// glass composites. A malformed frame is ignored (the app keeps its prior
+    /// layers). No reply — the next present reflects it.
+    pub(crate) fn handle_surface_layers(&mut self, frame: &[u8]) {
+        let mut out = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
+        let Some(n) = wire::decode_surface_layers(frame, &mut out) else {
+            return;
+        };
+        self.app_layers = out;
+        self.app_layer_count = n;
+        self.app_win.surface_dirty = true;
+        let rect = self.app_window_rect();
+        self.queue_dirty_rect(rect);
+        let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
     }
 
     /// Stores the app's dedicated event channel (SEND cap slot moved with an

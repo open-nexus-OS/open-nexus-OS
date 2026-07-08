@@ -426,6 +426,21 @@ pub(crate) struct DisplayServerRuntime {
     app_win: super::shell_window::ShellWindow,
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
+    /// R1 layer seam (RFC-0067 Revival): the app's material-tagged glass regions
+    /// (surface-local), submitted via `OP_SURFACE_LAYERS`. windowd composites
+    /// each as a `nexus-gfx` glass `Layer` over the retained backdrop — the
+    /// shell's panels are true frosted layers, not a flat bitmap.
+    app_layers: [nexus_display_proto::client_surface::LayerDesc;
+        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+    app_layer_count: usize,
+    /// The app's window intent (`OP_SURFACE_INTENT`, sent before create): the
+    /// `WIN_STYLE_*`/`WIN_LEVEL_*`/`WIN_MODE_*` tags. Drives the composed frame
+    /// — a `plain`/`desktop`/`fullscreen` surface is chromeless (title_h 0),
+    /// full-screen, and the WM answers its content rect. Default = an ordinary
+    /// titlebar window (the pre-intent behavior).
+    app_intent_style: u8,
+    app_intent_level: u8,
+    app_intent_mode: u8,
     /// The app's DEDICATED event channel (SEND cap slot, execd-attached via
     /// `OP_SURFACE_EVENTS`): input events + surface acks go out here — the
     /// shared response endpoint raced with inputd's ack drain (ADR-0042).
@@ -972,6 +987,12 @@ impl DisplayServerRuntime {
             dsl_win,
             app_win,
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
+            app_layers: [nexus_display_proto::client_surface::LayerDesc::default();
+                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+            app_layer_count: 0,
+            app_intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
+            app_intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
+            app_intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
             #[cfg(nexus_env = "os")]
             app_event_channel: None,
             #[cfg(nexus_env = "os")]

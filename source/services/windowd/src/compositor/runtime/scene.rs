@@ -140,6 +140,21 @@ impl DisplayServerRuntime {
         let settings_glass = self.settings_win.glass_params();
         let dsl_glass = self.dsl_win.glass_params();
         let app_glass = self.app_win.glass_params();
+        // R1 layer seam: snapshot the app's material-tagged glass regions + the
+        // app-window geometry (atlas band origin, on-screen origin, title-bar
+        // offset) so the AppClient branch can composite each region as a
+        // `nexus-gfx` glass layer without re-borrowing `self` inside the encoder.
+        let app_layer_count = self.app_layer_count;
+        let app_layers = self.app_layers;
+        let app_layer_geom = self.app_win.atlas.map(|a| {
+            (
+                a.abs_row,
+                a.x,
+                self.app_win.x.max(0) as u32,
+                self.app_win.y.max(0) as u32,
+                self.app_win.title_h,
+            )
+        });
         let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
@@ -337,10 +352,46 @@ impl DisplayServerRuntime {
                             );
                         }
                     }
-                    // App-client window (ADR-0042 R1) — same glass composite;
-                    // the body pixels were blitted from the app's VMO.
+                    // App-client window (ADR-0042 R1). R1 layer seam: when the
+                    // app declared material-tagged glass regions
+                    // (`OP_SURFACE_LAYERS`), composite each as its own frosted
+                    // `nexus-gfx` layer (the shell's topbar/dock/cards) instead
+                    // of one whole-window glass frame. No regions ⇒ the legacy
+                    // single-frame composite (a plain windowed app, unchanged).
                     crate::window_scene::WindowId::AppClient => {
-                        if let Some(p) = app_glass {
+                        use nexus_display_proto::client_surface as wire;
+                        if app_layer_count > 0 {
+                            if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = app_layer_geom
+                            {
+                                for l in app_layers.iter().take(app_layer_count) {
+                                    if l.material != wire::MATERIAL_GLASS {
+                                        continue;
+                                    }
+                                    let blur_radius = match l.glass_level {
+                                        wire::GLASS_PANEL => 40,
+                                        wire::GLASS_CARD => 20,
+                                        wire::GLASS_SUBTLE => 12,
+                                        _ => 30,
+                                    };
+                                    crate::compositor::shell_window::composite_material_glass(
+                                        &mut encoder,
+                                        crate::compositor::shell_window::MaterialLayerParams {
+                                            src_row_abs: atlas_row + title_h + u32::from(l.y),
+                                            src_x: atlas_x + u32::from(l.x),
+                                            width: u32::from(l.w),
+                                            height: u32::from(l.h),
+                                            dst_x: win_x + u32::from(l.x),
+                                            dst_y: win_y + title_h + u32::from(l.y),
+                                            corner_radius: u32::from(l.radius),
+                                            shadow_alpha: u32::from(l.shadow_alpha),
+                                            blur_radius,
+                                        },
+                                        mode.width,
+                                        mode.height,
+                                    );
+                                }
+                            }
+                        } else if let Some(p) = app_glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
                                 &mut encoder,
                                 p,

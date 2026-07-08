@@ -19,7 +19,9 @@ use nexus_display_proto::client_surface::{
 };
 
 /// Bounds for app surfaces (R1 probe scale; ADR-0037's MAX_APP_SURFACES caps
-/// the count when the table grows past one).
+/// the count when the table grows past one). NOTE: the full-screen desktop
+/// shell surface is being re-approached as a scene-graph/window-widget path
+/// (not this atlas app_win), so this stays at the windowed bound for now.
 pub const MAX_SURFACE_W: u16 = 480;
 pub const MAX_SURFACE_H: u16 = 360;
 pub const MIN_SURFACE_DIM: u16 = 16;

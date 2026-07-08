@@ -332,6 +332,18 @@ fn dispatch_client_frame(
         } else {
             let _ = server.send(&ack, Wait::Blocking);
         }
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_LAYERS)
+    {
+        // R1 layer seam: the app declares its material-tagged glass regions.
+        // Data-only frame (no moved cap, no reply); the next present composites.
+        runtime.handle_surface_layers(frame);
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
+    {
+        // Window intent (before create): the WM stores it + answers the content
+        // rect on the app event channel. Data-only frame (no moved cap here).
+        runtime.handle_surface_intent(frame);
     } else {
         let op = frame.get(3).copied().unwrap_or(0);
         let response = encode_status(op, STATUS_UNSUPPORTED);
