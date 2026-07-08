@@ -20,6 +20,7 @@ extern crate alloc;
 pub mod effects;
 pub mod emit;
 pub mod i18n;
+mod initial;
 pub mod interact;
 pub mod nav;
 pub mod persist;

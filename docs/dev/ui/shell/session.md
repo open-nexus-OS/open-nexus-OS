@@ -89,7 +89,7 @@ reserved), session switching, multi-user avatar grid, per-app session scoping
 ## DSL greeter view (TASK-0080B)
 
 The greeter's VIEW is re-authored in the DSL
-(`userspace/systemui/greeter/`, host proofs in
+(`userspace/apps/greeter/`, host proofs in
 `tests/systemui_bootstrap_shell_host/`) — **this contract is unchanged**:
 the DSL page renders `svc.session.users` and dispatches
 `svc.session.login`; sessiond remains the sole session authority. The OS

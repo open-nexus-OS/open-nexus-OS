@@ -16,7 +16,7 @@
 
 use super::*;
 use nexus_dsl_runtime::theme_tokens::BaseTokens;
-use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, NoIo, View};
+use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, View};
 use nexus_layout::{LayoutEngine, LayoutResult};
 use nexus_layout_types::{
     FxPx, LayoutNode, LineLayout, LineMetrics, MeasureText, PreparedTextHandle, TextContent,
@@ -132,6 +132,20 @@ impl DisplayServerRuntime {
         if self.dsl_win.visible {
             let _ = debug_println("systemui: dsl shell on");
         }
+        // Run the program's initial-load effects (root effects derived from
+        // the dataflow — e.g. the launcher's app-list fetch). Once, at mount.
+        self.run_dsl_initial_effects();
+        // TASK-0080C #17 (transitional): ALSO launch the shell as a real
+        // RFC-0065 app-host process (launcher → abilitymgr → execd → app-host).
+        // execd provisions its manifest-declared ENUMERATE/LAUNCH routes
+        // (nexus-sdk-routes) into the child's fixed slots and the app-host runs
+        // the SAME launcher root effect over them — the end-to-end proof of the
+        // declarative-routing Umbau. Additive alongside the in-process mount
+        // above so the desktop cannot regress; the in-process mount retires
+        // once the full-screen app-host desktop-surface role lands. Markers:
+        // `execd: app route granted svc=bundlemgr`, `apphost: dsl svc
+        // bundlemgr.enumerate ok`.
+        self.launch_app("desktop-shell");
         // Deterministic post-reveal repaint: the demo window's boot-open used
         // to queue damage here, forcing a SECOND full composition after the
         // reveal — retiring the window removed that tick and the desktop
@@ -266,39 +280,86 @@ impl DisplayServerRuntime {
     }
 
     /// Routes a body click into the interpreter (window-local coordinates,
-    /// body space = below the title bar). Damage drives re-render/re-layout.
+    /// body space = below the title bar). A tap runs the interpreter's
+    /// hit-testing (which may `navigate` or `dispatch` an event whose
+    /// `@effect` calls `svc.*`), through the real service host — so those
+    /// calls reach OS services (bundlemgr/ability/session). Any
+    /// `ability.launch` intent the effect recorded is drained here (the
+    /// launch path needs `&mut self`, which the `View` was borrowing).
     pub(super) fn dsl_pointer_body(&mut self, local_x: i32, local_y: i32) {
-        let Some(view) = self.dsl_mount.view.as_mut() else { return };
-        let Some(layout) = &self.dsl_mount.layout else { return };
-        let locale =
-            IdentityLocale { symbols: &self.dsl_mount.symbols, keys: &self.dsl_mount.keys };
-        let outcome = view.pointer(
-            &BaseTokens,
-            &FixtureEnv::default(),
-            &locale,
-            &mut NoIo,
-            &layout.boxes,
-            "Tap",
-            FxPx::new(local_x),
-            FxPx::new(local_y - DSL_TITLE_H as i32),
-        );
-        match outcome {
-            Ok(Some(damage)) => {
-                if damage == Damage::Layout {
-                    self.relayout_dsl();
-                }
-                if damage != Damage::None {
-                    self.dsl_win.surface_dirty = true;
-                    self.queue_dirty_rect(self.dsl_window_rect());
-                    if !self.dsl_mount.interaction_marked {
-                        self.dsl_mount.interaction_marked = true;
-                        let _ = debug_println("DSL: interaction visible ok");
-                    }
+        let mut host = super::dsl_effects::DslEffectHost::new(&self.dsl_mount.symbols);
+        let damage = {
+            let Some(view) = self.dsl_mount.view.as_mut() else { return };
+            let Some(layout) = self.dsl_mount.layout.as_ref() else { return };
+            let locale =
+                IdentityLocale { symbols: &self.dsl_mount.symbols, keys: &self.dsl_mount.keys };
+            match view.pointer(
+                &BaseTokens,
+                &FixtureEnv::default(),
+                &locale,
+                &mut host,
+                &layout.boxes,
+                "Tap",
+                FxPx::new(local_x),
+                FxPx::new(local_y - DSL_TITLE_H as i32),
+            ) {
+                Ok(d) => d.unwrap_or(Damage::None),
+                Err(_) => {
+                    let _ = debug_println("windowd: dsl pointer dispatch error");
+                    Damage::None
                 }
             }
-            Ok(None) => {}
-            Err(_) => {
-                let _ = debug_println("windowd: dsl pointer dispatch error");
+        };
+        self.drain_dsl_launches(&mut host);
+        self.apply_dsl_damage(damage);
+    }
+
+    /// Runs the mounted program's INITIAL-LOAD effects once at mount (the root
+    /// effects the runtime derived from the dataflow — e.g. the launcher's
+    /// app-list fetch). Through the real service host; drains any launch
+    /// intent. There is no lifecycle hook in the `.nx` — see
+    /// `nexus_dsl_runtime::View::run_initial_effects`.
+    pub(super) fn run_dsl_initial_effects(&mut self) {
+        if self.dsl_mount.view.is_none() {
+            return;
+        }
+        let mut host = super::dsl_effects::DslEffectHost::new(&self.dsl_mount.symbols);
+        let damage = {
+            let Some(view) = self.dsl_mount.view.as_mut() else { return };
+            let locale =
+                IdentityLocale { symbols: &self.dsl_mount.symbols, keys: &self.dsl_mount.keys };
+            match view.run_initial_effects(&BaseTokens, &FixtureEnv::default(), &locale, &mut host) {
+                Ok(d) => d,
+                Err(_) => {
+                    let _ = debug_println("windowd: dsl initial-effect error");
+                    Damage::None
+                }
+            }
+        };
+        self.drain_dsl_launches(&mut host);
+        self.apply_dsl_damage(damage);
+    }
+
+    /// Executes any `svc.ability.launch` intents the effect host recorded via
+    /// the compositor's real launch path (RFC-0065: SystemUI requests,
+    /// abilitymgr decides). Called after the `View` borrow ends.
+    fn drain_dsl_launches(&mut self, host: &mut super::dsl_effects::DslEffectHost) {
+        for id in core::mem::take(&mut host.launch_requests) {
+            self.launch_app(&id);
+        }
+    }
+
+    /// Re-layouts (on a layout-class change) and damages the DSL window.
+    fn apply_dsl_damage(&mut self, damage: Damage) {
+        if damage == Damage::Layout {
+            self.relayout_dsl();
+        }
+        if damage != Damage::None {
+            self.dsl_win.surface_dirty = true;
+            self.queue_dirty_rect(self.dsl_window_rect());
+            if !self.dsl_mount.interaction_marked {
+                self.dsl_mount.interaction_marked = true;
+                let _ = debug_println("DSL: interaction visible ok");
             }
         }
     }

@@ -1,0 +1,25 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The desktop shell — a DSL app like any other (userspace/apps/<name>/).
+# SystemUI does NOT contain the shell UI; it only SELECTS which app is the shell
+# per product (source/services/systemui/manifests/products/*/product.toml →
+# `shell = "desktop-shell"`). This app declares the caps it needs: enumerate the
+# installed-app registry (svc.bundlemgr.enumerate) and request launches
+# (svc.ability.launch) — the launcher pages drive them.
+#
+# Bootstrap note: windowd currently compiles + mounts this program in-compositor
+# via the shell manifest's `dsl_root`. The endgame is to launch it as a normal
+# app (RFC-0065 → app-host → its own surface), at which point this manifest
+# becomes a real `.nxb` bundle.
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+
+name = "desktop-shell"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "shell"
+payload_kind = "ui-program"
+abilities = ["desktop-shell.ShellAbility"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE"]
+provides = []
+resources = []

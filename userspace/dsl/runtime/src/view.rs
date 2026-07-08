@@ -29,6 +29,12 @@ pub struct View<'p> {
     pub nav: Nav,
     /// i18n key table (key index → symbol id) for locale sources.
     pub keys: Vec<u32>,
+    /// Root effect-events (an `@effect` trigger that nothing dispatches) —
+    /// the program's initial-load effects, derived from the dataflow at mount.
+    /// Run once by [`run_initial_effects`](Self::run_initial_effects).
+    initial_effects: Vec<(u32, u32)>,
+    /// Guards the initial-load effects to run exactly once.
+    initial_effects_fired: bool,
 }
 
 impl<'p> View<'p> {
@@ -53,6 +59,10 @@ impl<'p> View<'p> {
             .iter()
             .map(|k| k.get_key())
             .collect();
+        // The program's INITIAL-LOAD effects, derived from the dataflow at
+        // mount (no lifecycle hook in the source — see `run_initial_effects`).
+        let initial_effects =
+            crate::initial::root_effect_events(root).map_err(MountError::Rt)?;
         let mut view = Self {
             runtime,
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
@@ -60,9 +70,46 @@ impl<'p> View<'p> {
             handlers: Vec::new(),
             nav,
             keys,
+            initial_effects,
+            initial_effects_fired: false,
         };
         view.emit(tokens, device, locale).map_err(MountError::Rt)?;
         Ok(view)
+    }
+
+    /// Runs the program's INITIAL-LOAD effects — ONCE, at mount. The host calls
+    /// this right after [`mount`](Self::mount).
+    ///
+    /// There is no `on Mount` lifecycle hook in the language (that would be a
+    /// second, imperative effect-trigger model — principles.md §5). Instead the
+    /// initial load falls out of the dataflow: an event that carries an
+    /// `@effect` but is dispatched by NOTHING (no handler, no reducer, no other
+    /// effect) is a ROOT — it can only ever run at mount, so the runtime runs
+    /// it. Writing the obvious program (`@effect on Load { … }` with nothing
+    /// dispatching `Load`) just loads; there is no lifecycle code to write.
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatched root events.
+    pub fn run_initial_effects(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+    ) -> Result<Damage, RtError> {
+        if self.initial_effects_fired {
+            return Ok(Damage::None);
+        }
+        self.initial_effects_fired = true;
+        let roots = self.initial_effects.clone();
+        let mut damage = Damage::None;
+        for (event, case) in roots {
+            let d = self.dispatch(tokens, device, locale, host, event, case, Vec::new())?;
+            if d > damage {
+                damage = d;
+            }
+        }
+        Ok(damage)
     }
 
     /// The retained scene (feed to `LayoutEngine`/painter).

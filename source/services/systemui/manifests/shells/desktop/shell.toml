@@ -10,7 +10,7 @@ kind = "desktop"
 # The DSL shell program tree (TASK-0080B, repo-relative source root):
 # ShellPage + LauncherPage; the 0080C mount step compiles this project and
 # mounts the result through the in-compositor path.
-dsl_root = "userspace/systemui/shells/desktop"
+dsl_root = "userspace/apps/desktop-shell"
 # Also valid as the desktop posture of a convertible (tablet profile), so a
 # desktop↔tablet runtime switch can resolve this shell.
 supported_profiles = ["desktop", "tablet"]

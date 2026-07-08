@@ -87,6 +87,13 @@ pub fn validate_product(manifest: &ProductManifest) -> Result<()> {
     if manifest.session == SessionMode::Auto && !manifest.greeter.is_empty() {
         return Err(SystemUiError::InvalidManifest);
     }
+    // ROLE-TYPE check (TASK-0080C, rides with the greeter-swap): the app named
+    // by `greeter` must be a `bundle_type = greeter` bundle, and `shell` an
+    // `app`/`shell` bundle. That cross-check needs the app's bundle_type from
+    // bundlemgrd — done when systemui RESOLVES + launches the role app (the
+    // greeter-swap). The security floor already holds regardless: the pack-time
+    // privilege ceiling (nxb-pack) lets ONLY a greeter-type bundle hold
+    // `SESSION`, so a mis-pointed `greeter =` can never actually drive login.
     Ok(())
 }
 

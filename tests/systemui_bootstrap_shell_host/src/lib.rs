@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Host harness for the TASK-0080B bootstrap shell + greeter DSL
-//! apps (`userspace/systemui/`): compiles the real project trees the way the
+//! apps (`userspace/apps/`): compiles the real project trees the way the
 //! CLI project mode does (dir walk → `merge_project` → one canonical
 //! `.nxir`), mounts them per device profile, and drives interactions with
 //! transcripted service exchanges — the launch/login flows exercise the REAL
@@ -17,7 +17,7 @@ use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, Value, View};
 use nexus_theme_tokens::BaseTokens;
 use std::path::Path;
 
-/// Compiles a `userspace/systemui/<app>` project tree to canonical `.nxir`
+/// Compiles a `userspace/apps/<app>` project tree to canonical `.nxir`
 /// bytes (the CLI project mode chain: walk `ui/`, merge, check, lower).
 ///
 /// # Panics
@@ -25,7 +25,7 @@ use std::path::Path;
 #[must_use]
 pub fn compile_project(app_root: &str) -> Vec<u8> {
     use nexus_dsl_core::{canonical_source_set, merge_project, SourceFile};
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../userspace/systemui").join(app_root);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../userspace/apps").join(app_root);
     let mut files = Vec::new();
     let mut stack = vec![root.join("ui")];
     while let Some(dir) = stack.pop() {

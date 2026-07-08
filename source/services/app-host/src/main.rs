@@ -37,6 +37,10 @@ fn main() {
     println!("app-host: host mode - the probe runs on the OS (QEMU markers)");
 }
 
+// The DSL `EffectHost` over execd-provisioned fixed slots (TASK-0080C #16).
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_host;
+
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
     use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
@@ -334,6 +338,9 @@ mod probe {
         keys: alloc::vec::Vec<u32>,
         layout: nexus_layout::LayoutResult,
         texts: alloc::vec::Vec<(usize, alloc::string::String, nexus_text_baked::FontSize, [u8; 4])>,
+        /// The service seam: `svc.*` effects (tap handlers AND the root
+        /// initial-load effects) call through this over the provisioned slots.
+        host: crate::effect_host::AppEffectHost,
     }
 
     impl DslApp {
@@ -359,10 +366,23 @@ mod probe {
                 };
             let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
             let device = FixtureEnv::default();
-            let view = {
+            let mut view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
                 View::mount(nxir, &tokens, &device, &locale).ok()?
             };
+            // Declarative initial load (principles.md §5): an `@effect` event
+            // dispatched by NOTHING is a ROOT — it runs once at mount. Fire the
+            // roots BEFORE the first layout so the frame reflects service-loaded
+            // data (e.g. the shell's `bundlemgr.enumerate` app grid). No
+            // lifecycle hook; the runtime derives roots from the dataflow.
+            let mut host = crate::effect_host::AppEffectHost::new(&symbols);
+            {
+                let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+                match view.run_initial_effects(&tokens, &device, &locale, &mut host) {
+                    Ok(_) => raw_marker("APPHOST: initial effects ran"),
+                    Err(_) => raw_marker("apphost: FAIL initial effects"),
+                }
+            }
             let engine = nexus_layout::LayoutEngine::new();
             let layout = engine
                 .layout(
@@ -373,14 +393,14 @@ mod probe {
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self { view, symbols, keys, layout, texts })
+            Some(Self { view, symbols, keys, layout, texts, host })
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
         /// damage re-lays-out + refreshes the text runs. Returns whether a
         /// re-render is needed.
         fn tap(&mut self, x: i32, y: i32) -> bool {
-            use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, NoIo};
+            use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale};
             let tokens = nexus_dsl_runtime::theme_tokens::BaseTokens;
             let device = FixtureEnv::default();
             let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
@@ -390,7 +410,7 @@ mod probe {
                     &tokens,
                     &device,
                     &locale,
-                    &mut NoIo,
+                    &mut self.host,
                     &self.layout.boxes,
                     "Tap",
                     nexus_layout_types::FxPx::new(x),

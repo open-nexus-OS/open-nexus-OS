@@ -9,11 +9,11 @@ Status ledger for moving the system's own chrome onto the Nexus UI DSL.
 
 - **TASK-0080B (2026-07-07, host-first)**: bootstrap shell + login greeter as
   real `.nx` project trees:
-  - `userspace/systemui/shells/desktop/` — ShellPage (wallpaper/chrome +
+  - `userspace/apps/desktop-shell/` — ShellPage (wallpaper/chrome +
     Apps entry) + LauncherPage (registry-driven grid via
     `svc.bundlemgr.enumerate`, service-side search, `svc.ability.launch` on
     tap) + phone override (single-column list).
-  - `userspace/systemui/greeter/` — GreeterPage (user list via
+  - `userspace/apps/greeter/` — GreeterPage (user list via
     `svc.session.users`, secret field, submit via `svc.session.login`);
     phases idle/authenticating/failure mirror the TASK-0065B contract
     (`docs/dev/ui/shell/session.md`) — **authority stays in sessiond**.

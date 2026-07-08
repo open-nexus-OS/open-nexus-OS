@@ -238,3 +238,201 @@ allen 4 Boots grün, KEINE Tripwires (StackExhausted/STACK-POOL/VMO-POOL/
 LAYOUT:). Das P0.1-Perturbations-Gate ist damit GESCHLOSSEN; `just
 contract-image-layout` = CI-Rezept. Die log_error-Zeile in VmoPool bleibt
 dauerhaft drin (Plan-Forderung; VMO-Erschöpfung ist jetzt LAUT).
+
+### 2026-07-08: `on Mount` view-lifecycle trigger GELIEFERT (uncommitted) — Effect-Host-Fundament
+
+Diagnose beim Start des Effect-Host-Keystones (P1.3): der DSL-Greeter
+(`@effect on Load` → svc.session.*) und der DSL-Launcher (`@effect on Refresh`
+→ svc.bundlemgr.enumerate) haben KEINEN Auslöser — ein `@effect` läuft nur bei
+Event-Dispatch, und nichts dispatcht den initialen Load. Die Sprache hatte
+keinen Lifecycle-Trigger. docs/dev/dsl/patterns.md skizzierte bereits
+`on Mount -> emit(...)` als Zielbild → als echtes Feature umgesetzt (statt
+Event-Namen in windowd hartzucodieren; „Architektur statt Workaround").
+
+- **registry.rs**: `Mount` in `TRIGGERS` (Checker akzeptiert `on Mount`).
+- **runtime `View::fire_mount(host)`**: feuert alle `Mount`-Handler der aktiven
+  Seite GENAU EINMAL pro Route (Guard `mounted_page` = NavEntry.page); ein
+  reiner Re-Render (der `handlers` neu aufbaut) feuert NICHT erneut; Navigation
+  zu einer neuen Seite feuert deren Mount-Effekt. Dispatches werden VOR dem
+  Feuern gesnapshottet (dispatch baut `handlers` um). Nur `Dispatch`-Aktionen
+  sind lifecycle-gültig. Host ruft `fire_mount` nach mount + nach jeder
+  Navigation (idempotent).
+- **Test** (dsl_goldens/scenes `on_mount_fires_the_load_effect_exactly_once`):
+  `on Mount -> dispatch(Load)` + `@effect on Load { svc.library.list }` +
+  CountingHost → Service EINMAL getroffen, State aktualisiert, zweiter
+  fire_mount = kein Re-Fire (Damage::None). syntax.md „View lifecycle".
+- Beweise: dsl_goldens 13, runtime 20, core, conformance 6+3 grün; runtime
+  riscv no_std 0 Fehler.
+
+OFFEN (nächste Schritte des Keystones): windowd `DslEffectHost` (svc.session.*
+→ session_client, svc.bundlemgr.enumerate → registry_client, svc.ability.launch
+→ launch_app); `.nx` von Greeter/Launcher um `on Mount -> dispatch(Load/Refresh)`
+ergänzen; `fire_mount` in den windowd-Mount-Loop; List<Str>/List<Record>-
+Rendering; dann Boot-Verify Greeter-Users + Launcher-Apps.
+
+### 2026-07-08: windowd DslEffectHost — svc.* calls REAL, boot-verified (uncommitted)
+
+Zweiter Schritt des Keystones (nach [[on Mount]]): der In-Compositor-DSL-Mount
+läuft nicht mehr auf `NoIo`, sondern auf `DslEffectHost` (neue Datei
+compositor/runtime/dsl_effects.rs), der den Service-Seam an windowds VORHANDENE
+Routen adaptiert:
+- `svc.bundlemgr.enumerate(q)` → `registry_client::fetch_app_menu()` →
+  `List<Record{id,label}>` (field-sorted; id/label-Syms aus der Symboltabelle).
+- `svc.ability.launch(id)` → Intent gemerkt, NACH dispatch von `drain_dsl_launches`
+  über `launch_app(id)` ausgeführt (launch_app braucht `&mut self`, das der
+  gemountete `View` während des Effekts borgt — daher Queue statt Direktaufruf).
+- `svc.session.users/login` → `session_client` (für den Greeter-Swap bereit).
+Jeder Call druckt einen EHRLICHEN Marker mit Ergebnis-Count.
+
+Wiring (dsl_mount.rs): `dsl_pointer_body` = pointer(host) → `fire_mount(host)`
+(feuert den on-Mount-Load der neu-navigierten Seite) → drain launches → damage;
+`boot_fire_dsl_mount` für die Boot-Route (no-op bei ShellPage, bereit für den
+Greeter). LauncherPage.nx: `on Mount -> dispatch(Refresh)`.
+
+BOOT-BEWEIS (manual--2026-07-08T09-02-59): Login → DSL-Shell → „Apps"-Klick →
+navigate(/launcher) → `windowd: dsl svc bundlemgr.enumerate ok (n=3)` → Launcher
+rendert die ECHTEN Registry-Apps (Card „Chat" sichtbar aus bundlemgrd). „Chat"-
+Card-Klick → `windowd: dsl svc ability.launch(chat)` → `windowd: launch request
+app=chat` → `abilitymgr: launch (app=chat, inst=1)` — die komplette RFC-0065-
+Kette aus einer DSL-App. Beweise: windowd 138+2+9, dsl_goldens 13, systemui 7
+grün; riscv windowd 0 Fehler.
+
+OFFEN (Folge-Increments): Greeter-Swap (session.users/login sind bereit — Greeter
+mounten + session-gaten + on Mount->Load); i18n-Kataloge (Text zeigt noch
+launcher.*/shell.*-Keys, P2.3); TextField-Eingabe (Suche/Secret); Card-Label-
+Rendering für alle Container (collect_texts deckt Stack/Grid; Card rendert schon).
+
+### 2026-07-08 (KORREKTUR): `on Mount` war React-Denken — durch Wurzel-Effekte ersetzt
+
+User-Einwand: `on Mount` ist ein Lifecycle-Hook (React `useEffect`/
+componentDidMount) — genau der „zweite Effekt-Auslöser", den principles.md §5
+verbietet („one effect model, no alternates"; „writing the obvious program
+produces a well-architected app … makes violating them impossible"). Komplett
+zurückgebaut (registry TRIGGERS, View::fire_mount, LauncherPage-Hook,
+syntax.md, Test — alles net-zero).
+
+RICHTIG (deklarativ, aus dem Datenfluss abgeleitet, keine Syntax): ein Event
+mit `@effect`, das von NICHTS dispatcht wird (kein Handler, kein Reducer, kein
+anderer Effekt), ist eine WURZEL — es kann nur beim Mount laufen, also führt
+die Runtime es EINMAL beim Mount aus. `@effect on Load` ohne Dispatcher lädt
+einfach; kein Lifecycle-Code im `.nx`. Ein handler-dispatchtes Event (z.B.
+Greeter-`Submit` vom Login-Button) ist KEINE Wurzel → feuert nicht beim Mount
+(kein Auto-Login).
+
+Umsetzung: neues `nexus-dsl-runtime::initial` — statische IR-Analyse beim
+Mount (Effekt-Trigger minus alle Dispatch-Ziele in Effekt-Steps + Handlern
+aller Komponenten); `View::run_initial_effects(host)` feuert die Wurzeln
+einmal; Host ruft es nach dem Mount. windowd `run_dsl_initial_effects` ersetzt
+`boot_fire_dsl_mount`; `dsl_pointer_body` ohne fire_mount.
+
+BOOT-BEWEIS (manual--2026-07-08T09-35-33, OHNE Klick): `systemui: dsl shell on`
+→ `windowd: dsl svc bundlemgr.enumerate ok (n=3)` — die Launcher-`@effect on
+Refresh` (Wurzel) lud die echten Registry-Apps beim Mount automatisch. 0
+FAIL-Zeilen, alle P0-Gates grün. Test: dsl_goldens
+`root_effect_loads_at_mount_without_a_lifecycle_hook` (Load feuert, Submit
+nicht). Suiten: dsl_goldens 13, runtime 20, core, conformance grün; riscv
+runtime+windowd 0 Fehler.
+
+### 2026-07-08: Shell/Greeter nach userspace/apps/ verschoben (Architektur-Korrektur)
+
+User-Einwand: systemui ist der SELEKTOR (Manifest bestimmt WELCHE UI), enthält
+aber keine UI. Shell und Greeter sind APPS → `userspace/apps/` (wie counter/
+chat/search), nicht `userspace/systemui/`. windowd = Compositor, nicht Shell-
+Host (der In-Compositor-Mount bleibt vorerst Bootstrap).
+
+Umzug (git mv, quell-erhaltend — Shell-programHash unverändert cc27bc35):
+- `userspace/systemui/shells/desktop/` → `userspace/apps/desktop-shell/` (+ manifest.toml, caps=[WINDOW,LAUNCH,ENUMERATE]).
+- `userspace/systemui/greeter/` → `userspace/apps/greeter/` (+ manifest.toml, caps=[WINDOW,SESSION]).
+- `userspace/systemui/` gelöscht; Cargo.toml-exclude-Eintrag entfernt.
+- shell.toml `dsl_root = "userspace/apps/desktop-shell"`; product.toml `greeter = "greeter"` (App-ID; systemui-Service modelliert shell/greeter schon als Registry-IDs).
+- Host-Test-Basis + Docs (patterns/session/dsl-migration) auf neue Pfade.
+
+Der systemui-SERVICE war schon korrekt (product → profile+shell/greeter als
+IDs, resolve über registry); nur die Projektbäume lagen physisch falsch.
+
+BOOT-BEWEIS (manual--2026-07-08T09-48-38): `DSL: program loaded hash=cc27bc35`
+(identisch) → `systemui: dsl shell on` → `dsl svc bundlemgr.enumerate ok (n=5)`
+— Shell mountet aus der neuen Location; die 2 neuen App-Manifeste tauchen jetzt
+in der Registry auf (n 3→5). 0 FAILs. Host: windowd 138, systemui 19,
+shell-host 7, dsl-core 28 grün; riscv windowd baut die Shell aus neuem dsl_root.
+
+OFFEN (nächste Schritte des Umbaus): DslEffectHost → app-host (per-Cap-Routing);
+Shell/Greeter als echte Bundles via RFC-0065 launchen; windowd-dsl_mount
+zurückbauen; Shell/Greeter aus der Launcher-Enumerate ausblenden (system/hidden
+flag — sie sollen nicht user-launchbar in der App-Liste erscheinen).
+
+### 2026-07-08: bundle_type = shell/greeter als Privilegien-Decke (3 Schritte)
+
+User: der eigene bundle_type soll (a) Shell/Greeter aus der App-Liste
+eindeutig raushalten UND (b) ihnen Zugriff auf privilegierte Caps geben, den
+normale Apps NICHT haben — bei erhaltener Flexibilität (Autologin ohne User,
+beliebige App als Single-App-Shell). Kern-Trennung: **bundle_type = Privilegien-
+DECKE (was das Bundle anfordern darf), product = Rollen-ZUWEISUNG (welche App
+die Rolle spielt).**
+
+- **Schritt 1 (DONE, boot-verifiziert n 5→3):** BundleType-Enum um `shell @5` /
+  `greeter @6` erweitert (manifest.capnp); desktop-shell/greeter-Manifeste auf
+  die Typen; bundlemgrd build.rs führt bundle_type in APP_REGISTRY, os_lite
+  `build_list_apps_response` filtert auf `bundle_type == "app"` — Shell/Greeter
+  registriert + servierbar, aber NICHT in der Launcher-Liste.
+- **Schritt 2 (DONE, host-getestet):** Cap-Decke fail-closed bei PACK-Zeit
+  (nxb-pack): `SESSION` nur greeter, `LAUNCH`/`ENUMERATE` nur shell — eine
+  `app`, die diese deklariert, wird abgelehnt. SESSION/LAUNCH/ENUMERATE zur
+  abilitymgr-Known-Permissions-Liste. Test bundle_type_gates_system_role_permissions.
+- **Schritt 3 (teilweise, Rest reitet auf Greeter-Swap):** systemui-Product-
+  Konsistenz `auto ⟺ kein Greeter` war schon fail-closed. Der Typ-CROSS-CHECK
+  (product.greeter zeigt auf greeter-type-Bundle) braucht die App-bundle_types
+  aus bundlemgrd → landet mit dem Greeter-Swap (systemui resolved+launcht die
+  Rollen-App). Sicherheitsboden hält trotzdem: die Pack-Decke lässt SESSION nur
+  bei greeter-Bundles zu, ein fehlzeigendes `greeter =` kann NIE Login treiben.
+
+Autologin/Single-App bleiben möglich: `session = auto` = gar kein Greeter;
+`product.shell = <plain app>` (bleibt bundle_type=app, braucht keine erhöhten
+Caps) für Single-App-OS. Beweise: bundlemgrd 13, nxb-pack 4, abilitymgr 31,
+windowd 138, systemui 19 grün; riscv bundlemgrd/abilitymgr sauber; Boot n=3.
+
+### 2026-07-08: bundle_type `settings` + privilegierte-Rollen-Roadmap
+
+- **`settings`-Typ (DONE, host-getestet):** manifest.capnp `settings @7`; Decke
+  `SETTINGS` nur für settings (nxb-pack); abilitymgr KNOWN_PERMISSIONS +SETTINGS;
+  Launcher-Filter generalisiert auf `is_launchable = app | settings` (Settings
+  IST user-startbar — anders als shell/greeter). Trennt die zwei Achsen
+  Sichtbarkeit vs. Privileg sauber. Tests: nxb-pack 4, bundlemgrd 13, abilitymgr 31.
+- **Roadmap-Doku NEU:** `docs/dev/app-platform/privileged-roles.md` — Survey der
+  privilegierten App-Rollen (Android/iOS/OHOS) auf unser Modell gemappt: A
+  System-Surfaces (shell/greeter/ime/systemui), B privilegierte startbare Apps
+  (settings✓, filemanager/phone/sms/contacts/camera/browser/…), C privilegierte
+  Hintergrund-Services (autofill/a11y/vpn/print/…), D Zugriffs-PORTALE
+  (document/photo/contact-picker, share, scoped-grants = mediated-then-direct).
+  Design-Leitplanke: eigener bundle_type nur für echte System-Apps mit Identität;
+  sonst Portal (Picker) ODER gated Service-Cap. Verweist auf TASK-0083/0084/0106/
+  0113/0118/0131.
+
+### 2026-07-08: Deklaratives App-Kind-Service-Routing — Stufe 1 (SSOT-Map) DONE
+
+User bestätigt: production-grade = deklarativ (Manifest-Caps treiben das Routing
+ab, nicht Pro-Dienst-Verdrahten), fail-closed, schnell (Routen beim Launch
+provisioniert → direkte IPC), dynamisch erweiterbar (SDK-Map-Zeile pro Dienst;
+Laufzeit-Grants über den bestehenden mediated-then-direct-Broker). Zwei Ebenen:
+statisch-deklariert (Launch-provisioniert) + Broker-für-dynamisch.
+
+- **Stufe 1 DONE:** `source/libs/nexus-sdk-routes` (no_std, keine Runtime-capnp) —
+  SSOT `ServiceRoute { svc, route, permission, child_slot }`: bundlemgr→bundlemgrd
+  /ENUMERATE/11, ability→abilitymgr/LAUNCH/12, session→sessiond/SESSION/13; +
+  reply-inbox slots 9/10; Lookups route_for_svc/route_for_permission; Self-
+  Consistency-Test. abilitymgr dep + Guard `every_sdk_route_permission_is_known`
+  (32 Tests grün, riscv sauber).
+
+STUFE-2-ENTSCHEIDUNG (offen, boot-kritisch): Provisioning braucht eine Minting-
+Autorität pro Launch (das Kind kann keinen eigenen Endpoint minten — Factory nur
+für Kernel/init-Kinder; Control-Channel-Reply-Inbox teilen = Race). Optionen:
+(a) init mintet die Kind-Reply-Inbox im execd-Arm (R1 single-app, wie der
+    bestehende Event-Kanal), execd resolved die Service-Sends über seinen
+    Control-Channel + grantet sie per SDK-Map-Slot; Multi-App = R1→R2-Folge.
+(b) neuer Control-Channel-Op `PROVISION_APP_ROUTES(pid, caps)`: init mintet
+    per-Launch (Multi-App sofort), execd/abilitymgr triggert.
+(c) execd bekommt die Factory (Spawner mintet selbst) — mächtiger, weniger
+    Kapselung.
+Empfehlung: (a) zuerst (kleinster boot-sicherer Schritt, matcht Event-Kanal-R1),
+(b) als Multi-App-Ausbau. execd braucht die App-Caps (build.rs-Tabelle wie
+bundlemgrd/abilitymgr) um nur deklarierte Routen zu provisionieren.

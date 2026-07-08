@@ -130,6 +130,16 @@ enum BundleType {
   library @2;
   driver @3;
   framework @4;
+  # System-role UI bundles (TASK-0080C). The type is a PRIVILEGE CEILING —
+  # what the bundle MAY request — enforced fail-closed at pack time; the
+  # product manifest ASSIGNS which bundle plays the role (`shell = <id>` /
+  # `greeter = <id>`). Neither is user-launchable (filtered from the app list).
+  shell @5;     # may hold LAUNCH/ENUMERATE (starts + lists apps)
+  greeter @6;   # may hold SESSION (the ONLY bundle that drives login)
+  # Privileged UI app that IS user-launchable (appears in the launcher, unlike
+  # shell/greeter) but may hold SETTINGS (read/write system config via
+  # settingsd) — a power a normal app must not have.
+  settings @7;
 }
 
 enum ResourceKind {

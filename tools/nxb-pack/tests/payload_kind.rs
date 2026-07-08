@@ -131,3 +131,56 @@ fn exports_round_trip_and_foreign_namespace_rejected() {
     run_pack_expect_failure(&dir, &toml.replace("app.chat.SEND", "app.chat."));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Privilege ceiling (TASK-0080C): a system-role permission is only packable
+/// on a bundle of that role's type. A plain `app` shipping `SESSION`/`LAUNCH`/
+/// `ENUMERATE` is rejected at PACK time; a `greeter`/`shell` may hold them.
+#[test]
+fn bundle_type_gates_system_role_permissions() {
+    // A plain app must NOT be able to ship a system-role permission.
+    for cap in [
+        "nexus.permission.SESSION",
+        "nexus.permission.LAUNCH",
+        "nexus.permission.ENUMERATE",
+        "nexus.permission.SETTINGS",
+    ] {
+        let mut toml = manifest_toml(None);
+        toml = toml.replace(
+            "caps = [\"nexus.permission.WINDOW\"]",
+            &format!("caps = [\"nexus.permission.WINDOW\", \"{cap}\"]"),
+        );
+        let dir = temp_dir("ceiling-app");
+        run_pack_expect_failure(&dir, &toml);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A greeter MAY hold SESSION.
+    let mut greeter = manifest_toml(None);
+    greeter = greeter.replace(
+        "caps = [\"nexus.permission.WINDOW\"]",
+        "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SESSION\"]\nbundle_type = \"greeter\"",
+    );
+    let dir = temp_dir("ceiling-greeter");
+    run_pack(&dir, &greeter, b"\x7fELF fake");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // A shell MAY hold LAUNCH + ENUMERATE.
+    let mut shell = manifest_toml(None);
+    shell = shell.replace(
+        "caps = [\"nexus.permission.WINDOW\"]",
+        "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.LAUNCH\", \"nexus.permission.ENUMERATE\"]\nbundle_type = \"shell\"",
+    );
+    let dir = temp_dir("ceiling-shell");
+    run_pack(&dir, &shell, b"\x7fELF fake");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // A settings app MAY hold SETTINGS (and is still user-launchable).
+    let mut settings = manifest_toml(None);
+    settings = settings.replace(
+        "caps = [\"nexus.permission.WINDOW\"]",
+        "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SETTINGS\"]\nbundle_type = \"settings\"",
+    );
+    let dir = temp_dir("ceiling-settings");
+    run_pack(&dir, &settings, b"\x7fELF fake");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -48,6 +48,33 @@ Reducers are pure (no IO, no `svc.*`, no time/randomness — compile error other
 Effects run after commit, own all IO, and must handle both `Ok` and `Err` of every
 service call.
 
+### Initial load: root effects (no lifecycle hook)
+
+There is **no** `on Mount`/`useEffect` in the language — a second, imperative
+effect-trigger model is exactly what `principles.md` §5 forbids. The initial
+load falls out of the **dataflow** instead:
+
+```nx
+Event UserListEvent { LoadUsers, UsersLoaded(List<User>) }
+
+@effect on LoadUsers {
+    match svc.users.list(timeoutMs: 250) {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e)    => dispatch(LoadFailed(e)),
+    }
+}
+```
+
+`LoadUsers` carries an `@effect` but is dispatched by **nothing** — no handler,
+no reducer, no other effect. It is a **root**: it can only ever run at mount,
+so the runtime runs it once, at mount. Writing the obvious program just loads;
+there is no lifecycle code to write and none to get wrong. An event that a
+handler *does* dispatch (e.g. `Submit` from a button's `on Tap`) is not a root
+and never auto-fires.
+
+The runtime derives the roots statically from the IR at mount and runs them
+via `View::run_initial_effects`; the host calls it once right after mount.
+
 ## Pages and components
 
 A `Page` body **is** its view. Components declare `props` first:

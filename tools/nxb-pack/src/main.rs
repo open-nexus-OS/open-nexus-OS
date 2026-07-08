@@ -330,15 +330,46 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         other => return Err(format!("manifest.toml unknown payload_kind: {other}").into()),
     };
 
-    // v2.0: bundle type (default app for backward compat)
+    // v2.0: bundle type (default app for backward compat). `shell`/`greeter`
+    // are system-role UI bundles (TASK-0080C) — the type is a PRIVILEGE CEILING
+    // enforced below.
     let bundle_type = match opt_str(table, "bundle_type").unwrap_or("app") {
         "app" => mf::BundleType::App,
         "service" => mf::BundleType::Service,
         "library" => mf::BundleType::Library,
         "driver" => mf::BundleType::Driver,
         "framework" => mf::BundleType::Framework,
+        "shell" => mf::BundleType::Shell,
+        "greeter" => mf::BundleType::Greeter,
+        "settings" => mf::BundleType::Settings,
         other => return Err(format!("manifest.toml unknown bundle_type: {other}").into()),
     };
+
+    // Privilege ceiling (TASK-0080C): a permission gated on a system role is
+    // only grantable to a bundle of that role's type. This is the security
+    // boundary — a plain `app` cannot ship `SESSION`/`LAUNCH`/`ENUMERATE`, so a
+    // rogue app can never drive login or launch/enumerate apps. Fail-closed at
+    // PACK time (the earliest point), before a bundle can ever ship. The
+    // product manifest still ASSIGNS which bundle plays the role.
+    for cap in &capabilities {
+        let required = match cap.as_str() {
+            "nexus.permission.SESSION" => Some(("greeter", mf::BundleType::Greeter)),
+            "nexus.permission.LAUNCH" | "nexus.permission.ENUMERATE" => {
+                Some(("shell", mf::BundleType::Shell))
+            }
+            "nexus.permission.SETTINGS" => Some(("settings", mf::BundleType::Settings)),
+            _ => None,
+        };
+        if let Some((role, needed)) = required {
+            if bundle_type != needed {
+                return Err(format!(
+                    "manifest.toml capability `{cap}` requires bundle_type = \"{role}\" \
+                     (a normal app may not hold a system-role permission)"
+                )
+                .into());
+            }
+        }
+    }
 
     // v2.0: dependencies
     let deps_toml = opt_str_array(table, "dependencies")?;

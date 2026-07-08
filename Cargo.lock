@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-ipc",
+ "nexus-sdk-routes",
  "nexus-service-entry",
  "thiserror",
 ]
@@ -184,6 +185,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-sdk-routes",
  "nexus-service-entry",
  "nexus-text-baked",
  "nexus-theme-tokens",
@@ -962,6 +964,7 @@ dependencies = [
  "nexus-loader",
  "nexus-log",
  "nexus-metrics",
+ "nexus-sdk-routes",
  "nexus-service-entry",
  "thiserror",
 ]
@@ -2099,6 +2102,10 @@ version = "0.1.0"
 dependencies = [
  "libm",
 ]
+
+[[package]]
+name = "nexus-sdk-routes"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-sel"

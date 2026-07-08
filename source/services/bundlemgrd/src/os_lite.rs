@@ -89,18 +89,33 @@ const OP_LOG_PROBE: u8 = 0x7f;
 // install pipeline feeds the embedded `.nxb` set through these same tables.
 include!(concat!(env!("OUT_DIR"), "/app_registry.rs"));
 
+/// User-launchable bundle types — the ones that appear in the launcher grid.
+/// `app` and `settings` (Settings is opened by the user); `shell`/`greeter`
+/// are product-assigned system surfaces and service/library/… are non-UI.
+fn is_launchable(bundle_type: &str) -> bool {
+    matches!(bundle_type, "app" | "settings")
+}
+
 /// Builds the `OP_LIST_APPS` response:
 /// `[B,N,ver,OP_LIST_APPS|0x80, STATUS_OK, count:u16le, (id_len,id,label_len,label)*]`.
 fn build_list_apps_response() -> alloc::vec::Vec<u8> {
     use alloc::vec::Vec;
+    // The app LIST is the USER-LAUNCHABLE surface. Two orthogonal axes:
+    // launchability (does it show in the grid?) and privilege (which caps may
+    // it hold?). `app` and `settings` are user-launchable (Settings is opened
+    // by the user — it just carries the extra SETTINGS privilege); `shell`/
+    // `greeter` are system roles (never in the grid), and service/library/
+    // driver/framework are non-UI. Filter here, at the enumerate boundary.
+    let launchable = APP_REGISTRY.iter().filter(|(_, _, ty)| is_launchable(ty));
+    let count = launchable.clone().count();
     let mut out = Vec::new();
     out.push(MAGIC0);
     out.push(MAGIC1);
     out.push(VERSION);
     out.push(OP_LIST_APPS | 0x80);
     out.push(STATUS_OK);
-    out.extend_from_slice(&(APP_REGISTRY.len() as u16).to_le_bytes());
-    for (id, label) in APP_REGISTRY.iter() {
+    out.extend_from_slice(&(count as u16).to_le_bytes());
+    for (id, label, _ty) in launchable {
         out.push(id.len() as u8);
         out.extend_from_slice(id.as_bytes());
         out.push(label.len() as u8);
@@ -719,7 +734,9 @@ mod tests {
         assert_eq!(rsp[3], OP_LIST_APPS | 0x80);
         assert_eq!(rsp[4], STATUS_OK);
         let count = u16::from_le_bytes([rsp[5], rsp[6]]);
-        assert_eq!(count, APP_REGISTRY.len() as u16);
+        // Only user-launchable bundles are listed (shell/greeter filtered out).
+        let launchable = APP_REGISTRY.iter().filter(|(_, _, ty)| is_launchable(ty)).count();
+        assert_eq!(count, launchable as u16);
         // First entry id is "chat".
         let id_len = rsp[7] as usize;
         let id = core::str::from_utf8(&rsp[8..8 + id_len]).unwrap();

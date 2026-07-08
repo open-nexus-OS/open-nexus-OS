@@ -23,7 +23,7 @@ fn enumerate_line(mounted: &Mounted<'_>, query: &str, apps: &[(&str, &str)]) -> 
 
 #[test]
 fn shell_page_renders_across_profiles_with_apps_entry() {
-    let nxir = compile_project("shells/desktop");
+    let nxir = compile_project("desktop-shell");
     for env in [
         FixtureEnv::default(),
         FixtureEnv::phone("portrait"),
@@ -38,7 +38,7 @@ fn shell_page_renders_across_profiles_with_apps_entry() {
 
 #[test]
 fn launcher_lists_registry_apps_and_tap_launches_by_id() {
-    let nxir = compile_project("shells/desktop");
+    let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
 
     // Navigate to the launcher (the shell's Apps flow) and load the registry.
@@ -66,7 +66,7 @@ fn launcher_lists_registry_apps_and_tap_launches_by_id() {
 
 #[test]
 fn launcher_search_refilters_through_the_service() {
-    let nxir = compile_project("shells/desktop");
+    let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
     mounted.navigate("/launcher");
 
@@ -101,7 +101,7 @@ fn launcher_search_refilters_through_the_service() {
 
 #[test]
 fn launcher_phone_override_diverges_structurally() {
-    let nxir = compile_project("shells/desktop");
+    let nxir = compile_project("desktop-shell");
     let mut desktop = Mounted::new(&nxir, FixtureEnv::default());
     desktop.navigate("/launcher");
     let mut phone = Mounted::new(&nxir, FixtureEnv::phone("portrait"));
@@ -167,14 +167,14 @@ fn all_pages_pass_lints_and_a11y_checks() {
     // compile_project asserts has_errors == false (labels on interactive
     // nodes, keys on collections, reducer purity, exhaustiveness) — this
     // test pins that BOTH project trees stay lint-clean.
-    let _ = compile_project("shells/desktop");
+    let _ = compile_project("desktop-shell");
     let _ = compile_project("greeter");
 }
 
 #[test]
 fn launcher_grid_reorders_and_inserts_by_key() {
     use nexus_dsl_runtime::NoIo;
-    let nxir = compile_project("shells/desktop");
+    let nxir = compile_project("desktop-shell");
     let mut mounted = Mounted::new(&nxir, FixtureEnv::default());
     mounted.navigate("/launcher");
 

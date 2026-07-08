@@ -33,6 +33,9 @@ nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+# TASK-0080C: SSOT for cap→service→child-slot routing — the effect host
+# derives `svc.<name>` → provisioned fixed slot from this (no_std const table).
+nexus-sdk-routes = { path = "../../libs/nexus-sdk-routes" }
 # The DSL runtime IN the app process (R2): mount + layout the compiled
 # program; hash-verify stays OFF for the embedded payload (binary = trust
 # boundary, same rule as windowd's demo mount).

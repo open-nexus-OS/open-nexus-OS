@@ -16,3 +16,5 @@ theme = "nexus-default"
 # `greeter` may name any app implementing the greeter contract (svc.session.*);
 # empty = the built-in greeter view (until TASK-0080C swaps the DSL greeter).
 session = "greeter"
+# Greeter APP id (userspace/apps/greeter) — SystemUI names the renderer; sessiond decides.
+greeter = "greeter"

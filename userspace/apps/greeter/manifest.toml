@@ -1,0 +1,22 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The login greeter — a DSL app (userspace/apps/<name>/), selected as
+# the greeter per product (product.toml → `greeter = "greeter"`). SystemUI only
+# NAMES it; the authority stays in sessiond (the greeter renders + asks via
+# svc.session.*, never decides — docs/dev/ui/shell/session.md). Any app
+# implementing the greeter contract can be the greeter (single-purpose OS).
+#
+# Bootstrap note: not yet mounted by windowd (the built-in avatar greeter still
+# renders); this relocation makes it a proper app ready for the greeter-swap.
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+
+name = "greeter"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "greeter"
+payload_kind = "ui-program"
+abilities = ["greeter.GreeterAbility"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.SESSION"]
+provides = []
+resources = []

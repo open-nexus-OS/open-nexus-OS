@@ -38,6 +38,18 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     "nexus.permission.STATE",
     // Execute QuerySpec v1 queries via queryd (docs/dev/dsl/db-queries.md).
     "nexus.permission.QUERY",
+    // System-role permissions (TASK-0080C). The privilege ceiling (nxb-pack)
+    // only lets `greeter`/`shell` bundles ship these, so a plain app can never
+    // hold them; here they are just recognized as valid platform permissions.
+    // Drive the session/login authority (sessiond) — greeter only.
+    "nexus.permission.SESSION",
+    // Launch apps via abilitymgr — shell only.
+    "nexus.permission.LAUNCH",
+    // Enumerate the installed-app registry via bundlemgrd — shell only.
+    "nexus.permission.ENUMERATE",
+    // Read/write SYSTEM settings via settingsd — settings-type only. (Distinct
+    // from STATE, which is an app's OWN state via statefsd.)
+    "nexus.permission.SETTINGS",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned
@@ -119,6 +131,21 @@ mod tests {
         let caps = ["nexus.permission.WINDOW", "nexus.permission.BOGUS"];
         assert_eq!(validate(&caps), Err("nexus.permission.BOGUS"));
         assert_eq!(first_unknown(&caps), Some("nexus.permission.BOGUS"));
+    }
+
+    /// Guard: every routable permission in the SDK routing SSOT must be a
+    /// permission this authority actually recognizes — otherwise the launch
+    /// provisioner would try to grant a route for a cap `validate` rejects.
+    #[test]
+    fn every_sdk_route_permission_is_known() {
+        for r in nexus_sdk_routes::SERVICE_ROUTES {
+            assert!(
+                is_known_permission(r.permission),
+                "SDK route `svc.{}` needs permission `{}` which is not in KNOWN_PERMISSIONS",
+                r.svc,
+                r.permission
+            );
+        }
     }
 
     #[test]

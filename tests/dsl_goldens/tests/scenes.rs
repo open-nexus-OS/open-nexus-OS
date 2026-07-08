@@ -35,6 +35,124 @@ impl<'p> Mounted<'p> {
             .dispatch(&BaseTokens, &FixtureEnv::default(), &locale, &mut NoIo, e, c, payload)
             .expect("dispatch runs")
     }
+
+    fn run_initial_effects(&mut self, host: &mut dyn nexus_dsl_runtime::EffectHost) -> Damage {
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        self.view
+            .run_initial_effects(&BaseTokens, &FixtureEnv::default(), &locale, host)
+            .expect("run_initial_effects runs")
+    }
+
+    fn field(&self, store: &str, field: &str) -> Option<Value> {
+        self.view.runtime.field(store, field).cloned()
+    }
+}
+
+/// A stub `EffectHost` that records calls and returns a fixed list — proves
+/// an `on Mount` effect actually reached the service seam.
+struct CountingHost {
+    calls: u32,
+    reply: Vec<Value>,
+}
+
+impl nexus_dsl_runtime::EffectHost for CountingHost {
+    fn call(
+        &mut self,
+        _service: &str,
+        _method: &str,
+        _args: &[Value],
+        _timeout_ms: u32,
+    ) -> Result<Value, u32> {
+        self.calls += 1;
+        Ok(Value::List(self.reply.clone()))
+    }
+}
+
+/// `Load` carries an `@effect` but is dispatched by NOTHING — no handler, no
+/// reducer, no other effect. It is therefore a ROOT: the runtime runs it once
+/// at mount (principles.md §5 — the dataflow IS the trigger, there is no
+/// `on Mount` hook). `Submit` is ALSO an effect trigger, but the button's
+/// `on Tap` dispatches it → it is NOT a root and must NOT fire at mount.
+const ROOT_LOADER: &str = r#"
+Store S {
+    items: List<Str> = [],
+    loaded: Bool = false,
+    submitted: Bool = false,
+}
+
+Event E {
+    Load,
+    Loaded(List<Str>),
+    Failed(Int),
+    Submit,
+    Submitted,
+}
+
+reduce E {
+    Load => state.loaded = false,
+    Loaded(rows) => {
+        state.items = rows;
+        state.loaded = true;
+    },
+    Failed(code) => state.loaded = false,
+    Submit => state.submitted = false,
+    Submitted => state.submitted = true,
+}
+
+@effect on Load {
+    match svc.library.list(timeoutMs: 250) {
+        Ok(rows) => dispatch(Loaded(rows)),
+        Err(e) => dispatch(Failed(e)),
+    }
+}
+
+@effect on Submit {
+    match svc.library.list(timeoutMs: 250) {
+        Ok(rows) => dispatch(Submitted),
+        Err(e) => dispatch(Failed(e)),
+    }
+}
+
+Page P {
+    Stack {
+        Button { label: @t("go") }
+            .bg(surfaceVariant)
+        on Tap -> dispatch(Submit)
+    }
+}
+"#;
+
+#[test]
+fn root_effect_loads_at_mount_without_a_lifecycle_hook() {
+    let nxir = compile(ROOT_LOADER);
+    let mut mounted = Mounted::new(&nxir);
+    // Nothing has run yet: empty store, service untouched.
+    assert_eq!(mounted.field("S", "loaded"), Some(Value::Bool(false)));
+
+    let mut host = CountingHost {
+        calls: 0,
+        reply: vec![Value::Str(String::from("Alpha")), Value::Str(String::from("Beta"))],
+    };
+    // The runtime fires the ROOT effect (`Load`) once at mount — the source has
+    // no `on Mount`, only `@effect on Load` that nobody dispatches.
+    let _ = mounted.run_initial_effects(&mut host);
+    assert_eq!(host.calls, 1, "the root effect reached the service once");
+    assert_eq!(mounted.field("S", "loaded"), Some(Value::Bool(true)));
+    assert_eq!(
+        mounted.field("S", "items"),
+        Some(Value::List(vec![
+            Value::Str(String::from("Alpha")),
+            Value::Str(String::from("Beta")),
+        ]))
+    );
+    // `Submit` is dispatched by the button (a handler) → NOT a root → it never
+    // fired at mount (no auto-submit).
+    assert_eq!(mounted.field("S", "submitted"), Some(Value::Bool(false)));
+
+    // Runs exactly once — a later frame does not re-load.
+    let damage = mounted.run_initial_effects(&mut host);
+    assert_eq!(host.calls, 1, "initial effects run once");
+    assert_eq!(damage, Damage::None);
 }
 
 #[test]

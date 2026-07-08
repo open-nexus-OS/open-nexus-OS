@@ -163,8 +163,8 @@ That conflicts with v0.x goals: **determinism**, **boundedness**, and **front-en
 ## System surfaces: shell + greeter as DSL consumers (TASK-0080B)
 
 The system's own chrome is written in the same DSL as apps —
-`userspace/systemui/shells/desktop/` (ShellPage + LauncherPage) and
-`userspace/systemui/greeter/` (GreeterPage) are ordinary project trees
+`userspace/apps/desktop-shell/` (ShellPage + LauncherPage) and
+`userspace/apps/greeter/` (GreeterPage) are ordinary project trees
 compiled by the ordinary project mode. Two rules make a system surface:
 
 1. **Authority stays in services.** The launcher ASKS `svc.ability.launch`
