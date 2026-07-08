@@ -10,8 +10,8 @@
 use crate::store::Value;
 use alloc::string::String;
 use nexus_layout_types::{
-    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, Justify, LayoutNode, Overflow,
-    Spacer, Stack, TextContent, TextNode, TextStyle, VisualStyle,
+    Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, GlassLevel, Justify, LayoutNode,
+    Overflow, Spacer, Stack, SurfaceMaterial, TextContent, TextNode, TextStyle, VisualStyle,
 };
 use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
 
@@ -77,6 +77,9 @@ pub struct Mods {
     pub text_size: Option<TypographyToken>,
     pub opacity: Option<u8>,
     pub disabled: bool,
+    /// Compositing material (`.material(panel|card|subtle|window|opaque)`) — a
+    /// glass node becomes a backdrop-blurred layer at the compositor.
+    pub material: Option<SurfaceMaterial>,
 }
 
 impl Default for Mods {
@@ -93,8 +96,22 @@ impl Default for Mods {
             text_size: None,
             opacity: None,
             disabled: false,
+            material: None,
         }
     }
+}
+
+/// Maps a `.material(<token>)` name to its [`SurfaceMaterial`]. Unknown tokens
+/// return `None` (the checker rejects them; here they leave the default opaque).
+pub fn material_token(name: &str) -> Option<SurfaceMaterial> {
+    Some(match name {
+        "opaque" => SurfaceMaterial::Opaque,
+        "panel" => SurfaceMaterial::Glass(GlassLevel::Panel),
+        "card" => SurfaceMaterial::Glass(GlassLevel::Card),
+        "subtle" => SurfaceMaterial::Glass(GlassLevel::Subtle),
+        "window" => SurfaceMaterial::Glass(GlassLevel::Window),
+        _ => return None,
+    })
 }
 
 impl Mods {
@@ -113,6 +130,9 @@ impl Mods {
         if self.disabled {
             // The InteractionState::Disabled wash (140/255).
             visual.opacity = Some(nexus_layout_types::Fraction(140));
+        }
+        if let Some(material) = self.material {
+            visual.material = material;
         }
         visual
     }

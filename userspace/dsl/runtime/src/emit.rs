@@ -393,6 +393,7 @@ fn apply_modifier(
         24 => mods.bg = registry::color_token(&token_name(ctx)),           // bg
         25 => mods.fg = registry::color_token(&token_name(ctx)),           // fg
         27 => mods.opacity = Some(int_arg().clamp(0, 255) as u8),          // opacity
+        28 => mods.material = registry::material_token(&token_name(ctx)),  // material
         29 => mods.rounded = Some(registry::radius(&token_name(ctx))),     // rounded
         32 => mods.text_size = registry::type_size(&token_name(ctx)),      // textSize
         37 => {

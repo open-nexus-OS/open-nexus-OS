@@ -122,3 +122,61 @@ windowd is now a **layer-compositor service**: the CPU only rasterizes content i
 - No behavior or visual change in any phase — this is a structural refactor with identical output.
 - No GPU backend work (cpu2d stays default); the NexusGfx seam keeps a future GPU backend pluggable but does not build it here.
 - No new app features; `chat`/`search` extraction preserves current content only.
+
+## Revival (2026-07-08): finish P3 as a DSL shell + the client layer/material seam
+
+Reopened while designing the app-host DSL shell (TASK-0080C #17). The rendering
+boundary this RFC drew is **confirmed still in place** and is the base we build on
+— this section only adds the *remaining* pieces, framed production-grade (no
+minimal paths) and performance-first (5K/120Hz target).
+
+### Confirmed already-SSOT (do NOT re-do)
+
+- **Rasterizer SSOT = `nexus-gfx`.** `nexus-gfx/raster/{fill,blur,blend,blit,surface}`
+  (AA `fill_rounded_aa`/`fill_gradient_aa`/`drop_shadow`, `blur_box`/`blur_gaussian`/
+  `saturate`) is the one CPU rasterizer. **gpud's `cpu_vector.rs` + `backend/raster.rs`
+  are already thin adapters onto it** (VMO-boundary only); gpud's virgl shaders are the
+  GPU executor of the same commands, held to golden parity via `nexus-sdf` fixed-point AA.
+  No rasterizer consolidation remains.
+- **Glass/layer compositing SSOT = `nexus-gfx` `command/layer.rs`** (`Layer` +
+  `composite_layer_full`); `windowd shell_window::composite_glass` is a thin caller.
+- **SDF math SSOT = `nexus-sdf`** (float + fixed-point sibling).
+- **Retained plane = wallpaper only** (P4); everything else composites as GPU layers,
+  damage-driven, with cached backdrop blur + HW cursor overlay. **These perf properties
+  are the contract the shell replacement MUST preserve.**
+
+### Remaining work (the revival)
+
+- **R1 — client layer/material seam (the reusable contract).** Extend `client_surface`
+  so a client submits **material-tagged layers**: VMO surface(s) + per-panel material
+  (glass level / radius / shadow, from the design tokens) + damage. windowd assembles
+  them into the `nexus-gfx` layer scene generically — no per-app-type code. Today's
+  app-client window (already composited via `composite_glass`) is the degenerate
+  one-layer case; this generalizes it to N layers. See
+  `docs/dev/ui/patterns/windowing/window-intent.md` §"Surface materials & the layer seam".
+- **R2 — DSL chrome enablers (production-grade, not stopgap).**
+  - **Hover as a presentation modifier** (`.hoverBg()`/`.hoverScale()` from the motion
+    tokens), resolved by the renderer WITHOUT a store/effect round-trip — maps onto
+    windowd's existing incremental hover re-render (a mouse-move must not walk the
+    dataflow; that is the 120Hz rule). NOT an `on Hover -> dispatch` event.
+  - **Wire existing `ui/widgets` into the DSL registry** (`select` = dropdown, `toolbar`,
+    `window`, `sidebar`, …). They exist as Rust widgets; the `.nx` registry exposes only
+    10 primitives today. The Apps menu = `select`/a `Menu`, not a bespoke build.
+- **R3 — Shell/greeter as DSL app-hosts (finishes P3 + #17).** The shell renders its
+  panels into surfaces and declares their materials via R1; windowd composites them as
+  layers. This **retires `compositor/shell_window.rs` + `compositor/desktop_layer.rs`**
+  from windowd (the deferred P3 residue) — the shell UI is a userspace DSL app, not Rust
+  in `ui/widgets`. Window controls (min/max/close) + the mode dropdown stay WM-composed
+  (intent ⟂ policy), never in the shell `.nx`.
+- **R4 — no-monolith gate (folded into every phase).** Split any file a phase touches to
+  ≤ ~600 LOC, focused + extendable. Standing offenders: `windowd/{server.rs 1328,
+  runtime/mod.rs 1157, runtime/scene.rs 964, input.rs 858, smoke.rs 798}`,
+  `gpud/{gl_scanout.rs 1149, service.rs 1084, backend/virgl3d.rs 962, present.rs 873}`,
+  `nexus-gfx/command/buffer.rs 1026`. Pure moves, behavior-identical, per the strangler gate.
+
+### Gate (unchanged)
+
+Every phase: host build + windowd/nexus-gfx host tests green · riscv os-lite build green ·
+owner boots `GPU_MODE=virgl just start` and confirms the UI is visually identical / better,
+never worse · owner commits per phase. Strangler-fig: new home → switch consumer → delete
+old → prove identical → commit.

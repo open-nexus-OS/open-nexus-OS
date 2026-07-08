@@ -127,6 +127,43 @@ current content rect** to the app over the event channel it already holds
 - The **shell** simply receives "content rect = full screen" — the fullscreen
   case is not special, it is one value of the general resize channel.
 
+## Surface materials & the layer seam — how the app plugs into the compositor
+
+The compositor is a **retained-plane, damage-driven, GPU-layer** engine
+(`nexus-gfx` `command/layer.rs` is the compositing SSOT; Plane 1 = wallpaper,
+everything else composites as layers with cached backdrop blur + HW cursor
+overlay). An app that handed the WM one opaque full-screen bitmap would throw all
+of that away — no real backdrop blur, no per-region damage, a full-frame blit
+every frame. That does not scale to 5K/120Hz. So the seam is **not** a bitmap; it
+is **material-tagged layers**:
+
+- The app submits **one or more surfaces**, each carrying a **material**:
+  `opaque`, or `glass{ level, radius, shadow }` (levels from the design-system
+  glass tokens — panel/card/subtle/window). The app paints only *content* into
+  the surface; it never paints wallpaper, blur, or shadow.
+- **windowd composites** each layer via the `nexus-gfx` glass primitive: it
+  supplies the live backdrop blur (sampling what is behind the layer), the SDF
+  rounded corners, and the shadow — the exact recipe the app-client window and
+  search/chat windows already use. So the shell's topbar, dock, and launcher are
+  *layers*, identical in kind to any app window.
+- **Damage** rides per layer: the app presents damage rects; windowd
+  re-composites only those, and only the affected layer — a far-away hover or a
+  single card change never touches the rest.
+
+This is the material analogue of `chrome = intent ⟂ policy`: **the app declares
+glass *intent* per surface; the compositor *provides* the glass.** It keeps every
+production property (retained plane, cached blur, damage, cursor overlay,
+backend-agnostic command path) while the UI itself is pure userspace DSL.
+
+**Hover is presentation, not dataflow.** A hover state is a renderer-resolved
+style modifier (`.hoverBg()`/`.hoverScale()` from the motion tokens), applied
+without dispatching through the store/effect graph — a mouse-move must never walk
+the dataflow. It maps onto windowd's incremental hover re-render (re-composite the
+touched layer region only). This is what keeps pointer feedback free at 120Hz.
+
+> Seam wiring lives in RFC-0067 "Revival" (R1 the layer/material protocol, R2 the
+> DSL hover modifier + widget registry, R3 shell as a DSL app-host).
+
 This replaces any one-off "query display mode" op: resize is the general
 channel, and it is exactly what freeform ⇄ tiled ⇄ fullscreen already need.
 

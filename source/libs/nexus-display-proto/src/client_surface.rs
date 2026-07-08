@@ -40,6 +40,127 @@ pub const OP_SURFACE_INPUT: u8 = 11;
 /// the shared channel could be consumed by ANY receiver (the R3 "buttons do
 /// nothing" bug). Header-only frame.
 pub const OP_SURFACE_EVENTS: u8 = 12;
+/// app → windowd: the app's WINDOW INTENT, sent BEFORE `SURFACE_CREATE` so the
+/// WM can compose the frame + geometry and hand back the content rect the app
+/// sizes its surface VMO to. Payload: `style:u8, level:u8, mode:u8,
+/// resizable:u8` (the `WIN_*` tags). windowd stores it for the pending surface
+/// and answers `OP_SURFACE_RECT` on the event channel. See
+/// docs/dev/ui/patterns/windowing/window-intent.md (`chrome = intent ⟂ policy`).
+pub const OP_SURFACE_INTENT: u8 = 13;
+/// windowd → app: the content rect the WM composed for the app's intent under
+/// the active windowing policy (the app owns no geometry). Payload:
+/// `x:u16, y:u16, w:u16, h:u16`. Sent once before create (initial size) and
+/// again on every mode/resize change (the general geometry channel — no
+/// separate "query display mode" op).
+pub const OP_SURFACE_RECT: u8 = 14;
+
+/// app → windowd: the surface's **material-tagged layer regions** (the R1 layer
+/// seam, RFC-0067 Revival). The app renders its whole scene into ONE surface and
+/// submits the sub-rects that are glass panels (from the DSL nodes carrying
+/// `.material()`); windowd composites each region via the `nexus-gfx`
+/// `composite_layer_full` SSOT — real cached backdrop blur + SDF rounded +
+/// shadow — over the retained wallpaper, so the shell's panels are true glass
+/// layers, not a flat bitmap. Regions not covered by a glass layer blit opaque.
+/// Payload: `count:u8, [LayerDesc; count]`. Empty/absent = the whole surface
+/// composites with the default (window) treatment (the pre-R1 behavior).
+pub const OP_SURFACE_LAYERS: u8 = 15;
+
+/// Material kinds for a submitted layer region.
+pub const MATERIAL_OPAQUE: u8 = 0;
+pub const MATERIAL_GLASS: u8 = 1;
+/// Glass levels — the design-system glass tokens (panel/card/subtle/window),
+/// mapped to a backdrop blur radius by the compositor.
+pub const GLASS_PANEL: u8 = 0;
+pub const GLASS_CARD: u8 = 1;
+pub const GLASS_SUBTLE: u8 = 2;
+pub const GLASS_WINDOW: u8 = 3;
+
+/// Max glass layers per surface (bounds the frame; a real shell uses a handful:
+/// topbar, dock, launcher panel, a few cards).
+pub const MAX_SURFACE_LAYERS: usize = 16;
+
+/// One material-tagged region of a client surface (surface-local pixels).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LayerDesc {
+    pub x: u16,
+    pub y: u16,
+    pub w: u16,
+    pub h: u16,
+    /// `MATERIAL_*`.
+    pub material: u8,
+    /// `GLASS_*` (only meaningful when `material == MATERIAL_GLASS`).
+    pub glass_level: u8,
+    /// Corner radius in px (0 = square).
+    pub radius: u8,
+    /// Drop-shadow alpha (0 = no shadow).
+    pub shadow_alpha: u8,
+}
+
+const LAYER_DESC_BYTES: usize = 12;
+pub const SURFACE_LAYERS_MAX_LEN: usize = HEADER_LEN + 1 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
+
+/// Encodes the layer list; clamps to [`MAX_SURFACE_LAYERS`]. Returns the length.
+#[must_use]
+pub fn encode_surface_layers(layers: &[LayerDesc], out: &mut [u8; SURFACE_LAYERS_MAX_LEN]) -> usize {
+    let count = layers.len().min(MAX_SURFACE_LAYERS);
+    out[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_LAYERS));
+    out[4] = count as u8;
+    let mut pos = 5;
+    for l in &layers[..count] {
+        out[pos..pos + 2].copy_from_slice(&l.x.to_le_bytes());
+        out[pos + 2..pos + 4].copy_from_slice(&l.y.to_le_bytes());
+        out[pos + 4..pos + 6].copy_from_slice(&l.w.to_le_bytes());
+        out[pos + 6..pos + 8].copy_from_slice(&l.h.to_le_bytes());
+        out[pos + 8] = l.material;
+        out[pos + 9] = l.glass_level;
+        out[pos + 10] = l.radius;
+        out[pos + 11] = l.shadow_alpha;
+        pos += LAYER_DESC_BYTES;
+    }
+    pos
+}
+
+/// Decodes the layer list into `out`; returns the count (strictly validated).
+#[must_use]
+pub fn decode_surface_layers(
+    frame: &[u8],
+    out: &mut [LayerDesc; MAX_SURFACE_LAYERS],
+) -> Option<usize> {
+    if !has_op(frame, OP_SURFACE_LAYERS) || frame.len() < HEADER_LEN + 1 {
+        return None;
+    }
+    let count = frame[4] as usize;
+    if count > MAX_SURFACE_LAYERS || frame.len() != HEADER_LEN + 1 + count * LAYER_DESC_BYTES {
+        return None;
+    }
+    let mut pos = 5;
+    for slot in out.iter_mut().take(count) {
+        *slot = LayerDesc {
+            x: u16::from_le_bytes([frame[pos], frame[pos + 1]]),
+            y: u16::from_le_bytes([frame[pos + 2], frame[pos + 3]]),
+            w: u16::from_le_bytes([frame[pos + 4], frame[pos + 5]]),
+            h: u16::from_le_bytes([frame[pos + 6], frame[pos + 7]]),
+            material: frame[pos + 8],
+            glass_level: frame[pos + 9],
+            radius: frame[pos + 10],
+            shadow_alpha: frame[pos + 11],
+        };
+        pos += LAYER_DESC_BYTES;
+    }
+    Some(count)
+}
+
+/// Window-intent wire tags (mirror the IR `WindowStyle`/`WindowLevel`/
+/// `WindowMode` enum ordinals; both ends agree on these, not the capnp type).
+pub const WIN_STYLE_TITLEBAR: u8 = 0;
+pub const WIN_STYLE_HIDDEN_TITLEBAR: u8 = 1;
+pub const WIN_STYLE_PLAIN: u8 = 2;
+pub const WIN_LEVEL_NORMAL: u8 = 0;
+pub const WIN_LEVEL_DESKTOP: u8 = 1;
+pub const WIN_LEVEL_OVERLAY: u8 = 2;
+pub const WIN_MODE_AUTO: u8 = 0;
+pub const WIN_MODE_FREEFORM: u8 = 1;
+pub const WIN_MODE_FULLSCREEN: u8 = 2;
 
 /// Input kinds (v1: taps; motion/keys land with the focus model).
 pub const INPUT_KIND_TAP: u8 = 0;
@@ -103,6 +224,64 @@ pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8)> {
         u16::from_le_bytes([frame[4], frame[5]]),
         u16::from_le_bytes([frame[6], frame[7]]),
         frame[8],
+    ))
+}
+
+// ------------------------------------------------------------ intent + rect
+
+pub const SURFACE_INTENT_FRAME_LEN: usize = HEADER_LEN + 4;
+
+/// Encodes the app's window intent (`style, level, mode, resizable`).
+#[must_use]
+pub fn encode_surface_intent(
+    style: u8,
+    level: u8,
+    mode: u8,
+    resizable: bool,
+) -> [u8; SURFACE_INTENT_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_INTENT_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_INTENT));
+    f[4] = style;
+    f[5] = level;
+    f[6] = mode;
+    f[7] = u8::from(resizable);
+    f
+}
+
+/// `(style, level, mode, resizable)`.
+#[must_use]
+pub fn decode_surface_intent(frame: &[u8]) -> Option<(u8, u8, u8, bool)> {
+    if !has_op(frame, OP_SURFACE_INTENT) || frame.len() != SURFACE_INTENT_FRAME_LEN {
+        return None;
+    }
+    Some((frame[4], frame[5], frame[6], frame[7] != 0))
+}
+
+pub const SURFACE_RECT_FRAME_LEN: usize = HEADER_LEN + 8;
+
+/// Encodes the WM-composed content rect (`x, y, w, h`) for the app's surface.
+#[must_use]
+pub fn encode_surface_rect(x: u16, y: u16, w: u16, h: u16) -> [u8; SURFACE_RECT_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_RECT_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_RECT));
+    f[4..6].copy_from_slice(&x.to_le_bytes());
+    f[6..8].copy_from_slice(&y.to_le_bytes());
+    f[8..10].copy_from_slice(&w.to_le_bytes());
+    f[10..12].copy_from_slice(&h.to_le_bytes());
+    f
+}
+
+/// `(x, y, w, h)`.
+#[must_use]
+pub fn decode_surface_rect(frame: &[u8]) -> Option<(u16, u16, u16, u16)> {
+    if !has_op(frame, OP_SURFACE_RECT) || frame.len() != SURFACE_RECT_FRAME_LEN {
+        return None;
+    }
+    Some((
+        u16::from_le_bytes([frame[4], frame[5]]),
+        u16::from_le_bytes([frame[6], frame[7]]),
+        u16::from_le_bytes([frame[8], frame[9]]),
+        u16::from_le_bytes([frame[10], frame[11]]),
     ))
 }
 
@@ -267,6 +446,55 @@ mod tests {
         let mut wrong = f;
         wrong[3] = OP_SURFACE_PRESENT;
         assert_eq!(decode_surface_create(&wrong), None);
+    }
+
+    #[test]
+    fn intent_round_trip_and_guards() {
+        let f = encode_surface_intent(WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false);
+        assert_eq!(
+            decode_surface_intent(&f),
+            Some((WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false))
+        );
+        // Defaults (ordinary window) round-trip; resizable bool preserved.
+        let d = encode_surface_intent(WIN_STYLE_TITLEBAR, WIN_LEVEL_NORMAL, WIN_MODE_AUTO, true);
+        assert_eq!(decode_surface_intent(&d), Some((0, 0, 0, true)));
+        assert_eq!(decode_surface_intent(&f[..f.len() - 1]), None);
+        let mut wrong = f;
+        wrong[3] = OP_SURFACE_CREATE;
+        assert_eq!(decode_surface_intent(&wrong), None);
+    }
+
+    #[test]
+    fn rect_round_trip_and_guards() {
+        let f = encode_surface_rect(0, 0, 640, 480);
+        assert_eq!(decode_surface_rect(&f), Some((0, 0, 640, 480)));
+        assert_eq!(decode_surface_rect(&f[..f.len() - 1]), None);
+        let mut wrong = f;
+        wrong[3] = OP_SURFACE_INTENT;
+        assert_eq!(decode_surface_rect(&wrong), None);
+    }
+
+    #[test]
+    fn layers_round_trip_clamps_and_validates() {
+        let layers = [
+            LayerDesc { x: 0, y: 0, w: 1280, h: 48, material: MATERIAL_GLASS, glass_level: GLASS_PANEL, radius: 0, shadow_alpha: 40 },
+            LayerDesc { x: 20, y: 60, w: 200, h: 120, material: MATERIAL_GLASS, glass_level: GLASS_CARD, radius: 12, shadow_alpha: 80 },
+        ];
+        let mut buf = [0u8; SURFACE_LAYERS_MAX_LEN];
+        let len = encode_surface_layers(&layers, &mut buf);
+        let mut out = [LayerDesc::default(); MAX_SURFACE_LAYERS];
+        let n = decode_surface_layers(&buf[..len], &mut out).expect("decodes");
+        assert_eq!(n, 2);
+        assert_eq!(out[0], layers[0]);
+        assert_eq!(out[1], layers[1]);
+        // Empty list is valid (whole-surface default treatment).
+        let empty = encode_surface_layers(&[], &mut buf);
+        assert_eq!(decode_surface_layers(&buf[..empty], &mut out), Some(0));
+        // Truncated + wrong-op frames rejected.
+        assert_eq!(decode_surface_layers(&buf[..len - 1], &mut out), None);
+        let mut wrong = buf;
+        wrong[3] = OP_SURFACE_PRESENT;
+        assert_eq!(decode_surface_layers(&wrong[..len], &mut out), None);
     }
 
     #[test]

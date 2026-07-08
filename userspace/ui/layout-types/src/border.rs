@@ -235,6 +235,33 @@ pub enum ShapeKind {
 /// Separated from layout properties — paint-only changes don't invalidate measurement.
 ///
 /// Phase 6a: added `shadow`, `text_shadow`. `opacity` is a 0-255 fraction
+/// Design-system glass level — the frosted-panel materials (blur strength +
+/// translucency step). The compositor maps each to a real cached backdrop blur;
+/// the app never blurs anything itself (docs/dev/ui/patterns/windowing/window-intent.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GlassLevel {
+    /// Strongest blur, most translucent — dock / control center / launcher.
+    #[default]
+    Panel,
+    /// Cards nested inside panels.
+    Card,
+    /// Settings rows / list items — subtle.
+    Subtle,
+    /// Denser window material — solider so document content stays legible.
+    Window,
+}
+
+/// The compositing material of a node's surface region: opaque fill, or frosted
+/// glass at a [`GlassLevel`]. A node tagged `.material(panel|card|subtle|window)`
+/// becomes a **glass layer** the display server composites over the live
+/// backdrop; the default is opaque (a normal painted rect).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SurfaceMaterial {
+    #[default]
+    Opaque,
+    Glass(GlassLevel),
+}
+
 /// (0 = fully transparent, 255 = fully opaque).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VisualStyle {
@@ -252,4 +279,7 @@ pub struct VisualStyle {
     pub shadow: Option<BoxShadow>,
     /// Text shadow (shadow cast by text glyphs on this node).
     pub text_shadow: Option<TextShadow>,
+    /// Compositing material — `Opaque` (default) or frosted `Glass(level)`. The
+    /// compositor turns a glass node into a real backdrop-blurred layer.
+    pub material: SurfaceMaterial,
 }
