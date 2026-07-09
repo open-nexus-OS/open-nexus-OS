@@ -142,10 +142,26 @@ impl DisplayServerRuntime {
         // Fullscreen drops the rounded corners + shadow (nothing to round or
         // shadow against the display edges — edge-to-edge fill), same as the
         // other windows.
+        // Live resize (the "glass frame grows, content 1:1" path): while the app
+        // window is actively edge-resized, the frame (app_win.w/h) grows past the
+        // client's content band. Composite the backdrop blur + rounding at the
+        // FRAME size but draw the content at the BAND size, top-left — the exposed
+        // area is frosted glass. The client re-renders sharp at the new size on
+        // release (end_window_resize), snapping back to the cached band path.
+        let app_resizing =
+            matches!(self.resize_drag, Some((crate::window_scene::WindowId::AppClient, ..)));
         let app_glass = self.app_win.glass_params().map(|mut p| {
             if fullscreen_id == Some(crate::window_scene::WindowId::AppClient) {
                 p.radius = 0;
                 p.shadow_alpha = 0;
+            }
+            if app_resizing {
+                if let Some(a) = self.app_win.atlas {
+                    p.content_w = a.width.min(self.app_win.w);
+                    p.content_h = a.height.min(self.app_win.h);
+                    p.w = self.app_win.w;
+                    p.h = self.app_win.h;
+                }
             }
             p
         });
@@ -320,6 +336,8 @@ impl DisplayServerRuntime {
                             y: chat_dy,
                             w: chat_w,
                             h: chat_h,
+                            content_w: 0,
+                            content_h: 0,
                             radius: if chat_fs { 0 } else { super::desktop_layer::SEARCH_RADIUS },
                             shadow_blur: if chat_fs { 0 } else { CHAT_SHADOW_BLUR },
                             shadow_offset_y: CHAT_SHADOW_OFFSET_Y,

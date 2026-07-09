@@ -299,6 +299,12 @@ struct PendingRtLayer {
     src_x: u32,
     width: u32,
     height: u32,
+    /// Content sub-size drawn at the layer's top-left (`0` = same as
+    /// `width`/`height`). Backdrop blur covers `width`×`height` (the frame); the
+    /// content texture is drawn at `content_w`×`content_h` (the band) — the
+    /// "glass frame grows, content 1:1" resize path.
+    content_w: u32,
+    content_h: u32,
     dst_x: u32,
     dst_y: u32,
     opacity: u32,

@@ -116,6 +116,15 @@ pub enum Command {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
+        /// Content sub-size blitted at the layer's top-left (`0` = same as
+        /// `width`/`height`). When the CONTENT is smaller than the LAYER, the
+        /// backdrop blur + rounding still cover `width`×`height` (the frame) but
+        /// the source texture is drawn at `content_w`×`content_h` (the band) —
+        /// the rest of the layer rect is blurred backdrop only. This is the
+        /// "glass frame grows live, content 1:1 top-left" resize path (no GPU
+        /// scaling; the client re-renders sharp on settle). Backend: virgl RT.
+        content_w: u32,
+        content_h: u32,
         /// Scroll identity of the layer (`0` = not scrollable). The backend keeps
         /// a per-id source-row override that a lightweight scroll command
         /// (`OP_SET_LAYER_SCROLL(scroll_id, src_row)`) updates — a ~54µs GPU
@@ -425,6 +434,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 shadow_alpha,
                 backdrop_blur,
                 scroll_id,
+                content_w,
+                content_h,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -443,6 +454,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *shadow_alpha,
                         *backdrop_blur,
                         *scroll_id,
+                        *content_w,
+                        *content_h,
                     ],
                 )?;
             }
@@ -601,8 +614,8 @@ fn ser_drop_shadow(
 }
 
 /// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 13]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 13 * 4;
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 15]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 15 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -803,10 +816,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 52 {
+    if buf.len() < pos + 60 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 13];
+    let mut w = [0u32; 15];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -826,8 +839,10 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             shadow_alpha: w[10],
             backdrop_blur: w[11],
             scroll_id: w[12],
+            content_w: w[13],
+            content_h: w[14],
         },
-        pos + 52,
+        pos + 60,
     ))
 }
 
@@ -989,6 +1004,8 @@ mod scroll_tag_tests {
                     shadow_alpha: 180,
                     backdrop_blur: 0,
                     scroll_id: 1,
+                    content_w: 200,
+                    content_h: 300,
                 },
                 Command::CompositeLayer {
                     src_row_abs: 4000,
@@ -1004,6 +1021,8 @@ mod scroll_tag_tests {
                     shadow_alpha: 0,
                     backdrop_blur: 0,
                     scroll_id: 0,
+                    content_w: 0,
+                    content_h: 0,
                 },
             ],
         };
@@ -1011,16 +1030,21 @@ mod scroll_tag_tests {
         let n = cb.serialize_into(&mut buf).expect("serialize");
         let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
         assert_eq!(consumed, n, "consumed all serialized bytes");
-        let tags: alloc::vec::Vec<(u32, u32)> = out
+        let tags: alloc::vec::Vec<(u32, u32, u32, u32)> = out
             .commands
             .iter()
             .filter_map(|c| match c {
-                Command::CompositeLayer { src_row_abs, scroll_id, .. } => {
-                    Some((*src_row_abs, *scroll_id))
+                Command::CompositeLayer { src_row_abs, scroll_id, content_w, content_h, .. } => {
+                    Some((*src_row_abs, *scroll_id, *content_w, *content_h))
                 }
                 _ => None,
             })
             .collect();
-        assert_eq!(tags, alloc::vec![(3200, 1), (4000, 0)], "scroll_id preserved per layer");
+        // scroll_id AND the content sub-size survive the wire (windowd↔gpud).
+        assert_eq!(
+            tags,
+            alloc::vec![(3200, 1, 200, 300), (4000, 0, 0, 0)],
+            "scroll_id + content sub-size preserved per layer"
+        );
     }
 }

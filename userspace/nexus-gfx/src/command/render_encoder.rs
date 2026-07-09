@@ -242,6 +242,8 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_alpha,
             backdrop_blur,
             0,
+            0,
+            0,
         )
     }
 
@@ -280,6 +282,8 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_alpha,
             backdrop_blur,
             scroll_id,
+            0,
+            0,
         )
     }
 
@@ -299,6 +303,8 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_alpha: u32,
         backdrop_blur: u32,
         scroll_id: u32,
+        content_w: u32,
+        content_h: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -317,6 +323,8 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_alpha,
             backdrop_blur,
             scroll_id,
+            content_w,
+            content_h,
         })
     }
 
@@ -412,6 +420,8 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_alpha,
             backdrop_blur,
             layer.scroll_id,
+            layer.content_w,
+            layer.content_h,
         )
     }
 

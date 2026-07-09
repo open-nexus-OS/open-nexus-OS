@@ -67,6 +67,13 @@ pub struct Layer {
     pub src_x: u32,
     pub width: u32,
     pub height: u32,
+    /// Content sub-size drawn at the layer's top-left (`0` = same as
+    /// `width`/`height`). When the content is smaller than the layer, the
+    /// backdrop blur + rounding cover `width`×`height` (the frame) but the source
+    /// texture is drawn at `content_w`×`content_h` (the band); the rest is blurred
+    /// backdrop only — the "glass frame grows, content 1:1 top-left" resize path.
+    pub content_w: u32,
+    pub content_h: u32,
     /// Destination on the display plane.
     pub dst_x: u32,
     pub dst_y: u32,
@@ -88,6 +95,8 @@ impl Layer {
             src_x,
             width,
             height,
+            content_w: 0,
+            content_h: 0,
             dst_x,
             dst_y,
             opacity: 255,
@@ -136,6 +145,8 @@ mod tests {
                 shadow_alpha: 0,
                 backdrop_blur: 0,
                 scroll_id: 0,
+                content_w: 0,
+                content_h: 0,
             }
         );
     }

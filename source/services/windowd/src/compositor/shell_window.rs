@@ -408,6 +408,10 @@ impl ShellWindow {
             y: self.y.max(0) as u32,
             w,
             h,
+            // Default: content fills the frame (`0`). The AppClient resize path
+            // overrides these (frame `w`/`h`, band content) in `scene.rs`.
+            content_w: 0,
+            content_h: 0,
             radius: self.radius,
             shadow_blur: self.shadow_blur,
             shadow_offset_y: self.shadow_offset_y,
@@ -439,6 +443,8 @@ impl ShellWindow {
                 src_x: p.atlas_x,
                 width: w,
                 height: h,
+                content_w: p.content_w,
+                content_h: p.content_h,
                 dst_x: p.x,
                 dst_y: p.y,
                 opacity: 255,
@@ -449,13 +455,28 @@ impl ShellWindow {
                     offset_y: p.shadow_offset_y,
                     alpha: p.shadow_alpha,
                 }),
-                backdrop: p.blur.map(|blur| LayerBackdrop {
-                    blur_radius: DARK_GLASS_BLUR_RADIUS,
-                    saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-                    restore_halo_pad: 0,
-                    retained_src_y_offset: RETAINED_ROW_OFFSET,
-                    cache: glass_cache(blur),
-                }),
+                backdrop: if p.content_w > 0 {
+                    // Live resize: the frame grew past the content band. The blur
+                    // cache is content-size and can't cover the frame, so blur
+                    // LIVE at the frame rect (no cache) — the exposed area beyond
+                    // the content is frosted glass ("glass frame grows"). Snaps
+                    // back to the cached path when the client re-renders at size.
+                    Some(LayerBackdrop {
+                        blur_radius: DARK_GLASS_BLUR_RADIUS,
+                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                        restore_halo_pad: 0,
+                        retained_src_y_offset: RETAINED_ROW_OFFSET,
+                        cache: BackdropCache::None,
+                    })
+                } else {
+                    p.blur.map(|blur| LayerBackdrop {
+                        blur_radius: DARK_GLASS_BLUR_RADIUS,
+                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                        restore_halo_pad: 0,
+                        retained_src_y_offset: RETAINED_ROW_OFFSET,
+                        cache: glass_cache(blur),
+                    })
+                },
             },
             (mode_w, mode_h),
         );
@@ -496,6 +517,8 @@ impl ShellWindow {
                 src_x: p.atlas_x,
                 width: p.w,
                 height: p.h,
+                content_w: 0,
+                content_h: 0,
                 dst_x: p.x,
                 dst_y: p.y,
                 opacity: 255,
@@ -575,6 +598,8 @@ pub(crate) fn composite_material_glass(
             src_x: p.src_x,
             width: w,
             height: h,
+            content_w: 0,
+            content_h: 0,
             dst_x: p.dst_x,
             dst_y: p.dst_y,
             opacity: 255,
@@ -635,6 +660,13 @@ pub(crate) struct GlassCompositeParams {
     pub(crate) y: u32,
     pub(crate) w: u32,
     pub(crate) h: u32,
+    /// Content sub-size (`0` = same as `w`/`h`). When the CONTENT band is smaller
+    /// than the glass frame (`w`/`h`) — a live resize where the frame grows past
+    /// the client's created surface — the backdrop blur fills `w`×`h` but the
+    /// content is drawn at `content_w`×`content_h` in the top-left. The rest is
+    /// blurred glass ("glass frame grows, content 1:1"). See `nexus_gfx::Layer`.
+    pub(crate) content_w: u32,
+    pub(crate) content_h: u32,
     pub(crate) radius: u32,
     pub(crate) shadow_blur: u32,
     pub(crate) shadow_offset_y: i32,

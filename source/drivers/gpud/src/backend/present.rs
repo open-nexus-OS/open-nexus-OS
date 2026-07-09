@@ -390,6 +390,8 @@ impl VirtioGpuBackend {
                         shadow_alpha,
                         backdrop_blur,
                         scroll_id,
+                        content_w,
+                        content_h,
                     } = cmd
                     {
                         if self.pending_rt_count < MAX_PENDING_RT_LAYERS {
@@ -398,6 +400,8 @@ impl VirtioGpuBackend {
                                 src_x: *src_x,
                                 width: *width,
                                 height: *height,
+                                content_w: *content_w,
+                                content_h: *content_h,
                                 dst_x: *dst_x,
                                 dst_y: *dst_y,
                                 opacity: *opacity,
@@ -662,6 +666,8 @@ impl VirtioGpuBackend {
                     shadow_alpha,
                     backdrop_blur,
                     scroll_id,
+                    content_w,
+                    content_h,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
                     // relies on the content's own alpha (translucent panel bg).
@@ -685,6 +691,8 @@ impl VirtioGpuBackend {
                             src_x: *src_x,
                             width: *width,
                             height: *height,
+                            content_w: *content_w,
+                            content_h: *content_h,
                             dst_x: *dst_x,
                             dst_y: *dst_y,
                             opacity: *opacity,
@@ -828,14 +836,23 @@ impl VirtioGpuBackend {
             // tint + content composite over the blurred backdrop = real frosted
             // glass on the virgl scanout.
             if l.backdrop_blur > 0 {
+                // Blur covers the whole LAYER rect (the frame).
                 let _ = self.blur_rt_backdrop(l.dst_x, l.dst_y, l.width, l.height, l.backdrop_blur);
             }
+            // `content_w`/`content_h` (`0` = content fills the layer, the
+            // byte-identical steady-state default): the SOURCE sub-size (the
+            // client's content band). When set and different from the layer, the
+            // content is SCALED from the band up to `width`×`height` (the frame) —
+            // the window BODY grows live during a resize; it snaps sharp when the
+            // client re-renders at the new size.
             let ok = self
                 .composite_layer_rt(
                     src_row_abs,
                     l.src_x,
                     l.width,
                     l.height,
+                    l.content_w,
+                    l.content_h,
                     l.dst_x,
                     l.dst_y,
                     l.opacity,

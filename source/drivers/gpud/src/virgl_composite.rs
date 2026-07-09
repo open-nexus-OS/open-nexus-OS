@@ -447,12 +447,18 @@ impl VirtioGpuBackend {
     /// get their backdrop from `blur_rt_backdrop` (destination-so-far RT snapshot
     /// + GPU blur), run by `composite_pending_rt_layers` before this composite.
     /// Coordinates are screen-space (0..SCREEN_H), matching the RT.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn composite_layer_rt(
         &mut self,
         src_row_abs: u32,
         src_x: u32,
         width: u32,
         height: u32,
+        // Content SOURCE sub-size (`0` = same as `width`/`height`). When set and
+        // different from the dest, the content band is bilinear-SCALED up to the
+        // `width`×`height` frame — the window body grows live during a resize.
+        content_w: u32,
+        content_h: u32,
         dst_x: u32,
         dst_y: u32,
         opacity: u32,
@@ -485,24 +491,49 @@ impl VirtioGpuBackend {
         // cursor-move present re-composites from it WITHOUT this transfer (the
         // per-frame transfer was the mouse-move slowdown).
         let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
+        // Source region = the content band when a sub-size is given, else the
+        // whole layer. Only the source region is transferred to the GL texture.
+        let (src_w, src_h) = if content_w > 0 { (content_w, content_h) } else { (width, height) };
         if upload {
-            self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
+            self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, src_w, src_h, FB_STRIDE)?;
         }
         // Composite the content straight onto the scanout RT (alpha-over base).
-        self.submit_layer_pass(
-            crate::gl_scanout::H_GLS_SURF,
-            ATLAS_SVIEW,
-            1280,
-            ATLAS_ROWS,
-            src_x,
-            src_row_rel,
-            width,
-            height,
-            dst_x,
-            dst_y,
-            opacity,
-            corner_radius,
-        )
+        if src_w != width || src_h != height {
+            // Live resize: bilinear-scale the band source up to the frame dest —
+            // the window body grows; snaps sharp when the client re-renders.
+            self.submit_layer_pass_scaled(
+                crate::gl_scanout::H_GLS_SURF,
+                ATLAS_SVIEW,
+                1280,
+                ATLAS_ROWS,
+                src_x,
+                src_row_rel,
+                src_w,
+                src_h,
+                dst_x,
+                dst_y,
+                width,
+                height,
+                opacity,
+                corner_radius,
+                H_BLEND_ALPHA,
+            )
+        } else {
+            self.submit_layer_pass(
+                crate::gl_scanout::H_GLS_SURF,
+                ATLAS_SVIEW,
+                1280,
+                ATLAS_ROWS,
+                src_x,
+                src_row_rel,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                opacity,
+                corner_radius,
+            )
+        }
     }
 
     /// Upload the stored cursor sprite (BGRA, set by `store_cursor_sprite` when
