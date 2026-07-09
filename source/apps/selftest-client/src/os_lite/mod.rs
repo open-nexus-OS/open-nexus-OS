@@ -38,12 +38,32 @@ mod updated;
 mod vfs;
 
 pub fn run() -> core::result::Result<(), ()> {
-    // QoS: Selftest-Client läuft mit Interactive-Priorität, damit er unter
-    // SMP=2 nicht von Normal-Services (metricsd, windowd, …) verhungert.
-    // RFC-0023: Self-Path erlaubt dem Task, seine eigene QoS zu setzen.
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Interactive);
-
     use profile::{PhaseId, Profile};
+
+    // QoS by boot lane — this is the SSOT for selftest-client's scheduling and it
+    // must respect BOTH lanes (RFC-0023: a task may set its own QoS):
+    //
+    //  * INTERACTIVE boot (`just start`): the human wants a FAST first frame +
+    //    the animated boot logo. DEFER the whole selftest suite to Idle so the
+    //    display/input critical path (Normal) is never preempted — the ladder
+    //    runs after the frame settles (and if it never fully drains here, that's
+    //    fine: interactive boots don't gate on the proof ladder). Raising to
+    //    Interactive here (the old unconditional behaviour) strictly preempted
+    //    gpud/windowd → slow boot + a frozen splash. This is the regression fix.
+    //
+    //  * PROOF boot (`just test-os`): the selftest ladder IS the deliverable —
+    //    run it at Interactive so it isn't starved by Normal services (incl.
+    //    under SMP=2), and the full marker stream flushes deterministically.
+    //
+    // The kernel spawns selftest-client at Normal (see `initial_qos_for`) so it
+    // is schedulable enough to REACH this point; from here it owns its QoS.
+    let interactive = profile::runtime_is_interactive();
+    let _ = nexus_abi::task_qos_set_self(if interactive {
+        nexus_abi::QosClass::Idle
+    } else {
+        nexus_abi::QosClass::Interactive
+    });
+
     let mut ctx = context::PhaseCtx::bootstrap()?;
 
     // P4-08: runtime profile dispatch. `Full` (the default) is byte-identical
@@ -55,7 +75,6 @@ pub fn run() -> core::result::Result<(), ()> {
     // `selftest:<phase> N/N OK <ms>` line per group (+ a final `SELFTEST` total) — slow groups
     // flagged, failures expanded. The proof harness keeps the full marker stream (verdict mode
     // off) so `verify-uart` stays deterministic against the proof-manifest SSOT.
-    let interactive = profile::runtime_is_interactive();
     crate::markers::set_console_verdict_mode(interactive);
     let boot_span = nexus_abi::Span::begin();
 

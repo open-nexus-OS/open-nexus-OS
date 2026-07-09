@@ -1088,12 +1088,21 @@ fn initial_qos_for(service_id: u64) -> QosClass {
     // `ready`; the headless ladder stalled on `netstackd: ready`.) netstackd is
     // resumed BEFORE the display drivers and self-lowers to Idle right after
     // emitting `ready` (os_entry: emit_ready_marker → task_qos_set_self(Idle)),
-    // so its brief Normal bring-up window cannot starve the first frame. The
-    // other three background services keep the (latent) Idle trap until each is
-    // confirmed to self-lower — tracked with the boot P1 busy-spinner fix.
+    // so its brief Normal bring-up window cannot starve the first frame.
+    //
+    // selftest-client is ALSO not spawned Idle: its `os_lite::run()` raises
+    // itself to Interactive for the proof ladder (mod.rs), but it could never
+    // REACH `run()` while parked at Idle (the same starvation trap) → the whole
+    // selftest ladder, including the OTA phase that emits `bundlemgrd: slot a
+    // active`, never ran (headless OTA-phase stall). Spawned Normal it is
+    // scheduled (resumed before the display drivers), reaches `run()`, and
+    // manages its own QoS from there.
+    //
+    // dsoftbusd/touchd keep the (latent) Idle trap until each is confirmed to
+    // self-lower after a bounded bring-up — tracked with the boot P1
+    // busy-spinner fix (they don't gate the proof ladder).
     if service_id == service_id_from_name(b"dsoftbusd")
         || service_id == service_id_from_name(b"touchd")
-        || service_id == service_id_from_name(b"selftest-client")
     {
         QosClass::Idle
     } else {

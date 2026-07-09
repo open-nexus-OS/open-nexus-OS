@@ -40,11 +40,14 @@ mod runtime_mode;
 nexus_service_entry::declare_entry!(os_entry);
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 fn os_entry() -> core::result::Result<(), ()> {
-    // Boot determinism (soft-real-time start): the selftest observer is BACKGROUND — self-lower to
-    // Idle QoS so the selftest ladder runs AFTER the first frame, never starving the display/input
-    // critical path (Normal). Proof correctness is unchanged; only the scheduling order defers.
-    #[cfg(nexus_env = "os")]
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
+    // NOTE: do NOT self-lower to Idle here. It is a self-defeating chicken-and-egg:
+    // `os_lite::run()` immediately raises this task to Interactive for the proof
+    // ladder (see os_lite/mod.rs), but on the strict-priority scheduler an Idle
+    // task never gets CPU while the Normal display busy-spinners keep the Normal
+    // queue non-empty — so it would never REACH `run()` to raise itself, and the
+    // whole ladder (incl. the OTA phase emitting `bundlemgrd: slot a active`)
+    // silently never runs. The kernel spawns selftest-client Normal (see
+    // `initial_qos_for`) so it is scheduled; `run()` then owns its QoS.
     os_lite::run()
 }
 

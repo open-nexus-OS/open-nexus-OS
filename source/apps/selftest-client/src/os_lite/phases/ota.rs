@@ -26,11 +26,25 @@ use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::{services, updated};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
-    let bundlemgrd = route_with_retry("bundlemgrd").map_err(|_| ())?;
-    let updated = route_with_retry("updated").map_err(|_| ())?;
+    // Fail-closed + LOUD: a silent `map_err(|_| ())` here swallowed a routing
+    // failure and made the whole OTA phase vanish with no marker (the ladder saw
+    // a missing `bundlemgrd: slot a active` with no cause). Name the failing route
+    // so the next boot says exactly which resolution failed.
+    let bundlemgrd = route_with_retry("bundlemgrd").map_err(|_| {
+        emit_line("SELFTEST: ota route FAIL svc=bundlemgrd");
+    })?;
+    let updated = route_with_retry("updated").map_err(|_| {
+        emit_line("SELFTEST: ota route FAIL svc=updated");
+    })?;
 
     // TASK-0007: updated stage/switch/rollback (non-persistent A/B skeleton).
-    let _ = services::bundlemgrd::bundlemgrd_v1_set_active_slot(&bundlemgrd, 1);
+    // Fail-closed + LOUD: this activation emits `bundlemgrd: slot a active` (the
+    // ladder's required marker) IFF the request reaches bundlemgrd. A silent
+    // `let _ =` here hid a delivery failure (route resolved but the send never
+    // reached bundlemgrd's serving endpoint) — name it so the cause is visible.
+    if services::bundlemgrd::bundlemgrd_v1_set_active_slot(&bundlemgrd, 1).is_err() {
+        emit_line("SELFTEST: ota slot-activate FAIL svc=bundlemgrd");
+    }
     // Determinism: updated bootctrl state is persisted via statefs and may survive across runs.
     // Normalize to active-slot A before the OTA flow so rollback assertions are stable.
     if let Ok((_active, pending_slot, _tries_left, _health_ok)) = updated::updated_get_status(

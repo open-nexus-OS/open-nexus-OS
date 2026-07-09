@@ -361,14 +361,17 @@ monitor_uart_stream() {
     # so that all service readiness markers and routing probes flush to UART.
     if [[ "$RUN_UNTIL_MARKER" == "1" && "$saw_kself_ok" -eq 1 && "$saw_init_start" -eq 1 && "$saw_ready" -eq 1 ]]; then
       # Grace period: a FIXED window after `init: ready` for service-readiness +
-      # routing + selftest markers to flush. 30s is proven sufficient for the
-      # 2D ladder; the virgl GPU bringup boots slower, so give it 90s. (An
-      # earlier progress-re-armed window over-extended every run toward its hard
-      # cap because the selftest suite emits "ok" markers continuously.)
-      local grace_secs="${QEMU_READY_GRACE_SECS:-30}"
-      if [[ "${GPU_MODE:-}" == "virgl" && -z "${QEMU_READY_GRACE_SECS:-}" ]]; then
-        grace_secs=90
-      fi
+      # routing + selftest markers to flush. The dominant cost is the SELFTEST
+      # LADDER (bringup→routing→ota→…), which is IDENTICAL in every lane — only
+      # the display backend differs. The old 30s default was sized for the fast
+      # 2D DISPLAY bringup, not the ladder length, so the ladder was cut off
+      # before its later phases: with selftest-client no longer Idle-starved the
+      # ladder actually runs, and reaching the OTA phase (`bundlemgrd: slot a
+      # active`, phase 3, gated behind bringup's slow statefs-persist disk I/O)
+      # needs ~90s — measured, the full ladder completes well within it. So the
+      # grace is 90s regardless of GPU_MODE (the ladder, not the display, is the
+      # limiter). `QEMU_READY_GRACE_SECS` still overrides for ad-hoc runs.
+      local grace_secs="${QEMU_READY_GRACE_SECS:-90}"
       local start_nsec
       start_nsec=$(date +%s 2>/dev/null || echo 0)
       while true; do
