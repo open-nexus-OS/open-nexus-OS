@@ -1078,8 +1078,20 @@ fn initial_qos_for(service_id: u64) -> QosClass {
     // busy-spin (gpud/windowd self-pace their present loop by polling) strictly starves the Normal
     // core + Idle background and the boot HANGS (observed at "windowd: gl procedural cursor on"). Until
     // P1 lands, keep the critical path at Normal and only DEMOTE background so it can't starve it.
-    if service_id == service_id_from_name(b"netstackd")
-        || service_id == service_id_from_name(b"dsoftbusd")
+    //
+    // netstackd is NOT spawned Idle: spawning a background service Idle is a
+    // chicken-and-egg trap — on the strict-priority scheduler the Normal
+    // busy-spinners (gpud/windowd present-poll, hidrawd yield-spin) keep the
+    // Normal queue perpetually non-empty, so the Idle queue NEVER runs and the
+    // service never reaches its entry → never emits `ready` → never self-lowers.
+    // (Boot-log-proven: netstackd/dsoftbusd/touchd/selftest-client all missed
+    // `ready`; the headless ladder stalled on `netstackd: ready`.) netstackd is
+    // resumed BEFORE the display drivers and self-lowers to Idle right after
+    // emitting `ready` (os_entry: emit_ready_marker → task_qos_set_self(Idle)),
+    // so its brief Normal bring-up window cannot starve the first frame. The
+    // other three background services keep the (latent) Idle trap until each is
+    // confirmed to self-lower — tracked with the boot P1 busy-spinner fix.
+    if service_id == service_id_from_name(b"dsoftbusd")
         || service_id == service_id_from_name(b"touchd")
         || service_id == service_id_from_name(b"selftest-client")
     {
