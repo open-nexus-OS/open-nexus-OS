@@ -98,7 +98,15 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         if live_devices.is_empty() {
             chain.idle_yields = chain.idle_yields.saturating_add(1);
             chain.report_if_due();
-            let _ = yield_();
+            // No input devices to service (e.g. a headless lane with no
+            // virtio-input): PARK off the run queue on a bounded deadline instead
+            // of yield-spinning at Normal QoS. A busy-yield here kept the Normal
+            // queue perpetually non-empty on the strict-priority scheduler and
+            // starved Idle background work (netstackd bootstrap, selftest OTA) —
+            // the ~12k idle_yields/window class. We park on our control endpoint
+            // (slot 2, owned + otherwise idle); a control message OR the deadline
+            // wakes us to re-probe for hot-plugged devices.
+            idle_park(HIDRAWD_IDLE_PARK_NS);
             continue;
         }
 
@@ -234,9 +242,30 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             let _ = ipc_recv_v1(ep, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
         } else if !sent_any {
             chain.idle_yields = chain.idle_yields.saturating_add(1);
-            let _ = yield_();
+            // Devices present but no IRQ endpoint bound yet + nothing to send:
+            // park on a bounded deadline instead of yield-spinning (same Idle-
+            // starvation reason as the empty-devices path above).
+            idle_park(HIDRAWD_IDLE_PARK_NS);
         }
     }
+}
+
+/// Idle back-off for the hidrawd loop when there is nothing to service — 50ms.
+/// Bounded so hot-plugged devices are picked up within a re-probe cycle while the
+/// service stays OFF the run queue between wakes (no Normal-QoS busy-yield that
+/// would starve Idle background work on the strict-priority scheduler).
+const HIDRAWD_IDLE_PARK_NS: u64 = 50_000_000;
+
+/// PARK the current task for up to `park_ns` (bounded deadline) instead of
+/// busy-yielding: a blocking recv on the owned control endpoint (slot 2) with a
+/// deadline. A control message OR the deadline wakes it; either way it takes zero
+/// CPU while parked. Replaces `yield_()` in the hidrawd idle paths.
+fn idle_park(park_ns: u64) {
+    const CONTROL_REPLY_SLOT: Cap = 2;
+    let deadline = nsec().unwrap_or(0).saturating_add(park_ns);
+    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 32];
+    let _ = ipc_recv_v1(CONTROL_REPLY_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, deadline);
 }
 
 fn map_live_route_send_error(err: nexus_ipc::IpcError) -> LiveRouteSendErrorClass {

@@ -43,10 +43,20 @@ fn os_entry() -> core::result::Result<(), ()> {
     // any Normal-QoS yield-spinner (observed: the headless proof ladder
     // failed on a missing `netstackd: ready` for exactly this ordering).
     crate::os::entry::emit_ready_marker();
-    #[cfg(nexus_env = "os")]
-    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
+    // Bring the network up at NORMAL qos FIRST — that is netstackd's actual job
+    // and must finish before demoting to background. Self-lowering to Idle here
+    // (as before) starved `bootstrap_network` on the strict-priority scheduler:
+    // the Normal busy-spinners (display/input path) keep the Normal queue
+    // non-empty, so an Idle bootstrap never runs → `net: virtio-net up` never
+    // emits (headless OTA ladder stall). netstackd resumes BEFORE the display
+    // drivers and `bootstrap_network` yields cooperatively, so its brief Normal
+    // window can't starve the first frame.
     let crate::os::bootstrap::BootstrapResult { net, bind_ip: _bind_ip } =
         crate::os::bootstrap::bootstrap_network();
+    // Network up → the steady-state facade loop is background: self-lower to Idle
+    // now so per-RPC serving can never starve the display/input critical path.
+    #[cfg(nexus_env = "os")]
+    let _ = nexus_abi::task_qos_set_self(nexus_abi::QosClass::Idle);
     nexus_abi::service_verdict_flush("netstackd");
     crate::os::facade::runtime::run_facade_loop(net);
 }
