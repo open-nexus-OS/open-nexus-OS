@@ -3,6 +3,16 @@
 
 #![cfg_attr(not(test), no_std)]
 
+//! ┌──────────── HOME of window chrome (RFC-0067 P3/P4) ────────────────────┐
+//! │ This widget is WHERE window frames live — title bar, controls, close,    │
+//! │ resize handles (`frame::Frame`/`ResizeEdge`), sizing, materials. windowd  │
+//! │ must NOT hand-roll any of this (the legacy `compositor/shell_window.rs`   │
+//! │ is being retired into here). A window is a `LayoutNode` produced HERE,    │
+//! │ turned into scene nodes by `layout_to_scene`, and composited by windowd.  │
+//! │ New window behaviour lands in this crate, not in the compositor.          │
+//! │ See docs/dev/ui/patterns/windowing/windows-as-widgets.md.                 │
+//! └──────────────────────────────────────────────────────────────────────────┘
+//!
 //! `Window` — a chrome container: title bar (title + close button) over a body.
 //!
 //! Composed from [`Panel`](nexus_widget_panel::Panel) (column chrome + row title

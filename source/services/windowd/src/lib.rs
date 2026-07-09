@@ -84,6 +84,10 @@ mod render_assets;
 #[cfg(any(test, target_os = "none"))]
 mod resource_pool;
 pub mod scene_graph;
+// RFC-0067 P4.0: the LayoutNode/LayoutResult → SceneNode bridge. At the crate
+// root (not the os-only `compositor`) so its pure mapping is host-tested.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod layout_to_scene;
 mod server;
 mod smoke;
 #[cfg(any(test, target_os = "none"))]

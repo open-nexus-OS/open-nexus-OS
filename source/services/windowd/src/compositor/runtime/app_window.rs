@@ -1,6 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! BOUNDARY: this file is the SERVICE side of the app surface — VMO/atlas
+//! registration, present/ack flow control, the damage-blit, and the event
+//! channel (theme/rect pushes). It MUST NOT grow window-chrome/sizing/resize/
+//! decoration logic — that is the `ui/widgets/window` widget's job (the frame
+//! it currently opens is the legacy `ShellWindow`, being retired, see
+//! windows-as-widgets.md). Keep this to: move surface bytes, route input,
+//! push geometry/theme. Chrome + layout live in the widget + scene graph.
+//!
 //! CONTEXT: windowd compositor runtime — the ADR-0042 cross-process app
 //! window (TASK-0080D R1): `SURFACE_CREATE` registers the app's surface VMO
 //! (capability moved with the message, gpud-attach pattern) and opens a

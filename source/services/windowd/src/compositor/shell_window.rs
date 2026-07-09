@@ -1,6 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │ ⚠ LEGACY — DO NOT EXTEND. This is a hand-rolled window frame living in    │
+//! │ the COMPOSITOR. It is being RETIRED (RFC-0067 P3/P4, see                  │
+//! │ docs/dev/ui/patterns/windowing/windows-as-widgets.md). A window is a      │
+//! │ WIDGET: `userspace/ui/widgets/window` (`Window` + `frame` + `chrome`) →   │
+//! │ a `LayoutNode` → the retained scene graph → nexus-gfx. Window chrome,     │
+//! │ resize, sizing, theming, materials belong THERE, not here.                │
+//! │ New window behaviour (resize, maximize, frosting, controls, …) goes into  │
+//! │ the widget + `layout_to_scene`, NEVER into this file or windowd. Touch    │
+//! │ this only to DELETE from it as the migration proceeds.                    │
+//! └─────────────────────────────────────────────────────────────────────────┘
+//!
 //! CONTEXT: the reusable **glass window** component for the desktop shell. One
 //! `ShellWindow` owns a movable/closable frame — rounded glass body, cached
 //! blurred backdrop, a title bar with a close "x", drag state, and a scroll

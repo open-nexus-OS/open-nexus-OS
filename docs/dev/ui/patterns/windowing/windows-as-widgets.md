@@ -111,9 +111,19 @@ migrate the rest → delete the old → commit.
 - **P3.2 — window chrome as the `Window` widget.** The title bar + controls
   become `window::Window`/`chrome` `LayoutNode`s; windowd stops drawing title
   rows by hand. Still composited by `build_scene_cb_into` for now.
-- **P4.1 — scene graph goes live for one window.** Build the retained graph for
-  the app-client window and render it via `scene_graph`'s encoder walk; leave the
-  others hand-composited. Proves the pipeline end-to-end.
+- **P4.0 — the `LayoutNode` → `SceneNode` bridge (the enabler).** Today
+  `scene_graph` is populated **by hand** (`systemui_shell` calls `insert_node` +
+  `RenderPrimitive` per element); there is **no** bridge from a laid-out widget
+  tree to the scene graph. Build `layout_to_scene`: walk a `LayoutResult`
+  (rect + `VisualStyle` per box + text runs) and emit `SceneNode`s
+  (`Rect` for a fill, `Group`+`BackdropFilter` for a `material: glass` box,
+  text nodes, `Surface` for a client-VMO body). This is what makes "a window is
+  a widget" real — every widget/DSL renders through the same path. Host-tested
+  (pure `LayoutResult` → node list).
+- **P4.1 — scene graph goes live for one window.** Build the app-client window
+  as a `window::Window` `LayoutNode`, run it through `layout_to_scene`, and
+  render via `scene_graph`'s encoder walk; leave the others hand-composited.
+  Proves the pipeline end-to-end and retires the app-client `ShellWindow`.
 - **P4.2 — migrate the remaining windows + chrome** onto the scene graph;
   `build_scene_cb_into`'s hand-composite shrinks to nothing.
 - **P4.3 — delete `ShellWindow` + the hand-composite path.** One scene model,

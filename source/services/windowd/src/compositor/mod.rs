@@ -1,6 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+//! ┌──────────────────────── BOUNDARY: windowd = compositor SERVICE ─────────┐
+//! │ windowd OWNS ONLY: client surfaces + atlas/VMO lifecycle, damage/tile    │
+//! │ tracking, the retained-plane + present pacing + gpud handoff, input      │
+//! │ routing, window z-order/focus, and per-frame scene assembly → nexus-gfx. │
+//! │ windowd MUST NOT contain: the rasterizer (→ `nexus-gfx`), window chrome/ │
+//! │ frames/controls/resize (→ `ui/widgets/window` widget), app/shell UI      │
+//! │ content (→ `apps/*` DSL app-hosts), or theme/design values (→            │
+//! │ `ui/theme-tokens`, pushed to apps). If you are about to add drawing/UI/   │
+//! │ layout/chrome logic HERE, it belongs in a widget or the scene graph — see │
+//! │ RFC-0067 + docs/dev/ui/patterns/windowing/windows-as-widgets.md.          │
+//! └──────────────────────────────────────────────────────────────────────────┘
+//!
 //! CONTEXT: OS-lite display server main loop for `windowd` — retained-mode compositor with
 //! tile-based damage tracking, two-pass renderer (shadow-pass → content-pass → cursor),
 //! SDF anti-aliased shapes, backdrop blur via nexus-effects, coalesced cursor damage,

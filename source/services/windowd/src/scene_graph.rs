@@ -1,11 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Retained scene graph for the production UI runtime.
+//! CONTEXT: Retained scene graph for the production UI runtime — the RENDER SSOT.
 //! Owns stable node identity, invalidation classes, subtree hashing,
 //! and the canonical renderable-primitive vocabulary.
-//! All UI frontends (native widgets, design kit, interpreter, AOT) target
-//! this single retained scene graph — no alternate rendering vocabulary.
+//! All UI frontends (widgets, DSL, design kit, AOT) target this single retained
+//! scene graph — no alternate rendering vocabulary. Widgets/DSL do NOT draw or
+//! hand-composite: they produce a `LayoutNode`, and `layout_to_scene` turns it
+//! into `SceneNode`s here (RFC-0067 P4 — windows-as-widgets.md). This graph then
+//! emits the nexus-gfx CommandBuffer. NOTE: not yet the LIVE per-frame path
+//! (`runtime/scene.rs` still hand-composites `ShellWindow` bands — the parallel
+//! being collapsed); making this live + retiring the hand-composite is P4.
 //!
 //! PRODUCTION INVARIANTS (enforced by tests in this module):
 //! - **Zero per-frame heap allocation**: the OS bump allocator never frees,
