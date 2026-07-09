@@ -205,7 +205,7 @@ mod probe {
         //    the probe default. Fail-soft — if windowd does not answer, default.
         let payload = resolve_payload();
         let (style, level, mode) = read_window_intent_tags(payload);
-        let (surf_w, surf_h) = if level == wire::WIN_LEVEL_DESKTOP
+        let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
             || mode == wire::WIN_MODE_FULLSCREEN
         {
             request_content_rect(&client, &events, style, level, mode)
@@ -215,7 +215,9 @@ mod probe {
         };
 
         // 3. The app's own surface VMO, sized to the content rect (ADR-0037).
-        let vmo = vmo_create(surf_w as usize * surf_h as usize * 4)
+        //    Mutable: a WM resize (`OP_SURFACE_RECT`) re-creates it at the new
+        //    size so the CONTENT grows with the frame (not just the shadow).
+        let mut vmo = vmo_create(surf_w as usize * surf_h as usize * 4)
             .map_err(|_| "apphost: vmo create failed")?;
 
         // 4. Mount + render the DSL program into the VMO; the solid fill stays
@@ -244,11 +246,11 @@ mod probe {
         let create =
             wire::encode_surface_create(surf_w as u16, surf_h as u16, wire::FORMAT_BGRA8888);
         send_retry_cap(&client, &create, clone)?;
-        let surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
+        let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
         raw_marker("APPHOST: surface created");
 
         // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
-        let damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
+        let mut damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
@@ -321,6 +323,54 @@ mod probe {
                     }
                     dirty = true;
                     raw_marker("apphost: re-themed");
+                }
+            } else if let Some((_, _, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
+                // WM resize (the compositor owns geometry): re-create the surface
+                // at the new size so the CONTENT grows with the frame — not just
+                // the shadow. Destroy the old (windowd is one-slot), make a new
+                // VMO, re-layout (state-preserving) + render, re-create + present.
+                let (nw, nh) = (u32::from(rw), u32::from(rh));
+                if nw > 0 && nh > 0 && (nw, nh) != (surf_w, surf_h) {
+                    if let Ok(nv) = vmo_create(nw as usize * nh as usize * 4) {
+                        let _ = send_retry(&client, &wire::encode_surface_destroy(surface_id));
+                        let _ = nexus_abi::cap_close(vmo);
+                        vmo = nv;
+                        surf_w = nw;
+                        surf_h = nh;
+                        if let Some(dsl) = app.as_mut() {
+                            dsl.resize(surf_w, surf_h);
+                            let _ = dsl.render(vmo);
+                        }
+                        if let Ok(clone) = cap_clone(vmo) {
+                            let create = wire::encode_surface_create(
+                                surf_w as u16,
+                                surf_h as u16,
+                                wire::FORMAT_BGRA8888,
+                            );
+                            if send_retry_cap(&client, &create, clone).is_ok() {
+                                if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE) {
+                                    surface_id = id;
+                                    damage = [wire::DamageRect {
+                                        x: 0,
+                                        y: 0,
+                                        width: surf_w as u16,
+                                        height: surf_h as u16,
+                                    }];
+                                    // The fresh surface's seq restarts at 0 on the
+                                    // windowd side (strict last_seq+1). Reset ours
+                                    // so the next present is seq=1 — otherwise it's
+                                    // rejected BAD_SEQ and the resized frame never
+                                    // shows.
+                                    seq = 0;
+                                    present_in_flight = false;
+                                    dirty = true;
+                                    raw_marker("apphost: resized");
+                                }
+                            }
+                        }
+                    } else {
+                        raw_marker("apphost: FAIL resize vmo");
+                    }
                 }
             } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
                 if kind == wire::INPUT_KIND_TAP {
@@ -479,6 +529,25 @@ mod probe {
             self.texts.clear();
             collect_texts(self.view.scene(), &mut 0, &mut self.texts);
             true
+        }
+
+        /// WM resize (`OP_SURFACE_RECT`): re-lay-out the current view at the new
+        /// surface size — WITHOUT resetting store state (a remount would). Both
+        /// width AND height take effect (the scene reflows to `w`; the render
+        /// bound uses `h`). The caller re-renders into the freshly-sized VMO.
+        fn resize(&mut self, w: u32, h: u32) {
+            self.w = w;
+            self.h = h;
+            let engine = nexus_layout::LayoutEngine::new();
+            if let Ok(layout) = engine.layout(
+                self.view.scene(),
+                nexus_layout_types::FxPx::new(w as i32),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            ) {
+                self.layout = layout;
+                self.texts.clear();
+                collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            }
         }
 
         /// R1 layer seam: submit the material-tagged glass regions of the current

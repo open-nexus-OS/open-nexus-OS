@@ -77,20 +77,23 @@ impl DisplayServerRuntime {
     pub(super) fn toggle_fullscreen(&mut self, id: WindowId) {
         // The Settings panel is a fixed-size static window (its atlas surface
         // can't cover the display), so its "□" is a no-op — never fullscreen it.
-        // The app-client window is likewise a no-op FOR NOW: TRUE maximize needs
-        // the app to re-render at display size (the resize path — windowd
-        // resizes the band + pushes the new content rect over OP_SURFACE_RECT,
-        // the app re-creates its surface). Until that lands, don't enter the
-        // half-state (fullscreen flag set without a resize). Tracked with the
-        // windows-as-widgets / scene-graph work.
-        if matches!(id, WindowId::Settings | WindowId::AppClient) {
+        if matches!(id, WindowId::Settings) {
             return;
         }
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Settings | WindowId::DslDemo | WindowId::AppClient => {}
+                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::AppClient => {
+                    // Restore the floating frame + chrome height (fullscreen
+                    // zeroed `title_h`). Restoring it here — not waiting for the
+                    // re-create — keeps `push_app_content_rect`'s title inset
+                    // correct, so the window doesn't grow by `title_h` each
+                    // fullscreen round-trip.
+                    self.app_win.leave_fullscreen();
+                    self.app_win.title_h = self.app_title_h();
+                }
                 WindowId::Search => {
                     self.search.leave_fullscreen();
                     // Shrink the pool surfaces back to the floating size.
@@ -111,7 +114,14 @@ impl DisplayServerRuntime {
                     let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
                     self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
                 }
-                WindowId::Settings | WindowId::DslDemo | WindowId::AppClient => {}
+                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::AppClient => {
+                    // Cover the display; the OP_SURFACE_RECT push below makes the
+                    // app re-create its surface at display size (the atlas band is
+                    // reallocated on that re-create — no display-sized band held
+                    // for a floating window). The client re-render owns the pixels.
+                    self.app_win.enter_fullscreen(mode_w, mode_h);
+                }
                 WindowId::Search => {
                     // TRUE fullscreen needs pool surfaces at display size; if
                     // the pool can't back them the toggle is refused honestly.
@@ -128,6 +138,12 @@ impl DisplayServerRuntime {
             self.windows.set_fullscreen(id, true);
             let _ =
                 debug_println(&alloc::format!("windowd: fullscreen id={}", Self::window_name(id)));
+        }
+        // AppClient owns its pixels: after the fullscreen flag settles (enter or
+        // leave), push the new content rect so the app re-renders at the new size
+        // (`push_app_content_rect` reads the flag → full display vs. chrome-inset).
+        if id == WindowId::AppClient {
+            self.push_app_content_rect();
         }
         // Chrome visibility + window geometry both changed → full present.
         self.queue_full_frame_damage();
@@ -181,6 +197,21 @@ impl DisplayServerRuntime {
             self.settings_win.title_hover = settings_hover;
             self.settings_win.surface_dirty = true;
             self.queue_dirty_rect(self.settings_window_rect());
+        }
+        // AppClient chrome (client app-host windows, e.g. the counter): the
+        // controls `[– □ ×]` are drawn by windowd's own title bar (the chrome is
+        // NOT part of the client surface), so their hover state lives here.
+        let app_hover = want(WindowId::AppClient, &self.app_win);
+        if app_hover != self.app_win.title_hover {
+            self.app_win.title_hover = app_hover;
+            self.app_win.surface_dirty = true;
+            self.queue_dirty_rect(self.app_window_rect());
+        }
+        let dsl_hover = want(WindowId::DslDemo, &self.dsl_win);
+        if dsl_hover != self.dsl_win.title_hover {
+            self.dsl_win.title_hover = dsl_hover;
+            self.dsl_win.surface_dirty = true;
+            self.queue_dirty_rect(self.dsl_window_rect());
         }
     }
 
@@ -243,7 +274,30 @@ impl DisplayServerRuntime {
                 "windowd: resize id={} w={w} h={h}",
                 Self::window_name(id)
             ));
+            // Resize negotiation: the client surface keeps its created size, so
+            // on release tell the app its new CONTENT rect (window minus the
+            // title bar). It re-creates its surface at that size, which
+            // re-allocs the band on the fresh SURFACE_CREATE — the content grows
+            // with the frame instead of only the shadow.
+            if id == WindowId::AppClient {
+                self.push_app_content_rect();
+            }
         }
+    }
+
+    /// Tell the app-client its current CONTENT rect (`OP_SURFACE_RECT`) so it
+    /// re-creates its surface at that size (WM owns geometry).
+    pub(crate) fn push_app_content_rect(&mut self) {
+        // The content reserves `title_h` for the WM-drawn title bar. This is
+        // INTENT-driven (`app_title_h`), NOT fullscreen-driven: a titled app that
+        // maximizes keeps its title bar (□ = maximize), so the content stays
+        // `frame − title`; only an intent-chromeless shell/single-app surface
+        // gets the whole frame.
+        let title = self.app_title_h();
+        let cw = self.app_win.w.min(u32::from(u16::MAX)) as u16;
+        let ch = self.app_win.h.saturating_sub(title).min(u32::from(u16::MAX)) as u16;
+        let rect = nexus_display_proto::client_surface::encode_surface_rect(0, 0, cw, ch);
+        let _ = self.send_app_frame(&rect);
     }
 
     /// A title-bar drag released with the pointer at a display edge snaps the
@@ -319,11 +373,15 @@ impl DisplayServerRuntime {
                 self.settings_win.surface_dirty = true;
             }
             WindowId::AppClient => {
-                // App-blitted body — clamp to the atlas band; the surface
-                // keeps its created size (resize negotiation is post-R1).
-                let band_h = self.app_win.atlas.map(|s| s.height).unwrap_or(h);
+                // Resize negotiation: let the frame grow to the requested size in
+                // BOTH axes (mode-bounded) — clamping height to the band was why
+                // "höhe passiert nichts". The render + glass composite are bounded
+                // to the current band (`render_app_surface` / `glass_params`), so
+                // growing past the band never over-reads; on release
+                // `end_window_resize` pushes this size and the app re-creates its
+                // surface + band to match. The frame catches up visually then.
                 let w = w.min(self.mode.width);
-                let h = h.min(band_h);
+                let h = h.min(self.mode.height);
                 self.app_win.set_frame(x, y, w, h);
                 self.app_win.surface_dirty = true;
             }

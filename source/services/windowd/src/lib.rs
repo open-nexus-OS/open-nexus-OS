@@ -88,6 +88,10 @@ pub mod scene_graph;
 // root (not the os-only `compositor`) so its pure mapping is host-tested.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod layout_to_scene;
+// RFC-0067 P4.1: the app-client window built AS the `window` widget (→ layout →
+// bridge → scene), retiring the app-client `ShellWindow`. Host-tested chain.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod app_window_widget;
 mod server;
 mod smoke;
 #[cfg(any(test, target_os = "none"))]

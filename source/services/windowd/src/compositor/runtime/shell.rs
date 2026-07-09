@@ -259,6 +259,13 @@ impl DisplayServerRuntime {
         self.search.blur_valid = false;
         self.settings_win.surface_dirty = true;
         self.settings_win.blur_valid = false;
+        // The app-client + DSL windows follow the theme too (their chrome is
+        // re-rendered from `self.theme()`); without these they kept the old
+        // colours on a light/dark toggle.
+        self.app_win.surface_dirty = true;
+        self.app_win.blur_valid = false;
+        self.dsl_win.surface_dirty = true;
+        self.dsl_win.blur_valid = false;
         self.dock_dirty = true;
         self.queue_full_frame_damage();
         let _ = debug_println(&alloc::format!("uitheme: switched (to={})", mode.as_str()));

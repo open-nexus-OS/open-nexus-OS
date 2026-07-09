@@ -381,8 +381,19 @@ impl ShellWindow {
     /// translucent body sits straight on the wallpaper — allowed) instead of
     /// sampling past the cache into foreign atlas rows.
     pub(crate) fn glass_params(&self) -> Option<GlassCompositeParams> {
+        let atlas = self.atlas?;
+        // Never composite past the atlas band. The frame (`self.w`/`self.h`) can
+        // transiently exceed the created surface during a resize/fullscreen
+        // negotiation: the client owns its surface, so the band is re-allocated a
+        // round-trip AFTER the frame grows. Reading `self.w × self.h` from a
+        // smaller band would sample the rows of ADJACENT windows packed after it
+        // in the atlas — which paints garbage over the whole scene. Clamp the
+        // glass extent to what the band actually backs; the frame catches up
+        // visually when the re-created surface lands.
+        let w = self.w.min(atlas.width);
+        let h = self.h.min(atlas.height);
         let blur = match self.blur_cache {
-            Some(cache) if cache.width >= self.w && cache.height >= self.h => Some(GlassBlur {
+            Some(cache) if cache.width >= w && cache.height >= h => Some(GlassBlur {
                 cache_row: cache.abs_row,
                 cache_x: cache.x,
                 valid: self.blur_valid,
@@ -390,13 +401,13 @@ impl ShellWindow {
             _ => None,
         };
         Some(GlassCompositeParams {
-            atlas_row: self.atlas?.abs_row,
-            atlas_x: self.atlas?.x,
+            atlas_row: atlas.abs_row,
+            atlas_x: atlas.x,
             blur,
             x: self.x.max(0) as u32,
             y: self.y.max(0) as u32,
-            w: self.w,
-            h: self.h,
+            w,
+            h,
             radius: self.radius,
             shadow_blur: self.shadow_blur,
             shadow_offset_y: self.shadow_offset_y,

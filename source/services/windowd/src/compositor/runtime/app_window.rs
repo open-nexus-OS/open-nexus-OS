@@ -67,16 +67,27 @@ impl DisplayServerRuntime {
                 // content instead of a fixed window max — no full-screen band
                 // for a small window, no oversized shadow. Chrome per intent: a
                 // `plain` surface drops the title bar (`chrome = intent ⟂ policy`).
-                if self.app_intent_style == wire::WIN_STYLE_PLAIN {
-                    self.app_win.title_h = 0;
+                // Chrome is INTENT-driven (⟂ policy) — fullscreen changes the
+                // FRAME, never the chrome. A titled app keeps its title bar
+                // (min/max/close) both floating AND maximized (the □ = MAXIMIZE);
+                // only an intent-chromeless surface (plain / desktop / fullscreen
+                // intent — a shell or single-app-OS launcher) goes edge-to-edge.
+                self.app_win.title_h = self.app_title_h();
+                if self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient) {
+                    // Maximize / kiosk-fullscreen: cover the whole display. Titled
+                    // apps keep the title bar at the top (content = display −
+                    // title, drawn by `render_app_surface`); chromeless surfaces
+                    // fill edge-to-edge. Content-sizing here would re-float it.
+                    self.app_win.set_frame(0, 0, self.mode.width, self.mode.height);
+                } else {
+                    let content_h = u32::from(height).saturating_add(self.app_win.title_h);
+                    self.app_win.set_frame(
+                        self.app_win.x,
+                        self.app_win.y,
+                        u32::from(width),
+                        content_h,
+                    );
                 }
-                let content_h = u32::from(height).saturating_add(self.app_win.title_h);
-                self.app_win.set_frame(
-                    self.app_win.x,
-                    self.app_win.y,
-                    u32::from(width),
-                    content_h,
-                );
                 if !self.open_app_window() {
                     // Atlas exhausted: roll the registration back fail-closed.
                     let _ = self.client_surfaces.destroy(id);
@@ -158,7 +169,14 @@ impl DisplayServerRuntime {
         match self.client_surfaces.destroy(surface_id) {
             Ok(vmo_slot) => {
                 let _ = nexus_abi_cap_close(vmo_slot);
-                self.close_app_window();
+                // A protocol SURFACE_DESTROY is the app dropping its surface —
+                // during a resize/fullscreen negotiation it re-creates one
+                // immediately. Free the atlas band ONLY; do NOT hide the window,
+                // which would clear its fullscreen flag (see `window_scene::hide`)
+                // and re-add the title bar on the re-create (atlas over-alloc, the
+                // "fullscreen makes everything vanish" bug). The user-close path
+                // (× button) calls `close_app_window` directly, not this.
+                self.release_app_surface_band();
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface destroyed id={surface_id}"
                 ));
@@ -209,6 +227,16 @@ impl DisplayServerRuntime {
         self.app_win.visible = false;
         self.hide_window(crate::window_scene::WindowId::AppClient);
         self.app_win.end_drag();
+        self.release_app_surface_band();
+    }
+
+    /// Free the app window's atlas band(s) WITHOUT touching window state
+    /// (visibility, fullscreen, position). Used by the resize/fullscreen
+    /// re-create (protocol SURFACE_DESTROY): the band must be reclaimed before
+    /// the new surface allocates one, but the window keeps its geometry + mode so
+    /// the re-created surface resumes in place. `close_app_window` hides first,
+    /// then calls this.
+    pub(super) fn release_app_surface_band(&mut self) {
         let rect = self.app_window_rect();
         if let Some((content, blur)) = self.app_win.unmount() {
             self.atlas_alloc.free(content);
@@ -261,6 +289,14 @@ impl DisplayServerRuntime {
             let row = &mut self.band_scratch[0..stride];
             row[..row_bytes].fill(0);
             if ly < title_h {
+                // Chrome (bar + title text + real icon controls `[– □ ×]` +
+                // hover) is RASTERIZED into the band here, only when the band is
+                // dirty (create/resize/hover/theme) — NOT per frame. It then
+                // composites as ONE cached surface (`composite_glass`). This is
+                // the glyph/chrome-CACHE pattern: never emit per-glyph vector
+                // tiles every present (that floods gpud's non-freeing heap →
+                // `alloc-fail svc=gpud`, the resize crash). The scene graph
+                // renders this as a Surface (blit), not vector text.
                 crate::compositor::shell_window::draw_title_bar_row(
                     ly,
                     row,
@@ -346,6 +382,28 @@ impl DisplayServerRuntime {
     fn app_is_desktop_surface(&self) -> bool {
         self.app_intent_level == wire::WIN_LEVEL_DESKTOP
             || self.app_intent_mode == wire::WIN_MODE_FULLSCREEN
+            // A window the user toggled to fullscreen uses the R1 layer path too
+            // (edge-to-edge, no cached-blur band — a display-sized blur band
+            // would starve the atlas). This is an ATLAS-BUDGET decision (skip the
+            // blur band); it does NOT imply chromeless — see `app_title_h`.
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+    }
+
+    /// The app-client title-bar height per INTENT — `chrome ⟂ policy`. A titled
+    /// app keeps `APP_TITLE_H` (the min/max/close bar) whether floating OR
+    /// maximized; a `plain` / desktop / fullscreen-intent surface (a shell or a
+    /// single-app-OS launcher) is chromeless (0). Maximizing changes the FRAME,
+    /// never the chrome, so this is the SSOT for both the create branch and the
+    /// content-rect push.
+    pub(super) fn app_title_h(&self) -> u32 {
+        let chromeless = self.app_intent_style == wire::WIN_STYLE_PLAIN
+            || self.app_intent_level == wire::WIN_LEVEL_DESKTOP
+            || self.app_intent_mode == wire::WIN_MODE_FULLSCREEN;
+        if chromeless {
+            0
+        } else {
+            APP_TITLE_H
+        }
     }
 
     /// R1 layer seam: store the app's material-tagged glass regions

@@ -859,15 +859,21 @@ impl DisplayServerRuntime {
         // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
         // left for the on-demand window pool (content + blur cache); without this
         // reserve the panel's "take the rest" would starve a later search show.
-        const WINDOW_POOL_ROWS: u32 = 2 * super::desktop_layer::search_full_h()
+        // NOT tied to APP_WIN_MAX_H: the app-client cap is now display-sized (for
+        // fullscreen), but a fullscreen app uses only ONE content band (no cached
+        // blur — R1 layer path), so reserve exactly `mode.height` for it. A
+        // floating window's optional blur band is best-effort on top (never held
+        // while fullscreen). Doubling the display-sized cap here would starve the
+        // sidepanel.
+        let window_pool_rows: u32 = 2 * super::desktop_layer::search_full_h()
             + 2 * dsl_mount::DSL_WIN_H // DSL demo window: content + blur bands
-            + 2 * app_window::APP_WIN_MAX_H // app-client window (ADR-0042 R1)
+            + mode.height // app-client window content band (ADR-0042 R1)
             + 16;
         let sidepanel_h = mode
             .height
             .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
             .max(1)
-            .min(atlas.rows_remaining().saturating_sub(WINDOW_POOL_ROWS).max(1));
+            .min(atlas.rows_remaining().saturating_sub(window_pool_rows).max(1));
         let sidepanel_atlas = alloc_band_or_log(&mut atlas, sidepanel_h, "sidepanel")?;
         // The Chat window as a ShellWindow instance (the SAME reusable glass frame
         // as Search). It mounts the overscan content band + blur cache reserved

@@ -18,12 +18,15 @@ use nexus_display_proto::client_surface::{
     SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED, SURFACE_STATUS_QUOTA,
 };
 
-/// Bounds for app surfaces (R1 probe scale; ADR-0037's MAX_APP_SURFACES caps
-/// the count when the table grows past one). NOTE: the full-screen desktop
-/// shell surface is being re-approached as a scene-graph/window-widget path
-/// (not this atlas app_win), so this stays at the windowed bound for now.
-pub const MAX_SURFACE_W: u16 = 480;
-pub const MAX_SURFACE_H: u16 = 360;
+/// Bounds for app surfaces (ADR-0037's MAX_APP_SURFACES caps the count when the
+/// table grows past one). Sized to the display so an app can go TRUE fullscreen
+/// (the "□" toggle re-creates its surface at display size — see
+/// `wm::toggle_fullscreen`). This is only a validation ceiling: the atlas band is
+/// allocated at the CONTENT size (`app_window::open_app_window`, after the frame
+/// is content-sized), and fullscreen skips the cached-blur band, so the ceiling
+/// does NOT reserve display-sized rows per window.
+pub const MAX_SURFACE_W: u16 = 1280;
+pub const MAX_SURFACE_H: u16 = 800;
 pub const MIN_SURFACE_DIM: u16 = 16;
 
 /// One live client surface.
