@@ -419,21 +419,6 @@ impl SceneGraph {
         }
     }
 
-    /// Reset to empty while RETAINING every Vec's capacity (`Vec::clear` keeps
-    /// the backing allocation). Lets a caller rebuild the graph IN PLACE on
-    /// change (resize/theme/title) without re-allocating the 256KB node buffer —
-    /// mandatory under the OS bump allocator, which never frees (re-`new`ing on
-    /// every resize leaked → OOM). Mirrors `new()`'s reserved slot 0.
-    pub fn clear(&mut self) {
-        self.nodes.clear();
-        self.nodes.push(None); // slot 0 reserved (invalid/unset)
-        self.roots.clear();
-        self.next_id = 1;
-        self.dirty_list.clear();
-        self.text_tiles.clear();
-        self.hash_recomputes = 0;
-    }
-
     /// Allocate a new node id. Does not insert anything.
     pub fn next_id(&mut self) -> SceneNodeId {
         let id = SceneNodeId(self.next_id);
