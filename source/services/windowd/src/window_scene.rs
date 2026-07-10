@@ -37,14 +37,34 @@ pub enum WindowId {
     AppClient,
 }
 
+/// The compositor Z-BAND a window belongs to (RFC-0065 multi-window). Bands are
+/// strictly ordered — a window can never leave its band via z-raise — so the
+/// desktop surface stays under every floating window and a fullscreen window
+/// stays over them. Within a band, `z` orders.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowRole {
+    /// The DESKTOP surface: the shell (or greeter) as the base layer, composited
+    /// BELOW all floating windows, chromeless + full-screen. It replaces the
+    /// in-process shell / wallpaper as the always-present base
+    /// ([`BASE_ALWAYS_PRESENT`]) — an app-host owns it (RFC-0065), windowd only
+    /// composes it at the bottom band. Never suppressed by `desktop_shell_active`
+    /// (it IS the desktop).
+    Desktop,
+    /// A normal floating window (chat/search/settings/app client): chrome, z
+    /// within the window band, subject to the shell-takeover show rule.
+    Window,
+}
+
 /// The composition-relevant state of one window.
 #[derive(Clone, Copy, Debug)]
 pub struct WindowState {
     /// Which window.
     pub id: WindowId,
+    /// The Z-BAND this window lives in (desktop base vs. floating window).
+    pub role: WindowRole,
     /// Whether the app/window wants to be shown (open, even if minimized).
     pub visible: bool,
-    /// Composite z-order (higher = nearer the viewer).
+    /// Composite z-order within the band (higher = nearer the viewer).
     pub z: i16,
     /// Minimized: still OPEN (lives in the dock) but not composited.
     /// Orthogonal to `visible` — closed = `visible: false`, minimized =
@@ -58,19 +78,35 @@ pub struct WindowState {
 impl WindowState {
     /// A floating (non-minimized, non-fullscreen) window state.
     pub fn floating(id: WindowId, visible: bool, z: i16) -> Self {
-        Self { id, visible, z, minimized: false, fullscreen: false }
+        Self { id, role: WindowRole::Window, visible, z, minimized: false, fullscreen: false }
+    }
+
+    /// A DESKTOP-band window (the shell / greeter background surface): composited
+    /// below all floating windows, never fullscreen-banded (it is already the
+    /// full-screen base).
+    pub fn desktop(id: WindowId, visible: bool) -> Self {
+        Self { id, role: WindowRole::Desktop, visible, z: 0, minimized: false, fullscreen: false }
     }
 
     /// Whether this window composites this frame.
     fn showable(&self, desktop_shell_active: bool) -> bool {
-        should_show(self.visible, desktop_shell_active) && !self.minimized
+        match self.role {
+            // The desktop surface is the base layer — it shows whenever visible,
+            // never suppressed by the shell-takeover rule (it IS the shell).
+            WindowRole::Desktop => self.visible && !self.minimized,
+            WindowRole::Window => should_show(self.visible, desktop_shell_active) && !self.minimized,
+        }
     }
 
-    /// Sort key for composition: fullscreen windows group ABOVE all floating
-    /// windows (they cover the chrome — nothing floating may overlap them),
-    /// z orders within each group.
+    /// Sort key for composition. Strictly banded: DESKTOP below everything, then
+    /// floating windows, then FULLSCREEN above all (covers the chrome — nothing
+    /// floating may overlap it). `z` orders within a band.
     fn order_key(&self) -> i32 {
-        (self.fullscreen as i32) * 100_000 + self.z as i32
+        let role_band = match self.role {
+            WindowRole::Desktop => -1_000_000,
+            WindowRole::Window => 0,
+        };
+        role_band + (self.fullscreen as i32) * 100_000 + self.z as i32
     }
 }
 
@@ -400,6 +436,51 @@ mod tests {
         assert!(BASE_ALWAYS_PRESENT, "compositor must always draw a base layer");
         let nothing: [WindowState; 0] = [];
         assert!(composition_order(&nothing, false).is_empty());
+    }
+
+    #[test]
+    fn desktop_role_composites_below_all_floating_windows() {
+        // The shell/greeter DESKTOP surface is the base layer: it composites
+        // FIRST (bottom), under every floating window, regardless of z. Here the
+        // desktop has a high z (5) yet still sorts below floating chat (z=1).
+        let windows = [
+            WindowState::floating(WindowId::Chat, true, 1),
+            WindowState::desktop(WindowId::DslDemo, true), // stands in for the shell surface
+        ];
+        assert_eq!(
+            composition_order(&windows, false),
+            vec![WindowId::DslDemo, WindowId::Chat],
+            "desktop base first, floating window on top"
+        );
+    }
+
+    #[test]
+    fn desktop_role_shows_even_when_shell_active() {
+        // A floating window is suppressed when `desktop_shell_active`, but the
+        // DESKTOP surface itself must still show — it IS the desktop shell.
+        let windows = [
+            WindowState::floating(WindowId::Chat, true, 1),
+            WindowState::desktop(WindowId::DslDemo, true),
+        ];
+        assert_eq!(
+            composition_order(&windows, true),
+            vec![WindowId::DslDemo],
+            "desktop base shows; floating window suppressed under shell-active"
+        );
+    }
+
+    #[test]
+    fn desktop_role_stays_below_a_fullscreen_window() {
+        // Banding is strict: DESKTOP < floating < FULLSCREEN. A fullscreen window
+        // still composites (it's not the desktop), with the desktop beneath it.
+        let mut chat = WindowState::floating(WindowId::Chat, true, 1);
+        chat.fullscreen = true;
+        let windows = [chat, WindowState::desktop(WindowId::DslDemo, true)];
+        assert_eq!(
+            composition_order(&windows, false),
+            vec![WindowId::DslDemo, WindowId::Chat],
+            "desktop stays at the bottom band even under a fullscreen window"
+        );
     }
 
     // ── WindowStack: the z/focus stack ──
