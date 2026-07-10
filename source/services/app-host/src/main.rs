@@ -262,11 +262,15 @@ mod probe {
         let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
             || mode == wire::WIN_MODE_FULLSCREEN
         {
-            request_content_rect(&client, &events, style, level, mode)
+            request_content_rect(&client, &events, style, level, mode, nonce)
                 .unwrap_or((SURFACE_W as u32, SURFACE_H as u32))
         } else {
             (SURFACE_W as u32, SURFACE_H as u32)
         };
+        // Content rect arriving DURING an ack wait (windowd's corrective push
+        // after a small create) — stashed by `recv_ack` instead of dropped,
+        // applied by the event loop as if it had just been received.
+        let mut pending_rect: Option<(u16, u16)> = None;
 
         // 3. The app's own surface VMO, sized to the content rect (ADR-0037).
         //    Mutable: a WM resize (`OP_SURFACE_RECT`) re-creates it at the new
@@ -309,7 +313,7 @@ mod probe {
             nonce,
         );
         send_retry_cap(&client, &create, clone)?;
-        let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
+        let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)?;
         raw_marker("APPHOST: surface created");
 
         // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
@@ -317,7 +321,7 @@ mod probe {
         let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
         let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
         send_retry(&client, &buf[..len])?;
-        let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT)?;
+        let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect)?;
         raw_marker("APPHOST: probe surface presented");
         // R1 layer seam: declare the initial glass regions to windowd.
         if let Some(dsl) = app.as_ref() {
@@ -354,7 +358,14 @@ mod probe {
         let mut dirty = false;
         raw_marker("APPHOST: event loop armed");
         loop {
-            let len = match events.recv_into(Wait::Blocking, &mut event_frame) {
+            // A rect stashed during an ack wait (`recv_ack`) is replayed here
+            // as if it had just been received — same resize path, no drop.
+            let len = if let Some((rw, rh)) = pending_rect.take() {
+                let f = wire::encode_surface_rect(0, 0, rw, rh);
+                event_frame[..f.len()].copy_from_slice(&f);
+                f.len()
+            } else {
+                match events.recv_into(Wait::Blocking, &mut event_frame) {
                 Ok(len) => {
                     recv_err_marked = false;
                     len
@@ -369,6 +380,7 @@ mod probe {
                     }
                     let _ = yield_();
                     continue;
+                }
                 }
             };
             // Classify the frame: present-ack (flow control) vs input vs theme vs other.
@@ -416,7 +428,7 @@ mod probe {
                                 nonce,
                             );
                             if send_retry_cap(&client, &create, clone).is_ok() {
-                                if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE) {
+                                if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect) {
                                     surface_id = id;
                                     damage = [wire::DamageRect {
                                         x: 0,
@@ -861,8 +873,11 @@ mod probe {
         style: u8,
         level: u8,
         mode: u8,
+        nonce: u64,
     ) -> Option<(u32, u32)> {
-        let intent = wire::encode_surface_intent(style, level, mode, false);
+        // Nonce-correlated: windowd answers on OUR event channel — without it,
+        // concurrent mounts stole each other's rect and every app fell back.
+        let intent = wire::encode_surface_intent(style, level, mode, false, nonce);
         let mut sent = false;
         for _ in 0..SEND_RETRIES {
             if client.send(&intent, Wait::NonBlocking).is_ok() {
@@ -960,7 +975,11 @@ mod probe {
     /// Receives the matching ack (skips unrelated frames on the shared
     /// response channel). Budgeted by TIME — windowd's bring-up decides when
     /// the ack arrives, not our iteration speed. Returns the ack value on OK.
-    fn recv_ack(client: &KernelClient, op: u8) -> Result<u32, &'static str> {
+    fn recv_ack(
+        client: &KernelClient,
+        op: u8,
+        pending_rect: &mut Option<(u16, u16)>,
+    ) -> Result<u32, &'static str> {
         let mut frame = [0u8; 64];
         let start = nsec().unwrap_or(0);
         loop {
@@ -974,6 +993,14 @@ mod probe {
                         }
                         let _ = debug_println("apphost: FAIL surface ack status");
                         return Err("apphost: ack status");
+                    }
+                    // A content rect interleaving with the ack (windowd pushes
+                    // it INSIDE create handling, so it precedes the create-ack
+                    // on this channel): stash the LATEST for the event loop.
+                    // Dropping it left the surface at the probe size forever.
+                    if let Some((_, _, w, h)) = wire::decode_surface_rect(&frame[..len]) {
+                        *pending_rect = Some((w, h));
+                        continue;
                     }
                     // Unrelated frame on the shared channel — keep waiting.
                 }

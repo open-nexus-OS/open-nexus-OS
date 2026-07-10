@@ -171,6 +171,25 @@ impl DisplayServerRuntime {
         let now = !self.chat.visible;
         self.chat.visible = now;
         if now {
+            // Re-mount after a pressure reclaim (`reclaim_hidden_window_bands`
+            // released the closed chat's standby bands): fresh content band +
+            // best-effort blur cache, then a full re-render — the retained
+            // content died with the old band. Same on-demand pattern as
+            // search/settings open.
+            if !self.chat.is_mounted() {
+                let (w, h) = (self.chat.w, self.chat.h);
+                let Some(content) = self.atlas_alloc.alloc(w, h) else {
+                    let _ = debug_println("windowd: chat open — atlas pool full (content)");
+                    self.chat.visible = false;
+                    return;
+                };
+                let blur = self.atlas_alloc.alloc(w, h);
+                if blur.is_none() {
+                    let _ = debug_println("windowd: chat open — no blur cache (pool)");
+                }
+                self.chat.mount(content, blur);
+                self.chat.surface_dirty = true;
+            }
             let _ = debug_println("windowd: chat window open");
             // Mirror into the z/focus stack: an opening window comes up on top.
             self.show_window(crate::window_scene::WindowId::Chat);

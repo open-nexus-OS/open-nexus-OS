@@ -169,6 +169,9 @@ impl DisplayServerRuntime {
         };
         if self.desktop_band.is_none() {
             let mut band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
+            if band.is_none() && self.reclaim_hidden_window_bands() {
+                band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
+            }
             if band.is_none() && self.greeter.is_some() {
                 // Pool pressure during login: the avatar greeter holds a
                 // full-screen band and the DSL greeter needs one. Retire the
@@ -227,6 +230,33 @@ impl DisplayServerRuntime {
         // in-process mount that used to emit this is deleted, Umbau #17 2d).
         let _ = debug_println("systemui: dsl shell on");
         wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
+    }
+
+    /// Atlas pressure valve: release bands whose loss is invisible — the
+    /// hidden-but-mounted shell windows (a closed chat/search/settings keeps
+    /// standby bands; every open path re-mounts on demand and re-renders).
+    /// Minimized windows stay `visible` (they live in the dock), so only
+    /// truly CLOSED windows are reclaimed. Returns whether anything was
+    /// freed, so the caller retries its allocation instead of failing —
+    /// self-healing, no tuned pool constants.
+    pub(super) fn reclaim_hidden_window_bands(&mut self) -> bool {
+        let mut freed = false;
+        for win in [&mut self.chat, &mut self.search, &mut self.settings_win] {
+            if win.visible {
+                continue;
+            }
+            if let Some((content, blur)) = win.unmount() {
+                self.atlas_alloc.free(content);
+                if let Some(blur) = blur {
+                    self.atlas_alloc.free(blur);
+                }
+                freed = true;
+            }
+        }
+        if freed {
+            let _ = debug_println("windowd: atlas reclaim (hidden window bands)");
+        }
+        freed
     }
 
     /// Umbau #17 visual swap: retire the built-in avatar greeter the moment
@@ -436,7 +466,13 @@ impl DisplayServerRuntime {
         if !self.app_win.is_mounted() {
             let w = self.app_win.w;
             let h = self.app_win.h;
-            let Some(content) = self.atlas_alloc.alloc(w, h) else {
+            let mut content = self.atlas_alloc.alloc(w, h);
+            if content.is_none() && self.reclaim_hidden_window_bands() {
+                // Pressure valve: a fullscreen re-create needs display-height
+                // rows; closed shell windows' standby bands are reclaimable.
+                content = self.atlas_alloc.alloc(w, h);
+            }
+            let Some(content) = content else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
                     w,
@@ -615,7 +651,8 @@ impl DisplayServerRuntime {
     /// otherwise it gets the default window body size. Reply rides the app event
     /// channel; if it is not attached yet the app's bounded wait falls back.
     pub(crate) fn handle_surface_intent(&mut self, frame: &[u8]) {
-        let Some((style, level, mode, resizable)) = wire::decode_surface_intent(frame) else {
+        let Some((style, level, mode, resizable, nonce)) = wire::decode_surface_intent(frame)
+        else {
             return;
         };
         self.app_intent_style = style;
@@ -635,7 +672,21 @@ impl DisplayServerRuntime {
             )
         };
         let rect = wire::encode_surface_rect(0, 0, rw, rh);
-        let _ = self.send_app_frame(&rect);
+        // Reply on the ASKING client's own event channel (nonce correlation —
+        // the same contract as create/events). The last-attached-channel send
+        // this replaces let concurrent mounts steal each other's rect: every
+        // app then mounted at the probe fallback size.
+        #[cfg(nexus_env = "os")]
+        {
+            if let Some(slot) = self.event_channel_for(nonce) {
+                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            } else {
+                let _ = debug_println("WINDOWD: FAIL intent reply (no channel for nonce)");
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        let _ = rect;
         let _ = debug_println(&alloc::format!(
             "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
         ));

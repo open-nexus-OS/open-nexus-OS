@@ -285,15 +285,21 @@ pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8, u8, u8, u8, 
 
 // ------------------------------------------------------------ intent + rect
 
-pub const SURFACE_INTENT_FRAME_LEN: usize = HEADER_LEN + 4;
+/// Intent carries the client's event-channel NONCE (same correlation contract
+/// as `OP_SURFACE_EVENTS`/`OP_SURFACE_CREATE`): the composed content-rect
+/// REPLY must reach the asking client's own channel — without it, concurrent
+/// mounts stole each other's answer and every app fell back to the probe size
+/// (boot-proven `apphost: no content rect (fallback)` ×3, 2026-07-10).
+pub const SURFACE_INTENT_FRAME_LEN: usize = HEADER_LEN + 12;
 
-/// Encodes the app's window intent (`style, level, mode, resizable`).
+/// Encodes the app's window intent (`style, level, mode, resizable, nonce`).
 #[must_use]
 pub fn encode_surface_intent(
     style: u8,
     level: u8,
     mode: u8,
     resizable: bool,
+    nonce: u64,
 ) -> [u8; SURFACE_INTENT_FRAME_LEN] {
     let mut f = [0u8; SURFACE_INTENT_FRAME_LEN];
     f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_INTENT));
@@ -301,16 +307,18 @@ pub fn encode_surface_intent(
     f[5] = level;
     f[6] = mode;
     f[7] = u8::from(resizable);
+    f[8..16].copy_from_slice(&nonce.to_le_bytes());
     f
 }
 
-/// `(style, level, mode, resizable)`.
+/// `(style, level, mode, resizable, nonce)`.
 #[must_use]
-pub fn decode_surface_intent(frame: &[u8]) -> Option<(u8, u8, u8, bool)> {
+pub fn decode_surface_intent(frame: &[u8]) -> Option<(u8, u8, u8, bool, u64)> {
     if !has_op(frame, OP_SURFACE_INTENT) || frame.len() != SURFACE_INTENT_FRAME_LEN {
         return None;
     }
-    Some((frame[4], frame[5], frame[6], frame[7] != 0))
+    let nonce = u64::from_le_bytes(frame[8..16].try_into().ok()?);
+    Some((frame[4], frame[5], frame[6], frame[7] != 0, nonce))
 }
 
 pub const SURFACE_RECT_FRAME_LEN: usize = HEADER_LEN + 8;
@@ -538,14 +546,26 @@ mod tests {
 
     #[test]
     fn intent_round_trip_and_guards() {
-        let f = encode_surface_intent(WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false);
+        let f = encode_surface_intent(
+            WIN_STYLE_PLAIN,
+            WIN_LEVEL_DESKTOP,
+            WIN_MODE_FULLSCREEN,
+            false,
+            0xDEAD_BEEF_1234_5678,
+        );
         assert_eq!(
             decode_surface_intent(&f),
-            Some((WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false))
+            Some((
+                WIN_STYLE_PLAIN,
+                WIN_LEVEL_DESKTOP,
+                WIN_MODE_FULLSCREEN,
+                false,
+                0xDEAD_BEEF_1234_5678
+            ))
         );
         // Defaults (ordinary window) round-trip; resizable bool preserved.
-        let d = encode_surface_intent(WIN_STYLE_TITLEBAR, WIN_LEVEL_NORMAL, WIN_MODE_AUTO, true);
-        assert_eq!(decode_surface_intent(&d), Some((0, 0, 0, true)));
+        let d = encode_surface_intent(WIN_STYLE_TITLEBAR, WIN_LEVEL_NORMAL, WIN_MODE_AUTO, true, 7);
+        assert_eq!(decode_surface_intent(&d), Some((0, 0, 0, true, 7)));
         assert_eq!(decode_surface_intent(&f[..f.len() - 1]), None);
         let mut wrong = f;
         wrong[3] = OP_SURFACE_CREATE;
