@@ -82,6 +82,12 @@ impl DisplayServerRuntime {
             self.render_app_surface()?;
             self.app_win.surface_dirty = false;
         }
+        // Desktop surface (Umbau #17): blit the shell app-host's VMO into the
+        // full-screen desktop band when a present marked it dirty.
+        if self.desktop_dirty && self.desktop_band.is_some() {
+            self.render_desktop_surface()?;
+            self.desktop_dirty = false;
+        }
         // Dock (TASK-0070 Phase 2): (re)render on membership change.
         if self.dock_dirty && self.dock_surface.is_some() {
             self.render_dock_surface()?;
@@ -180,14 +186,13 @@ impl DisplayServerRuntime {
                 self.app_win.title_h,
             )
         });
-        // Desktop base surface (declarative, Umbau #17): when the app surface
-        // resolved to the DESKTOP role (`level: desktop` — the shell/greeter
-        // app-host), it is composed as an opaque full-screen base layer at the
-        // bottom band. Snapshot the band geometry (clamped to what the band
-        // backs) for the encoder block.
-        let desktop_layer = self.app_win.atlas.map(|a| {
-            (a.abs_row, a.x, self.app_win.w.min(a.width), self.app_win.h.min(a.height))
-        });
+        // Desktop base surface (declarative, Umbau #17): the shell/greeter
+        // app-host that declared `level: desktop` owns its OWN full-screen band
+        // (separate from the floating `app_win`). Snapshot its geometry for the
+        // encoder block; composed as an opaque base layer at the bottom band.
+        let desktop_layer = self
+            .desktop_band
+            .map(|b| (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height)));
         let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.

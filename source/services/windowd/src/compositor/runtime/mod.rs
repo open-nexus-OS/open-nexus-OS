@@ -442,6 +442,26 @@ pub(crate) struct DisplayServerRuntime {
     app_intent_level: u8,
     app_intent_mode: u8,
     app_intent_resizable: bool,
+    /// Event channel of the app-host that is CONNECTING (attached by execd via
+    /// `OP_SURFACE_EVENTS` BEFORE the child creates its surface). Consumed by
+    /// the next `SURFACE_CREATE`, which assigns it to the surface's role slot
+    /// (desktop vs. floating) — the singleton-channel era (last attach wins,
+    /// shell+counter collided) is retired.
+    #[cfg(nexus_env = "os")]
+    pending_event_channel: Option<u32>,
+    /// The DESKTOP surface (RFC-0065 Umbau #17): the shell/greeter app-host that
+    /// declared `level: desktop`. Own slot — id, event channel, full-screen
+    /// atlas band, dirty flag — fully separate from the floating `app_win`
+    /// (counter), so both coexist. Composited as the base layer (bottom z-band).
+    desktop_surface_id: Option<u32>,
+    #[cfg(nexus_env = "os")]
+    desktop_channel: Option<u32>,
+    desktop_band: Option<crate::atlas::AtlasSurface>,
+    desktop_dirty: bool,
+    /// The FLOATING app-client surface (the one `app_win` window). By id —
+    /// `client_surfaces.get()` ("first live") is ambiguous once the desktop
+    /// surface coexists.
+    app_surface_id: Option<u32>,
     /// Once-guard for the transitional shell-as-app-host launch (TASK-0080C
     /// #17): fired on the FIRST session activation (STATE_ACTIVE — after
     /// sessiond authorized), not at boot (pre-login launches are denied by
@@ -878,7 +898,8 @@ impl DisplayServerRuntime {
         // sidepanel.
         let window_pool_rows: u32 = 2 * super::desktop_layer::search_full_h()
             + 2 * dsl_mount::DSL_WIN_H // DSL demo window: content + blur bands
-            + mode.height // app-client window content band (ADR-0042 R1)
+            + mode.height // DESKTOP surface band (shell app-host, full-screen)
+            + 400 // floating app-client window band (content; blur best-effort)
             + 16;
         let sidepanel_h = mode
             .height
@@ -1011,6 +1032,14 @@ impl DisplayServerRuntime {
             app_intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
             app_intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
             app_intent_resizable: true,
+            #[cfg(nexus_env = "os")]
+            pending_event_channel: None,
+            desktop_surface_id: None,
+            #[cfg(nexus_env = "os")]
+            desktop_channel: None,
+            desktop_band: None,
+            desktop_dirty: false,
+            app_surface_id: None,
             shell_app_launched: false,
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
             #[cfg(nexus_env = "os")]

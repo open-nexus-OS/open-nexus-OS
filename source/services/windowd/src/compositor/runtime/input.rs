@@ -481,7 +481,7 @@ impl DisplayServerRuntime {
             && !window_consumed_press
             && self.windows.is_visible(crate::window_scene::WindowId::Desktop)
         {
-            self.send_app_input(cursor_x, cursor_y);
+            self.send_desktop_input(cursor_x, cursor_y);
         }
         self.state.focus_visible |= upstream.focus_visible;
         // Reflect the momentary key-held state from inputd (which already sends

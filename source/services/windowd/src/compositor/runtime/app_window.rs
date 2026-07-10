@@ -59,8 +59,24 @@ impl DisplayServerRuntime {
                 0,
             );
         };
+        // Declarative routing at CREATE: the connecting app's presentation
+        // (its pending intent ⟂ policy) decides the role slot. A DESKTOP-role
+        // surface (shell/greeter) gets its OWN slot — id, event channel,
+        // full-screen band — fully separate from the floating `app_win`, so
+        // the shell and an app window coexist (the singleton collision made
+        // "counter startet nicht").
+        if self.app_presentation().role == crate::window_scene::WindowRole::Desktop {
+            return self.create_desktop_surface(width, height, format, vmo_slot);
+        }
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
+                self.app_surface_id = Some(id);
+                #[cfg(nexus_env = "os")]
+                if let Some(ch) = self.pending_event_channel.take() {
+                    if let Some(old) = self.app_event_channel.replace(ch) {
+                        let _ = nexus_abi_cap_close(old);
+                    }
+                }
                 // P3.1 (windows-as-widgets): size the window FRAME to the actual
                 // surface content (+ the title bar), via `window::frame`, BEFORE
                 // the atlas band is allocated. The frame/shadow track the
@@ -117,6 +133,124 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Registers the DESKTOP surface (declared `level: desktop` — the shell or
+    /// greeter app-host): own id + event channel + full-screen atlas band,
+    /// shown in the Desktop z-band (composited as the base layer, below all
+    /// floating windows). Fail-closed: no band → QUOTA, registration rolled back.
+    fn create_desktop_surface(
+        &mut self,
+        width: u16,
+        height: u16,
+        format: u8,
+        vmo_slot: u32,
+    ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
+        let id = match self.client_surfaces.create(width, height, format, vmo_slot) {
+            Ok(id) => id,
+            Err(status) => {
+                let _ = nexus_abi_cap_close(vmo_slot);
+                let _ = debug_println(&alloc::format!(
+                    "WINDOWD: desktop surface create FAIL (status={status})"
+                ));
+                return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, 0);
+            }
+        };
+        if self.desktop_band.is_none() {
+            let Some(band) = self.atlas_alloc.alloc(self.mode.width, self.mode.height) else {
+                let _ = debug_println(&alloc::format!(
+                    "WINDOWD: desktop surface FAIL atlas (need={}x{} rows_remaining={})",
+                    self.mode.width,
+                    self.mode.height,
+                    self.atlas_alloc.rows_remaining()
+                ));
+                let _ = self.client_surfaces.destroy(id);
+                let _ = nexus_abi_cap_close(vmo_slot);
+                return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_QUOTA, 0);
+            };
+            self.desktop_band = Some(band);
+        }
+        // A relaunched shell replaces the previous desktop surface (its VMO cap
+        // was already released via destroy; ids never alias — monotonic).
+        self.desktop_surface_id = Some(id);
+        #[cfg(nexus_env = "os")]
+        if let Some(ch) = self.pending_event_channel.take() {
+            if let Some(old) = self.desktop_channel.replace(ch) {
+                let _ = nexus_abi_cap_close(old);
+            }
+        }
+        self.desktop_dirty = true;
+        self.show_window(crate::window_scene::WindowId::Desktop);
+        self.queue_full_frame_damage();
+        let _ = debug_println(&alloc::format!(
+            "WINDOWD: desktop surface created id={id} {width}x{height}"
+        ));
+        wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
+    }
+
+    /// Blits the DESKTOP surface out of its VMO into the full-screen desktop
+    /// band — chromeless, row-for-row (the shell owns every pixel). Same
+    /// bounded damage-blit as the floating window body (ADR-0042).
+    pub(super) fn render_desktop_surface(&mut self) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else { return Ok(()) };
+        let Some(band) = self.desktop_band else { return Ok(()) };
+        let Some(id) = self.desktop_surface_id else { return Ok(()) };
+        let Some(client) = self.client_surfaces.get_by_id(id).copied() else { return Ok(()) };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let w = (client.width as u32).min(band.width).min(self.mode.width);
+        let h = (client.height as u32).min(band.height).min(self.mode.height);
+        let row_bytes = w as usize * 4;
+        let src_stride = client.width as usize * 4;
+        for y in 0..h {
+            let row = &mut self.band_scratch[0..stride];
+            #[cfg(nexus_env = "os")]
+            {
+                let src_off = y as usize * src_stride;
+                if nexus_abi::vmo_read(client.vmo_slot, src_off, &mut row[..row_bytes]).is_err() {
+                    return Err(WindowdError::BufferLengthMismatch);
+                }
+                let dst = (band.abs_row + y) as usize * stride + band.x as usize * 4;
+                nexus_abi::vmo_write(handle, dst, &row[..row_bytes])
+                    .map_err(|_| WindowdError::BufferLengthMismatch)?;
+            }
+            #[cfg(not(nexus_env = "os"))]
+            {
+                let _ = (row, src_stride, handle, y);
+            }
+        }
+        Ok(())
+    }
+
+    /// Routes a tap that fell through to the DESKTOP surface to its owning
+    /// app-host (the shell) — same OP_SURFACE_INPUT contract as window bodies,
+    /// surface-local (the desktop is full-screen at the origin).
+    pub(crate) fn send_desktop_input(&mut self, local_x: i32, local_y: i32) {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(id) = self.desktop_surface_id else { return };
+            let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
+            let frame = wire::encode_surface_input(id, wire::INPUT_KIND_TAP, x, y);
+            let Some(slot) = self.desktop_channel else {
+                let _ = debug_println("WINDOWD: FAIL desktop input (no event channel)");
+                return;
+            };
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => {
+                    let _ = debug_println("WINDOWD: desktop input routed");
+                }
+                Err(_) => {
+                    let _ = debug_println("WINDOWD: FAIL desktop input send");
+                }
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (local_x, local_y);
+        }
+    }
+
     /// `SURFACE_PRESENT`: validate seq + damage, mark the window body dirty
     /// (the render path blits from the VMO), queue the damage. Acks the seq.
     pub(crate) fn handle_surface_present(
@@ -134,10 +268,16 @@ impl DisplayServerRuntime {
             Ok((_, _, _)) => {
                 // v1: bounded full-body blit on the next render; the damage
                 // list bounds the QUEUED screen region (blit-by-rect is the
-                // recorded optimization — ADR-0042).
-                self.app_win.surface_dirty = true;
-                let rect = self.app_window_rect();
-                self.queue_dirty_rect(rect);
+                // recorded optimization — ADR-0042). Routed BY ID: a desktop
+                // present repaints the base layer; a floating present the window.
+                if self.desktop_surface_id == Some(surface_id) {
+                    self.desktop_dirty = true;
+                    self.queue_full_frame_damage();
+                } else {
+                    self.app_win.surface_dirty = true;
+                    let rect = self.app_window_rect();
+                    self.queue_dirty_rect(rect);
+                }
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface presented id={surface_id} seq={seq}"
                 ));
@@ -173,6 +313,25 @@ impl DisplayServerRuntime {
         match self.client_surfaces.destroy(surface_id) {
             Ok(vmo_slot) => {
                 let _ = nexus_abi_cap_close(vmo_slot);
+                if self.desktop_surface_id == Some(surface_id) {
+                    // The desktop surface dropped (shell exit / re-create): free
+                    // its band + hide the base layer until a new one connects.
+                    self.desktop_surface_id = None;
+                    if let Some(band) = self.desktop_band.take() {
+                        self.atlas_alloc.free(band);
+                    }
+                    self.hide_window(crate::window_scene::WindowId::Desktop);
+                    self.queue_full_frame_damage();
+                    let _ = debug_println(&alloc::format!(
+                        "WINDOWD: desktop surface destroyed id={surface_id}"
+                    ));
+                    return wire::encode_surface_ack(
+                        wire::OP_SURFACE_DESTROY,
+                        wire::SURFACE_STATUS_OK,
+                        surface_id,
+                    );
+                }
+                self.app_surface_id = None;
                 // A protocol SURFACE_DESTROY is the app dropping its surface —
                 // during a resize/fullscreen negotiation it re-creates one
                 // immediately. Free the atlas band ONLY; do NOT hide the window,
@@ -273,7 +432,10 @@ impl DisplayServerRuntime {
         let Some(surface) = self.app_win.atlas else {
             return Ok(());
         };
-        let Some(client) = self.client_surfaces.get().copied() else {
+        // BY ID: `get()` (first live) is ambiguous once the desktop surface
+        // coexists with the floating window.
+        let Some(client) = self.app_surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied()
+        else {
             return Ok(());
         };
         let stride = self.mode.stride as usize;
@@ -466,14 +628,24 @@ impl DisplayServerRuntime {
                 let _ = debug_println("WINDOWD: FAIL app event channel (no cap)");
                 return;
             };
-            if let Some(old) = self.app_event_channel.replace(slot) {
+            // The channel of the CONNECTING app (execd attaches before the child
+            // creates its surface). Held pending; the next SURFACE_CREATE
+            // assigns it to the surface's role slot (desktop vs. floating).
+            if let Some(old) = self.pending_event_channel.replace(slot) {
                 let _ = nexus_abi_cap_close(old);
             }
             let _ = debug_println("WINDOWD: app event channel attached");
             // Push the active theme mode NOW (before the app mounts) so it
             // renders with the same tokens as the compositor (dark desktop ⇒
-            // dark app). On a live toggle, `push_app_theme` is re-sent.
-            self.push_app_theme();
+            // dark app). Direct to the pending slot — the app is not yet bound
+            // to a role. On a live toggle, `push_app_theme` re-sends to all.
+            let mode = match self.theme_mode {
+                crate::theme::ThemeMode::Dark => wire::THEME_DARK,
+                crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
+            };
+            let frame = wire::encode_surface_theme(mode);
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
         }
     }
 
@@ -486,7 +658,19 @@ impl DisplayServerRuntime {
             crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
         };
         let frame = wire::encode_surface_theme(mode);
+        // Live re-theme reaches EVERY connected app-host: the floating window,
+        // the desktop shell, and a still-pending (connecting) one.
         let _ = self.send_app_frame(&frame);
+        #[cfg(nexus_env = "os")]
+        {
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            if let Some(slot) = self.desktop_channel {
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            }
+            if let Some(slot) = self.pending_event_channel {
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            }
+        }
     }
 
     /// Sends one app-bound frame (input event or surface ack) on the
@@ -525,7 +709,11 @@ impl DisplayServerRuntime {
     pub(crate) fn send_app_input(&mut self, local_x: i32, local_y: i32) {
         #[cfg(nexus_env = "os")]
         {
-            let Some(client) = self.client_surfaces.get() else { return };
+            let Some(client) =
+                self.app_surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
+            else {
+                return;
+            };
             let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
             let frame = nexus_display_proto::client_surface::encode_surface_input(
                 client.id,
