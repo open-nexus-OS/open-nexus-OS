@@ -7,8 +7,10 @@ use std::path::Path;
 use crate::error::ThemeError;
 
 /// Known top-level sections in `.nxtheme.toml`.
-const KNOWN_SECTIONS: &[&str] =
-    &["theme", "tokens", "material", "spacing", "radius", "typography", "leading", "zindex"];
+const KNOWN_SECTIONS: &[&str] = &[
+    "theme", "tokens", "material", "spacing", "radius", "typography", "leading", "zindex",
+    "motion",
+];
 
 /// Known keys in the `[theme]` section.
 const KNOWN_THEME_KEYS: &[&str] = &["name", "version"];

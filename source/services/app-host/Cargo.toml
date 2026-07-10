@@ -45,6 +45,8 @@ nexus-scene-raster = { path = "../../../userspace/ui/scene_raster", default-feat
 nexus-layout = { path = "../../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../../userspace/ui/layout-types" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
+# Interaction-state SSOT (hover/press wash constants) for the paint-time wash.
+nexus-style = { path = "../../../userspace/ui/style" }
 # The shared text SSOT (promoted out of windowd, RFC-0067 P5): pixel-real
 # measurement + row-based glyph rendering for the DSL frame.
 nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout"] }

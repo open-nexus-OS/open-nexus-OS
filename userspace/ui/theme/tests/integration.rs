@@ -133,8 +133,8 @@ fn test_resolve_token_dark_override() {
     let mut runtime = ThemeRuntime::load(&themes_dir()).unwrap();
     runtime.set_qualifier(Qualifier::Dark);
     let bg = runtime.resolve("bg").unwrap();
-    // Dark bg should be near-black, not white
-    assert_eq!(bg, ColorValue::from_hex("#0f172a").unwrap());
+    // Dark bg = handoff .dark background oklch(0.145) = #0a0a0a.
+    assert_eq!(bg, ColorValue::from_hex("#0a0a0a").unwrap());
 }
 
 #[test]
@@ -389,9 +389,9 @@ fn test_glass_material_resolves_through_qualifier_chain() {
 #[test]
 fn test_resolve_length_scales_from_base() {
     let runtime = ThemeRuntime::load(&themes_dir()).unwrap();
-    assert_eq!(runtime.resolve_radius("small"), Some(8));
-    assert_eq!(runtime.resolve_radius("medium"), Some(16));
-    assert_eq!(runtime.resolve_radius("large"), Some(24));
+    assert_eq!(runtime.resolve_radius("small"), Some(6));
+    assert_eq!(runtime.resolve_radius("medium"), Some(10));
+    assert_eq!(runtime.resolve_radius("large"), Some(16));
     assert_eq!(runtime.resolve_spacing("small"), Some(8));
     assert_eq!(runtime.resolve_spacing("large"), Some(24));
     assert_eq!(runtime.resolve_radius("nonexistent"), None);
@@ -403,7 +403,7 @@ fn test_length_scale_inherits_through_chain() {
     // dark/light/highcontrast don't redefine [radius]/[spacing] → inherit base.
     for q in [Qualifier::Dark, Qualifier::Light, Qualifier::HighContrast] {
         runtime.set_qualifier(q);
-        assert_eq!(runtime.resolve_radius("medium"), Some(16), "{q:?} radius.medium");
+        assert_eq!(runtime.resolve_radius("medium"), Some(10), "{q:?} radius.medium");
         assert_eq!(runtime.resolve_spacing("small"), Some(8), "{q:?} spacing.small");
     }
 }
@@ -418,6 +418,9 @@ fn test_resolve_typography_leading_zindex() {
     assert_eq!(runtime.resolve_scale("leading", "normal"), Some(150));
     // Stacking order.
     assert_eq!(runtime.resolve_scale("zindex", "modal"), Some(30));
+    // Motion durations (ms, handoff motion.css).
+    assert_eq!(runtime.resolve_scale("motion", "swift"), Some(160));
+    assert_eq!(runtime.resolve_scale("motion", "slow"), Some(500));
     // Unknown section / key → None.
     assert_eq!(runtime.resolve_scale("typography", "nope"), None);
     assert_eq!(runtime.resolve_scale("nosuch", "base"), None);

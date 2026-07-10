@@ -245,6 +245,13 @@ impl DisplayServerRuntime {
         // shape; otherwise the topmost floating window's border band under the
         // cursor selects it; anything else restores the default pointer.
         self.update_cursor_shape_for_pointer(self.state.cursor_x, self.state.cursor_y);
+        // Hover chain (RFC-0067 R2): forward the frame-aligned pointer sample
+        // to the surface under it — the app-host hit-tests its interactive
+        // boxes and blends the hover wash at PAINT time (no re-layout).
+        // Bounded by frame rate (staged input), silent per move.
+        if old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y {
+            self.forward_pointer_hover(self.state.cursor_x, self.state.cursor_y);
+        }
         // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text
         // change counter that still drives the filter selftest markers below.
         if !USE_DESKTOP_SHELL {
@@ -420,6 +427,76 @@ impl DisplayServerRuntime {
         }
 
         STATUS_OK
+    }
+
+    /// Resolve the surface under the pointer with the SAME z-order/press
+    /// geometry the tap routing uses (input and hover can never disagree),
+    /// send it a MOVE, and send the previous target a LEAVE when the route
+    /// changes. Drags/resizes capture the pointer — no hover while active.
+    /// Title bars/buttons are windowd chrome (its own title hover), not app
+    /// hover. One-time proof marker: `windowd: hover routing on`.
+    pub(crate) fn forward_pointer_hover(&mut self, cursor_x: i32, cursor_y: i32) {
+        use nexus_display_proto::client_surface::{INPUT_KIND_LEAVE, INPUT_KIND_MOVE};
+        let mut route = HOVER_ROUTE_NONE;
+        let mut local = (cursor_x, cursor_y);
+        if !self.app_win.is_dragging() && self.resize_drag.is_none() {
+            use crate::compositor::shell_window::WindowPress;
+            use crate::window_scene::WindowId;
+            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            for i in 0..hit_n {
+                let wid = hit[i];
+                match wid {
+                    WindowId::AppClient => {
+                        let frame = self.app_win.frame();
+                        match frame.press(cursor_x, cursor_y) {
+                            WindowPress::Miss => continue,
+                            WindowPress::Body => {
+                                let body_y =
+                                    cursor_y - frame.y - self.app_win.title_h as i32;
+                                if body_y >= 0 {
+                                    route = HOVER_ROUTE_APP;
+                                    local = (cursor_x - frame.x, body_y);
+                                }
+                            }
+                            // Title bar / window buttons: windowd chrome hover.
+                            _ => {}
+                        }
+                    }
+                    WindowId::Desktop => {
+                        if self.windows.is_visible(WindowId::Desktop) {
+                            route = HOVER_ROUTE_DESKTOP;
+                        }
+                    }
+                    // Legacy windowd-internal windows own their pixels; no
+                    // client surface to hover.
+                    _ => {}
+                }
+                break;
+            }
+        }
+        if route != self.hover_route {
+            let (lx, ly) = self.hover_last;
+            match self.hover_route {
+                HOVER_ROUTE_APP => self.send_app_input_kind(INPUT_KIND_LEAVE, lx, ly),
+                HOVER_ROUTE_DESKTOP => {
+                    self.send_desktop_input_kind(INPUT_KIND_LEAVE, lx, ly);
+                }
+                _ => {}
+            }
+        }
+        match route {
+            HOVER_ROUTE_APP => self.send_app_input_kind(INPUT_KIND_MOVE, local.0, local.1),
+            HOVER_ROUTE_DESKTOP => {
+                self.send_desktop_input_kind(INPUT_KIND_MOVE, local.0, local.1);
+            }
+            _ => {}
+        }
+        if route != HOVER_ROUTE_NONE && !self.hover_marker_emitted {
+            let _ = debug_println("windowd: hover routing on");
+            self.hover_marker_emitted = true;
+        }
+        self.hover_route = route;
+        self.hover_last = local;
     }
 
     pub(super) fn note_filter_text_changed(&mut self) {

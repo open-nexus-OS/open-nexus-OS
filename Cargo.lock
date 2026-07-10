@@ -188,6 +188,7 @@ dependencies = [
  "nexus-scene-raster",
  "nexus-sdk-routes",
  "nexus-service-entry",
+ "nexus-style",
  "nexus-text-baked",
  "nexus-theme-tokens",
 ]

@@ -1,11 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The bootstrap desktop shell page (TASK-0080B): wallpaper surface + top bar
-// with the Apps entry point. Deliberately minimal chrome — this is the base
-// TASK-0119 extends (quick settings/notifications land there), NOT a
-// prototype: the Apps button navigates to the real launcher, which drives
-// the real registry + launch authority.
+// The bootstrap desktop shell page (TASK-0080B): top bar + the registry-driven
+// app grid directly on the desktop (the pre-DSL launcher look, rebuilt from
+// kit elements). Every tile taps into `dispatch(Launch(app.id))` — ids come
+// from the AppRecord the registry returned (LauncherStore's root `Refresh`
+// effect fires at mount), launching goes through the launch authority.
+// `/launcher` keeps the searchable list view.
 
 // The shell is the desktop: a chromeless, full-screen surface at the desktop
 // z-band. Under Desktop windowing policy the compositor draws no title bar and
@@ -36,8 +37,36 @@ Page ShellPage {
         .bg(surface)
         Stack {
             Spacer
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
+                List($state.apps) { app in
+                    Stack {
+                        Stack {
+                            Icon { symbol: star }
+                                .fg(onAccent)
+                        }
+                        .bg(accent)
+                        .rounded(lg)
+                        .padding(5)
+                        Text(app.label).textSize(sm).fg(onSurface)
+                    }
+                    .align(center)
+                    .gap(2)
+                    .padding(2)
+                    .rounded(lg)
+                    .key(app.id)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .direction(row)
+                .wrap(true)
+                .gap(4)
+            }
+            Spacer
         }
         .grow(1)
+        .align(center)
+        .padding(4)
         .bg(background)
     }
     .gap(0)

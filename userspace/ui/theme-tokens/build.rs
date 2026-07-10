@@ -173,6 +173,27 @@ fn main() {
             px as i32
         ));
     }
+    generated.push_str("    }\n}\n\n");
+
+    // Motion durations in ms (theme-invariant → resolve at Base; a
+    // reduced-motion theme would override [motion] to 0).
+    let motion_scale: &[(&str, &str)] = &[
+        ("Instant", "instant"),
+        ("Swift", "swift"),
+        ("Quick", "quick"),
+        ("Base", "base"),
+        ("Slow", "slow"),
+    ];
+    generated.push_str(
+        "pub(crate) fn motion_duration_ms(token: MotionDurationToken) -> u32 {\n    match token {\n",
+    );
+    for (variant, name) in motion_scale {
+        let ms = runtime
+            .resolve_scale("motion", name)
+            .unwrap_or_else(|| panic!("nexus-theme-tokens: [motion] '{name}' missing"));
+        generated
+            .push_str(&format!("        MotionDurationToken::{variant} => {ms},\n"));
+    }
     generated.push_str("    }\n}\n");
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");

@@ -70,7 +70,9 @@ pub fn path_to_box_id(scene: &LayoutNode, path: &[u32]) -> Option<usize> {
     Some(id)
 }
 
-/// Finds the innermost handler for `trigger_sym` whose box contains (x, y).
+/// Finds the innermost handler for `trigger_sym` whose box contains (x, y),
+/// returning its pre-order box id alongside the entry (the id is the hover/
+/// presentation anchor; the entry is the action).
 ///
 /// `boxes` is the flat `LayoutResult::boxes`; deeper nodes have larger
 /// pre-order ids, so the max matching id wins (innermost target).
@@ -81,7 +83,7 @@ pub fn hit<'h>(
     trigger_sym: u32,
     x: FxPx,
     y: FxPx,
-) -> Option<&'h HandlerEntry> {
+) -> Option<(usize, &'h HandlerEntry)> {
     let mut best: Option<(usize, &HandlerEntry)> = None;
     for (box_id, entry) in handlers {
         if entry.trigger != trigger_sym {
@@ -99,5 +101,5 @@ pub fn hit<'h>(
             best = Some((*box_id, entry));
         }
     }
-    best.map(|(_, entry)| entry)
+    best
 }

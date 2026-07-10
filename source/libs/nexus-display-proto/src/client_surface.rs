@@ -191,8 +191,15 @@ pub const WIN_MODE_AUTO: u8 = 0;
 pub const WIN_MODE_FREEFORM: u8 = 1;
 pub const WIN_MODE_FULLSCREEN: u8 = 2;
 
-/// Input kinds (v1: taps; motion/keys land with the focus model).
+/// Input kinds (taps + hover motion; keys land with the focus model).
 pub const INPUT_KIND_TAP: u8 = 0;
+/// Frame-aligned pointer motion inside the surface (hover). windowd stages
+/// raw input per frame, so MOVE volume is bounded by frame rate, not by the
+/// device event rate.
+pub const INPUT_KIND_MOVE: u8 = 1;
+/// The pointer left the surface (or moved onto another surface/chrome):
+/// the client clears any hover presentation. x/y carry the last position.
+pub const INPUT_KIND_LEAVE: u8 = 2;
 
 /// Pixel format tags. v1: BGRA8888 only.
 pub const FORMAT_BGRA8888: u8 = 0;

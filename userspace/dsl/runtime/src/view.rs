@@ -157,7 +157,7 @@ impl<'p> View<'p> {
         else {
             return Ok(None);
         };
-        let Some(entry) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
+        let Some((_, entry)) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
             return Ok(None);
         };
         match entry.action.clone() {
@@ -179,6 +179,27 @@ impl<'p> View<'p> {
                 self.apply_changes(tokens, device, locale, &changes).map(Some)
             }
         }
+    }
+
+    /// Presentation-only hit-test: the pre-order box id (`LayoutBox::node_id`)
+    /// of the innermost `trigger` handler under (x, y), without running its
+    /// action. This is the HOVER anchor — the host tracks it and blends the
+    /// interaction wash at paint time (no store dispatch, no re-layout).
+    #[must_use]
+    pub fn hover_box_id(
+        &self,
+        boxes: &[nexus_layout::LayoutBox],
+        trigger: &str,
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+    ) -> Option<usize> {
+        let trigger_sym = self
+            .runtime
+            .symbols()
+            .iter()
+            .position(|s| s == trigger)
+            .map(|i| i as u32)?;
+        interact::hit(&self.handlers, boxes, trigger_sym, x, y).map(|(id, _)| id)
     }
 
     /// Writes text into the innermost Change-bound field containing (x, y)
@@ -205,7 +226,7 @@ impl<'p> View<'p> {
         else {
             return Ok(None);
         };
-        let Some(entry) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
+        let Some((_, entry)) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
             return Ok(None);
         };
         let HandlerAction::Bind { store, path } = entry.action.clone() else {

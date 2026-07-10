@@ -101,6 +101,53 @@ pub enum TypographyToken {
     Display,
 }
 
+/// Motion duration step (handoff motion scale, ms). Themable so a
+/// reduced-motion theme can zero every step; authored in `[motion]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MotionDurationToken {
+    /// 100ms — press-down feedback.
+    Instant,
+    /// 160ms — hover, color/background shifts.
+    Swift,
+    /// 280ms — toggles, small controls.
+    Quick,
+    /// 400ms — collapse, dismiss.
+    Base,
+    /// 500ms — spring expand, window entry.
+    Slow,
+}
+
+/// Motion easing curve (handoff motion vocabulary). The control points are the
+/// theme-invariant cubic-beziers from `reference/tokens/motion.css` — one
+/// physics vocabulary for the whole OS: enter/expand springs, exits are smooth
+/// and quicker, micro-feedback is swift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MotionCurveToken {
+    /// Panel/expand entry, elastic overshoot.
+    Spring,
+    /// Subtle overshoot: switch thumbs, chips.
+    SpringSoft,
+    /// Icon pop, strongest overshoot.
+    SpringIcon,
+    /// Collapse, exit, fades — never bouncy on the way out.
+    Smooth,
+    /// Page swipes, large moves.
+    Glide,
+}
+
+impl MotionCurveToken {
+    /// The `cubic-bezier(x1, y1, x2, y2)` control points.
+    pub const fn control_points(self) -> [f32; 4] {
+        match self {
+            MotionCurveToken::Spring => [0.34, 1.4, 0.5, 1.0],
+            MotionCurveToken::SpringSoft => [0.34, 1.2, 0.5, 1.0],
+            MotionCurveToken::SpringIcon => [0.34, 1.56, 0.64, 1.0],
+            MotionCurveToken::Smooth => [0.4, 0.0, 0.2, 1.0],
+            MotionCurveToken::Glide => [0.22, 1.0, 0.36, 1.0],
+        }
+    }
+}
+
 /// Liquid-glass material level (handoff panel/card/subtle/window/overlay).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MaterialToken {
@@ -140,6 +187,13 @@ pub trait Tokens {
     /// impl (generated from `[typography]`) is authoritative for every theme.
     fn type_size(&self, token: TypographyToken) -> FxPx {
         type_size(token)
+    }
+
+    /// Motion duration in ms for a motion step (generated from `[motion]`).
+    /// A reduced-motion theme overrides this to 0 — animation drivers must
+    /// treat 0 as "jump to the final frame".
+    fn motion_ms(&self, token: MotionDurationToken) -> u32 {
+        motion_duration_ms(token)
     }
 
     /// The resolved glass material for a level. The default is a non-blurred
@@ -249,9 +303,10 @@ mod tests {
     fn generated_tokens_match_theme_toml() {
         // Locks the build.rs generation to the `.nxtheme.toml` SSOT (RFC-0070 D3):
         // no more hand-authored drift. base = light-leaning default, dark overrides.
-        assert_eq!(BaseTokens.color(ColorToken::Surface), Rgba8::new(248, 249, 250, 255)); // #f8f9fa
+        assert_eq!(BaseTokens.color(ColorToken::Surface), Rgba8::new(255, 255, 255, 255)); // #ffffff
         assert_eq!(BaseTokens.color(ColorToken::Accent), Rgba8::new(59, 130, 246, 255)); // #3b82f6
-        assert_eq!(DarkTokens.color(ColorToken::Surface), Rgba8::new(30, 41, 59, 255)); // #1e293b
+        assert_eq!(DarkTokens.color(ColorToken::Surface), Rgba8::new(23, 23, 23, 255)); // #171717
+        assert_eq!(DarkTokens.color(ColorToken::Background), Rgba8::new(10, 10, 10, 255)); // #0a0a0a
         assert_eq!(DarkTokens.color(ColorToken::Accent), Rgba8::new(96, 165, 250, 255)); // #60a5fa
         assert_eq!(LightTokens.color(ColorToken::Surface), Rgba8::new(255, 255, 255, 255)); // #ffffff
         // High contrast: pure black background, white foreground.
@@ -290,12 +345,28 @@ mod tests {
     #[test]
     fn generated_scale_length_matches_toml() {
         // scale_length is generated from base's [radius]/[spacing]; BorderThin = 1px.
-        assert_eq!(BaseTokens.length(LengthToken::RadiusSmall), FxPx::new(8));
-        assert_eq!(BaseTokens.length(LengthToken::RadiusLarge), FxPx::new(24));
+        assert_eq!(BaseTokens.length(LengthToken::RadiusSmall), FxPx::new(6));
+        assert_eq!(BaseTokens.length(LengthToken::RadiusLarge), FxPx::new(16));
         assert_eq!(BaseTokens.length(LengthToken::SpacingMedium), FxPx::new(16));
         assert_eq!(BaseTokens.length(LengthToken::BorderThin), FxPx::new(1));
         // Every theme shares the invariant scale.
-        assert_eq!(DarkTokens.length(LengthToken::RadiusMedium), FxPx::new(16));
+        assert_eq!(DarkTokens.length(LengthToken::RadiusMedium), FxPx::new(10));
+    }
+
+    #[test]
+    fn generated_motion_tokens_match_handoff() {
+        // Durations from [motion] (reference/tokens/motion.css: 0.10..0.50s).
+        assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Instant), 100);
+        assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Swift), 160);
+        assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Quick), 280);
+        assert_eq!(BaseTokens.motion_ms(MotionDurationToken::Base), 400);
+        assert_eq!(DarkTokens.motion_ms(MotionDurationToken::Slow), 500);
+        // Curves are the handoff cubic-beziers; every spring overshoots (y1 > 1),
+        // exits never do.
+        assert_eq!(MotionCurveToken::Spring.control_points(), [0.34, 1.4, 0.5, 1.0]);
+        assert!(MotionCurveToken::SpringIcon.control_points()[1] > 1.0);
+        assert!(MotionCurveToken::Smooth.control_points()[1] <= 1.0);
+        assert_eq!(MotionCurveToken::Glide.control_points(), [0.22, 1.0, 0.36, 1.0]);
     }
 
     #[test]

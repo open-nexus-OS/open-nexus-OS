@@ -205,6 +205,7 @@ impl DisplayServerRuntime {
             let _ = debug_println("WINDOWD: FAIL desktop bind (no channel for nonce)");
         }
         self.desktop_dirty = true;
+        self.desktop_dirty_rows = (0, u32::MAX);
         self.show_window(crate::window_scene::WindowId::Desktop);
         self.queue_full_frame_damage();
         let _ = debug_println(&alloc::format!(
@@ -330,7 +331,15 @@ impl DisplayServerRuntime {
         let h = (client.height as u32).min(band.height).min(self.mode.height);
         let row_bytes = w as usize * 4;
         let src_stride = client.width as usize * 4;
-        for y in 0..h {
+        // Damage-limited: only the rows the client actually presented since
+        // the last blit (union span). Empty span = nothing to copy.
+        let (r0, r1) = self.desktop_dirty_rows;
+        self.desktop_dirty_rows = (u32::MAX, 0);
+        if r0 >= r1 {
+            return Ok(());
+        }
+        let y_end = h.min(r1);
+        for y in r0.min(y_end)..y_end {
             let row = &mut self.band_scratch[0..stride];
             #[cfg(nexus_env = "os")]
             {
@@ -354,28 +363,41 @@ impl DisplayServerRuntime {
     /// app-host (the shell) — same OP_SURFACE_INPUT contract as window bodies,
     /// surface-local (the desktop is full-screen at the origin).
     pub(crate) fn send_desktop_input(&mut self, local_x: i32, local_y: i32) {
+        self.send_desktop_input_kind(wire::INPUT_KIND_TAP, local_x, local_y);
+    }
+
+    /// `send_desktop_input` for any input kind. Taps keep their honest
+    /// routed/FAIL markers; MOVE/LEAVE are frame-rate hover traffic and stay
+    /// silent (a marker per move would flood the UART).
+    pub(crate) fn send_desktop_input_kind(&mut self, kind: u8, local_x: i32, local_y: i32) {
         #[cfg(nexus_env = "os")]
         {
             let Some(id) = self.desktop_surface_id else { return };
             let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
-            let frame = wire::encode_surface_input(id, wire::INPUT_KIND_TAP, x, y);
+            let frame = wire::encode_surface_input(id, kind, x, y);
             let Some(slot) = self.desktop_channel else {
-                let _ = debug_println("WINDOWD: FAIL desktop input (no event channel)");
+                if kind == wire::INPUT_KIND_TAP {
+                    let _ = debug_println("WINDOWD: FAIL desktop input (no event channel)");
+                }
                 return;
             };
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => {
-                    let _ = debug_println("WINDOWD: desktop input routed");
+                    if kind == wire::INPUT_KIND_TAP {
+                        let _ = debug_println("WINDOWD: desktop input routed");
+                    }
                 }
                 Err(_) => {
-                    let _ = debug_println("WINDOWD: FAIL desktop input send");
+                    if kind == wire::INPUT_KIND_TAP {
+                        let _ = debug_println("WINDOWD: FAIL desktop input send");
+                    }
                 }
             }
         }
         #[cfg(not(nexus_env = "os"))]
         {
-            let _ = (local_x, local_y);
+            let _ = (kind, local_x, local_y);
         }
     }
 
@@ -400,7 +422,29 @@ impl DisplayServerRuntime {
                 // present repaints the base layer; a floating present the window.
                 if self.desktop_surface_id == Some(surface_id) {
                     self.desktop_dirty = true;
-                    self.queue_full_frame_damage();
+                    // Damage discipline (the retained-plane perf contract):
+                    // honor the client's damage rects — union rows for the
+                    // band blit, per-rect screen damage for the composite.
+                    // Full-frame work only when the client declared none.
+                    if count == 0 {
+                        self.desktop_dirty_rows = (0, u32::MAX);
+                        self.queue_full_frame_damage();
+                    } else {
+                        for r in &rects[..count] {
+                            let y0 = r.y as u32;
+                            let y1 = y0.saturating_add(r.height as u32);
+                            let (s0, s1) = self.desktop_dirty_rows;
+                            self.desktop_dirty_rows = (s0.min(y0), s1.max(y1));
+                            // The desktop is full-screen at the origin:
+                            // surface-local == display coordinates.
+                            self.queue_dirty_rect(DamageRect {
+                                x: r.x as u32,
+                                y: r.y as u32,
+                                width: r.width as u32,
+                                height: r.height as u32,
+                            });
+                        }
+                    }
                 } else if self.app_surface_id == Some(surface_id) {
                     self.app_win.surface_dirty = true;
                     let rect = self.app_window_rect();
@@ -414,9 +458,15 @@ impl DisplayServerRuntime {
                         "WINDOWD: surface present stale id={surface_id} (ignored)"
                     ));
                 }
-                let _ = debug_println(&alloc::format!(
-                    "WINDOWD: surface presented id={surface_id} seq={seq}"
-                ));
+                // Bounded proof marker: the first few presents show the chain
+                // is live; per-present formatting at hover/animation rates
+                // floods the UART and leaks on the non-freeing bump heap.
+                if self.app_present_markers < 8 {
+                    self.app_present_markers += 1;
+                    let _ = debug_println(&alloc::format!(
+                        "WINDOWD: surface presented id={surface_id} seq={seq}"
+                    ));
+                }
                 wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, wire::SURFACE_STATUS_OK, seq)
             }
             Err(status) => {
@@ -976,8 +1026,19 @@ impl DisplayServerRuntime {
     /// Best-effort non-blocking — input must never stall the compositor.
     /// Markers are honest: `routed` prints only on a delivered send.
     pub(crate) fn send_app_input(&mut self, local_x: i32, local_y: i32) {
+        self.send_app_input_kind(
+            nexus_display_proto::client_surface::INPUT_KIND_TAP,
+            local_x,
+            local_y,
+        );
+    }
+
+    /// `send_app_input` for any input kind. Taps keep their honest routed/FAIL
+    /// markers; MOVE/LEAVE are frame-rate hover traffic and stay silent.
+    pub(crate) fn send_app_input_kind(&mut self, kind: u8, local_x: i32, local_y: i32) {
         #[cfg(nexus_env = "os")]
         {
+            let is_tap = kind == nexus_display_proto::client_surface::INPUT_KIND_TAP;
             let Some(client) =
                 self.app_surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
             else {
@@ -986,27 +1047,33 @@ impl DisplayServerRuntime {
             let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
             let frame = nexus_display_proto::client_surface::encode_surface_input(
                 client.id,
-                nexus_display_proto::client_surface::INPUT_KIND_TAP,
+                kind,
                 x,
                 y,
             );
             let Some(slot) = self.app_event_channel else {
-                let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
+                if is_tap {
+                    let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
+                }
                 return;
             };
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => {
-                    let _ = debug_println("WINDOWD: surface input routed");
+                    if is_tap {
+                        let _ = debug_println("WINDOWD: surface input routed");
+                    }
                 }
                 Err(_) => {
-                    let _ = debug_println("WINDOWD: FAIL surface input send");
+                    if is_tap {
+                        let _ = debug_println("WINDOWD: FAIL surface input send");
+                    }
                 }
             }
         }
         #[cfg(not(nexus_env = "os"))]
         {
-            let _ = (local_x, local_y);
+            let _ = (kind, local_x, local_y);
         }
     }
 }

@@ -241,6 +241,16 @@ impl DisplayServerRuntime {
                     // client surface DECLARED `level: desktop` and was routed
                     // here (`app_stack_id`).
                     crate::window_scene::WindowId::Desktop => {
+                        // FULL layer, every pass — deliberately NOT damage-
+                        // clipped: the scene command buffer describes the WHOLE
+                        // frame (the wallpaper plane persists on the GPU; every
+                        // layer above it is re-composited per present). Clipping
+                        // a layer to this pass's damage leaves wallpaper on top
+                        // everywhere else ("UI only under the cursor rect").
+                        // Damage economy lives in the OTHER stages: the band
+                        // blit copies only the presented row span, and clients
+                        // present paint-only spans — the composite itself is a
+                        // band→display draw, not a client repaint.
                         if let Some((row, x, w, h)) = desktop_layer {
                             let _ = encoder.composite_layer_full(
                                 &Layer::opaque(row, x, w, h, 0, 0),

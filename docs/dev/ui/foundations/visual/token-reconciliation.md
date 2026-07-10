@@ -75,9 +75,9 @@ map the 4-tier px blur onto them (document the dp↔px + downsample choice per l
 |---|---|---|---|
 | **typography** | xs 11 · sm 12 · base 14 · md 16 · lg 18 · xl 20 · 2xl 24 · 3xl 30 · 4xl 36; weights 400/500/600/700; leading tight/snug/normal/relaxed; tracking | windowd bakes 13px+16px A8 atlases only | add `[typography]`; drive atlas baking from it |
 | **spacing** | 4px scale 0…96 (px, 0.5, 1…24) | ad-hoc consts | add `[spacing]` |
-| **radius** | 6/8/10/14/16/24/full (base 10) | `LengthToken::Radius{S,M,L}` (8/16/24) | expand `LengthToken`; add `[radius]` |
+| **radius** | 6/8/10/14/16/24/full (base 10) | `LengthToken::Radius{S,M,L}` = **6/10/16** (handoff sm / base·lg / 2xl) | **DONE** — semantic 3-step samples the handoff scale |
 | **shadow** | sm…2xl + icon/dock (5+4 steps) | `BoxShadow` ad-hoc | add `[shadow]` |
-| **motion** | 5 curves (spring/spring-soft/spring-icon/smooth/glide) + 5 durations (0.10/0.16/0.28/0.40/0.50s) + reduced-motion | `animation` crate curves ad-hoc | add `[motion]`; **this is where motion lives — NOT a separate `ui/design` façade** |
+| **motion** | 5 curves (spring/spring-soft/spring-icon/smooth/glide) + 5 durations (0.10/0.16/0.28/0.40/0.50s) + reduced-motion | **DONE** — `[motion]` durations (ms, themable → reduced-motion theme zeroes them) generate `MotionDurationToken`; curves = `MotionCurveToken::control_points()` (theme-invariant cubic-beziers) | **this is where motion lives — NOT a separate `ui/design` façade** |
 | **z-index** | base/raised/overlay/modal/topbar/island | windowd stack consts | add `[zindex]` (advisory) |
 
 ## Typed contract expansion (`nexus-theme-tokens`)
@@ -140,10 +140,16 @@ island `#000000`).
    `[f32;4]` + durations ms → `animation` crate). Also the finer handoff scale keys (radius
    sm/md/lg/xl/2xl/3xl/full; the 4px spacing scale) + a possible `LengthToken` expansion, when a
    component needs them. All reuse existing layout-types — no new parallel types.
-3. **[TODO — palette shift, BOOT-GATED]** Retune the *existing* neutrals (`surface/fg/bg/accent/
-   danger`) to the handoff pure-grey palette. This changes windowd's baked look → user boot-verifies
-   before commit; updates the value-pinning tests (`dark bg`, `danger`, …). Deliberately deferred
-   from step 1 so the vocabulary grows without a surprise appearance change.
+3. **[DONE — palette shift (user-requested); boot-verify pending]** The *existing* neutrals are
+   retuned to the handoff pure-grey palette in all three layers: base/light = handoff `:root`
+   (fg `#0a0a0a`, surface `#ffffff`, surfaceAlt = handoff-accent `#e9ebef`, border
+   `rgba(0,0,0,.10)` = `#0000001a`, muted `#ececf0`, mutedFg `#717182`, divider `#d4d4d4`);
+   dark = handoff `.dark` (bg `#0a0a0a`, fg `#fafafa`, surfaceAlt/border/muted `#262626`,
+   mutedFg `#a1a1a1`, divider = ring `#525252`; `surface` uses the sidebar tone `#171717` so dark
+   panels still separate from the desktop). `accent` stays the interactive blue
+   (base `#3b82f6` / light `#2563eb` / dark `#60a5fa`), ditto `focusRing` (a11y: a grey ring
+   would be invisible on grey washes — deliberate divergence from handoff `--color-ring`).
+   Value pins updated (`theme` integration + `theme-tokens` goldens); UI goldens regenerated.
 4. **[DONE — colors]** `nexus-theme-tokens` now GENERATES its color snapshots from the toml via
    `build.rs` (build-dep `nexus-theme`): `BaseTokens` (light default) + new `DarkTokens`/
    `LightTokens`/`HighContrastTokens`, each resolving the 9 `ColorToken` roles through the

@@ -6,15 +6,19 @@ version = 1
 # for anything omitted). See docs/dev/ui/foundations/visual/token-reconciliation.md.
 [tokens]
 accent = "#60a5fa"
-accentFg = "#1a1a2e"
-bg = "#0f172a"
-fg = "#e2e8f0"
-surface = "#1e293b"
-surfaceAlt = "#334155"
-border = "#334155"
-divider = "#475569"
-muted = "#64748b"
-mutedFg = "#94a3b8"
+accentFg = "#0a0a0a"
+# handoff .dark neutrals: bg/card oklch(0.145)=#0a0a0a; secondary/muted/accent/
+# border oklch(0.269)=#262626; muted-fg oklch(0.708)=#a1a1a1; ring 0.439=#525252.
+# surface uses the sidebar tone oklch(0.205)=#171717 so panels still separate
+# from the desktop background (handoff dark cards are flat + border).
+bg = "#0a0a0a"
+fg = "#fafafa"
+surface = "#171717"
+surfaceAlt = "#262626"
+border = "#262626"
+divider = "#525252"
+muted = "#262626"
+mutedFg = "#a1a1a1"
 focusRing = "#60a5fa"
 # brand / chrome (handoff dark — oklch→hex)
 primary = "#fafafa"
@@ -47,7 +51,7 @@ glassTextStrong = "#fffffff2"
 glassHover = "#ffffff26"
 glassActive = "#ffffff33"
 toggleOffBg = "#ffffff24"
-glassTint = "#1e293b"
+glassTint = "#171717"
 glassEdge = "#ffffff54"
 
 [material.surface]

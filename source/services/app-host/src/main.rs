@@ -364,6 +364,11 @@ mod probe {
         let mut tap_miss_markers: u32 = 0;
         let mut present_in_flight = false;
         let mut dirty = false;
+        // Damage discipline (5K/120Hz contract): `None` = full repaint
+        // (mount/tap/resize/theme), `Some((y0, y1))` = only that row span is
+        // re-rendered + presented (hover washes). Spans from coalesced events
+        // union; any full request wins.
+        let mut dirty_rows: Option<(i32, i32)> = None;
         raw_marker("APPHOST: event loop armed");
         loop {
             // A rect stashed during an ack wait (`recv_ack`) is replayed here
@@ -461,10 +466,36 @@ mod probe {
                     }
                 }
             } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
-                if kind == wire::INPUT_KIND_TAP {
+                if kind == wire::INPUT_KIND_MOVE {
+                    // Frame-aligned hover: paint-only, and only the union row
+                    // span of the old+new hovered boxes (never a re-layout,
+                    // never a full-frame repaint — the damage contract).
+                    if let Some(dsl) = app.as_mut() {
+                        if let Some(span) = dsl.hover(i32::from(x), i32::from(y)) {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None, // full repaint already pending
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_LEAVE {
+                    if let Some(dsl) = app.as_mut() {
+                        if let Some(span) = dsl.hover_clear() {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None,
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_TAP {
                     if let Some(dsl) = app.as_mut() {
                         if dsl.tap(i32::from(x), i32::from(y)) {
                             dirty = true;
+                            dirty_rows = None; // model change: full repaint
                         } else if tap_miss_markers < 8 {
                             // No handler hit / no visible change: report the
                             // first few WITH VALUES (coordinate-mapping bugs
@@ -494,22 +525,43 @@ mod probe {
             // shown without waiting for the next input.
             if dirty && !present_in_flight {
                 let Some(dsl) = app.as_mut() else { continue };
-                if !dsl.render(vmo) {
+                let span = dirty_rows;
+                let ok = match span {
+                    Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
+                    None => dsl.render(vmo),
+                };
+                if !ok {
                     raw_marker("apphost: FAIL interactive render");
                     dirty = false;
+                    dirty_rows = None;
                     continue;
                 }
                 seq = seq.wrapping_add(1);
-                let plen = wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
+                let present_damage = match span {
+                    // Partial (hover): present exactly the re-rendered rows so
+                    // windowd blits + composites only that band.
+                    Some((y0, y1)) => [wire::DamageRect {
+                        x: 0,
+                        y: y0.max(0) as u16,
+                        width: damage[0].width,
+                        height: (y1 - y0).max(0) as u16,
+                    }],
+                    None => damage,
+                };
+                let plen = wire::encode_surface_present(surface_id, seq, &present_damage, &mut buf);
                 if send_retry(&client, &buf[..plen]).is_err() {
                     raw_marker("apphost: FAIL interactive present");
                     continue;
                 }
                 present_in_flight = true;
                 dirty = false;
-                raw_marker("APPHOST: interactive frame presented");
-                // Re-declare glass regions: a re-layout may have moved/resized them.
-                dsl.submit_layers(&client);
+                dirty_rows = None;
+                if span.is_none() {
+                    raw_marker("APPHOST: interactive frame presented");
+                    // Re-declare glass regions: a re-layout may have moved/
+                    // resized them. Paint-only spans keep the layout — skip.
+                    dsl.submit_layers(&client);
+                }
             }
         }
     }
@@ -540,6 +592,10 @@ mod probe {
         /// Active theme mode (`THEME_*`, pushed by windowd). Selects the token
         /// set for every render so the app matches the compositor.
         theme_mode: u8,
+        /// The `node_id` of the interactive box under the pointer (windowd
+        /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
+        /// state: hover never re-runs layout (pretext), only a repaint.
+        hovered: Option<usize>,
     }
 
     impl DslApp {
@@ -603,7 +659,19 @@ mod probe {
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self { view, symbols, keys, layout, texts, host, base_alpha, w, h, theme_mode })
+            Some(Self {
+                view,
+                symbols,
+                keys,
+                layout,
+                texts,
+                host,
+                base_alpha,
+                w,
+                h,
+                theme_mode,
+                hovered: None,
+            })
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
@@ -652,6 +720,51 @@ mod probe {
             true
         }
 
+        /// Pointer motion (`INPUT_KIND_MOVE`): re-resolve the hovered
+        /// interactive box (same hit-test the Tap routing uses). Returns the
+        /// union ROW SPAN of the old+new hovered boxes when the target
+        /// changed (`None` = no change) — a PAINT-only change: the caller
+        /// re-renders exactly that span; layout and boxes stay retained.
+        fn hover(&mut self, x: i32, y: i32) -> Option<(i32, i32)> {
+            let target = self.view.hover_box_id(
+                &self.layout.boxes,
+                "Tap",
+                nexus_layout_types::FxPx::new(x),
+                nexus_layout_types::FxPx::new(y),
+            );
+            if target == self.hovered {
+                return None;
+            }
+            let old = core::mem::replace(&mut self.hovered, target);
+            self.hover_span(old, target)
+        }
+
+        /// Pointer left the surface (`INPUT_KIND_LEAVE`): clear the wash.
+        /// Returns the cleared box's row span for the partial repaint.
+        fn hover_clear(&mut self) -> Option<(i32, i32)> {
+            let old = self.hovered.take();
+            self.hover_span(old, None)
+        }
+
+        /// Union row span (y0, y1 exclusive; surface-clamped) of two hover
+        /// anchors' boxes — the exact rows a hover change repaints.
+        fn hover_span(&self, a: Option<usize>, b: Option<usize>) -> Option<(i32, i32)> {
+            let mut span: Option<(i32, i32)> = None;
+            for id in [a, b].into_iter().flatten() {
+                if let Some(bx) = self.layout.boxes.iter().find(|bb| bb.node_id == id) {
+                    let y0 = bx.rect.y.0.max(0);
+                    let y1 = (bx.rect.y.0 + bx.rect.height.0).min(self.h as i32);
+                    if y0 < y1 {
+                        span = Some(match span {
+                            Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+                            None => (y0, y1),
+                        });
+                    }
+                }
+            }
+            span
+        }
+
         /// WM resize (`OP_SURFACE_RECT`): re-lay-out the current view at the new
         /// surface size — WITHOUT resetting store state (a remount would). Both
         /// width AND height take effect (the scene reflows to `w`; the render
@@ -659,6 +772,8 @@ mod probe {
         fn resize(&mut self, w: u32, h: u32) {
             self.w = w;
             self.h = h;
+            // Box geometry moves under the pointer; the next MOVE re-resolves.
+            self.hovered = None;
             let engine = nexus_layout::LayoutEngine::new();
             if let Ok(layout) = engine.layout_with_viewport(
                 self.view.scene(),
@@ -733,16 +848,39 @@ mod probe {
         }
 
         fn render(&self, vmo: u32) -> bool {
+            self.render_rows(vmo, 0, self.h as i32)
+        }
+
+        /// Renders only rows `[y0, y1)` into the VMO — the damage-limited
+        /// path (hover washes re-render two box spans, not 1280×800). The
+        /// full render is `render()` = the whole surface span.
+        fn render_rows(&self, vmo: u32, y0: i32, y1: i32) -> bool {
             use nexus_dsl_runtime::theme_tokens::ColorToken;
             let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
             // Page base = the theme Surface token: OPAQUE for a desktop/
             // fullscreen surface (the base layer), frosted-translucent for
             // floating windows (`base_alpha`).
             let base = [s.b, s.g, s.r, self.base_alpha];
+            // Paint-time hover wash (nexus-style convention): the foreground
+            // at Hover wash alpha — darkens on light themes, lightens on dark.
+            let hover = self.hovered.map(|node_id| {
+                let fg = tokens_for(self.theme_mode).color(ColorToken::OnSurface);
+                nexus_scene_raster::HoverWash {
+                    node_id,
+                    color: nexus_layout_types::Rgba8::new(
+                        fg.r,
+                        fg.g,
+                        fg.b,
+                        nexus_style::InteractionState::Hover.wash_alpha(),
+                    ),
+                }
+            });
             let surf_w = self.w as usize;
             let row_bytes = surf_w * 4;
             let mut row = alloc::vec![0u8; row_bytes];
-            for y in 0..self.h as i32 {
+            let y_start = y0.max(0);
+            let y_end = y1.min(self.h as i32);
+            for y in y_start..y_end {
                 for px in row.chunks_exact_mut(4) {
                     px.copy_from_slice(&base);
                 }
@@ -757,7 +895,7 @@ mod probe {
                         y,
                         width: self.w as i32,
                     };
-                    nexus_scene_raster::paint_row(&mut canvas, &self.layout.boxes);
+                    nexus_scene_raster::paint_row_hover(&mut canvas, &self.layout.boxes, hover);
                 }
                 // Glyph pass: the shared text SSOT (same blender windowd uses)
                 // blends each run's slice intersecting this row.

@@ -407,3 +407,148 @@ fn design_kit_widgets_mount_through_the_dsl() {
         .count();
     assert!(sized >= 10, "expected at least 10 sized boxes, got {sized}");
 }
+
+/// Shell desktop replica: compile the REAL app (`userspace/apps/desktop-shell`),
+/// serve `bundlemgr.enumerate` from a fake host (the root `Refresh` effect),
+/// and verify the desktop app GRID: tiles lay out with real geometry, tapping
+/// a tile's centre dispatches `Launch` → `svc.ability.launch(id)` reaches the
+/// host, and the hover hit-test resolves the same tile (the wash anchor).
+#[test]
+fn shell_app_grid_tiles_launch_and_hover() {
+    struct FakeRegistry {
+        id_sym: u32,
+        label_sym: u32,
+        launched: Vec<String>,
+    }
+    impl nexus_dsl_runtime::EffectHost for FakeRegistry {
+        fn call(
+            &mut self,
+            svc: &str,
+            method: &str,
+            args: &[nexus_dsl_runtime::Value],
+            _timeout_ms: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            use nexus_dsl_runtime::Value;
+            match (svc, method) {
+                ("bundlemgr", "enumerate") => {
+                    let row = |id: &str, label: &str| {
+                        let mut fields = vec![
+                            (self.id_sym, Value::Str(id.into())),
+                            (self.label_sym, Value::Str(label.into())),
+                        ];
+                        fields.sort_by_key(|(sym, _)| *sym);
+                        Value::Record(fields)
+                    };
+                    Ok(Value::List(vec![row("counter", "Counter"), row("chat", "Chat")]))
+                }
+                ("ability", "launch") => {
+                    if let Some(Value::Str(id)) = args.first() {
+                        self.launched.push(id.clone());
+                    }
+                    Ok(Value::Bool(true))
+                }
+                _ => Err(0),
+            }
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
+    let program_symbols: Vec<String> =
+        nexus_dsl_runtime::Runtime::mount(&nxir).expect("mounts runtime").symbols().to_vec();
+    let sym = |name: &str| {
+        program_symbols.iter().position(|s| s == name).unwrap_or_else(|| {
+            panic!("symbol '{name}' missing from the compiled shell")
+        }) as u32
+    };
+    let mut host =
+        FakeRegistry { id_sym: sym("id"), label_sym: sym("label"), launched: Vec::new() };
+
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    view.run_initial_effects(&tokens, &device, &locale, &mut host)
+        .expect("initial effects (enumerate)");
+
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out");
+    let boxes = layout.boxes;
+
+    // The grid registered a Tap handler per tile (+ the top-bar Apps button).
+    let tap_handlers: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+    assert!(
+        tap_handlers.len() >= 3,
+        "expected >= 3 tap handlers (2 tiles + Apps), got {}",
+        tap_handlers.len()
+    );
+
+    // Hover pass (pure, no dispatch): every sized interactive box resolves as
+    // its own hover anchor — the wash lands on the tile the tap would hit.
+    for id in &tap_handlers {
+        let Some(b) = boxes.iter().find(|b| b.node_id == *id) else { continue };
+        if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
+            continue;
+        }
+        let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
+        let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
+        assert_eq!(
+            view.hover_box_id(&boxes, "Tap", cx, cy),
+            Some(*id),
+            "hover anchor must match the tap target"
+        );
+    }
+
+    // Tap rounds: a tap may navigate (Apps → /launcher) or launch; after any
+    // visible damage the scene re-emitted, so re-layout + a fresh handler
+    // list (the greeter-test discipline). A Launch must land within bounds.
+    let mut boxes = boxes;
+    'outer: for _round in 0..6 {
+        // Deepest-first: grid tiles have larger pre-order ids than the nav
+        // buttons (Apps/Back), so this reaches a Launch without ping-ponging
+        // between the routes.
+        let mut handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+        handler_ids.sort_unstable_by(|a, b| b.cmp(a));
+        for id in handler_ids {
+            let Some(b) = boxes.iter().find(|b| b.node_id == id) else { continue };
+            if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
+                continue;
+            }
+            let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
+            let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
+            let damage = view
+                .pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy)
+                .expect("pointer");
+            if !host.launched.is_empty() {
+                break 'outer;
+            }
+            if matches!(damage, Some(d) if d != nexus_dsl_runtime::Damage::None) {
+                boxes = engine
+                    .layout_with_viewport(
+                        view.scene(),
+                        nexus_layout_types::FxPx::new(1280),
+                        Some(nexus_layout_types::FxPx::new(800)),
+                        &nexus_text_baked::measure_text::BakedTextMeasure,
+                    )
+                    .expect("re-lays out")
+                    .boxes;
+                continue 'outer;
+            }
+        }
+    }
+    assert!(
+        host.launched.iter().any(|id| id == "counter" || id == "chat"),
+        "no tile tap reached svc.ability.launch (launched={:?})",
+        host.launched
+    );
+}

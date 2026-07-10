@@ -49,8 +49,10 @@ pub struct ThemeRuntime {
 
 /// The numeric scale sections parsed from `.nxtheme.toml` (whole-number maps).
 /// `leading` is line-height ×100 (150 = 1.50); `typography` is font size px;
-/// `zindex` is layer order. Theme-invariant in practice (authored in base).
-pub const SCALE_SECTIONS: &[&str] = &["spacing", "radius", "typography", "leading", "zindex"];
+/// `zindex` is layer order; `motion` is duration ms. Theme-invariant in
+/// practice (authored in base; a reduced-motion theme may zero `motion`).
+pub const SCALE_SECTIONS: &[&str] =
+    &["spacing", "radius", "typography", "leading", "zindex", "motion"];
 
 /// A loaded theme with resolved token map, materials, and numeric scales.
 #[derive(Debug, Clone)]

@@ -194,6 +194,11 @@ struct AnimationProofState {
     v5_summary_marker: bool,
 }
 
+/// Hover routing targets (see `DisplayServerRuntime::hover_route`).
+pub(crate) const HOVER_ROUTE_NONE: u8 = 0;
+pub(crate) const HOVER_ROUTE_DESKTOP: u8 = 1;
+pub(crate) const HOVER_ROUTE_APP: u8 = 2;
+
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
     source_frame: SourceFrame,
@@ -289,6 +294,14 @@ pub(crate) struct DisplayServerRuntime {
     /// Bounded counter for the app-surface present-rejection diagnostic
     /// (P0.2 tap repro): a rejected client present is otherwise silent.
     app_present_reject_markers: u32,
+    /// Bounded `surface presented` proof markers (first few presents only —
+    /// a per-present formatted marker at hover/animation rates floods the
+    /// UART and leaks on the non-freeing bump heap).
+    app_present_markers: u32,
+    /// Damage-limited desktop blit: the union row span (start, end exclusive)
+    /// of the client damage rects since the last `render_desktop_surface`.
+    /// `(u32::MAX, 0)` = empty. A present with no rects = full span.
+    desktop_dirty_rows: (u32, u32),
     /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
     /// Toggled after each successful present. gpud scanout follows on swap.
     current_display_slot: u8,
@@ -396,6 +409,14 @@ pub(crate) struct DisplayServerRuntime {
     /// work from input rate, so a flood (hidrawd ~800/s) can't back up the cursor
     /// command stream + hit-testing ("mouse vanished then everything caught up").
     pending_input: Option<VisibleState>,
+    /// Hover routing state (RFC-0067 R2): which surface currently receives
+    /// frame-aligned pointer MOVEs (`HOVER_ROUTE_*`). On a target change the
+    /// previous surface gets an `INPUT_KIND_LEAVE` so its hover wash clears.
+    hover_route: u8,
+    /// Last hover position forwarded (display space) — carried on LEAVE.
+    hover_last: (i32, i32),
+    /// One-time proof marker latch for the hover chain.
+    hover_marker_emitted: bool,
     /// Active shell configuration resolved from SystemUI's declarative manifest
     /// registry (`systemui::shell_config_default()` — the boot default product).
     /// Replaces the old hardcoded shell-chrome compile-time constants: the
@@ -647,6 +668,8 @@ impl DisplayServerRuntime {
             present_retry_count: 0,
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
+            app_present_markers: 0,
+            desktop_dirty_rows: (u32::MAX, 0),
             frames_in_flight: 0,
             last_completed_seq: 0,
             current_display_slot: 0,
@@ -692,6 +715,9 @@ impl DisplayServerRuntime {
             abilitymgr_client: None,
             atlas_alloc: atlas,
             pending_input: None,
+            hover_route: HOVER_ROUTE_NONE,
+            hover_last: (0, 0),
+            hover_marker_emitted: false,
             shell_config,
             // Registration order = initial stacking (later on top once shown);
             // both start hidden, mirroring the ShellWindow `visible` flags above.

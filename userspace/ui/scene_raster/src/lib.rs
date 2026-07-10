@@ -123,6 +123,67 @@ impl RowCanvas<'_> {
         }
     }
 
+    /// True when `(xx, yy)` lies inside the rounded rect (corner-circle test).
+    fn inside_round_rect(xx: i32, yy: i32, x: i32, y: i32, w: i32, h: i32, radius: i32) -> bool {
+        if xx < x || yy < y || xx >= x + w || yy >= y + h {
+            return false;
+        }
+        let r = radius.max(0).min(w / 2).min(h / 2);
+        if r == 0 {
+            return true;
+        }
+        let cx = if xx < x + r {
+            x + r
+        } else if xx >= x + w - r {
+            x + w - r - 1
+        } else {
+            xx
+        };
+        let cy = if yy < y + r {
+            y + r
+        } else if yy >= y + h - r {
+            y + h - r - 1
+        } else {
+            yy
+        };
+        let (dx, dy) = ((xx - cx) as i64, (yy - cy) as i64);
+        dx * dx + dy * dy <= (r as i64) * (r as i64)
+    }
+
+    /// This row's slice of a rounded BORDER ring: pixels inside the outer
+    /// rounded rect but outside the (border-width-inset) inner one.
+    fn stroke_round_rect_row(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        radius: i32,
+        width: i32,
+        c: Rgba8,
+    ) {
+        if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
+            return;
+        }
+        let yy = self.y;
+        let inner_r = (radius - width).max(0);
+        for xx in x..x + w {
+            if Self::inside_round_rect(xx, yy, x, y, w, h, radius)
+                && !Self::inside_round_rect(
+                    xx,
+                    yy,
+                    x + width,
+                    y + width,
+                    w - 2 * width,
+                    h - 2 * width,
+                    inner_r,
+                )
+            {
+                self.blend(xx, c);
+            }
+        }
+    }
+
     /// This row's slice of an even-odd polygon fill.
     fn fill_polygon_row(&mut self, pts: &[(f32, f32)], c: Rgba8) {
         if pts.len() < 3 {
@@ -215,13 +276,40 @@ pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
             }
         }
     }
-    paint_borders_row(canvas, x, y, w, h, &b.visual.border);
+    paint_borders_row(canvas, x, y, w, h, b.visual.corner_radius.top_left.0.max(0), &b.visual.border);
 }
 
 /// Paint every box's contribution to this row, in box (z) order.
 pub fn paint_row(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox]) {
+    paint_row_hover(canvas, boxes, None);
+}
+
+/// A paint-time hover wash: blended over the box whose `node_id` matches,
+/// following its corner radius. `color.a` carries the wash alpha (the
+/// `nexus_style::InteractionState` convention). Presentation-only — layout
+/// and the box list stay untouched (pretext: hover costs one repaint, never
+/// a re-layout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HoverWash {
+    pub node_id: usize,
+    pub color: Rgba8,
+}
+
+/// [`paint_row`] plus an optional hover wash over the hovered box. The wash
+/// paints directly after its box (before later siblings/children), so nested
+/// content still reads on top of the wash like a real material highlight.
+pub fn paint_row_hover(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox], hover: Option<HoverWash>) {
     for b in boxes {
         paint_box_row(canvas, b);
+        if let Some(hw) = hover {
+            if b.node_id == hw.node_id && hw.color.a > 0 {
+                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                if w > 0 && h > 0 && canvas.y >= y && canvas.y < y + h {
+                    let radius = b.visual.corner_radius.top_left.0.max(0);
+                    canvas.fill_round_rect_row(x, y, w, h, radius, hw.color);
+                }
+            }
+        }
     }
 }
 
@@ -231,8 +319,26 @@ fn paint_borders_row(
     y: i32,
     w: i32,
     h: i32,
+    radius: i32,
     border: &nexus_layout_types::EdgeBorder,
 ) {
+    // Uniform border (the kit's `Style::border` sets all four edges the same):
+    // stroke a ring that FOLLOWS the corner radius — four straight strips on a
+    // rounded fill read as a square frame around a round element.
+    if let (Some(t), Some(bo), Some(l), Some(r)) =
+        (border.top, border.bottom, border.left, border.right)
+    {
+        let uniform = t.width == bo.width
+            && t.width == l.width
+            && t.width == r.width
+            && t.color == bo.color
+            && t.color == l.color
+            && t.color == r.color;
+        if uniform {
+            canvas.stroke_round_rect_row(x, y, w, h, radius, t.width.0.max(1), t.color);
+            return;
+        }
+    }
     if let Some(t) = border.top {
         canvas.fill_round_rect_row(x, y, w, t.width.0.max(0), 0, t.color);
     }
@@ -272,6 +378,23 @@ mod tests {
     }
 
     #[test]
+    fn hover_wash_tints_only_the_hovered_box() {
+        // Two side-by-side boxes; the wash lands on node 2 only, inside its
+        // rounded outline (the corner pixel stays untouched).
+        let grey = Rgba8 { r: 100, g: 100, b: 100, a: 255 };
+        let a = boxed(0, 0, 10, 10, 0, grey);
+        let mut b = boxed(10, 0, 10, 10, 4, grey);
+        b.node_id = 2;
+        let wash = HoverWash { node_id: 2, color: Rgba8 { r: 255, g: 255, b: 255, a: 64 } };
+        let mut row = [0u8; 20 * 4];
+        let mut canvas = RowCanvas { buf: &mut row, y: 0, width: 20 };
+        paint_row_hover(&mut canvas, &[a, b], Some(wash));
+        assert_eq!(row[5 * 4 + 2], 100, "unhovered box keeps its base color");
+        assert!(row[15 * 4 + 2] > 100, "hovered box is washed brighter");
+        assert_eq!(row[10 * 4 + 2], 0, "wash follows the hovered box's corner radius");
+    }
+
+    #[test]
     fn rounded_corners_clip_the_corner_pixels() {
         let b = boxed(0, 0, 20, 20, 8, Rgba8 { r: 255, g: 0, b: 0, a: 255 });
         let mut row = [0u8; 20 * 4];
@@ -292,6 +415,26 @@ mod tests {
             row.chunks_exact(4).filter(|px| px[1] != 0).count()
         };
         assert!(painted(2) < painted(16), "pole rows narrower than the equator");
+    }
+
+    #[test]
+    fn uniform_border_ring_follows_the_corner_radius() {
+        use nexus_layout_types::{EdgeBorder, FxPx};
+        let mut b = boxed(0, 0, 24, 24, 8, Rgba8 { r: 10, g: 10, b: 10, a: 255 });
+        b.visual.border = EdgeBorder::all(FxPx::new(2), Rgba8 { r: 0, g: 0, b: 255, a: 255 });
+        // Top row (y=0): the ring must NOT paint the extreme corner pixel
+        // (a square frame would) but MUST paint near the rounded arc.
+        let mut row = [0u8; 24 * 4];
+        let mut canvas = RowCanvas { buf: &mut row, y: 0, width: 24 };
+        paint_box_row(&mut canvas, &b);
+        assert_eq!(row[0], 0, "corner pixel outside the rounded ring stays empty");
+        assert_eq!(row[12 * 4], 255, "top-centre pixel is border blue");
+        // Mid row: ring = left/right edges only; the centre is fill, not border.
+        let mut mid = [0u8; 24 * 4];
+        let mut canvas = RowCanvas { buf: &mut mid, y: 12, width: 24 };
+        paint_box_row(&mut canvas, &b);
+        assert_eq!(mid[0], 255, "left edge is border blue");
+        assert_ne!(mid[12 * 4], 255, "centre is the fill, not the border");
     }
 
     #[test]
