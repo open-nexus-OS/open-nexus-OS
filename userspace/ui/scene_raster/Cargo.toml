@@ -1,0 +1,13 @@
+[package]
+name = "nexus-scene-raster"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_scene_raster"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout = { path = "../layout" }
+nexus-layout-types = { path = "../layout-types" }

@@ -733,13 +733,11 @@ mod probe {
         }
 
         fn render(&self, vmo: u32) -> bool {
-            use nexus_dsl_runtime::theme_tokens::{ColorToken, Tokens};
+            use nexus_dsl_runtime::theme_tokens::ColorToken;
             let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
-            // TRANSLUCENT page background so the window's frosted-glass backdrop
-            // (windowd blurs the wallpaper behind the surface) reads through —
-            // a frosted window, not a flat opaque fill. Content (cards/text) is
-            // painted opaque on top. (Design-system "Window" glass material;
-            // proper per-panel control arrives with `.material()`, R1/R3.)
+            // Page base = the theme Surface token: OPAQUE for a desktop/
+            // fullscreen surface (the base layer), frosted-translucent for
+            // floating windows (`base_alpha`).
             let base = [s.b, s.g, s.r, self.base_alpha];
             let surf_w = self.w as usize;
             let row_bytes = surf_w * 4;
@@ -748,21 +746,27 @@ mod probe {
                 for px in row.chunks_exact_mut(4) {
                     px.copy_from_slice(&base);
                 }
+                // Scene fills: the ONE promoted painter (`nexus-scene-raster`,
+                // golden-verified) — rounded corners, circles, vector shapes,
+                // borders, src-over glass. On-device pixels match the design
+                // goldens by construction (the flat rect spans this replaces
+                // were the "buttons are square" report).
+                {
+                    let mut canvas = nexus_scene_raster::RowCanvas {
+                        buf: &mut row,
+                        y,
+                        width: self.w as i32,
+                    };
+                    nexus_scene_raster::paint_row(&mut canvas, &self.layout.boxes);
+                }
+                // Glyph pass: the shared text SSOT (same blender windowd uses)
+                // blends each run's slice intersecting this row.
                 for b in &self.layout.boxes {
                     let (bx, by, bw, bh) =
                         (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
                     if bw <= 0 || bh <= 0 || y < by || y >= by + bh {
                         continue;
                     }
-                    if let Some(bg) = b.visual.background {
-                        let x0 = bx.max(0) as usize;
-                        let x1 = ((bx + bw).max(0) as usize).min(surf_w);
-                        for px in row[x0 * 4..x1 * 4].chunks_exact_mut(4) {
-                            px.copy_from_slice(&[bg.b, bg.g, bg.r, bg.a]);
-                        }
-                    }
-                    // Glyph pass: the shared text SSOT (same blender windowd
-                    // uses) blends the run slice intersecting this row.
                     if let Some((_, content, font, color)) =
                         self.texts.iter().find(|(id, _, _, _)| *id == b.node_id)
                     {

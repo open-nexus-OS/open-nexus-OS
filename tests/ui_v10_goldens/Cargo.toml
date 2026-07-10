@@ -14,6 +14,7 @@ nexus-layout-types = { path = "../../userspace/ui/layout-types" }
 nexus-style = { path = "../../userspace/ui/style" }
 nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
 nexus-widget-button = { path = "../../userspace/ui/widgets/button" }
+nexus-scene-raster = { path = "../../userspace/ui/scene_raster" }
 nexus-widget-badge = { path = "../../userspace/ui/widgets/badge" }
 nexus-widget-toggle = { path = "../../userspace/ui/widgets/toggle" }
 nexus-widget-app-icon = { path = "../../userspace/ui/widgets/app_icon" }

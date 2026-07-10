@@ -36,6 +36,7 @@ members = [
     "userspace/ui/widgets/button",
     "userspace/ui/widgets/window",
     "userspace/ui/widgets/text_field",
+    "userspace/ui/scene_raster",
     "userspace/ui/widgets/badge",
     "userspace/ui/widgets/banner",
     "userspace/ui/widgets/progress_bar",

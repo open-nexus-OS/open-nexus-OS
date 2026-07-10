@@ -185,6 +185,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-scene-raster",
  "nexus-sdk-routes",
  "nexus-service-entry",
  "nexus-text-baked",
@@ -2092,6 +2093,14 @@ dependencies = [
 [[package]]
 name = "nexus-query"
 version = "0.1.0"
+
+[[package]]
+name = "nexus-scene-raster"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout",
+ "nexus-layout-types",
+]
 
 [[package]]
 name = "nexus-sched"
@@ -4201,6 +4210,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-scene-raster",
  "nexus-style",
  "nexus-theme-tokens",
  "nexus-widget-accordion",
