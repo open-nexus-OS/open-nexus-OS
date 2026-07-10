@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The launcher page (TASK-0080B): registry-driven app grid + service-side
-// search. Every card taps into `dispatch(Launch(app.id))` — the id comes
-// from the AppRecord the registry returned, never a hardcoded list. The
-// desktop layout is a wrapping card grid; the phone override
-// (`ui/platform/phone/pages/LauncherPage.nx`) swaps it for a single-column
-// list (structural divergence, not a modifier tweak).
+// search, in the same tile design as the ShellPage desktop grid. Every tile
+// taps into `dispatch(Launch(app.id))` — the id comes from the AppRecord the
+// registry returned, never a hardcoded list. The phone override
+// (`ui/platform/phone/pages/LauncherPage.nx`) swaps the grid for a
+// single-column list (structural divergence, not a modifier tweak).
+// No page `.bg()`: the desktop surface blends over the wallpaper plane; the
+// search header sits on its own surface bar.
 
 Page LauncherPage {
     Stack {
@@ -17,27 +19,47 @@ Page LauncherPage {
                 .rounded(md)
             on Tap -> navigate("/")
             Text(@t("launcher.title")).textSize(lg).fg(onSurface)
+            Spacer
+            TextField { label: @t("launcher.search"), value: $state.query }
+            on Change -> dispatch(QueryChanged)
         }
         .direction(row)
-        .gap(2)
-        TextField { label: @t("launcher.search"), value: $state.query }
-        on Change -> dispatch(QueryChanged)
-        if $state.loading {
-            Text(@t("common.loading")).fg(onSurfaceVariant)
-        } else {
-            List($state.apps) { app in
-                Card {
-                    Text(app.label).fg(onSurface)
+        .align(center)
+        .padding(2)
+        .gap(3)
+        .bg(surface)
+        Stack {
+            Spacer
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
+                List($state.apps) { app in
+                    Stack {
+                        Stack {
+                            Icon { symbol: star }
+                                .fg(onAccent)
+                        }
+                        .bg(accent)
+                        .rounded(lg)
+                        .padding(5)
+                        Text(app.label).textSize(sm).fg(onSurface)
+                    }
+                    .align(center)
+                    .gap(2)
+                    .padding(2)
+                    .rounded(lg)
+                    .key(app.id)
+                    on Tap -> dispatch(Launch(app.id))
                 }
-                .key(app.id)
-                on Tap -> dispatch(Launch(app.id))
+                .direction(row)
+                .wrap(true)
+                .gap(4)
             }
-            .direction(row)
-            .wrap(true)
-            .gap(2)
+            Spacer
         }
+        .grow(1)
+        .align(center)
+        .padding(4)
     }
-    .padding(4)
-    .gap(3)
-    .bg(surface)
+    .gap(0)
 }

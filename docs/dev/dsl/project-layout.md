@@ -3,15 +3,41 @@
 
 # DSL Project Layout
 
-The DSL uses a **deterministic, explicit** layout. There is **no auto-import**.
+The DSL uses a **file-based convention** (the Nuxt model): every `.nx` file
+under `ui/` is **auto-discovered** and merged into ONE program — there are no
+`import` statements. Deterministic by construction: files merge in **sorted
+path order** (`compile_project_dir` / `merge_project`), never filesystem
+iteration order, so the same tree always produces the same `.nxir`.
+
+## The entry point (how an app "starts")
+
+There is no `app.nx`; two **reserved declarations** form the entry, and they
+may live in any file (conventionally `ui/pages/Routes.nx` and the home page):
+
+- `Routes { "/" -> <Page>; … }` — the router table. The page mapped to `"/"`
+  is the app's home; `navigate("<path>")` switches pages at runtime. Every
+  page named here must exist somewhere under `ui/` (checker-enforced).
+- `Window { style/level/mode/resizable }` — the app's window **intent**
+  (docs/dev/ui/patterns/windowing/window-intent.md). Declared once, next to
+  the home page by convention.
+
+Everything else is reachable from there: a `Page`, `Store`, `Event` or
+component declared in ANY `ui/**.nx` file is visible program-wide by name
+(one global namespace — the checker rejects duplicates). Declaring a store
+makes it live: its root `@effect`s (events nothing dispatches) fire once at
+mount, and `$state.<field>` binds any page to it.
 
 ## Minimal layout (default)
 
-- `ui/pages/**.nx` — top-level pages/screens
+- `ui/pages/**.nx` — top-level pages/screens (+ `Routes.nx` by convention)
 - `ui/components/**.nx` — reusable UI components
 - `ui/composables/**.nx` — **pure** helpers and store definitions (no IO)
 - `ui/themes/**.nxtheme.toml` — theme authoring (human-editable)
 - `ui/tests/**` — fixtures/goldens/tests (keep minimal at first)
+
+The folder names are **convention for humans** (and for CLI generators/lints);
+the compiler merges every `ui/**.nx` regardless of subfolder. The ONE
+exception with semantics is `ui/platform/<profile>/` (overrides, below).
 
 Optional:
 

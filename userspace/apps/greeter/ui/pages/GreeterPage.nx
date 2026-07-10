@@ -55,5 +55,4 @@ Page GreeterPage {
     }
     .align(center)
     .padding(4)
-    .bg(background)
 }

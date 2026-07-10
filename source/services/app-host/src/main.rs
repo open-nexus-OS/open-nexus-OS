@@ -280,10 +280,15 @@ mod probe {
 
         // 4. Mount + render the DSL program into the VMO; the solid fill stays
         //    as the fail-closed VISIBLE fallback.
-        // Declarative base alpha: a desktop/fullscreen surface is the BASE
-        // layer and paints opaque; floating windows keep the frosted glass.
-        let base_alpha: u8 = if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN
-        {
+        // Declarative base alpha: a DESKTOP surface paints a fully
+        // TRANSPARENT base — windowd alpha-blends the band over the retained
+        // wallpaper plane, so empty desktop area IS the wallpaper (elements
+        // paint their own fills; the shell must not lay `.bg()` over the whole
+        // page). A fullscreen FLOATING surface (kiosk app) stays opaque — it
+        // owns every pixel. Normal floating windows keep the frosted glass.
+        let base_alpha: u8 = if level == wire::WIN_LEVEL_DESKTOP {
+            0
+        } else if mode == wire::WIN_MODE_FULLSCREEN {
             255
         } else {
             190

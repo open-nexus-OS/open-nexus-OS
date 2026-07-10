@@ -14,6 +14,9 @@
 // `level: desktop` alone implies full-screen + chromeless in the presentation
 // resolver; `mode: fullscreen` is a FLOATING-window mode (single-app/kiosk
 // intent), not the desktop level, so it is deliberately NOT declared here.
+// The desktop area carries NO `.bg()`: a desktop surface renders on a
+// transparent base and windowd blends it over the retained wallpaper plane —
+// empty desktop IS the wallpaper (the pre-DSL look).
 Window {
     style: plain,
     level: desktop,
@@ -67,7 +70,6 @@ Page ShellPage {
         .grow(1)
         .align(center)
         .padding(4)
-        .bg(background)
     }
     .gap(0)
 }
