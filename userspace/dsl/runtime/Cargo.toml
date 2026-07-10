@@ -30,3 +30,7 @@ nexus-widget-text-field = { path = "../../ui/widgets/text_field" }
 nexus-widget-toggle = { path = "../../ui/widgets/toggle" }
 nexus-widget-icon = { path = "../../ui/widgets/icon" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
+
+[dev-dependencies]
+nexus-dsl-core = { path = "../core" }
+nexus-text-baked = { path = "../../ui/text-baked", features = ["layout"] }

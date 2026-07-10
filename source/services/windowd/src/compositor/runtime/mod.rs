@@ -55,8 +55,6 @@ use nexus_gfx::{
 use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_layout::LayoutResult;
 use nexus_layout_types::{FxPx, PathPoint};
-use chat_app::ChatMessageProvider;
-use nexus_virtual_list::{VirtualList, VirtualListConfig};
 
 // Gate 2: the windowd↔gpud wire is the shared SSOT in `nexus-display-proto`;
 // these local names just re-source its values (no more hand-mirroring gpud).
@@ -66,27 +64,12 @@ const GPU_PRESENT_DAMAGE_OP: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
 const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
-/// Scroll identity of the chat body layer (ids are windowd-assigned; 0 = none).
-pub(crate) const CHAT_SCROLL_ID: u32 = 1;
 const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
-/// Extra chat content rows rendered above/below the on-screen viewport so scroll
-/// is a GPU composite offset, not a CPU re-render. Re-render only on overscan
-/// exhaustion (recenter ±CHAT_OVERSCAN/2). Larger ⇒ fewer full-surface re-renders
-/// during a fast flick (less VMO-write load → less heap pressure) AND more
-/// rendered runway in BOTH directions (smoother up-scroll, which crosses the
-/// window most). Bounded so the atlas (chat 600+this, blur 600, sidebar 800) fits
-/// the 4000-row VMO atlas (grown +800 for the full-screen greeter/lock-overlay
-/// band): 1600+600+800 = 3000, + greeter 800 = 3800 ≤ 4000.
-const CHAT_OVERSCAN: u32 = 1000;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
-
-/// Animation layer for the topbar Apps dropdown reveal (not in the shell's
-/// scene-graph layer map; handled directly in `apply_scene_updates`).
-const DROPDOWN_LAYER_ID: LayerId = LayerId(70);
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
 use crate::interaction::{
@@ -105,23 +88,17 @@ mod gpud;
 mod marker_emit;
 mod framebuffer;
 mod input;
-mod chat_window;
 mod shell;
-mod search;
 pub(crate) mod app_window;
-mod settings_window;
 mod present;
 mod scene;
 mod session;
-mod greeter;
 mod wm;
 
 // The split-out `impl` submodules live one module deeper than the original
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
 // `super::` are re-exported here under `runtime` to keep those paths resolving
 // (TASK-0063 modularization; pure path plumbing, no behavior change).
-use super::chat;
-use super::desktop_layer;
 use super::DISPLAY_SLOT_B_OFFSET_BYTES;
 
 fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
@@ -184,8 +161,6 @@ struct AnimatedSceneState {
     hover_opacity: f32,
     sidebar_translate_x: f32,
     sidebar_opacity: f32,
-    /// Topbar Apps dropdown reveal: 0 = closed, 1 = fully open.
-    apps_dropdown_progress: f32,
 }
 
 impl AnimatedSceneState {
@@ -194,7 +169,6 @@ impl AnimatedSceneState {
             hover_opacity: 0.0,
             sidebar_translate_x: 320.0,
             sidebar_opacity: 0.0,
-            apps_dropdown_progress: 0.0,
         }
     }
 }
@@ -252,12 +226,6 @@ pub(crate) struct DisplayServerRuntime {
     /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
     pending_gpu_blit_rect: Option<DamageRect>,
-    /// True when the sidebar blur has been computed and cached in Plane 3 (Slot B).
-    /// Invalidated after the close animation fully completes (opacity < 0.01).
-    sidebar_blur_cache_valid: bool,
-    /// True when the glass button blur is cached in Plane 3 at BUTTON_BLUR_CACHE_ABS_X/ROW.
-    /// Never invalidated: button occupies y=24..80, above the proof panel at y=440.
-    button_blur_cache_valid: bool,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
     backdrop_cache: [BackdropCacheEntry; BACKDROP_CACHE_ENTRIES],
     glass_layer: GlassLayerCache,
@@ -348,76 +316,10 @@ pub(crate) struct DisplayServerRuntime {
     /// pos) AND damage the cursor rect so a present re-renders the procedural
     /// arrow at the new position.
     gl_cursor_active: bool,
-    /// One-shot: pre-blur the sidebar backdrop into the Plane 3 cache during
-    /// the first handoff present, so the first open never pays for a blur.
-    precache_blur_pending: bool,
-    /// Cursor over the top-right glass button (highlight only — windowd-internal,
-    /// independent of the proof-panel hover test card in `state.hover_visible`).
-    button_hover: bool,
-    /// Chat window — the SECOND instance of the reusable `ShellWindow` glass
-    /// frame (the first is `search`). Owns the chat window's geometry, drag/close
-    /// state, visibility, cached blurred backdrop (`blur_valid`) and the
-    /// off-screen atlas content surface (`atlas`) — rendered once on change and
-    /// composited at the window's current position, so moving it is just a
-    /// different blit destination (no content re-render). The scroll *physics*
-    /// live in `chat_list` (the message provider + momentum) below; this frame
-    /// supplies geometry + chrome + glass. E1 retired the old single-window
-    /// `wm::WindowManager`: both windows are now `ShellWindow` instances whose
-    /// pure geometry lives in the host-tested `window_frame::Frame`.
-    chat: super::shell_window::ShellWindow,
-    /// Cached fully-composited sidebar (valid only while it's settled/static).
-    sidebar_composite_cache: crate::atlas::AtlasSurface,
-    sidebar_composite_cache_valid: bool,
-    /// Shell-P2b: the desktop shell scene as ONE opaque retained-surface LAYER
-    /// (atlas surface). Rendered once into `shell_atlas` and composited onto the
-    /// scanout via the GPU layer path every present (the path that reaches the
-    /// virgl scanout; Plane 1 does not). `shell_w`/`shell_h` are the root rect.
-    shell_atlas: crate::atlas::AtlasSurface,
-    shell_w: u32,
-    shell_h: u32,
-    shell_surface_dirty: bool,
-    /// Index of the topbar item currently under the cursor (drives the hover
-    /// highlight; a change re-renders the topbar atlas).
-    topbar_hover: Option<usize>,
-    /// Whether the cursor is over the topbar menu (hamburger) icon.
-    topbar_menu_hover: bool,
-    /// Glass side panel layer (slides in from the right on the menu toggle).
-    sidepanel_atlas: crate::atlas::AtlasSurface,
-    sidepanel_h: u32,
-    sidepanel_surface_dirty: bool,
-    /// Which topbar item's dropdown menu is open (the item index: 0 = Apps,
-    /// 2 = Edit), or `None` when closed. One dropdown surface serves whichever
-    /// menu is active (`active_menu`) — the menu bar is one component, not a
-    /// per-item parallel structure.
-    open_topbar_menu: Option<usize>,
-    /// The static "Edit" menu (one entry: Settings). Reuses the same `AppMenu`
-    /// row model as the dynamic Apps menu so the dropdown renders it identically.
-    edit_menu: crate::app_menu::AppMenu,
     /// Active light/dark theme (TASK-0072 Phase 9). Colors come from the matching
     /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
     /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
     theme_mode: crate::theme::ThemeMode,
-    dropdown_hover: Option<usize>,
-    dropdown_atlas: crate::atlas::AtlasSurface,
-    /// Open (animated) height of the dropdown = `app_menu.dropdown_full_h()`. The
-    /// reserved atlas band (`dropdown_atlas`) is sized for the max list; this is
-    /// the height of the *current* registry-sourced menu.
-    dropdown_h: u32,
-    dropdown_surface_dirty: bool,
-    /// Dynamic Apps menu (RFC-0065): built from the `bundlemgrd` registry
-    /// (`OP_LIST_APPS`), seeded until the lazy fetch on first open succeeds.
-    app_menu: crate::app_menu::AppMenu,
-    /// Whether the live registry fetch has been attempted (one-shot, lazy).
-    app_menu_fetched: bool,
-    /// The Search window — the first instance of the reusable `ShellWindow`
-    /// glass-frame component (drag/close/scroll/cached-blur live in the component;
-    /// the filtered word list below is the body content the runtime supplies).
-    search: super::shell_window::ShellWindow,
-    /// The Settings window (TASK-0072): a third `ShellWindow` instance, opened
-    /// from the topbar Edit → Settings menu. Static body (no scroll) — its atlas
-    /// surface is acquired on show and released on hide, like Search.
-    settings_win: super::shell_window::ShellWindow,
-    /// The DSL demo window frame (TASK-0076B).
     /// The cross-process app-client window (ADR-0042 R1): body pixels come
     /// from the app process's surface VMO via the damage-blit.
     app_win: super::shell_window::ShellWindow,
@@ -481,45 +383,10 @@ pub(crate) struct DisplayServerRuntime {
     /// under load; the inputd windowd-route lesson).
     #[cfg(nexus_env = "os")]
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
-    /// Prefix-filtered words shown in the Search window body.
-    search_filtered: Vec<&'static str>,
-    /// Search window scroll engine — the SAME shared `animation::ScrollMomentum`
-    /// that backs the chat window's `VirtualList` (E2: one Android-style eased
-    /// momentum engine, not two implementations). Pixel offset; the whole filtered
-    /// list is rendered once into a tall surface and this offset scrolls it via a
-    /// GPU source-row offset (E3), so a flick coasts smoothly with zero re-render.
-    search_scroll: ScrollMomentum,
-    /// `nsec()` of the last search-momentum tick (frame-rate-independent integrate).
-    search_scroll_last_ns: u64,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
     /// release them on hide (the on-demand surface pool — a closed window costs
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
     atlas_alloc: crate::atlas::AtlasAllocator,
-    /// Chat scroll engine: the `nexus-virtual-list` component is the single
-    /// source of truth for scroll *physics* (eased momentum via
-    /// `fling`/`tick`) and owns the message provider. windowd remains the height
-    /// authority (its bitmap hard-wrap measures the real surface) and feeds that
-    /// in via `set_content_height`; the component clamps + eases. `chat_scroll_y`
-    /// below is a u32 mirror of `chat_list.scroll_offset()` consumed by the
-    /// overscan render + GPU source-row-offset composite (unchanged render path).
-    /// `chat_visible` is rebuilt only on re-render (not per row).
-    chat_list: VirtualList<ChatMessageProvider>,
-    chat_scroll_y: u32,
-    /// `nsec()` of the last momentum tick — lets `tick_chat_scroll` integrate the
-    /// glide over real elapsed time (frame-rate independent). 0 = no glide active.
-    chat_scroll_last_ns: u64,
-    /// `nsec()` of the last emitted scroll-diagnostic line (rate-limited ~200ms).
-    chat_scroll_diag_ns: u64,
-    /// `nsec()` of the last emitted wheel-miss line (rate-limited ~500ms): a
-    /// wheel over no window is an honest diag marker, never a silent no-op.
-    wheel_miss_diag_ns: u64,
-    /// Coalesced wheel delta: every queued `OP_UPDATE_VISIBLE_STATE` adds its
-    /// `wheel_delta_y` here instead of scrolling immediately. The whole frame's
-    /// worth is applied ONCE per present-loop iteration (`commit_scroll_input`).
-    /// Without this, a flood of input events (hidrawd ~800/s during a drag) made
-    /// windowd replay each queued wheel one-by-one → the scroll lagged further and
-    /// further behind ("old commands still being processed the more I scroll").
-    pending_chat_wheel: i32,
     /// Frame-aligned input sample (Android `Choreographer`/`InputConsumer` model):
     /// every queued `OP_UPDATE_VISIBLE_STATE` is STAGED here (latest cursor/buttons
     /// win, wheel deltas sum) and the full state is applied ONCE per present-loop
@@ -527,26 +394,6 @@ pub(crate) struct DisplayServerRuntime {
     /// work from input rate, so a flood (hidrawd ~800/s) can't back up the cursor
     /// command stream + hit-testing ("mouse vanished then everything caught up").
     pending_input: Option<VisibleState>,
-    chat_content_h: u32,
-    chat_visible: Vec<super::chat::ChatVisibleMsg>,
-    /// Wrapped line count per message, precomputed ONCE (fixed wrap width) so a
-    /// scroll re-window costs O(1) per message instead of re-measuring 5000
-    /// texts per recenter.
-    chat_msg_lines: Vec<u32>,
-    /// Per-visible-message wrapped-line char ranges (shared, REUSED buffer —
-    /// cleared per rebuild, never reallocated in steady state). The renderer
-    /// indexes lines here instead of re-walking the wrap per pixel row.
-    chat_line_ranges: Vec<(u32, u32)>,
-    /// Scroll position the chat **overscan surface** is currently rendered at.
-    /// The surface holds the content window `[base .. base + viewport + overscan]`;
-    /// scrolling within that window is a GPU composite source-row offset
-    /// (`chat_scroll_y - chat_render_base`), NOT a CPU re-render. We only re-render
-    /// (recenter the base) when the scroll leaves the overscan window.
-    chat_render_base: u32,
-    /// One-shot `chat window drag ok` marker latch.
-    chat_drag_marker_emitted: bool,
-    /// One-shot `chat button click ok` marker latch (first real chat-button click).
-    chat_button_marker_emitted: bool,
     /// Active shell configuration resolved from SystemUI's declarative manifest
     /// registry (`systemui::shell_config_default()` — the boot default product).
     /// Replaces the old hardcoded shell-chrome compile-time constants: the
@@ -562,15 +409,12 @@ pub(crate) struct DisplayServerRuntime {
     /// choice is restored across reboots. Bounded, one-shot-until-success;
     /// settingsd unreachable/slow = the build-time default (Dark), never a brick.
     theme_probe: shell::ThemeProbe,
-    /// The login greeter, while it owns the display (TASK-0065B): blurred
-    /// wallpaper + avatar card baked into Plane 1; all shell affordances
-    /// suppressed until sessiond accepts a login.
-    greeter: Option<greeter::GreeterState>,
-    /// DSL-greeter login watch (Umbau #17 visual swap): armed when the DSL
-    /// greeter's desktop surface retires the built-in avatar greeter. The
-    /// login now happens OUT of process (greeter app-host → sessiond), so
-    /// windowd polls sessiond on a slow cadence until the session activates,
-    /// then applies the session shell. Disarmed on activation.
+    /// DSL-greeter login watch (Umbau #17): armed when sessiond reports
+    /// STATE_GREETER (the DSL greeter app-host owns the display; the built-in
+    /// avatar greeter is DELETED). The login happens OUT of process (greeter
+    /// app-host → sessiond), so windowd polls sessiond on a slow cadence until
+    /// the session activates, then applies the session shell. Disarmed on
+    /// activation.
     greeter_login_watch: bool,
     /// Monotonic deadline before the next login-watch poll.
     greeter_watch_next_ns: u64,
@@ -744,125 +588,13 @@ impl DisplayServerRuntime {
         let _ = debug_trace("dbg: windowd init animation-driver ok");
         let pipeline_timer = PipelineTimer::new();
         let _ = debug_trace("dbg: windowd init pipeline-timer ok");
-        // Chat panel: 5000 deterministic mixed-length messages — a STRESS TEST of
-        // the virtual list. Only the visible window is ever rendered, so scroll
-        // must stay smooth regardless of collection size. The provider is the data
-        // source; chat layout heights come from `interaction` (hard-wrap) so the
-        // precomputed window matches the renderer exactly.
-        let chat_provider = ChatMessageProvider::synthetic(
-            5000,
-            crate::interaction::chat_chars_per_line(),
-            crate::interaction::CHAT_LINE_H,
-        );
-        let mut chat_visible = Vec::new();
-        // Precompute every message's wrapped line count ONCE (fixed wrap width):
-        // scroll re-windows then cost O(1) per message instead of re-measuring
-        // 5000 texts per recenter (that full-collection walk was a visible hitch
-        // at every overscan exhaustion).
-        let mut chat_msg_lines = Vec::new();
-        super::chat::build_lines_cache(&chat_provider, &mut chat_msg_lines);
-        let mut chat_line_ranges = Vec::new();
-        // Window the OVERSCAN content surface (viewport + overscan) at base 0.
-        // compute_visible_window returns the TOTAL content height (for max-scroll)
-        // and fills the window for the given render base.
-        let chat_overscan_content_h = (crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN)
-            .saturating_sub(crate::interaction::CHAT_TITLE_BAR_H + crate::interaction::CHAT_PAD);
-        let chat_content_h = super::chat::compute_visible_window(
-            &chat_provider,
-            0,
-            &mut chat_visible,
-            chat_overscan_content_h,
-            &chat_msg_lines,
-            &mut chat_line_ranges,
-        );
-        // Hand the provider to the virtual-list component (scroll-physics SSOT).
-        // windowd stays the height authority: the chat viewport is the panel body
-        // (minus the title bar + pad), and the real content height comes from the
-        // bitmap hard-wrap measure above — so the component's `max_scroll`/momentum
-        // clamp to the true bottom while it owns the eased motion.
-        let chat_viewport_h = crate::interaction::CHAT_PANEL_H
-            .saturating_sub(crate::interaction::CHAT_PAD.saturating_mul(2));
-        let mut chat_list = VirtualList::new(
-            chat_provider,
-            FxPx::new(chat_viewport_h as i32),
-            VirtualListConfig::default(),
-        );
-        chat_list.set_content_height(FxPx::new(chat_content_h as i32));
-        // Reserve the chat layer's surface in the VMO atlas (off-screen).
+        // The on-demand atlas pool: NO legacy shell-chrome bands (topbar/
+        // sidepanel/dropdown/chat/search — DELETED, the DSL shell app-host owns
+        // that UI). Bands are acquired on demand: the DESKTOP surface + the
+        // floating app window allocate from the free pool; a closed window
+        // costs zero rows.
         let mut atlas = crate::atlas::AtlasAllocator::new();
-        // Overscan-tall surface: viewport + CHAT_OVERSCAN extra content rows, so
-        // scroll within the window is a composite source-row offset, not a re-render.
-        let chat_atlas =
-            alloc_band_or_log(&mut atlas, crate::interaction::CHAT_PANEL_H + CHAT_OVERSCAN, "chat")?;
-        // Cache of the BLURRED backdrop behind the chat window. The backdrop is
-        // the static base, so we blur it once per window move and reuse it every
-        // present (Task #17 pattern) — zero per-frame blur for glass, the key to
-        // running several glass layers at 120Hz.
-        let chat_blur_cache =
-            alloc_band_or_log(&mut atlas, crate::interaction::CHAT_PANEL_H, "chat_blur")?;
-        // Cache of the FULLY COMPOSITED sidebar (blurred backdrop + glass tint +
-        // border + icons). When the sidebar is settled (fully open, static), it's
-        // composited once and then blitted each present — so a cursor move over
-        // the sidebar costs one blit, not 4 full-height SDF fills.
-        // When the new glass side panel is on, the old proof-sidebar (and its
-        // full-height composite cache) is suppressed — reclaim those ~800 atlas
-        // rows for the shell windows (topbar/panel/dropdown/search) instead of a
-        // dead allocation. A 1-row dummy keeps the field valid.
-        let sidebar_composite_cache = alloc_band_or_log(
-            &mut atlas,
-            if shell_config.desktop_chrome { 1 } else { mode.height },
-            "sidebar_cache",
-        )?;
-        // Shell-P2b: reserve the glass topbar layer surface — full-width, one
-        // bar tall. Composited at (TOPBAR_MARGIN_X, TOPBAR_TOP) with blur +
-        // rounded corners + shadow each present.
-        let shell_w = mode.width.saturating_sub(2 * super::desktop_layer::TOPBAR_MARGIN_X).max(1);
-        let shell_h = super::desktop_layer::TOPBAR_H;
-        let shell_atlas = alloc_band_or_log(&mut atlas, shell_h, "topbar")?;
-        // Topbar Apps dropdown surface — small, fixed. Reserved BEFORE the side
-        // panel so the side panel's "take the rest" clamp can't starve it (that
-        // exhausted the atlas → new() Err → no handoff after the bootsplash).
-        // The band is sized for the bounded MAX displayed list (`MAX_MENU_APPS`,
-        // small) so a later registry fetch fits without re-reserving — and kept
-        // small enough that the side-panel/search-pool tail survives (the atlas is
-        // tight; the dropdown grew from 2 rows to this, the side panel absorbs it).
-        let dropdown_band_h = super::desktop_layer::dropdown_band_h();
-        let app_menu = crate::app_menu::AppMenu::seed();
-        let dropdown_h = app_menu.dropdown_full_h();
-        let dropdown_atlas = alloc_band_or_log(&mut atlas, dropdown_band_h, "dropdown")?;
-        // The Search window as a ShellWindow instance (the reusable glass frame).
-        // Its atlas surfaces are NOT reserved at boot — they are acquired from the
-        // allocator on show and released on hide (on-demand pool). The boot path
-        // instead reserves a contiguous tail (`WINDOW_POOL_ROWS`) for them below.
-        let search_h = super::desktop_layer::search_full_h();
-        let search = super::shell_window::ShellWindow::new(
-            "Search",
-            120,
-            110,
-            super::desktop_layer::SEARCH_W,
-            search_h,
-            super::desktop_layer::SEARCH_TITLE_H,
-            super::desktop_layer::SEARCH_CLOSE_W,
-            super::desktop_layer::SEARCH_RADIUS,
-            18,
-            5,
-            90,
-        );
-        // The Settings window — same reusable glass frame, static body.
-        let settings_win = super::shell_window::ShellWindow::new(
-            "Settings",
-            200,
-            140,
-            super::desktop_layer::SETTINGS_W,
-            super::desktop_layer::settings_full_h(),
-            super::desktop_layer::SETTINGS_TITLE_H,
-            super::desktop_layer::SETTINGS_CLOSE_W,
-            super::desktop_layer::SETTINGS_RADIUS,
-            18,
-            5,
-            90,
-        );
-        // The app-client window (ADR-0042 R1) — same reusable glass frame; the
+        // The app-client window (ADR-0042 R1) — the reusable glass frame; the
         // body is blitted from the app's own surface VMO on present.
         let app_win = super::shell_window::ShellWindow::new(
             "App",
@@ -877,59 +609,6 @@ impl DisplayServerRuntime {
             5,
             90,
         );
-        // Glass side panel surface — narrow, tall. Capped so a contiguous tail is
-        // left for the on-demand window pool (content + blur cache); without this
-        // reserve the panel's "take the rest" would starve a later search show.
-        // NOT tied to APP_WIN_MAX_H: the app-client cap is now display-sized (for
-        // fullscreen), but a fullscreen app uses only ONE content band (no cached
-        // blur — R1 layer path), so reserve exactly `mode.height` for it. A
-        // floating window's optional blur band is best-effort on top (never held
-        // while fullscreen). Doubling the display-sized cap here would starve the
-        // sidepanel.
-        let window_pool_rows: u32 = 2 * super::desktop_layer::search_full_h()
-            + mode.height // DESKTOP surface band (shell app-host, full-screen)
-            // Floating app-client window band: a maximized window keeps its
-            // chrome but its CONTENT band re-creates at up to display height —
-            // reserving less (the old fixed 400) made fullscreen re-creates
-            // fail band alloc and the window hung mid-transition.
-            + mode.height
-            // Transient login overlap: the avatar greeter's full-screen band
-            // and the DSL greeter's desktop band coexist between desktop
-            // CREATE and the swap-at-first-present. Without this row the
-            // desktop band alloc failed during the greeter phase (boot-proven
-            // `WINDOWD: desktop surface FAIL atlas`); the early-swap fallback
-            // in `create_desktop_surface` self-heals if this math ever drifts.
-            + mode.height
-            + 16;
-        let sidepanel_h = mode
-            .height
-            .saturating_sub(super::desktop_layer::SIDEPANEL_TOP + super::desktop_layer::SIDEPANEL_MARGIN)
-            .max(1)
-            .min(atlas.rows_remaining().saturating_sub(window_pool_rows).max(1));
-        let sidepanel_atlas = alloc_band_or_log(&mut atlas, sidepanel_h, "sidepanel")?;
-        // The Chat window as a ShellWindow instance (the SAME reusable glass frame
-        // as Search). It mounts the overscan content band + blur cache reserved
-        // above and starts open at the panel's default position. E1 retired the
-        // single-window `wm::WindowManager`; geometry now lives in `window_frame`.
-        let mut chat = super::shell_window::ShellWindow::new(
-            "Chat",
-            crate::interaction::CHAT_PANEL_X as i32,
-            crate::interaction::CHAT_PANEL_Y as i32,
-            crate::interaction::CHAT_PANEL_W,
-            crate::interaction::CHAT_PANEL_H,
-            crate::interaction::CHAT_TITLE_BAR_H,
-            crate::interaction::CHAT_CLOSE_ZONE_W,
-            super::desktop_layer::SEARCH_RADIUS,
-            CHAT_SHADOW_BLUR,
-            CHAT_SHADOW_OFFSET_Y,
-            CHAT_SHADOW_ALPHA as u32,
-        );
-        chat.mount(chat_atlas, Some(chat_blur_cache));
-        // RFC-0065: the desktop starts clean — chat is NOT auto-shown. It opens on
-        // demand (chat button / "Chat" in the Apps dropdown via `toggle_chat`),
-        // the first visible step away from a baked-open window toward a launched app.
-        chat.visible = false;
-        let _ = debug_trace("dbg: windowd init chat hidden ok");
         Ok(Self {
             mode,
             source_frame,
@@ -951,8 +630,6 @@ impl DisplayServerRuntime {
             pending_damage_rect: None,
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
-            sidebar_blur_cache_valid: false,
-            button_blur_cache_valid: false,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
             backdrop_cache,
@@ -994,36 +671,11 @@ impl DisplayServerRuntime {
             first_handoff_present_sent: false,
             hw_cursor_active: false,
             gl_cursor_active: false,
-            precache_blur_pending: true,
-            button_hover: false,
-            chat,
-            sidebar_composite_cache,
-            sidebar_composite_cache_valid: false,
-            shell_atlas,
-            shell_w,
-            shell_h,
-            shell_surface_dirty: true,
-            topbar_hover: None,
-            topbar_menu_hover: false,
-            sidepanel_atlas,
-            sidepanel_h,
-            sidepanel_surface_dirty: true,
-            open_topbar_menu: None,
-            edit_menu: crate::app_menu::AppMenu::single("settings", "Settings"),
             theme_mode: crate::theme::ThemeMode::Dark,
-            dropdown_hover: None,
-            dropdown_atlas,
-            dropdown_h,
-            dropdown_surface_dirty: true,
-            app_menu,
-            app_menu_fetched: false,
             session_probe: session::SessionProbe::default(),
             theme_probe: shell::ThemeProbe::default(),
-            greeter: None,
             greeter_login_watch: false,
             greeter_watch_next_ns: 0,
-            search,
-            settings_win,
             app_win,
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
             app_layers: [nexus_display_proto::client_surface::LayerDesc::default();
@@ -1049,35 +701,12 @@ impl DisplayServerRuntime {
             app_event_channel: None,
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
-            search_filtered: {
-                let mut v = Vec::new();
-                super::desktop_layer::search_filter("", &mut v);
-                v
-            },
-            search_scroll: ScrollMomentum::new(ScrollConfig::default()),
-            search_scroll_last_ns: 0,
             atlas_alloc: atlas,
-            chat_list,
-            chat_scroll_y: 0,
-            chat_scroll_last_ns: 0,
-            chat_scroll_diag_ns: 0,
-            wheel_miss_diag_ns: 0,
-            pending_chat_wheel: 0,
             pending_input: None,
-            chat_content_h,
-            chat_visible,
-            chat_msg_lines,
-            chat_line_ranges,
-            chat_render_base: 0,
-            chat_drag_marker_emitted: false,
-            chat_button_marker_emitted: false,
             shell_config,
             // Registration order = initial stacking (later on top once shown);
             // both start hidden, mirroring the ShellWindow `visible` flags above.
             windows: crate::window_scene::WindowStack::new(&[
-                crate::window_scene::WindowId::Search,
-                crate::window_scene::WindowId::Chat,
-                crate::window_scene::WindowId::Settings,
                 crate::window_scene::WindowId::AppClient,
                 // The desktop base (shell/greeter app-host). Registered hidden;
                 // shown + composited once a desktop-level client surface connects
@@ -1109,9 +738,7 @@ impl DisplayServerRuntime {
         self.observer_state.keyboard_target_visible |= self.state.keyboard_target_visible;
         self.observer_state.input_visible_on |= self.state.input_visible_on;
         self.observer_state.cursor_move_visible |= self.state.cursor_move_visible;
-        // Hover proof: either hover source (test card or glass button) counts —
-        // the automated injection drives the pointer onto the button.
-        self.observer_state.hover_visible |= self.state.hover_visible || self.button_hover;
+        self.observer_state.hover_visible |= self.state.hover_visible;
         self.observer_state.sidebar_open_visible |= self.state.sidebar_open_visible;
         self.observer_state.focus_visible |= self.state.focus_visible;
         self.observer_state.launcher_click_visible |= self.state.launcher_click_visible;
@@ -1161,14 +788,9 @@ impl DisplayServerRuntime {
         if matches!(id, crate::window_scene::WindowId::Desktop) {
             return DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
         }
-        let win = match id {
-            crate::window_scene::WindowId::Chat => &self.chat,
-            crate::window_scene::WindowId::Search => &self.search,
-            crate::window_scene::WindowId::Settings => &self.settings_win,
-            crate::window_scene::WindowId::AppClient => &self.app_win,
-            crate::window_scene::WindowId::Desktop => unreachable!("handled above"),
-        };
-        win.damage_rect(self.mode.width, self.mode.height)
+        // Only the floating app window remains a chrome `ShellWindow`; the
+        // legacy chat/search/settings windows are DELETED (DSL apps now).
+        self.app_win.damage_rect(self.mode.width, self.mode.height)
     }
 
     /// Mirror a window becoming visible into the stack: it is raised to the top
@@ -1190,14 +812,8 @@ impl DisplayServerRuntime {
     pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
         let before = self.windows.focused();
         self.windows.hide(id);
-        match id {
-            crate::window_scene::WindowId::Chat => self.chat.leave_fullscreen(),
-            crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
-            crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
-            crate::window_scene::WindowId::AppClient => self.app_win.leave_fullscreen(),
-            // The desktop base has no fullscreen toggle (it is already the
-            // full-screen base) and no chrome to restore.
-            crate::window_scene::WindowId::Desktop => {}
+        if matches!(id, crate::window_scene::WindowId::AppClient) {
+            self.app_win.leave_fullscreen();
         }
         self.update_dock();
         let after = self.windows.focused();

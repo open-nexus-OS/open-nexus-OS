@@ -47,7 +47,25 @@ pub struct Lowered {
 /// # Errors
 /// The first construct outside the v0.1 lowering subset.
 pub fn lower_file(file: &File, model: &Model<'_>, source: &str) -> Result<Lowered, Diagnostic> {
-    let ctx = Ctx::build(file, model)?;
+    lower_file_with_catalog(file, model, source, &BTreeMap::new())
+}
+
+/// Like [`lower_file`], with the app's DEFAULT-locale catalog (key → display
+/// text, from `i18n/<default>.json`) BAKED into the program: each `I18nKey`
+/// entry points at the translated symbol instead of the dotted key, so `@t()`
+/// renders real text with the existing `IdentityLocale` runtime. Runtime
+/// locale SWITCHING (loading other catalogs) is the TASK-0081 i18n pipeline;
+/// this is the default-locale floor (keys never leak to the screen).
+///
+/// # Errors
+/// The first construct outside the v0.1 lowering subset.
+pub fn lower_file_with_catalog(
+    file: &File,
+    model: &Model<'_>,
+    source: &str,
+    catalog: &BTreeMap<String, String>,
+) -> Result<Lowered, Diagnostic> {
+    let ctx = Ctx::build(file, model, catalog)?;
 
     // Build with a zeroed hash, canonicalize, hash, rebuild with the real
     // hash, canonicalize again → deterministic final bytes.
@@ -90,6 +108,10 @@ pub(super) struct Ctx<'a> {
     pub component_index: BTreeMap<&'a str, u32>,
     pub event_index: BTreeMap<&'a str, u32>,
     pub i18n_keys: Vec<String>,
+    /// Per `i18n_keys` index: the DISPLAY text the key's IR entry points at —
+    /// the default-locale translation when the catalog has one, else the key
+    /// itself (the pre-catalog behavior).
+    pub i18n_texts: Vec<String>,
     pub entry_page: u32,
     /// Case name → (canonical event index, case index). Unambiguous only.
     case_map: BTreeMap<String, (u32, u32)>,
@@ -114,11 +136,25 @@ pub(super) enum ComponentSource {
 }
 
 impl<'a> Ctx<'a> {
-    fn build(file: &'a File, model: &Model<'a>) -> Result<Self, Diagnostic> {
+    fn build(
+        file: &'a File,
+        model: &Model<'a>,
+        catalog: &BTreeMap<String, String>,
+    ) -> Result<Self, Diagnostic> {
         // ---- collect every symbol the program mentions
         let mut set: BTreeSet<String> = BTreeSet::new();
         let mut i18n: BTreeSet<String> = BTreeSet::new();
         collect_symbols(file, &mut set, &mut i18n);
+
+        // Default-locale texts join the symbol table so the i18n key entries
+        // can point at them (`lower_file_with_catalog`).
+        let i18n_texts: Vec<String> = i18n
+            .iter()
+            .map(|key| catalog.get(key).cloned().unwrap_or_else(|| key.clone()))
+            .collect();
+        for text in &i18n_texts {
+            set.insert(text.clone());
+        }
 
         let symbols: Vec<String> = set.into_iter().collect();
         let symbol_ids: BTreeMap<String, u32> =
@@ -242,6 +278,7 @@ impl<'a> Ctx<'a> {
             component_index,
             event_index,
             i18n_keys: i18n.into_iter().collect(),
+            i18n_texts,
             entry_page,
             case_map,
             field_store,
@@ -681,9 +718,12 @@ fn build_message(
 
         {
             let mut keys = program.reborrow().init_i18n_keys(ctx.i18n_keys.len() as u32);
-            for (i, key) in ctx.i18n_keys.iter().enumerate() {
+            for i in 0..ctx.i18n_keys.len() {
                 let mut entry = keys.reborrow().get(i as u32);
-                entry.set_key(ctx.sym(key));
+                // Points at the DISPLAY text (default-locale translation when
+                // the catalog has one, else the dotted key) — `IdentityLocale`
+                // then renders real text instead of leaking keys to the UI.
+                entry.set_key(ctx.sym(&ctx.i18n_texts[i]));
                 entry.init_arg_types(0);
             }
         }

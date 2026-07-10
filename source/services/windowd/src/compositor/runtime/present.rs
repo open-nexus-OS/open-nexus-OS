@@ -453,14 +453,11 @@ impl DisplayServerRuntime {
         if stuck >= STALL_THRESHOLD_NS {
             if !self.stall_reported {
                 let _ = debug_println(&alloc::format!(
-                    "windowd: STALL present stuck {}ms — pending_rects={} in_flight={} last_seq={} scroll_y={} chat_animating={} surface_dirty={} (recovering)",
+                    "windowd: STALL present stuck {}ms — pending_rects={} in_flight={} last_seq={} (recovering)",
                     stuck / 1_000_000,
                     self.pending_damage_rects.len(),
                     self.frames_in_flight(),
                     self.last_completed_seq,
-                    self.chat_scroll_y,
-                    self.chat_list.is_animating(),
-                    self.chat.surface_dirty,
                 ));
                 self.stall_reported = true;
             }

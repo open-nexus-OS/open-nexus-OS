@@ -16,11 +16,9 @@ extern crate alloc;
 // Dynamic Apps menu model (RFC-0065 — dropdown built from the bundlemgrd registry,
 // not a hardcoded const). Host-tested + consumed by the os compositor.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod app_menu;
 // Live registry fetch (RFC-0065): windowd → bundlemgrd OP_LIST_APPS over CAP_MOVE,
 // parsed into `app_menu::AppMenu`. OS-only (IPC); the parser it feeds is host-tested.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
-mod registry_client;
 // Session-authority client (TASK-0065B): windowd → sessiond GET_STATE/LOGIN over
 // CAP_MOVE — the greeter/login relay. OS-only (IPC); codecs host-tested in nexus-abi.
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

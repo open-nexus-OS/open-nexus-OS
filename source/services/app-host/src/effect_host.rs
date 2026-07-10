@@ -321,11 +321,16 @@ fn parse_session_user_names(frame: &[u8]) -> Vec<String> {
     }
     let mut pos = nexus_abi::sessiond::GET_STATE_BODY_OFFSET;
     for _ in 0..count {
-        let _id = take_lp_str(frame, &mut pos);
+        let id = take_lp_str(frame, &mut pos);
         let name = take_lp_str(frame, &mut pos);
         let _product = take_lp_str(frame, &mut pos);
-        match name {
-            Some(name) if _id.is_some() && _product.is_some() => out.push(name),
+        // The rows feed `Pick(user)` → `svc.session.login(user)` — login
+        // needs the USER ID, not the display name (returning the name made
+        // every DSL login `UNKNOWN_USER`-denied). The id doubles as the
+        // display string until `session.users` grows a record row
+        // ({id, label}, like bundlemgr's AppEntry) in the service surface.
+        match id {
+            Some(id) if name.is_some() && _product.is_some() => out.push(id),
             _ => break,
         }
     }

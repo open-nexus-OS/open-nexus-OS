@@ -63,23 +63,34 @@ impl DisplayServerRuntime {
                 0,
             );
         };
-        // The declared intent rides ATOMICALLY on the create frame — the old
-        // separate pre-create OP_SURFACE_INTENT raced when two app-hosts
-        // connected concurrently (shell + counter: crossed intents put BOTH
-        // surfaces in the desktop role). Store it as this create's intent.
-        self.app_intent_style = style;
-        self.app_intent_level = level;
-        self.app_intent_mode = mode;
-        self.app_intent_resizable = resizable;
         // Declarative routing at CREATE: the connecting app's presentation
-        // (its carried intent ⟂ policy) decides the role slot. A DESKTOP-role
+        // (its carried intent ⟂ policy) decides the role slot — resolved from
+        // THIS frame's values, never from stored state. A DESKTOP-role
         // surface (shell/greeter) gets its OWN slot — id, event channel,
         // full-screen band — fully separate from the floating `app_win`, so
         // the shell and an app window coexist (the singleton collision made
         // "counter startet nicht").
-        if self.app_presentation().role == crate::window_scene::WindowRole::Desktop {
+        let presentation = crate::surface_presentation::WindowPresentation::resolve(
+            style,
+            level,
+            mode,
+            resizable,
+            self.windowing_policy,
+        );
+        if presentation.role == crate::window_scene::WindowRole::Desktop {
             return self.create_desktop_surface(width, height, format, vmo_slot, nonce);
         }
+        // The declared intent rides ATOMICALLY on the create frame — the old
+        // separate pre-create OP_SURFACE_INTENT raced when two app-hosts
+        // connected concurrently (shell + counter: crossed intents put BOTH
+        // surfaces in the desktop role). Bind it to the FLOATING slot ONLY
+        // (desktop creates must never overwrite it: `app_intent_*` feeds every
+        // floating-path decision — chrome, corner radius, z-stack id — and a
+        // shell/greeter create while a window is open poisoned them all).
+        self.app_intent_style = style;
+        self.app_intent_level = level;
+        self.app_intent_mode = mode;
+        self.app_intent_resizable = resizable;
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
                 self.app_surface_id = Some(id);
@@ -168,19 +179,7 @@ impl DisplayServerRuntime {
             }
         };
         if self.desktop_band.is_none() {
-            let mut band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
-            if band.is_none() && self.reclaim_hidden_window_bands() {
-                band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
-            }
-            if band.is_none() && self.greeter.is_some() {
-                // Pool pressure during login: the avatar greeter holds a
-                // full-screen band and the DSL greeter needs one. Retire the
-                // avatar NOW (early swap — one blink of the base scene) and
-                // retry: a degraded transition beats a failed login screen.
-                self.swap_greeter_to_dsl();
-                band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
-            }
-            let Some(band) = band else {
+            let Some(band) = self.atlas_alloc.alloc(self.mode.width, self.mode.height) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: desktop surface FAIL atlas (need={}x{} rows_remaining={})",
                     self.mode.width,
@@ -232,53 +231,84 @@ impl DisplayServerRuntime {
         wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
     }
 
-    /// Atlas pressure valve: release bands whose loss is invisible — the
-    /// hidden-but-mounted shell windows (a closed chat/search/settings keeps
-    /// standby bands; every open path re-mounts on demand and re-renders).
-    /// Minimized windows stay `visible` (they live in the dock), so only
-    /// truly CLOSED windows are reclaimed. Returns whether anything was
-    /// freed, so the caller retries its allocation instead of failing —
-    /// self-healing, no tuned pool constants.
-    pub(super) fn reclaim_hidden_window_bands(&mut self) -> bool {
-        let mut freed = false;
-        for win in [&mut self.chat, &mut self.search, &mut self.settings_win] {
-            if win.visible {
-                continue;
-            }
-            if let Some((content, blur)) = win.unmount() {
-                self.atlas_alloc.free(content);
-                if let Some(blur) = blur {
-                    self.atlas_alloc.free(blur);
+    /// Sends a frame on the event channel bound to `nonce` — the CREATE-ack
+    /// route: the create frame carries the client's nonce, so the reply
+    /// reaches the CREATING client even when it is not the floating window
+    /// (the old `send_app_frame` ack path sent DESKTOP create-acks to the
+    /// floating channel — None for the first app → the greeter app-host hung
+    /// in `recv_ack` forever and its event loop never armed: dead buttons).
+    pub(crate) fn send_frame_for_nonce(&mut self, nonce: u64, frame: &[u8]) -> bool {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(slot) = self.event_channel_for(nonce) else { return false };
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => true,
+                Err(_) => {
+                    let _ = debug_println("WINDOWD: FAIL nonce event send");
+                    true // the channel exists — do not fall back to the shared endpoint
                 }
-                freed = true;
             }
         }
-        if freed {
-            let _ = debug_println("windowd: atlas reclaim (hidden window bands)");
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (nonce, frame);
+            false
         }
-        freed
     }
 
-    /// Umbau #17 visual swap: retire the built-in avatar greeter the moment
-    /// the DSL greeter's desktop surface presents real pixels. Frees the
-    /// avatar band (pool discipline) and arms the login watch — the login now
-    /// happens out of process (greeter app-host → `svc.session.login`), so
-    /// `greeter_watch_tick` polls sessiond until the session activates and
-    /// then applies the session shell. No-op when no avatar greeter is up
-    /// (auto-login boots, shell presents, re-presents).
-    pub(super) fn swap_greeter_to_dsl(&mut self) {
-        let Some(greeter) = self.greeter.take() else {
-            return;
-        };
-        self.atlas_alloc.free(greeter.surface);
-        self.greeter_login_watch = true;
-        let _ = debug_println("windowd: greeter swapped (dsl)");
-        self.queue_gpu_blit_rect(DamageRect {
-            x: 0,
-            y: 0,
-            width: self.mode.width,
-            height: self.mode.height,
-        });
+    /// The current desktop surface id, for ack-ownership decisions taken
+    /// BEFORE a handler mutates the bookkeeping (destroy clears the id).
+    pub(crate) fn desktop_surface_id_for_ack(&self) -> Option<u32> {
+        self.desktop_surface_id
+    }
+
+    /// Sends a frame on the DESKTOP channel (survives a desktop destroy — the
+    /// channel stays bound for the re-create, so the destroy-ack still lands).
+    pub(crate) fn send_desktop_ack(&mut self, frame: &[u8]) -> bool {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(slot) = self.desktop_channel else { return false };
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                Ok(_) => true,
+                Err(_) => {
+                    let _ = debug_println("WINDOWD: FAIL desktop event send");
+                    true // channel exists — no shared-endpoint fallback
+                }
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = frame;
+            false
+        }
+    }
+
+    /// Sends a frame on the channel of the surface's OWNER — the PRESENT/
+    /// DESTROY-ack route: the desktop surface has its own channel; everything
+    /// else is the floating window's.
+    pub(crate) fn send_surface_frame(&mut self, surface_id: u32, frame: &[u8]) -> bool {
+        #[cfg(nexus_env = "os")]
+        {
+            if self.desktop_surface_id == Some(surface_id) {
+                let Some(slot) = self.desktop_channel else { return false };
+                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+                match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+                    Ok(_) => return true,
+                    Err(_) => {
+                        let _ = debug_println("WINDOWD: FAIL desktop event send");
+                        return true; // channel exists — no shared-endpoint fallback
+                    }
+                }
+            }
+            self.send_app_frame(frame)
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (surface_id, frame);
+            false
+        }
     }
 
     /// Blits the DESKTOP surface out of its VMO into the full-screen desktop
@@ -367,11 +397,6 @@ impl DisplayServerRuntime {
                 // present repaints the base layer; a floating present the window.
                 if self.desktop_surface_id == Some(surface_id) {
                     self.desktop_dirty = true;
-                    // Umbau #17 visual swap: the desktop surface now carries
-                    // real pixels — if the built-in avatar greeter still owns
-                    // the display, this present is the DSL greeter taking
-                    // over. Retire the avatar card and arm the login watch.
-                    self.swap_greeter_to_dsl();
                     self.queue_full_frame_damage();
                 } else if self.app_surface_id == Some(surface_id) {
                     self.app_win.surface_dirty = true;
@@ -466,13 +491,7 @@ impl DisplayServerRuntime {
         if !self.app_win.is_mounted() {
             let w = self.app_win.w;
             let h = self.app_win.h;
-            let mut content = self.atlas_alloc.alloc(w, h);
-            if content.is_none() && self.reclaim_hidden_window_bands() {
-                // Pressure valve: a fullscreen re-create needs display-height
-                // rows; closed shell windows' standby bands are reclaimable.
-                content = self.atlas_alloc.alloc(w, h);
-            }
-            let Some(content) = content else {
+            let Some(content) = self.atlas_alloc.alloc(w, h) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
                     w,
@@ -622,14 +641,14 @@ impl DisplayServerRuntime {
                     }
                 } else {
                     // Below the app surface (max-size frame): glass tint.
-                    crate::compositor::desktop_layer::write_tint_span(
+                    // (`GLASS_TINT_ALPHA` relocated from the deleted legacy
+                    // desktop_layer — ~59%, reads as frosted glass.)
+                    const GLASS_TINT_ALPHA: u8 = 150;
+                    crate::compositor::shell_window::write_tint_span(
                         row,
                         0,
                         win_w,
-                        crate::theme::with_alpha(
-                            tk.glass_tint,
-                            crate::compositor::desktop_layer::TINT[3],
-                        ),
+                        crate::theme::with_alpha(tk.glass_tint, GLASS_TINT_ALPHA),
                     );
                 }
             }
@@ -655,14 +674,17 @@ impl DisplayServerRuntime {
         else {
             return;
         };
-        self.app_intent_style = style;
-        self.app_intent_level = level;
-        self.app_intent_mode = mode;
-        self.app_intent_resizable = resizable;
-        // Declarative: the resolved presentation (intent ⟂ policy) decides the
-        // content rect — a full-screen surface (desktop level / fullscreen mode)
-        // fills the display; a floating window gets the body inside its chrome.
-        let p = self.app_presentation();
+        // STATELESS: the reply is computed from THIS frame's intent only.
+        // Storing it here poisoned the floating window's `app_intent_*` when a
+        // desktop app (shell/greeter) asked while a window was open — the
+        // create carries the intent atomically, so nothing needs it stored.
+        let p = crate::surface_presentation::WindowPresentation::resolve(
+            style,
+            level,
+            mode,
+            resizable,
+            self.windowing_policy,
+        );
         let (rw, rh) = if p.full_screen {
             (self.mode.width as u16, self.mode.height as u16)
         } else {

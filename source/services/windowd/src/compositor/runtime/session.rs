@@ -109,11 +109,30 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// One login-watch step (Umbau #17 swap), called from the main loop next
-    /// to the session probe. Armed by `swap_greeter_to_dsl` (the DSL greeter
-    /// took the display); polls sessiond until the out-of-process login lands,
-    /// then applies the session shell. Returns `true` while it needs pacing
-    /// wakes. Rate-bounded; runs only between swap and login.
+    /// True while the LOGIN PHASE owns the display: chrome + dock stay
+    /// suppressed until the session activates. (The built-in avatar greeter is
+    /// deleted — the DSL greeter app-host is the login UI; this flag is the
+    /// session gate that used to be `greeter.is_some()`.)
+    pub(super) fn greeter_active(&self) -> bool {
+        self.greeter_login_watch
+    }
+
+    /// Shell chrome composites only when the config enables it, the SESSION
+    /// DECISION has been made, no login phase owns the display (TASK-0065B),
+    /// and no FULLSCREEN window covers it (TASK-0070 Phase 2): the boot order
+    /// is splash → login → shell.
+    pub(super) fn chrome_composited(&self) -> bool {
+        self.shell_config.desktop_chrome
+            && self.session_resolved()
+            && !self.greeter_active()
+            && self.windows.fullscreen_active().is_none()
+    }
+
+    /// One login-watch step (Umbau #17), called from the main loop next to
+    /// the session probe. Armed by the STATE_GREETER snapshot (the DSL
+    /// greeter owns the display); polls sessiond until the out-of-process
+    /// login lands, then applies the session shell. Returns `true` while it
+    /// needs pacing wakes. Rate-bounded; runs only during the login phase.
     pub(crate) fn greeter_watch_tick(&mut self, now_ns: u64) -> bool {
         if !self.greeter_login_watch {
             return false;
@@ -152,17 +171,18 @@ impl DisplayServerRuntime {
                 self.apply_session_shell(product);
             }
             wire::STATE_GREETER => {
-                // The login window owns the display until a user logs in. The
-                // built-in avatar greeter comes up FIRST (fail-safe: login
-                // works even if the app-host chain breaks) …
-                self.start_greeter(&snapshot.users);
-                // … then the DSL greeter app-host launches (bundle_type=
-                // greeter passes abilitymgr's pre-session gate). Its first
-                // desktop-surface present retires the avatar greeter
-                // (`swap_greeter_to_dsl`) and arms `greeter_watch_tick`,
-                // which applies the session shell once the out-of-process
-                // login (`svc.session.login`) lands.
+                // The login phase owns the display until a user logs in: the
+                // DSL greeter app-host IS the login UI (the built-in avatar
+                // greeter is DELETED per the cleanup map — user-verified DSL
+                // login 2026-07-10). bundle_type=greeter passes abilitymgr's
+                // pre-session gate; its surface declares `level: desktop`.
                 self.launch_app("greeter");
+                // Arm the login watch: chrome stays suppressed
+                // (`greeter_active`) and windowd polls sessiond until the
+                // out-of-process login (`svc.session.login`) lands, then
+                // applies the session shell.
+                self.greeter_login_watch = true;
+                let _ = debug_println("windowd: greeter on (dsl)");
             }
             _ => {
                 let _ = debug_println("windowd: session unavailable (auto shell)");

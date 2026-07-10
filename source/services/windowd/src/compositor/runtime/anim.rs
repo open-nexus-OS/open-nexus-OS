@@ -19,11 +19,11 @@ use super::*;
 
 impl DisplayServerRuntime {
     pub(crate) fn has_active_animations(&self) -> bool {
-        // Springs (sidebar/hover) OR either window's scroll momentum — any keeps the
-        // present-loop pacer ticking until motion settles, then windowd goes idle.
+        // Springs (sidebar/hover proof layers) keep the present-loop pacer
+        // ticking until motion settles, then windowd goes idle. (Window scroll
+        // momentum left with the legacy chat/search windows — app scroll is
+        // the DSL app's business, presented as client frames.)
         self.animation_driver.active_count() > 0
-            || self.chat_list.is_animating()
-            || (self.search.visible && self.search_scroll.is_animating())
     }
 
     /// Record one empty NonBlocking poll wake-up (busy-poll spin) for telemetry.
@@ -37,34 +37,6 @@ impl DisplayServerRuntime {
         // No polling — the caller gates this via has_active_animations().
         // When no animation is running, tick() is not called at all.
         //
-        // Chat scroll momentum first: it integrates the virtual-list velocity
-        // over real elapsed time and queues the cheap GPU offset re-present. Runs
-        // even when no spring is active (the spring block early-returns below), so
-        // a pure scroll flick still advances every frame.
-        self.tick_chat_scroll(now_ns);
-        // Search window scroll momentum: the SAME engine, eased the same way (E2).
-        self.tick_search_scroll(now_ns);
-        // Freeze forensics (rate-limited ~500ms while anything scrolls): one line
-        // with both engines' position/target + the present-loop health counters.
-        // If scroll ever dies again, this pins WHICH stage stopped: the engine
-        // (pos stuck), the pacer (no lines at all), or the present path
-        // (inflight pinned / pending never draining).
-        if (self.chat_list.is_animating()
-            || (self.search.visible && self.search_scroll.is_animating()))
-            && now_ns.saturating_sub(self.chat_scroll_diag_ns) >= 500_000_000
-        {
-            self.chat_scroll_diag_ns = now_ns;
-            let _ = debug_println(&alloc::format!(
-                "windowd: scroll diag chat={}/{} search={}/{} inflight={} pending={}",
-                self.chat_list.scroll_offset().as_i32(),
-                self.chat_list.scroll_target(),
-                self.search_scroll.offset_px(),
-                self.search_scroll.target() as i32,
-                self.frames_in_flight(),
-                self.has_pending_damage(),
-            ));
-        }
-
         let mut anim_updates = [SceneUpdate::default(); ANIMATION_UPDATE_CAP];
         let update_count = self.animation_driver.tick_into(now_ns, &mut anim_updates);
         if update_count == 0 {
@@ -80,29 +52,13 @@ impl DisplayServerRuntime {
         let mut panel_dirty = false;
         let mut sidebar_dirty = false;
         let mut button_dirty = false;
-        let mut dropdown_dirty = false;
         for update in updates {
             match update.layer_id {
                 SIDEBAR_LAYER_ID => sidebar_dirty = true,
-                DROPDOWN_LAYER_ID => dropdown_dirty = true,
-                // HOVER drives the glass button's alpha (hover highlight), which
-                // sits at the top-right — not in the left panel rect.
+                // HOVER drives the (proof) hover highlight alpha.
                 HOVER_LAYER_ID => button_dirty = true,
                 _ => panel_dirty = true,
             }
-        }
-        if dropdown_dirty {
-            use crate::compositor::desktop_layer::{
-                menu_item_x, DROPDOWN_W, TOPBAR_H, TOPBAR_MARGIN_X, TOPBAR_TOP,
-            };
-            let dx = TOPBAR_MARGIN_X + menu_item_x(self.dropdown_item());
-            let dy = TOPBAR_TOP + TOPBAR_H + 4;
-            self.queue_gpu_blit_rect(DamageRect {
-                x: dx,
-                y: dy,
-                width: DROPDOWN_W.min(self.mode.width.saturating_sub(dx)),
-                height: self.dropdown_h,
-            });
         }
         if panel_dirty {
             let panel_damage = DamageRect {
@@ -139,12 +95,6 @@ impl DisplayServerRuntime {
             let _ = debug_println(UIANIM_SPRING_CONVERGE_OK);
             self.animation_proof.spring_marker = true;
         }
-        // Invalidate sidebar blur cache only after the close animation finishes.
-        // Keeping it valid during slide-out means every closing frame uses the cache
-        // instead of triggering a full re-blur.
-        if !self.state.sidebar_open_visible && self.animated_scene.sidebar_opacity < 0.01 {
-            self.sidebar_blur_cache_valid = false;
-        }
         if self.animation_proof.batch_marker
             && self.animation_proof.live_marker
             && self.animation_proof.spring_marker
@@ -180,9 +130,6 @@ impl DisplayServerRuntime {
                 }
                 (SIDEBAR_LAYER_ID, AnimProp::Opacity) => {
                     self.animated_scene.sidebar_opacity = update.value.clamp(0.0, 1.0);
-                }
-                (DROPDOWN_LAYER_ID, AnimProp::Opacity) => {
-                    self.animated_scene.apps_dropdown_progress = update.value.clamp(0.0, 1.0);
                 }
                 _ => {}
             }

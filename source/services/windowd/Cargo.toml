@@ -39,19 +39,11 @@ animation = { path = "../../../userspace/ui/animation" }
 # frame codecs), shared with gpud so neither end hand-mirrors the other.
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
-nexus-virtual-list = { path = "../../../userspace/ui/widgets/virtual_list", default-features = false }
 nexus-shell-desktop = { path = "../../../userspace/ui/shells/desktop" }
 nexus-widget-window = { path = "../../../userspace/ui/widgets/window" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
 nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false }
 # RFC-0065 / ADR-0037 step 1: the search window's content (word list + filter) is
-# owned by the real search app crate, not duplicated in the compositor. windowd
-# keeps only the window chrome + rendering; the app owns its data.
-search-app = { path = "../../../userspace/apps/search" }
-# RFC-0067 P2.4: the chat message model/provider is owned by the chat app, not
-# the generic list widget. windowd consumes the provider's data; the widget stays
-# content-free.
-chat-app = { path = "../../../userspace/apps/chat", default-features = false }
 
 [build-dependencies]
 fontdue = "0.9"

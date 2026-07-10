@@ -29,11 +29,20 @@ struct NodeSize {
 struct LayoutConstraints {
     max_width: FxPx,
     max_height: Option<FxPx>,
+    /// DEFINITE constraints (the viewport root, `layout_with_viewport`): the
+    /// node FILLS the constraint box instead of hugging its content — the
+    /// page root spans the surface, so `.align(center)` + `Spacer` really
+    /// center. Never propagated to children (they keep content sizing).
+    definite: bool,
 }
 
 impl LayoutConstraints {
     const fn new(max_width: FxPx, max_height: Option<FxPx>) -> Self {
-        Self { max_width, max_height }
+        Self { max_width, max_height, definite: false }
+    }
+
+    const fn definite(max_width: FxPx, max_height: Option<FxPx>) -> Self {
+        Self { max_width, max_height, definite: true }
     }
 }
 
@@ -215,9 +224,25 @@ impl LayoutEngine {
         available_width: FxPx,
         measure: &dyn MeasureText,
     ) -> Result<LayoutResult, LayoutError> {
+        self.layout_with_viewport(root, available_width, None, measure)
+    }
+
+    /// Like [`Self::layout`], with a bounded viewport HEIGHT: the root column
+    /// then distributes free space to `flex_grow` children (`Spacer`), so
+    /// vertical centering works. Width-only layout (scrollable content) keeps
+    /// using [`Self::layout`] — content height stays unbounded there.
+    pub fn layout_with_viewport(
+        &self,
+        root: &LayoutNode,
+        available_width: FxPx,
+        available_height: Option<FxPx>,
+        measure: &dyn MeasureText,
+    ) -> Result<LayoutResult, LayoutError> {
         let mut node_count = 0;
         let mut boxes = Vec::new();
-        let constraints = LayoutConstraints::new(available_width, None);
+        // The ROOT is the surface: definite constraints make it fill the
+        // viewport (a hugging root collapsed every centered page top-left).
+        let constraints = LayoutConstraints::definite(available_width, available_height);
         self.place_node(
             root,
             FxPx::ZERO,
@@ -440,8 +465,14 @@ impl LayoutEngine {
         boxes: &mut Vec<LayoutBox>,
     ) -> Result<NodeSize, LayoutError> {
         let measured = self.measure_stack(stack, children, constraints, depth, measure)?;
-        let width = measured.width;
-        let height = measured.height;
+        // Definite constraints (the viewport root): FILL the constraint box —
+        // content sizing (hug) is for nested stacks only.
+        let width = if constraints.definite { constraints.max_width } else { measured.width };
+        let height = if constraints.definite {
+            constraints.max_height.unwrap_or(measured.height)
+        } else {
+            measured.height
+        };
         let container_index = boxes.len();
         let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden);
         let container_scroll =
@@ -535,7 +566,7 @@ impl LayoutEngine {
         let mut total_grow = 0u32;
         let content_width = constraints.max_width;
         for (index, child) in children.iter().enumerate() {
-            let item = *child.item();
+            let item = effective_item(child);
             let measured = self.measure_node(
                 child,
                 child_constraints(constraints, item, content_width, constraints.max_height),
@@ -689,7 +720,7 @@ impl LayoutEngine {
         let mut total_grow = 0u32;
         let content_width = constraints.max_width;
         for child in children {
-            let item = *child.item();
+            let item = effective_item(child);
             let child_width = content_width.saturating_sub(item.margin.horizontal());
             let measured = self.measure_node(
                 child,
@@ -1190,6 +1221,18 @@ fn clamp_to_max_height(value: FxPx, max_height: Option<FxPx>) -> FxPx {
         Some(max_height) => value.min(max_height),
         None => value,
     }
+}
+
+/// The child's flex data with `Spacer::flex_grow` honored: a `Spacer` grows
+/// by its OWN declared factor (default 1) even when its generic `FlexItem`
+/// says 0 — the spacer's whole purpose is absorbing free space; reading only
+/// `FlexItem.flex_grow` made every default spacer inert (top-left greeter).
+fn effective_item(child: &LayoutNode) -> FlexItem {
+    let mut item = *child.item();
+    if let LayoutNode::Spacer(spacer) = child {
+        item.flex_grow = item.flex_grow.max(spacer.flex_grow);
+    }
+    item
 }
 
 fn child_constraints(

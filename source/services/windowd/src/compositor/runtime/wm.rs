@@ -5,15 +5,17 @@
 //! Phase 2): minimize into the dock, restore, fullscreen toggle, and the dock
 //! surface lifecycle. The DECISIONS live in the host-tested `window_scene`
 //! stack and `compositor/dock` geometry; this module only applies them to the
-//! runtime (surfaces, damage, markers).
+//! runtime (surfaces, damage, markers). Post-cleanup (cleanup-map DELETE):
+//! the only windows are the app-client (floating) and the desktop base — the
+//! legacy chat/search/settings windows are DSL apps now.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests (pure logic host-tested in `window_scene` + `dock`)
 
 use super::*;
-use crate::dock;
 use crate::compositor::shell_window::{Frame, ResizeEdge};
+use crate::dock;
 use crate::snap;
 use crate::window_scene::WindowId;
 
@@ -23,6 +25,22 @@ const MIN_WIN_W: u32 = 3 * 48 + 60;
 const MIN_WIN_H: u32 = 120;
 
 impl DisplayServerRuntime {
+    /// The window's current display-space frame. The desktop base is always
+    /// the full display (its geometry follows the mode; never WM-changed).
+    fn window_frame(&self, id: WindowId) -> Frame {
+        match id {
+            WindowId::AppClient => self.app_win.frame(),
+            _ => Frame {
+                x: 0,
+                y: 0,
+                w: self.mode.width,
+                h: self.mode.height,
+                title_h: 0,
+                close_w: 0,
+            },
+        }
+    }
+
     /// Minimize a window into the dock. Refused (with a marker) when the dock
     /// surface cannot be allocated — a window must NEVER become unreachable.
     pub(super) fn minimize_window(&mut self, id: WindowId) {
@@ -34,12 +52,8 @@ impl DisplayServerRuntime {
             return;
         }
         let vacated = self.window_damage_rect(id);
-        match id {
-            WindowId::Chat => self.chat.end_drag(),
-            WindowId::Search => self.search.end_drag(),
-            WindowId::Settings => self.settings_win.end_drag(),
-            WindowId::AppClient => self.app_win.end_drag(),
-            WindowId::Desktop => {} // static base: no drag/minimize
+        if id == WindowId::AppClient {
+            self.app_win.end_drag();
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
@@ -54,12 +68,8 @@ impl DisplayServerRuntime {
             return;
         }
         self.windows.restore(id);
-        match id {
-            WindowId::Chat => self.chat.blur_valid = false,
-            WindowId::Search => self.search.blur_valid = false,
-            WindowId::Settings => self.settings_win.blur_valid = false,
-            WindowId::AppClient => self.app_win.blur_valid = false,
-            WindowId::Desktop => {} // static base: no blur cache / restore
+        if id == WindowId::AppClient {
+            self.app_win.blur_valid = false;
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -75,76 +85,34 @@ impl DisplayServerRuntime {
     /// the chrome (`chrome_composited` gates on `fullscreen_active`); leaving
     /// restores the remembered floating origin.
     pub(super) fn toggle_fullscreen(&mut self, id: WindowId) {
-        // The Settings panel is a fixed-size static window (its atlas surface
-        // can't cover the display), so its "□" is a no-op — never fullscreen it.
-        if matches!(id, WindowId::Settings) {
-            return;
+        if id != WindowId::AppClient {
+            return; // the desktop base is never fullscreen-toggled
         }
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);
         if self.windows.is_fullscreen(id) {
-            match id {
-                WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Settings | WindowId::Desktop => {}
-                WindowId::AppClient => {
-                    // Restore the floating frame + chrome height (fullscreen
-                    // zeroed `title_h`). Restoring it here — not waiting for the
-                    // re-create — keeps `push_app_content_rect`'s title inset
-                    // correct, so the window doesn't grow by `title_h` each
-                    // fullscreen round-trip.
-                    self.app_win.leave_fullscreen();
-                    self.app_win.title_h = self.app_title_h();
-                }
-                WindowId::Search => {
-                    self.search.leave_fullscreen();
-                    // Shrink the pool surfaces back to the floating size.
-                    let (w, h) = (self.search.w, self.search.h);
-                    let _ = self.ensure_search_surfaces(w, h);
-                    self.search_set_extent();
-                    self.commit_search_scroll_position();
-                    self.search.surface_dirty = true;
-                }
-            }
+            // Restore the floating frame + chrome height (fullscreen zeroed
+            // `title_h`). Restoring it here — not waiting for the re-create —
+            // keeps `push_app_content_rect`'s title inset correct, so the
+            // window doesn't grow by `title_h` each fullscreen round-trip.
+            self.app_win.leave_fullscreen();
+            self.app_win.title_h = self.app_title_h();
             self.windows.set_fullscreen(id, false);
             let _ =
                 debug_println(&alloc::format!("windowd: unfullscreen id={}", Self::window_name(id)));
         } else {
-            match id {
-                WindowId::Chat => {
-                    // The full-width chat band backs any h ≤ its height.
-                    let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
-                    self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
-                }
-                WindowId::Settings | WindowId::Desktop => {}
-                WindowId::AppClient => {
-                    // Cover the display; the OP_SURFACE_RECT push below makes the
-                    // app re-create its surface at display size (the atlas band is
-                    // reallocated on that re-create — no display-sized band held
-                    // for a floating window). The client re-render owns the pixels.
-                    self.app_win.enter_fullscreen(mode_w, mode_h);
-                }
-                WindowId::Search => {
-                    // TRUE fullscreen needs pool surfaces at display size; if
-                    // the pool can't back them the toggle is refused honestly.
-                    if !self.ensure_search_surfaces(mode_w, mode_h) {
-                        let _ = debug_println("windowd: fullscreen denied (search pool)");
-                        return;
-                    }
-                    self.search.enter_fullscreen(mode_w, mode_h);
-                    self.search_set_extent();
-                    self.commit_search_scroll_position();
-                    self.search.surface_dirty = true;
-                }
-            }
+            // Cover the display; the OP_SURFACE_RECT push below makes the app
+            // re-create its surface at display size (the atlas band is
+            // reallocated on that re-create — no display-sized band held for a
+            // floating window). The client re-render owns the pixels.
+            self.app_win.enter_fullscreen(mode_w, mode_h);
             self.windows.set_fullscreen(id, true);
             let _ =
                 debug_println(&alloc::format!("windowd: fullscreen id={}", Self::window_name(id)));
         }
-        // AppClient owns its pixels: after the fullscreen flag settles (enter or
-        // leave), push the new content rect so the app re-renders at the new size
-        // (`push_app_content_rect` reads the flag → full display vs. chrome-inset).
-        if id == WindowId::AppClient {
-            self.push_app_content_rect();
-        }
+        // After the fullscreen flag settles (enter or leave), push the new
+        // content rect so the app re-renders at the new size
+        // (`push_app_content_rect` reads the flag → full display vs. inset).
+        self.push_app_content_rect();
         // Chrome visibility + window geometry both changed → full present.
         self.queue_full_frame_damage();
     }
@@ -166,45 +134,17 @@ impl DisplayServerRuntime {
         use crate::compositor::shell_window::TitleButton;
         let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
         let owner = hit[..n].iter().copied().find(|&wid| match wid {
-            WindowId::Chat => self.chat.contains(cx, cy),
-            WindowId::Search => self.search.contains(cx, cy),
-            WindowId::Settings => self.settings_win.contains(cx, cy),
-            // The desktop base has no window chrome to grab — clicks fall
-            // through to the shell's own surface (handled as client input), never
-            // to a window drag/hit owner.
             WindowId::AppClient => self.app_win.contains(cx, cy),
-            WindowId::Desktop => false,
+            // The desktop base has no window chrome to grab — clicks fall
+            // through to the shell's own surface (client input), never to a
+            // window drag/hit owner.
+            _ => false,
         });
-        let want = |wid: WindowId, win: &super::super::shell_window::ShellWindow| -> Option<TitleButton> {
-            if owner == Some(wid) {
-                win.title_button_at(cx, cy)
-            } else {
-                None
-            }
+        let app_hover: Option<TitleButton> = if owner == Some(WindowId::AppClient) {
+            self.app_win.title_button_at(cx, cy)
+        } else {
+            None
         };
-        let search_hover = want(WindowId::Search, &self.search);
-        if search_hover != self.search.title_hover {
-            self.search.title_hover = search_hover;
-            self.search.surface_dirty = true;
-            self.queue_dirty_rect(self.search_window_rect());
-        }
-        let chat_hover = want(WindowId::Chat, &self.chat);
-        if chat_hover != self.chat.title_hover {
-            self.chat.title_hover = chat_hover;
-            self.chat.surface_dirty = true;
-            let rect = self.chat.damage_rect(self.mode.width, self.mode.height);
-            self.queue_gpu_blit_rect(rect);
-        }
-        let settings_hover = want(WindowId::Settings, &self.settings_win);
-        if settings_hover != self.settings_win.title_hover {
-            self.settings_win.title_hover = settings_hover;
-            self.settings_win.surface_dirty = true;
-            self.queue_dirty_rect(self.settings_window_rect());
-        }
-        // AppClient chrome (client app-host windows, e.g. the counter): the
-        // controls `[– □ ×]` are drawn by windowd's own title bar (the chrome is
-        // NOT part of the client surface), so their hover state lives here.
-        let app_hover = want(WindowId::AppClient, &self.app_win);
         if app_hover != self.app_win.title_hover {
             self.app_win.title_hover = app_hover;
             self.app_win.surface_dirty = true;
@@ -217,13 +157,7 @@ impl DisplayServerRuntime {
     /// Begin an edge-resize drag: remember the grabbed edge, the START frame
     /// (the math is deterministic in it) and the grab point.
     pub(super) fn begin_window_resize(&mut self, id: WindowId, edge: ResizeEdge, cx: i32, cy: i32) {
-        let start = match id {
-            WindowId::Chat => self.chat.frame(),
-            WindowId::Search => self.search.frame(),
-            WindowId::Settings => self.settings_win.frame(),
-            WindowId::AppClient => self.app_win.frame(),
-            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
-        };
+        let start = self.window_frame(id);
         self.raise_window(id);
         self.resize_drag = Some((id, edge, start, (cx, cy)));
         self.set_cursor_shape(cursor::CursorShape::for_edge(edge));
@@ -245,14 +179,7 @@ impl DisplayServerRuntime {
             self.mode.width,
             self.mode.height,
         );
-        let current = match id {
-            WindowId::Chat => self.chat.frame(),
-            WindowId::Search => self.search.frame(),
-            WindowId::Settings => self.settings_win.frame(),
-            WindowId::AppClient => self.app_win.frame(),
-            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
-        };
-        if frame != current {
+        if frame != self.window_frame(id) {
             self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);
         }
     }
@@ -260,16 +187,12 @@ impl DisplayServerRuntime {
     /// End an edge-resize drag (pointer release): one honest size marker.
     pub(super) fn end_window_resize(&mut self) {
         if let Some((id, _, _, _)) = self.resize_drag.take() {
-            let (w, h) = match id {
-                WindowId::Chat => (self.chat.w, self.chat.h),
-                WindowId::Search => (self.search.w, self.search.h),
-                WindowId::Settings => (self.settings_win.w, self.settings_win.h),
-                WindowId::AppClient => (self.app_win.w, self.app_win.h),
-                WindowId::Desktop => (self.mode.width, self.mode.height),
-            };
+            let frame = self.window_frame(id);
             let _ = debug_println(&alloc::format!(
-                "windowd: resize id={} w={w} h={h}",
-                Self::window_name(id)
+                "windowd: resize id={} w={} h={}",
+                Self::window_name(id),
+                frame.w,
+                frame.h
             ));
             // Resize negotiation: the client surface keeps its created size, so
             // on release tell the app its new CONTENT rect (window minus the
@@ -330,116 +253,28 @@ impl DisplayServerRuntime {
     }
 
     /// Apply a display-space frame to a window: damage the vacated region,
-    /// resize the content surfaces (search re-mounts from the pool; the chat
-    /// band is boot-reserved and only clamps), re-render, damage the new
-    /// region. The SINGLE geometry-apply path shared by edge resize, snap
-    /// halves, and the fullscreen toggle.
+    /// resize, re-render, damage the new region. The SINGLE geometry-apply
+    /// path shared by edge resize, snap halves, and the fullscreen toggle.
     pub(super) fn apply_window_frame(&mut self, id: WindowId, x: i32, y: i32, w: u32, h: u32) {
+        if id != WindowId::AppClient {
+            // The desktop base is always the full display — never repositioned
+            // or resized by the WM (its geometry follows the mode, pushed to
+            // the shell app-host as the full content rect).
+            return;
+        }
         let old = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(old);
-        match id {
-            WindowId::Chat => {
-                // The chat band is full-width and CHAT_PANEL_H+CHAT_OVERSCAN
-                // tall — clamp the frame to what the band can back.
-                let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(h);
-                let w = w.min(self.mode.width);
-                let h = h.min(band_h);
-                self.chat.set_frame(x, y, w, h);
-            }
-            WindowId::Search => {
-                let w = w.min(self.mode.width);
-                let h = h.min(self.mode.height);
-                if !self.ensure_search_surfaces(w, h) {
-                    // Pool exhausted at this size: keep the old frame (the
-                    // window must never show garbage or vanish).
-                    let _ = debug_println("windowd: resize denied (search pool)");
-                    return;
-                }
-                self.search.set_frame(x, y, w, h);
-                self.search_set_extent();
-                self.commit_search_scroll_position();
-                self.search.surface_dirty = true;
-            }
-            WindowId::Settings => {
-                // Static panel — clamp to its fixed atlas band; the content does
-                // not reflow, so a resize just changes the glass frame.
-                let band_h = self.settings_win.atlas.map(|s| s.height).unwrap_or(h);
-                let w = w.min(self.mode.width);
-                let h = h.min(band_h);
-                self.settings_win.set_frame(x, y, w, h);
-                self.settings_win.surface_dirty = true;
-            }
-            WindowId::AppClient => {
-                // Resize negotiation: let the frame grow to the requested size in
-                // BOTH axes (mode-bounded) — clamping height to the band was why
-                // "höhe passiert nichts". The render + glass composite are bounded
-                // to the current band (`render_app_surface` / `glass_params`), so
-                // growing past the band never over-reads; on release
-                // `end_window_resize` pushes this size and the app re-creates its
-                // surface + band to match. The frame catches up visually then.
-                let w = w.min(self.mode.width);
-                let h = h.min(self.mode.height);
-                self.app_win.set_frame(x, y, w, h);
-                self.app_win.surface_dirty = true;
-            }
-            // The desktop base is always the full display — never repositioned
-            // or resized by the WM (its geometry follows the mode, pushed to the
-            // shell app-host as the full content rect).
-            WindowId::Desktop => {}
-        }
+        // Resize negotiation: let the frame grow to the requested size in BOTH
+        // axes (mode-bounded). The render + glass composite are bounded to the
+        // current band (`render_app_surface` / `glass_params`), so growing past
+        // the band never over-reads; on release `end_window_resize` pushes this
+        // size and the app re-creates its surface + band to match.
+        let w = w.min(self.mode.width);
+        let h = h.min(self.mode.height);
+        self.app_win.set_frame(x, y, w, h);
+        self.app_win.surface_dirty = true;
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
-    }
-
-    /// Ensure the search pool surfaces can back a `w`×`h` window: grow-realloc
-    /// when too small, lazily shrink when 2× oversized, keep otherwise. The
-    /// blur cache follows best-effort (missing blur = unblurred glass).
-    /// TRANSACTIONAL: the old surfaces are only freed once a replacement is
-    /// secured (or re-secured at the old size), so the window never loses its
-    /// content surface mid-resize.
-    fn ensure_search_surfaces(&mut self, w: u32, h: u32) -> bool {
-        let fits = |s: crate::atlas::AtlasSurface| {
-            s.width >= w
-                && s.height >= h
-                && (s.width as u64 * s.height as u64) <= 2 * (w as u64 * h as u64).max(1)
-        };
-        let Some(old_content) = self.search.atlas else {
-            return false; // unmounted (hidden) — nothing to resize
-        };
-        if fits(old_content) && self.search.blur_cache.map(fits).unwrap_or(false) {
-            return true;
-        }
-        // Fast path: the pool has room beside the old surfaces.
-        if let Some(content) = self.atlas_alloc.alloc(w, h) {
-            let blur = self.atlas_alloc.alloc(w, h);
-            if let Some((old, old_blur)) = self.search.unmount() {
-                self.atlas_alloc.free(old);
-                if let Some(old_blur) = old_blur {
-                    self.atlas_alloc.free(old_blur);
-                }
-            }
-            self.search.mount(content, blur);
-            return true;
-        }
-        // Tight pool: free the old surfaces first, then retry; on failure fall
-        // back to remounting at the OLD capacity (just freed → succeeds).
-        let (old_w, old_h) = (old_content.width, old_content.height);
-        if let Some((old, old_blur)) = self.search.unmount() {
-            self.atlas_alloc.free(old);
-            if let Some(old_blur) = old_blur {
-                self.atlas_alloc.free(old_blur);
-            }
-        }
-        if let Some(content) = self.atlas_alloc.alloc(w, h) {
-            let blur = self.atlas_alloc.alloc(w, h);
-            self.search.mount(content, blur);
-            return true;
-        }
-        if let Some(content) = self.atlas_alloc.alloc(old_w, old_h) {
-            let blur = self.atlas_alloc.alloc(old_w, old_h);
-            self.search.mount(content, blur);
-        }
-        false
     }
 
     /// Select the pointer shape for the current pointer position: an ACTIVE
@@ -452,13 +287,14 @@ impl DisplayServerRuntime {
             let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             let mut shape = cursor::CursorShape::Default;
             for &wid in &hit[..n] {
-                let frame = match wid {
-                    WindowId::Chat => self.chat.frame(),
-                    WindowId::Search => self.search.frame(),
-                    WindowId::Settings => self.settings_win.frame(),
-                            WindowId::AppClient => self.app_win.frame(),
-            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
-                };
+                // Only the floating app window has resizable borders; the
+                // desktop base fills the display and never shows a resize
+                // cursor (it would read as a broken affordance on the shell
+                // and the greeter).
+                if wid != WindowId::AppClient {
+                    continue;
+                }
+                let frame = self.window_frame(wid);
                 if frame.contains(cx, cy) {
                     if !self.windows.is_fullscreen(wid) {
                         if let Some(edge) = frame.resize_edge_at(cx, cy) {
@@ -538,7 +374,7 @@ impl DisplayServerRuntime {
     }
 
     /// Render the dock surface (bar tint + one icon per minimized window, in
-    /// the stack's stable dock order). 2D-packed like the search window: the
+    /// the stack's stable dock order). 2D-packed like the app window: the
     /// surface may sit at a column offset, so rows write `w*4` bytes at it.
     pub(super) fn render_dock_surface(&mut self) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
@@ -571,33 +407,16 @@ impl DisplayServerRuntime {
             let row = &mut band[0..stride];
             row[..row_bytes].fill(0);
             super::super::shell_window::write_tint_span(row, 0, bar_local.width, bar_col);
-            for (slot, &wid) in list[..n].iter().enumerate() {
+            for (slot, _wid) in list[..n].iter().enumerate() {
                 let cell = dock::dock_slot_rect(bar_local, slot);
-                let (icon, dim) = match wid {
-                    WindowId::Chat => {
-                        (crate::assets::DOCK_CHAT_ICON_BGRA, crate::assets::DOCK_CHAT_ICON_DIM)
-                    }
-                    WindowId::Search => {
-                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
-                    }
-                    // Placeholder dock glyph until a gear icon is baked (Phase 10).
-                    WindowId::Settings => {
-                        (crate::assets::MENU_ICON_BGRA, crate::assets::MENU_ICON_DIM)
-                    }
-                    // App-client window reuses the search glyph for R1.
-                    WindowId::AppClient => {
-                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
-                    }
-                    // The desktop base is never minimized into the dock, so this
-                    // arm is unreachable; a glyph keeps the match total.
-                    WindowId::Desktop => {
-                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
-                    }
-                };
+                // Only the app-client window minimizes (the desktop base never
+                // does); a per-app glyph lands with the DSL-shell dock (MOVE).
+                let (icon, dim) =
+                    (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM);
                 let iy0 = cell.y + cell.height.saturating_sub(dim) / 2;
                 if ly >= iy0 && ly < iy0 + dim {
                     let ix = cell.x + cell.width.saturating_sub(dim) / 2;
-                    super::desktop_layer::blend_icon_row(row, ix, icon, dim, ly - iy0, 255, glyph_tint);
+                    crate::assets::blend_icon_row(row, ix, icon, dim, ly - iy0, 255, glyph_tint);
                 }
             }
             let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;

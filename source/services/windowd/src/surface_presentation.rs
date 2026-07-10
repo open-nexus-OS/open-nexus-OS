@@ -99,11 +99,13 @@ mod tests {
 
     #[test]
     fn desktop_level_resolves_to_the_base_band_chromeless_fullscreen() {
-        // The shell declares `Window { level: desktop, mode: fullscreen }`.
+        // The shell/greeter declare `Window { style: plain, level: desktop }` —
+        // the desktop LEVEL alone implies full-screen (mode stays `auto`;
+        // `mode: fullscreen` is a floating-window intent, e.g. a kiosk app).
         let p = WindowPresentation::resolve(
             wire::WIN_STYLE_PLAIN,
             wire::WIN_LEVEL_DESKTOP,
-            wire::WIN_MODE_FULLSCREEN,
+            wire::WIN_MODE_AUTO,
             false,
             WindowingPolicy::Desktop,
         );
@@ -111,6 +113,16 @@ mod tests {
         assert!(!p.has_chrome, "the desktop base has no title bar");
         assert!(p.full_screen);
         assert!(!p.resizable);
+        // Declaring BOTH (legacy pages did) resolves identically — the combo
+        // stays valid, just redundant.
+        let both = WindowPresentation::resolve(
+            wire::WIN_STYLE_PLAIN,
+            wire::WIN_LEVEL_DESKTOP,
+            wire::WIN_MODE_FULLSCREEN,
+            false,
+            WindowingPolicy::Desktop,
+        );
+        assert_eq!(both, p);
     }
 
     #[test]

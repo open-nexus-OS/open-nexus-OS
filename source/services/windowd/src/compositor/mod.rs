@@ -53,9 +53,7 @@
 // glass) deleted — dead on both backends; glass is GPU-rendered.
 mod blur;
 mod cache;
-mod chat;
 mod damage;
-mod desktop_layer;
 mod filter;
 mod path_cache;
 mod primitives;
@@ -321,15 +319,33 @@ fn dispatch_client_frame(
             core::mem::forget(cap); // keep the slot alive (no close)
             slot
         });
+        // Ack routing BY NONCE (the create frame carries it): the reply must
+        // reach the CREATING client's own event channel — `send_app_frame`
+        // (the floating channel) sent DESKTOP create-acks into the void and
+        // the shell/greeter app-host hung in its ack wait forever.
+        let nonce = nexus_display_proto::client_surface::decode_surface_create(frame)
+            .map(|(_, _, _, _, _, _, _, n)| n);
         let ack = runtime.handle_surface_create(frame, vmo_slot);
-        if !runtime.send_app_frame(&ack) {
+        let delivered = match nonce {
+            Some(n) => runtime.send_frame_for_nonce(n, &ack),
+            None => false,
+        };
+        if !delivered && !runtime.send_app_frame(&ack) {
             let _ = server.send(&ack, Wait::Blocking);
         }
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
     {
+        // Ack routing BY SURFACE OWNER: a desktop present acks on the desktop
+        // channel, a floating present on the app channel.
+        let sid = nexus_display_proto::client_surface::decode_surface_present(frame)
+            .map(|(id, _, _, _)| id);
         let ack = runtime.handle_surface_present(frame);
-        if runtime.send_app_frame(&ack) {
+        let delivered = match sid {
+            Some(id) => runtime.send_surface_frame(id, &ack),
+            None => runtime.send_app_frame(&ack),
+        };
+        if delivered {
             // delivered on the dedicated channel
         } else if let Some(reply) = moved_cap.take() {
             let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
@@ -339,8 +355,17 @@ fn dispatch_client_frame(
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
     {
+        // Same owner routing as present — decode BEFORE the destroy drops the
+        // surface bookkeeping.
+        let sid = nexus_display_proto::client_surface::decode_surface_destroy(frame);
+        let was_desktop = sid.is_some() && sid == runtime.desktop_surface_id_for_ack();
         let ack = runtime.handle_surface_destroy(frame);
-        if runtime.send_app_frame(&ack) {
+        let delivered = if was_desktop {
+            runtime.send_desktop_ack(&ack)
+        } else {
+            runtime.send_app_frame(&ack)
+        };
+        if delivered {
             // delivered on the dedicated channel
         } else if let Some(reply) = moved_cap.take() {
             let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
@@ -559,11 +584,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             }
         }
         // Frame-aligned input: apply the staged sample (latest cursor/buttons +
-        // summed wheel) ONCE — one hit-test/hover/cursor-move/scroll per frame,
+        // summed wheel) ONCE — one hit-test/hover/cursor-move per frame,
         // independent of how many raw events arrived (the Android Choreographer
-        // model). Then commit the coalesced scroll step.
+        // model).
         let _ = runtime.apply_staged_input();
-        let _ = runtime.commit_scroll_input();
         // Phase 4: skip present while handoff is pending — the VMO must arrive
         // at gpud before any present-damage frames.
         if !runtime.is_handoff_pending() {

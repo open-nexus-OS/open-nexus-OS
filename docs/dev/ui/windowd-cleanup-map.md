@@ -40,21 +40,23 @@ Greeter-UI → die **DSL-Greeter-App**. Alles Deklarative (Fenster-Rolle/Chrome/
 
 ## DELETE — Legacy (ersetzt durch deklaratives Multi-Window + DSL-Apps)
 
-**Gate: erst löschbar, wenn die DSL-Shell/der Greeter als app-host läuft (Umbau #17 2c/2d
-inkl. Input-Routing zur Desktop-Surface) — sonst schwarzer Desktop.**
+**Status 2026-07-10: AUSGEFÜHRT** (bis auf `shell_window.rs`, s.u.). Gelöscht:
+`desktop_layer.rs`, `chat.rs` + `runtime/chat_window.rs`, `runtime/search.rs`,
+`runtime/settings_window.rs`, `runtime/greeter.rs` (Avatar), `app_menu.rs`,
+`registry_client.rs`, `runtime/dsl_mount.rs` + `dsl_effects.rs` (früher),
+`build.rs`-DSL-Pfad (früher), `shell.rs`-UI-Teile (topbar/sidepanel/dropdown-
+Renderer + ensure_app_menu). `input.rs`/`scene.rs`/`wm.rs` auf AppClient+Desktop
+reduziert; Login-Phase = `greeter_login_watch` (session.rs). Boot-Reserven weg —
+der Atlas ist ein On-Demand-Pool (Desktop-Band + Floating + Dock).
 
-| Datei | Ersetzt durch |
-|---|---|
-| `compositor/shell_window.rs` | Fenster-Chrome = `ui/widgets/window` + Scene-Graph; Compositing = nexus-gfx-Layer |
-| `compositor/desktop_layer.rs` | Topbar/Dropdown/Suche = DSL-Shell-App |
-| `compositor/chat.rs`, `runtime/chat_window.rs` | Chat als DSL-App (Chat-Track) |
-| `runtime/search.rs` | Search als DSL-App |
-| `runtime/settings_window.rs` | Settings als DSL-App (bundle_type=settings existiert) |
-| `runtime/dsl_mount.rs`, `runtime/dsl_effects.rs` | Shell als app-host (in-process-Mount retire) |
-| `runtime/greeter.rs` (Avatar-Greeter) | Greeter als app-host (`userspace/apps/greeter`) |
-| `runtime/shell.rs` (UI-Teile) | Shell-App; Policy-Teil → `surface_presentation` |
-| `runtime/app_window.rs` (Chrome-/Sonderfall-Teile) | schrumpft auf generisches Client-Surface-Handling (VMO-Blit, Damage) |
-| `windowd/build.rs` DSL-Kompilierpfad (`dsl_root`) | bundlemgrd-Payload ist der EINE Kompilierpfad |
+| Datei | Ersetzt durch | Status |
+|---|---|---|
+| `compositor/shell_window.rs` | Fenster-Chrome = `ui/widgets/window` + Scene-Graph; Compositing = nexus-gfx-Layer | **BLEIBT vorerst** — trägt das Floating-App-Fenster (Frame/Titel/Resize); Retirement = Widget-Promotion (#23 + windows-as-widgets) |
+| `runtime/app_window.rs` (Chrome-/Sonderfall-Teile) | generisches Client-Surface-Handling | Teilweise (schrumpft weiter mit shell_window-Retirement) |
+| `window_scene.rs` Chat/Search/Settings-Varianten | Surface-Ids + Rollen (voll deklarativ) | Varianten ungenutzt; Enum-Retirement mit Multi-Window-Generalisierung |
+
+Offen notiert: Wheel-FORWARDING an Client-Surfaces (`OP_SURFACE_INPUT` kind=wheel)
+— das legacy Chat/Search-Scrolling entfiel; App-Scroll ist App-Sache.
 
 ## Reihenfolge (Stufen, je boot-verifiziert)
 

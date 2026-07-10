@@ -120,7 +120,7 @@ pub(crate) fn draw_title_bar_row(
         let cy0 = title_h.saturating_sub(dim) / 2;
         if local_y >= cy0 && local_y < cy0 + dim {
             let cix = bx + close_w.saturating_sub(dim) / 2;
-            super::desktop_layer::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255, glyph_tint);
+            crate::assets::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255, glyph_tint);
         }
     }
     // Round the TOP corners at the surface level: clear (make transparent) the

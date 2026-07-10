@@ -270,9 +270,92 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
         return Err(alloc::format!("check: {diags:?}"));
     }
     let canonical = canonical_source_set(&files);
-    crate::lower_file(&merged, &model, &canonical)
+    // Default-locale catalog (`i18n/en.json`): baked into the program so
+    // `@t()` renders real text (keys never leak to the screen). Missing
+    // catalog = keys as text (the pre-catalog behavior); a MALFORMED catalog
+    // fails the build loudly. Runtime locale switching = TASK-0081 i18n.
+    let catalog = load_default_locale_catalog(root)?;
+    crate::lower_file_with_catalog(&merged, &model, &canonical, &catalog)
         .map(|lowered| lowered.nxir)
         .map_err(|d| alloc::format!("lower: {d:?}"))
+}
+
+/// Loads the app's DEFAULT-locale catalog (`i18n/en.json`, a flat JSON object
+/// of `"key": "text"`). Absent file = empty catalog; malformed = build error.
+#[cfg(feature = "std")]
+fn load_default_locale_catalog(
+    root: &std::path::Path,
+) -> Result<alloc::collections::BTreeMap<String, String>, String> {
+    let path = root.join("i18n/en.json");
+    if !path.is_file() {
+        return Ok(alloc::collections::BTreeMap::new());
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| alloc::format!("read {}: {e}", path.display()))?;
+    parse_flat_json_map(&text).map_err(|e| alloc::format!("{}: {e}", path.display()))
+}
+
+/// Minimal flat-JSON parser for locale catalogs: ONE object of string→string
+/// pairs (the catalog contract). Escapes: `\"`, `\\`, `\n`, `\t`. Anything
+/// else — nesting, arrays, numbers, exotic escapes — is a loud error: the
+/// catalog format is deliberately this small (no serde in the compiler core).
+#[cfg(feature = "std")]
+fn parse_flat_json_map(
+    text: &str,
+) -> Result<alloc::collections::BTreeMap<String, String>, String> {
+    fn parse_string(chars: &mut core::iter::Peekable<core::str::Chars<'_>>) -> Result<String, String> {
+        let mut out = String::new();
+        loop {
+            match chars.next() {
+                Some('"') => return Ok(out),
+                Some('\\') => match chars.next() {
+                    Some('"') => out.push('"'),
+                    Some('\\') => out.push('\\'),
+                    Some('n') => out.push('\n'),
+                    Some('t') => out.push('\t'),
+                    other => return Err(alloc::format!("unsupported escape {other:?}")),
+                },
+                Some(c) => out.push(c),
+                None => return Err(String::from("unterminated string")),
+            }
+        }
+    }
+    let mut map = alloc::collections::BTreeMap::new();
+    let mut chars = text.chars().peekable();
+    let mut expect = "{";
+    loop {
+        // Skip whitespace between tokens.
+        while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+            chars.next();
+        }
+        match (expect, chars.next()) {
+            ("{", Some('{')) => expect = "key-or-end",
+            ("key-or-end", Some('}')) | ("key-or-comma-end", Some('}')) => break,
+            ("key-or-end", Some('"')) | ("key", Some('"')) => {
+                let key = parse_string(&mut chars)?;
+                while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+                    chars.next();
+                }
+                if chars.next() != Some(':') {
+                    return Err(alloc::format!("expected ':' after key {key:?}"));
+                }
+                while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+                    chars.next();
+                }
+                if chars.next() != Some('"') {
+                    return Err(alloc::format!("expected string value for key {key:?}"));
+                }
+                let value = parse_string(&mut chars)?;
+                map.insert(key, value);
+                expect = "key-or-comma-end";
+            }
+            ("key-or-comma-end", Some(',')) => expect = "key",
+            (state, token) => {
+                return Err(alloc::format!("unexpected {token:?} (expected {state})"));
+            }
+        }
+    }
+    Ok(map)
 }
 
 /// Reads the app manifest's `dependencies = ["lib", "lib@^1.0", …]` names
@@ -375,6 +458,71 @@ pub fn parse_native_surface(text: &str) -> Result<alloc::vec::Vec<(String, usize
     }
     flush(&mut current)?;
     Ok(out)
+}
+
+#[cfg(all(test, feature = "std"))]
+mod i18n_catalog_tests {
+    use super::*;
+
+    fn temp_app(tag: &str, with_catalog: bool) -> std::path::PathBuf {
+        let root = std::env::temp_dir()
+            .join(format!("nx-i18n-{tag}-{}", std::process::id()))
+            .join("myapp");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("ui/pages")).expect("mkdir");
+        std::fs::write(
+            root.join("ui/pages/Main.nx"),
+            "Page Main { Stack { Text(@t(\"greeter.title\")) } }\n",
+        )
+        .expect("write page");
+        if with_catalog {
+            std::fs::create_dir_all(root.join("i18n")).expect("mkdir i18n");
+            std::fs::write(root.join("i18n/en.json"), "{\n  \"greeter.title\": \"Sign in\"\n}\n")
+                .expect("write catalog");
+        }
+        root
+    }
+
+    /// The default-locale catalog is BAKED: the compiled program's symbol
+    /// table carries the translation, and the raw key no longer needs to be
+    /// what the i18n entry resolves to.
+    #[test]
+    fn default_locale_catalog_bakes_display_text() {
+        let root = temp_app("baked", true);
+        let nxir = compile_project_dir(&root).expect("compiles with catalog");
+        // capnp text fields are raw UTF-8 in the canonical bytes.
+        assert!(
+            nxir.windows(b"Sign in".len()).any(|w| w == b"Sign in"),
+            "translated text must be in the program bytes"
+        );
+    }
+
+    /// No catalog = the key renders as its own text (pre-catalog behavior).
+    #[test]
+    fn missing_catalog_keeps_keys_as_text() {
+        let root = temp_app("keys", false);
+        let nxir = compile_project_dir(&root).expect("compiles without catalog");
+        assert!(nxir.windows(b"greeter.title".len()).any(|w| w == b"greeter.title"));
+    }
+
+    /// A malformed catalog is a LOUD build error, never silently ignored.
+    #[test]
+    fn malformed_catalog_fails_the_build() {
+        let root = temp_app("bad", true);
+        std::fs::write(root.join("i18n/en.json"), "{ nope }").expect("write bad catalog");
+        let err = compile_project_dir(&root).expect_err("must fail");
+        assert!(err.contains("en.json"), "error names the file: {err}");
+    }
+
+    #[test]
+    fn flat_json_parser_handles_escapes_and_whitespace() {
+        let map = parse_flat_json_map(
+            "{ \"a.b\" : \"x \\\" y\", \n  \"c\": \"line\\nbreak\" }",
+        )
+        .expect("parses");
+        assert_eq!(map.get("a.b").map(String::as_str), Some("x \" y"));
+        assert_eq!(map.get("c").map(String::as_str), Some("line\nbreak"));
+    }
 }
 
 #[cfg(all(test, feature = "std"))]

@@ -254,3 +254,46 @@ mod tests {
         );
     }
 }
+
+/// Blend one row of a straight-alpha BGRA icon into a BGRA row buffer,
+/// optionally tinting the glyph. Relocated from the deleted legacy
+/// `desktop_layer` (cleanup-map DELETE): the dock still rasterizes minimized
+/// icons until it moves to the DSL shell (MOVE column).
+pub(crate) fn blend_icon_row(
+    row: &mut [u8],
+    dst_x: u32,
+    icon: &[u8],
+    dim: u32,
+    icon_row: u32,
+    alpha_mul: u8,
+    tint: Option<[u8; 3]>,
+) {
+    if icon_row >= dim {
+        return;
+    }
+    let rp = (row.len() / 4) as u32;
+    let src_off = (icon_row * dim) as usize * 4;
+    for ix in 0..dim {
+        let px = dst_x + ix;
+        if px >= rp {
+            break;
+        }
+        let s = src_off + ix as usize * 4;
+        if s + 4 > icon.len() {
+            break;
+        }
+        let a = u32::from(icon[s + 3]) * u32::from(alpha_mul) / 255;
+        if a == 0 {
+            continue;
+        }
+        let inv = 255 - a;
+        let d = px as usize * 4;
+        for ch in 0..3 {
+            let src = match tint {
+                Some(t) => u32::from(t[ch]),
+                None => u32::from(icon[s + ch]),
+            };
+            row[d + ch] = ((src * a + u32::from(row[d + ch]) * inv) / 255) as u8;
+        }
+    }
+}

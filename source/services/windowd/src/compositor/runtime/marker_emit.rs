@@ -90,7 +90,7 @@ impl DisplayServerRuntime {
             let _ = debug_println(CURSOR_MOVE_VISIBLE_MARKER);
             self.input_markers_emitted.cursor = true;
         }
-        if (self.state.hover_visible || self.button_hover) && !self.input_markers_emitted.hover {
+        if self.state.hover_visible && !self.input_markers_emitted.hover {
             let _ = debug_println(HOVER_VISIBLE_MARKER);
             self.input_markers_emitted.hover = true;
         }

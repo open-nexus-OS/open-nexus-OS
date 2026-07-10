@@ -280,7 +280,15 @@ mod probe {
 
         // 4. Mount + render the DSL program into the VMO; the solid fill stays
         //    as the fail-closed VISIBLE fallback.
-        let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode);
+        // Declarative base alpha: a desktop/fullscreen surface is the BASE
+        // layer and paints opaque; floating windows keep the frosted glass.
+        let base_alpha: u8 = if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN
+        {
+            255
+        } else {
+            190
+        };
+        let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, base_alpha);
         match &app {
             Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
@@ -392,7 +400,7 @@ mod probe {
                 // without a remount is a later refinement) and repaint.
                 if mode != theme_mode {
                     theme_mode = mode;
-                    app = DslApp::mount(payload, surf_w, surf_h, theme_mode);
+                    app = DslApp::mount(payload, surf_w, surf_h, theme_mode, base_alpha);
                     if let Some(dsl) = app.as_ref() {
                         let _ = dsl.render(vmo);
                     }
@@ -459,9 +467,19 @@ mod probe {
                             dirty = true;
                         } else if tap_miss_markers < 8 {
                             // No handler hit / no visible change: report the
-                            // first few (coordinate-mapping bugs look like this).
+                            // first few WITH VALUES (coordinate-mapping bugs
+                            // look like this) + a one-time handler-box dump so
+                            // one boot log shows where taps land vs. where the
+                            // interactive boxes are.
                             tap_miss_markers += 1;
-                            raw_marker("apphost: input tap miss");
+                            raw_marker(&alloc::format!(
+                                "apphost: input tap miss at ({x},{y})"
+                            ));
+                            if tap_miss_markers == 1 {
+                                if let Some(dsl) = app.as_ref() {
+                                    dsl.dump_handler_boxes();
+                                }
+                            }
                         }
                     }
                 }
@@ -507,6 +525,12 @@ mod probe {
         /// The service seam: `svc.*` effects (tap handlers AND the root
         /// initial-load effects) call through this over the provisioned slots.
         host: crate::effect_host::AppEffectHost,
+        /// Base (page background) alpha: OPAQUE for a desktop/fullscreen
+        /// surface (it IS the base layer — the shell/greeter owns every
+        /// pixel; a translucent base let the wallpaper — or its solid-blue
+        /// fallback — bleed through), frosted-translucent for floating
+        /// windows (the glass material over the blurred backdrop).
+        base_alpha: u8,
         /// Surface dimensions (the WM-composed content rect, or the probe
         /// default). Layout width + render bounds derive from these — a
         /// full-screen shell lays out at the display size, a windowed app at its
@@ -522,7 +546,13 @@ mod probe {
         /// Validates + mounts the program bytes and lays them out at
         /// surface size. `None` on any failure (fail-closed; caller shows
         /// the probe fill).
-        fn mount(nxir: &'static [u8], w: u32, h: u32, theme_mode: u8) -> Option<Self> {
+        fn mount(
+            nxir: &'static [u8],
+            w: u32,
+            h: u32,
+            theme_mode: u8,
+            base_alpha: u8,
+        ) -> Option<Self> {
             use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
@@ -561,15 +591,19 @@ mod probe {
             }
             let engine = nexus_layout::LayoutEngine::new();
             let layout = engine
-                .layout(
+                .layout_with_viewport(
                     view.scene(),
                     nexus_layout_types::FxPx::new(w as i32),
+                    // Bounded viewport: the surface height — Spacer/flex_grow
+                    // children distribute it, so DSL centering works (an
+                    // unbounded root hugged everything to the top-left).
+                    Some(nexus_layout_types::FxPx::new(h as i32)),
                     &nexus_text_baked::measure_text::BakedTextMeasure,
                 )
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self { view, symbols, keys, layout, texts, host, w, h, theme_mode })
+            Some(Self { view, symbols, keys, layout, texts, host, base_alpha, w, h, theme_mode })
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
@@ -597,17 +631,24 @@ mod probe {
             if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
                 return false;
             }
-            let engine = nexus_layout::LayoutEngine::new();
-            let Ok(layout) = engine.layout(
-                self.view.scene(),
-                nexus_layout_types::FxPx::new(self.w as i32),
-                &nexus_text_baked::measure_text::BakedTextMeasure,
-            ) else {
-                return false;
-            };
-            self.layout = layout;
-            self.texts.clear();
-            collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            // Pretext discipline: ONLY layout-class damage re-runs the engine
+            // (widget props — including text content — record Layout deps).
+            // A paint-only change re-renders from the RETAINED boxes: the
+            // pre-measured text + kept layout make that the cheap path.
+            if matches!(damage, Some(Damage::Layout)) {
+                let engine = nexus_layout::LayoutEngine::new();
+                let Ok(layout) = engine.layout_with_viewport(
+                    self.view.scene(),
+                    nexus_layout_types::FxPx::new(self.w as i32),
+                    Some(nexus_layout_types::FxPx::new(self.h as i32)),
+                    &nexus_text_baked::measure_text::BakedTextMeasure,
+                ) else {
+                    return false;
+                };
+                self.layout = layout;
+                self.texts.clear();
+                collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            }
             true
         }
 
@@ -619,9 +660,10 @@ mod probe {
             self.w = w;
             self.h = h;
             let engine = nexus_layout::LayoutEngine::new();
-            if let Ok(layout) = engine.layout(
+            if let Ok(layout) = engine.layout_with_viewport(
                 self.view.scene(),
                 nexus_layout_types::FxPx::new(w as i32),
+                Some(nexus_layout_types::FxPx::new(h as i32)),
                 &nexus_text_baked::measure_text::BakedTextMeasure,
             ) {
                 self.layout = layout;
@@ -674,6 +716,22 @@ mod probe {
         /// Writes the current scene (fills + glyph runs) into the VMO. The
         /// page base is the theme's Surface token — the scene's own boxes
         /// (surfaceVariant buttons, onSurface text) are specified against it.
+        /// One-time diagnostic: where the interactive (handler) boxes are.
+        fn dump_handler_boxes(&self) {
+            for (box_id, _) in self.view.handlers().iter().take(8) {
+                if let Some(b) = self.layout.boxes.iter().find(|b| b.node_id == *box_id) {
+                    raw_marker(&alloc::format!(
+                        "apphost: handler box id={} x={} y={} w={} h={}",
+                        box_id,
+                        b.rect.x.as_i32(),
+                        b.rect.y.as_i32(),
+                        b.rect.width.as_i32(),
+                        b.rect.height.as_i32()
+                    ));
+                }
+            }
+        }
+
         fn render(&self, vmo: u32) -> bool {
             use nexus_dsl_runtime::theme_tokens::{ColorToken, Tokens};
             let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
@@ -682,8 +740,7 @@ mod probe {
             // a frosted window, not a flat opaque fill. Content (cards/text) is
             // painted opaque on top. (Design-system "Window" glass material;
             // proper per-panel control arrives with `.material()`, R1/R3.)
-            const WINDOW_GLASS_ALPHA: u8 = 190;
-            let base = [s.b, s.g, s.r, WINDOW_GLASS_ALPHA];
+            let base = [s.b, s.g, s.r, self.base_alpha];
             let surf_w = self.w as usize;
             let row_bytes = surf_w * 4;
             let mut row = alloc::vec![0u8; row_bytes];
