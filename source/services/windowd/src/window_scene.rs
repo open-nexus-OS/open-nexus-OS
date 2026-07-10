@@ -35,6 +35,13 @@ pub enum WindowId {
     /// A cross-process app client surface (ADR-0042 / TASK-0080D R1): the
     /// body is blitted from the app process's own surface VMO.
     AppClient,
+    /// The DESKTOP surface (RFC-0065 / Umbau #17): the shell (or greeter) running
+    /// as its OWN app-host process, composited as the full-screen base layer
+    /// BELOW all floating windows (see [`WindowRole::Desktop`]). Chromeless — it
+    /// has no title bar / drag / resize / hover / close (the shell owns its whole
+    /// surface), so the runtime's per-window chrome/interaction matches treat it
+    /// as a no-op; only composition places it (at the bottom band).
+    Desktop,
 }
 
 /// The compositor Z-BAND a window belongs to (RFC-0065 multi-window). Bands are
@@ -141,7 +148,7 @@ pub const BASE_ALWAYS_PRESENT: bool = true;
 /// (chat + search + settings + one spare) and, more importantly, for the atlas
 /// budget: every open window costs content + blur-cache rows from the shared
 /// pool, so "more windows" is an atlas-sizing decision, not just a constant.
-pub const MAX_WINDOWS: usize = 5;
+pub const MAX_WINDOWS: usize = 6;
 
 /// When `next_z` reaches this bound the stack renormalizes all z values to
 /// `0..len` (order-preserving). Keeps a long-lived session from ever
@@ -172,7 +179,12 @@ impl WindowStack {
         let mut entries = [WindowState::floating(WindowId::Chat, false, 0); MAX_WINDOWS];
         let len = ids.len().min(MAX_WINDOWS);
         for (i, &id) in ids.iter().take(len).enumerate() {
-            entries[i] = WindowState::floating(id, false, i as i16);
+            entries[i] = match id {
+                // The desktop base gets the DESKTOP z-band (always bottom); every
+                // other id is a floating window.
+                WindowId::Desktop => WindowState::desktop(id, false),
+                _ => WindowState::floating(id, false, i as i16),
+            };
         }
         Self { entries, len, focused: None, next_z: len as i16 }
     }

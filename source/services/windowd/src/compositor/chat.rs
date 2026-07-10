@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): DELETE (LEGACY) — Chat wird eine DSL-App.
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 //! CONTEXT: Scrollable chat panel rendering for the CPU retained-plane path.
 //! Mirrors the filter word-list pattern (`filter.rs`): a per-scanline,

@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → DSL-Shell-App (Shell-Szene = Shell).
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 //! CONTEXT: Canonical SystemUI shell root for the retained scene graph.
 //! All UI frontends (bootstrap shell, launcher, QS, app windows, DSL pages)

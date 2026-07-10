@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → Shell-App/Widget (Chrome-Animationen = UI).
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
+//
 //! CONTEXT: windowd compositor runtime — animation tick (springs → scene graph).
 //! OWNERS: @ui
 //! STATUS: Experimental

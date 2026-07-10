@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → DSL-Shell-App (Apps-Menü = Shell-UI).
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 //! CONTEXT: Apps menu model — parses the bundlemgrd `OP_LIST_APPS` response into
 //! the topbar dropdown entries + owns its geometry/hit-test (RFC-0065).

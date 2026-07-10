@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → DSL-Shell-App (Dock = Shell-UI).
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 //! CONTEXT: pure dock geometry (TASK-0070 Phase 2) — the bottom-center glass
 //! bar holding one icon per MINIMIZED window. Layout + hit-testing only, fully

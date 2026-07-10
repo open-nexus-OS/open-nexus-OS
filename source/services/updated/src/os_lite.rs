@@ -173,13 +173,45 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut state = UpdatedState::new();
     let mut logged_recv_err = false;
     if let Some(client) = statefs.as_mut() {
-        match load_bootctrl_state(client) {
+        // Bounded retry for the TRANSIENT class: updated boots early (~0.2s) and
+        // statefsd may not be serving yet — a one-shot load turned that races
+        // into a permanent-looking `bootctl load err` every boot (the ERROR
+        // 5/6 verdict). IoError retries up to the deadline (each attempt's recv
+        // parks on its own internal budget — no busy-yield); every other error
+        // is immediate and LOUD WITH ITS VALUE (DoD: never a bare "err").
+        let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
+        let outcome = loop {
+            match load_bootctrl_state(client) {
+                Ok(boot) => break Ok(boot),
+                Err(StatefsError::IoError) => {
+                    if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
+                        break Err(StatefsError::IoError);
+                    }
+                    let _ = yield_();
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        match outcome {
             Ok(boot) => {
                 state.boot = boot;
                 emit_line("updated: bootctl load ok");
             }
             Err(StatefsError::NotFound) => emit_line("updated: bootctl load miss"),
-            Err(_) => emit_line("updated: bootctl load err"),
+            Err(e) => {
+                emit_line(match e {
+                    StatefsError::IoError => "updated: bootctl load err (IoError)",
+                    StatefsError::AccessDenied => "updated: bootctl load err (AccessDenied)",
+                    StatefsError::Corrupted => "updated: bootctl load err (Corrupted)",
+                    StatefsError::ValueTooLarge => "updated: bootctl load err (ValueTooLarge)",
+                    StatefsError::KeyTooLong => "updated: bootctl load err (KeyTooLong)",
+                    StatefsError::InvalidKey => "updated: bootctl load err (InvalidKey)",
+                    StatefsError::ReplayLimitExceeded => {
+                        "updated: bootctl load err (ReplayLimitExceeded)"
+                    }
+                    StatefsError::NotFound => unreachable!("handled above"),
+                });
+            }
         }
     }
     emit_line(if statefs.is_some() {

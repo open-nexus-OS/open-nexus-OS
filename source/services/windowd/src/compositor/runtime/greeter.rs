@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): DELETE (LEGACY) — der DSL-Greeter-app-host ersetzt den built-in Avatar-Greeter.
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
+//
 //! CONTEXT: windowd compositor runtime — the login greeter (TASK-0065B):
 //! full-screen blurred wallpaper + a centered round user avatar with the
 //! user's name, hover feedback, click → sessiond OP_LOGIN → the resolved

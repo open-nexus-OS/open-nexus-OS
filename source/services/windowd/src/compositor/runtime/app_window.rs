@@ -73,8 +73,12 @@ impl DisplayServerRuntime {
                 // only an intent-chromeless surface (plain / desktop / fullscreen
                 // intent — a shell or single-app-OS launcher) goes edge-to-edge.
                 self.app_win.title_h = self.app_title_h();
-                if self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient) {
-                    // Maximize / kiosk-fullscreen: cover the whole display. Titled
+                if self.app_presentation().full_screen
+                    || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+                {
+                    // Full-screen presentation (declared desktop level /
+                    // fullscreen mode — the shell/greeter base or a kiosk app) or
+                    // the transient user-maximize: cover the whole display. Titled
                     // apps keep the title bar at the top (content = display −
                     // title, drawn by `render_app_surface`); chromeless surfaces
                     // fill edge-to-edge. Content-sizing here would re-float it.
@@ -216,16 +220,27 @@ impl DisplayServerRuntime {
             self.app_win.mount(content, blur);
         }
         self.app_win.visible = true;
-        self.show_window(crate::window_scene::WindowId::AppClient);
+        self.show_window(self.app_stack_id());
         self.app_win.surface_dirty = true;
         let rect = self.app_window_rect();
         self.queue_dirty_rect(rect);
         true
     }
 
+    /// The z-stack entry this app surface occupies — resolved DECLARATIVELY from
+    /// its presentation (`intent ⟂ policy`), never hardcoded: a surface that
+    /// declared `level: desktop` (the shell/greeter) lands in the Desktop base
+    /// band; everything else is a floating client window.
+    pub(super) fn app_stack_id(&self) -> crate::window_scene::WindowId {
+        match self.app_presentation().role {
+            crate::window_scene::WindowRole::Desktop => crate::window_scene::WindowId::Desktop,
+            crate::window_scene::WindowRole::Window => crate::window_scene::WindowId::AppClient,
+        }
+    }
+
     pub(super) fn close_app_window(&mut self) {
         self.app_win.visible = false;
-        self.hide_window(crate::window_scene::WindowId::AppClient);
+        self.hide_window(self.app_stack_id());
         self.app_win.end_drag();
         self.release_app_surface_band();
     }
@@ -273,12 +288,16 @@ impl DisplayServerRuntime {
         let body_row_bytes = body_w as usize * 4;
         let src_stride = client.width as usize * 4;
         let title_hover = self.app_win.title_hover;
-        let corner_radius =
-            if self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient) {
-                0
-            } else {
-                dsl_mount::DSL_RADIUS
-            };
+        // Corners: a full-screen presentation (declared desktop/fullscreen) and
+        // the transient user-maximize are edge-to-edge (radius 0); floating
+        // windows keep the rounded glass frame.
+        let corner_radius = if self.app_presentation().full_screen
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+        {
+            0
+        } else {
+            dsl_mount::DSL_RADIUS
+        };
         let tk = self.theme();
         // Chromeless when `title_h == 0` (a `plain`/desktop-style surface, e.g.
         // the shell): the title-bar block never runs and the body fills from
@@ -356,13 +375,18 @@ impl DisplayServerRuntime {
     /// otherwise it gets the default window body size. Reply rides the app event
     /// channel; if it is not attached yet the app's bounded wait falls back.
     pub(crate) fn handle_surface_intent(&mut self, frame: &[u8]) {
-        let Some((style, level, mode, _resizable)) = wire::decode_surface_intent(frame) else {
+        let Some((style, level, mode, resizable)) = wire::decode_surface_intent(frame) else {
             return;
         };
         self.app_intent_style = style;
         self.app_intent_level = level;
         self.app_intent_mode = mode;
-        let (rw, rh) = if level == wire::WIN_LEVEL_DESKTOP || mode == wire::WIN_MODE_FULLSCREEN {
+        self.app_intent_resizable = resizable;
+        // Declarative: the resolved presentation (intent ⟂ policy) decides the
+        // content rect — a full-screen surface (desktop level / fullscreen mode)
+        // fills the display; a floating window gets the body inside its chrome.
+        let p = self.app_presentation();
+        let (rw, rh) = if p.full_screen {
             (self.mode.width as u16, self.mode.height as u16)
         } else {
             (
@@ -377,32 +401,40 @@ impl DisplayServerRuntime {
         ));
     }
 
-    /// True when the app declared a desktop/full-screen surface (chromeless,
-    /// screen-sized, no per-window blur band).
+    /// The app surface's resolved presentation — declared intent ⟂ the
+    /// environment's windowing policy, via the ONE host-tested resolver
+    /// (`surface_presentation`). All compositing decisions (chrome, z-band,
+    /// full-screen, resize) read THIS; nothing re-derives from raw intent tags.
+    pub(super) fn app_presentation(&self) -> crate::surface_presentation::WindowPresentation {
+        crate::surface_presentation::WindowPresentation::resolve(
+            self.app_intent_style,
+            self.app_intent_level,
+            self.app_intent_mode,
+            self.app_intent_resizable,
+            self.windowing_policy,
+        )
+    }
+
+    /// True when the app surface composes edge-to-edge without a cached-blur
+    /// band. Declaratively: any full-screen presentation — PLUS the transient
+    /// user-toggled fullscreen ("□"), which is WM state, not intent. This is an
+    /// ATLAS-BUDGET decision (skip the blur band; a display-sized band would
+    /// starve the atlas); chrome is decided by `app_title_h`.
     fn app_is_desktop_surface(&self) -> bool {
-        self.app_intent_level == wire::WIN_LEVEL_DESKTOP
-            || self.app_intent_mode == wire::WIN_MODE_FULLSCREEN
-            // A window the user toggled to fullscreen uses the R1 layer path too
-            // (edge-to-edge, no cached-blur band — a display-sized blur band
-            // would starve the atlas). This is an ATLAS-BUDGET decision (skip the
-            // blur band); it does NOT imply chromeless — see `app_title_h`.
+        self.app_presentation().full_screen
             || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
     }
 
-    /// The app-client title-bar height per INTENT — `chrome ⟂ policy`. A titled
-    /// app keeps `APP_TITLE_H` (the min/max/close bar) whether floating OR
-    /// maximized; a `plain` / desktop / fullscreen-intent surface (a shell or a
-    /// single-app-OS launcher) is chromeless (0). Maximizing changes the FRAME,
-    /// never the chrome, so this is the SSOT for both the create branch and the
-    /// content-rect push.
+    /// The app-client title-bar height — a pure client of the declarative
+    /// presentation: chrome resolved from `intent ⟂ policy` (a titled app keeps
+    /// `APP_TITLE_H` floating OR maximized; plain/desktop/fullscreen intent and
+    /// the Kiosk policy are chromeless). Maximizing changes the FRAME, never the
+    /// chrome. SSOT for the create branch and the content-rect push.
     pub(super) fn app_title_h(&self) -> u32 {
-        let chromeless = self.app_intent_style == wire::WIN_STYLE_PLAIN
-            || self.app_intent_level == wire::WIN_LEVEL_DESKTOP
-            || self.app_intent_mode == wire::WIN_MODE_FULLSCREEN;
-        if chromeless {
-            0
-        } else {
+        if self.app_presentation().has_chrome {
             APP_TITLE_H
+        } else {
+            0
         }
     }
 

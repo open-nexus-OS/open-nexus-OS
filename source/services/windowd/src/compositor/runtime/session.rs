@@ -141,5 +141,16 @@ impl DisplayServerRuntime {
             "windowd: session shell visible (product={})",
             self.shell_config.product_id
         ));
+        // TASK-0080C #17 (transitional): launch the shell as a real RFC-0065
+        // app-host process NOW — the session is ACTIVE, so abilitymgr's session
+        // gate authorizes it (launching at boot was denied pre-login every
+        // boot). Its surface declares `level: desktop` and lands in the Desktop
+        // z-band (`app_stack_id`), composed as the base layer. Once per session
+        // lifetime; additive alongside the in-process mount until the app-host
+        // desktop surface fully takes over (then dsl_mount retires).
+        if !self.shell_app_launched {
+            self.shell_app_launched = true;
+            self.launch_app("desktop-shell");
+        }
     }
 }

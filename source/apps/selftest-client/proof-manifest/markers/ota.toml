@@ -80,3 +80,14 @@ phase = "ota"
 
 [marker."SELFTEST: updated stage send"]
 phase = "ota"
+
+# Fail-closed + loud (DoD): the OTA phase names WHICH route/step failed instead
+# of vanishing silently (the `bundlemgrd: slot a active` hunt, 2026-07-09).
+[marker."SELFTEST: ota route FAIL svc=bundlemgrd"]
+phase = "ota"
+
+[marker."SELFTEST: ota route FAIL svc=updated"]
+phase = "ota"
+
+[marker."SELFTEST: ota slot-activate FAIL svc=bundlemgrd"]
+phase = "ota"

@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): DELETE (LEGACY) — Search wird eine DSL-App.
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
+//
 //! CONTEXT: windowd compositor runtime — the Search window: open/close, scroll momentum, surface render, and damage rect.
 //! OWNERS: @ui
 //! STATUS: Functional

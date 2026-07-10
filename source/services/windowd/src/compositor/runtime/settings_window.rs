@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): DELETE (LEGACY) — Settings wird eine DSL-App.
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 //! CONTEXT: windowd compositor runtime — the Settings window (TASK-0072): a
 //! third `ShellWindow` instance opened from the topbar Edit → Settings menu.

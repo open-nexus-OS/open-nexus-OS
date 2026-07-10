@@ -441,6 +441,17 @@ pub(crate) struct DisplayServerRuntime {
     app_intent_style: u8,
     app_intent_level: u8,
     app_intent_mode: u8,
+    app_intent_resizable: bool,
+    /// Once-guard for the transitional shell-as-app-host launch (TASK-0080C
+    /// #17): fired on the FIRST session activation (STATE_ACTIVE — after
+    /// sessiond authorized), not at boot (pre-login launches are denied by
+    /// abilitymgr's session gate). Re-activations (unlock) must not relaunch.
+    shell_app_launched: bool,
+    /// The environment's windowing POLICY (`intent ⟂ policy`, RFC-0065): the
+    /// shell profile the product selects. Desktop honours app intent; Kiosk
+    /// forces chromeless/non-resizable (single-app OS). Consumed ONLY through
+    /// `surface_presentation::WindowPresentation::resolve` — never re-derived.
+    windowing_policy: crate::surface_presentation::WindowingPolicy,
     /// The app's DEDICATED event channel (SEND cap slot, execd-attached via
     /// `OP_SURFACE_EVENTS`): input events + surface acks go out here — the
     /// shared response endpoint raced with inputd's ack drain (ADR-0042).
@@ -999,6 +1010,9 @@ impl DisplayServerRuntime {
             app_intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
             app_intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
             app_intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
+            app_intent_resizable: true,
+            shell_app_launched: false,
+            windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
             #[cfg(nexus_env = "os")]
             app_event_channel: None,
             #[cfg(nexus_env = "os")]
@@ -1035,6 +1049,10 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Settings,
                 crate::window_scene::WindowId::DslDemo,
                 crate::window_scene::WindowId::AppClient,
+                // The desktop base (shell/greeter app-host). Registered hidden;
+                // shown + composited once a desktop-level client surface connects
+                // (2b-render / 2c session-gate). DESKTOP z-band → always bottom.
+                crate::window_scene::WindowId::Desktop,
             ]),
             dock_surface: None,
             dock_rendered_n: 0,
@@ -1103,17 +1121,24 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Settings => "settings",
             crate::window_scene::WindowId::DslDemo => "dsl",
             crate::window_scene::WindowId::AppClient => "app",
+            crate::window_scene::WindowId::Desktop => "desktop",
         }
     }
 
     /// The on-screen damage rect (incl. shadow halo) of a stack window.
     pub(super) fn window_damage_rect(&self, id: crate::window_scene::WindowId) -> DamageRect {
+        // The desktop surface is the full-screen base layer — its damage is the
+        // whole display (it is not a chrome `ShellWindow`).
+        if matches!(id, crate::window_scene::WindowId::Desktop) {
+            return DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        }
         let win = match id {
             crate::window_scene::WindowId::Chat => &self.chat,
             crate::window_scene::WindowId::Search => &self.search,
             crate::window_scene::WindowId::Settings => &self.settings_win,
             crate::window_scene::WindowId::DslDemo => &self.dsl_win,
             crate::window_scene::WindowId::AppClient => &self.app_win,
+            crate::window_scene::WindowId::Desktop => unreachable!("handled above"),
         };
         win.damage_rect(self.mode.width, self.mode.height)
     }
@@ -1143,6 +1168,9 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
             crate::window_scene::WindowId::DslDemo => self.dsl_win.leave_fullscreen(),
             crate::window_scene::WindowId::AppClient => self.app_win.leave_fullscreen(),
+            // The desktop base has no fullscreen toggle (it is already the
+            // full-screen base) and no chrome to restore.
+            crate::window_scene::WindowId::Desktop => {}
         }
         self.update_dock();
         let after = self.windows.focused();

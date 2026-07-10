@@ -180,6 +180,14 @@ impl DisplayServerRuntime {
                 self.app_win.title_h,
             )
         });
+        // Desktop base surface (declarative, Umbau #17): when the app surface
+        // resolved to the DESKTOP role (`level: desktop` — the shell/greeter
+        // app-host), it is composed as an opaque full-screen base layer at the
+        // bottom band. Snapshot the band geometry (clamped to what the band
+        // backs) for the encoder block.
+        let desktop_layer = self.app_win.atlas.map(|a| {
+            (a.abs_row, a.x, self.app_win.w.min(a.width), self.app_win.h.min(a.height))
+        });
         let mut built_settings_blur = false;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
@@ -424,6 +432,22 @@ impl DisplayServerRuntime {
                                 p,
                                 mode.width,
                                 mode.height,
+                            );
+                        }
+                    }
+                    // The desktop base surface (the shell / greeter app-host):
+                    // composed as an OPAQUE full-screen layer at the bottom band
+                    // via the nexus-gfx layer SSOT → gpud (like the wallpaper —
+                    // no chrome, no rounded corners, no shadow, no backdrop blur;
+                    // the shell's own frosted panels arrive as material-tagged
+                    // regions, R1). This entry only appears in `win_order` when a
+                    // client surface DECLARED `level: desktop` and was routed
+                    // here (`app_stack_id`).
+                    crate::window_scene::WindowId::Desktop => {
+                        if let Some((row, x, w, h)) = desktop_layer {
+                            let _ = encoder.composite_layer_full(
+                                &Layer::opaque(row, x, w, h, 0, 0),
+                                (mode.width, mode.height),
                             );
                         }
                     }

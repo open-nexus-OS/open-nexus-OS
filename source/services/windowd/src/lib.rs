@@ -34,6 +34,13 @@ mod settings_client;
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_scene;
+/// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —
+/// host-tested, like `window_scene`. windowd reads this instead of hardcoding
+/// per-window-type behaviour (RFC-0065 / Umbau #17). Same cfg gate as
+/// `window_scene` (it imports `WindowRole` from there): present in the OS build
+/// and under `cargo test`, configured out of the plain host lib.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod surface_presentation;
 /// Pure dock geometry (TASK-0070 Phase 2) — host-tested, like `window_scene`.
 mod dock;
 /// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.

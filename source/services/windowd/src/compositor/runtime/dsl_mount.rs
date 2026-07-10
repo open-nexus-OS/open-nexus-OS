@@ -1,6 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
+//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): DELETE (LEGACY) — die Shell läuft als app-host; der in-process-Mount retired (Umbau #17 2c/2d).
+//! DO NOT EXTEND — new capability belongs at the target, not here.
+//
+//
 //! CONTEXT: windowd compositor runtime — the DSL demo window (TASK-0076B):
 //! the first *visible* in-compositor mount of a compiled `.nxir` program.
 //! A fourth `ShellWindow` whose body is rendered from the DSL interpreter's
@@ -135,17 +139,13 @@ impl DisplayServerRuntime {
         // Run the program's initial-load effects (root effects derived from
         // the dataflow — e.g. the launcher's app-list fetch). Once, at mount.
         self.run_dsl_initial_effects();
-        // TASK-0080C #17 (transitional): ALSO launch the shell as a real
-        // RFC-0065 app-host process (launcher → abilitymgr → execd → app-host).
-        // execd provisions its manifest-declared ENUMERATE/LAUNCH routes
-        // (nexus-sdk-routes) into the child's fixed slots and the app-host runs
-        // the SAME launcher root effect over them — the end-to-end proof of the
-        // declarative-routing Umbau. Additive alongside the in-process mount
-        // above so the desktop cannot regress; the in-process mount retires
-        // once the full-screen app-host desktop-surface role lands. Markers:
-        // `execd: app route granted svc=bundlemgr`, `apphost: dsl svc
-        // bundlemgr.enumerate ok`.
-        self.launch_app("desktop-shell");
+        // TASK-0080C #17: the transitional shell-as-app-host launch MOVED to
+        // session activation (`apply_session_shell`, STATE_ACTIVE). Launching
+        // here at boot fired BEFORE login and was denied by abilitymgr's
+        // session gate on every boot (`abilitymgr: launch denied (session)` →
+        // `windowd: launch denied` — honest, but guaranteed noise). sessiond
+        // authorizes first; the shell app-host launches once the session is
+        // active.
         // Deterministic post-reveal repaint: the demo window's boot-open used
         // to queue damage here, forcing a SECOND full composition after the
         // reveal — retiring the window removed that tick and the desktop

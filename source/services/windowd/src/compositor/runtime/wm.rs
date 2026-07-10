@@ -40,6 +40,7 @@ impl DisplayServerRuntime {
             WindowId::Settings => self.settings_win.end_drag(),
             WindowId::DslDemo => self.dsl_win.end_drag(),
             WindowId::AppClient => self.app_win.end_drag(),
+            WindowId::Desktop => {} // static base: no drag/minimize
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
@@ -60,6 +61,7 @@ impl DisplayServerRuntime {
             WindowId::Settings => self.settings_win.blur_valid = false,
             WindowId::DslDemo => self.dsl_win.blur_valid = false,
             WindowId::AppClient => self.app_win.blur_valid = false,
+            WindowId::Desktop => {} // static base: no blur cache / restore
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -84,7 +86,7 @@ impl DisplayServerRuntime {
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::Settings | WindowId::DslDemo | WindowId::Desktop => {}
                 WindowId::AppClient => {
                     // Restore the floating frame + chrome height (fullscreen
                     // zeroed `title_h`). Restoring it here — not waiting for the
@@ -114,7 +116,7 @@ impl DisplayServerRuntime {
                     let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
                     self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
                 }
-                WindowId::Settings | WindowId::DslDemo => {}
+                WindowId::Settings | WindowId::DslDemo | WindowId::Desktop => {}
                 WindowId::AppClient => {
                     // Cover the display; the OP_SURFACE_RECT push below makes the
                     // app re-create its surface at display size (the atlas band is
@@ -170,7 +172,11 @@ impl DisplayServerRuntime {
             WindowId::Search => self.search.contains(cx, cy),
             WindowId::Settings => self.settings_win.contains(cx, cy),
             WindowId::DslDemo => self.dsl_win.contains(cx, cy),
+            // The desktop base has no window chrome to grab — clicks fall
+            // through to the shell's own surface (handled as client input), never
+            // to a window drag/hit owner.
             WindowId::AppClient => self.app_win.contains(cx, cy),
+            WindowId::Desktop => false,
         });
         let want = |wid: WindowId, win: &super::super::shell_window::ShellWindow| -> Option<TitleButton> {
             if owner == Some(wid) {
@@ -226,6 +232,7 @@ impl DisplayServerRuntime {
             WindowId::Settings => self.settings_win.frame(),
             WindowId::DslDemo => self.dsl_win.frame(),
             WindowId::AppClient => self.app_win.frame(),
+            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
         };
         self.raise_window(id);
         self.resize_drag = Some((id, edge, start, (cx, cy)));
@@ -254,6 +261,7 @@ impl DisplayServerRuntime {
             WindowId::Settings => self.settings_win.frame(),
             WindowId::DslDemo => self.dsl_win.frame(),
             WindowId::AppClient => self.app_win.frame(),
+            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
         };
         if frame != current {
             self.apply_window_frame(id, frame.x, frame.y, frame.w, frame.h);
@@ -269,6 +277,7 @@ impl DisplayServerRuntime {
                 WindowId::Settings => (self.settings_win.w, self.settings_win.h),
                 WindowId::DslDemo => (self.dsl_win.w, self.dsl_win.h),
                 WindowId::AppClient => (self.app_win.w, self.app_win.h),
+                WindowId::Desktop => (self.mode.width, self.mode.height),
             };
             let _ = debug_println(&alloc::format!(
                 "windowd: resize id={} w={w} h={h}",
@@ -394,6 +403,10 @@ impl DisplayServerRuntime {
                 self.dsl_win.set_frame(x, y, w, h);
                 self.dsl_win.surface_dirty = true;
             }
+            // The desktop base is always the full display — never repositioned
+            // or resized by the WM (its geometry follows the mode, pushed to the
+            // shell app-host as the full content rect).
+            WindowId::Desktop => {}
         }
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
@@ -466,6 +479,7 @@ impl DisplayServerRuntime {
                     WindowId::Settings => self.settings_win.frame(),
                     WindowId::DslDemo => self.dsl_win.frame(),
                     WindowId::AppClient => self.app_win.frame(),
+            WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
                 };
                 if frame.contains(cx, cy) {
                     if !self.windows.is_fullscreen(wid) {
@@ -598,6 +612,11 @@ impl DisplayServerRuntime {
                     }
                     // App-client window reuses the search glyph for R1.
                     WindowId::AppClient => {
+                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
+                    }
+                    // The desktop base is never minimized into the dock, so this
+                    // arm is unreachable; a glyph keeps the match total.
+                    WindowId::Desktop => {
                         (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
                     }
                 };

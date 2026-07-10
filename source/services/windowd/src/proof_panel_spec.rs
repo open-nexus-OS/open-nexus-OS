@@ -1,5 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
+//
+// ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → selftest (Test-UI ist kein Compositor).
+// DO NOT EXTEND — new capability belongs at the target, not here.
+//
 
 // CONTEXT: Proof panel constants for TASK-0058 windowd integration.
 // OWNERS: @ui

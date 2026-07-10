@@ -192,7 +192,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     if is_allowed_sender(sender_service_id) {
                         handle_get_payload(frame.as_slice(), vmo_slot);
                     } else {
-                        emit_line("bundlemgrd: sender denied");
+                        emit_sender_denied(sender_service_id);
                         if let Some(slot) = vmo_slot {
                             let _ = nexus_abi::cap_close(slot);
                         }
@@ -202,7 +202,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 let rsp = if is_allowed_sender(sender_service_id) {
                     handle_frame_vec(frame.as_slice())
                 } else {
-                    emit_line("bundlemgrd: sender denied");
+                    emit_sender_denied(sender_service_id);
                     denied_frame_response(frame.as_slice())
                 };
                 if let Some(reply) = reply {
@@ -678,6 +678,16 @@ fn emit_line(message: &str) {
     }
     for byte in message.as_bytes().iter().copied().chain(core::iter::once(b'\n')) {
         let _ = debug_putc(byte);
+    }
+}
+
+/// Denial marker WITH the denied sender id (DoD: loud with values — a bare
+/// "sender denied" cannot be diagnosed). Bounded (8) so a hostile flood cannot
+/// leak the non-freeing bump heap through the `format!`.
+fn emit_sender_denied(sender_service_id: u64) {
+    static DENIED_LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    if DENIED_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+        emit_line(&alloc::format!("bundlemgrd: sender denied id=0x{sender_service_id:016x}"));
     }
 }
 
