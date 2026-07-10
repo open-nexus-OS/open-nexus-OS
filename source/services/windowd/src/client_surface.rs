@@ -42,27 +42,63 @@ pub struct ClientSurface {
     pub last_seq: u32,
 }
 
-/// The surface table. v1/R1: exactly one client surface (the probe app);
-/// the array shape is ready for MAX_APP_SURFACES growth.
-#[derive(Debug, Default)]
+/// Maximum concurrently-resident client surfaces. Bounded (each surface owns a
+/// VMO cap + an atlas band): enough for the desktop shell + greeter + a handful
+/// of app windows coexisting. The single-`Option` era (R1: exactly one probe
+/// app) is retired — the desktop-shell / greeter / app-window app-hosts each
+/// own a surface (RFC-0065 multi-window). Callers address surfaces by id.
+pub const MAX_APP_SURFACES: usize = 8;
+
+/// The surface table: up to [`MAX_APP_SURFACES`] live client surfaces, addressed
+/// by id. Each app-host (shell, greeter, an app) owns one; the compositor
+/// composes them per window/z-role. Ids are monotonic (never reused) so a stale
+/// id from a destroyed surface can never alias a new one.
+#[derive(Debug)]
 pub struct ClientSurfaces {
-    surface: Option<ClientSurface>,
+    surfaces: [Option<ClientSurface>; MAX_APP_SURFACES],
     next_id: u32,
+}
+
+impl Default for ClientSurfaces {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ClientSurfaces {
     #[must_use]
     pub fn new() -> Self {
-        Self { surface: None, next_id: 1 }
+        Self { surfaces: [None; MAX_APP_SURFACES], next_id: 1 }
     }
 
+    /// The first live surface, if any. Back-compat accessor for the
+    /// single-surface render path (retired as the runtime models N windows);
+    /// new code addresses surfaces explicitly with [`Self::get_by_id`].
     #[must_use]
     pub fn get(&self) -> Option<&ClientSurface> {
-        self.surface.as_ref()
+        self.surfaces.iter().flatten().next()
     }
 
-    /// Validates and registers a surface. Returns the new surface id or a
-    /// wire status code.
+    /// The surface with `id`, if resident.
+    #[must_use]
+    pub fn get_by_id(&self, id: u32) -> Option<&ClientSurface> {
+        self.surfaces.iter().flatten().find(|s| s.id == id)
+    }
+
+    /// Number of resident surfaces.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.surfaces.iter().flatten().count()
+    }
+
+    /// Iterate the resident surfaces (compositor walks these to compose windows).
+    pub fn iter(&self) -> impl Iterator<Item = &ClientSurface> {
+        self.surfaces.iter().flatten()
+    }
+
+    /// Validates and registers a surface in a free slot. Returns the new surface
+    /// id, or a wire status code (`MALFORMED` on bad format/bounds, `QUOTA` when
+    /// all [`MAX_APP_SURFACES`] slots are full).
     pub fn create(&mut self, width: u16, height: u16, format: u8, vmo_slot: u32) -> Result<u32, u8> {
         if format != FORMAT_BGRA8888 {
             return Err(SURFACE_STATUS_MALFORMED);
@@ -74,30 +110,27 @@ impl ClientSurfaces {
         {
             return Err(SURFACE_STATUS_MALFORMED);
         }
-        if self.surface.is_some() {
+        let Some(slot) = self.surfaces.iter_mut().find(|s| s.is_none()) else {
             return Err(SURFACE_STATUS_QUOTA);
-        }
+        };
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
-        self.surface = Some(ClientSurface { id, width, height, vmo_slot, last_seq: 0 });
+        *slot = Some(ClientSurface { id, width, height, vmo_slot, last_seq: 0 });
         Ok(id)
     }
 
     /// Validates a present: known surface, strictly increasing seq (exactly
-    /// one in flight — the app waits for the ack). Returns the surface +
-    /// damage clamped to its bounds (empty rects dropped).
+    /// one in flight per surface — the app waits for the ack). Returns the
+    /// surface + damage clamped to its bounds (empty rects dropped).
     pub fn present(
         &mut self,
         surface_id: u32,
         seq: u32,
         damage: &[DamageRect],
     ) -> Result<(ClientSurface, [DamageRect; MAX_DAMAGE_RECTS], usize), u8> {
-        let Some(surface) = self.surface.as_mut() else {
+        let Some(surface) = self.surfaces.iter_mut().flatten().find(|s| s.id == surface_id) else {
             return Err(SURFACE_STATUS_BAD_SURFACE);
         };
-        if surface.id != surface_id {
-            return Err(SURFACE_STATUS_BAD_SURFACE);
-        }
         if seq != surface.last_seq.wrapping_add(1) {
             return Err(SURFACE_STATUS_BAD_SEQ);
         }
@@ -121,13 +154,13 @@ impl ClientSurfaces {
 
     /// Removes the surface; returns its VMO slot for the runtime to release.
     pub fn destroy(&mut self, surface_id: u32) -> Result<u32, u8> {
-        match self.surface {
-            Some(surface) if surface.id == surface_id => {
-                self.surface = None;
-                Ok(surface.vmo_slot)
-            }
-            _ => Err(SURFACE_STATUS_BAD_SURFACE),
-        }
+        let Some(slot) = self.surfaces.iter_mut().find(|s| s.is_some_and(|c| c.id == surface_id))
+        else {
+            return Err(SURFACE_STATUS_BAD_SURFACE);
+        };
+        let vmo_slot = slot.expect("slot matched Some above").vmo_slot;
+        *slot = None;
+        Ok(vmo_slot)
     }
 }
 
@@ -147,8 +180,34 @@ mod tests {
         assert_eq!(t.create(4096, 240, FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
         let id = t.create(320, 240, FORMAT_BGRA8888, 10).expect("creates");
         assert_eq!(id, 1);
-        // R1: one surface — the second create is refused, not silently replaced.
-        assert_eq!(t.create(320, 240, FORMAT_BGRA8888, 11), Err(SURFACE_STATUS_QUOTA));
+        // Multi-surface: further creates succeed until all slots are full, then
+        // QUOTA (not silently replaced). One is already used, so MAX-1 more fit.
+        for _ in 0..(MAX_APP_SURFACES - 1) {
+            assert!(t.create(320, 240, FORMAT_BGRA8888, 11).is_ok());
+        }
+        assert_eq!(t.count(), MAX_APP_SURFACES);
+        assert_eq!(t.create(320, 240, FORMAT_BGRA8888, 12), Err(SURFACE_STATUS_QUOTA));
+    }
+
+    #[test]
+    fn multiple_surfaces_coexist_with_independent_seq_and_ids() {
+        let mut t = ClientSurfaces::new();
+        let a = t.create(320, 240, FORMAT_BGRA8888, 10).expect("a");
+        let b = t.create(200, 100, FORMAT_BGRA8888, 11).expect("b");
+        assert_ne!(a, b);
+        assert_eq!(t.count(), 2);
+        // Independent per-surface seq: advancing a does not affect b.
+        assert!(t.present(a, 1, &[]).is_ok());
+        assert!(t.present(b, 1, &[]).is_ok());
+        assert!(t.present(a, 2, &[]).is_ok());
+        assert_eq!(t.present(b, 3, &[]).unwrap_err(), SURFACE_STATUS_BAD_SEQ);
+        // Destroy a → b survives; a's id is never reused (monotonic).
+        assert_eq!(t.destroy(a), Ok(10));
+        assert!(t.get_by_id(a).is_none());
+        assert!(t.get_by_id(b).is_some());
+        let c = t.create(64, 64, FORMAT_BGRA8888, 12).expect("c");
+        assert_ne!(c, a);
+        assert_ne!(c, b);
     }
 
     #[test]
