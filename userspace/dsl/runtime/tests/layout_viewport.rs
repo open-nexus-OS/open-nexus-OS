@@ -360,3 +360,50 @@ Page Main {
         "Apps button must sit at the right edge (right={right}):\n{dump}"
     );
 }
+
+/// Kit exposure (TASK-0073/0074): every design-system widget the DSL exposes
+/// compiles, mounts and lays out — the DSL `Button`/`Badge`/… IS the kit
+/// builder (one SSOT), so this is the "our button is really our button" pin.
+#[test]
+fn design_kit_widgets_mount_through_the_dsl() {
+    let nxir = compile(
+        r#"Page Main {
+    Stack {
+        Badge { label: "Neu" }
+        Chip { label: "Filter" }
+        Avatar { initials: "JS" }
+        Checkbox { checked: true, label: "AGB akzeptieren" }
+        Slider { value: 40 }
+            .label("Lautstärke")
+        Spinner
+        ProgressBar { value: 64 }
+        Toast { message: "Gespeichert" }
+        Banner { title: "Status", message: "Synchronisiert" }
+        Skeleton
+    }
+}
+"#,
+    );
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out");
+    // Every widget produced real geometry (no zero-sized kit stubs).
+    let sized = layout
+        .boxes
+        .iter()
+        .filter(|b| b.rect.width.as_i32() > 0 && b.rect.height.as_i32() > 0)
+        .count();
+    assert!(sized >= 10, "expected at least 10 sized boxes, got {sized}");
+}

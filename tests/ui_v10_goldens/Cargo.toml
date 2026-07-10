@@ -38,3 +38,9 @@ nexus-widget-tree-view = { path = "../../userspace/ui/widgets/tree_view" }
 nexus-widget-icon = { path = "../../userspace/ui/widgets/icon" }
 nexus-widget-rating = { path = "../../userspace/ui/widgets/rating" }
 ui_host_snap = { path = "../ui_host_snap" }
+nexus-widget-spinner = { path = "../../userspace/ui/widgets/spinner" }
+nexus-widget-progress-bar = { path = "../../userspace/ui/widgets/progress_bar" }
+nexus-widget-toast = { path = "../../userspace/ui/widgets/toast" }
+nexus-widget-skeleton = { path = "../../userspace/ui/widgets/skeleton" }
+nexus-widget-banner = { path = "../../userspace/ui/widgets/banner" }
+nexus-widget-refresher = { path = "../../userspace/ui/widgets/refresher" }

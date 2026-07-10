@@ -1,0 +1,16 @@
+[package]
+name = "nexus-widget-toast"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "nexus_widget_toast"
+path = "src/lib.rs"
+
+[dependencies]
+nexus-layout-types = { path = "../../layout-types" }
+nexus-theme-tokens = { path = "../../theme-tokens" }
+nexus-widget-text = { path = "../text" }
+nexus-style = { path = "../../style" }
+nexus-widget-panel = { path = "../panel" }

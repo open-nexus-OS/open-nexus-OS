@@ -135,6 +135,18 @@ pub const WIDGETS: &[WidgetSpec] = &[
     WidgetSpec { name: "Toggle", primary_prop: Some("checked"), interactive: true, label_prop: Some("label"), allows_children: false },
     WidgetSpec { name: "List", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
     WidgetSpec { name: "NativeWidget", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
+    // Design-system kit exposure (TASK-0073/0074): each maps 1:1 onto its
+    // `userspace/ui/widgets/*` builder in the runtime registry.
+    WidgetSpec { name: "Badge", primary_prop: Some("label"), interactive: false, label_prop: Some("label"), allows_children: false },
+    WidgetSpec { name: "Chip", primary_prop: Some("label"), interactive: true, label_prop: Some("label"), allows_children: false },
+    WidgetSpec { name: "Avatar", primary_prop: Some("initials"), interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec { name: "Checkbox", primary_prop: Some("checked"), interactive: true, label_prop: Some("label"), allows_children: false },
+    WidgetSpec { name: "Slider", primary_prop: Some("value"), interactive: true, label_prop: None, allows_children: false },
+    WidgetSpec { name: "Spinner", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec { name: "ProgressBar", primary_prop: Some("value"), interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec { name: "Toast", primary_prop: Some("message"), interactive: true, label_prop: Some("message"), allows_children: false },
+    WidgetSpec { name: "Banner", primary_prop: Some("message"), interactive: true, label_prop: Some("title"), allows_children: false },
+    WidgetSpec { name: "Skeleton", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
 ];
 
 #[must_use]

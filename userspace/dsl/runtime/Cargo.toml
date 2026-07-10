@@ -29,6 +29,16 @@ nexus-widget-card = { path = "../../ui/widgets/card" }
 nexus-widget-text-field = { path = "../../ui/widgets/text_field" }
 nexus-widget-toggle = { path = "../../ui/widgets/toggle" }
 nexus-widget-icon = { path = "../../ui/widgets/icon" }
+nexus-widget-badge = { path = "../../ui/widgets/badge" }
+nexus-widget-chip = { path = "../../ui/widgets/chip" }
+nexus-widget-avatar = { path = "../../ui/widgets/avatar" }
+nexus-widget-checkbox = { path = "../../ui/widgets/checkbox" }
+nexus-widget-slider = { path = "../../ui/widgets/slider" }
+nexus-widget-spinner = { path = "../../ui/widgets/spinner" }
+nexus-widget-progress-bar = { path = "../../ui/widgets/progress_bar" }
+nexus-widget-toast = { path = "../../ui/widgets/toast" }
+nexus-widget-banner = { path = "../../ui/widgets/banner" }
+nexus-widget-skeleton = { path = "../../ui/widgets/skeleton" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
 
 [dev-dependencies]

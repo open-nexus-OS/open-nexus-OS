@@ -246,3 +246,89 @@ fn app_icons() {
     )
     .unwrap();
 }
+
+// ── Feedback group (TASK-0073 completion) ──
+
+#[test]
+fn feedback_spinner_and_progress() {
+    use nexus_widget_progress_bar::ProgressBar;
+    use nexus_widget_spinner::Spinner;
+    let t = BaseTokens;
+    check_golden("spinner_default", &Spinner::new().build(&t)).unwrap();
+    check_golden("spinner_phase6", &Spinner::new().phase(6).build(&t)).unwrap();
+    check_golden("progress_64", &ProgressBar::new().value(64).build(&t)).unwrap();
+    check_golden(
+        "progress_indeterminate",
+        &ProgressBar::new().indeterminate().phase(40).build(&t),
+    )
+    .unwrap();
+    check_golden("progress_dark", &ProgressBar::new().value(64).build(&DarkTokens)).unwrap();
+}
+
+#[test]
+fn feedback_toast_variants() {
+    use nexus_widget_toast::{Toast, ToastVariant};
+    let t = BaseTokens;
+    check_golden("toast_default", &Toast::new("Datei gespeichert").build(&t)).unwrap();
+    check_golden(
+        "toast_destructive_action",
+        &Toast::new("Verbindung verloren")
+            .variant(ToastVariant::Destructive)
+            .action("Erneut")
+            .action_id("toast_retry")
+            .build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn feedback_skeletons() {
+    use nexus_widget_skeleton::{Skeleton, SkeletonText};
+    let t = BaseTokens;
+    check_golden("skeleton_line", &Skeleton::new().width(200).height(16).build(&t)).unwrap();
+    check_golden("skeleton_circle", &Skeleton::new().height(48).circle().build(&t)).unwrap();
+    check_golden("skeleton_text", &SkeletonText::new().lines(3).build(&t)).unwrap();
+}
+
+#[test]
+fn feedback_banner_variants() {
+    use nexus_widget_banner::{Banner, BannerVariant};
+    let t = BaseTokens;
+    check_golden(
+        "banner_warning",
+        &Banner::new()
+            .variant(BannerVariant::Warning)
+            .title("Speicher fast voll")
+            .message("Noch 1,2 GB frei.")
+            .action("Verwalten")
+            .action_id("banner_manage")
+            .build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "banner_success",
+        &Banner::new()
+            .variant(BannerVariant::Success)
+            .message("Synchronisierung abgeschlossen")
+            .dismissible(true)
+            .dismiss_id("banner_dismiss")
+            .build(&t),
+    )
+    .unwrap();
+}
+
+#[test]
+fn feedback_refresher_states() {
+    use nexus_widget_refresher::Refresher;
+    let t = BaseTokens;
+    check_golden(
+        "refresher_pulling",
+        &Refresher::new().progress(60).content(swatch(120)).build(&t),
+    )
+    .unwrap();
+    check_golden(
+        "refresher_refreshing",
+        &Refresher::new().refreshing(true).content(swatch(120)).build(&t),
+    )
+    .unwrap();
+}

@@ -221,6 +221,149 @@ pub fn build_widget(
             card.build(tokens)
         }
         "Spacer" => LayoutNode::Spacer(Spacer::default()),
+        // ── Design-system kit exposure (TASK-0073/0074): every arm calls the
+        //    `userspace/ui/widgets/*` builder — the DSL widget IS the kit
+        //    widget (one SSOT; visuals come from tokens, never ad-hoc). ──
+        "Badge" => {
+            use nexus_widget_badge::{Badge, BadgeVariant};
+            let label = prop("label").map(value_text).unwrap_or_default();
+            let variant = match prop("variant").map(value_text).as_deref() {
+                Some("secondary") => BadgeVariant::Secondary,
+                Some("glass") => BadgeVariant::Glass,
+                Some("destructive") => BadgeVariant::Destructive,
+                Some("success") => BadgeVariant::Success,
+                Some("warning") => BadgeVariant::Warning,
+                Some("outline") => BadgeVariant::Outline,
+                Some("active") => BadgeVariant::Active,
+                _ => BadgeVariant::Default,
+            };
+            let badge = Badge::new().variant(variant);
+            let fg = badge.foreground(tokens);
+            let label_node = {
+                let mut mods = Mods::default();
+                mods.text_size = Some(nexus_theme_tokens::TypographyToken::Sm);
+                let mut node = text_node(label, &mods, tokens);
+                if let LayoutNode::Text(text, _) = &mut node {
+                    text.style.color = fg;
+                }
+                node
+            };
+            badge.content(label_node).build(tokens)
+        }
+        "Chip" => {
+            use nexus_widget_chip::Chip;
+            let label = prop("label").map(value_text).unwrap_or_default();
+            let selected = matches!(prop("selected"), Some(Value::Bool(true)));
+            let mut chip = Chip::new(label).selected(selected);
+            if mods.disabled {
+                chip = chip.state(nexus_style::InteractionState::Disabled);
+            }
+            chip.build(tokens)
+        }
+        "Avatar" => {
+            use nexus_widget_avatar::Avatar;
+            let mut avatar = Avatar::new();
+            if let Some(initials) = prop("initials").map(value_text) {
+                avatar = avatar.initials(initials);
+            }
+            if let Some(Value::Int(size)) = prop("size") {
+                avatar = avatar.size(*size as i32);
+            }
+            avatar.build(tokens)
+        }
+        "Checkbox" => {
+            use nexus_widget_checkbox::GlassCheckbox;
+            let checked = matches!(prop("checked"), Some(Value::Bool(true)));
+            let mut cb = GlassCheckbox::new().checked(checked);
+            if mods.disabled {
+                cb = cb.state(nexus_style::InteractionState::Disabled);
+            }
+            cb.build(tokens)
+        }
+        "Slider" => {
+            use nexus_widget_slider::Slider;
+            let value = match prop("value") {
+                Some(Value::Int(v)) => (*v).clamp(0, 100) as u8,
+                _ => 0,
+            };
+            let mut slider = Slider::new().value(value);
+            if mods.disabled {
+                slider = slider.state(nexus_style::InteractionState::Disabled);
+            }
+            slider.build(tokens)
+        }
+        "Spinner" => {
+            use nexus_widget_spinner::Spinner;
+            let mut spinner = Spinner::new();
+            if let Some(Value::Int(size)) = prop("size") {
+                spinner = spinner.size(*size as i32);
+            }
+            if let Some(fg) = mods.fg {
+                spinner = spinner.color(fg);
+            }
+            spinner.build(tokens)
+        }
+        "ProgressBar" => {
+            use nexus_widget_progress_bar::ProgressBar;
+            let mut bar = ProgressBar::new();
+            match prop("value") {
+                Some(Value::Int(v)) => bar = bar.value((*v).clamp(0, 100) as u32),
+                _ => bar = bar.indeterminate(),
+            }
+            if let Some(Value::Int(h)) = prop("height") {
+                bar = bar.height(*h as i32);
+            }
+            bar.build(tokens)
+        }
+        "Toast" => {
+            use nexus_widget_toast::{Toast, ToastVariant};
+            let message = prop("message").map(value_text).unwrap_or_default();
+            let mut toast = Toast::new(message);
+            toast = toast.variant(match prop("variant").map(value_text).as_deref() {
+                Some("success") => ToastVariant::Success,
+                Some("warning") => ToastVariant::Warning,
+                Some("destructive") => ToastVariant::Destructive,
+                _ => ToastVariant::Default,
+            });
+            if let Some(action) = prop("action").map(value_text).filter(|a| !a.is_empty()) {
+                toast = toast.action(action);
+            }
+            toast.build(tokens)
+        }
+        "Banner" => {
+            use nexus_widget_banner::{Banner, BannerVariant};
+            let mut banner = Banner::new();
+            if let Some(title) = prop("title").map(value_text).filter(|t| !t.is_empty()) {
+                banner = banner.title(title);
+            }
+            if let Some(message) = prop("message").map(value_text).filter(|m| !m.is_empty()) {
+                banner = banner.message(message);
+            }
+            banner = banner.variant(match prop("variant").map(value_text).as_deref() {
+                Some("success") => BannerVariant::Success,
+                Some("warning") => BannerVariant::Warning,
+                Some("destructive") => BannerVariant::Destructive,
+                _ => BannerVariant::Info,
+            });
+            if let Some(action) = prop("action").map(value_text).filter(|a| !a.is_empty()) {
+                banner = banner.action(action);
+            }
+            banner.build(tokens)
+        }
+        "Skeleton" => {
+            use nexus_widget_skeleton::Skeleton;
+            let mut sk = Skeleton::new();
+            if let Some(Value::Int(w)) = prop("width") {
+                sk = sk.width(*w as i32);
+            }
+            if let Some(Value::Int(h)) = prop("height") {
+                sk = sk.height(*h as i32);
+            }
+            if matches!(prop("circle"), Some(Value::Bool(true))) {
+                sk = sk.circle();
+            }
+            sk.build(tokens)
+        }
         "Text" => {
             let value = prop("value").map(value_text).unwrap_or_default();
             text_node(value, mods, tokens)

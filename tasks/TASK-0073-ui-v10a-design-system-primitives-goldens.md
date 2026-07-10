@@ -142,7 +142,7 @@ Deliver, per RFC-0070 waves **W1–W3 + W5-non-overlay** (overlays/modal are W4 
 
 ---
 
-## STATUS / PROGRESS LEDGER (updated 2026-07-06)
+## STATUS / PROGRESS LEDGER (updated 2026-07-10)
 
 > Durable done/open record so the rest can be completed later. All work is **host-safe + green**
 > unless flagged **[BOOT-GATED]**. Each component is a pure `LayoutNode` builder from theme tokens
@@ -166,7 +166,16 @@ Deliver, per RFC-0070 waves **W1–W3 + W5-non-overlay** (overlays/modal are W4 
 - **window (5/7):** Window (pre-existing) + WindowButton, WindowControls, WindowPane (`window/src/chrome.rs`), Icon
 
 ### ⬜ OPEN — remaining primitives (host-safe, this task)
-- **feedback (0/7):** Spinner, ProgressBar, **Toast**, Skeleton, SkeletonText, Banner, Refresher — none built yet.
+- **feedback (7/7 DONE 2026-07-10):** Spinner (12 tapered spokes, phase-rotierbar), ProgressBar
+  (determinate + indeterminate pip, phase), Toast (Overlay-Glass-Pill, Status-Dot, Action),
+  Skeleton + SkeletonText (Shimmer-phase), Banner (Status-Stripe, Action, Dismiss), Refresher
+  (Reveal-Zone × progress/refreshing). Je no_std-Builder + Unit-Tests; 14 Goldens in
+  `tests/ui_v10_goldens`. Motion-Konvention: animierbare Widgets nehmen `phase` — das
+  Motion-System treibt sie (statischer Build = ein Frame).
+- **DSL-Exposure Batch 1 (2026-07-10)**: Badge/Chip/Avatar/Checkbox/Slider/Spinner/ProgressBar/
+  Toast/Banner/Skeleton in `dsl/core` WidgetSpec + `dsl/runtime` registry (Arme rufen die
+  KIT-Builder — one SSOT). A11y-Lint erzwingt Labels auf Interaktiven. Conformance-Mount-Test
+  `design_kit_widgets_mount_through_the_dsl` (kompiliert→mountet→layoutet alle 10).
 - **controls (2):** WheelPicker, DatePicker — need scroll-runtime (snap-scroll); `nexus-virtual-list` exists.
 - **navigation (1):** `List` — `userspace/ui/widgets/virtual_list` (`nexus-virtual-list`) exists; wrap as the kit `List`/grouped container.
 - **window (2):** AppWindow (responsive sidebar·content·properties compose), WindowActionBar.

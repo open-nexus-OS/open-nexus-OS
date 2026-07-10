@@ -1862,10 +1862,20 @@ dependencies = [
  "nexus-style",
  "nexus-text-baked",
  "nexus-theme-tokens",
+ "nexus-widget-avatar",
+ "nexus-widget-badge",
+ "nexus-widget-banner",
  "nexus-widget-button",
  "nexus-widget-card",
+ "nexus-widget-checkbox",
+ "nexus-widget-chip",
  "nexus-widget-icon",
+ "nexus-widget-progress-bar",
+ "nexus-widget-skeleton",
+ "nexus-widget-slider",
+ "nexus-widget-spinner",
  "nexus-widget-text-field",
+ "nexus-widget-toast",
  "nexus-widget-toggle",
 ]
 
@@ -2250,6 +2260,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-banner"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-panel",
+ "nexus-widget-text",
+]
+
+[[package]]
 name = "nexus-widget-breadcrumbs"
 version = "0.1.0"
 dependencies = [
@@ -2333,6 +2354,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-progress-bar"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-widget-radio"
 version = "0.1.0"
 dependencies = [
@@ -2348,6 +2377,16 @@ dependencies = [
  "nexus-layout-types",
  "nexus-theme-tokens",
  "nexus-widget-icon",
+]
+
+[[package]]
+name = "nexus-widget-refresher"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+ "nexus-widget-panel",
+ "nexus-widget-spinner",
 ]
 
 [[package]]
@@ -2390,11 +2429,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-widget-skeleton"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "nexus-widget-slider"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
  "nexus-style",
+ "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-spinner"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
  "nexus-theme-tokens",
 ]
 
@@ -2450,6 +2505,17 @@ dependencies = [
  "nexus-layout-types",
  "nexus-style",
  "nexus-theme-tokens",
+]
+
+[[package]]
+name = "nexus-widget-toast"
+version = "0.1.0"
+dependencies = [
+ "nexus-layout-types",
+ "nexus-style",
+ "nexus-theme-tokens",
+ "nexus-widget-panel",
+ "nexus-widget-text",
 ]
 
 [[package]]
@@ -4141,23 +4207,29 @@ dependencies = [
  "nexus-widget-app-icon",
  "nexus-widget-avatar",
  "nexus-widget-badge",
+ "nexus-widget-banner",
  "nexus-widget-button",
  "nexus-widget-card",
  "nexus-widget-checkbox",
  "nexus-widget-chip",
  "nexus-widget-icon",
  "nexus-widget-pagination",
+ "nexus-widget-progress-bar",
  "nexus-widget-radio",
  "nexus-widget-rating",
+ "nexus-widget-refresher",
  "nexus-widget-search-bar",
  "nexus-widget-segment",
  "nexus-widget-select",
  "nexus-widget-sidebar",
+ "nexus-widget-skeleton",
  "nexus-widget-slider",
+ "nexus-widget-spinner",
  "nexus-widget-stepper",
  "nexus-widget-tab-bar",
  "nexus-widget-text-area",
  "nexus-widget-text-field",
+ "nexus-widget-toast",
  "nexus-widget-toggle",
  "nexus-widget-toolbar",
  "nexus-widget-tree-view",
