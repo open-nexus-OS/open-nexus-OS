@@ -283,7 +283,6 @@ impl DisplayServerRuntime {
                         title_h: 0,
                         close_w: 0,
                     },
-                    WindowId::DslDemo => self.dsl_win.frame(),
                 };
                 // Edge/corner grab RESIZES (floating windows only) — resolved
                 // before the title/body press so the border band wins.
@@ -305,7 +304,6 @@ impl DisplayServerRuntime {
                             }
                             WindowId::Search => self.close_search(),
                             WindowId::Settings => self.close_settings(),
-                            WindowId::DslDemo => self.close_dsl_demo(),
                             WindowId::AppClient => self.close_app_window(),
                             WindowId::Desktop => {} // no close button on the base
                         }
@@ -325,7 +323,6 @@ impl DisplayServerRuntime {
                             WindowId::Chat => self.chat.begin_drag(cursor_x, cursor_y),
                             WindowId::Search => self.search.begin_drag(cursor_x, cursor_y),
                             WindowId::Settings => self.settings_win.begin_drag(cursor_x, cursor_y),
-                            WindowId::DslDemo => self.dsl_win.begin_drag(cursor_x, cursor_y),
                             WindowId::AppClient => self.app_win.begin_drag(cursor_x, cursor_y),
                             WindowId::Desktop => {} // base is not draggable
                         }
@@ -337,11 +334,6 @@ impl DisplayServerRuntime {
                         // live (TASK-0072 Phase 9 — immediate-apply, no OK button).
                         // A body click on the DSL window routes through the
                         // interpreter's hit-testing (TASK-0076B).
-                        if matches!(wid, WindowId::DslDemo) && cursor_y >= frame.y {
-                            let local_x = cursor_x - frame.x;
-                            let local_y = cursor_y - frame.y;
-                            self.dsl_pointer_body(local_x, local_y);
-                        }
                         // A body click on an app-client window is the APP's
                         // event (ADR-0042 R3): forward surface-local body
                         // coordinates; windowd keeps focus/raise only.
@@ -391,16 +383,6 @@ impl DisplayServerRuntime {
                 self.queue_dirty_rect(self.settings_window_rect());
             }
         }
-        // Continue dragging the DSL demo window (was missing entirely — its
-        // begin_drag armed but no window followed the pointer, and without
-        // the end_drag below it stayed "stuck": user report 2026-07-06).
-        if self.dsl_win.is_dragging() {
-            if let Some(old) = self.dsl_win.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
-                self.queue_dirty_rect(old);
-                self.queue_dirty_rect(self.dsl_window_rect());
-                self.dsl_win.surface_dirty = true;
-            }
-        }
         // Continue dragging the app-client window (ADR-0042).
         if self.app_win.is_dragging() {
             if let Some(old) = self.app_win.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
@@ -434,7 +416,6 @@ impl DisplayServerRuntime {
             // must still terminate on release (else it stays "stuck" to the cursor).
             self.settings_win.end_drag();
             // Same no-snap release for the DSL demo + app-client windows.
-            self.dsl_win.end_drag();
             self.app_win.end_drag();
             self.end_window_resize();
         }
@@ -758,9 +739,6 @@ impl DisplayServerRuntime {
                 WindowId::Settings => {
                     self.settings_win.contains(self.state.cursor_x, self.state.cursor_y)
                 }
-                WindowId::DslDemo => {
-                    self.dsl_win.contains(self.state.cursor_x, self.state.cursor_y)
-                }
                 WindowId::AppClient => {
                     self.app_win.contains(self.state.cursor_x, self.state.cursor_y)
                 }
@@ -781,7 +759,6 @@ impl DisplayServerRuntime {
                         Some(WindowId::Chat) => "chat",
                         Some(WindowId::Search) => "search",
                         Some(WindowId::Settings) => "settings",
-                        Some(WindowId::DslDemo) => "dsl",
                         Some(WindowId::AppClient) => "app",
                         Some(WindowId::Desktop) => "desktop",
                         None => "none",
@@ -800,7 +777,7 @@ impl DisplayServerRuntime {
             match target {
                 // The DSL demo window has no scrollable body (v0.1);
                 // the app-client window routes input in R3 (not scroll-R1).
-                Some(WindowId::DslDemo) | Some(WindowId::AppClient) | Some(WindowId::Desktop) => {}
+                Some(WindowId::AppClient) | Some(WindowId::Desktop) => {}
                 // Coalesce: accumulate this event's notches; `commit_scroll_input`
                 // applies the frame's total ONCE (reactive, no per-event replay).
                 Some(WindowId::Chat) => {

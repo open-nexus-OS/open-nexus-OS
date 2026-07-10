@@ -29,9 +29,6 @@ pub enum WindowId {
     Search,
     /// The settings window (TASK-0072: opened from the topbar Edit → Settings).
     Settings,
-    /// The DSL demo window (TASK-0076B: the visible in-compositor mount of a
-    /// compiled `.nxir` program — interpreter-rendered body).
-    DslDemo,
     /// A cross-process app client surface (ADR-0042 / TASK-0080D R1): the
     /// body is blitted from the app process's own surface VMO.
     AppClient,
@@ -457,11 +454,11 @@ mod tests {
         // desktop has a high z (5) yet still sorts below floating chat (z=1).
         let windows = [
             WindowState::floating(WindowId::Chat, true, 1),
-            WindowState::desktop(WindowId::DslDemo, true), // stands in for the shell surface
+            WindowState::desktop(WindowId::Desktop, true),
         ];
         assert_eq!(
             composition_order(&windows, false),
-            vec![WindowId::DslDemo, WindowId::Chat],
+            vec![WindowId::Desktop, WindowId::Chat],
             "desktop base first, floating window on top"
         );
     }
@@ -472,11 +469,11 @@ mod tests {
         // DESKTOP surface itself must still show — it IS the desktop shell.
         let windows = [
             WindowState::floating(WindowId::Chat, true, 1),
-            WindowState::desktop(WindowId::DslDemo, true),
+            WindowState::desktop(WindowId::Desktop, true),
         ];
         assert_eq!(
             composition_order(&windows, true),
-            vec![WindowId::DslDemo],
+            vec![WindowId::Desktop],
             "desktop base shows; floating window suppressed under shell-active"
         );
     }
@@ -487,10 +484,10 @@ mod tests {
         // still composites (it's not the desktop), with the desktop beneath it.
         let mut chat = WindowState::floating(WindowId::Chat, true, 1);
         chat.fullscreen = true;
-        let windows = [chat, WindowState::desktop(WindowId::DslDemo, true)];
+        let windows = [chat, WindowState::desktop(WindowId::Desktop, true)];
         assert_eq!(
             composition_order(&windows, false),
-            vec![WindowId::DslDemo, WindowId::Chat],
+            vec![WindowId::Desktop, WindowId::Chat],
             "desktop stays at the bottom band even under a fullscreen window"
         );
     }

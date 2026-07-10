@@ -33,6 +33,8 @@ pub(crate) const APP_WIN_MAX_W: u32 = crate::client_surface::MAX_SURFACE_W as u3
 pub(crate) const APP_WIN_MAX_H: u32 =
     crate::client_surface::MAX_SURFACE_H as u32 + APP_TITLE_H;
 pub(crate) const APP_TITLE_H: u32 = 32;
+/// Rounded-corner radius of the floating app window's glass frame.
+pub(crate) const APP_WIN_RADIUS: u32 = 12;
 pub(crate) const APP_CLOSE_W: u32 = 40;
 
 impl DisplayServerRuntime {
@@ -183,6 +185,9 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!(
             "WINDOWD: desktop surface created id={id} {width}x{height}"
         ));
+        // The DSL shell is on — as an app-host-owned desktop surface (the
+        // in-process mount that used to emit this is deleted, Umbau #17 2d).
+        let _ = debug_println("systemui: dsl shell on");
         wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
     }
 
@@ -458,7 +463,7 @@ impl DisplayServerRuntime {
         {
             0
         } else {
-            dsl_mount::DSL_RADIUS
+            APP_WIN_RADIUS
         };
         let tk = self.theme();
         // Chromeless when `title_h == 0` (a `plain`/desktop-style surface, e.g.

@@ -146,8 +146,8 @@ impl DisplayServerRuntime {
         // gate authorizes it (launching at boot was denied pre-login every
         // boot). Its surface declares `level: desktop` and lands in the Desktop
         // z-band (`app_stack_id`), composed as the base layer. Once per session
-        // lifetime; additive alongside the in-process mount until the app-host
-        // desktop surface fully takes over (then dsl_mount retires).
+        // lifetime; additive alongside the in-process mount — the in-process
+        // mount is DELETED (2d); the app-host desktop surface IS the shell.
         if !self.shell_app_launched {
             self.shell_app_launched = true;
             self.launch_app("desktop-shell");

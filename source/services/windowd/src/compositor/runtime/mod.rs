@@ -108,8 +108,6 @@ mod input;
 mod chat_window;
 mod shell;
 mod search;
-mod dsl_mount;
-mod dsl_effects;
 pub(crate) mod app_window;
 mod settings_window;
 mod present;
@@ -420,7 +418,6 @@ pub(crate) struct DisplayServerRuntime {
     /// surface is acquired on show and released on hide, like Search.
     settings_win: super::shell_window::ShellWindow,
     /// The DSL demo window frame (TASK-0076B).
-    dsl_win: super::shell_window::ShellWindow,
     /// The cross-process app-client window (ADR-0042 R1): body pixels come
     /// from the app process's surface VMO via the damage-blit.
     app_win: super::shell_window::ShellWindow,
@@ -482,8 +479,6 @@ pub(crate) struct DisplayServerRuntime {
     /// under load; the inputd windowd-route lesson).
     #[cfg(nexus_env = "os")]
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
-    /// Mounted DSL interpreter state (view + layout + markers).
-    dsl_mount: dsl_mount::DslMount,
     /// Prefix-filtered words shown in the Search window body.
     search_filtered: Vec<&'static str>,
     /// Search window scroll engine — the SAME shared `animation::ScrollMomentum`
@@ -857,21 +852,6 @@ impl DisplayServerRuntime {
             5,
             90,
         );
-        // The DSL demo window (TASK-0076B) — same reusable glass frame; the
-        // body is rendered from the DSL interpreter's retained scene.
-        let dsl_win = super::shell_window::ShellWindow::new(
-            "DSL Demo",
-            420,
-            160,
-            dsl_mount::DSL_WIN_W,
-            dsl_mount::DSL_WIN_H,
-            dsl_mount::DSL_TITLE_H,
-            dsl_mount::DSL_CLOSE_W,
-            dsl_mount::DSL_RADIUS,
-            18,
-            5,
-            90,
-        );
         // The app-client window (ADR-0042 R1) — same reusable glass frame; the
         // body is blitted from the app's own surface VMO on present.
         let app_win = super::shell_window::ShellWindow::new(
@@ -882,7 +862,7 @@ impl DisplayServerRuntime {
             app_window::APP_WIN_MAX_H,
             app_window::APP_TITLE_H,
             app_window::APP_CLOSE_W,
-            dsl_mount::DSL_RADIUS,
+            app_window::APP_WIN_RADIUS,
             18,
             5,
             90,
@@ -897,7 +877,6 @@ impl DisplayServerRuntime {
         // while fullscreen). Doubling the display-sized cap here would starve the
         // sidepanel.
         let window_pool_rows: u32 = 2 * super::desktop_layer::search_full_h()
-            + 2 * dsl_mount::DSL_WIN_H // DSL demo window: content + blur bands
             + mode.height // DESKTOP surface band (shell app-host, full-screen)
             + 400 // floating app-client window band (content; blur best-effort)
             + 16;
@@ -1022,7 +1001,6 @@ impl DisplayServerRuntime {
             greeter: None,
             search,
             settings_win,
-            dsl_win,
             app_win,
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
             app_layers: [nexus_display_proto::client_surface::LayerDesc::default();
@@ -1046,7 +1024,6 @@ impl DisplayServerRuntime {
             app_event_channel: None,
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
-            dsl_mount: dsl_mount::DslMount::new(),
             search_filtered: {
                 let mut v = Vec::new();
                 super::desktop_layer::search_filter("", &mut v);
@@ -1076,7 +1053,6 @@ impl DisplayServerRuntime {
                 crate::window_scene::WindowId::Search,
                 crate::window_scene::WindowId::Chat,
                 crate::window_scene::WindowId::Settings,
-                crate::window_scene::WindowId::DslDemo,
                 crate::window_scene::WindowId::AppClient,
                 // The desktop base (shell/greeter app-host). Registered hidden;
                 // shown + composited once a desktop-level client surface connects
@@ -1148,7 +1124,6 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => "chat",
             crate::window_scene::WindowId::Search => "search",
             crate::window_scene::WindowId::Settings => "settings",
-            crate::window_scene::WindowId::DslDemo => "dsl",
             crate::window_scene::WindowId::AppClient => "app",
             crate::window_scene::WindowId::Desktop => "desktop",
         }
@@ -1165,7 +1140,6 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => &self.chat,
             crate::window_scene::WindowId::Search => &self.search,
             crate::window_scene::WindowId::Settings => &self.settings_win,
-            crate::window_scene::WindowId::DslDemo => &self.dsl_win,
             crate::window_scene::WindowId::AppClient => &self.app_win,
             crate::window_scene::WindowId::Desktop => unreachable!("handled above"),
         };
@@ -1195,7 +1169,6 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::Chat => self.chat.leave_fullscreen(),
             crate::window_scene::WindowId::Search => self.search.leave_fullscreen(),
             crate::window_scene::WindowId::Settings => self.settings_win.leave_fullscreen(),
-            crate::window_scene::WindowId::DslDemo => self.dsl_win.leave_fullscreen(),
             crate::window_scene::WindowId::AppClient => self.app_win.leave_fullscreen(),
             // The desktop base has no fullscreen toggle (it is already the
             // full-screen base) and no chrome to restore.

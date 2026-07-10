@@ -32,7 +32,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let out_dir = env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?;
     let out_dir = Path::new(&out_dir);
-    compile_dsl_demo(out_dir)?;
     let font_bytes = fs::read(INTER_FONT)?;
     let font = fontdue::Font::from_bytes(font_bytes, fontdue::FontSettings::default())
         .map_err(|err| std::io::Error::other(format!("parse Inter font: {err:?}")))?;
@@ -489,35 +488,6 @@ fn normalized_mocu_cursor_svg() -> &'static str {
 </svg>"
 }
 
-/// TASK-0076B: compile the DSL demo page (`.nx`) to canonical `.nxir` bytes
-/// embedded into windowd for the visible in-compositor mount. The compiler
-/// runs host-side (build script); the service only reads the canonical IR.
-/// The shell registry manifest (ADR-0035) — its `dsl_root` names the DSL
-/// shell project windowd mounts (0080C step 1: registry-driven, no
-/// hardcoded shell source).
-const SHELL_MANIFEST: &str = "../systemui/manifests/shells/desktop/shell.toml";
-
-fn compile_dsl_demo(out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    // 0080C step 1: the mounted program is the DSL SHELL, resolved from the
-    // registry's `dsl_root` (repo-relative) — the product picks the shell,
-    // windowd never hardcodes it. Compiled through the ONE shared
-    // project-compile path (TASK-0081).
-    println!("cargo:rerun-if-changed={SHELL_MANIFEST}");
-    let manifest = fs::read_to_string(SHELL_MANIFEST)?;
-    let dsl_root = manifest
-        .lines()
-        .find_map(|line| {
-            let line = line.trim();
-            line.strip_prefix("dsl_root")
-                .and_then(|rest| rest.trim_start().strip_prefix('='))
-                .map(|rest| rest.trim().trim_matches('"').to_string())
-        })
-        .ok_or("shell.toml: missing dsl_root")?;
-    // windowd lives at source/services/windowd → repo root is three up.
-    let project = Path::new("../../..").join(&dsl_root);
-    println!("cargo:rerun-if-changed={}", project.join("ui").display());
-    let nxir = nexus_dsl_core::compile_project_dir(&project)
-        .map_err(|e| std::io::Error::other(format!("dsl shell ({dsl_root}): {e}")))?;
-    fs::write(out_dir.join("dsl_demo.nxir"), &nxir)?;
-    Ok(())
-}
+// The doubled DSL-shell compile path (`dsl_root` → in-process mount) is
+// DELETED (Umbau #17 2d): bundlemgrd's payload table is the ONE compile path;
+// the shell runs as an app-host and connects a desktop surface.

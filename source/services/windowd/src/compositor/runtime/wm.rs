@@ -38,7 +38,6 @@ impl DisplayServerRuntime {
             WindowId::Chat => self.chat.end_drag(),
             WindowId::Search => self.search.end_drag(),
             WindowId::Settings => self.settings_win.end_drag(),
-            WindowId::DslDemo => self.dsl_win.end_drag(),
             WindowId::AppClient => self.app_win.end_drag(),
             WindowId::Desktop => {} // static base: no drag/minimize
         }
@@ -59,7 +58,6 @@ impl DisplayServerRuntime {
             WindowId::Chat => self.chat.blur_valid = false,
             WindowId::Search => self.search.blur_valid = false,
             WindowId::Settings => self.settings_win.blur_valid = false,
-            WindowId::DslDemo => self.dsl_win.blur_valid = false,
             WindowId::AppClient => self.app_win.blur_valid = false,
             WindowId::Desktop => {} // static base: no blur cache / restore
         }
@@ -86,7 +84,7 @@ impl DisplayServerRuntime {
         if self.windows.is_fullscreen(id) {
             match id {
                 WindowId::Chat => self.chat.leave_fullscreen(),
-                WindowId::Settings | WindowId::DslDemo | WindowId::Desktop => {}
+                WindowId::Settings | WindowId::Desktop => {}
                 WindowId::AppClient => {
                     // Restore the floating frame + chrome height (fullscreen
                     // zeroed `title_h`). Restoring it here — not waiting for the
@@ -116,7 +114,7 @@ impl DisplayServerRuntime {
                     let band_h = self.chat.atlas.map(|s| s.height).unwrap_or(mode_h);
                     self.chat.enter_fullscreen(mode_w, mode_h.min(band_h));
                 }
-                WindowId::Settings | WindowId::DslDemo | WindowId::Desktop => {}
+                WindowId::Settings | WindowId::Desktop => {}
                 WindowId::AppClient => {
                     // Cover the display; the OP_SURFACE_RECT push below makes the
                     // app re-create its surface at display size (the atlas band is
@@ -171,7 +169,6 @@ impl DisplayServerRuntime {
             WindowId::Chat => self.chat.contains(cx, cy),
             WindowId::Search => self.search.contains(cx, cy),
             WindowId::Settings => self.settings_win.contains(cx, cy),
-            WindowId::DslDemo => self.dsl_win.contains(cx, cy),
             // The desktop base has no window chrome to grab — clicks fall
             // through to the shell's own surface (handled as client input), never
             // to a window drag/hit owner.
@@ -213,12 +210,6 @@ impl DisplayServerRuntime {
             self.app_win.surface_dirty = true;
             self.queue_dirty_rect(self.app_window_rect());
         }
-        let dsl_hover = want(WindowId::DslDemo, &self.dsl_win);
-        if dsl_hover != self.dsl_win.title_hover {
-            self.dsl_win.title_hover = dsl_hover;
-            self.dsl_win.surface_dirty = true;
-            self.queue_dirty_rect(self.dsl_window_rect());
-        }
     }
 
     // ── Edge/corner resize + drag-to-edge snap (TASK-0070 Phase 3) ──
@@ -230,7 +221,6 @@ impl DisplayServerRuntime {
             WindowId::Chat => self.chat.frame(),
             WindowId::Search => self.search.frame(),
             WindowId::Settings => self.settings_win.frame(),
-            WindowId::DslDemo => self.dsl_win.frame(),
             WindowId::AppClient => self.app_win.frame(),
             WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
         };
@@ -259,7 +249,6 @@ impl DisplayServerRuntime {
             WindowId::Chat => self.chat.frame(),
             WindowId::Search => self.search.frame(),
             WindowId::Settings => self.settings_win.frame(),
-            WindowId::DslDemo => self.dsl_win.frame(),
             WindowId::AppClient => self.app_win.frame(),
             WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
         };
@@ -275,7 +264,6 @@ impl DisplayServerRuntime {
                 WindowId::Chat => (self.chat.w, self.chat.h),
                 WindowId::Search => (self.search.w, self.search.h),
                 WindowId::Settings => (self.settings_win.w, self.settings_win.h),
-                WindowId::DslDemo => (self.dsl_win.w, self.dsl_win.h),
                 WindowId::AppClient => (self.app_win.w, self.app_win.h),
                 WindowId::Desktop => (self.mode.width, self.mode.height),
             };
@@ -394,15 +382,6 @@ impl DisplayServerRuntime {
                 self.app_win.set_frame(x, y, w, h);
                 self.app_win.surface_dirty = true;
             }
-            WindowId::DslDemo => {
-                // Interpreter body — clamp to the atlas band; a resize keeps
-                // the current layout (re-layout on open/interaction only).
-                let band_h = self.dsl_win.atlas.map(|s| s.height).unwrap_or(h);
-                let w = w.min(self.mode.width);
-                let h = h.min(band_h);
-                self.dsl_win.set_frame(x, y, w, h);
-                self.dsl_win.surface_dirty = true;
-            }
             // The desktop base is always the full display — never repositioned
             // or resized by the WM (its geometry follows the mode, pushed to the
             // shell app-host as the full content rect).
@@ -477,8 +456,7 @@ impl DisplayServerRuntime {
                     WindowId::Chat => self.chat.frame(),
                     WindowId::Search => self.search.frame(),
                     WindowId::Settings => self.settings_win.frame(),
-                    WindowId::DslDemo => self.dsl_win.frame(),
-                    WindowId::AppClient => self.app_win.frame(),
+                            WindowId::AppClient => self.app_win.frame(),
             WindowId::Desktop => Frame { x: 0, y: 0, w: self.mode.width, h: self.mode.height, title_h: 0, close_w: 0 },
                 };
                 if frame.contains(cx, cy) {
@@ -600,10 +578,6 @@ impl DisplayServerRuntime {
                         (crate::assets::DOCK_CHAT_ICON_BGRA, crate::assets::DOCK_CHAT_ICON_DIM)
                     }
                     WindowId::Search => {
-                        (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
-                    }
-                    // DSL demo reuses the search glyph until its own is baked.
-                    WindowId::DslDemo => {
                         (crate::assets::DOCK_SEARCH_ICON_BGRA, crate::assets::DOCK_SEARCH_ICON_DIM)
                     }
                     // Placeholder dock glyph until a gear icon is baked (Phase 10).
