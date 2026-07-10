@@ -15,6 +15,14 @@
 [marker."SELFTEST: ipc routing execd ok"]
 phase = "exec"
 
+# P0.2 recv-wake gate: execd spawns `recv-wake-probe` once after ready; the probe
+# parks in a blocking recv and execd pings it — this marker proves the kernel
+# wakes an exec'd child parked in `Wait::Blocking` (the #102-family regression
+# gate). Emitted by execd (os_lite.rs) every boot, so it must be a KNOWN marker
+# or `nexus-evidence` rejects the trace (`unknown_marker`).
+[marker."SELFTEST: exec child blocking recv wake ok"]
+phase = "exec"
+
 [marker."execd: elf load ok"]
 phase = "exec"
 
