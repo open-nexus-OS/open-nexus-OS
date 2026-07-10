@@ -68,3 +68,16 @@ inkl. Input-Routing zur Desktop-Surface) — sonst schwarzer Desktop.**
    → nexus-gfx/gpud.
 
 Endzustand: windowd ≈ 8–9k LOC reiner Compositor-Service; alles UI deklarativ aus Apps.
+
+## Input-Grenze (Owner-Direktive 2026-07-10)
+
+| Schicht | Ort | Inhalt |
+|---|---|---|
+| Treiber | `drivers/input/virtio-input`, `hidrawd` | Raw-HID, Device-IRQs, Queues |
+| Normalisierung | `inputd` (+ `userspace/{keymaps,key-repeat,pointer-accel}`) | Scancode→Key, Accel, Repeat, Display-Space-Pointer — **nie** in windowd |
+| Compositor | `windowd` | NUR Hit-Test (Z-Order-SSOT) + **Routing** zur Ziel-Surface (`OP_SURFACE_INPUT`) |
+| Verhalten | Widget / App (DSL) | Was ein Klick/Scroll TUT — nie in windowd |
+
+Das per-Fenster-Input-Verhalten in `compositor/runtime/input.rs` (Chat-Filter, Search-Text,
+Scroll-Sonderfälle) ist Teil der Legacy-Fenster und fällt mit der DELETE-Spalte. Endzustand:
+input.rs = Hit-Test → deklaratives per-Surface-Forwarding, sonst nichts.

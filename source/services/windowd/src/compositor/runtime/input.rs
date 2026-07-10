@@ -347,9 +347,10 @@ impl DisplayServerRuntime {
                         // coordinates; windowd keeps focus/raise only.
                         if matches!(wid, WindowId::AppClient) && cursor_y >= frame.y {
                             let local_x = cursor_x - frame.x;
-                            let body_y = cursor_y
-                                - frame.y
-                                - crate::compositor::runtime::app_window::APP_TITLE_H as i32;
+                            // Declarative: the body starts below the RESOLVED
+                            // chrome height (0 for chromeless presentations),
+                            // not a hardcoded title constant.
+                            let body_y = cursor_y - frame.y - self.app_win.title_h as i32;
                             if body_y >= 0 {
                                 self.send_app_input(local_x, body_y);
                             }
@@ -443,7 +444,11 @@ impl DisplayServerRuntime {
         // animation trigger.
         if primary_press && !window_consumed_press {
             use crate::interaction::{resolve_click, ClickAction};
-            match resolve_click(mode, self.state.sidebar_open_visible, cursor_x, cursor_y) {
+            let action = resolve_click(mode, self.state.sidebar_open_visible, cursor_x, cursor_y);
+            if !matches!(action, ClickAction::None) {
+                window_consumed_press = true;
+            }
+            match action {
                 ClickAction::ToggleSidebar => {
                     self.state.sidebar_open_visible = !self.state.sidebar_open_visible;
                 }
@@ -465,6 +470,18 @@ impl DisplayServerRuntime {
                 ClickAction::GreeterUser => {}
                 ClickAction::None => {}
             }
+        }
+        // Declarative desktop surface (Umbau #17 2c): a primary press that
+        // NOTHING consumed — no window chrome/body, no legacy shell chrome —
+        // belongs to the DESKTOP surface: the shell app-host owns those pixels.
+        // Forward surface-local coordinates (the desktop is full-screen at the
+        // origin, chromeless), same OP_SURFACE_INPUT path as app-window bodies.
+        // windowd stays pure routing: what the click DOES is the shell's business.
+        if primary_press
+            && !window_consumed_press
+            && self.windows.is_visible(crate::window_scene::WindowId::Desktop)
+        {
+            self.send_app_input(cursor_x, cursor_y);
         }
         self.state.focus_visible |= upstream.focus_visible;
         // Reflect the momentary key-held state from inputd (which already sends
