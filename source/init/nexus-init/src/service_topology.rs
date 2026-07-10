@@ -175,6 +175,12 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
     (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
     (ServiceId::Abilitymgr, ServiceId::Sessiond),   // launch gate: session must be active
+    // App-child service routing (TASK-0080C): execd resolves these BY NAME on
+    // behalf of the app-hosts it spawns — one SEND clone per declared manifest
+    // cap into the child's fixed SDK slot (`nexus-sdk-routes`).
+    (ServiceId::Execd, ServiceId::Abilitymgr), // svc.ability.* (launcher e2e)
+    (ServiceId::Execd, ServiceId::Bundlemgrd), // svc.bundle.* (app enumeration)
+    (ServiceId::Execd, ServiceId::Sessiond),   // svc.session.* (DSL greeter login)
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
     (ServiceId::Windowd, ServiceId::Settingsd),     // theme GET/SET persistence (TASK-0072 P10)

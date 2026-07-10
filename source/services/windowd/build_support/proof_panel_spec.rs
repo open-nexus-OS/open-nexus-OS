@@ -1,8 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → selftest (Test-UI ist kein Compositor).
-// DO NOT EXTEND — new capability belongs at the target, not here.
+// ⚠ CLEANUP-MAP: MOVED out of windowd src/ (build-time-only spec for the baked
+// proof panel; no runtime consumer). Deleted entirely when the proof panel
+// leaves the wallpaper bake (selftest owns test UI).
 //
 
 // CONTEXT: Proof panel constants for TASK-0058 windowd integration.

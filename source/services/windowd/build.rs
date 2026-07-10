@@ -10,7 +10,7 @@ use nexus_theme::{ColorValue, Qualifier, ThemeRuntime};
 
 mod proof_panel_spec {
     #![allow(dead_code)]
-    include!("src/proof_panel_spec.rs");
+    include!("build_support/proof_panel_spec.rs");
 }
 
 use proof_panel_spec::{

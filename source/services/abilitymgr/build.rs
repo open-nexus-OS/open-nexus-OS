@@ -29,6 +29,7 @@ fn main() {
 
     let mut apps: Vec<(String, Vec<String>)> = Vec::new();
     let mut ui_programs: Vec<String> = Vec::new();
+    let mut pre_session: Vec<String> = Vec::new();
     let mut exports: Vec<(String, Vec<(String, String)>)> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&bundles_dir) {
         for entry in entries.flatten() {
@@ -50,11 +51,15 @@ fn main() {
                 if !entries.is_empty() {
                     exports.push((name.clone(), entries));
                 }
-                if field_value(&std::fs::read_to_string(&manifest).unwrap_or_default(), "payload_kind")
-                    .as_deref()
-                    == Some("ui-program")
-                {
+                let text_again = std::fs::read_to_string(&manifest).unwrap_or_default();
+                if field_value(&text_again, "payload_kind").as_deref() == Some("ui-program") {
                     ui_programs.push(name.clone());
+                }
+                // The GREETER role is the pre-session surface by definition —
+                // abilitymgr's session gate admits it BEFORE login (declarative
+                // via bundle_type, never a hardcoded app name).
+                if field_value(&text_again, "bundle_type").as_deref() == Some("greeter") {
+                    pre_session.push(name.clone());
                 }
                 apps.push((name, caps));
             }
@@ -62,6 +67,7 @@ fn main() {
     }
     apps.sort();
     ui_programs.sort();
+    pre_session.sort();
     exports.sort();
 
     let mut out = String::new();
@@ -86,6 +92,15 @@ fn main() {
     out.push_str("#[allow(dead_code)]\n");
     let _ = writeln!(out, "pub(crate) const APP_UI_PROGRAMS: &[&str] = &[");
     for name in &ui_programs {
+        let _ = writeln!(out, "    {name:?},");
+    }
+    out.push_str("];\n");
+
+    // Apps allowed to launch BEFORE an active session (bundle_type = greeter):
+    // the login surface itself. Everything else stays session-gated.
+    out.push_str("#[allow(dead_code)]\n");
+    let _ = writeln!(out, "pub(crate) const APP_PRE_SESSION: &[&str] = &[");
+    for name in &pre_session {
         let _ = writeln!(out, "    {name:?},");
     }
     out.push_str("];\n");

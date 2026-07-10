@@ -439,13 +439,15 @@ pub(crate) struct DisplayServerRuntime {
     app_intent_level: u8,
     app_intent_mode: u8,
     app_intent_resizable: bool,
-    /// Event channel of the app-host that is CONNECTING (attached by execd via
-    /// `OP_SURFACE_EVENTS` BEFORE the child creates its surface). Consumed by
-    /// the next `SURFACE_CREATE`, which assigns it to the surface's role slot
-    /// (desktop vs. floating) — the singleton-channel era (last attach wins,
-    /// shell+counter collided) is retired.
+    /// Nonce → event-channel map (bounded, LRU-replace): each app-host attaches
+    /// its OWN channel tagged with a self-minted nonce and repeats the nonce on
+    /// SURFACE_CREATE — the bind is deterministic under N concurrent connects
+    /// (the pending-slot era crossed channels between greeter/shell/counter).
+    /// Non-consuming: a resize RE-create binds the same nonce again.
     #[cfg(nexus_env = "os")]
-    pending_event_channel: Option<u32>,
+    event_channels: [(u64, u32); 8],
+    #[cfg(nexus_env = "os")]
+    event_channels_len: usize,
     /// The DESKTOP surface (RFC-0065 Umbau #17): the shell/greeter app-host that
     /// declared `level: desktop`. Own slot — id, event channel, full-screen
     /// atlas band, dirty flag — fully separate from the floating `app_win`
@@ -564,6 +566,14 @@ pub(crate) struct DisplayServerRuntime {
     /// wallpaper + avatar card baked into Plane 1; all shell affordances
     /// suppressed until sessiond accepts a login.
     greeter: Option<greeter::GreeterState>,
+    /// DSL-greeter login watch (Umbau #17 visual swap): armed when the DSL
+    /// greeter's desktop surface retires the built-in avatar greeter. The
+    /// login now happens OUT of process (greeter app-host → sessiond), so
+    /// windowd polls sessiond on a slow cadence until the session activates,
+    /// then applies the session shell. Disarmed on activation.
+    greeter_login_watch: bool,
+    /// Monotonic deadline before the next login-watch poll.
+    greeter_watch_next_ns: u64,
     /// The z/focus stack (host-tested SSOT in `window_scene`): the ONE ordering
     /// authority for shell windows. Scene emission composites in `order()` and
     /// input hit-tests in `hit_order()` (its exact reverse), replacing the old
@@ -878,7 +888,18 @@ impl DisplayServerRuntime {
         // sidepanel.
         let window_pool_rows: u32 = 2 * super::desktop_layer::search_full_h()
             + mode.height // DESKTOP surface band (shell app-host, full-screen)
-            + 400 // floating app-client window band (content; blur best-effort)
+            // Floating app-client window band: a maximized window keeps its
+            // chrome but its CONTENT band re-creates at up to display height —
+            // reserving less (the old fixed 400) made fullscreen re-creates
+            // fail band alloc and the window hung mid-transition.
+            + mode.height
+            // Transient login overlap: the avatar greeter's full-screen band
+            // and the DSL greeter's desktop band coexist between desktop
+            // CREATE and the swap-at-first-present. Without this row the
+            // desktop band alloc failed during the greeter phase (boot-proven
+            // `WINDOWD: desktop surface FAIL atlas`); the early-swap fallback
+            // in `create_desktop_surface` self-heals if this math ever drifts.
+            + mode.height
             + 16;
         let sidepanel_h = mode
             .height
@@ -999,6 +1020,8 @@ impl DisplayServerRuntime {
             session_probe: session::SessionProbe::default(),
             theme_probe: shell::ThemeProbe::default(),
             greeter: None,
+            greeter_login_watch: false,
+            greeter_watch_next_ns: 0,
             search,
             settings_win,
             app_win,
@@ -1011,7 +1034,9 @@ impl DisplayServerRuntime {
             app_intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
             app_intent_resizable: true,
             #[cfg(nexus_env = "os")]
-            pending_event_channel: None,
+            event_channels: [(0, 0); 8],
+            #[cfg(nexus_env = "os")]
+            event_channels_len: 0,
             desktop_surface_id: None,
             #[cfg(nexus_env = "os")]
             desktop_channel: None,

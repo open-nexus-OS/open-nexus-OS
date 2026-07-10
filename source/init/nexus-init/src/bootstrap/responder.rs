@@ -171,6 +171,78 @@ pub(crate) fn run_responder_loop(
                 debug_write_str(chan.svc_name);
                 debug_write_byte(b'\n');
             }
+            if name == b"@mint-pair" {
+                // Dynamic per-launch endpoint mint (correlation fix,
+                // production-grade): execd asks; init — the EndpointFactory
+                // holder (non-duplicable security floor) — mints a FRESH pair
+                // and transfers BOTH halves to execd. Used for the child's
+                // event channel AND its private reply inbox (`@reply` returns
+                // execd's PERSISTENT shared inbox — never grant that to
+                // children: shared queue = reply theft across processes). No
+                // pre-sized pool, no slot-order contract; execd does
+                // mint→grant→close per launch (zero cap-table accumulation).
+                // Identity-gated: execd only.
+                let (status, send_slot, recv_slot) = if chan.svc_name == "execd" {
+                    match nexus_abi::ipc_endpoint_create_for(
+                        ENDPOINT_FACTORY_CAP_SLOT,
+                        chan.pid,
+                        8,
+                    ) {
+                        Ok(ep) => {
+                            let send = nexus_abi::cap_transfer(
+                                chan.pid,
+                                ep,
+                                nexus_abi::Rights::SEND,
+                            );
+                            let recv = nexus_abi::cap_transfer(
+                                chan.pid,
+                                ep,
+                                nexus_abi::Rights::RECV,
+                            );
+                            let _ = nexus_abi::cap_close(ep);
+                            match (send, recv) {
+                                (Ok(s), Ok(r)) => (nexus_abi::routing::STATUS_OK, s, r),
+                                _ => {
+                                    debug_write_bytes(b"init: FAIL mint-pair transfer\n");
+                                    (nexus_abi::routing::STATUS_NOT_FOUND, 0, 0)
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            debug_write_bytes(b"init: FAIL mint-pair create\n");
+                            (nexus_abi::routing::STATUS_NOT_FOUND, 0, 0)
+                        }
+                    }
+                } else {
+                    debug_write_bytes(b"init: mint-pair denied (not execd)\n");
+                    (nexus_abi::routing::STATUS_NOT_FOUND, 0, 0)
+                };
+                if let Some(nonce) = route_nonce {
+                    let base = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
+                    let mut rsp = [0u8; 17];
+                    rsp[..13].copy_from_slice(&base);
+                    rsp[13..17].copy_from_slice(&nonce.to_le_bytes());
+                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
+                    let _ = nexus_abi::ipc_send_v1(
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
+                    );
+                } else {
+                    let rsp = nexus_abi::routing::encode_route_rsp(status, send_slot, recv_slot);
+                    let rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, rsp.len() as u32);
+                    let _ = nexus_abi::ipc_send_v1(
+                        chan.ctrl_rsp_parent_slot,
+                        &rh,
+                        &rsp,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
+                    );
+                }
+                continue;
+            }
             if name == b"@reply" {
                 let status = if chan.reply_send_slot.is_some() && chan.reply_recv_slot.is_some() {
                     nexus_abi::routing::STATUS_OK

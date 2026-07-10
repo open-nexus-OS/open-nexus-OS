@@ -21,6 +21,12 @@ const SESSION_PROBE_INTERVAL_NS: u64 = 250_000_000;
 #[cfg(all(nexus_env = "os", target_os = "none"))]
 const SESSION_PROBE_MAX_ATTEMPTS: u32 = 24;
 
+/// Login-watch cadence (Umbau #17): while the DSL greeter owns the display,
+/// poll sessiond for the login on a slow, bounded-rate cadence. Login is a
+/// rare human-latency event — 500ms costs nothing and needs no push channel.
+#[cfg(all(nexus_env = "os", target_os = "none"))]
+const GREETER_WATCH_INTERVAL_NS: u64 = 500_000_000;
+
 /// Session-probe bookkeeping on the runtime.
 #[derive(Default)]
 pub(super) struct SessionProbe {
@@ -103,6 +109,38 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// One login-watch step (Umbau #17 swap), called from the main loop next
+    /// to the session probe. Armed by `swap_greeter_to_dsl` (the DSL greeter
+    /// took the display); polls sessiond until the out-of-process login lands,
+    /// then applies the session shell. Returns `true` while it needs pacing
+    /// wakes. Rate-bounded; runs only between swap and login.
+    pub(crate) fn greeter_watch_tick(&mut self, now_ns: u64) -> bool {
+        if !self.greeter_login_watch {
+            return false;
+        }
+        if now_ns < self.greeter_watch_next_ns {
+            return true;
+        }
+        self.greeter_watch_next_ns = now_ns.saturating_add(GREETER_WATCH_INTERVAL_NS);
+        let Some(snapshot) = crate::session_client::fetch_session_state() else {
+            return true;
+        };
+        if snapshot.state != nexus_abi::sessiond::STATE_ACTIVE {
+            return true;
+        }
+        self.greeter_login_watch = false;
+        let product = snapshot.active_product().unwrap_or(systemui::DEFAULT_PRODUCT_ID);
+        let _ = debug_println("windowd: dsl login detected (session active)");
+        self.apply_session_shell(product);
+        self.queue_gpu_blit_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: self.mode.width,
+            height: self.mode.height,
+        });
+        false
+    }
+
     /// Terminal probe outcome: apply what the session authority reported.
     fn on_session_snapshot(&mut self, snapshot: crate::session_client::SessionSnapshot) {
         use nexus_abi::sessiond as wire;
@@ -114,8 +152,17 @@ impl DisplayServerRuntime {
                 self.apply_session_shell(product);
             }
             wire::STATE_GREETER => {
-                // The login window owns the display until a user logs in.
+                // The login window owns the display until a user logs in. The
+                // built-in avatar greeter comes up FIRST (fail-safe: login
+                // works even if the app-host chain breaks) …
                 self.start_greeter(&snapshot.users);
+                // … then the DSL greeter app-host launches (bundle_type=
+                // greeter passes abilitymgr's pre-session gate). Its first
+                // desktop-surface present retires the avatar greeter
+                // (`swap_greeter_to_dsl`) and arms `greeter_watch_tick`,
+                // which applies the session shell once the out-of-process
+                // login (`svc.session.login`) lands.
+                self.launch_app("greeter");
             }
             _ => {
                 let _ = debug_println("windowd: session unavailable (auto shell)");

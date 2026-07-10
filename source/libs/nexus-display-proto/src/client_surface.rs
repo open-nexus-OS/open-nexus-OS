@@ -231,21 +231,41 @@ fn has_op(frame: &[u8], op: u8) -> bool {
 
 // ------------------------------------------------------------------ create
 
-pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 5;
+// +4 intent bytes (style, level, mode, resizable): the declared window intent
+// rides ATOMICALLY with the create — a separate pre-create OP_SURFACE_INTENT
+// raced when two app-hosts connected concurrently (shell + counter: the
+// pending intent crossed and BOTH surfaces landed in the desktop role).
+pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 17;
 
 #[must_use]
-pub fn encode_surface_create(width: u16, height: u16, format: u8) -> [u8; SURFACE_CREATE_FRAME_LEN] {
+#[allow(clippy::too_many_arguments)]
+pub fn encode_surface_create(
+    width: u16,
+    height: u16,
+    format: u8,
+    style: u8,
+    level: u8,
+    mode: u8,
+    resizable: bool,
+    nonce: u64,
+) -> [u8; SURFACE_CREATE_FRAME_LEN] {
     let mut f = [0u8; SURFACE_CREATE_FRAME_LEN];
     f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_CREATE));
     f[4..6].copy_from_slice(&width.to_le_bytes());
     f[6..8].copy_from_slice(&height.to_le_bytes());
     f[8] = format;
+    f[9] = style;
+    f[10] = level;
+    f[11] = mode;
+    f[12] = resizable as u8;
+    f[13..21].copy_from_slice(&nonce.to_le_bytes());
     f
 }
 
-/// `(width, height, format)`.
+/// `(width, height, format, style, level, mode, resizable, nonce)`.
 #[must_use]
-pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8)> {
+#[allow(clippy::type_complexity)]
+pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8, u8, u8, u8, bool, u64)> {
     if !has_op(frame, OP_SURFACE_CREATE) || frame.len() != SURFACE_CREATE_FRAME_LEN {
         return None;
     }
@@ -253,6 +273,13 @@ pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8)> {
         u16::from_le_bytes([frame[4], frame[5]]),
         u16::from_le_bytes([frame[6], frame[7]]),
         frame[8],
+        frame[9],
+        frame[10],
+        frame[11],
+        frame[12] != 0,
+        u64::from_le_bytes([
+            frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19], frame[20],
+        ]),
     ))
 }
 
@@ -426,12 +453,30 @@ pub fn decode_surface_input(frame: &[u8]) -> Option<(u32, u8, u16, u16)> {
 
 // ------------------------------------------------------------------ events
 
-pub const SURFACE_EVENTS_FRAME_LEN: usize = HEADER_LEN;
+// +8 nonce bytes: the app-host mints a nonce, attaches its event channel with
+// it, and repeats it on SURFACE_CREATE — windowd binds channel↔surface by
+// nonce (deterministic under N concurrently connecting app-hosts; arrival
+// ORDER carries no identity).
+pub const SURFACE_EVENTS_FRAME_LEN: usize = HEADER_LEN + 8;
 
 /// Header-only attach frame (the moved SEND capability rides the message).
 #[must_use]
-pub fn encode_surface_events() -> [u8; SURFACE_EVENTS_FRAME_LEN] {
-    header(OP_SURFACE_EVENTS)
+pub fn encode_surface_events(nonce: u64) -> [u8; SURFACE_EVENTS_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_EVENTS_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_EVENTS));
+    f[4..12].copy_from_slice(&nonce.to_le_bytes());
+    f
+}
+
+/// The attach nonce, when the frame is a well-formed events attach.
+#[must_use]
+pub fn decode_surface_events(frame: &[u8]) -> Option<u64> {
+    if !has_op(frame, OP_SURFACE_EVENTS) || frame.len() != SURFACE_EVENTS_FRAME_LEN {
+        return None;
+    }
+    Some(u64::from_le_bytes([
+        frame[4], frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11],
+    ]))
 }
 
 #[must_use]
@@ -469,8 +514,22 @@ mod tests {
 
     #[test]
     fn create_round_trip_and_guards() {
-        let f = encode_surface_create(320, 240, FORMAT_BGRA8888);
-        assert_eq!(decode_surface_create(&f), Some((320, 240, FORMAT_BGRA8888)));
+        // The declared intent rides ATOMICALLY on the create frame (a separate
+        // pre-create intent op raced across concurrently connecting app-hosts).
+        let f = encode_surface_create(
+            320,
+            240,
+            FORMAT_BGRA8888,
+            WIN_STYLE_PLAIN,
+            WIN_LEVEL_DESKTOP,
+            WIN_MODE_FULLSCREEN,
+            false,
+            0xA1B2_C3D4_E5F6_0718,
+        );
+        assert_eq!(
+            decode_surface_create(&f),
+            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718))
+        );
         assert_eq!(decode_surface_create(&f[..f.len() - 1]), None);
         let mut wrong = f;
         wrong[3] = OP_SURFACE_PRESENT;
@@ -579,7 +638,7 @@ mod tests {
 
     #[test]
     fn events_attach_frame_round_trip() {
-        let f = encode_surface_events();
+        let f = encode_surface_events(7);
         assert!(is_surface_events(&f));
         assert!(!is_surface_events(&f[..f.len() - 1]));
         let mut wrong = f;

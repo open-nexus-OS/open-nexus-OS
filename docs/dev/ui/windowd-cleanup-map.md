@@ -29,7 +29,7 @@ Greeter-UI → die **DSL-Greeter-App**. Alles Deklarative (Fenster-Rolle/Chrome/
 
 | Datei | Ziel | Warum |
 |---|---|---|
-| `theme.rs` | `ui/theme-tokens` (SSOT existiert) | windowd konsumiert gepushte Theme-Werte, besitzt keine Token-Tabellen |
+| `theme.rs` | (KORRIGIERT 2026-07-10) bleibt als dünner Konsument — die WERTE sind schon build-generiert aus `resources/themes/*.nxtheme.toml` (Value-SSOT). Die echte Dopplung: `ui/theme-tokens` hartcodiert seine Werte → dort aus denselben `.nxtheme.toml` generieren | eine Value-Quelle für Compositor UND Apps |
 | `app_menu.rs` | DSL-Shell-App | Apps-Menü = Shell-UI |
 | `dock.rs` (+ Dock-Teile in `wm.rs`) | DSL-Shell-App | Dock = Shell-UI |
 | `assets.rs` (Icons) | Shell-/Widget-Assets | UI-Assets gehören der UI |

@@ -91,7 +91,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                 // reports an ACTIVE session. Fail-closed (sessiond unreachable
                 // = deny): windowd's greeter gate is UX, THIS is the
                 // authority-side enforcement (host-tested in `handoff`).
-                let out = if is_launch_request(frame.as_slice()) && !session_gate_active() {
+                let out = if is_launch_request(frame.as_slice())
+                    && !launch_target_is_pre_session(frame.as_slice())
+                    && !session_gate_active()
+                {
                     emit_line("abilitymgr: launch denied (session)");
                     crate::wire::Dispatched {
                         response: launch_denied_response(),
@@ -257,6 +260,18 @@ fn is_launch_request(frame: &[u8]) -> bool {
         && frame[1] == crate::protocol::MAGIC1
         && frame[2] == crate::protocol::VERSION
         && frame[3] == crate::protocol::OP_LAUNCH
+}
+
+/// True when the OP_LAUNCH target is a PRE-SESSION role (bundle_type=greeter,
+/// build-generated `APP_PRE_SESSION`): the login surface must launch BEFORE a
+/// session exists — that is its entire purpose. Declarative via bundle_type;
+/// every other launch stays session-gated (fail-closed).
+fn launch_target_is_pre_session(frame: &[u8]) -> bool {
+    // `[A,M,ver,OP_LAUNCH, app_len:u8, app...]`
+    let Some(&app_len) = frame.get(4) else { return false };
+    let Some(app) = frame.get(5..5 + app_len as usize) else { return false };
+    let Ok(app) = core::str::from_utf8(app) else { return false };
+    crate::caps::APP_PRE_SESSION.contains(&app)
 }
 
 /// The gate's denial reply: `[A, M, ver, OP_LAUNCH|RESPONSE, STATUS_DENIED]`.

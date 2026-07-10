@@ -45,7 +45,9 @@ impl DisplayServerRuntime {
         frame: &[u8],
         vmo_slot: Option<u32>,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
-        let Some((width, height, format)) = wire::decode_surface_create(frame) else {
+        let Some((width, height, format, style, level, mode, resizable, nonce)) =
+            wire::decode_surface_create(frame)
+        else {
             return wire::encode_surface_ack(
                 wire::OP_SURFACE_CREATE,
                 wire::SURFACE_STATUS_MALFORMED,
@@ -61,23 +63,31 @@ impl DisplayServerRuntime {
                 0,
             );
         };
+        // The declared intent rides ATOMICALLY on the create frame — the old
+        // separate pre-create OP_SURFACE_INTENT raced when two app-hosts
+        // connected concurrently (shell + counter: crossed intents put BOTH
+        // surfaces in the desktop role). Store it as this create's intent.
+        self.app_intent_style = style;
+        self.app_intent_level = level;
+        self.app_intent_mode = mode;
+        self.app_intent_resizable = resizable;
         // Declarative routing at CREATE: the connecting app's presentation
-        // (its pending intent ⟂ policy) decides the role slot. A DESKTOP-role
+        // (its carried intent ⟂ policy) decides the role slot. A DESKTOP-role
         // surface (shell/greeter) gets its OWN slot — id, event channel,
         // full-screen band — fully separate from the floating `app_win`, so
         // the shell and an app window coexist (the singleton collision made
         // "counter startet nicht").
         if self.app_presentation().role == crate::window_scene::WindowRole::Desktop {
-            return self.create_desktop_surface(width, height, format, vmo_slot);
+            return self.create_desktop_surface(width, height, format, vmo_slot, nonce);
         }
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
                 self.app_surface_id = Some(id);
                 #[cfg(nexus_env = "os")]
-                if let Some(ch) = self.pending_event_channel.take() {
-                    if let Some(old) = self.app_event_channel.replace(ch) {
-                        let _ = nexus_abi_cap_close(old);
-                    }
+                if let Some(ch) = self.event_channel_for(nonce) {
+                    self.app_event_channel = Some(ch);
+                } else {
+                    let _ = debug_println("WINDOWD: FAIL surface bind (no channel for nonce)");
                 }
                 // P3.1 (windows-as-widgets): size the window FRAME to the actual
                 // surface content (+ the title bar), via `window::frame`, BEFORE
@@ -145,6 +155,7 @@ impl DisplayServerRuntime {
         height: u16,
         format: u8,
         vmo_slot: u32,
+        nonce: u64,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
         let id = match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => id,
@@ -157,7 +168,16 @@ impl DisplayServerRuntime {
             }
         };
         if self.desktop_band.is_none() {
-            let Some(band) = self.atlas_alloc.alloc(self.mode.width, self.mode.height) else {
+            let mut band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
+            if band.is_none() && self.greeter.is_some() {
+                // Pool pressure during login: the avatar greeter holds a
+                // full-screen band and the DSL greeter needs one. Retire the
+                // avatar NOW (early swap — one blink of the base scene) and
+                // retry: a degraded transition beats a failed login screen.
+                self.swap_greeter_to_dsl();
+                band = self.atlas_alloc.alloc(self.mode.width, self.mode.height);
+            }
+            let Some(band) = band else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: desktop surface FAIL atlas (need={}x{} rows_remaining={})",
                     self.mode.width,
@@ -174,10 +194,10 @@ impl DisplayServerRuntime {
         // was already released via destroy; ids never alias — monotonic).
         self.desktop_surface_id = Some(id);
         #[cfg(nexus_env = "os")]
-        if let Some(ch) = self.pending_event_channel.take() {
-            if let Some(old) = self.desktop_channel.replace(ch) {
-                let _ = nexus_abi_cap_close(old);
-            }
+        if let Some(ch) = self.event_channel_for(nonce) {
+            self.desktop_channel = Some(ch);
+        } else {
+            let _ = debug_println("WINDOWD: FAIL desktop bind (no channel for nonce)");
         }
         self.desktop_dirty = true;
         self.show_window(crate::window_scene::WindowId::Desktop);
@@ -185,10 +205,50 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!(
             "WINDOWD: desktop surface created id={id} {width}x{height}"
         ));
+        // A desktop surface smaller than the display (its pre-create rect ask
+        // raced): push the full content rect so the app re-creates at display
+        // size — the base layer must cover the screen.
+        if u32::from(width) != self.mode.width || u32::from(height) != self.mode.height {
+            let rect = wire::encode_surface_rect(
+                0,
+                0,
+                self.mode.width.min(u32::from(u16::MAX)) as u16,
+                self.mode.height.min(u32::from(u16::MAX)) as u16,
+            );
+            #[cfg(nexus_env = "os")]
+            if let Some(slot) = self.desktop_channel {
+                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            }
+            #[cfg(not(nexus_env = "os"))]
+            let _ = rect;
+        }
         // The DSL shell is on — as an app-host-owned desktop surface (the
         // in-process mount that used to emit this is deleted, Umbau #17 2d).
         let _ = debug_println("systemui: dsl shell on");
         wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
+    }
+
+    /// Umbau #17 visual swap: retire the built-in avatar greeter the moment
+    /// the DSL greeter's desktop surface presents real pixels. Frees the
+    /// avatar band (pool discipline) and arms the login watch — the login now
+    /// happens out of process (greeter app-host → `svc.session.login`), so
+    /// `greeter_watch_tick` polls sessiond until the session activates and
+    /// then applies the session shell. No-op when no avatar greeter is up
+    /// (auto-login boots, shell presents, re-presents).
+    pub(super) fn swap_greeter_to_dsl(&mut self) {
+        let Some(greeter) = self.greeter.take() else {
+            return;
+        };
+        self.atlas_alloc.free(greeter.surface);
+        self.greeter_login_watch = true;
+        let _ = debug_println("windowd: greeter swapped (dsl)");
+        self.queue_gpu_blit_rect(DamageRect {
+            x: 0,
+            y: 0,
+            width: self.mode.width,
+            height: self.mode.height,
+        });
     }
 
     /// Blits the DESKTOP surface out of its VMO into the full-screen desktop
@@ -277,11 +337,24 @@ impl DisplayServerRuntime {
                 // present repaints the base layer; a floating present the window.
                 if self.desktop_surface_id == Some(surface_id) {
                     self.desktop_dirty = true;
+                    // Umbau #17 visual swap: the desktop surface now carries
+                    // real pixels — if the built-in avatar greeter still owns
+                    // the display, this present is the DSL greeter taking
+                    // over. Retire the avatar card and arm the login watch.
+                    self.swap_greeter_to_dsl();
                     self.queue_full_frame_damage();
-                } else {
+                } else if self.app_surface_id == Some(surface_id) {
                     self.app_win.surface_dirty = true;
                     let rect = self.app_window_rect();
                     self.queue_dirty_rect(rect);
+                } else {
+                    // Stale surface (e.g. the retired greeter's after the
+                    // shell replaced the desktop slot): ack, queue nothing —
+                    // damaging the floating window for a foreign id painted
+                    // the wrong surface.
+                    let _ = debug_println(&alloc::format!(
+                        "WINDOWD: surface present stale id={surface_id} (ignored)"
+                    ));
                 }
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface presented id={surface_id} seq={seq}"
@@ -626,18 +699,46 @@ impl DisplayServerRuntime {
     /// `OP_SURFACE_EVENTS` frame, execd-attached). A relaunch replaces the
     /// channel — the previous cap is closed, never leaked.
     #[allow(unused_variables)]
-    pub(crate) fn attach_app_event_channel(&mut self, send_slot: Option<u32>) {
+    /// The event channel bound to `nonce`, if attached. Non-consuming — a
+    /// resize RE-create binds the same nonce again.
+    #[cfg(nexus_env = "os")]
+    fn event_channel_for(&self, nonce: u64) -> Option<u32> {
+        self.event_channels[..self.event_channels_len]
+            .iter()
+            .find(|e| e.0 == nonce)
+            .map(|e| e.1)
+    }
+
+    pub(crate) fn attach_app_event_channel(&mut self, send_slot: Option<u32>, nonce: Option<u64>) {
+        #[cfg(not(nexus_env = "os"))]
+        let _ = nonce;
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = send_slot else {
                 let _ = debug_println("WINDOWD: FAIL app event channel (no cap)");
                 return;
             };
-            // The channel of the CONNECTING app (execd attaches before the child
-            // creates its surface). Held pending; the next SURFACE_CREATE
-            // assigns it to the surface's role slot (desktop vs. floating).
-            if let Some(old) = self.pending_event_channel.replace(slot) {
-                let _ = nexus_abi_cap_close(old);
+            let Some(nonce) = nonce else {
+                let _ = debug_println("WINDOWD: FAIL app event channel (no nonce)");
+                let _ = nexus_abi_cap_close(slot);
+                return;
+            };
+            // Bind nonce → channel (replace same nonce; LRU-replace when full).
+            if let Some(e) = self.event_channels[..self.event_channels_len]
+                .iter_mut()
+                .find(|e| e.0 == nonce)
+            {
+                let _ = nexus_abi_cap_close(e.1);
+                e.1 = slot;
+            } else if self.event_channels_len < self.event_channels.len() {
+                self.event_channels[self.event_channels_len] = (nonce, slot);
+                self.event_channels_len += 1;
+            } else {
+                // Bounded: replace the OLDEST entry (index 0), shift left.
+                let _ = nexus_abi_cap_close(self.event_channels[0].1);
+                self.event_channels.rotate_left(1);
+                let last = self.event_channels.len() - 1;
+                self.event_channels[last] = (nonce, slot);
             }
             let _ = debug_println("WINDOWD: app event channel attached");
             // Push the active theme mode NOW (before the app mounts) so it
@@ -672,8 +773,8 @@ impl DisplayServerRuntime {
             if let Some(slot) = self.desktop_channel {
                 let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
             }
-            if let Some(slot) = self.pending_event_channel {
-                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            for e in &self.event_channels[..self.event_channels_len] {
+                let _ = nexus_abi::ipc_send_v1(e.1, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
             }
         }
     }

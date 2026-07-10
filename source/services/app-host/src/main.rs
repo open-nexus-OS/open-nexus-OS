@@ -74,24 +74,21 @@ mod probe {
     /// (marked).
     const EVENTS_RECV_SLOT: u32 = 8;
 
-    /// The embedded fallback payload (compiled by `build.rs`). Since the
-    /// GET_PAYLOAD step (TASK-0080D R2 remainder) the PRIMARY payload source
-    /// is the VMO execd grants into [`PAYLOAD_VMO_SLOT`] — this embed is the
-    /// fail-closed fallback (missing/late VMO, bad header), always marked.
-    /// 8-byte aligned — capnp segments are word-aligned by contract and
-    /// `include_bytes!` alone guarantees nothing (riscv misaligned-u64
-    /// hazard).
-    #[repr(C, align(8))]
-    struct AlignedNxir<const N: usize>([u8; N]);
-    static APP_NXIR_ALIGNED: AlignedNxir<
-        { include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")).len() },
-    > = AlignedNxir(*include_bytes!(concat!(env!("OUT_DIR"), "/app_payload.nxir")));
-    static APP_NXIR: &[u8] = &APP_NXIR_ALIGNED.0;
+    // The embedded fallback payload is DELETED (separation of concerns):
+    // program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
+    // payload VMO is a LOUD, VISIBLE failure (probe fill + FAIL marker below),
+    // never a silently different program — an embedded fallback masked exactly
+    // the payload-routing bugs it should have surfaced.
 
     /// Fixed child slot holding the payload VMO (execd's
     /// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
     /// header LAST (`nexus_abi::bundlemgrd::encode_payload_header`).
     const PAYLOAD_VMO_SLOT: u32 = 7;
+    /// SEND-side clone of OUR OWN event channel (execd grants it alongside the
+    /// RECV side): the app-host attaches it to windowd ITSELF, tagged with a
+    /// self-minted nonce that SURFACE_CREATE repeats — windowd binds
+    /// channel↔surface by nonce (deterministic under concurrent connects).
+    const EVENTS_SEND_CLONE_SLOT: u32 = 14;
     /// Header-poll budget: the fetch is kicked BEFORE our ELF even loads, so
     /// the header normally beats us; the budget only bounds failure.
     const PAYLOAD_BUDGET_NS: u64 = 3_000_000_000;
@@ -103,7 +100,7 @@ mod probe {
     /// well-formed (leaked once — the app-host process IS one app instance,
     /// so the payload lives for the process), otherwise the embedded
     /// fallback. Marked on both paths (`APPHOST: payload source=…`).
-    fn resolve_payload() -> &'static [u8] {
+    fn resolve_payload() -> Option<&'static [u8]> {
         use nexus_abi::{bundlemgrd as wire, cap_clone, cap_close, vmo_read};
         let start = nsec().unwrap_or(0);
         // Slot presence probe: cap_clone+close (cap_query answers only for a
@@ -116,8 +113,8 @@ mod probe {
                 }
                 Err(_) => {
                     if nsec().unwrap_or(u64::MAX).saturating_sub(start) > PAYLOAD_BUDGET_NS {
-                        raw_marker("APPHOST: payload source=embedded (no vmo)");
-                        return APP_NXIR;
+                        raw_marker("APPHOST: FAIL payload (no vmo)");
+                        return None;
                     }
                     let _ = yield_();
                 }
@@ -135,23 +132,23 @@ mod probe {
                         || len as usize > PAYLOAD_MAX_LEN
                         || len % 8 != 0
                     {
-                        raw_marker("APPHOST: payload source=embedded (header status)");
-                        return APP_NXIR;
+                        raw_marker("APPHOST: FAIL payload (header status)");
+                        return None;
                     }
                     let mut buf = nexus_dsl_ir::read::AlignedBytes::zeroed(len as usize);
                     if vmo_read(PAYLOAD_VMO_SLOT, wire::PAYLOAD_DATA_OFFSET, buf.as_bytes_mut())
                         .is_err()
                     {
-                        raw_marker("APPHOST: payload source=embedded (vmo read)");
-                        return APP_NXIR;
+                        raw_marker("APPHOST: FAIL payload (vmo read)");
+                        return None;
                     }
                     raw_marker("APPHOST: payload source=bundle");
-                    return alloc::boxed::Box::leak(alloc::boxed::Box::new(buf)).as_bytes();
+                    return Some(alloc::boxed::Box::leak(alloc::boxed::Box::new(buf)).as_bytes());
                 }
             }
             if nsec().unwrap_or(u64::MAX).saturating_sub(start) > PAYLOAD_BUDGET_NS {
-                raw_marker("APPHOST: payload source=embedded (header timeout)");
-                return APP_NXIR;
+                raw_marker("APPHOST: FAIL payload (header timeout)");
+                return None;
             }
             let _ = yield_();
         }
@@ -171,6 +168,12 @@ mod probe {
     /// 1.5s boot time; the probe may start at 0.33s — a yield-count budget
     /// expired 3ms early in boot 5, so the budget is TIME, not iterations).
     const ACK_BUDGET_NS: u64 = 30_000_000_000;
+
+    /// A per-process address salt for the nonce (ASLR-independent uniqueness
+    /// helper; the time component does the heavy lifting).
+    fn payload_addr() -> usize {
+        (&PAYLOAD_BUDGET_NS) as *const u64 as usize
+    }
 
     pub(super) fn run() -> Result<(), &'static str> {
         raw_marker("apphost: start");
@@ -194,6 +197,51 @@ mod probe {
             }
         };
 
+        // 1a. Attach OUR event channel to windowd, tagged with a self-minted
+        //     nonce (repeated on SURFACE_CREATE): windowd binds channel↔surface
+        //     by nonce, never by arrival order — N app-hosts may connect
+        //     concurrently (the greeter/shell/counter channel-crossing bug).
+        let nonce: u64 = nsec().unwrap_or(0) ^ ((payload_addr() as u64) << 16) ^ 0x9E37_79B9;
+        match cap_clone(EVENTS_SEND_CLONE_SLOT) {
+            Ok(clone) => {
+                let frame = wire::encode_surface_events(nonce);
+                let hdr = nexus_abi::MsgHeader::new(
+                    clone,
+                    0,
+                    0,
+                    nexus_abi::ipc_hdr::CAP_MOVE,
+                    frame.len() as u32,
+                );
+                let deadline = nsec().unwrap_or(0).saturating_add(2_000_000_000);
+                loop {
+                    match nexus_abi::ipc_send_v1(
+                        WINDOWD_SEND_SLOT,
+                        &hdr,
+                        &frame,
+                        nexus_abi::IPC_SYS_NONBLOCK,
+                        0,
+                    ) {
+                        Ok(_) => {
+                            raw_marker("APPHOST: events attached (nonce)");
+                            break;
+                        }
+                        Err(nexus_abi::IpcError::QueueFull) => {
+                            if nsec().unwrap_or(u64::MAX) >= deadline {
+                                raw_marker("APPHOST: FAIL events attach (queue)");
+                                break;
+                            }
+                            let _ = yield_();
+                        }
+                        Err(_) => {
+                            raw_marker("APPHOST: FAIL events attach (send)");
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(_) => raw_marker("APPHOST: FAIL events attach (no send clone)"),
+        }
+
         // 1b. Theme: the compositor pushes the active mode (`OP_SURFACE_THEME`)
         //     when the event channel attaches — capture it BEFORE mount so the
         //     app renders with the same tokens as the desktop.
@@ -203,8 +251,14 @@ mod probe {
         //    WM owns geometry: a desktop/full-screen surface asks windowd for
         //    its content rect (`chrome = intent ⟂ policy`); a normal app uses
         //    the probe default. Fail-soft — if windowd does not answer, default.
-        let payload = resolve_payload();
+        // No payload = LOUD visible failure: mount(&[]) fails and the probe
+        // fill renders (never a silently substituted program).
+        let payload = resolve_payload().unwrap_or(&[]);
         let (style, level, mode) = read_window_intent_tags(payload);
+        // Declared resize intent: floating windows are resizable; a desktop/
+        // fullscreen surface is not (the presentation resolver enforces this
+        // WM-side too). Carried atomically on SURFACE_CREATE.
+        let resizable = level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN;
         let (mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
             || mode == wire::WIN_MODE_FULLSCREEN
         {
@@ -244,7 +298,16 @@ mod probe {
         //    (the gpud-attach pattern); the original stays ours for redraws.
         let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
         let create =
-            wire::encode_surface_create(surf_w as u16, surf_h as u16, wire::FORMAT_BGRA8888);
+            wire::encode_surface_create(
+            surf_w as u16,
+            surf_h as u16,
+            wire::FORMAT_BGRA8888,
+            style,
+            level,
+            mode,
+            resizable,
+            nonce,
+        );
         send_retry_cap(&client, &create, clone)?;
         let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE)?;
         raw_marker("APPHOST: surface created");
@@ -346,6 +409,11 @@ mod probe {
                                 surf_w as u16,
                                 surf_h as u16,
                                 wire::FORMAT_BGRA8888,
+                                style,
+                                level,
+                                mode,
+                                resizable,
+                                nonce,
                             );
                             if send_retry_cap(&client, &create, clone).is_ok() {
                                 if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE) {

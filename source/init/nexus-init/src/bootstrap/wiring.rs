@@ -572,45 +572,31 @@ pub(crate) fn wire_services(
                     let bundle_send_slot =
                         nexus_abi::cap_transfer(pid, bnd_req_clone, Rights::SEND)
                             .map_err(InitError::Abi)?;
+                    // RECORD the route (TASK-0080C): execd re-resolves
+                    // `bundlemgrd` by name per app launch (child SDK slot
+                    // grants) — the route table must answer with this slot.
+                    chan.set_send(ServiceId::Bundlemgrd, bundle_send_slot);
+                    chan.set_recv(ServiceId::Bundlemgrd, reply_recv_slot);
                     if iw(init_wire, init_fold, "init:execd") {
                         debug_write_bytes(b"init: execd bundle slot send=0x");
                         debug_write_hex(bundle_send_slot as usize);
                         debug_write_byte(b'\n');
                     }
                 }
-                // ADR-0042 per-app event channel: a DEDICATED endpoint pair
-                // for windowd→app delivery (input events + surface acks).
-                // The shared `window_rsp` channel raced with inputd's ack
-                // drain — any receiver could consume an app's tap. execd
-                // hands RECV to the spawned app (child slot 8) and moves a
-                // SEND clone to windowd (`OP_SURFACE_EVENTS`). Slot-order
-                // contract: execd expects SEND at 11, RECV at 12
-                // (APP_EVENT_*_SLOT) — the log line is the proof.
-                {
-                    let event_ep =
-                        nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-                            .map_err(InitError::Abi)?;
-                    let event_send_slot =
-                        nexus_abi::cap_transfer(pid, event_ep, Rights::SEND)
-                            .map_err(InitError::Abi)?;
-                    let event_recv_slot =
-                        nexus_abi::cap_transfer(pid, event_ep, Rights::RECV)
-                            .map_err(InitError::Abi)?;
-                    let _ = nexus_abi::cap_close(event_ep);
-                    if iw(init_wire, init_fold, "init:execd") {
-                        debug_write_bytes(b"init: execd app-event slots send=0x");
-                        debug_write_hex(event_send_slot as usize);
-                        debug_write_bytes(b" recv=0x");
-                        debug_write_hex(event_recv_slot as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
+                // Per-app event channels + per-launch reply inboxes are minted
+                // DYNAMICALLY: execd asks init's ctrl plane (`@mint-pair`) and
+                // init — the EndpointFactory holder — mints a fresh pair on
+                // demand. No static pair, no pre-sized pool (the pool/pair era
+                // caused cap-table exhaustion + crossed channels).
                 // P0.2 recv-wake regression gate: TWO one-way endpoint pairs
                 // for execd's post-ready probe child (a single shared queue
                 // would let execd's reply-wait steal its own ping). Slot-order
-                // contract: execd expects ping SEND at 13, ping RECV at 14,
-                // reply SEND at 15, reply RECV at 16 (PROBE_*_SLOT) — the log
-                // line below is the boot-time proof.
+                // contract: execd expects ping SEND at 11, ping RECV at 12,
+                // reply SEND at 13, reply RECV at 14 (PROBE_*_SLOT) — the log
+                // line below is the boot-time proof. Keep this block FIRST in
+                // transfer order after the bundle slot: the probe slots are
+                // POSITIONAL (the named-route slots after it are not — their
+                // numbers travel in the route response).
                 {
                     let ping_ep =
                         nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 4)
@@ -642,6 +628,33 @@ pub(crate) fn wire_services(
                         debug_write_bytes(b"/0x");
                         debug_write_hex(reply_recv_slot as usize);
                         debug_write_byte(b'\n');
+                    }
+                }
+                // TASK-0080C declarative app-child routing: the named routes
+                // execd resolves on behalf of spawned app-hosts (one SEND
+                // clone per declared manifest cap → the child's fixed SDK
+                // slot, `nexus-sdk-routes`). Recorded once here; the responder
+                // answers every `route_ctrl(name)` from these persistent
+                // slots. AFTER the positional probe block on purpose — these
+                // slot numbers travel in the route response, so their position
+                // is free.
+                if let Some(req) = abil_req {
+                    let abil_req_clone = nexus_abi::cap_clone(req).map_err(InitError::Abi)?;
+                    if let Ok(s) = nexus_abi::cap_transfer(pid, abil_req_clone, Rights::SEND) {
+                        chan.set_send(ServiceId::Abilitymgr, s);
+                        chan.set_recv(ServiceId::Abilitymgr, reply_recv_slot);
+                        if iw(init_wire, init_fold, "init:execd") {
+                            debug_write_bytes(b"init: execd route->abilitymgr ok\n");
+                        }
+                    }
+                }
+                if let Some(req) = sess_req {
+                    if let Ok(s) = nexus_abi::cap_transfer(pid, req, Rights::SEND) {
+                        chan.set_send(ServiceId::Sessiond, s);
+                        chan.set_recv(ServiceId::Sessiond, reply_recv_slot);
+                        if iw(init_wire, init_fold, "init:execd") {
+                            debug_write_bytes(b"init: execd route->sessiond ok\n");
+                        }
                     }
                 }
             }

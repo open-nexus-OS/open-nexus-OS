@@ -59,21 +59,24 @@ pub(super) struct GreeterState {
 const NAME_FONT: crate::text::FontSize = crate::text::FontSize::Body;
 
 impl DisplayServerRuntime {
-    /// True while the login greeter owns the display (shell chrome + all its
-    /// affordances are suppressed — the session gate).
+    /// True while the LOGIN PHASE owns the display (shell chrome + all its
+    /// affordances are suppressed — the session gate): either the built-in
+    /// avatar greeter is up, or it was swapped for the DSL greeter's desktop
+    /// surface and the out-of-process login is still pending
+    /// (`greeter_login_watch`, Umbau #17).
     pub(super) fn greeter_active(&self) -> bool {
-        self.greeter.is_some()
+        self.greeter.is_some() || self.greeter_login_watch
     }
 
     /// Shell chrome composites only when the config enables it, the SESSION
-    /// DECISION has been made, no greeter owns the display (TASK-0065B), and
-    /// no FULLSCREEN window covers it (TASK-0070 Phase 2 — fullscreen renders
-    /// above the chrome; topbar/panels/dropdown are neither drawn nor
+    /// DECISION has been made, no login phase owns the display (TASK-0065B),
+    /// and no FULLSCREEN window covers it (TASK-0070 Phase 2 — fullscreen
+    /// renders above the chrome; topbar/panels/dropdown are neither drawn nor
     /// hit-testable underneath): the boot order is splash → login → shell.
     pub(super) fn chrome_composited(&self) -> bool {
         self.shell_config.desktop_chrome
             && self.session_resolved()
-            && self.greeter.is_none()
+            && !self.greeter_active()
             && self.windows.fullscreen_active().is_none()
     }
 

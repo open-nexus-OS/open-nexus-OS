@@ -1,8 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! ⚠ CLEANUP-MAP (docs/dev/ui/windowd-cleanup-map.md): MOVE → ui/theme-tokens (windowd konsumiert gepushte Werte, besitzt keine Token-Tabellen).
-//! DO NOT EXTEND — new capability belongs at the target, not here.
+//! ⚠ CLEANUP-MAP (korrigiert): KEEP als dünner Konsument — die Token-WERTE sind
+//! build-generiert aus resources/themes/*.nxtheme.toml (Value-SSOT). Offen ist die
+//! App-Seite: ui/theme-tokens hartcodiert Werte → aus denselben .nxtheme.toml generieren.
 //
 
 //! CONTEXT: Runtime theme tokens (TASK-0072 Phase 9). The two qualifier

@@ -299,14 +299,17 @@ fn dispatch_client_frame(
         == Some(nexus_display_proto::client_surface::OP_SURFACE_EVENTS)
     {
         // ADR-0042 per-app event channel: the moved capability is the
-        // channel's SEND half (execd-attached). All app-bound frames go out
-        // on it. No reply frame; the attach marker is the proof.
+        // channel's SEND half, attached by the APP-HOST ITSELF and tagged with
+        // its nonce — SURFACE_CREATE repeats the nonce, so windowd binds
+        // channel↔surface deterministically (never by arrival order; N
+        // app-hosts connect concurrently). No reply; the marker is the proof.
+        let nonce = nexus_display_proto::client_surface::decode_surface_events(frame);
         let send_slot = moved_cap.take().map(|cap| {
             let slot = cap.slot();
             core::mem::forget(cap); // keep the slot alive (no close)
             slot
         });
-        runtime.attach_app_event_channel(send_slot);
+        runtime.attach_app_event_channel(send_slot, nonce);
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_CREATE)
     {
@@ -463,6 +466,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // bounded — resolution or the auto-shell fallback disarms it.
             let session_pending =
                 runtime.session_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            // DSL-greeter login watch (Umbau #17): between the greeter swap
+            // and the login, poll sessiond on its own slow cadence — same
+            // pacing contract as the session probe.
+            let greeter_watch_pending =
+                runtime.greeter_watch_tick(nexus_abi::nsec().unwrap_or(0));
             // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
             // `ui.theme.mode` from settingsd once it binds; bounded, then default.
             let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
@@ -475,6 +483,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 || runtime.has_pending_damage()
                 || runtime.frames_in_flight() > 0
                 || session_pending
+                || greeter_watch_pending
                 || theme_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {

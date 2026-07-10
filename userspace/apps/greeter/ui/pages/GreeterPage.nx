@@ -6,6 +6,16 @@
 // authenticating state are DRIVEN by SessionStore.phase (0 idle /
 // 1 authenticating / 2 failure) — sessiond's answers, never local guesses.
 
+// The greeter is the pre-session desktop surface: chromeless, full-screen,
+// desktop z-band (same declared intent as the shell — the compositor treats
+// "who is the desktop" purely declaratively).
+Window {
+    style: plain,
+    mode: fullscreen,
+    level: desktop,
+    resizable: false,
+}
+
 Page GreeterPage {
     Stack {
         Spacer
