@@ -98,6 +98,20 @@ impl DisplayServerRuntime {
         // `nexus-gfx` glass layer without re-borrowing `self` inside the encoder.
         let app_layer_count = self.app_layer_count;
         let app_layers = self.app_layers;
+        // TASK #23: the live-resize title overlay (frame-width sharp title,
+        // composited OVER the scaled band while band ≠ frame).
+        let app_title_overlay = self.app_title_overlay.map(|s| {
+            (
+                s.abs_row,
+                s.x,
+                s.width.min(self.app_win.w),
+                self.app_win.title_h.min(s.height),
+                self.app_win.x.max(0) as u32,
+                self.app_win.y.max(0) as u32,
+            )
+        });
+        let app_fullscreen =
+            fullscreen_id == Some(crate::window_scene::WindowId::AppClient);
         let app_layer_geom = self.app_win.atlas.map(|a| {
             (
                 a.abs_row,
@@ -198,6 +212,24 @@ impl DisplayServerRuntime {
                                 mode.width,
                                 mode.height,
                             );
+                        }
+                        // TASK #23: sharp frame-width title bar over the
+                        // scaled band during a live resize / fullscreen
+                        // transition (retired once the band catches up).
+                        if let Some((row, sx, w, h, dx, dy)) = app_title_overlay {
+                            if w > 0 && h > 0 {
+                                let _ = encoder.composite_layer_full(
+                                    &Layer {
+                                        corner_radius: if app_fullscreen {
+                                            0
+                                        } else {
+                                            crate::compositor::runtime::app_window::APP_WIN_RADIUS
+                                        },
+                                        ..Layer::opaque(row, sx, w, h, dx, dy)
+                                    },
+                                    (mode.width, mode.height),
+                                );
+                            }
                         }
                     }
                     // The desktop base surface (the shell / greeter app-host):

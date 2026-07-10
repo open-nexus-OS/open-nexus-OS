@@ -35,7 +35,7 @@ use crate::compositor::{
     DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_ROW_OFFSET, RETAINED_ROW_OFFSET,
 };
 use crate::error::WindowdError;
-use crate::live_runtime::DamageRect;
+use crate::compositor::damage::DamageRect;
 use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandEncoder};
 
 /// Shadow-halo margin around the window when computing its damage rect, so the

@@ -649,11 +649,21 @@ impl LayoutEngine {
                 available_cross.saturating_sub(measured.height + item.margin.vertical());
             let child_y = content_y + item.margin.top + align_offset(align, cross_space);
             let child_node_id = *node_count + 1;
+            // Stretched row children fill their allocation (definite) — see
+            // the column loop above for the rationale.
+            let child_c = if matches!(align, Align::Stretch) && constraints.max_height.is_some() {
+                LayoutConstraints::definite(
+                    child_width,
+                    Some(available_cross.saturating_sub(item.margin.vertical())),
+                )
+            } else {
+                child_constraints(constraints, *item, child_width, Some(available_cross))
+            };
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_constraints(constraints, *item, child_width, Some(available_cross)),
+                child_c,
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -795,11 +805,21 @@ impl LayoutEngine {
             let child_y = cursor + item.margin.top;
             let child_node_id = *node_count + 1; // predict the child's node_id
             let allocated_height = allocation.saturating_sub(item.margin.vertical());
+            // A STRETCHED child's size is parent-determined (cross = stretched
+            // width, main = the allocation) — DEFINITE constraints make the
+            // child FILL it, so its own children lay out against the real
+            // size (a hugging nested row collapsed its Spacer: the shell's
+            // topbar was 161px wide inside a 1280px slot).
+            let child_c = if matches!(align, Align::Stretch) {
+                LayoutConstraints::definite(child_width, Some(allocated_height))
+            } else {
+                child_constraints(constraints, *item, child_width, Some(allocated_height))
+            };
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_constraints(constraints, *item, child_width, Some(allocated_height)),
+                child_c,
                 depth + 1,
                 parent_clip,
                 scroll_offset,

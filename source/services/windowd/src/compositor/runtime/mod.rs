@@ -9,12 +9,10 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: 13 unit tests (QEMU) + host smoke integration
 
-use super::blur::checked_stride;
-use super::cache::{BackdropCacheEntry, GlassLayerCache, LayerCache, PathCacheEntry};
+use crate::geometry::checked_stride;
 use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
 use super::filter::filter_layout_variant_index;
-use super::primitives::draw_line_segment_row;
 use super::scene::copy_scene_row;
 use super::source::build_scale_lut;
 use super::tile_map::TileMap;
@@ -34,7 +32,7 @@ use super::{
 };
 use crate::error::WindowdError;
 use crate::ids::CallerCtx;
-use crate::live_runtime::{
+use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
     TargetDamage,
 };
@@ -214,7 +212,6 @@ pub(crate) struct DisplayServerRuntime {
     input_state_debug_emitted: bool,
     pending_damage_rects: Vec<DamageRect>,
     tile_map: TileMap,
-    layer_cache: LayerCache,
     /// True when pending damage only affects paint (no layout/shadow change needed).
     paint_only_damage: bool,
     pending_damage_rect: Option<DamageRect>,
@@ -227,10 +224,6 @@ pub(crate) struct DisplayServerRuntime {
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
     pending_gpu_blit_rect: Option<DamageRect>,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
-    backdrop_cache: [BackdropCacheEntry; BACKDROP_CACHE_ENTRIES],
-    glass_layer: GlassLayerCache,
-    glass_scratch: Vec<u8>,
-    path_cache: [PathCacheEntry; PATH_CACHE_ENTRIES],
     /// Index into `LIVE_FILTER_VARIANTS` for the active filter text/layout.
     active_filter_idx: usize,
     /// Filter cycle counter for automated proof (advances on each keyboard event).
@@ -323,6 +316,15 @@ pub(crate) struct DisplayServerRuntime {
     /// The cross-process app-client window (ADR-0042 R1): body pixels come
     /// from the app process's surface VMO via the damage-blit.
     app_win: super::shell_window::ShellWindow,
+    /// Live-resize title-bar overlay (TASK #23): while the FRAME width differs
+    /// from the content band (an active edge-resize / fullscreen transition),
+    /// the title bar is re-rasterized at the TRUE frame width into this small
+    /// surface and composited over the scaled band — icons stay sharp and
+    /// right-aligned instead of stretching with the band. Freed once the
+    /// re-created band catches up (band width == frame width).
+    app_title_overlay: Option<crate::atlas::AtlasSurface>,
+    /// Frame width the overlay was last rendered at (0 = never).
+    app_title_overlay_w: u32,
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
     /// R1 layer seam (RFC-0067 Revival): the app's material-tagged glass regions
@@ -574,16 +576,6 @@ impl DisplayServerRuntime {
         let _ = debug_trace("dbg: windowd init band-scratch ok");
         let blur_row_buf = alloc::vec![0u8; mode.stride as usize];
         let _ = debug_trace("dbg: windowd init blur-row ok");
-        let layer_cache = LayerCache::default();
-        let _ = debug_trace("dbg: windowd init layer-cache ok");
-        let backdrop_cache = core::array::from_fn(|_| BackdropCacheEntry::new());
-        let _ = debug_trace("dbg: windowd init backdrop-cache ok");
-        let glass_layer = GlassLayerCache::new();
-        let _ = debug_trace("dbg: windowd init glass-layer ok");
-        let glass_scratch = alloc::vec![0u8; GLASS_LAYER_MAX_BYTES];
-        let _ = debug_trace("dbg: windowd init glass-scratch ok");
-        let path_cache = core::array::from_fn(|_| PathCacheEntry::new());
-        let _ = debug_trace("dbg: windowd init path-cache ok");
         let animation_driver = AnimationDriver::new();
         let _ = debug_trace("dbg: windowd init animation-driver ok");
         let pipeline_timer = PipelineTimer::new();
@@ -626,16 +618,11 @@ impl DisplayServerRuntime {
             input_state_debug_emitted: false,
             pending_damage_rects: Vec::new(),
             tile_map: TileMap::new(),
-            layer_cache,
             pending_damage_rect: None,
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
-            backdrop_cache,
-            glass_layer,
-            glass_scratch,
-            path_cache,
             active_filter_idx: 0,
             filter_cycle: 0,
             clipping_marker_emitted: false,
@@ -677,6 +664,8 @@ impl DisplayServerRuntime {
             greeter_login_watch: false,
             greeter_watch_next_ns: 0,
             app_win,
+            app_title_overlay: None,
+            app_title_overlay_w: 0,
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
             app_layers: [nexus_display_proto::client_surface::LayerDesc::default();
                 nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
@@ -759,10 +748,9 @@ impl DisplayServerRuntime {
     }
 
     fn reset_effect_caches(&mut self) {
-        for entry in &mut self.backdrop_cache {
-            entry.valid = false;
-        }
-        self.glass_layer.valid = false;
+        // The CPU glass caches are DELETED (GPU path composites live); the
+        // seam stays for the mode-switch call site until the Plane-1 CPU
+        // path retires with the evidence-contract move.
     }
 
     // ── Window stack sync (TASK-0070 Phase 1) ──

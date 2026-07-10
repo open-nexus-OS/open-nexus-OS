@@ -55,6 +55,18 @@ der Atlas ist ein On-Demand-Pool (Desktop-Band + Floating + Dock).
 | `runtime/app_window.rs` (Chrome-/Sonderfall-Teile) | generisches Client-Surface-Handling | Teilweise (schrumpft weiter mit shell_window-Retirement) |
 | `window_scene.rs` Chat/Search/Settings-Varianten | Surface-Ids + Rollen (voll deklarativ) | Varianten ungenutzt; Enum-Retirement mit Multi-Window-Generalisierung |
 
+**Sweep 2 (2026-07-10, spät): Raster-Dedup + Re-Homing.** Gelöscht (tote
+Duplikate — die AA-/Blur-/Shadow-SSOT liegt in `nexus-sdf` + `nexus-gfx/raster`,
+gpud nutzt sie): `compositor/{blur,shadow,primitives,sdf,cache,path_cache,surface}.rs`.
+Umgezogen: `live_runtime.rs` → `compositor/damage.rs` (DamageRect/premerge/
+Hot-Path-Index = Compositor-Gut). Bewusst GEBLIEBEN (Observer-Evidence-Kontrakt —
+Selftest sampelt komponierte Rows beim Handoff; Löschung = Beweiskette bricht):
+`smoke.rs`, `systemui_shell.rs`, `anim.rs`, `filter.rs`, Proof-Teile in `types.rs`
+und der Plane-1-CPU-Pfad (`present.rs write_rows`). Deren Ziel = Evidence-Kontrakt-
+Umzug zu selftest (eigenes Paket). `runtime/shell.rs` = Policy-Plumbing
+(Umbenennungs-Kandidat `policy.rs`). Evidence-Leiter nach dem Sweep byte-gleich
+verifiziert (identische `SELFTEST: ui`-Marker, Gate exit=0).
+
 Offen notiert: Wheel-FORWARDING an Client-Surfaces (`OP_SURFACE_INPUT` kind=wheel)
 — das legacy Chat/Search-Scrolling entfiel; App-Scroll ist App-Sache.
 

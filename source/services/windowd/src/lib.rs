@@ -81,8 +81,6 @@ mod geometry;
 mod ids;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod interaction;
-#[cfg(any(test, target_os = "none"))]
-mod live_runtime;
 mod markers;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod render_assets;

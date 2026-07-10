@@ -1,19 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Unit tests for the windowd compositor: TileMap, backdrop cache,
-//! path cache, shadow cache, cursor damage, layer cache, and LUT scaling.
+//! CONTEXT: Unit tests for the windowd compositor: TileMap, cursor damage,
+//! damage premerge, and LUT scaling. (The CPU glass/shadow/path/layer-cache
+//! tests left with their modules — cleanup-map DELETE; glass renders via the
+//! nexus-gfx/gpud GPU path now.)
 //! OWNERS: @ui
 //! STATUS: Functional
-//! TEST_COVERAGE: 13 unit tests
+//! TEST_COVERAGE: 7 unit tests
 
-use super::{
-    build_scale_lut, cursor_damage_rect, layer_cache_key, path_cache_slot, path_id_hash,
-    record_layer_cache_row, shadow_cache_key, shadow_cache_scale, LayerCache, ProofBoxRect,
-    TileMap, TILES_X, TILES_Y, TILE_SIZE,
-};
-use crate::live_runtime::{DamageRect, GlassQuality};
-use nexus_layout_types::Rgba8;
+use super::{build_scale_lut, cursor_damage_rect, TileMap};
+use crate::compositor::damage::DamageRect;
 
 #[test]
 fn scale_lut_is_monotonic_and_clamped() {
@@ -21,25 +18,6 @@ fn scale_lut_is_monotonic_and_clamped() {
     assert_eq!(lut, vec![0, 0, 0, 1, 1, 1, 2, 2]);
     assert!(lut.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(*lut.last().unwrap_or(&u32::MAX), 2);
-}
-
-#[test]
-fn path_cache_slot_is_stable_for_same_key() {
-    let id_hash = path_id_hash("card_hover_glyph");
-    let a = path_cache_slot(id_hash, 16, 16, [1, 2, 3, 255], 8);
-    let b = path_cache_slot(id_hash, 16, 16, [1, 2, 3, 255], 8);
-    let c = path_cache_slot(id_hash, 24, 16, [1, 2, 3, 255], 8);
-    assert_eq!(a, b);
-    assert_ne!(a, c);
-}
-
-#[test]
-fn shadow_cache_scale_keeps_large_panel_inside_fixed_budget() {
-    let scale = shadow_cache_scale(920, 360, 16 * 1024).expect("scaled cache");
-    let cache_w = 920u32.div_ceil(u32::from(scale));
-    let cache_h = 360u32.div_ceil(u32::from(scale));
-    assert!(cache_w as usize * cache_h as usize * 4 <= 16 * 1024);
-    assert!(scale > 1);
 }
 
 #[test]
@@ -100,34 +78,4 @@ fn cursor_damage_merge_covers_old_and_new_bounds_once() {
     let old_rect = cursor_damage_rect(100, 100, 32, 32, 1280, 800).expect("old cursor");
     let new_rect = cursor_damage_rect(116, 112, 32, 32, 1280, 800).expect("new cursor");
     assert_eq!(old_rect.merge(new_rect), DamageRect { x: 98, y: 98, width: 48, height: 44 });
-}
-
-#[test]
-fn shadow_cache_key_includes_shape_and_effect_params() {
-    let color = Rgba8::new(1, 2, 3, 180);
-    let base = shadow_cache_key(7, 64, 32, 6, 2, color);
-    assert_ne!(base, shadow_cache_key(7, 65, 32, 6, 2, color));
-    assert_ne!(base, shadow_cache_key(7, 64, 33, 6, 2, color));
-    assert_ne!(base, shadow_cache_key(7, 64, 32, 7, 2, color));
-    assert_ne!(base, shadow_cache_key(7, 64, 32, 6, 3, color));
-    assert_ne!(base, shadow_cache_key(7, 64, 32, 6, 2, Rgba8::new(1, 2, 3, 181)));
-}
-
-#[test]
-fn layer_cache_populates_rows_and_serves_clean_layer() {
-    let mut cache = LayerCache::default();
-    let key = layer_cache_key("proof_panel");
-    let rect = ProofBoxRect { x: 4, y: 10, width: 2, height: 2 };
-    let mut row0 = vec![0u8; 8 * 4];
-    let mut row1 = vec![0u8; 8 * 4];
-    row0[16..24].copy_from_slice(&[1, 2, 3, 255, 4, 5, 6, 255]);
-    row1[16..24].copy_from_slice(&[7, 8, 9, 255, 10, 11, 12, 255]);
-
-    record_layer_cache_row(&mut cache, key, rect, 10, &row0, 255, None).expect("row 0 cache");
-    assert!(cache.get(key).expect("layer").dirty);
-
-    record_layer_cache_row(&mut cache, key, rect, 11, &row1, 255, None).expect("row 1 cache");
-    let layer = cache.get(key).expect("layer");
-    assert!(!layer.dirty);
-    assert_eq!(layer.pixels, [1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255]);
 }

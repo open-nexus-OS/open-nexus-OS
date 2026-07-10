@@ -141,6 +141,9 @@ impl DisplayServerRuntime {
                         0,
                     );
                 }
+                // The freshly created band matches the frame again — the
+                // live-resize title overlay (if any) retires here (TASK #23).
+                self.update_app_title_overlay();
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface created id={id} {width}x{height}"
                 ));
@@ -532,6 +535,7 @@ impl DisplayServerRuntime {
 
     pub(super) fn close_app_window(&mut self) {
         self.app_win.visible = false;
+        self.update_app_title_overlay(); // frees (band drops below)
         self.hide_window(self.app_stack_id());
         self.app_win.end_drag();
         self.release_app_surface_band();
@@ -654,6 +658,92 @@ impl DisplayServerRuntime {
             }
             let dst = (abs_row + ly) as usize * stride + col_off;
             vmo_write(handle, dst, &self.band_scratch[..win_w as usize * 4])
+                .map_err(|_| WindowdError::BufferLengthMismatch)?;
+        }
+        Ok(())
+    }
+
+    /// Reconcile the live-resize title overlay (TASK #23) with the current
+    /// frame: while the frame width differs from the content band (active
+    /// resize / fullscreen transition), (re)rasterize the title bar at the
+    /// TRUE frame width into a dedicated surface; once the re-created band
+    /// catches up, free it. Bounded work: `title_h` rows × frame width, only
+    /// on width CHANGES — the pretext discipline (cache chrome as a surface,
+    /// never re-rasterize per present).
+    pub(super) fn update_app_title_overlay(&mut self) {
+        let title_h = self.app_win.title_h;
+        let frame_w = self.app_win.w;
+        let band_w = self.app_win.atlas.map(|a| a.width).unwrap_or(0);
+        let needed = title_h > 0 && band_w > 0 && frame_w != band_w;
+        if !needed {
+            if let Some(s) = self.app_title_overlay.take() {
+                self.atlas_alloc.free(s);
+                self.app_title_overlay_w = 0;
+                let rect = self.app_window_rect();
+                self.queue_dirty_rect(rect);
+            }
+            return;
+        }
+        if self.app_title_overlay_w == frame_w && self.app_title_overlay.is_some() {
+            return; // already rendered at this width
+        }
+        if let Some(s) = self.app_title_overlay.take() {
+            self.atlas_alloc.free(s);
+        }
+        let Some(surface) = self.atlas_alloc.alloc(frame_w, title_h) else {
+            // Pool pressure: no overlay (the scaled band title shows instead —
+            // degraded, never broken).
+            self.app_title_overlay_w = 0;
+            return;
+        };
+        if self.render_app_title_overlay(surface, frame_w, title_h).is_err() {
+            self.atlas_alloc.free(surface);
+            self.app_title_overlay_w = 0;
+            return;
+        }
+        self.app_title_overlay = Some(surface);
+        self.app_title_overlay_w = frame_w;
+        let rect = self.app_window_rect();
+        self.queue_dirty_rect(rect);
+    }
+
+    /// Rasterize the title bar at `w` into `surface` (the overlay path).
+    fn render_app_title_overlay(
+        &mut self,
+        surface: crate::atlas::AtlasSurface,
+        w: u32,
+        title_h: u32,
+    ) -> Result<(), WindowdError> {
+        let Some(handle) = self.framebuffer else { return Ok(()) };
+        let stride = self.mode.stride as usize;
+        if self.band_scratch.len() < stride {
+            return Err(WindowdError::BufferLengthMismatch);
+        }
+        let corner_radius = if self.app_presentation().full_screen
+            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+        {
+            0
+        } else {
+            APP_WIN_RADIUS
+        };
+        let hover = self.app_win.title_hover;
+        let tk = self.theme();
+        for ly in 0..title_h.min(surface.height) {
+            let row = &mut self.band_scratch[0..stride];
+            row[..w as usize * 4].fill(0);
+            crate::compositor::shell_window::draw_title_bar_row(
+                ly,
+                row,
+                w,
+                "App",
+                title_h,
+                APP_CLOSE_W,
+                hover,
+                corner_radius,
+                tk,
+            )?;
+            let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;
+            vmo_write(handle, dst, &self.band_scratch[..w as usize * 4])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         Ok(())

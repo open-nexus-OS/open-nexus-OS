@@ -51,32 +51,20 @@
 
 // RFC-0067 P5-Final G3: `backdrop` (CPU glass blur/cache for the combined-panel
 // glass) deleted — dead on both backends; glass is GPU-rendered.
-mod blur;
-mod cache;
 mod damage;
 mod filter;
-mod path_cache;
-mod primitives;
 mod runtime;
 mod scene;
-mod sdf;
-mod shadow;
 mod shell_window;
 mod source;
-mod surface;
 #[cfg(test)]
 mod tests;
 mod tile_map;
 mod types;
 
-use blur::*;
-use cache::*;
 use damage::*;
 use filter::*;
-use path_cache::*;
-use primitives::*;
 use runtime::*;
-use sdf::*;
 use tile_map::TileMap;
 use types::*;
 
@@ -97,7 +85,7 @@ use nexus_ipc::{IpcError, KernelServer, Server as _, Wait};
 
 use crate::fixed_sdf;
 use crate::ids::CallerCtx;
-use crate::live_runtime::{
+use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality, LayoutHotPathIndex,
     TargetDamage,
 };

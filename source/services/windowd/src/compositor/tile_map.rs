@@ -8,7 +8,7 @@
 //! TEST_COVERAGE: 3 unit tests
 
 use super::{TILES_X, TILES_Y, TILE_COUNT, TILE_DIRTY_WORDS, TILE_SIZE};
-use crate::live_runtime::DamageRect;
+use crate::compositor::damage::DamageRect;
 
 /// Tile-based damage map. Tracks which 64×64 tiles are dirty and need re-rendering.
 #[derive(Clone)]

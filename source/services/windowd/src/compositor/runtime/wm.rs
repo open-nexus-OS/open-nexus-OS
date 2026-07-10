@@ -113,6 +113,8 @@ impl DisplayServerRuntime {
         // content rect so the app re-renders at the new size
         // (`push_app_content_rect` reads the flag → full display vs. inset).
         self.push_app_content_rect();
+        // Title stays sharp at the new frame width while the band re-creates.
+        self.update_app_title_overlay();
         // Chrome visibility + window geometry both changed → full present.
         self.queue_full_frame_damage();
     }
@@ -273,6 +275,9 @@ impl DisplayServerRuntime {
         let h = h.min(self.mode.height);
         self.app_win.set_frame(x, y, w, h);
         self.app_win.surface_dirty = true;
+        // TASK #23: keep the title bar sharp at the TRUE frame width while the
+        // band lags (live resize) — re-rasterized only on width change.
+        self.update_app_title_overlay();
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
     }

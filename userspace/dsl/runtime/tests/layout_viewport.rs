@@ -293,3 +293,70 @@ fn greeter_login_flow_is_tappable_end_to_end() {
         host.calls
     );
 }
+
+/// The shell-topbar case: a STRETCHED nested row must span its slot, so its
+/// Spacer pushes the trailing button to the right edge (the hugging nested
+/// row collapsed to content width — Apps button at x=102 in a 1280px bar).
+#[test]
+fn stretched_nested_row_spacer_pushes_trailing_child_right() {
+    let nxir = compile(
+        r#"Store S { n: Int = 0, }
+Event E { Poke, }
+reduce E { Poke => state.n = state.n + 1, }
+Page Main {
+    Stack {
+        Stack {
+            Text("Product")
+            Spacer
+            Button { label: "Apps" }
+            on Tap -> dispatch(Poke)
+        }
+        .direction(row)
+        Stack {
+            Spacer
+        }
+        .grow(1)
+    }
+}
+"#,
+    );
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out");
+    let mut dump = String::new();
+    for b in &layout.boxes {
+        dump.push_str(&format!(
+            "node={} x={} y={} w={} h={}\n",
+            b.node_id,
+            b.rect.x.as_i32(),
+            b.rect.y.as_i32(),
+            b.rect.width.as_i32(),
+            b.rect.height.as_i32()
+        ));
+    }
+    // The trailing interactive box (the Apps button) must end near the right
+    // edge of the 1280px bar — not hug at ~x=100.
+    let (button_box, _) = view.handlers().first().expect("button registers a handler");
+    let b = layout
+        .boxes
+        .iter()
+        .find(|bx| bx.node_id == *button_box)
+        .unwrap_or_else(|| panic!("button box missing:\n{dump}"));
+    let right = b.rect.x.as_i32() + b.rect.width.as_i32();
+    assert!(
+        right > 1280 - 64,
+        "Apps button must sit at the right edge (right={right}):\n{dump}"
+    );
+}
