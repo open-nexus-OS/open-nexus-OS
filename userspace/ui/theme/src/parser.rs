@@ -72,12 +72,29 @@ pub fn parse_theme_file(content: &str, path: &Path) -> Result<Theme, ThemeError>
         }
     }
 
+    // `[icons]`: path + `[icons.symbols]` (both optional; strings only).
+    let mut icons_path = None;
+    let mut icon_symbols = Vec::new();
+    if let Some(icons) = root.get("icons").and_then(|v| v.as_table()) {
+        icons_path = icons.get("path").and_then(|v| v.as_str()).map(String::from);
+        if let Some(symbols) = icons.get("symbols").and_then(|v| v.as_table()) {
+            for (name, file) in symbols {
+                if let Some(file) = file.as_str() {
+                    icon_symbols.push((name.clone(), String::from(file)));
+                }
+            }
+        }
+        icon_symbols.sort();
+    }
+
     Ok(Theme {
         name: theme_name,
         version: theme_version,
         tokens,
         materials,
         scales: scale_map,
+        icons_path,
+        icon_symbols,
     })
 }
 

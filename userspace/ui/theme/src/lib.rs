@@ -63,6 +63,12 @@ pub struct Theme {
     pub materials: HashMap<String, Material>,
     /// Numeric scale sections keyed by section name (see [`SCALE_SECTIONS`]).
     pub scales: HashMap<String, ScaleMap>,
+    /// `[icons]` — the MAINTAINED icon-set linkage: `path` = repo-relative
+    /// directory of the SVG set (e.g. the vendored lucide repo), plus the
+    /// `[icons.symbols]` map of OUR SwiftUI-style symbol names → file stems.
+    /// The icon build imports exactly these (curated, licence-clean).
+    pub icons_path: Option<String>,
+    pub icon_symbols: Vec<(String, String)>,
 }
 
 impl ThemeRuntime {
@@ -160,6 +166,20 @@ impl ThemeRuntime {
     /// Convenience: `[radius]` step (px).
     pub fn resolve_radius(&self, name: &str) -> Option<u32> {
         self.resolve_scale("radius", name)
+    }
+
+    /// `[icons] path` — the maintained icon-set directory (authored in base;
+    /// icons are theme-invariant).
+    pub fn icons_path(&self) -> Option<&str> {
+        self.themes.get(&Qualifier::Base).and_then(|t| t.icons_path.as_deref())
+    }
+
+    /// `[icons.symbols]` — OUR symbol names → file stems (sorted, base theme).
+    pub fn icon_symbols(&self) -> &[(String, String)] {
+        self.themes
+            .get(&Qualifier::Base)
+            .map(|t| t.icon_symbols.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get the active qualifier.

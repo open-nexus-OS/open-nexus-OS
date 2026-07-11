@@ -6,7 +6,7 @@
 
 Component LauncherButton {
     Stack {
-        Icon { symbol: plus }
+        Icon { symbol: "square.grid" }
             .fg(onSurface)
     }
     .width(44)

@@ -522,16 +522,26 @@ pub fn build_widget(
             toggle.build(tokens)
         }
         "Icon" => {
-            // Kit promotion: the vector Icon primitive (symbol name → Symbol).
-            let symbol = match prop("symbol").map(value_text).as_deref() {
-                Some("plus") => Some(nexus_widget_icon::Symbol::Plus),
-                Some("minus") => Some(nexus_widget_icon::Symbol::Minus),
-                Some("close") => Some(nexus_widget_icon::Symbol::Close),
-                Some("star") => Some(nexus_widget_icon::Symbol::Star),
-                Some("chevronRight") => Some(nexus_widget_icon::Symbol::ChevronRight),
-                Some("chevronLeft") => Some(nexus_widget_icon::Symbol::ChevronLeft),
-                Some("chevronDown") => Some(nexus_widget_icon::Symbol::ChevronDown),
-                Some("chevronUp") => Some(nexus_widget_icon::Symbol::ChevronUp),
+            // Kit promotion: the vector Icon primitive. Symbol names resolve
+            // against the THEME-LINKED icon set first (`[icons.symbols]`,
+            // SwiftUI-style vocabulary from the maintained vendor repo), then
+            // the built-in fallback shapes (legacy camelCase names).
+            let name = prop("symbol").map(value_text).unwrap_or_default();
+            if let Some(lucide) = nexus_widget_icon::lucide_symbol_named(&name) {
+                return nexus_widget_icon::Icon::lucide(lucide)
+                    .size(16)
+                    .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
+                    .build(tokens);
+            }
+            let symbol = match name.as_str() {
+                "plus" => Some(nexus_widget_icon::Symbol::Plus),
+                "minus" => Some(nexus_widget_icon::Symbol::Minus),
+                "close" => Some(nexus_widget_icon::Symbol::Close),
+                "star" => Some(nexus_widget_icon::Symbol::Star),
+                "chevronRight" => Some(nexus_widget_icon::Symbol::ChevronRight),
+                "chevronLeft" => Some(nexus_widget_icon::Symbol::ChevronLeft),
+                "chevronDown" => Some(nexus_widget_icon::Symbol::ChevronDown),
+                "chevronUp" => Some(nexus_widget_icon::Symbol::ChevronUp),
                 _ => None,
             };
             match symbol {

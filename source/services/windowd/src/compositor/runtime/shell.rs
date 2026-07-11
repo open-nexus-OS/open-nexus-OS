@@ -194,6 +194,24 @@ impl DisplayServerRuntime {
             return;
         }
         self.theme_mode = mode;
+        // Theme-matched wallpaper: swap the baked source (same decoded size,
+        // LUTs stay valid); the full-frame damage below repaints the display
+        // AND the retained plane from the new pixels.
+        #[cfg(nexus_env = "os")]
+        if systemui::wallpaper_source_is_jpeg() {
+            let (data, rows) =
+                systemui::wallpaper_rle_for(mode == crate::theme::ThemeMode::Dark);
+            self.source_frame.pixels = data;
+            self.source_frame.rows = Some(rows);
+            // Full CPU repaint: mark every tile dirty (the GPU blit rect from
+            // `queue_full_frame_damage` below alone skips the wallpaper bands).
+            self.queue_dirty_rect(DamageRect {
+                x: 0,
+                y: 0,
+                width: self.mode.width,
+                height: self.mode.height,
+            });
+        }
         // Live re-theme: tell the app-client so it re-renders in the new mode.
         self.push_app_theme();
         // The app-client window chrome follows the theme (re-rendered from

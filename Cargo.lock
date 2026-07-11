@@ -2347,6 +2347,7 @@ name = "nexus-widget-icon"
 version = "0.1.0"
 dependencies = [
  "nexus-layout-types",
+ "nexus-theme",
  "nexus-theme-tokens",
 ]
 

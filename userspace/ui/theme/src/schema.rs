@@ -9,7 +9,7 @@ use crate::error::ThemeError;
 /// Known top-level sections in `.nxtheme.toml`.
 const KNOWN_SECTIONS: &[&str] = &[
     "theme", "tokens", "material", "spacing", "radius", "typography", "leading", "zindex",
-    "motion",
+    "motion", "icons",
 ];
 
 /// Known keys in the `[theme]` section.

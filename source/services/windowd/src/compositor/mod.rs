@@ -56,7 +56,7 @@ mod filter;
 mod runtime;
 mod scene;
 mod shell_window;
-mod source;
+pub(crate) mod source;
 #[cfg(test)]
 mod tests;
 mod tile_map;

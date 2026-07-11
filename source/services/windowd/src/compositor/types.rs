@@ -60,7 +60,13 @@ pub(crate) struct SourceFrame {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) stride: u32,
+    /// Raw BGRA rows — or ROW-RLE data when `rows` is `Some` (per-row runs of
+    /// `[len:u16 LE][b g r a]`, bounded by `rows[y]..rows[y+1]`). RLE keeps
+    /// BOTH theme wallpapers full-resolution inside the image budget (raw
+    /// 2×4MB overflowed the RAM region); rows decode into a stack buffer at
+    /// copy time — no heap, no quality loss.
     pub(crate) pixels: &'static [u8],
+    pub(crate) rows: Option<&'static [u32]>,
 }
 
 #[derive(Clone, Copy)]

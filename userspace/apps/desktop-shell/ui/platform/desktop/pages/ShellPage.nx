@@ -67,12 +67,18 @@ Page ShellPage {
             .gap(1)
             Spacer
             Stack {
-                TopBarPill { label: @t("shell.navBack") }
+                Icon { symbol: "chevron.left" }
+                    .fg(onSurface)
             }
+            .padding(2)
+            .rounded(full)
             on Tap -> navigate("/")
             Stack {
-                TopBarPill { label: @t("shell.navHome") }
+                Icon { symbol: "house" }
+                    .fg(onSurface)
             }
+            .padding(2)
+            .rounded(full)
             on Tap -> navigate("/")
         }
         .direction(row)

@@ -43,9 +43,14 @@ impl DisplayServerRuntime {
             let band = &mut self.band_scratch[..band_bytes];
             band.fill(0);
             for row_idx in 0..band_rows {
-                let src_off = (band_start + row_idx) * src_stride;
+                let mut decode_buf = [0u8; crate::compositor::source::MAX_SOURCE_W * 4];
+                let src_row = crate::compositor::source::source_row(
+                    &self.source_frame,
+                    band_start + row_idx,
+                    &mut decode_buf,
+                )?;
                 band[row_idx * dst_stride..row_idx * dst_stride + copy_len]
-                    .copy_from_slice(&self.source_frame.pixels[src_off..src_off + copy_len]);
+                    .copy_from_slice(&src_row[..copy_len]);
             }
             vmo_write(handle, band_start * dst_stride, band)
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;

@@ -545,10 +545,15 @@ impl DisplayServerRuntime {
 
         // Wallpaper: prefer JPEG, fall back to solid dark color on failure.
         // Production-grade: the compositor must start even without wallpaper assets.
-        let (source_width, source_height, source_pixels) = if systemui::wallpaper_source_is_jpeg() {
+        let (source_width, source_height, source_pixels, source_rows) =
+            if systemui::wallpaper_source_is_jpeg() {
             let _ = debug_println(WALLPAPER_LOADED);
             let (w, h) = systemui::wallpaper_decoded_size();
-            (w, h, systemui::wallpaper_bgra())
+            // Boot theme default is DARK — start on the theme-matched
+            // wallpaper; `set_theme_mode` swaps the source live. ROW-RLE:
+            // both variants full-res inside the image budget.
+            let (data, rows) = systemui::wallpaper_rle_for(true);
+            (w, h, data, Some(rows))
         } else {
             let _ = debug_println(WALLPAPER_FALLBACK);
             // 160×100 solid dark-blue fallback — scaled to fill the display.
@@ -566,13 +571,14 @@ impl DisplayServerRuntime {
                 }
                 buf
             };
-            (FALLBACK_W, FALLBACK_H, &FALLBACK_BGRA[..])
+            (FALLBACK_W, FALLBACK_H, &FALLBACK_BGRA[..], None)
         };
         let source_frame = SourceFrame {
             width: source_width,
             height: source_height,
             stride: checked_stride(source_width)?,
             pixels: source_pixels,
+            rows: source_rows,
         };
         let source_x_lut = build_scale_lut(mode.width, source_width)?;
         let source_y_lut = build_scale_lut(mode.height, source_height)?;

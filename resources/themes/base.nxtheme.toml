@@ -193,3 +193,44 @@ edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.20
 borderColor = "#ffffff"
 borderAlpha = 0.85
+
+# ── Icon-set linkage (the MAINTAINED vendor repo; licence-clean import) ──────
+# `path` = repo-relative SVG directory; `[icons.symbols]` = OUR SwiftUI-style
+# symbol vocabulary → file stems. The icon build imports exactly these.
+[icons]
+path = "resources/icons/lucide/icons"
+
+[icons.symbols]
+"chevron.left" = "chevron-left"
+"chevron.right" = "chevron-right"
+"chevron.up" = "chevron-up"
+"chevron.down" = "chevron-down"
+"plus" = "plus"
+"minus" = "minus"
+"xmark" = "x"
+"checkmark" = "check"
+"star" = "star"
+"magnifyingglass" = "search"
+"gearshape" = "settings"
+"message" = "message-circle"
+"house" = "house"
+"square.grid" = "layout-grid"
+"wifi" = "wifi"
+"speaker.wave" = "volume-2"
+"battery.75" = "battery-full"
+"sun.max" = "sun"
+"moon" = "moon"
+"desktopcomputer" = "monitor"
+"ipad" = "tablet"
+"arrow.left" = "arrow-left"
+"arrow.right" = "arrow-right"
+"paperplane" = "send"
+"person" = "user"
+"trash" = "trash"
+"lock" = "lock"
+"bell" = "bell"
+"bluetooth" = "bluetooth"
+"airplane" = "plane"
+"menu" = "menu"
+"arrow.up" = "arrow-up"
+"arrow.down" = "arrow-down"
