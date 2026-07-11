@@ -54,6 +54,13 @@ impl HidBatch {
         Self { device, kind: HidDeviceKind::Mouse, pointer_source: Some(source), events }
     }
 
+    /// Recovers the events buffer for capacity reuse (bump-heap live loops
+    /// recycle it through `decode_wire_batch_reusing`).
+    #[must_use]
+    pub fn into_events(self) -> Vec<HidEvent> {
+        self.events
+    }
+
     #[must_use]
     pub const fn device(&self) -> DeviceId {
         self.device

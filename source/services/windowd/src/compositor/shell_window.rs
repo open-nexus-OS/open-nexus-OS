@@ -65,6 +65,9 @@ const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
 /// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
+/// Title-bar wash alpha over the blurred backdrop (frosted chrome, not a slab).
+const TITLE_BAR_TINT_ALPHA: u8 = 150;
+
 pub(crate) fn draw_title_bar_row(
     local_y: u32,
     row: &mut [u8],
@@ -79,12 +82,13 @@ pub(crate) fn draw_title_bar_row(
     if local_y >= title_h {
         return Ok(());
     }
-    // Title bar is chrome distinct from the frosted body: an opaque secondary
-    // surface. Text + button glyphs use fg; the button hover cell uses accent so
-    // it stays visible on both light and dark (TASK-0072 Phase 9).
+    // Title bar is part of the frosted material — a TRANSLUCENT wash over the
+    // blurred backdrop, not an opaque strip (the opaque `surface_alt` fill made
+    // the whole bar read as a solid slab and hid the gaussian entirely). Text +
+    // button glyphs use fg; the button hover cell uses accent (TASK-0072 P9).
     let hover_col = crate::theme::with_alpha(tk.accent, HOVER_TINT[3]);
     let glyph_tint = Some(crate::theme::rgb3(tk.fg));
-    write_tint_span(row, 0, w, tk.surface_alt);
+    write_tint_span(row, 0, w, crate::theme::with_alpha(tk.surface_alt, TITLE_BAR_TINT_ALPHA));
     let text_top = title_h.saturating_sub(crate::text::line_height(TITLE_FONT)) / 2;
     crate::text::draw_text_row(
         row,

@@ -91,6 +91,21 @@ pub fn decode_wire_batch(
     batch: WireHidBatch,
     pointer_transform: PointerTransform,
 ) -> Result<HidBatch, WireBatchReject> {
+    let mut events_buf = Vec::new();
+    decode_wire_batch_reusing(batch, pointer_transform, &mut events_buf)
+}
+
+/// [`decode_wire_batch`] with a RECYCLED events buffer: the caller passes the
+/// `Vec` recovered from the previous batch (`HidBatch::into_events`) and its
+/// capacity is reused. The OS-lite live loop decodes every pointer batch on a
+/// NON-FREEING bump heap — a fresh per-batch `Vec` leaked ~256B per mouse
+/// batch and exhausted inputd's heap in under a minute of active input
+/// (`alloc-fail svc=inputd` → dead input chain).
+pub fn decode_wire_batch_reusing(
+    batch: WireHidBatch,
+    pointer_transform: PointerTransform,
+    events_buf: &mut Vec<HidEvent>,
+) -> Result<HidBatch, WireBatchReject> {
     if usize::from(batch.normalized_event_count) != batch.events.len() {
         return Err(WireBatchReject::CountMismatch);
     }
@@ -113,7 +128,9 @@ pub fn decode_wire_batch(
         HidDeviceKind::Mouse => Some(pointer_source_from_wire(batch.pointer_source)?),
     };
 
-    let mut events = Vec::with_capacity(batch.events.len());
+    events_buf.clear();
+    events_buf.reserve(batch.events.len());
+    let events = events_buf;
     for event in batch.events {
         let timestamp = TimestampNs::new(event.timestamp_ns);
         let hid_event = match event.kind {
@@ -164,6 +181,7 @@ pub fn decode_wire_batch(
         events.push(hid_event);
     }
 
+    let events = core::mem::take(events);
     Ok(match (kind, pointer_source) {
         (HidDeviceKind::Keyboard, _) => HidBatch::new(DeviceId::new(batch.device_id), kind, events),
         (HidDeviceKind::Mouse, Some(source)) => {

@@ -20,18 +20,14 @@
 
 use alloc::vec::Vec;
 
-/// A composable shell window. Extensible toward per-app surfaces (RFC-0065).
+/// A composable shell window (RFC-0065 multi-window).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WindowId {
-    /// The chat window.
-    Chat,
-    /// The search window.
-    Search,
-    /// The settings window (TASK-0072: opened from the topbar Edit → Settings).
-    Settings,
-    /// A cross-process app client surface (ADR-0042 / TASK-0080D R1): the
-    /// body is blitted from the app process's own surface VMO.
-    AppClient,
+    /// A cross-process app client window (ADR-0042 / TASK-0080D R1): the body
+    /// is blitted from the app process's own surface VMO. The index is the
+    /// runtime's app-window SLOT (0..MAX_APP_WINDOWS) — several apps hold
+    /// windows at once; the stack orders them like any other window.
+    App(u8),
     /// The DESKTOP surface (RFC-0065 / Umbau #17): the shell (or greeter) running
     /// as its OWN app-host process, composited as the full-screen base layer
     /// BELOW all floating windows (see [`WindowRole::Desktop`]). Chromeless — it
@@ -40,6 +36,10 @@ pub enum WindowId {
     /// as a no-op; only composition places it (at the bottom band).
     Desktop,
 }
+
+/// Concurrent floating app windows (one atlas content band + one blur band
+/// each — the cap is an ATLAS budget as much as a UX choice).
+pub const MAX_APP_WINDOWS: usize = 4;
 
 /// The compositor Z-BAND a window belongs to (RFC-0065 multi-window). Bands are
 /// strictly ordered — a window can never leave its band via z-raise — so the
@@ -173,7 +173,7 @@ impl WindowStack {
     /// (later ids start on top once shown). Ids beyond [`MAX_WINDOWS`] are
     /// ignored — the cap is a hard invariant, not an error path.
     pub fn new(ids: &[WindowId]) -> Self {
-        let mut entries = [WindowState::floating(WindowId::Chat, false, 0); MAX_WINDOWS];
+        let mut entries = [WindowState::floating(WindowId::App(0), false, 0); MAX_WINDOWS];
         let len = ids.len().min(MAX_WINDOWS);
         for (i, &id) in ids.iter().take(len).enumerate() {
             entries[i] = match id {
@@ -274,7 +274,7 @@ impl WindowStack {
     /// Minimized (docked) windows in stable registration order — the dock's
     /// slot order, independent of z so icons never shuffle. Alloc-free.
     pub fn minimized_list(&self) -> ([WindowId; MAX_WINDOWS], usize) {
-        let mut out = [WindowId::Chat; MAX_WINDOWS];
+        let mut out = [WindowId::App(0); MAX_WINDOWS];
         let mut n = 0;
         for w in &self.entries[..self.len] {
             if w.visible && w.minimized {
@@ -344,7 +344,7 @@ impl WindowStack {
         let fullscreen_on_screen = self.entries[..self.len]
             .iter()
             .any(|w| w.showable(desktop_shell_active) && w.fullscreen);
-        let mut out = [WindowId::Chat; MAX_WINDOWS];
+        let mut out = [WindowId::App(0); MAX_WINDOWS];
         let mut keys = [0i32; MAX_WINDOWS];
         let mut n = 0;
         for w in &self.entries[..self.len] {
@@ -404,8 +404,8 @@ mod tests {
     fn hidden_windows_are_not_composited() {
         // Mirrors the boot case the user hit: chat starts hidden → not in the frame.
         let windows = [
-            WindowState::floating(WindowId::Chat, false, 3),
-            WindowState::floating(WindowId::Search, false, 2),
+            WindowState::floating(WindowId::App(0), false, 3),
+            WindowState::floating(WindowId::App(1), false, 2),
         ];
         assert!(composition_order(&windows, false).is_empty());
     }
@@ -413,27 +413,27 @@ mod tests {
     #[test]
     fn visible_window_is_composited() {
         let windows = [
-            WindowState::floating(WindowId::Chat, true, 3),
-            WindowState::floating(WindowId::Search, false, 2),
+            WindowState::floating(WindowId::App(0), true, 3),
+            WindowState::floating(WindowId::App(1), false, 2),
         ];
-        assert_eq!(composition_order(&windows, false), vec![WindowId::Chat]);
+        assert_eq!(composition_order(&windows, false), vec![WindowId::App(0)]);
     }
 
     #[test]
     fn composition_is_z_ordered_back_to_front() {
         let windows = [
-            WindowState::floating(WindowId::Chat, true, 3),
-            WindowState::floating(WindowId::Search, true, 2),
+            WindowState::floating(WindowId::App(0), true, 3),
+            WindowState::floating(WindowId::App(1), true, 2),
         ];
         // Search (z=2) composites before Chat (z=3) → chat on top.
-        assert_eq!(composition_order(&windows, false), vec![WindowId::Search, WindowId::Chat]);
+        assert_eq!(composition_order(&windows, false), vec![WindowId::App(1), WindowId::App(0)]);
     }
 
     #[test]
     fn desktop_shell_suppresses_all_windows() {
         let windows = [
-            WindowState::floating(WindowId::Chat, true, 3),
-            WindowState::floating(WindowId::Search, true, 2),
+            WindowState::floating(WindowId::App(0), true, 3),
+            WindowState::floating(WindowId::App(1), true, 2),
         ];
         assert!(composition_order(&windows, true).is_empty());
     }
@@ -453,12 +453,12 @@ mod tests {
         // FIRST (bottom), under every floating window, regardless of z. Here the
         // desktop has a high z (5) yet still sorts below floating chat (z=1).
         let windows = [
-            WindowState::floating(WindowId::Chat, true, 1),
+            WindowState::floating(WindowId::App(0), true, 1),
             WindowState::desktop(WindowId::Desktop, true),
         ];
         assert_eq!(
             composition_order(&windows, false),
-            vec![WindowId::Desktop, WindowId::Chat],
+            vec![WindowId::Desktop, WindowId::App(0)],
             "desktop base first, floating window on top"
         );
     }
@@ -468,7 +468,7 @@ mod tests {
         // A floating window is suppressed when `desktop_shell_active`, but the
         // DESKTOP surface itself must still show — it IS the desktop shell.
         let windows = [
-            WindowState::floating(WindowId::Chat, true, 1),
+            WindowState::floating(WindowId::App(0), true, 1),
             WindowState::desktop(WindowId::Desktop, true),
         ];
         assert_eq!(
@@ -482,12 +482,12 @@ mod tests {
     fn desktop_role_stays_below_a_fullscreen_window() {
         // Banding is strict: DESKTOP < floating < FULLSCREEN. A fullscreen window
         // still composites (it's not the desktop), with the desktop beneath it.
-        let mut chat = WindowState::floating(WindowId::Chat, true, 1);
+        let mut chat = WindowState::floating(WindowId::App(0), true, 1);
         chat.fullscreen = true;
         let windows = [chat, WindowState::desktop(WindowId::Desktop, true)];
         assert_eq!(
             composition_order(&windows, false),
-            vec![WindowId::Desktop, WindowId::Chat],
+            vec![WindowId::Desktop, WindowId::App(0)],
             "desktop stays at the bottom band even under a fullscreen window"
         );
     }
@@ -495,7 +495,7 @@ mod tests {
     // ── WindowStack: the z/focus stack ──
 
     fn stack() -> WindowStack {
-        WindowStack::new(&[WindowId::Search, WindowId::Chat])
+        WindowStack::new(&[WindowId::App(1), WindowId::App(0)])
     }
 
     #[test]
@@ -504,46 +504,46 @@ mod tests {
         assert_eq!(s.order(false).1, 0);
         assert_eq!(s.focused(), None);
         assert_eq!(s.top(), None);
-        assert!(!s.is_visible(WindowId::Chat));
+        assert!(!s.is_visible(WindowId::App(0)));
     }
 
     #[test]
     fn show_raises_and_focuses() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        assert_eq!(s.focused(), Some(WindowId::Search));
-        assert!(s.is_top(WindowId::Search));
+        s.show(WindowId::App(1));
+        assert_eq!(s.focused(), Some(WindowId::App(1)));
+        assert!(s.is_top(WindowId::App(1)));
         // Opening chat puts it on top and moves focus.
-        s.show(WindowId::Chat);
-        assert_eq!(s.focused(), Some(WindowId::Chat));
+        s.show(WindowId::App(0));
+        assert_eq!(s.focused(), Some(WindowId::App(0)));
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Search, WindowId::Chat]);
+        assert_eq!(&order[..n], &[WindowId::App(1), WindowId::App(0)]);
     }
 
     #[test]
     fn raise_reorders_and_reports_change() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
         // Raising the bottom window flips the order (the user's z bug: chat was
         // ALWAYS on top because emit order was hardcoded — raise must win now).
-        assert!(s.raise(WindowId::Search));
+        assert!(s.raise(WindowId::App(1)));
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search]);
-        assert_eq!(s.focused(), Some(WindowId::Search));
+        assert_eq!(&order[..n], &[WindowId::App(0), WindowId::App(1)]);
+        assert_eq!(s.focused(), Some(WindowId::App(1)));
         // Raising the already-top window changes nothing (no damage needed).
-        assert!(!s.raise(WindowId::Search));
+        assert!(!s.raise(WindowId::App(1)));
     }
 
     #[test]
     fn hide_refocuses_topmost_remaining() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
-        s.hide(WindowId::Chat);
-        assert_eq!(s.focused(), Some(WindowId::Search));
-        assert!(s.is_top(WindowId::Search));
-        s.hide(WindowId::Search);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
+        s.hide(WindowId::App(0));
+        assert_eq!(s.focused(), Some(WindowId::App(1)));
+        assert!(s.is_top(WindowId::App(1)));
+        s.hide(WindowId::App(1));
         assert_eq!(s.focused(), None);
         assert_eq!(s.order(false).1, 0);
     }
@@ -551,8 +551,8 @@ mod tests {
     #[test]
     fn hit_order_is_reverse_of_composite_order() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
         let (order, n) = s.order(false);
         let (hits, hn) = s.hit_order(false);
         assert_eq!(n, hn);
@@ -560,13 +560,13 @@ mod tests {
         reversed[..n].reverse();
         assert_eq!(&hits[..hn], &reversed[..n]);
         // Front-to-back: the topmost (chat) is hit-tested first.
-        assert_eq!(hits[0], WindowId::Chat);
+        assert_eq!(hits[0], WindowId::App(0));
     }
 
     #[test]
     fn desktop_shell_suppresses_stack_windows_too() {
         let mut s = stack();
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(0));
         assert_eq!(s.order(true).1, 0);
         assert_eq!(s.hit_order(true).1, 0);
     }
@@ -576,42 +576,42 @@ mod tests {
     #[test]
     fn minimize_leaves_composition_and_refocuses() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
-        s.minimize(WindowId::Chat);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
+        s.minimize(WindowId::App(0));
         // Off screen but still OPEN (in the dock), search takes focus.
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Search]);
-        assert!(s.is_visible(WindowId::Chat));
-        assert!(s.is_minimized(WindowId::Chat));
-        assert_eq!(s.focused(), Some(WindowId::Search));
+        assert_eq!(&order[..n], &[WindowId::App(1)]);
+        assert!(s.is_visible(WindowId::App(0)));
+        assert!(s.is_minimized(WindowId::App(0)));
+        assert_eq!(s.focused(), Some(WindowId::App(1)));
         let (dock, dn) = s.minimized_list();
-        assert_eq!(&dock[..dn], &[WindowId::Chat]);
+        assert_eq!(&dock[..dn], &[WindowId::App(0)]);
     }
 
     #[test]
     fn restore_returns_raised_and_focused() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
-        s.minimize(WindowId::Chat);
-        s.restore(WindowId::Chat);
-        assert!(!s.is_minimized(WindowId::Chat));
-        assert!(s.is_top(WindowId::Chat));
-        assert_eq!(s.focused(), Some(WindowId::Chat));
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
+        s.minimize(WindowId::App(0));
+        s.restore(WindowId::App(0));
+        assert!(!s.is_minimized(WindowId::App(0)));
+        assert!(s.is_top(WindowId::App(0)));
+        assert_eq!(s.focused(), Some(WindowId::App(0)));
         assert_eq!(s.minimized_list().1, 0);
     }
 
     #[test]
     fn dock_order_is_stable_registration_order() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
         // Minimize chat FIRST, then search — dock still lists registration order.
-        s.minimize(WindowId::Chat);
-        s.minimize(WindowId::Search);
+        s.minimize(WindowId::App(0));
+        s.minimize(WindowId::App(1));
         let (dock, dn) = s.minimized_list();
-        assert_eq!(&dock[..dn], &[WindowId::Search, WindowId::Chat]);
+        assert_eq!(&dock[..dn], &[WindowId::App(1), WindowId::App(0)]);
         assert_eq!(s.focused(), None);
         assert_eq!(s.order(false).1, 0);
     }
@@ -619,84 +619,84 @@ mod tests {
     #[test]
     fn close_clears_dock_membership_and_fullscreen() {
         let mut s = stack();
-        s.show(WindowId::Chat);
-        s.set_fullscreen(WindowId::Chat, true);
-        s.minimize(WindowId::Chat);
-        s.hide(WindowId::Chat);
+        s.show(WindowId::App(0));
+        s.set_fullscreen(WindowId::App(0), true);
+        s.minimize(WindowId::App(0));
+        s.hide(WindowId::App(0));
         assert_eq!(s.minimized_list().1, 0);
-        assert!(!s.is_fullscreen(WindowId::Chat));
+        assert!(!s.is_fullscreen(WindowId::App(0)));
         // Reopening starts floating, not fullscreen.
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(0));
         assert_eq!(s.fullscreen_active(), None);
     }
 
     #[test]
     fn fullscreen_sorts_above_floating_and_reports_active() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
-        s.set_fullscreen(WindowId::Search, true);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
+        s.set_fullscreen(WindowId::App(1), true);
         // Search entered fullscreen → raised + focused + the ONLY composited
         // window (covered floating windows are excluded — user decision:
         // nothing but the wallpaper base beneath a fullscreen surface).
-        assert_eq!(s.fullscreen_active(), Some(WindowId::Search));
-        assert_eq!(s.focused(), Some(WindowId::Search));
-        s.raise(WindowId::Chat);
+        assert_eq!(s.fullscreen_active(), Some(WindowId::App(1)));
+        assert_eq!(s.focused(), Some(WindowId::App(1)));
+        s.raise(WindowId::App(0));
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Search], "fullscreen composites alone");
+        assert_eq!(&order[..n], &[WindowId::App(1)], "fullscreen composites alone");
         // The fullscreen window stays on top of the raw z ordering too.
-        assert_eq!(s.fullscreen_active(), Some(WindowId::Search));
+        assert_eq!(s.fullscreen_active(), Some(WindowId::App(1)));
         // Leaving fullscreen restores plain z ordering (chat was raised last).
-        s.set_fullscreen(WindowId::Search, false);
+        s.set_fullscreen(WindowId::App(1), false);
         assert_eq!(s.fullscreen_active(), None);
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Search, WindowId::Chat]);
+        assert_eq!(&order[..n], &[WindowId::App(1), WindowId::App(0)]);
     }
 
     #[test]
     fn fullscreen_excludes_covered_floating_windows() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
-        s.set_fullscreen(WindowId::Chat, true);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
+        s.set_fullscreen(WindowId::App(0), true);
         // Only the fullscreen window composites (search is fully covered);
         // hit order follows, so the covered window is unreachable too.
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Chat]);
+        assert_eq!(&order[..n], &[WindowId::App(0)]);
         let (hits, hn) = s.hit_order(false);
-        assert_eq!(&hits[..hn], &[WindowId::Chat]);
+        assert_eq!(&hits[..hn], &[WindowId::App(0)]);
         // Leaving fullscreen brings the floating window back.
-        s.set_fullscreen(WindowId::Chat, false);
+        s.set_fullscreen(WindowId::App(0), false);
         assert_eq!(s.order(false).1, 2);
     }
 
     #[test]
     fn minimized_fullscreen_window_is_not_active_until_restored() {
         let mut s = stack();
-        s.show(WindowId::Chat);
-        s.set_fullscreen(WindowId::Chat, true);
-        s.minimize(WindowId::Chat);
+        s.show(WindowId::App(0));
+        s.set_fullscreen(WindowId::App(0), true);
+        s.minimize(WindowId::App(0));
         // Docked → the chrome is NOT covered.
         assert_eq!(s.fullscreen_active(), None);
-        s.restore(WindowId::Chat);
+        s.restore(WindowId::App(0));
         // Restore returns to fullscreen (mode survives the dock).
-        assert_eq!(s.fullscreen_active(), Some(WindowId::Chat));
+        assert_eq!(s.fullscreen_active(), Some(WindowId::App(0)));
     }
 
     #[test]
     fn z_normalization_preserves_order() {
         let mut s = stack();
-        s.show(WindowId::Search);
-        s.show(WindowId::Chat);
+        s.show(WindowId::App(1));
+        s.show(WindowId::App(0));
         // Force many raises to cross the renormalization bound.
         for _ in 0..40_000 {
-            s.raise(WindowId::Search);
-            s.raise(WindowId::Chat);
+            s.raise(WindowId::App(1));
+            s.raise(WindowId::App(0));
         }
-        s.raise(WindowId::Search);
+        s.raise(WindowId::App(1));
         let (order, n) = s.order(false);
-        assert_eq!(&order[..n], &[WindowId::Chat, WindowId::Search]);
-        assert!(s.z_of(WindowId::Search) < Z_NORMALIZE_LIMIT);
-        assert!(s.z_of(WindowId::Chat) < Z_NORMALIZE_LIMIT);
+        assert_eq!(&order[..n], &[WindowId::App(0), WindowId::App(1)]);
+        assert!(s.z_of(WindowId::App(1)) < Z_NORMALIZE_LIMIT);
+        assert!(s.z_of(WindowId::App(0)) < Z_NORMALIZE_LIMIT);
     }
 }

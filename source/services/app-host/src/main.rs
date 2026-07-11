@@ -291,12 +291,16 @@ mod probe {
         } else if mode == wire::WIN_MODE_FULLSCREEN {
             255
         } else {
-            190
+            // Frosted floating window: the page base leaves ~1/3 of the blurred
+            // backdrop visible (the material look lives or dies on this — 190
+            // read as a solid slab; opaque ELEMENTS still paint fully on top).
+            168
         };
         let mut app =
             DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+        let first_render_ok = app.as_mut().map(|dsl| dsl.render(vmo)).unwrap_or(false);
         match &app {
-            Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
+            Some(_) if first_render_ok => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
                 app = None;
                 raw_marker("APPHOST: FAIL dsl mount (probe fill fallback)");
@@ -446,7 +450,7 @@ mod probe {
                         shell_profile,
                         base_alpha,
                     );
-                    if let Some(dsl) = app.as_ref() {
+                    if let Some(dsl) = app.as_mut() {
                         let _ = dsl.render(vmo);
                     }
                     dirty = true;
@@ -639,6 +643,11 @@ mod probe {
         /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
         /// state: hover never re-runs layout (pretext), only a repaint.
         hovered: Option<usize>,
+        /// Reused render row buffer (width×4). The bump allocator NEVER
+        /// frees: a per-render `vec!` leaked ~5KB per hover repaint until the
+        /// heap page-faulted (the "nothing clickable after mousing around"
+        /// crash). One allocation at mount, resized on WM resize.
+        row_scratch: alloc::vec::Vec<u8>,
     }
 
     impl DslApp {
@@ -718,6 +727,7 @@ mod probe {
                 theme_mode,
                 shell_profile,
                 hovered: None,
+                row_scratch: alloc::vec![0u8; w as usize * 4],
             })
         }
 
@@ -819,6 +829,7 @@ mod probe {
         fn resize(&mut self, w: u32, h: u32) {
             self.w = w;
             self.h = h;
+            self.row_scratch.resize(w as usize * 4, 0);
             // Box geometry moves under the pointer; the next MOVE re-resolves.
             self.hovered = None;
             let engine = nexus_layout::LayoutEngine::new();
@@ -894,14 +905,14 @@ mod probe {
             }
         }
 
-        fn render(&self, vmo: u32) -> bool {
+        fn render(&mut self, vmo: u32) -> bool {
             self.render_rows(vmo, 0, self.h as i32)
         }
 
         /// Renders only rows `[y0, y1)` into the VMO — the damage-limited
         /// path (hover washes re-render two box spans, not 1280×800). The
         /// full render is `render()` = the whole surface span.
-        fn render_rows(&self, vmo: u32, y0: i32, y1: i32) -> bool {
+        fn render_rows(&mut self, vmo: u32, y0: i32, y1: i32) -> bool {
             use nexus_dsl_runtime::theme_tokens::ColorToken;
             let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
             // Page base = the theme Surface token: OPAQUE for a desktop/
@@ -924,7 +935,11 @@ mod probe {
             });
             let surf_w = self.w as usize;
             let row_bytes = surf_w * 4;
-            let mut row = alloc::vec![0u8; row_bytes];
+            // Reused scratch — NEVER allocate per render (non-freeing heap).
+            let mut row = core::mem::take(&mut self.row_scratch);
+            if row.len() < row_bytes {
+                row.resize(row_bytes, 0);
+            }
             let y_start = y0.max(0);
             let y_end = y1.min(self.h as i32);
             for y in y_start..y_end {
@@ -967,10 +982,12 @@ mod probe {
                         );
                     }
                 }
-                if vmo_write(vmo, y as usize * row_bytes, &row).is_err() {
+                if vmo_write(vmo, y as usize * row_bytes, &row[..row_bytes]).is_err() {
+                    self.row_scratch = row;
                     return false;
                 }
             }
+            self.row_scratch = row;
             true
         }
     }

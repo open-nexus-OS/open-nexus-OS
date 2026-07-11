@@ -15,6 +15,36 @@
 
 use super::*;
 
+/// Per-window scene snapshot (alloc-free `Copy` data captured before the
+/// encoder block, RFC-0065 multi-window): what the composite loop needs to
+/// draw one app window without re-borrowing the runtime.
+#[derive(Clone, Copy)]
+struct AppSceneSnap {
+    glass: Option<crate::compositor::shell_window::GlassCompositeParams>,
+    layers: [nexus_display_proto::client_surface::LayerDesc;
+        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+    layer_count: usize,
+    /// (abs_row, x, w, h, dst_x, dst_y) of the live-resize title overlay.
+    title_overlay: Option<(u32, u32, u32, u32, u32, u32)>,
+    fullscreen: bool,
+    /// (atlas_row, atlas_x, win_x, win_y, title_h) of the content band.
+    layer_geom: Option<(u32, u32, u32, u32, u32)>,
+}
+
+impl Default for AppSceneSnap {
+    fn default() -> Self {
+        Self {
+            glass: None,
+            layers: [nexus_display_proto::client_surface::LayerDesc::default();
+                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+            layer_count: 0,
+            title_overlay: None,
+            fullscreen: false,
+            layer_geom: None,
+        }
+    }
+}
+
 impl DisplayServerRuntime {
     /// Build the per-frame GPU CommandBuffer (GPU-first layout-tree model).
     ///
@@ -39,11 +69,13 @@ impl DisplayServerRuntime {
         rect_count: usize,
         out: &mut [u8],
     ) -> Result<usize, WindowdError> {
-        // App-client window (ADR-0042 R1): blit the app's surface VMO when
-        // a present marked it dirty.
-        if self.app_win.visible && self.app_win.surface_dirty {
-            self.render_app_surface()?;
-            self.app_win.surface_dirty = false;
+        // App-client windows (ADR-0042 R1, multi-window): blit each app's
+        // surface VMO when a present marked its window dirty.
+        for idx in 0..self.apps.len() {
+            if self.apps[idx].win.visible && self.apps[idx].win.surface_dirty {
+                self.render_app_surface(idx)?;
+                self.apps[idx].win.surface_dirty = false;
+            }
         }
         // Desktop surface (Umbau #17): blit the shell app-host's VMO into the
         // full-screen desktop band when a present marked it dirty.
@@ -75,52 +107,57 @@ impl DisplayServerRuntime {
         // FRAME size but draw the content at the BAND size, top-left — the exposed
         // area is frosted glass. The client re-renders sharp at the new size on
         // release (end_window_resize), snapping back to the cached band path.
-        let app_resizing =
-            matches!(self.resize_drag, Some((crate::window_scene::WindowId::AppClient, ..)));
-        let app_glass = self.app_win.glass_params().map(|mut p| {
-            if fullscreen_id == Some(crate::window_scene::WindowId::AppClient) {
-                p.radius = 0;
-                p.shadow_alpha = 0;
-            }
-            if app_resizing {
-                if let Some(a) = self.app_win.atlas {
-                    p.content_w = a.width.min(self.app_win.w);
-                    p.content_h = a.height.min(self.app_win.h);
-                    p.w = self.app_win.w;
-                    p.h = self.app_win.h;
+        // Per-window snapshots (alloc-free, Copy) so the encoder block below
+        // never re-borrows `self`: glass params, material layer set, live-resize
+        // overlay and band geometry for EVERY app window, indexed by slot.
+        let mut app_snaps: [AppSceneSnap; crate::window_scene::MAX_APP_WINDOWS] =
+            core::array::from_fn(|_| AppSceneSnap::default());
+        for idx in 0..self.apps.len() {
+            let wid = crate::window_scene::WindowId::App(idx as u8);
+            let resizing = matches!(self.resize_drag, Some((w, ..)) if w == wid);
+            let fullscreen = fullscreen_id == Some(wid);
+            let win = &self.apps[idx].win;
+            let glass = win.glass_params().map(|mut p| {
+                if fullscreen {
+                    p.radius = 0;
+                    p.shadow_alpha = 0;
                 }
-            }
-            p
-        });
-        // R1 layer seam: snapshot the app's material-tagged glass regions + the
-        // app-window geometry (atlas band origin, on-screen origin, title-bar
-        // offset) so the AppClient branch can composite each region as a
-        // `nexus-gfx` glass layer without re-borrowing `self` inside the encoder.
-        let app_layer_count = self.app_layer_count;
-        let app_layers = self.app_layers;
-        // TASK #23: the live-resize title overlay (frame-width sharp title,
-        // composited OVER the scaled band while band ≠ frame).
-        let app_title_overlay = self.app_title_overlay.map(|s| {
-            (
-                s.abs_row,
-                s.x,
-                s.width.min(self.app_win.w),
-                self.app_win.title_h.min(s.height),
-                self.app_win.x.max(0) as u32,
-                self.app_win.y.max(0) as u32,
-            )
-        });
-        let app_fullscreen =
-            fullscreen_id == Some(crate::window_scene::WindowId::AppClient);
-        let app_layer_geom = self.app_win.atlas.map(|a| {
-            (
-                a.abs_row,
-                a.x,
-                self.app_win.x.max(0) as u32,
-                self.app_win.y.max(0) as u32,
-                self.app_win.title_h,
-            )
-        });
+                if resizing {
+                    if let Some(a) = win.atlas {
+                        p.content_w = a.width.min(win.w);
+                        p.content_h = a.height.min(win.h);
+                        p.w = win.w;
+                        p.h = win.h;
+                    }
+                }
+                p
+            });
+            app_snaps[idx] = AppSceneSnap {
+                glass,
+                layers: self.apps[idx].layers,
+                layer_count: self.apps[idx].layer_count,
+                title_overlay: self.apps[idx].title_overlay.map(|s| {
+                    (
+                        s.abs_row,
+                        s.x,
+                        s.width.min(win.w),
+                        win.title_h.min(s.height),
+                        win.x.max(0) as u32,
+                        win.y.max(0) as u32,
+                    )
+                }),
+                fullscreen,
+                layer_geom: win.atlas.map(|a| {
+                    (
+                        a.abs_row,
+                        a.x,
+                        win.x.max(0) as u32,
+                        win.y.max(0) as u32,
+                        win.title_h,
+                    )
+                }),
+            };
+        }
         // Desktop base surface (declarative, Umbau #17): the shell/greeter
         // app-host that declared `level: desktop` owns its OWN full-screen band
         // (separate from the floating `app_win`). Snapshot its geometry for the
@@ -177,12 +214,13 @@ impl DisplayServerRuntime {
                     // `nexus-gfx` layer instead of one whole-window glass
                     // frame. No regions ⇒ the single-frame composite (a plain
                     // windowed app, unchanged).
-                    crate::window_scene::WindowId::AppClient => {
+                    crate::window_scene::WindowId::App(slot) => {
                         use nexus_display_proto::client_surface as wire;
-                        if app_layer_count > 0 {
-                            if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = app_layer_geom
+                        let sn = &app_snaps[slot as usize];
+                        if sn.layer_count > 0 {
+                            if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = sn.layer_geom
                             {
-                                for l in app_layers.iter().take(app_layer_count) {
+                                for l in sn.layers.iter().take(sn.layer_count) {
                                     if l.material != wire::MATERIAL_GLASS {
                                         continue;
                                     }
@@ -210,7 +248,7 @@ impl DisplayServerRuntime {
                                     );
                                 }
                             }
-                        } else if let Some(p) = app_glass {
+                        } else if let Some(p) = sn.glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
                                 &mut encoder,
                                 p,
@@ -221,11 +259,11 @@ impl DisplayServerRuntime {
                         // TASK #23: sharp frame-width title bar over the
                         // scaled band during a live resize / fullscreen
                         // transition (retired once the band catches up).
-                        if let Some((row, sx, w, h, dx, dy)) = app_title_overlay {
+                        if let Some((row, sx, w, h, dx, dy)) = sn.title_overlay {
                             if w > 0 && h > 0 {
                                 let _ = encoder.composite_layer_full(
                                     &Layer {
-                                        corner_radius: if app_fullscreen {
+                                        corner_radius: if sn.fullscreen {
                                             0
                                         } else {
                                             crate::compositor::runtime::app_window::APP_WIN_RADIUS

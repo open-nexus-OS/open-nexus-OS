@@ -117,6 +117,12 @@ pub(crate) struct Endpoints {
     pub abil_req: Option<u32>,
     /// abilitymgr server response endpoint.
     pub abil_rsp: Option<u32>,
+    /// settingsd server request endpoint (pre-minted so the windowd theme
+    /// route AND execd's per-app `svc.settings` grants clone the SAME pair
+    /// settingsd actually serves — a fresh per-arm pair orphaned both).
+    pub sett_req: Option<u32>,
+    /// settingsd server response endpoint.
+    pub sett_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -159,6 +165,9 @@ impl Endpoints {
             // Launch authority (TASK-0080D): pre-minted so windowd's
             // OP_LAUNCH route targets the pair abilitymgr actually serves.
             ServiceId::Abilitymgr => self.abil_req.zip(self.abil_rsp),
+            // Settings authority (TASK-0072 P10 / svc.settings): pre-minted so
+            // windowd's theme route and execd's app grants share the served pair.
+            ServiceId::Settingsd => self.sett_req.zip(self.sett_rsp),
             _ => None,
         }
     }

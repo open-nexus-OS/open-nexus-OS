@@ -20,9 +20,6 @@
 //! features — `nexus-gfx` `LayerBackdrop`/shadow on the live path); text
 //! glyphs blend in the separate baked-text pass.
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{PathShape, Rgba8, ShapeKind};
 
@@ -184,21 +181,32 @@ impl RowCanvas<'_> {
         }
     }
 
-    /// This row's slice of an even-odd polygon fill.
-    fn fill_polygon_row(&mut self, pts: &[(f32, f32)], c: Rgba8) {
-        if pts.len() < 3 {
+    /// This row's slice of an even-odd polygon fill. Points are produced by
+    /// `pt(i)` for `i in 0..n` — the painter NEVER materializes a point list:
+    /// this runs per box per row on services with a non-freeing bump heap
+    /// (app-host hover repaints page-faulted at the heap end when every icon
+    /// contour allocated a `Vec` per row). Crossings land in a fixed array;
+    /// a 2D scanline crossing more than `MAX_ROW_CROSSINGS` edges of one
+    /// contour does not occur for the flattened icon/shape contours this
+    /// paints (quads, 32-gons, sampled curves).
+    fn fill_polygon_row(&mut self, n: usize, pt: impl Fn(usize) -> (f32, f32), c: Rgba8) {
+        const MAX_ROW_CROSSINGS: usize = 64;
+        if n < 3 {
             return;
         }
         let cy = self.y as f32 + 0.5;
-        let mut xs: Vec<f32> = Vec::new();
-        for i in 0..pts.len() {
-            let (ax, ay) = pts[i];
-            let (bx, by) = pts[(i + 1) % pts.len()];
-            if (ay <= cy && by > cy) || (by <= cy && ay > cy) {
-                xs.push(ax + (cy - ay) / (by - ay) * (bx - ax));
+        let mut xs = [0f32; MAX_ROW_CROSSINGS];
+        let mut m = 0usize;
+        for i in 0..n {
+            let (ax, ay) = pt(i);
+            let (bx, by) = pt((i + 1) % n);
+            if ((ay <= cy && by > cy) || (by <= cy && ay > cy)) && m < MAX_ROW_CROSSINGS {
+                xs[m] = ax + (cy - ay) / (by - ay) * (bx - ax);
+                m += 1;
             }
         }
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+        let xs = &mut xs[..m];
+        xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
         let mut k = 0;
         while k + 1 < xs.len() {
             let x0 = ceil_i32(xs[k]);
@@ -208,6 +216,21 @@ impl RowCanvas<'_> {
             }
             k += 2;
         }
+    }
+
+    /// One normalized `0..1000` contour mapped into a box, filled for this row
+    /// (the `ShapeKind::{Path,Vector}` fill) — point mapping is inline, no
+    /// intermediate list.
+    fn fill_contour_row(&mut self, ps: &PathShape, xf: f32, yf: f32, wf: f32, hf: f32, c: Rgba8) {
+        let pts = &ps.points;
+        self.fill_polygon_row(
+            pts.len(),
+            |i| {
+                let p = &pts[i];
+                (xf + p.x_milli as f32 / 1000.0 * wf, yf + p.y_milli as f32 / 1000.0 * hf)
+            },
+            c,
+        );
     }
 }
 
@@ -225,35 +248,6 @@ fn ceil_i32(v: f32) -> i32 {
     if (t as f32) < v { t + 1 } else { t }
 }
 
-/// Map a shape to polygon points in a box (`None` = a plain rounded rect).
-fn shape_polygon(shape: &ShapeKind, x: i32, y: i32, w: i32, h: i32) -> Option<Vec<(f32, f32)>> {
-    let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
-    match shape {
-        ShapeKind::Rect => None,
-        ShapeKind::TriangleUp => {
-            Some(alloc::vec![(xf + wf / 2.0, yf), (xf + wf, yf + hf), (xf, yf + hf)])
-        }
-        ShapeKind::TriangleDown => {
-            Some(alloc::vec![(xf, yf), (xf + wf, yf), (xf + wf / 2.0, yf + hf)])
-        }
-        ShapeKind::Circle => {
-            let (cx, cy, rx, ry) = (xf + wf / 2.0, yf + hf / 2.0, wf / 2.0, hf / 2.0);
-            Some(CIRCLE_32.iter().map(|&(c, s)| (cx + rx * c, cy + ry * s)).collect())
-        }
-        ShapeKind::Path(ps) => Some(contour_points(ps, xf, yf, wf, hf)),
-        // Multi-contour is filled per-contour in `paint_box_row`.
-        ShapeKind::Vector(_) => None,
-    }
-}
-
-/// Map a normalized `0..1000` contour into a box.
-fn contour_points(ps: &PathShape, xf: f32, yf: f32, wf: f32, hf: f32) -> Vec<(f32, f32)> {
-    ps.points
-        .iter()
-        .map(|p| (xf + p.x_milli as f32 / 1000.0 * wf, yf + p.y_milli as f32 / 1000.0 * hf))
-        .collect()
-}
-
 /// Paint one box's contribution to this row (fill + borders).
 pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
     let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
@@ -261,17 +255,35 @@ pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
         return;
     }
     if let Some(bg) = b.visual.background {
-        if let ShapeKind::Vector(contours) = &b.visual.shape {
-            for ps in contours {
-                let poly = contour_points(ps, x as f32, y as f32, w as f32, h as f32);
-                canvas.fill_polygon_row(&poly, bg);
+        let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
+        match &b.visual.shape {
+            ShapeKind::Rect => {
+                let radius = b.visual.corner_radius.top_left.0.max(0);
+                canvas.fill_round_rect_row(x, y, w, h, radius, bg);
             }
-        } else {
-            match shape_polygon(&b.visual.shape, x, y, w, h) {
-                Some(poly) => canvas.fill_polygon_row(&poly, bg),
-                None => {
-                    let radius = b.visual.corner_radius.top_left.0.max(0);
-                    canvas.fill_round_rect_row(x, y, w, h, radius, bg);
+            ShapeKind::TriangleUp => {
+                let pts = [(xf + wf / 2.0, yf), (xf + wf, yf + hf), (xf, yf + hf)];
+                canvas.fill_polygon_row(3, |i| pts[i], bg);
+            }
+            ShapeKind::TriangleDown => {
+                let pts = [(xf, yf), (xf + wf, yf), (xf + wf / 2.0, yf + hf)];
+                canvas.fill_polygon_row(3, |i| pts[i], bg);
+            }
+            ShapeKind::Circle => {
+                let (cx, cy, rx, ry) = (xf + wf / 2.0, yf + hf / 2.0, wf / 2.0, hf / 2.0);
+                canvas.fill_polygon_row(
+                    CIRCLE_32.len(),
+                    |i| {
+                        let (c, s) = CIRCLE_32[i];
+                        (cx + rx * c, cy + ry * s)
+                    },
+                    bg,
+                );
+            }
+            ShapeKind::Path(ps) => canvas.fill_contour_row(ps, xf, yf, wf, hf, bg),
+            ShapeKind::Vector(contours) => {
+                for ps in contours {
+                    canvas.fill_contour_row(ps, xf, yf, wf, hf, bg);
                 }
             }
         }

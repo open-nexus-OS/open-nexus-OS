@@ -217,8 +217,10 @@ impl DisplayServerRuntime {
         // The app-client window chrome follows the theme (re-rendered from
         // `self.theme()`); app/shell CONTENT re-themes via the pushed
         // OP_SURFACE_THEME (the DSL apps remount in the new mode).
-        self.app_win.surface_dirty = true;
-        self.app_win.blur_valid = false;
+        for slot in self.apps.iter_mut() {
+            slot.win.surface_dirty = true;
+            slot.win.blur_valid = false;
+        }
         self.dock_dirty = true;
         self.queue_full_frame_damage();
         let _ = debug_println(&alloc::format!("uitheme: switched (to={})", mode.as_str()));

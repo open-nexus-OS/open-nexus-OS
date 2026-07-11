@@ -1465,6 +1465,18 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         write_byte(ch);
                     }
 
+                    for &b in b" pid=0x" {
+                        write_byte(b);
+                    }
+                    if let Ok(handles) = runtime_kernel_handles() {
+                        let pid = handles.tasks.as_ref().current_pid().as_index();
+                        for shift in (0..4).rev() {
+                            let nibble = ((pid >> (shift * 4)) & 0xf) as u8;
+                            let ch =
+                                if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+                            write_byte(ch);
+                        }
+                    }
                     write_byte(b'\n');
 
                     // RFC-0004 Phase 1 diagnostics: if this fault hits a known guard page, emit a tag.

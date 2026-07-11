@@ -11,6 +11,8 @@
 extern crate alloc;
 
 use alloc::format;
+use alloc::vec::Vec;
+use hid::HidEvent;
 
 use hidrawd::PointerSource;
 use input_live_protocol::{
@@ -24,7 +26,7 @@ use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 
 use crate::route::NormalizeRouter;
 use crate::{
-    decode_wire_batch, live_push::should_push_visible_state, visible_display_space,
+    decode_wire_batch_reusing, live_push::should_push_visible_state, visible_display_space,
     visible_display_start_position, InputDispatch, InputdConfig, InputdService, WireBatchReject,
     LIVE_POINTER_DENOMINATOR, LIVE_POINTER_MAX_OUTPUT, LIVE_POINTER_NUMERATOR,
     LIVE_POINTER_THRESHOLD,
@@ -146,6 +148,10 @@ struct LiveRouteRuntime {
     chain_normalize_fail_emitted: bool,
     absolute_source_debug_emitted: bool,
     relative_blocked_debug_emitted: bool,
+    /// Recycled HID-event decode buffer (capacity reused across batches —
+    /// a fresh per-batch `Vec` leaked ~256B/batch on the non-freeing bump
+    /// heap and killed input after ~1 min of mousing: `alloc-fail svc=inputd`).
+    hid_events_scratch: Vec<HidEvent>,
     windowd_push_ok_emitted: bool,
     windowd_route_fallback_emitted: bool,
     windowd_push_fail_emitted: bool,
@@ -222,6 +228,7 @@ impl LiveRouteRuntime {
             chain_normalize_fail_emitted: false,
             absolute_source_debug_emitted: false,
             relative_blocked_debug_emitted: false,
+            hid_events_scratch: Vec::new(),
             windowd_push_ok_emitted: false,
             windowd_route_fallback_emitted: false,
             windowd_push_fail_emitted: false,
@@ -287,7 +294,11 @@ impl LiveRouteRuntime {
         }
         let batch_pointer_source = batch.pointer_source;
         let batch_normalized_event_count = batch.normalized_event_count;
-        let hid_batch = match decode_wire_batch(batch, self.input.pointer_transform()) {
+        let hid_batch = match decode_wire_batch_reusing(
+            batch,
+            self.input.pointer_transform(),
+            &mut self.hid_events_scratch,
+        ) {
             Ok(batch) => batch,
             Err(reject) => {
                 self.chain.record_wire_reject(reject);

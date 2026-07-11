@@ -318,7 +318,9 @@ fn dispatch_client_frame(
             Some(n) => runtime.send_frame_for_nonce(n, &ack),
             None => false,
         };
-        if !delivered && !runtime.send_app_frame(&ack) {
+        if !delivered {
+            // Every client owns a nonce-bound channel; a missing one falls
+            // back to the shared response endpoint (bring-up paths).
             let _ = server.send(&ack, Wait::Blocking);
         }
     } else if frame.get(3).copied()
@@ -331,7 +333,7 @@ fn dispatch_client_frame(
         let ack = runtime.handle_surface_present(frame);
         let delivered = match sid {
             Some(id) => runtime.send_surface_frame(id, &ack),
-            None => runtime.send_app_frame(&ack),
+            None => false,
         };
         if delivered {
             // delivered on the dedicated channel
@@ -347,11 +349,14 @@ fn dispatch_client_frame(
         // surface bookkeeping.
         let sid = nexus_display_proto::client_surface::decode_surface_destroy(frame);
         let was_desktop = sid.is_some() && sid == runtime.desktop_surface_id_for_ack();
+        // Resolve the owning window BEFORE the destroy clears the binding —
+        // the ack still rides that window's dedicated channel.
+        let app_idx = sid.and_then(|id| runtime.app_index_by_surface(id));
         let ack = runtime.handle_surface_destroy(frame);
         let delivered = if was_desktop {
             runtime.send_desktop_ack(&ack)
         } else {
-            runtime.send_app_frame(&ack)
+            app_idx.map(|i| runtime.send_app_frame(i, &ack)).unwrap_or(false)
         };
         if delivered {
             // delivered on the dedicated channel

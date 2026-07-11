@@ -487,6 +487,21 @@ where
     } else {
         (None, None)
     };
+    // Settings authority: pre-mint settingsd's server pair — like sessiond's —
+    // so windowd's theme route and execd's per-app `svc.settings` grants clone
+    // the SAME endpoints settingsd serves. `server_pair(Settingsd)` returned
+    // None before this, so BOTH routes silently never wired ("theme default
+    // (settingsd unavailable)" + "execd: FAIL app route resolve svc=settings").
+    let settingsd_pid = find_pid(&ctrl_channels, "settingsd");
+    let (sett_req, sett_rsp) = if let Some(pid) = settingsd_pid {
+        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+            .map_err(InitError::Abi)?;
+        (Some(req), Some(rsp))
+    } else {
+        (None, None)
+    };
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -505,7 +520,7 @@ where
         rng_req, rng_rsp, timed_req, timed_rsp, window_req, window_rsp, input_req, input_rsp,
         gpud_req, gpud_rsp, net_req, net_rsp, net_selftest_rsp, net_dsoft_rsp, dsoft_req,
         dsoft_rsp, dsoft_reply_ep, execd_reply_ep, reply_ep, log_req, log_rsp, metrics_req,
-        metrics_rsp, sess_req, sess_rsp, abil_req, abil_rsp,
+        metrics_rsp, sess_req, sess_rsp, abil_req, abil_rsp, sett_req, sett_rsp,
     };
     crate::bootstrap::wiring::distribute_server_pairs(&mut ctrl_channels, &eps);
 

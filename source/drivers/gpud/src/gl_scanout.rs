@@ -78,6 +78,15 @@ const H_SV_WALLPAPER: u32 = 0x45;
 const H_BACKDROP_TEX: u32 = 0xE5;
 /// Sampler view of H_BACKDROP_TEX.
 const H_SV_BACKDROP: u32 = 0x4B;
+/// Separable-blur ping-pong partner (screen-sized, GPU-only like the backdrop
+/// scratch): the HORIZONTAL gaussian pass renders into this, the VERTICAL pass
+/// samples it back into the glass RT — a real 2-pass separable gaussian
+/// instead of the old single vertical pass.
+const H_BLUR_TMP_TEX: u32 = 0xE6;
+/// Surface (render-target view) over H_BLUR_TMP_TEX.
+const H_BLUR_TMP_SURF: u32 = 0x4C;
+/// Sampler view of H_BLUR_TMP_TEX.
+const H_SV_BLUR_TMP: u32 = 0x4D;
 /// Default sampler state (created by `virgl_blur_init`).
 const H_SAMPLER: u32 = 0x34;
 /// Fullscreen −1..1 quad VBO (resource 0xFA, created by `virgl_blur_init`).
@@ -729,8 +738,33 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&ctx_attach)?;
+        // Ping-pong partner for the separable gaussian (H-pass target).
+        let create_tmp = VirtioGpuResourceCreate3d {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
+            resource_id: H_BLUR_TMP_TEX,
+            target: PIPE_TEXTURE_2D,
+            format: PIPE_FORMAT_B8G8R8A8_UNORM,
+            bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
+            width: SCREEN_W,
+            height: SCREEN_H,
+            depth: 1,
+            array_size: 1,
+            last_level: 0,
+            nr_samples: 0,
+            flags: 0,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&create_tmp)?;
+        let ctx_attach_tmp = VirtioGpuCtxAttachResource {
+            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
+            resource_id: H_BLUR_TMP_TEX,
+            _padding: 0,
+        };
+        self.ctrl_submit_struct(&ctx_attach_tmp)?;
         let mut s = Submit3d::new();
         s.emit_create_sampler_view(H_SV_BACKDROP, H_BACKDROP_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_sampler_view(H_SV_BLUR_TMP, H_BLUR_TMP_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_create_surface(H_BLUR_TMP_SURF, H_BLUR_TMP_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
         let bb = s.as_bytes();
         let bh = VirtioGpuSubmit3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
@@ -769,13 +803,21 @@ impl VirtioGpuBackend {
             return Ok(());
         }
         let dst_so_far = self.backdrop_tex_ready;
+        // Real gaussian falloff: per-tap weight = 2^(k·i²) = exp(−i²/2σ²) with
+        // σ = radius/2 — the SAME curve as the CPU reference
+        // (`raster::blur_gaussian`) and the fallback `submit_virgl_blur`. The
+        // old hardcoded −0.02 falloff fixed the effective σ at ~5px no matter
+        // the requested radius, which is why glass read as "tint, no blur".
+        let sigma = (radius as f32 / 2.0).max(0.5);
+        let k = -1.0 / (2.0 * sigma * sigma * core::f32::consts::LN_2);
+        // Padded halo so edge taps of both passes stay inside snapshotted data.
+        let x0 = x.saturating_sub(radius);
+        let y0 = y.saturating_sub(radius);
+        let x1 = (x + w + radius).min(SCREEN_W);
+        let y1 = (y + h + radius).min(SCREEN_H);
         let mut sb = Submit3d::new();
         if dst_so_far {
-            // Snapshot the RT beneath the layer (+radius halo, clamped to screen).
-            let x0 = x.saturating_sub(radius);
-            let y0 = y.saturating_sub(radius);
-            let x1 = (x + w + radius).min(SCREEN_W);
-            let y1 = (y + h + radius).min(SCREEN_H);
+            // Snapshot the RT beneath the layer (+radius halo, clamped).
             if x1 > x0 && y1 > y0 {
                 sb.emit_resource_copy_region(
                     H_BACKDROP_TEX,
@@ -793,31 +835,76 @@ impl VirtioGpuBackend {
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_DSA, 0x21);
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         sb.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
-        sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
-        sb.emit_set_sampler_views(
-            PIPE_SHADER_FRAGMENT,
-            0,
-            &[if dst_so_far { H_SV_BACKDROP } else { H_SV_WALLPAPER }],
-        );
         sb.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
-        sb.emit_set_constant_buffer(
-            PIPE_SHADER_FRAGMENT,
-            &[
-                1.0 / SCREEN_W as f32,
-                1.0 / SCREEN_H as f32,
-                radius as f32,
-                -0.02,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-            ],
-        );
         sb.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        sb.emit_bind_shader(13, PIPE_SHADER_FRAGMENT); // FS_BLUR
+        sb.emit_bind_shader(13, PIPE_SHADER_FRAGMENT); // FS_BLUR (1-D separable)
         sb.emit_set_vertex_buffers(&[(16, 0, QUAD_RES)]);
-        sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        if dst_so_far {
+            // PASS 1 — HORIZONTAL: backdrop snapshot → ping-pong scratch, over
+            // the PADDED rect so the vertical pass's ±radius row taps read
+            // horizontally-blurred data (both textures are screen-sized, so
+            // fragment coords address both identically).
+            sb.emit_set_framebuffer_state(0, &[H_BLUR_TMP_SURF]);
+            sb.emit_set_viewport_box(
+                x0 as f32,
+                y0 as f32,
+                (x1 - x0) as f32,
+                (y1 - y0) as f32,
+            );
+            sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_BACKDROP]);
+            sb.emit_set_constant_buffer(
+                PIPE_SHADER_FRAGMENT,
+                &[
+                    1.0 / SCREEN_W as f32,
+                    1.0 / SCREEN_H as f32,
+                    radius as f32,
+                    k,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ],
+            );
+            sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+            // PASS 2 — VERTICAL: scratch → glass RT, exact layer rect.
+            sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+            sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
+            sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_BLUR_TMP]);
+            sb.emit_set_constant_buffer(
+                PIPE_SHADER_FRAGMENT,
+                &[
+                    1.0 / SCREEN_W as f32,
+                    1.0 / SCREEN_H as f32,
+                    radius as f32,
+                    k,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            );
+            sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        } else {
+            // Bring-up fallback (scratch textures not created yet): single
+            // vertical pass over the static wallpaper, now with the real k.
+            sb.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
+            sb.emit_set_viewport_box(x as f32, y as f32, w as f32, h as f32);
+            sb.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
+            sb.emit_set_constant_buffer(
+                PIPE_SHADER_FRAGMENT,
+                &[
+                    1.0 / SCREEN_W as f32,
+                    1.0 / SCREEN_H as f32,
+                    radius as f32,
+                    k,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            );
+            sb.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
+        }
         let bb = sb.as_bytes();
         let bh = VirtioGpuSubmit3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),

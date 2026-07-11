@@ -42,7 +42,7 @@ pub use visible_contract::{
     VISIBLE_INPUT_LEFT_SQUARE_Y, VISIBLE_INPUT_PROOF_HEIGHT, VISIBLE_INPUT_PROOF_WIDTH,
     VISIBLE_INPUT_RIGHT_SQUARE_X, VISIBLE_INPUT_RIGHT_SQUARE_Y, VISIBLE_INPUT_SQUARE_SIZE,
 };
-pub use wire::{decode_wire_batch, WireBatchReject};
+pub use wire::{decode_wire_batch, decode_wire_batch_reusing, WireBatchReject};
 
 #[cfg(not(all(nexus_env = "os", target_os = "none")))]
 pub fn run() {

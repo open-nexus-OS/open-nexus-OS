@@ -28,9 +28,9 @@ impl DisplayServerRuntime {
     /// The window's current display-space frame. The desktop base is always
     /// the full display (its geometry follows the mode; never WM-changed).
     fn window_frame(&self, id: WindowId) -> Frame {
-        match id {
-            WindowId::AppClient => self.app_win.frame(),
-            _ => Frame {
+        match self.app_slot(id) {
+            Some(slot) => slot.win.frame(),
+            None => Frame {
                 x: 0,
                 y: 0,
                 w: self.mode.width,
@@ -52,8 +52,8 @@ impl DisplayServerRuntime {
             return;
         }
         let vacated = self.window_damage_rect(id);
-        if id == WindowId::AppClient {
-            self.app_win.end_drag();
+        if let Some(slot) = self.app_slot_mut(id) {
+            slot.win.end_drag();
         }
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
@@ -68,8 +68,8 @@ impl DisplayServerRuntime {
             return;
         }
         self.windows.restore(id);
-        if id == WindowId::AppClient {
-            self.app_win.blur_valid = false;
+        if let Some(slot) = self.app_slot_mut(id) {
+            slot.win.blur_valid = false;
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -85,17 +85,18 @@ impl DisplayServerRuntime {
     /// the chrome (`chrome_composited` gates on `fullscreen_active`); leaving
     /// restores the remembered floating origin.
     pub(super) fn toggle_fullscreen(&mut self, id: WindowId) {
-        if id != WindowId::AppClient {
+        let WindowId::App(i) = id else {
             return; // the desktop base is never fullscreen-toggled
-        }
+        };
+        let idx = i as usize;
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);
         if self.windows.is_fullscreen(id) {
             // Restore the floating frame + chrome height (fullscreen zeroed
             // `title_h`). Restoring it here — not waiting for the re-create —
             // keeps `push_app_content_rect`'s title inset correct, so the
             // window doesn't grow by `title_h` each fullscreen round-trip.
-            self.app_win.leave_fullscreen();
-            self.app_win.title_h = self.app_title_h();
+            self.apps[idx].win.leave_fullscreen();
+            self.apps[idx].win.title_h = self.app_title_h(idx);
             self.windows.set_fullscreen(id, false);
             let _ =
                 debug_println(&alloc::format!("windowd: unfullscreen id={}", Self::window_name(id)));
@@ -104,7 +105,7 @@ impl DisplayServerRuntime {
             // re-create its surface at display size (the atlas band is
             // reallocated on that re-create — no display-sized band held for a
             // floating window). The client re-render owns the pixels.
-            self.app_win.enter_fullscreen(mode_w, mode_h);
+            self.apps[idx].win.enter_fullscreen(mode_w, mode_h);
             self.windows.set_fullscreen(id, true);
             let _ =
                 debug_println(&alloc::format!("windowd: fullscreen id={}", Self::window_name(id)));
@@ -112,9 +113,9 @@ impl DisplayServerRuntime {
         // After the fullscreen flag settles (enter or leave), push the new
         // content rect so the app re-renders at the new size
         // (`push_app_content_rect` reads the flag → full display vs. inset).
-        self.push_app_content_rect();
+        self.push_app_content_rect(idx);
         // Title stays sharp at the new frame width while the band re-creates.
-        self.update_app_title_overlay();
+        self.update_app_title_overlay(idx);
         // Chrome visibility + window geometry both changed → full present.
         self.queue_full_frame_damage();
     }
@@ -135,22 +136,25 @@ impl DisplayServerRuntime {
     pub(super) fn update_title_hovers(&mut self, cx: i32, cy: i32) {
         use crate::compositor::shell_window::TitleButton;
         let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
-        let owner = hit[..n].iter().copied().find(|&wid| match wid {
-            WindowId::AppClient => self.app_win.contains(cx, cy),
-            // The desktop base has no window chrome to grab — clicks fall
-            // through to the shell's own surface (client input), never to a
-            // window drag/hit owner.
-            _ => false,
-        });
-        let app_hover: Option<TitleButton> = if owner == Some(WindowId::AppClient) {
-            self.app_win.title_button_at(cx, cy)
-        } else {
-            None
-        };
-        if app_hover != self.app_win.title_hover {
-            self.app_win.title_hover = app_hover;
-            self.app_win.surface_dirty = true;
-            self.queue_dirty_rect(self.app_window_rect());
+        // The desktop base has no window chrome — only app windows own hovers,
+        // and only the TOPMOST one under the cursor may show one.
+        let owner = hit[..n]
+            .iter()
+            .copied()
+            .find(|&wid| self.app_slot(wid).map(|a| a.win.contains(cx, cy)).unwrap_or(false));
+        for idx in 0..self.apps.len() {
+            let wid = WindowId::App(idx as u8);
+            let hover: Option<TitleButton> = if owner == Some(wid) {
+                self.apps[idx].win.title_button_at(cx, cy)
+            } else {
+                None
+            };
+            if hover != self.apps[idx].win.title_hover {
+                self.apps[idx].win.title_hover = hover;
+                self.apps[idx].win.surface_dirty = true;
+                let rect = self.app_window_rect(idx);
+                self.queue_dirty_rect(rect);
+            }
         }
     }
 
@@ -201,25 +205,25 @@ impl DisplayServerRuntime {
             // title bar). It re-creates its surface at that size, which
             // re-allocs the band on the fresh SURFACE_CREATE — the content grows
             // with the frame instead of only the shadow.
-            if id == WindowId::AppClient {
-                self.push_app_content_rect();
+            if let WindowId::App(i) = id {
+                self.push_app_content_rect(i as usize);
             }
         }
     }
 
     /// Tell the app-client its current CONTENT rect (`OP_SURFACE_RECT`) so it
     /// re-creates its surface at that size (WM owns geometry).
-    pub(crate) fn push_app_content_rect(&mut self) {
+    pub(crate) fn push_app_content_rect(&mut self, idx: usize) {
         // The content reserves `title_h` for the WM-drawn title bar. This is
         // INTENT-driven (`app_title_h`), NOT fullscreen-driven: a titled app that
         // maximizes keeps its title bar (□ = maximize), so the content stays
         // `frame − title`; only an intent-chromeless shell/single-app surface
         // gets the whole frame.
-        let title = self.app_title_h();
-        let cw = self.app_win.w.min(u32::from(u16::MAX)) as u16;
-        let ch = self.app_win.h.saturating_sub(title).min(u32::from(u16::MAX)) as u16;
+        let title = self.app_title_h(idx);
+        let cw = self.apps[idx].win.w.min(u32::from(u16::MAX)) as u16;
+        let ch = self.apps[idx].win.h.saturating_sub(title).min(u32::from(u16::MAX)) as u16;
         let rect = nexus_display_proto::client_surface::encode_surface_rect(0, 0, cw, ch);
-        let _ = self.send_app_frame(&rect);
+        let _ = self.send_app_frame(idx, &rect);
     }
 
     /// A title-bar drag released with the pointer at a display edge snaps the
@@ -258,12 +262,13 @@ impl DisplayServerRuntime {
     /// resize, re-render, damage the new region. The SINGLE geometry-apply
     /// path shared by edge resize, snap halves, and the fullscreen toggle.
     pub(super) fn apply_window_frame(&mut self, id: WindowId, x: i32, y: i32, w: u32, h: u32) {
-        if id != WindowId::AppClient {
+        let WindowId::App(i) = id else {
             // The desktop base is always the full display — never repositioned
             // or resized by the WM (its geometry follows the mode, pushed to
             // the shell app-host as the full content rect).
             return;
-        }
+        };
+        let idx = i as usize;
         let old = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(old);
         // Resize negotiation: let the frame grow to the requested size in BOTH
@@ -273,11 +278,11 @@ impl DisplayServerRuntime {
         // size and the app re-creates its surface + band to match.
         let w = w.min(self.mode.width);
         let h = h.min(self.mode.height);
-        self.app_win.set_frame(x, y, w, h);
-        self.app_win.surface_dirty = true;
+        self.apps[idx].win.set_frame(x, y, w, h);
+        self.apps[idx].win.surface_dirty = true;
         // TASK #23: keep the title bar sharp at the TRUE frame width while the
         // band lags (live resize) — re-rasterized only on width change.
-        self.update_app_title_overlay();
+        self.update_app_title_overlay(idx);
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
     }
@@ -292,11 +297,11 @@ impl DisplayServerRuntime {
             let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             let mut shape = cursor::CursorShape::Default;
             for &wid in &hit[..n] {
-                // Only the floating app window has resizable borders; the
+                // Only floating app windows have resizable borders; the
                 // desktop base fills the display and never shows a resize
                 // cursor (it would read as a broken affordance on the shell
                 // and the greeter).
-                if wid != WindowId::AppClient {
+                if self.app_slot(wid).is_none() {
                     continue;
                 }
                 let frame = self.window_frame(wid);

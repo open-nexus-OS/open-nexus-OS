@@ -80,23 +80,37 @@ impl DisplayServerRuntime {
         if presentation.role == crate::window_scene::WindowRole::Desktop {
             return self.create_desktop_surface(width, height, format, vmo_slot, nonce);
         }
-        // The declared intent rides ATOMICALLY on the create frame — the old
-        // separate pre-create OP_SURFACE_INTENT raced when two app-hosts
-        // connected concurrently (shell + counter: crossed intents put BOTH
-        // surfaces in the desktop role). Bind it to the FLOATING slot ONLY
-        // (desktop creates must never overwrite it: `app_intent_*` feeds every
-        // floating-path decision — chrome, corner radius, z-stack id — and a
-        // shell/greeter create while a window is open poisoned them all).
-        self.app_intent_style = style;
-        self.app_intent_level = level;
-        self.app_intent_mode = mode;
-        self.app_intent_resizable = resizable;
+        // Multi-window (RFC-0065): the create binds to the slot ALREADY holding
+        // this client's event channel (a resize re-create must resume in place,
+        // keeping geometry + fullscreen), else to a free slot. All slots taken
+        // ⇒ honest QUOTA — never hijack another app's window (the singleton-era
+        // behavior that made "nur ein Programm gleichzeitig").
+        #[cfg(nexus_env = "os")]
+        let slot_idx = self
+            .event_channel_for(nonce)
+            .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)))
+            .or_else(|| self.free_app_index());
+        #[cfg(not(nexus_env = "os"))]
+        let slot_idx = self.free_app_index();
+        let Some(idx) = slot_idx else {
+            let _ = nexus_abi_cap_close(vmo_slot);
+            let _ = debug_println("WINDOWD: surface create FAIL (window slots exhausted)");
+            return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_QUOTA, 0);
+        };
+        let wid = crate::window_scene::WindowId::App(idx as u8);
+        // The declared intent rides ATOMICALLY on the create frame (the old
+        // separate pre-create OP_SURFACE_INTENT raced concurrent connects).
+        // It binds to THIS window's slot only.
+        self.apps[idx].intent_style = style;
+        self.apps[idx].intent_level = level;
+        self.apps[idx].intent_mode = mode;
+        self.apps[idx].intent_resizable = resizable;
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
-                self.app_surface_id = Some(id);
+                self.apps[idx].surface_id = Some(id);
                 #[cfg(nexus_env = "os")]
                 if let Some(ch) = self.event_channel_for(nonce) {
-                    self.app_event_channel = Some(ch);
+                    self.apps[idx].event_channel = Some(ch);
                 } else {
                     let _ = debug_println("WINDOWD: FAIL surface bind (no channel for nonce)");
                 }
@@ -111,30 +125,26 @@ impl DisplayServerRuntime {
                 // (min/max/close) both floating AND maximized (the □ = MAXIMIZE);
                 // only an intent-chromeless surface (plain / desktop / fullscreen
                 // intent — a shell or single-app-OS launcher) goes edge-to-edge.
-                self.app_win.title_h = self.app_title_h();
-                if self.app_presentation().full_screen
-                    || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
-                {
+                self.apps[idx].win.title_h = self.app_title_h(idx);
+                if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid) {
                     // Full-screen presentation (declared desktop level /
                     // fullscreen mode — the shell/greeter base or a kiosk app) or
                     // the transient user-maximize: cover the whole display. Titled
                     // apps keep the title bar at the top (content = display −
                     // title, drawn by `render_app_surface`); chromeless surfaces
                     // fill edge-to-edge. Content-sizing here would re-float it.
-                    self.app_win.set_frame(0, 0, self.mode.width, self.mode.height);
+                    self.apps[idx].win.set_frame(0, 0, self.mode.width, self.mode.height);
                 } else {
-                    let content_h = u32::from(height).saturating_add(self.app_win.title_h);
-                    self.app_win.set_frame(
-                        self.app_win.x,
-                        self.app_win.y,
-                        u32::from(width),
-                        content_h,
-                    );
+                    let content_h =
+                        u32::from(height).saturating_add(self.apps[idx].win.title_h);
+                    let (wx, wy) = (self.apps[idx].win.x, self.apps[idx].win.y);
+                    self.apps[idx].win.set_frame(wx, wy, u32::from(width), content_h);
                 }
-                if !self.open_app_window() {
+                if !self.open_app_window(idx) {
                     // Atlas exhausted: roll the registration back fail-closed.
                     let _ = self.client_surfaces.destroy(id);
                     let _ = nexus_abi_cap_close(vmo_slot);
+                    self.apps[idx].surface_id = None;
                     return wire::encode_surface_ack(
                         wire::OP_SURFACE_CREATE,
                         wire::SURFACE_STATUS_QUOTA,
@@ -143,7 +153,7 @@ impl DisplayServerRuntime {
                 }
                 // The freshly created band matches the frame again — the
                 // live-resize title overlay (if any) retires here (TASK #23).
-                self.update_app_title_overlay();
+                self.update_app_title_overlay(idx);
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface created id={id} {width}x{height}"
                 ));
@@ -306,7 +316,8 @@ impl DisplayServerRuntime {
                     }
                 }
             }
-            self.send_app_frame(frame)
+            let Some(idx) = self.app_index_by_surface(surface_id) else { return false };
+            self.send_app_frame(idx, frame)
         }
         #[cfg(not(nexus_env = "os"))]
         {
@@ -381,18 +392,12 @@ impl DisplayServerRuntime {
                 }
                 return;
             };
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => {
-                    if kind == wire::INPUT_KIND_TAP {
-                        let _ = debug_println("WINDOWD: desktop input routed");
-                    }
+            if send_input_frame(slot, &frame, kind == wire::INPUT_KIND_TAP) {
+                if kind == wire::INPUT_KIND_TAP {
+                    let _ = debug_println("WINDOWD: desktop input routed");
                 }
-                Err(_) => {
-                    if kind == wire::INPUT_KIND_TAP {
-                        let _ = debug_println("WINDOWD: FAIL desktop input send");
-                    }
-                }
+            } else if kind == wire::INPUT_KIND_TAP {
+                let _ = debug_println("WINDOWD: FAIL desktop input send");
             }
         }
         #[cfg(not(nexus_env = "os"))]
@@ -445,9 +450,9 @@ impl DisplayServerRuntime {
                             });
                         }
                     }
-                } else if self.app_surface_id == Some(surface_id) {
-                    self.app_win.surface_dirty = true;
-                    let rect = self.app_window_rect();
+                } else if let Some(idx) = self.app_index_by_surface(surface_id) {
+                    self.apps[idx].win.surface_dirty = true;
+                    let rect = self.app_window_rect(idx);
                     self.queue_dirty_rect(rect);
                 } else {
                     // Stale surface (e.g. the retired greeter's after the
@@ -517,15 +522,18 @@ impl DisplayServerRuntime {
                         surface_id,
                     );
                 }
-                self.app_surface_id = None;
-                // A protocol SURFACE_DESTROY is the app dropping its surface —
-                // during a resize/fullscreen negotiation it re-creates one
-                // immediately. Free the atlas band ONLY; do NOT hide the window,
-                // which would clear its fullscreen flag (see `window_scene::hide`)
-                // and re-add the title bar on the re-create (atlas over-alloc, the
-                // "fullscreen makes everything vanish" bug). The user-close path
-                // (× button) calls `close_app_window` directly, not this.
-                self.release_app_surface_band();
+                if let Some(idx) = self.app_index_by_surface(surface_id) {
+                    self.apps[idx].surface_id = None;
+                    // A protocol SURFACE_DESTROY is the app dropping its surface —
+                    // during a resize/fullscreen negotiation it re-creates one
+                    // immediately (same slot via its event channel). Free the atlas
+                    // band ONLY; do NOT hide the window, which would clear its
+                    // fullscreen flag (see `window_scene::hide`) and re-add the
+                    // title bar on the re-create (atlas over-alloc, the "fullscreen
+                    // makes everything vanish" bug). The user-close path (× button)
+                    // calls `close_app_window` directly, not this.
+                    self.release_app_surface_band(idx);
+                }
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface destroyed id={surface_id}"
                 ));
@@ -540,10 +548,10 @@ impl DisplayServerRuntime {
     }
 
     /// Acquire atlas surfaces + show the window (mirrors `open_dsl_demo`).
-    fn open_app_window(&mut self) -> bool {
-        if !self.app_win.is_mounted() {
-            let w = self.app_win.w;
-            let h = self.app_win.h;
+    fn open_app_window(&mut self, idx: usize) -> bool {
+        if !self.apps[idx].win.is_mounted() {
+            let w = self.apps[idx].win.w;
+            let h = self.apps[idx].win.h;
             let Some(content) = self.atlas_alloc.alloc(w, h) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
@@ -557,38 +565,27 @@ impl DisplayServerRuntime {
             // (`BackdropCache::None`), so it needs NO per-window blur band — a
             // full-screen blur band would starve the atlas. Windowed apps keep
             // the cached-blur band.
-            let blur = if self.app_is_desktop_surface() {
+            let blur = if self.app_is_desktop_surface(idx) {
                 None
             } else {
                 self.atlas_alloc.alloc(w, h) // best-effort
             };
-            self.app_win.mount(content, blur);
+            self.apps[idx].win.mount(content, blur);
         }
-        self.app_win.visible = true;
-        self.show_window(self.app_stack_id());
-        self.app_win.surface_dirty = true;
-        let rect = self.app_window_rect();
+        self.apps[idx].win.visible = true;
+        self.show_window(crate::window_scene::WindowId::App(idx as u8));
+        self.apps[idx].win.surface_dirty = true;
+        let rect = self.app_window_rect(idx);
         self.queue_dirty_rect(rect);
         true
     }
 
-    /// The z-stack entry this app surface occupies — resolved DECLARATIVELY from
-    /// its presentation (`intent ⟂ policy`), never hardcoded: a surface that
-    /// declared `level: desktop` (the shell/greeter) lands in the Desktop base
-    /// band; everything else is a floating client window.
-    pub(super) fn app_stack_id(&self) -> crate::window_scene::WindowId {
-        match self.app_presentation().role {
-            crate::window_scene::WindowRole::Desktop => crate::window_scene::WindowId::Desktop,
-            crate::window_scene::WindowRole::Window => crate::window_scene::WindowId::AppClient,
-        }
-    }
-
-    pub(super) fn close_app_window(&mut self) {
-        self.app_win.visible = false;
-        self.update_app_title_overlay(); // frees (band drops below)
-        self.hide_window(self.app_stack_id());
-        self.app_win.end_drag();
-        self.release_app_surface_band();
+    pub(super) fn close_app_window(&mut self, idx: usize) {
+        self.apps[idx].win.visible = false;
+        self.update_app_title_overlay(idx); // frees (band drops below)
+        self.hide_window(crate::window_scene::WindowId::App(idx as u8));
+        self.apps[idx].win.end_drag();
+        self.release_app_surface_band(idx);
     }
 
     /// Free the app window's atlas band(s) WITHOUT touching window state
@@ -597,9 +594,9 @@ impl DisplayServerRuntime {
     /// the new surface allocates one, but the window keeps its geometry + mode so
     /// the re-created surface resumes in place. `close_app_window` hides first,
     /// then calls this.
-    pub(super) fn release_app_surface_band(&mut self) {
-        let rect = self.app_window_rect();
-        if let Some((content, blur)) = self.app_win.unmount() {
+    pub(super) fn release_app_surface_band(&mut self, idx: usize) {
+        let rect = self.app_window_rect(idx);
+        if let Some((content, blur)) = self.apps[idx].win.unmount() {
             self.atlas_alloc.free(content);
             if let Some(blur) = blur {
                 self.atlas_alloc.free(blur);
@@ -612,16 +609,18 @@ impl DisplayServerRuntime {
     /// title bar drawn by windowd (server-side decoration), body rows read
     /// via `vmo_read` — the ADR-0042 damage-blit. Bounded by the surface
     /// dims validated at create.
-    pub(super) fn render_app_surface(&mut self) -> Result<(), WindowdError> {
+    pub(super) fn render_app_surface(&mut self, idx: usize) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
-        let Some(surface) = self.app_win.atlas else {
+        let Some(surface) = self.apps[idx].win.atlas else {
             return Ok(());
         };
-        // BY ID: `get()` (first live) is ambiguous once the desktop surface
-        // coexists with the floating window.
-        let Some(client) = self.app_surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied()
+        // BY ID: `get()` (first live) is ambiguous once several surfaces coexist.
+        let Some(client) = self.apps[idx]
+            .surface_id
+            .and_then(|id| self.client_surfaces.get_by_id(id))
+            .copied()
         else {
             return Ok(());
         };
@@ -631,17 +630,19 @@ impl DisplayServerRuntime {
         }
         let abs_row = surface.abs_row;
         let col_off = surface.x as usize * 4;
-        let win_w = self.app_win.w.min(surface.width);
-        let win_h = self.app_win.h.min(surface.height);
+        let win_w = self.apps[idx].win.w.min(surface.width);
+        let win_h = self.apps[idx].win.h.min(surface.height);
         let body_w = (client.width as u32).min(win_w);
         let body_row_bytes = body_w as usize * 4;
         let src_stride = client.width as usize * 4;
-        let title_hover = self.app_win.title_hover;
+        let title_hover = self.apps[idx].win.title_hover;
         // Corners: a full-screen presentation (declared desktop/fullscreen) and
         // the transient user-maximize are edge-to-edge (radius 0); floating
         // windows keep the rounded glass frame.
-        let corner_radius = if self.app_presentation().full_screen
-            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+        let corner_radius = if self.app_presentation(idx).full_screen
+            || self
+                .windows
+                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
         {
             0
         } else {
@@ -651,7 +652,7 @@ impl DisplayServerRuntime {
         // Chromeless when `title_h == 0` (a `plain`/desktop-style surface, e.g.
         // the shell): the title-bar block never runs and the body fills from
         // row 0. A normal window keeps `APP_TITLE_H` — the WM-drawn frame.
-        let title_h = self.app_win.title_h;
+        let title_h = self.apps[idx].win.title_h;
         for ly in 0..win_h {
             let row_bytes = win_w as usize * 4;
             let row = &mut self.band_scratch[0..stride];
@@ -720,46 +721,47 @@ impl DisplayServerRuntime {
     /// catches up, free it. Bounded work: `title_h` rows × frame width, only
     /// on width CHANGES — the pretext discipline (cache chrome as a surface,
     /// never re-rasterize per present).
-    pub(super) fn update_app_title_overlay(&mut self) {
-        let title_h = self.app_win.title_h;
-        let frame_w = self.app_win.w;
-        let band_w = self.app_win.atlas.map(|a| a.width).unwrap_or(0);
+    pub(super) fn update_app_title_overlay(&mut self, idx: usize) {
+        let title_h = self.apps[idx].win.title_h;
+        let frame_w = self.apps[idx].win.w;
+        let band_w = self.apps[idx].win.atlas.map(|a| a.width).unwrap_or(0);
         let needed = title_h > 0 && band_w > 0 && frame_w != band_w;
         if !needed {
-            if let Some(s) = self.app_title_overlay.take() {
+            if let Some(s) = self.apps[idx].title_overlay.take() {
                 self.atlas_alloc.free(s);
-                self.app_title_overlay_w = 0;
-                let rect = self.app_window_rect();
+                self.apps[idx].title_overlay_w = 0;
+                let rect = self.app_window_rect(idx);
                 self.queue_dirty_rect(rect);
             }
             return;
         }
-        if self.app_title_overlay_w == frame_w && self.app_title_overlay.is_some() {
+        if self.apps[idx].title_overlay_w == frame_w && self.apps[idx].title_overlay.is_some() {
             return; // already rendered at this width
         }
-        if let Some(s) = self.app_title_overlay.take() {
+        if let Some(s) = self.apps[idx].title_overlay.take() {
             self.atlas_alloc.free(s);
         }
         let Some(surface) = self.atlas_alloc.alloc(frame_w, title_h) else {
             // Pool pressure: no overlay (the scaled band title shows instead —
             // degraded, never broken).
-            self.app_title_overlay_w = 0;
+            self.apps[idx].title_overlay_w = 0;
             return;
         };
-        if self.render_app_title_overlay(surface, frame_w, title_h).is_err() {
+        if self.render_app_title_overlay(idx, surface, frame_w, title_h).is_err() {
             self.atlas_alloc.free(surface);
-            self.app_title_overlay_w = 0;
+            self.apps[idx].title_overlay_w = 0;
             return;
         }
-        self.app_title_overlay = Some(surface);
-        self.app_title_overlay_w = frame_w;
-        let rect = self.app_window_rect();
+        self.apps[idx].title_overlay = Some(surface);
+        self.apps[idx].title_overlay_w = frame_w;
+        let rect = self.app_window_rect(idx);
         self.queue_dirty_rect(rect);
     }
 
     /// Rasterize the title bar at `w` into `surface` (the overlay path).
     fn render_app_title_overlay(
         &mut self,
+        idx: usize,
         surface: crate::atlas::AtlasSurface,
         w: u32,
         title_h: u32,
@@ -769,14 +771,16 @@ impl DisplayServerRuntime {
         if self.band_scratch.len() < stride {
             return Err(WindowdError::BufferLengthMismatch);
         }
-        let corner_radius = if self.app_presentation().full_screen
-            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+        let corner_radius = if self.app_presentation(idx).full_screen
+            || self
+                .windows
+                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
         {
             0
         } else {
             APP_WIN_RADIUS
         };
-        let hover = self.app_win.title_hover;
+        let hover = self.apps[idx].win.title_hover;
         let tk = self.theme();
         for ly in 0..title_h.min(surface.height) {
             let row = &mut self.band_scratch[0..stride];
@@ -799,8 +803,8 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
-    pub(super) fn app_window_rect(&self) -> DamageRect {
-        self.app_win.damage_rect(self.mode.width, self.mode.height)
+    pub(super) fn app_window_rect(&self, idx: usize) -> DamageRect {
+        self.apps[idx].win.damage_rect(self.mode.width, self.mode.height)
     }
 
     /// Window intent (`OP_SURFACE_INTENT`, sent before create): store the
@@ -828,10 +832,11 @@ impl DisplayServerRuntime {
         let (rw, rh) = if p.full_screen {
             (self.mode.width as u16, self.mode.height as u16)
         } else {
-            (
-                self.app_win.w as u16,
-                self.app_win.h.saturating_sub(self.app_win.title_h) as u16,
-            )
+            // Default body size for a NEW window: the next free slot's default
+            // frame (a re-creating client will re-negotiate through create).
+            let idx = self.free_app_index().unwrap_or(0);
+            let win = &self.apps[idx].win;
+            (win.w as u16, win.h.saturating_sub(win.title_h) as u16)
         };
         let rect = wire::encode_surface_rect(0, 0, rw, rh);
         // Reply on the ASKING client's own event channel (nonce correlation —
@@ -858,12 +863,15 @@ impl DisplayServerRuntime {
     /// environment's windowing policy, via the ONE host-tested resolver
     /// (`surface_presentation`). All compositing decisions (chrome, z-band,
     /// full-screen, resize) read THIS; nothing re-derives from raw intent tags.
-    pub(super) fn app_presentation(&self) -> crate::surface_presentation::WindowPresentation {
+    pub(super) fn app_presentation(
+        &self,
+        idx: usize,
+    ) -> crate::surface_presentation::WindowPresentation {
         crate::surface_presentation::WindowPresentation::resolve(
-            self.app_intent_style,
-            self.app_intent_level,
-            self.app_intent_mode,
-            self.app_intent_resizable,
+            self.apps[idx].intent_style,
+            self.apps[idx].intent_level,
+            self.apps[idx].intent_mode,
+            self.apps[idx].intent_resizable,
             self.windowing_policy,
         )
     }
@@ -873,9 +881,11 @@ impl DisplayServerRuntime {
     /// user-toggled fullscreen ("□"), which is WM state, not intent. This is an
     /// ATLAS-BUDGET decision (skip the blur band; a display-sized band would
     /// starve the atlas); chrome is decided by `app_title_h`.
-    fn app_is_desktop_surface(&self) -> bool {
-        self.app_presentation().full_screen
-            || self.windows.is_fullscreen(crate::window_scene::WindowId::AppClient)
+    fn app_is_desktop_surface(&self, idx: usize) -> bool {
+        self.app_presentation(idx).full_screen
+            || self
+                .windows
+                .is_fullscreen(crate::window_scene::WindowId::App(idx as u8))
     }
 
     /// The app-client title-bar height — a pure client of the declarative
@@ -883,8 +893,8 @@ impl DisplayServerRuntime {
     /// `APP_TITLE_H` floating OR maximized; plain/desktop/fullscreen intent and
     /// the Kiosk policy are chromeless). Maximizing changes the FRAME, never the
     /// chrome. SSOT for the create branch and the content-rect push.
-    pub(super) fn app_title_h(&self) -> u32 {
-        if self.app_presentation().has_chrome {
+    pub(super) fn app_title_h(&self, idx: usize) -> u32 {
+        if self.app_presentation(idx).has_chrome {
             APP_TITLE_H
         } else {
             0
@@ -909,11 +919,11 @@ impl DisplayServerRuntime {
             self.desktop_dirty_rows = (0, u32::MAX);
             self.queue_full_frame_damage();
             let _ = debug_println(&alloc::format!("WINDOWD: desktop layers={n}"));
-        } else {
-            self.app_layers = out;
-            self.app_layer_count = n;
-            self.app_win.surface_dirty = true;
-            let rect = self.app_window_rect();
+        } else if let Some(idx) = self.app_index_by_surface(surface_id) {
+            self.apps[idx].layers = out;
+            self.apps[idx].layer_count = n;
+            self.apps[idx].win.surface_dirty = true;
+            let rect = self.app_window_rect(idx);
             self.queue_dirty_rect(rect);
             let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
         }
@@ -1003,7 +1013,6 @@ impl DisplayServerRuntime {
     pub(crate) fn push_app_profile(&mut self) {
         use nexus_display_proto::client_surface as wire;
         let frame = wire::encode_surface_profile(self.shell_profile_wire());
-        let _ = self.send_app_frame(&frame);
         #[cfg(nexus_env = "os")]
         {
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
@@ -1025,9 +1034,8 @@ impl DisplayServerRuntime {
             crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
         };
         let frame = wire::encode_surface_theme(mode);
-        // Live re-theme reaches EVERY connected app-host: the floating window,
-        // the desktop shell, and a still-pending (connecting) one.
-        let _ = self.send_app_frame(&frame);
+        // Live re-theme reaches EVERY connected app-host: every window's channel
+        // is in `event_channels` (nonce-bound), the desktop's is separate.
         #[cfg(nexus_env = "os")]
         {
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
@@ -1045,10 +1053,10 @@ impl DisplayServerRuntime {
     /// (caller falls back to the shared response endpoint) — a SEND failure
     /// on an attached channel is reported, not silently dropped.
     #[allow(unused_variables)]
-    pub(crate) fn send_app_frame(&mut self, frame: &[u8]) -> bool {
+    pub(crate) fn send_app_frame(&mut self, idx: usize, frame: &[u8]) -> bool {
         #[cfg(nexus_env = "os")]
         {
-            let Some(slot) = self.app_event_channel else { return false };
+            let Some(slot) = self.apps[idx].event_channel else { return false };
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
                 Ok(_) => true,
@@ -1073,8 +1081,9 @@ impl DisplayServerRuntime {
     /// inputd's ack drain — a tap there could be consumed by any receiver).
     /// Best-effort non-blocking — input must never stall the compositor.
     /// Markers are honest: `routed` prints only on a delivered send.
-    pub(crate) fn send_app_input(&mut self, local_x: i32, local_y: i32) {
+    pub(crate) fn send_app_input(&mut self, idx: usize, local_x: i32, local_y: i32) {
         self.send_app_input_kind(
+            idx,
             nexus_display_proto::client_surface::INPUT_KIND_TAP,
             local_x,
             local_y,
@@ -1083,12 +1092,13 @@ impl DisplayServerRuntime {
 
     /// `send_app_input` for any input kind. Taps keep their honest routed/FAIL
     /// markers; MOVE/LEAVE are frame-rate hover traffic and stay silent.
-    pub(crate) fn send_app_input_kind(&mut self, kind: u8, local_x: i32, local_y: i32) {
+    pub(crate) fn send_app_input_kind(&mut self, idx: usize, kind: u8, local_x: i32, local_y: i32) {
         #[cfg(nexus_env = "os")]
         {
             let is_tap = kind == nexus_display_proto::client_surface::INPUT_KIND_TAP;
-            let Some(client) =
-                self.app_surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
+            let Some(client) = self.apps[idx]
+                .surface_id
+                .and_then(|id| self.client_surfaces.get_by_id(id))
             else {
                 return;
             };
@@ -1099,31 +1109,46 @@ impl DisplayServerRuntime {
                 x,
                 y,
             );
-            let Some(slot) = self.app_event_channel else {
+            let Some(slot) = self.apps[idx].event_channel else {
                 if is_tap {
                     let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
                 }
                 return;
             };
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            match nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => {
-                    if is_tap {
-                        let _ = debug_println("WINDOWD: surface input routed");
-                    }
+            if send_input_frame(slot, &frame, is_tap) {
+                if is_tap {
+                    let _ = debug_println("WINDOWD: surface input routed");
                 }
-                Err(_) => {
-                    if is_tap {
-                        let _ = debug_println("WINDOWD: FAIL surface input send");
-                    }
-                }
+            } else if is_tap {
+                let _ = debug_println("WINDOWD: FAIL surface input send");
             }
         }
         #[cfg(not(nexus_env = "os"))]
         {
-            let _ = (kind, local_x, local_y);
+            let _ = (idx, kind, local_x, local_y);
         }
     }
+}
+
+/// Sends one input frame. TAPS RETRY BOUNDED (~40ms yield loop): a click is
+/// rare and must never be dropped behind hover-MOVE spam when the client's
+/// queue is momentarily full (the "nothing is clickable" bug — the user's
+/// pre-click mouse motion filled the queue). MOVE/LEAVE stay single-shot
+/// NONBLOCK — dropping motion under pressure is correct.
+#[cfg(nexus_env = "os")]
+fn send_input_frame(slot: u32, frame: &[u8], is_tap: bool) -> bool {
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    let attempts = if is_tap { 400 } else { 1 };
+    for i in 0..attempts {
+        match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
+            Ok(_) => return true,
+            Err(nexus_abi::IpcError::QueueFull) if i + 1 < attempts => {
+                let _ = nexus_abi::yield_();
+            }
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 /// Thin cap-close shim so the handlers above read cleanly on host builds

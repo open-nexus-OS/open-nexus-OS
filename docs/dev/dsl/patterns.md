@@ -127,7 +127,8 @@ List {
   @key: item.id
 
   item(item) => Row {
-    Icon { name: item.icon, size: 20 }
+    # Icon symbol names: docs/dev/ui/foundations/visual/icons.md
+    Icon { symbol: item.icon }
     Text { value: item.title }
   }
 

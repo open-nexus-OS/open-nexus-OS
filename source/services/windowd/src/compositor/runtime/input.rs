@@ -117,20 +117,28 @@ impl DisplayServerRuntime {
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
-                let frame = match wid {
-                    WindowId::AppClient => self.app_win.frame(),
-                    _ => crate::compositor::shell_window::Frame {
-                        x: 0,
-                        y: 0,
-                        w: self.mode.width,
-                        h: self.mode.height,
-                        title_h: 0,
-                        close_w: 0,
-                    },
+                // A visible app window's frame; the desktop base is chromeless
+                // full-screen.
+                let (frame, app_idx) = match wid {
+                    WindowId::App(a) => {
+                        let idx = a as usize;
+                        (self.apps[idx].win.frame(), Some(idx))
+                    }
+                    WindowId::Desktop => (
+                        crate::compositor::shell_window::Frame {
+                            x: 0,
+                            y: 0,
+                            w: self.mode.width,
+                            h: self.mode.height,
+                            title_h: 0,
+                            close_w: 0,
+                        },
+                        None,
+                    ),
                 };
                 // Edge/corner grab RESIZES (floating windows only) — resolved
                 // before the title/body press so the border band wins.
-                if wid == WindowId::AppClient && !self.windows.is_fullscreen(wid) {
+                if app_idx.is_some() && !self.windows.is_fullscreen(wid) {
                     if let Some(edge) = frame.resize_edge_at(cursor_x, cursor_y) {
                         window_consumed_press = true;
                         self.begin_window_resize(wid, edge, cursor_x, cursor_y);
@@ -141,8 +149,8 @@ impl DisplayServerRuntime {
                 match press {
                     WindowPress::Close => {
                         window_consumed_press = true;
-                        if wid == WindowId::AppClient {
-                            self.close_app_window();
+                        if let Some(idx) = app_idx {
+                            self.close_app_window(idx);
                         }
                     }
                     WindowPress::Minimize => {
@@ -156,8 +164,8 @@ impl DisplayServerRuntime {
                     WindowPress::TitleDrag => {
                         window_consumed_press = true;
                         self.raise_window(wid);
-                        if wid == WindowId::AppClient {
-                            self.app_win.begin_drag(cursor_x, cursor_y);
+                        if let Some(idx) = app_idx {
+                            self.apps[idx].win.begin_drag(cursor_x, cursor_y);
                         }
                     }
                     WindowPress::Body => {
@@ -166,14 +174,17 @@ impl DisplayServerRuntime {
                         // A body click on an app-client window is the APP's
                         // event (ADR-0042 R3): forward surface-local body
                         // coordinates; windowd keeps focus/raise only.
-                        if wid == WindowId::AppClient && cursor_y >= frame.y {
-                            let local_x = cursor_x - frame.x;
-                            // Declarative: the body starts below the RESOLVED
-                            // chrome height (0 for chromeless presentations),
-                            // not a hardcoded title constant.
-                            let body_y = cursor_y - frame.y - self.app_win.title_h as i32;
-                            if body_y >= 0 {
-                                self.send_app_input(local_x, body_y);
+                        if let Some(idx) = app_idx {
+                            if cursor_y >= frame.y {
+                                let local_x = cursor_x - frame.x;
+                                // Declarative: the body starts below the RESOLVED
+                                // chrome height (0 for chromeless presentations),
+                                // not a hardcoded title constant.
+                                let body_y =
+                                    cursor_y - frame.y - self.apps[idx].win.title_h as i32;
+                                if body_y >= 0 {
+                                    self.send_app_input(idx, local_x, body_y);
+                                }
                             }
                         }
                         // A body press on the DESKTOP surface falls through to
@@ -188,12 +199,18 @@ impl DisplayServerRuntime {
                 break;
             }
         }
-        // Continue dragging the app-client window (ADR-0042).
-        if self.app_win.is_dragging() {
-            if let Some(old) = self.app_win.drag_to(cursor_x, cursor_y, mode.width, mode.height) {
+        // Continue dragging whichever app window is mid-drag (ADR-0042).
+        for idx in 0..self.apps.len() {
+            if !self.apps[idx].win.is_dragging() {
+                continue;
+            }
+            if let Some(old) =
+                self.apps[idx].win.drag_to(cursor_x, cursor_y, mode.width, mode.height)
+            {
                 self.queue_dirty_rect(old);
-                self.queue_dirty_rect(self.app_window_rect());
-                self.app_win.surface_dirty = true;
+                let rect = self.app_window_rect(idx);
+                self.queue_dirty_rect(rect);
+                self.apps[idx].win.surface_dirty = true;
             }
         }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).
@@ -203,14 +220,16 @@ impl DisplayServerRuntime {
         if primary_release {
             // Drag-to-edge snap: releasing a TITLE drag with the pointer at a
             // display edge snaps the window (left/right half, top=fullscreen).
-            if self.app_win.is_dragging() {
-                let _ = self.apply_release_snap(
-                    crate::window_scene::WindowId::AppClient,
-                    cursor_x,
-                    cursor_y,
-                );
+            for idx in 0..self.apps.len() {
+                if self.apps[idx].win.is_dragging() {
+                    let _ = self.apply_release_snap(
+                        crate::window_scene::WindowId::App(idx as u8),
+                        cursor_x,
+                        cursor_y,
+                    );
+                    self.apps[idx].win.end_drag();
+                }
             }
-            self.app_win.end_drag();
             self.end_window_resize();
         }
 
@@ -439,22 +458,26 @@ impl DisplayServerRuntime {
         use nexus_display_proto::client_surface::{INPUT_KIND_LEAVE, INPUT_KIND_MOVE};
         let mut route = HOVER_ROUTE_NONE;
         let mut local = (cursor_x, cursor_y);
-        if !self.app_win.is_dragging() && self.resize_drag.is_none() {
+        let mut route_idx = 0usize;
+        let any_drag = self.apps.iter().any(|a| a.win.is_dragging());
+        if !any_drag && self.resize_drag.is_none() {
             use crate::compositor::shell_window::WindowPress;
             use crate::window_scene::WindowId;
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
                 match wid {
-                    WindowId::AppClient => {
-                        let frame = self.app_win.frame();
+                    WindowId::App(a) => {
+                        let idx = a as usize;
+                        let frame = self.apps[idx].win.frame();
                         match frame.press(cursor_x, cursor_y) {
                             WindowPress::Miss => continue,
                             WindowPress::Body => {
                                 let body_y =
-                                    cursor_y - frame.y - self.app_win.title_h as i32;
+                                    cursor_y - frame.y - self.apps[idx].win.title_h as i32;
                                 if body_y >= 0 {
                                     route = HOVER_ROUTE_APP;
+                                    route_idx = idx;
                                     local = (cursor_x - frame.x, body_y);
                                 }
                             }
@@ -467,35 +490,52 @@ impl DisplayServerRuntime {
                             route = HOVER_ROUTE_DESKTOP;
                         }
                     }
-                    // Legacy windowd-internal windows own their pixels; no
-                    // client surface to hover.
-                    _ => {}
                 }
                 break;
             }
         }
-        if route != self.hover_route {
+        // Route change = target change: leaving one APP window for another is
+        // a change too (the old window must clear its hover wash).
+        let route_changed =
+            route != self.hover_route || (route == HOVER_ROUTE_APP && route_idx != self.hover_app_idx);
+        if route_changed {
             let (lx, ly) = self.hover_last;
             match self.hover_route {
-                HOVER_ROUTE_APP => self.send_app_input_kind(INPUT_KIND_LEAVE, lx, ly),
+                HOVER_ROUTE_APP => {
+                    let prev = self.hover_app_idx;
+                    self.send_app_input_kind(prev, INPUT_KIND_LEAVE, lx, ly);
+                }
                 HOVER_ROUTE_DESKTOP => {
                     self.send_desktop_input_kind(INPUT_KIND_LEAVE, lx, ly);
                 }
                 _ => {}
             }
         }
-        match route {
-            HOVER_ROUTE_APP => self.send_app_input_kind(INPUT_KIND_MOVE, local.0, local.1),
-            HOVER_ROUTE_DESKTOP => {
-                self.send_desktop_input_kind(INPUT_KIND_MOVE, local.0, local.1);
+        // Throttle MOVE forwarding (~33Hz): hover only needs the crossing,
+        // not every sample — an unthrottled stream filled the client queue
+        // under fast motion and starved TAP delivery.
+        let now = nexus_abi::nsec().unwrap_or(0);
+        let move_due = now.saturating_sub(self.hover_last_move_ns) >= 30_000_000;
+        if move_due {
+            match route {
+                HOVER_ROUTE_APP => {
+                    self.send_app_input_kind(route_idx, INPUT_KIND_MOVE, local.0, local.1);
+                }
+                HOVER_ROUTE_DESKTOP => {
+                    self.send_desktop_input_kind(INPUT_KIND_MOVE, local.0, local.1);
+                }
+                _ => {}
             }
-            _ => {}
+            if route != HOVER_ROUTE_NONE {
+                self.hover_last_move_ns = now;
+            }
         }
         if route != HOVER_ROUTE_NONE && !self.hover_marker_emitted {
             let _ = debug_println("windowd: hover routing on");
             self.hover_marker_emitted = true;
         }
         self.hover_route = route;
+        self.hover_app_idx = route_idx;
         self.hover_last = local;
     }
 

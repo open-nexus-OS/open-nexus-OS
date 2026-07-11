@@ -199,6 +199,69 @@ pub(crate) const HOVER_ROUTE_NONE: u8 = 0;
 pub(crate) const HOVER_ROUTE_DESKTOP: u8 = 1;
 pub(crate) const HOVER_ROUTE_APP: u8 = 2;
 
+/// One concurrently open floating app-client window (RFC-0065 multi-window):
+/// `WindowId::App(i)` indexes the runtime's `apps[i]`. Bundles the per-window
+/// state that used to live as `app_win`/`app_*` singletons — the frame object
+/// (bands, drag, hover), the bound surface, the live-resize overlay, the glass
+/// layer set, the window intent and the app's dedicated event channel.
+pub(crate) struct AppWindowSlot {
+    /// Frame + atlas bands + drag/hover state (the reusable glass window).
+    pub(crate) win: super::shell_window::ShellWindow,
+    /// The bound client surface id (`None` = slot free).
+    pub(crate) surface_id: Option<u32>,
+    /// Live-resize title-bar overlay (TASK #23).
+    pub(crate) title_overlay: Option<crate::atlas::AtlasSurface>,
+    /// Frame width the overlay was last rendered at (0 = never).
+    pub(crate) title_overlay_w: u32,
+    /// R1 layer seam: the app's material-tagged glass regions.
+    pub(crate) layers: [nexus_display_proto::client_surface::LayerDesc;
+        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+    pub(crate) layer_count: usize,
+    /// Window intent (`OP_SURFACE_INTENT` tags, sent before create).
+    pub(crate) intent_style: u8,
+    pub(crate) intent_level: u8,
+    pub(crate) intent_mode: u8,
+    pub(crate) intent_resizable: bool,
+    /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
+    #[cfg(nexus_env = "os")]
+    pub(crate) event_channel: Option<u32>,
+}
+
+impl AppWindowSlot {
+    /// A fresh (unbound) slot. Windows CASCADE by slot index so several apps
+    /// opened in sequence never stack pixel-exactly on top of each other.
+    fn new(index: usize) -> Self {
+        let win = super::shell_window::ShellWindow::new(
+            "App",
+            300 + (index as i32) * 64,
+            140 + (index as i32) * 56,
+            app_window::APP_WIN_MAX_W,
+            app_window::APP_WIN_MAX_H,
+            app_window::APP_TITLE_H,
+            app_window::APP_CLOSE_W,
+            app_window::APP_WIN_RADIUS,
+            18,
+            5,
+            90,
+        );
+        Self {
+            win,
+            surface_id: None,
+            title_overlay: None,
+            title_overlay_w: 0,
+            layers: [nexus_display_proto::client_surface::LayerDesc::default();
+                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+            layer_count: 0,
+            intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
+            intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
+            intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
+            intent_resizable: true,
+            #[cfg(nexus_env = "os")]
+            event_channel: None,
+        }
+    }
+}
+
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
     source_frame: SourceFrame,
@@ -326,36 +389,14 @@ pub(crate) struct DisplayServerRuntime {
     /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
     /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
     theme_mode: crate::theme::ThemeMode,
-    /// The cross-process app-client window (ADR-0042 R1): body pixels come
-    /// from the app process's surface VMO via the damage-blit.
-    app_win: super::shell_window::ShellWindow,
-    /// Live-resize title-bar overlay (TASK #23): while the FRAME width differs
-    /// from the content band (an active edge-resize / fullscreen transition),
-    /// the title bar is re-rasterized at the TRUE frame width into this small
-    /// surface and composited over the scaled band — icons stay sharp and
-    /// right-aligned instead of stretching with the band. Freed once the
-    /// re-created band catches up (band width == frame width).
-    app_title_overlay: Option<crate::atlas::AtlasSurface>,
-    /// Frame width the overlay was last rendered at (0 = never).
-    app_title_overlay_w: u32,
+    /// The cross-process app-client windows (ADR-0042 R1 → RFC-0065
+    /// multi-window): one SLOT per concurrently open floating app window
+    /// (`WindowId::App(i)` indexes this array). Each slot bundles what used to
+    /// be the `app_win` singleton — frame + bands, resize overlay, glass
+    /// layers, intent, surface binding and event channel.
+    apps: [AppWindowSlot; crate::window_scene::MAX_APP_WINDOWS],
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
-    /// R1 layer seam (RFC-0067 Revival): the app's material-tagged glass regions
-    /// (surface-local), submitted via `OP_SURFACE_LAYERS`. windowd composites
-    /// each as a `nexus-gfx` glass `Layer` over the retained backdrop — the
-    /// shell's panels are true frosted layers, not a flat bitmap.
-    app_layers: [nexus_display_proto::client_surface::LayerDesc;
-        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-    app_layer_count: usize,
-    /// The app's window intent (`OP_SURFACE_INTENT`, sent before create): the
-    /// `WIN_STYLE_*`/`WIN_LEVEL_*`/`WIN_MODE_*` tags. Drives the composed frame
-    /// — a `plain`/`desktop`/`fullscreen` surface is chromeless (title_h 0),
-    /// full-screen, and the WM answers its content rect. Default = an ordinary
-    /// titlebar window (the pre-intent behavior).
-    app_intent_style: u8,
-    app_intent_level: u8,
-    app_intent_mode: u8,
-    app_intent_resizable: bool,
     /// Nonce → event-channel map (bounded, LRU-replace): each app-host attaches
     /// its OWN channel tagged with a self-minted nonce and repeats the nonce on
     /// SURFACE_CREATE — the bind is deterministic under N concurrent connects
@@ -374,10 +415,7 @@ pub(crate) struct DisplayServerRuntime {
     desktop_channel: Option<u32>,
     desktop_band: Option<crate::atlas::AtlasSurface>,
     desktop_dirty: bool,
-    /// The FLOATING app-client surface (the one `app_win` window). By id —
-    /// `client_surfaces.get()` ("first live") is ambiguous once the desktop
-    /// surface coexists.
-    app_surface_id: Option<u32>,
+
     /// Once-guard for the transitional shell-as-app-host launch (TASK-0080C
     /// #17): fired on the FIRST session activation (STATE_ACTIVE — after
     /// sessiond authorized), not at boot (pre-login launches are denied by
@@ -388,11 +426,7 @@ pub(crate) struct DisplayServerRuntime {
     /// forces chromeless/non-resizable (single-app OS). Consumed ONLY through
     /// `surface_presentation::WindowPresentation::resolve` — never re-derived.
     windowing_policy: crate::surface_presentation::WindowingPolicy,
-    /// The app's DEDICATED event channel (SEND cap slot, execd-attached via
-    /// `OP_SURFACE_EVENTS`): input events + surface acks go out here — the
-    /// shared response endpoint raced with inputd's ack drain (ADR-0042).
-    #[cfg(nexus_env = "os")]
-    app_event_channel: Option<u32>,
+
     /// Cached lifecycle-broker route (resolved lazily with retries — a
     /// single `new_for` attempt is one 100ms routing window and fails
     /// under load; the inputd windowd-route lesson).
@@ -420,8 +454,14 @@ pub(crate) struct DisplayServerRuntime {
     hover_route: u8,
     /// Last hover position forwarded (display space) — carried on LEAVE.
     hover_last: (i32, i32),
+    /// Which app-window slot the hover route targets (valid when
+    /// `hover_route == HOVER_ROUTE_APP`; a window-to-window crossing is a
+    /// route change so the old window gets its LEAVE).
+    hover_app_idx: usize,
     /// One-time proof marker latch for the hover chain.
     hover_marker_emitted: bool,
+    /// Last hover-MOVE forward (ns) — ~33Hz throttle.
+    hover_last_move_ns: u64,
     /// Active shell configuration resolved from SystemUI's declarative manifest
     /// registry (`systemui::shell_config_default()` — the boot default product).
     /// Replaces the old hardcoded shell-chrome compile-time constants: the
@@ -618,21 +658,7 @@ impl DisplayServerRuntime {
         // floating app window allocate from the free pool; a closed window
         // costs zero rows.
         let mut atlas = crate::atlas::AtlasAllocator::new();
-        // The app-client window (ADR-0042 R1) — the reusable glass frame; the
-        // body is blitted from the app's own surface VMO on present.
-        let app_win = super::shell_window::ShellWindow::new(
-            "App",
-            460,
-            420,
-            app_window::APP_WIN_MAX_W,
-            app_window::APP_WIN_MAX_H,
-            app_window::APP_TITLE_H,
-            app_window::APP_CLOSE_W,
-            app_window::APP_WIN_RADIUS,
-            18,
-            5,
-            90,
-        );
+
         Ok(Self {
             mode,
             source_frame,
@@ -697,17 +723,8 @@ impl DisplayServerRuntime {
             theme_probe: shell::ThemeProbe::default(),
             greeter_login_watch: false,
             greeter_watch_next_ns: 0,
-            app_win,
-            app_title_overlay: None,
-            app_title_overlay_w: 0,
+            apps: core::array::from_fn(AppWindowSlot::new),
             client_surfaces: crate::client_surface::ClientSurfaces::new(),
-            app_layers: [nexus_display_proto::client_surface::LayerDesc::default();
-                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-            app_layer_count: 0,
-            app_intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
-            app_intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
-            app_intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
-            app_intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channels: [(0, 0); 8],
             #[cfg(nexus_env = "os")]
@@ -717,11 +734,8 @@ impl DisplayServerRuntime {
             desktop_channel: None,
             desktop_band: None,
             desktop_dirty: false,
-            app_surface_id: None,
             shell_app_launched: false,
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
-            #[cfg(nexus_env = "os")]
-            app_event_channel: None,
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
             atlas_alloc: atlas,
@@ -731,12 +745,17 @@ impl DisplayServerRuntime {
             desktop_layer_count: 0,
             hover_route: HOVER_ROUTE_NONE,
             hover_last: (0, 0),
+            hover_app_idx: 0,
             hover_marker_emitted: false,
+            hover_last_move_ns: 0,
             shell_config,
             // Registration order = initial stacking (later on top once shown);
             // both start hidden, mirroring the ShellWindow `visible` flags above.
             windows: crate::window_scene::WindowStack::new(&[
-                crate::window_scene::WindowId::AppClient,
+                crate::window_scene::WindowId::App(0),
+                crate::window_scene::WindowId::App(1),
+                crate::window_scene::WindowId::App(2),
+                crate::window_scene::WindowId::App(3),
                 // The desktop base (shell/greeter app-host). Registered hidden;
                 // shown + composited once a desktop-level client surface connects
                 // (2b-render / 2c session-gate). DESKTOP z-band → always bottom.
@@ -753,6 +772,37 @@ impl DisplayServerRuntime {
 
     pub(crate) const fn visible_state(&self) -> VisibleState {
         self.observer_state
+    }
+
+    /// The app-window slot behind a floating window id (`None` for the
+    /// desktop / non-app ids). The single id→slot authority — every
+    /// interaction/scene/WM path resolves through here.
+    pub(crate) fn app_slot(&self, id: crate::window_scene::WindowId) -> Option<&AppWindowSlot> {
+        match id {
+            crate::window_scene::WindowId::App(i) => self.apps.get(i as usize),
+            crate::window_scene::WindowId::Desktop => None,
+        }
+    }
+
+    /// Mutable [`Self::app_slot`].
+    pub(crate) fn app_slot_mut(
+        &mut self,
+        id: crate::window_scene::WindowId,
+    ) -> Option<&mut AppWindowSlot> {
+        match id {
+            crate::window_scene::WindowId::App(i) => self.apps.get_mut(i as usize),
+            crate::window_scene::WindowId::Desktop => None,
+        }
+    }
+
+    /// Slot index currently bound to `surface_id` (present/input routing).
+    pub(crate) fn app_index_by_surface(&self, surface_id: u32) -> Option<usize> {
+        self.apps.iter().position(|a| a.surface_id == Some(surface_id))
+    }
+
+    /// A free slot for a NEW app window (no bound surface).
+    pub(crate) fn free_app_index(&self) -> Option<usize> {
+        self.apps.iter().position(|a| a.surface_id.is_none())
     }
 
     fn refresh_observer_state(&mut self) {
@@ -801,10 +851,10 @@ impl DisplayServerRuntime {
     /// Stable short name for markers/diagnostics.
     pub(super) fn window_name(id: crate::window_scene::WindowId) -> &'static str {
         match id {
-            crate::window_scene::WindowId::Chat => "chat",
-            crate::window_scene::WindowId::Search => "search",
-            crate::window_scene::WindowId::Settings => "settings",
-            crate::window_scene::WindowId::AppClient => "app",
+            crate::window_scene::WindowId::App(0) => "app0",
+            crate::window_scene::WindowId::App(1) => "app1",
+            crate::window_scene::WindowId::App(2) => "app2",
+            crate::window_scene::WindowId::App(_) => "app3",
             crate::window_scene::WindowId::Desktop => "desktop",
         }
     }
@@ -813,12 +863,11 @@ impl DisplayServerRuntime {
     pub(super) fn window_damage_rect(&self, id: crate::window_scene::WindowId) -> DamageRect {
         // The desktop surface is the full-screen base layer — its damage is the
         // whole display (it is not a chrome `ShellWindow`).
-        if matches!(id, crate::window_scene::WindowId::Desktop) {
-            return DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height };
+        match self.app_slot(id) {
+            Some(slot) => slot.win.damage_rect(self.mode.width, self.mode.height),
+            // The desktop surface is the full-screen base layer.
+            None => DamageRect { x: 0, y: 0, width: self.mode.width, height: self.mode.height },
         }
-        // Only the floating app window remains a chrome `ShellWindow`; the
-        // legacy chat/search/settings windows are DELETED (DSL apps now).
-        self.app_win.damage_rect(self.mode.width, self.mode.height)
     }
 
     /// Mirror a window becoming visible into the stack: it is raised to the top
@@ -840,8 +889,8 @@ impl DisplayServerRuntime {
     pub(super) fn hide_window(&mut self, id: crate::window_scene::WindowId) {
         let before = self.windows.focused();
         self.windows.hide(id);
-        if matches!(id, crate::window_scene::WindowId::AppClient) {
-            self.app_win.leave_fullscreen();
+        if let Some(slot) = self.app_slot_mut(id) {
+            slot.win.leave_fullscreen();
         }
         self.update_dock();
         let after = self.windows.focused();
