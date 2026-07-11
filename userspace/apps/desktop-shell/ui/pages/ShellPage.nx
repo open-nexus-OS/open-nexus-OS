@@ -1,22 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The bootstrap desktop shell page (TASK-0080B): top bar + the registry-driven
-// app grid directly on the desktop (the pre-DSL launcher look, rebuilt from
-// kit elements). Every tile taps into `dispatch(Launch(app.id))` — ids come
-// from the AppRecord the registry returned (LauncherStore's root `Refresh`
-// effect fires at mount), launching goes through the launch authority.
-// `/launcher` keeps the searchable list view.
+// The shell home (design_handoff_launcher, TOUCH-LANDSCAPE base — the boot
+// default; `ui/platform/desktop/pages/ShellPage.nx` overrides with the
+// desktop taskbar). Handoff geometry: top bar 36px (pills · island 118×28
+// centre · status pill), centred app grid (AppIcon md, gap 24×16) on the
+// wallpaper, floating landscape dock at the bottom (round launcher button ·
+// glass dock pill with 32px tiles · glass nav pill). Glass = `.material()`
+// regions — the compositor blurs the wallpaper behind them (R1 seam).
 
-// The shell is the desktop: a chromeless, full-screen surface at the desktop
-// z-band. Under Desktop windowing policy the compositor draws no title bar and
-// no window controls (docs/dev/ui/patterns/windowing/window-intent.md).
-// `level: desktop` alone implies full-screen + chromeless in the presentation
-// resolver; `mode: fullscreen` is a FLOATING-window mode (single-app/kiosk
-// intent), not the desktop level, so it is deliberately NOT declared here.
-// The desktop area carries NO `.bg()`: a desktop surface renders on a
-// transparent base and windowd blends it over the retained wallpaper plane —
-// empty desktop IS the wallpaper (the pre-DSL look).
+// The shell is the desktop: chromeless, full-screen, desktop z-band, on a
+// transparent base over the wallpaper plane (no page-wide `.bg()`).
 Window {
     style: plain,
     level: desktop,
@@ -26,50 +20,94 @@ Window {
 Page ShellPage {
     Stack {
         Stack {
-            Text(@t("shell.product")).textSize(sm).fg(onSurface)
+            TopBarPill { label: @t("shell.clock") }
+            TopBarPill { label: @t("shell.product") }
             Spacer
-            Button { label: @t("shell.apps") }
-                .bg(surfaceVariant)
-                .fg(onSurface)
-                .rounded(md)
-            on Tap -> navigate("/launcher")
+            Island { }
+            Spacer
+            Stack {
+                TopBarPill { label: @t("shell.status") }
+            }
+            on Tap -> navigate("/control")
         }
         .direction(row)
-        .padding(2)
-        .gap(2)
-        .bg(surface)
+        .height(36)
+        .align(center)
+        .paddingX(2)
+        .gap(1)
+        .material(panel)
         Stack {
+            Stack {
+                Spacer
+                if $state.loading {
+                    Text(@t("common.loading")).fg(onSurfaceVariant)
+                } else {
+                    List($state.apps) { app in
+                        Stack {
+                            AppTile { label: app.label }
+                        }
+                        .key(app.id)
+                        on Tap -> dispatch(Launch(app.id))
+                    }
+                    .direction(row)
+                    .wrap(true)
+                    .gap(6)
+                }
+                Spacer
+            }
+            .direction(row)
+            .align(center)
+        }
+        .grow(1)
+        .padding(7)
+        Stack {
+            Stack {
+                LauncherButton { }
+            }
+            on Tap -> navigate("/launcher")
             Spacer
-            if $state.loading {
-                Text(@t("common.loading")).fg(onSurfaceVariant)
-            } else {
+            Stack {
                 List($state.apps) { app in
                     Stack {
-                        Stack {
-                            Icon { symbol: star }
-                                .fg(onAccent)
-                        }
-                        .bg(accent)
-                        .rounded(lg)
-                        .padding(5)
-                        Text(app.label).textSize(sm).fg(onSurface)
+                        DockTile { label: app.label }
                     }
-                    .align(center)
-                    .gap(2)
-                    .padding(2)
-                    .rounded(lg)
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .direction(row)
-                .wrap(true)
-                .gap(4)
+                .gap(1)
             }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            .paddingX(2)
+            .paddingY(1)
+            .material(panel)
+            .rounded(full)
             Spacer
+            Stack {
+                Stack {
+                    TopBarPill { label: @t("shell.navBack") }
+                }
+                on Tap -> navigate("/")
+                Stack {
+                    TopBarPill { label: @t("shell.navHome") }
+                }
+                on Tap -> navigate("/")
+            }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            .paddingX(2)
+            .paddingY(1)
+            .material(panel)
+            .rounded(full)
         }
-        .grow(1)
+        .direction(row)
         .align(center)
-        .padding(4)
+        .paddingX(4)
+        .paddingY(3)
+        .gap(3)
     }
     .gap(0)
 }

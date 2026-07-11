@@ -1,0 +1,23 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F0E0BC"/>
+      <stop offset="1" stop-color="#9A7D44"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <g stroke="#5A4220" stroke-width="14" stroke-linecap="round">
+      <line x1="180" y1="380" x2="844" y2="380"/>
+      <line x1="180" y1="460" x2="844" y2="460"/>
+      <line x1="180" y1="540" x2="844" y2="540"/>
+      <line x1="180" y1="620" x2="844" y2="620"/>
+      <line x1="180" y1="700" x2="844" y2="700"/>
+    </g>
+    <ellipse cx="500" cy="620" rx="58" ry="42" fill="#5A4220" transform="rotate(-18 500 620)"/>
+    <line x1="554" y1="608" x2="554" y2="280" stroke="#5A4220" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>

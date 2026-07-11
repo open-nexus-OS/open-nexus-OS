@@ -1,0 +1,24 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5BD4E0"/>
+      <stop offset="1" stop-color="#008CB0"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <polygon points="512,220 760,360 512,500 264,360" fill="#FFFFFF"/>
+    <polygon points="264,360 264,640 512,780 512,500" fill="#FFFFFF" opacity="0.55"/>
+    <polygon points="760,360 760,640 512,780 512,500" fill="#FFFFFF" opacity="0.75"/>
+    <g stroke="#008CB0" stroke-width="6" fill="none" stroke-opacity="0.4" stroke-linejoin="round">
+      <polyline points="512,220 760,360 512,500 264,360 512,220"/>
+      <line x1="512" y1="500" x2="512" y2="780"/>
+      <line x1="264" y1="360" x2="264" y2="640"/>
+      <line x1="760" y1="360" x2="760" y2="640"/>
+      <polyline points="264,640 512,780 760,640"/>
+    </g>
+  </g>
+</svg>

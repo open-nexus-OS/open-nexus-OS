@@ -1,0 +1,21 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Per-app DSL conformance: every REAL app project dir (userspace/apps/<app>)
+# compiles, mounts against a fake service host, and its core interaction
+# reaches the right svc.* call — one test file per app (enterprise layout).
+
+[package]
+name = "dsl_apps_conformance"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+nexus-dsl-core = { path = "../../userspace/dsl/core", features = ["std"] }
+nexus-dsl-runtime = { path = "../../userspace/dsl/runtime" }
+nexus-layout = { path = "../../userspace/ui/layout" }
+nexus-layout-types = { path = "../../userspace/ui/layout-types" }
+nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
+nexus-text-baked = { path = "../../userspace/ui/text-baked", features = ["layout"] }

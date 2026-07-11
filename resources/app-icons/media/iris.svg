@@ -1,0 +1,23 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE0E8"/>
+      <stop offset="1" stop-color="#FFB5C5"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <g transform="translate(512 512)">
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#FF5B5B"/>
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#FFA85B" transform="rotate(60)"/>
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#FFD75B" transform="rotate(120)"/>
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#5BE082" transform="rotate(180)"/>
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#5BC4FF" transform="rotate(240)"/>
+      <ellipse cx="0" cy="-200" rx="90" ry="200" fill="#B566FF" transform="rotate(300)"/>
+      <circle cx="0" cy="0" r="50" fill="#FFFFFF"/>
+    </g>
+  </g>
+</svg>

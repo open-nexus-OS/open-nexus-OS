@@ -1,0 +1,1234 @@
+<!-- @dsCard group="OS Shell" viewport="1024x768" name="OS Launcher UI" subtitle="Interactive desktop, dock, app launcher & control center" -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIVA OS Launcher</title>
+  <link rel="stylesheet" href="../../styles.css">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="../../_ds_bundle.js"></script>
+  <style>
+    @keyframes islandBar {
+      from { transform: scaleY(0.4); }
+      to   { transform: scaleY(1); }
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+
+    /* ===== Control Center (ported from DS template OsControlCenter) ===== */
+    .cc { --text:var(--glass-text-primary,rgba(0,0,0,0.88)); --sub:var(--glass-text-secondary,rgba(0,0,0,0.5)); --label:var(--glass-text-secondary,rgba(0,0,0,0.5)); font-family:var(--font-sans); }
+    .cc[data-theme="dark"] { --icon-stroke:rgba(255,255,255,0.6); --inactive-bg:rgba(255,255,255,0.14); --inactive-border:rgba(255,255,255,0.15); --inactive-icon-bg:rgba(255,255,255,0.10); --track:rgba(0,0,0,0.30); --avatar-bg:rgba(255,255,255,0.15); --fill:linear-gradient(180deg,#fff,#e8eaed); }
+    .cc[data-theme="light"] { --icon-stroke:rgba(0,0,0,0.55); --inactive-bg:rgba(255,255,255,0.92); --inactive-border:#fff; --inactive-icon-bg:rgba(0,0,0,0.07); --track:rgba(0,0,0,0.12); --avatar-bg:rgba(0,0,0,0.10); --fill:#fff; }
+    .cc.panel { width:328px;border-radius:30px;padding:10px 16px 14px;backdrop-filter:blur(72px) saturate(180%);-webkit-backdrop-filter:blur(72px) saturate(180%);background:var(--glass-panel-bg,rgba(255,255,255,0.55));border:1px solid var(--glass-panel-border,rgba(255,255,255,0.7));box-shadow:var(--glass-panel-shadow,0 25px 50px rgba(0,0,0,0.28)),inset 0 1px 0 rgba(255,255,255,0.22); }
+    .cc .card { border-radius:20px;min-width:0;background:var(--glass-card-bg,rgba(255,255,255,0.6));border:1px solid var(--glass-card-border,rgba(255,255,255,0.8));box-shadow:inset 0 1px 0 rgba(255,255,255,0.22); }
+    .cc .hbtn { width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.12s;color:var(--text);border:none;background:none;cursor:pointer; }
+    .cc .hbtn:hover { background:rgba(125,125,125,0.18); }
+    .cc .lbl { font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .cc .sub { font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .cc .sec-label { font-size:11px;font-weight:600;color:var(--label); }
+    .cc .sec-icon { color:var(--label); }
+    .cc .tbtn { width:100%;display:flex;align-items:center;gap:9px;padding:9px 11px;cursor:pointer;transition:all 0.15s;text-align:left;border-radius:15px;background:var(--inactive-bg);border:1px solid var(--inactive-border);box-shadow:inset 0 1px 0 rgba(255,255,255,0.18); }
+    .cc .tbtn .ic { width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--inactive-icon-bg);color:var(--icon-stroke); }
+    .cc .tbtn .txt { min-width:0;flex:1; }
+    .cc .tbtn .lbl { color:var(--text); }
+    .cc .tbtn .sub { color:var(--sub); }
+    .cc .tbtn[data-active="true"] { background:rgba(var(--accent),0.88);border-color:rgba(var(--accent),0.45);box-shadow:0 4px 12px rgba(var(--accent),0.30),inset 0 1px 0 rgba(255,255,255,0.25); }
+    .cc .tbtn[data-active="true"] .ic { background:rgba(255,255,255,0.25);color:#fff; }
+    .cc .tbtn[data-active="true"] .lbl { color:#fff; }
+    .cc .tbtn[data-active="true"] .sub { color:rgba(255,255,255,0.65); }
+    .cc .tbtn[data-accent="wifi"], .cc .tbtn[data-accent="bt"] { --accent:59,130,246; }
+    .cc .tbtn[data-accent="air"] { --accent:249,115,22; }
+    .cc .tbtn[data-view="desktop"] { --accent:20,184,166; }
+    .cc .tbtn[data-view="tablet"] { --accent:139,92,246; }
+    .cc .slider { position:relative;flex:1;height:28px;border-radius:14px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.30);background:var(--track); }
+    .cc .slider .fill { position:absolute;top:0;bottom:0;left:0;width:0;min-width:28px;border-radius:14px;background:var(--fill);transition:width 0.1s; }
+    .cc .slider .embed { position:absolute;left:8px;top:50%;transform:translateY(-50%);color:rgba(0,0,0,0.45);z-index:5;pointer-events:none; }
+    .cc .rng { position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:10; }
+    .cc .rbtn { width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:transform 0.1s;border:none;cursor:pointer; }
+    .cc .rbtn:active { transform:scale(0.9); }
+    .cc[data-theme="dark"] .appearance { border:1px solid rgba(129,140,248,0.5);background:linear-gradient(to bottom,#818cf8,#4f46e5);box-shadow:0 4px 8px rgba(79,70,229,0.30); }
+    .cc[data-theme="light"] .appearance { border:1px solid rgba(253,230,138,0.7);background:linear-gradient(to bottom,#fcd34d,#f97316);box-shadow:0 4px 8px rgba(249,115,22,0.30); }
+    .cc .mute { border:1px solid var(--inactive-border);background:var(--inactive-bg);color:var(--text); }
+    .cc .mute[data-muted="true"] { border:1px solid rgba(248,113,113,0.45);background:rgba(239,68,68,0.88);box-shadow:0 4px 8px rgba(239,68,68,0.30);color:#fff; }
+
+    /* ===== Notification Center (ported from DS template OsNotifications) ===== */
+    .npanel { width:330px;background:linear-gradient(165deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07));border:1px solid rgba(255,255,255,0.16);border-radius:26px;padding:14px;backdrop-filter:blur(72px) saturate(180%);-webkit-backdrop-filter:blur(72px) saturate(180%);box-shadow:0 30px 60px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.30),inset 0 -1px 0 rgba(0,0,0,0.18);font-family:var(--font-sans); }
+    .npanel .ncard { border-radius:18px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 2px 10px rgba(0,0,0,0.18),inset 0 1px 0 rgba(255,255,255,0.18);transition:filter 0.12s; }
+    .npanel .ncard:hover { filter:brightness(1.07); }
+    .npanel .glass-card { background:linear-gradient(160deg,rgba(255,255,255,0.14),rgba(255,255,255,0.06));border:1px solid rgba(255,255,255,0.12); }
+    .npanel .appicon { width:38px;height:38px;display:block;flex-shrink:0;border-radius:9px;box-shadow:0 1px 3px rgba(0,0,0,0.30); }
+    .npanel .app { font-size:11px;font-weight:600;letter-spacing:0.02em;color:rgba(255,255,255,0.92);white-space:nowrap; }
+    .npanel .time { font-size:10.5px;color:rgba(255,255,255,0.40);white-space:nowrap;flex-shrink:0; }
+    .npanel .title { font-size:12px;font-weight:600;color:rgba(255,255,255,0.92);margin-bottom:1px; }
+    .npanel .body { font-size:11.5px;color:rgba(255,255,255,0.52);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+    const { AppIcon, GlassToggle } = (window.AIVAOSDesignSystem_afec52 || {});
+
+    const ICONS_BASE = '../../assets/icons/';
+    const DARK_WALL = 'https://images.unsplash.com/photo-1518770660439-4636190af475?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920';
+    const LIGHT_WALL = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1920';
+
+    const ALL_APPS = [
+      // Productivity
+      { id:'locus',         name:'Locus',         icon:'locus.svg' },
+      { id:'synapz-docs',   name:'Synapz Docs',   icon:'synapz-docs.svg' },
+      { id:'synapz-sheets', name:'Synapz Sheets', icon:'synapz-sheets.svg' },
+      { id:'synapz-slides', name:'Synapz Slides', icon:'synapz-slides.svg' },
+      { id:'glyph',         name:'Glyph',         icon:'glyph.svg' },
+      { id:'relay',         name:'Relay',         icon:'relay.svg' },
+      { id:'cadence',       name:'Cadence',       icon:'calendar.svg' },
+      { id:'pulse',         name:'Pulse',         icon:'pulse.svg' },
+      { id:'recipes',       name:'Recipes',       icon:'recipes.svg' },
+      { id:'staff',         name:'Staff',         icon:'staff.svg' },
+      { id:'cue',           name:'Cue',           icon:'cue.svg' },
+      { id:'cipher',        name:'Cipher',        icon:'cipher.svg' },
+      { id:'weather',       name:'Weather',       icon:'weather.svg' },
+      { id:'atlas',         name:'Atlas',         icon:'atlas.svg' },
+      { id:'stash',         name:'Stash',         icon:'files.svg' },
+      { id:'nib',           name:'Nib',           icon:'nib.svg' },
+      { id:'pdf-viewer',    name:'PDF Viewer',    icon:'pdf-viewer.svg' },
+      { id:'markup',        name:'Markup',        icon:'markup.svg' },
+      { id:'image-viewer',  name:'Image Viewer',  icon:'image-viewer.svg' },
+      // Media
+      { id:'iris',          name:'Iris',          icon:'iris.svg' },
+      { id:'music',         name:'Music',         icon:'music-app.svg' },
+      { id:'reel',          name:'Reel',          icon:'reel.svg' },
+      { id:'inkwell',       name:'Inkwell',       icon:'inkwell.svg' },
+      { id:'vertex',        name:'Vertex',        icon:'vertex.svg' },
+      { id:'resonance',     name:'Resonance',     icon:'resonance.svg' },
+      { id:'cinescope',     name:'Cinescope',     icon:'cinescope.svg' },
+      { id:'beacon',        name:'Beacon',        icon:'beacon.svg' },
+      { id:'echo',          name:'Echo',          icon:'echo.svg' },
+      // Games
+      { id:'gaming-hub',    name:'Gaming Hub',    icon:'gaming-hub.svg' },
+      { id:'flipper',       name:'Flipper',       icon:'flipper.svg' },
+      { id:'tessera',       name:'Tessera',       icon:'tessera.svg' },
+      // Dev / System
+      { id:'nex-studio',    name:'NeX Studio',    icon:'nex-studio.svg' },
+      { id:'console',       name:'Console',       icon:'console.svg' },
+      { id:'plaza',         name:'Plaza',         icon:'aiva-store.svg' },
+      { id:'tuner',         name:'Tuner',         icon:'settings.svg' },
+      { id:'dial',          name:'Dial',          icon:'phone.svg' },
+      { id:'shutter',       name:'Shutter',       icon:'shutter.svg' },
+      { id:'calculator',    name:'Calculator',    icon:'calculator.svg' },
+      { id:'chronos',       name:'Chronos',       icon:'clock.svg' },
+      { id:'whisper',       name:'Whisper',       icon:'whisper.svg' },
+      { id:'lingua',        name:'Lingua',        icon:'lingua.svg' },
+      { id:'cabinet',       name:'Cabinet',       icon:'cabinet.svg' },
+      { id:'needle',        name:'Needle',        icon:'compass.svg' },
+      { id:'trace',         name:'Trace',         icon:'trace.svg' },
+      { id:'cora',          name:'Cora',          icon:'cora.svg' },
+      { id:'aiva',          name:'Aiva',          icon:'health.svg' },
+      { id:'family',        name:'Family',        icon:'family.svg' },
+    ];
+
+    const DESKTOP_ICONS = [
+      { label:'Stash',     icon:'files.svg' },
+      { label:'Glyph',     icon:'glyph.svg' },
+      { label:'Relay',     icon:'relay.svg' },
+      { label:'Iris',      icon:'iris.svg' },
+      { label:'Music',     icon:'music-app.svg' },
+      { label:'Atlas',     icon:'atlas.svg' },
+      { label:'Console',   icon:'console.svg' },
+      { label:'Inkwell',   icon:'inkwell.svg' },
+      { label:'Cipher',    icon:'cipher.svg' },
+      { label:'Echo',      icon:'echo.svg' },
+      { label:'Reel',      icon:'reel.svg' },
+      { label:'Resonance', icon:'resonance.svg' },
+    ];
+
+    // ── Glass helpers ──────────────────────────────────────────
+    const glass = (dark, level = 'panel') => {
+      if (dark) {
+        return level === 'card'
+          ? { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
+          : { background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.18)' };
+      }
+      return level === 'card'
+        ? { background: 'rgba(255,255,255,0.60)', border: '1px solid rgba(255,255,255,0.80)' }
+        : { background: 'rgba(255,255,255,0.50)', border: '1px solid rgba(255,255,255,0.75)' };
+    };
+    const txt   = (dark, strong) => strong
+      ? (dark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.88)')
+      : (dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.40)');
+    const shadow = '0 25px 50px rgba(0,0,0,0.45)';
+    const blur = 'blur(40px)';
+    const blurXl = 'blur(64px)';
+
+    // ── AppIcon ────────────────────────────────────────────────
+    function AppTile({ icon, label, dark, size = 56, compact }) {
+      const [hov, setHov] = useState(false);
+      const [prs, setPrs] = useState(false);
+      const r = size >= 64 ? 18 : size >= 48 ? 14 : 12;
+      return (
+        <div
+          style={{ display:'flex',flexDirection:'column',alignItems:'center',gap: compact?5:7, cursor:'pointer', userSelect:'none' }}
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => { setHov(false); setPrs(false); }}
+          onMouseDown={() => setPrs(true)}
+          onMouseUp={() => setPrs(false)}
+        >
+          <div style={{
+            position:'relative', width:size, height:size, borderRadius:r,
+            background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.18)',
+            backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
+            boxShadow: hov ? '0 8px 20px rgba(0,0,0,0.35)' : '0 4px 12px rgba(0,0,0,0.25)',
+            transform: prs ? 'scale(0.91)' : hov ? 'scale(1.09)' : 'scale(1)',
+            transition:'transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease',
+            overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center',
+          }}>
+            <div style={{ position:'absolute',inset:0,background:'linear-gradient(to bottom, rgba(255,255,255,0.12), transparent)',pointerEvents:'none',zIndex:1 }} />
+            <img src={ICONS_BASE + icon} alt={label} style={{ width:'76%',height:'76%',objectFit:'contain',position:'relative',zIndex:2 }} draggable={false} />
+          </div>
+          {label && (
+            <span style={{
+              fontSize: compact ? 10 : 12, fontWeight:600,
+              color: dark ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.80)',
+              textShadow: dark ? '0 1px 4px rgba(0,0,0,0.5)' : '0 1px 3px rgba(255,255,255,0.7)',
+              textAlign:'center',maxWidth:size+12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
+            }}>
+              {label}
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // ── Top Bar ────────────────────────────────────────────────
+    function TopBar({ dark, onControlCenter, onNotif, onCalendar, onWifi, onSound, onBattery, showCC, showNotif, showCalendar, showWifi, showSound, showBattery, desktopMode, vwOverride }) {
+      const [time, setTime] = useState(new Date());
+      const [islandExp, setIslandExp] = useState(false);
+      const [actualVw, setActualVw] = useState(window.innerWidth);
+      const vw = vwOverride ?? actualVw;
+      const mergedMode = !desktopMode && vw < 640;
+
+      useEffect(() => {
+        const t = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(t);
+      }, []);
+      useEffect(() => {
+        const h = () => setActualVw(window.innerWidth);
+        window.addEventListener('resize', h);
+        return () => window.removeEventListener('resize', h);
+      }, []);
+
+      const g  = txt(dark, true);
+      const g2 = txt(dark, false);
+      const pHov = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)';
+      const [hovPill, setHovPill] = useState(null);
+      const pill = (active, onClick, children, id='x') => {
+        const hov = hovPill === id;
+        return (
+          <button
+            onClick={onClick}
+            onMouseEnter={() => setHovPill(id)}
+            onMouseLeave={() => setHovPill(null)}
+            style={{ display:'flex',alignItems:'center',gap:5,padding:'0 8px',height:28,borderRadius:9999,border:'none',cursor:'pointer',background:(active||hov)?pHov:'transparent',transition:'background 0.15s',color:g,fontFamily:'var(--font-sans)' }}
+          >
+            {children}
+          </button>
+        );
+      };
+      const fmtTime = d => d.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' });
+      const fmtDate = d => d.toLocaleDateString('de-DE', { weekday:'short', day:'numeric', month:'short' });
+      const WifiIc  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>;
+      const VolIc   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>;
+      const BellIc  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>;
+      const SliderIc= () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/></svg>;
+
+      // Left side
+      const leftSide = mergedMode ? (
+        pill(showNotif, onNotif,
+          <>
+            <span style={{ fontSize:12,fontWeight:600 }}>{fmtTime(time)}</span>
+            <span style={{ position:'relative',display:'flex' }}>
+              <BellIc/>
+              <span style={{ position:'absolute',top:-2,right:-3,width:5,height:5,background:'#ef4444',borderRadius:'50%' }}/>
+            </span>
+          </>,
+          'phone-left'
+        )
+      ) : desktopMode ? (
+        <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+          {pill(showCalendar, onCalendar,
+            <><span style={{ fontSize:12,fontWeight:600 }}>{fmtTime(time)}</span>
+              <span style={{ fontSize:11,color:g2 }}>·</span>
+              <span style={{ fontSize:11,color:g2 }}>{fmtDate(time)}</span></>,
+            'desk-time'
+          )}
+          {pill(showNotif, onNotif,
+            <>
+              <span style={{ position:'relative',display:'flex' }}><BellIc/><span style={{ position:'absolute',top:-2,right:-3,width:5,height:5,background:'#ef4444',borderRadius:'50%' }}/></span>
+              <span style={{ display:'flex',alignItems:'center',gap:2 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                <span style={{ fontSize:10,fontWeight:700 }}>4</span>
+              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="18" height="18" x="3" y="4" rx="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+            </>,
+            'desk-notif'
+          )}
+        </div>
+      ) : (
+        <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+          {pill(showCalendar, onCalendar, <span style={{ fontSize:12,fontWeight:600 }}>{fmtTime(time)}</span>, 'tab-time')}
+          {pill(showNotif, onNotif,
+            <span style={{ position:'relative',display:'flex' }}>
+              <BellIc/>
+              <span style={{ position:'absolute',top:-2,right:-3,width:5,height:5,background:'#ef4444',borderRadius:'50%' }}/>
+            </span>,
+            'tab-bell'
+          )}
+        </div>
+      );
+
+      // Right side
+      const rightSide = desktopMode ? (
+        <div style={{ display:'flex',alignItems:'center',gap:1 }}>
+          {pill(showWifi, onWifi, <WifiIc/>, 'desk-wifi')}
+          {pill(showSound, onSound, <VolIc/>, 'desk-vol')}
+          {pill(showBattery, onBattery, <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg><span style={{ fontSize:11,fontWeight:500 }}>78%</span></>, 'desk-bat')}
+          {pill(showCC, onControlCenter, <SliderIc/>, 'desk-cc')}
+        </div>
+      ) : (
+        pill(showCC, onControlCenter,
+          <><WifiIc/><VolIc/>
+            <span style={{ display:'flex',alignItems:'center',gap:3 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+              <span style={{ fontSize:11,fontWeight:500 }}>78%</span>
+            </span>
+          </>,
+          'tab-cc'
+        )
+      );
+
+      return (
+        <div style={{ height:36, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 12px', position:'relative', zIndex:50 }}>
+          {leftSide}
+
+          {/* Dynamic Island */}
+          <div
+            style={{ position:'absolute', left:'50%', transform:'translateX(-50%)', top:4, zIndex:60, cursor:'pointer' }}
+            onMouseEnter={() => setIslandExp(true)}
+            onMouseLeave={() => setIslandExp(false)}
+          >
+            <div style={{
+              background:'#000', overflow:'hidden',
+              width: islandExp ? 288 : 118, height: islandExp ? 64 : 28,
+              borderRadius: islandExp ? 22 : 20,
+              transition:`width 0.5s cubic-bezier(0.34,1.4,0.5,1), height 0.5s cubic-bezier(0.34,1.4,0.5,1), border-radius 0.45s cubic-bezier(0.34,1.4,0.5,1)`,
+            }}>
+              <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'0 14px', opacity: islandExp ? 0 : 1, transition:'opacity 0.15s ease', pointerEvents: islandExp ? 'none' : 'auto' }}>
+                <div style={{ width:14,height:14,borderRadius:4,background:'linear-gradient(135deg,#a855f7,#ec4899,#f43f5e)',flexShrink:0 }} />
+                <div style={{ display:'flex',alignItems:'flex-end',gap:2 }}>
+                  {[8,12,6,10].map((h,i) => (
+                    <div key={i} style={{ width:3,background:'rgba(255,255,255,0.65)',borderRadius:2,height:h,animation:'islandBar 0.7s ease-in-out infinite alternate',animationDelay:`${i*80}ms` }} />
+                  ))}
+                </div>
+              </div>
+              <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',gap:10,padding:'0 10px', opacity: islandExp ? 1 : 0, transform: islandExp ? 'scale(1)' : 'scale(0.92)', transition: islandExp ? 'opacity 0.22s ease 0.25s, transform 0.22s ease 0.25s' : 'opacity 0.1s ease', pointerEvents: islandExp ? 'auto' : 'none' }}>
+                <div style={{ width:44,height:44,borderRadius:11,background:'linear-gradient(135deg,#a855f7,#ec4899,#f43f5e)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0 }}>🎵</div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ color:'#fff',fontSize:13,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>Summer Vibes</div>
+                  <div style={{ color:'rgba(255,255,255,0.45)',fontSize:11,marginTop:2 }}>The Artist</div>
+                </div>
+                <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+                  <button style={{ width:28,height:28,borderRadius:'50%',background:'transparent',border:'none',color:'rgba(255,255,255,0.6)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}>⏮</button>
+                  <button style={{ width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.9)',border:'none',color:'#000',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center' }}>▶</button>
+                  <button style={{ width:28,height:28,borderRadius:'50%',background:'transparent',border:'none',color:'rgba(255,255,255,0.6)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}>⏭</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          {rightSide}
+        </div>
+      );
+    }
+
+    // ── Control Center (ported from DS template: OsControlCenter) ──
+    function ControlCenter({ dark, onClose, onToggleDark, desktopMode, onToggleDesktop }) {
+      const [wifi, setWifi] = useState(true);
+      const [bt, setBt] = useState(false);
+      const [air, setAir] = useState(false);
+      const [bright, setBright] = useState(70);
+      const [vol, setVol] = useState(50);
+      const [muted, setMuted] = useState(false);
+      const view = desktopMode ? 'desktop' : 'tablet';
+      const volShown = muted ? 0 : vol;
+      const St = props => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" {...props} />;
+      return (
+        <>
+          <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:39 }} />
+          <div className={'cc panel' + (dark ? ' dark' : '')} data-theme={dark ? 'dark' : 'light'} style={{ position:'absolute', top:44, right:12, zIndex:40, animation:'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
+
+            {/* Header */}
+            <div style={{ display:'flex',alignItems:'center',justifyContent:'flex-end',gap:4,marginBottom:12 }}>
+              <button className="hbtn"><St><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></St></button>
+              <button className="hbtn"><St><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/></St></button>
+              <button className="hbtn"><St><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></St></button>
+              <div className="hbtn" style={{ background:'var(--avatar-bg)',cursor:'pointer' }}><span style={{ fontSize:12,fontWeight:700,color:'var(--text)' }}>J</span></div>
+            </div>
+
+            {/* Connectivity */}
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10 }}>
+              <div className="card" style={{ padding:11,display:'flex',flexDirection:'column',gap:7 }}>
+                <button className="tbtn" data-accent="wifi" data-active={wifi?'true':'false'} onClick={() => setWifi(!wifi)}>
+                  <div className="ic"><St><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></St></div>
+                  <div className="txt"><div className="lbl">WLAN</div><div className="sub">{wifi?'Heimnetzwerk':'Aus'}</div></div>
+                </button>
+                <button className="tbtn" data-accent="bt" data-active={bt?'true':'false'} onClick={() => setBt(!bt)}>
+                  <div className="ic"><St><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></St></div>
+                  <div className="txt"><div className="lbl">Bluetooth</div><div className="sub">{bt?'Ein':'Aus'}</div></div>
+                </button>
+              </div>
+              <div className="card" style={{ padding:11,display:'flex',flexDirection:'column',gap:7 }}>
+                <button className="tbtn" data-accent="air" data-active={air?'true':'false'} onClick={() => setAir(!air)}>
+                  <div className="ic"><St><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21 4 19 4s-2 1-3.5 2.5L11 10 2.8 8.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></St></div>
+                  <div className="txt"><div className="lbl">Flugmodus</div><div className="sub">{air?'Ein':'Aus'}</div></div>
+                </button>
+                <button className="tbtn" data-view={view} data-active="true" onClick={onToggleDesktop}>
+                  <div className="ic">{desktopMode
+                    ? <St strokeLinejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></St>
+                    : <St strokeLinejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="12" x2="12.01" y1="18" y2="18"/></St>}</div>
+                  <div className="txt"><div className="lbl">{desktopMode?'Desktop':'Tablet'}</div><div className="sub">Ansichtsmodus</div></div>
+                </button>
+              </div>
+            </div>
+
+            {/* Brightness */}
+            <div className="card" style={{ padding:'13px 15px',marginBottom:10 }}>
+              <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:10 }}>
+                <svg className="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                <span className="sec-label">Helligkeit</span>
+              </div>
+              <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                <div className="slider">
+                  <div className="fill" style={{ width: bright + '%' }} />
+                  <div className="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg></div>
+                  <input className="rng" type="range" min="0" max="100" value={bright} onChange={e => setBright(+e.target.value)} />
+                </div>
+                <button className="rbtn appearance" title="Erscheinungsbild" onClick={onToggleDark}>
+                  {dark
+                    ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>}
+                </button>
+              </div>
+            </div>
+
+            {/* Sound */}
+            <div className="card" style={{ padding:'13px 15px',marginBottom:10 }}>
+              <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:10 }}>
+                <svg className="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <span className="sec-label">Ton</span>
+              </div>
+              <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+                <div className="slider">
+                  <div className="fill" style={{ width: volShown + '%' }} />
+                  <div className="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg></div>
+                  <input className="rng" type="range" min="0" max="100" value={volShown} onChange={e => { const v = +e.target.value; setVol(v); setMuted(v === 0); }} />
+                </div>
+                <button className="rbtn mute" data-muted={muted?'true':'false'} title="Stummschalten" onClick={() => setMuted(!muted)}>
+                  {muted
+                    ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                    : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>}
+                </button>
+              </div>
+            </div>
+
+            {/* Battery */}
+            <div className="card" style={{ padding:'11px 15px' }}>
+              <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between' }}>
+                <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" strokeWidth="2" strokeLinecap="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+                  <span className="sec-label">Batterie</span>
+                </div>
+                <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                  <div style={{ height:6,width:80,borderRadius:3,overflow:'hidden',background:'var(--track)' }}><div style={{ height:'100%',width:'78%',borderRadius:3,background:'rgba(34,197,94,0.85)' }} /></div>
+                  <span style={{ fontSize:11,color:'var(--label)' }}>78%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ── Notification Center (ported from DS template: OsNotifications) ──
+    function NotificationCenter({ dark, onClose }) {
+      const mailCount = 4;
+      const notifications = [
+        { icon:'messages.svg', app:'Nachrichten', title:'Anna Schmidt', body:'Hey, bist du heute Abend da?', time:'vor 12 Min.' },
+        { icon:'calendar.svg', app:'Kalender', title:'Zahnarzt', body:'Heute um 14:30 Uhr', time:'vor 1 Std.' },
+        { icon:'weather.svg', app:'Wetter', title:'Regen erwartet', body:'Ab 16 Uhr leichter Regen in Berlin', time:'vor 2 Std.' },
+      ];
+      return (
+        <>
+          <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:39 }} />
+          <div className="npanel" style={{ position:'absolute', top:44, left:12, zIndex:40, animation:'slideDown 0.35s cubic-bezier(0.34,1.4,0.5,1)' }}>
+            <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,padding:'0 2px' }}>
+              <span style={{ fontSize:14,fontWeight:600,color:'rgba(255,255,255,0.92)' }}>Mitteilungen</span>
+              <button style={{ fontSize:11,fontWeight:500,color:'rgba(255,255,255,0.45)',background:'transparent',border:'none',padding:'4px 8px',borderRadius:8,cursor:'pointer' }}>Alle löschen</button>
+            </div>
+            {/* Mail stack */}
+            <div style={{ position:'relative',marginBottom:12 }}>
+              <div style={{ position:'absolute',left:8,right:8,top:0,bottom:0,borderRadius:18,background:'linear-gradient(160deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))',border:'1px solid rgba(255,255,255,0.10)',transform:'translateY(7px)',boxShadow:'0 4px 12px rgba(0,0,0,0.20)' }} />
+              <div className="ncard glass-card" style={{ position:'relative',padding:12 }}>
+                <div style={{ display:'flex',alignItems:'flex-start',gap:11 }}>
+                  <div style={{ position:'relative',flexShrink:0 }}>
+                    <img className="appicon" src={ICONS_BASE + 'relay.svg'} alt="Mail" />
+                    <div style={{ position:'absolute',top:-6,right:-6,minWidth:19,height:19,padding:'0 5px',borderRadius:9.5,background:'linear-gradient(180deg,#ff5b52 0%,#ff3b30 100%)',boxShadow:'0 1px 4px rgba(255,59,48,0.45),0 1px 2px rgba(0,0,0,0.30),inset 0 1px 0 rgba(255,255,255,0.50)',display:'flex',alignItems:'center',justifyContent:'center' }}>
+                      <span style={{ fontSize:10,fontWeight:700,lineHeight:1,color:'#fff' }}>{mailCount}</span>
+                    </div>
+                  </div>
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2,gap:8 }}><span className="app">Mail</span><span className="time">vor 5 Min.</span></div>
+                    <div className="title">{mailCount} neue Mails</div>
+                    <div className="body">max.mustermann@beispiel.de</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Individual notifications */}
+            <div style={{ display:'flex',flexDirection:'column',gap:8 }}>
+              {notifications.map((n,i) => (
+                <div key={i} className="ncard glass-card" style={{ padding:12 }}>
+                  <div style={{ display:'flex',alignItems:'flex-start',gap:11 }}>
+                    <img className="appicon" src={ICONS_BASE + n.icon} alt={n.app} />
+                    <div style={{ flex:1,minWidth:0 }}>
+                      <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2,gap:8 }}><span className="app">{n.app}</span><span className="time">{n.time}</span></div>
+                      <div className="title">{n.title}</div>
+                      <div className="body">{n.body}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ── Calendar Panel (ported from DS template: OsCalendar) ──
+    function CalendarPanel({ dark, onClose }) {
+      const [displayed, setDisplayed] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
+      const today = new Date();
+      const year = displayed.getFullYear(), month = displayed.getMonth();
+      const monthYear = displayed.toLocaleDateString('de-DE', { month:'long', year:'numeric' });
+      const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const mk = off => { const d = new Date(); d.setDate(d.getDate() + off); d.setHours(0,0,0,0); return d; };
+      const events = [
+        { date:mk(0),  title:'Zahnarzt',        time:'14:30',     color:'#f87171' },
+        { date:mk(2),  title:'Team-Meeting',    time:'10:00',     color:'#60a5fa' },
+        { date:mk(5),  title:'Geburtstag Anna', time:'ganztägig', color:'#a78bfa' },
+        { date:mk(9),  title:'Projekt-Deadline',time:'18:00',     color:'#fb923c' },
+        { date:mk(16), title:'Konzert',         time:'20:00',     color:'#34d399' },
+      ];
+      const eventDays = new Set(events.filter(ev => ev.date.getFullYear() === year && ev.date.getMonth() === month).map(ev => ev.date.getDate()));
+      const isToday = d => year === today.getFullYear() && month === today.getMonth() && d === today.getDate();
+      const cells = [];
+      for (let i = 0; i < firstWeekday; i++) cells.push(null);
+      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+      const relativeLabel = date => { const t = new Date(); t.setHours(0,0,0,0); const diff = Math.round((date - t) / 86400000); if (diff === 0) return 'Heute'; if (diff === 1) return 'Morgen'; return date.toLocaleDateString('de-DE', { weekday:'short', day:'numeric', month:'short' }); };
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const upcoming = events.filter(ev => ev.date >= todayStart).sort((a,b) => a.date - b.date).slice(0,3);
+      const days = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+      const navBtnSt = { width:24,height:24,borderRadius:'50%',border:'none',background:'transparent',color:'rgba(255,255,255,0.70)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' };
+      return (
+        <>
+          <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:39 }} />
+          <div style={{ position:'absolute', top:44, left:12, zIndex:40, width:288, background:'linear-gradient(165deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07))', border:'1px solid rgba(255,255,255,0.16)', borderRadius:24, padding:12, backdropFilter:'blur(72px) saturate(180%)', WebkitBackdropFilter:'blur(72px) saturate(180%)', boxShadow:'0 30px 60px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.30),inset 0 -1px 0 rgba(0,0,0,0.18)', animation:'slideDown 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
+            {/* Month header */}
+            <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 4px',marginBottom:8 }}>
+              <span style={{ fontSize:13,fontWeight:600,color:'rgba(255,255,255,0.90)' }}>{monthYear}</span>
+              <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+                <button onClick={() => setDisplayed(new Date(year, month - 1, 1))} style={navBtnSt}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
+                <button onClick={() => setDisplayed(new Date(today.getFullYear(), today.getMonth(), 1))} title="Heute" style={navBtnSt}><span style={{ width:6,height:6,borderRadius:'50%',background:'rgba(255,255,255,0.65)',display:'block' }} /></button>
+                <button onClick={() => setDisplayed(new Date(year, month + 1, 1))} style={navBtnSt}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div>
+            </div>
+            {/* Day names */}
+            <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:4 }}>
+              {days.map(d => <div key={d} style={{ textAlign:'center',fontSize:10,fontWeight:500,color:'rgba(255,255,255,0.40)',paddingBottom:4 }}>{d}</div>)}
+            </div>
+            {/* Grid */}
+            <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:12 }}>
+              {cells.map((d,i) => (
+                <div key={i} style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:1 }}>
+                  <div style={{ width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'50%',fontSize:12,fontWeight:(d && isToday(d))?700:400,background:(d && isToday(d))?'#3b82f6':'transparent',color:(d && isToday(d))?'#fff':'rgba(255,255,255,0.80)' }}>{d || ''}</div>
+                  <span style={{ width:4,height:4,borderRadius:'50%',background:(d && eventDays.has(d))?'#f87171':'transparent',display:'block' }} />
+                </div>
+              ))}
+            </div>
+            {/* Upcoming */}
+            <div style={{ fontSize:11,fontWeight:500,color:'rgba(255,255,255,0.40)',marginBottom:6,padding:'0 4px' }}>Anstehend</div>
+            <div style={{ display:'flex',flexDirection:'column',gap:6 }}>
+              {upcoming.map((ev,i) => (
+                <div key={i} style={{ display:'flex',alignItems:'center',gap:10,background:'linear-gradient(160deg,rgba(255,255,255,0.13),rgba(255,255,255,0.05))',border:'1px solid rgba(255,255,255,0.10)',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.22)',borderRadius:14,padding:'8px 10px' }}>
+                  <span style={{ width:3,height:32,borderRadius:2,flexShrink:0,background:ev.color,display:'block' }} />
+                  <div style={{ flex:1,minWidth:0 }}>
+                    <div style={{ fontSize:12,fontWeight:600,color:'rgba(255,255,255,0.90)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{ev.title}</div>
+                    <div style={{ fontSize:11,color:'rgba(255,255,255,0.45)',marginTop:1 }}>{relativeLabel(ev.date)} · {ev.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ── Shared bits for the desktop status panels ──
+    const SignalBars = ({ level = 3 }) => (
+      <span style={{ display:'flex',alignItems:'flex-end',gap:2,height:13 }}>
+        {[1,2,3].map(i => <span key={i} style={{ width:3,borderRadius:1,height:4 + i*3,background:'currentColor',opacity: i <= level ? 1 : 0.25 }} />)}
+      </span>
+    );
+    const LockMini = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity:0.55 }}><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
+    const CheckMini = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+    const RadioRow = ({ label, sub, active, onClick, leading }) => (
+      <button onClick={onClick} style={{ width:'100%',display:'flex',alignItems:'center',gap:10,padding:'9px 9px',borderRadius:11,border:'none',cursor:'pointer',background: active ? 'rgba(59,130,246,0.18)' : 'transparent',color:'var(--text)',textAlign:'left',transition:'background 0.12s' }}>
+        {leading && <span style={{ display:'flex',color:'var(--text)',opacity:0.85 }}>{leading}</span>}
+        <div style={{ flex:1,minWidth:0 }}>
+          <div style={{ fontSize:12,fontWeight: active ? 600 : 500,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{label}</div>
+          {sub && <div style={{ fontSize:10.5,color:'var(--sub)' }}>{sub}</div>}
+        </div>
+        {active && <CheckMini/>}
+      </button>
+    );
+    const panelWrap = (dark, onClose, width, children) => (
+      <>
+        <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:39 }} />
+        <div className={'cc panel' + (dark ? ' dark' : '')} data-theme={dark ? 'dark' : 'light'} style={{ position:'absolute', top:44, right:12, zIndex:40, width, animation:'slideDown 0.28s cubic-bezier(0.16,1,0.3,1)' }}>
+          {children}
+        </div>
+      </>
+    );
+
+    // ── WiFi Panel (desktop only) ──
+    function WifiPanel({ dark, onClose }) {
+      const [on, setOn] = useState(true);
+      const [wiredOnly, setWiredOnly] = useState(false);
+      const [selected, setSelected] = useState('Heimnetzwerk');
+      const nets = [
+        { name:'Heimnetzwerk',      level:3, secured:true },
+        { name:'FRITZ!Box 7590',    level:3, secured:true },
+        { name:'Nachbar_5GHz',      level:2, secured:true },
+        { name:'CoffeeHouse_Free',  level:1, secured:false },
+      ];
+      const disabled = wiredOnly || !on;
+      return panelWrap(dark, onClose, 300, (
+        <>
+          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,padding:'2px 2px 0' }}>
+            <span className="sec-label" style={{ fontSize:14 }}>WLAN</span>
+            {GlassToggle ? <GlassToggle checked={on} onChange={setOn} /> : null}
+          </div>
+          <div className="card" style={{ padding:11,marginBottom:10 }}>
+            <button className="tbtn" data-accent="wifi" data-active={wiredOnly?'true':'false'} onClick={() => setWiredOnly(!wiredOnly)}>
+              <div className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="9" rx="1.5"/><path d="M7 8V6M12 8V6M17 8V6"/></svg></div>
+              <div className="txt"><div className="lbl">Nur Kabel</div><div className="sub">{wiredOnly?'Ethernet aktiv':'WLAN erlaubt'}</div></div>
+            </button>
+          </div>
+          <div style={{ fontSize:11,fontWeight:500,color:'var(--label)',margin:'0 4px 6px' }}>Verfügbare Netzwerke</div>
+          <div className="card" style={{ padding:6,opacity: disabled ? 0.4 : 1,pointerEvents: disabled ? 'none' : 'auto',transition:'opacity 0.15s' }}>
+            {nets.map(n => (
+              <RadioRow key={n.name} label={n.name} active={selected === n.name} onClick={() => setSelected(n.name)}
+                leading={<span style={{ display:'flex',alignItems:'center',gap:5,width:30 }}><SignalBars level={n.level}/>{n.secured && <LockMini/>}</span>} />
+            ))}
+          </div>
+        </>
+      ));
+    }
+
+    // ── Sound Panel (desktop only) ──
+    function SoundPanel({ dark, onClose }) {
+      const [vol, setVol] = useState(50);
+      const [muted, setMuted] = useState(false);
+      const [output, setOutput] = useState('MacBook Lautsprecher');
+      const [input, setInput] = useState('MacBook Mikrofon');
+      const outs = [
+        { name:'MacBook Lautsprecher', sub:'Integriert' },
+        { name:'Kopfhörer',            sub:'Bluetooth' },
+        { name:'HDMI-Display',         sub:'Extern' },
+      ];
+      const ins = [
+        { name:'MacBook Mikrofon',  sub:'Integriert' },
+        { name:'Externes Mikrofon', sub:'USB' },
+      ];
+      const spk = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>;
+      const mic = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>;
+      const volShown = muted ? 0 : vol;
+      return panelWrap(dark, onClose, 300, (
+        <>
+          <div style={{ marginBottom:10,padding:'2px 2px 0' }}><span className="sec-label" style={{ fontSize:14 }}>Ton</span></div>
+          <div style={{ fontSize:11,fontWeight:500,color:'var(--label)',margin:'0 4px 6px' }}>Ausgabe</div>
+          <div className="card" style={{ padding:6,marginBottom:10 }}>
+            {outs.map(o => <RadioRow key={o.name} label={o.name} sub={o.sub} leading={spk} active={output === o.name} onClick={() => setOutput(o.name)} />)}
+          </div>
+          <div style={{ fontSize:11,fontWeight:500,color:'var(--label)',margin:'0 4px 6px' }}>Eingabe</div>
+          <div className="card" style={{ padding:6,marginBottom:10 }}>
+            {ins.map(o => <RadioRow key={o.name} label={o.name} sub={o.sub} leading={mic} active={input === o.name} onClick={() => setInput(o.name)} />)}
+          </div>
+          <div className="card" style={{ padding:'13px 15px' }}>
+            <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:10 }}>
+              <svg className="sec-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              <span className="sec-label">Lautstärke</span>
+            </div>
+            <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+              <div className="slider">
+                <div className="fill" style={{ width: volShown + '%' }} />
+                <div className="embed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg></div>
+                <input className="rng" type="range" min="0" max="100" value={volShown} onChange={e => { const v = +e.target.value; setVol(v); setMuted(v === 0); }} />
+              </div>
+              <button className="rbtn mute" data-muted={muted?'true':'false'} onClick={() => setMuted(!muted)}>
+                {muted
+                  ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>}
+              </button>
+            </div>
+          </div>
+        </>
+      ));
+    }
+
+    // ── Battery Panel (desktop only) ──
+    function BatteryPanel({ dark, onClose }) {
+      const [profile, setProfile] = useState('balanced');
+      const [noStandby, setNoStandby] = useState(false);
+      const bolt = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>;
+      const leaf = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></svg>;
+      const scale = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>;
+      const profiles = [
+        { id:'low',      label:'Energiesparmodus', sub:'Längere Laufzeit', leading:leaf },
+        { id:'balanced', label:'Ausbalanciert',    sub:'Empfohlen',        leading:scale },
+        { id:'high',     label:'Höchstleistung',   sub:'Maximale Leistung',leading:bolt },
+      ];
+      return panelWrap(dark, onClose, 300, (
+        <>
+          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,padding:'2px 2px 0' }}>
+            <span className="sec-label" style={{ fontSize:14 }}>Batterie</span>
+            <span style={{ fontSize:13,fontWeight:700,color:'var(--text)' }}>78%</span>
+          </div>
+          <div className="card" style={{ padding:'11px 14px',marginBottom:10 }}>
+            <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.9)" strokeWidth="2" strokeLinecap="round"><rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/></svg>
+              <div style={{ flex:1,height:6,borderRadius:3,overflow:'hidden',background:'var(--track)' }}><div style={{ height:'100%',width:'78%',borderRadius:3,background:'rgba(34,197,94,0.85)' }} /></div>
+              <span className="sub" style={{ color:'var(--label)' }}>Netzbetrieb</span>
+            </div>
+          </div>
+          <div style={{ fontSize:11,fontWeight:500,color:'var(--label)',margin:'0 4px 6px' }}>Energieprofil</div>
+          <div className="card" style={{ padding:6,marginBottom:10 }}>
+            {profiles.map(p => <RadioRow key={p.id} label={p.label} sub={p.sub} leading={p.leading} active={profile === p.id} onClick={() => setProfile(p.id)} />)}
+          </div>
+          <div className="card" style={{ padding:11 }}>
+            <button className="tbtn" data-accent="air" data-active={noStandby?'true':'false'} onClick={() => setNoStandby(!noStandby)}>
+              <div className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+              <div className="txt"><div className="lbl">Kein Standby</div><div className="sub">{noStandby?'Bildschirm bleibt an':'Automatischer Ruhezustand'}</div></div>
+            </button>
+          </div>
+        </>
+      ));
+    }
+
+    // ── DS AppIcon ─────────────────────────────────────────────
+    // The real design-system component is used directly from _ds_bundle.js
+    // (window.AIVAOSDesignSystem_afec52.AppIcon) so icons render exactly per spec.
+    //
+    // Variant per the icon section (components/core AppIcon):
+    //  • native       — first-party apps whose asset is already a shaped tile (default)
+    //  • freestanding — Stash & special-folder assets (transparent, no tile background)
+    //  • wrapped      — shapeless/sideloaded icons that need a glass panel behind them
+    const FREESTANDING_ICONS = new Set(['files.svg','pictures.svg','videos.svg','documents.svg','downloads.svg']);
+    const WRAPPED_ICONS = new Set([]);
+    function iconVariant(app) {
+      if (FREESTANDING_ICONS.has(app.icon)) return 'freestanding';
+      if (WRAPPED_ICONS.has(app.icon)) return 'wrapped';
+      return 'native';
+    }
+    // Map an arbitrary pixel size to the AppIcon component's nearest named size.
+    const sizeName = px => px <= 42 ? 'xs' : px <= 52 ? 'sm' : px <= 64 ? 'md' : px <= 80 ? 'lg' : 'xl';
+
+    // ── Paged Grid (tablet / fullscreen) ───────────────────────
+    // Horizontal pages: swipe (touch), mouse-drag, and wheel. Grid sized to fit.
+    function PagedGrid({ apps, dark, tileSize = 88 }) {
+      const measureRef = useRef(null);
+      const [cols, setCols] = useState(6);
+      const [rows, setRows] = useState(4);
+      const [page, setPage] = useState(0);
+      const [dragPx, setDragPx] = useState(0);
+      const [dragging, setDragging] = useState(false);
+      const dragRef = useRef({ active:false, startX:0, moved:false, w:1 });
+      const wheelRef = useRef({ acc:0, cool:false });
+
+      const CELL_W = tileSize + 56;   // tile + generous horizontal spacing
+      const CELL_H = tileSize + 66;   // tile + label + vertical spacing
+
+      useEffect(() => {
+        const el = measureRef.current;
+        if (!el) return;
+        const measure = () => {
+          const w = el.clientWidth, h = el.clientHeight;
+          if (!w || !h) return;
+          setCols(Math.max(2, Math.floor(w / CELL_W)));
+          setRows(Math.max(1, Math.floor(h / CELL_H)));
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+      }, []);
+
+      const perPage = Math.max(1, cols * rows);
+      const pages = [];
+      for (let i = 0; i < apps.length; i += perPage) pages.push(apps.slice(i, i + perPage));
+      if (!pages.length) pages.push([]);
+      const pageCount = pages.length;
+      useEffect(() => { setPage(p => Math.min(p, pageCount - 1)); }, [pageCount]);
+      const cur = Math.min(page, pageCount - 1);
+      const go = n => setPage(Math.max(0, Math.min(pageCount - 1, n)));
+
+      const onDown = e => {
+        const w = measureRef.current?.clientWidth || 1;
+        dragRef.current = { active:true, startX:e.clientX, moved:false, w };
+        setDragging(true);
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      };
+      const onMove = e => {
+        if (!dragRef.current.active) return;
+        const dx = e.clientX - dragRef.current.startX;
+        if (Math.abs(dx) > 4) dragRef.current.moved = true;
+        setDragPx(dx);
+      };
+      const onUp = () => {
+        if (!dragRef.current.active) return;
+        const { w } = dragRef.current;
+        const dx = dragPx;
+        dragRef.current.active = false;
+        setDragging(false);
+        setDragPx(0);
+        if (Math.abs(dx) > w * 0.16) go(cur + (dx < 0 ? 1 : -1));
+      };
+
+      const onWheel = e => {
+        const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (wheelRef.current.cool) return;
+        wheelRef.current.acc += d;
+        if (Math.abs(wheelRef.current.acc) > 30) {
+          go(cur + (wheelRef.current.acc > 0 ? 1 : -1));
+          wheelRef.current.acc = 0;
+          wheelRef.current.cool = true;
+          setTimeout(() => { wheelRef.current.cool = false; }, 360);
+        }
+      };
+
+      return (
+        <div style={{ flex:1, display:'flex', flexDirection:'column', minHeight:0 }}>
+          <div
+            ref={measureRef}
+            onWheel={onWheel}
+            onPointerDown={onDown}
+            onPointerMove={onMove}
+            onPointerUp={onUp}
+            onPointerCancel={onUp}
+            style={{ flex:1, overflow:'hidden', position:'relative', minHeight:0, touchAction:'pan-y', cursor: dragging ? 'grabbing' : 'grab' }}
+          >
+            <div style={{
+              display:'flex', height:'100%', width:'100%',
+              transform:`translateX(calc(${-cur * 100}% + ${dragPx}px))`,
+              transition: dragging ? 'none' : 'transform 0.42s cubic-bezier(0.22,1,0.36,1)',
+            }}>
+              {pages.map((pg, pi) => (
+                <div key={pi} style={{
+                  minWidth:'100%', height:'100%', display:'grid',
+                  gridTemplateColumns:`repeat(${cols}, 1fr)`,
+                  gridAutoRows:`${CELL_H - 12}px`,
+                  gap:'20px 12px', alignContent:'start', padding:'8px 2px 0',
+                }}>
+                  {pg.map(app => (
+                    <div key={app.id} onClickCapture={e => { if (dragRef.current.moved) { e.stopPropagation(); e.preventDefault(); } }} style={{ display:'flex', justifyContent:'center' }}>
+                      <AppIcon src={ICONS_BASE + app.icon} label={app.name} size="xl" variant={iconVariant(app)} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          {pageCount > 1 && (
+            <div style={{ display:'flex', justifyContent:'center', gap:7, paddingTop:14, flexShrink:0 }}>
+              {pages.map((_, i) => (
+                <button key={i} onClick={() => go(i)} style={{
+                  width: i === cur ? 18 : 7, height:7, borderRadius:4, border:'none', cursor:'pointer', padding:0,
+                  background: i === cur ? (dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.7)') : (dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.2)'),
+                  transition:'all 0.2s',
+                }} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── App Launcher ───────────────────────────────────────────
+    function AppLauncher({ dark, desktopMode, onClose }) {
+      const [q, setQ] = useState('');
+      const [fullscreen, setFullscreen] = useState(!desktopMode);
+      const windowed = desktopMode && !fullscreen;
+      const filtered = ALL_APPS.filter(a => a.name.toLowerCase().includes(q.toLowerCase()));
+
+      const inputSt = {
+        width:'100%', padding:'10px 16px 10px 40px',
+        background: dark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.65)',
+        border: `1px solid ${dark?'rgba(255,255,255,0.18)':'rgba(255,255,255,0.85)'}`,
+        borderRadius:16, fontSize:14, color: dark?'rgba(255,255,255,0.9)':'rgba(0,0,0,0.8)',
+        outline:'none', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
+        fontFamily:'var(--font-sans)',
+      };
+      const iconBtn = {
+        width:36, height:36, borderRadius:12, border:`1px solid ${dark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.10)'}`,
+        background: dark?'rgba(255,255,255,0.10)':'rgba(0,0,0,0.08)',
+        color: dark?'rgba(255,255,255,0.70)':'rgba(0,0,0,0.50)',
+        cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+      };
+
+      return (
+        <div
+          style={{
+            position:'absolute', inset:0, zIndex:40,
+            display:'flex',
+            alignItems: windowed ? 'flex-end' : 'center',
+            justifyContent:'center',
+            paddingBottom: windowed ? 88 : 0,
+            // Backdrop blur only for fullscreen / tablet
+            ...(!windowed ? {
+              background: dark?'rgba(0,0,0,0.45)':'rgba(255,255,255,0.30)',
+              backdropFilter:'blur(24px)', WebkitBackdropFilter:'blur(24px)',
+            } : {}),
+            animation:'fadeIn 0.25s ease',
+          }}
+          onClick={onClose}
+        >
+          <div
+            style={{
+              width: windowed ? 720 : '100%',
+              height: windowed ? 520 : '100%',
+              ...glass(dark,'panel'),
+              borderRadius: windowed ? 24 : 0,
+              padding: windowed
+                ? '24px 24px 24px'
+                : `${desktopMode ? 24 : 48}px 24px ${desktopMode ? 96 : 150}px`,
+              backdropFilter:blurXl, WebkitBackdropFilter:blurXl, boxShadow:shadow,
+              display:'flex', flexDirection:'column', overflow:'hidden',
+              transformOrigin: windowed ? 'center bottom' : 'center',
+              animation:'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Greeting / section label */}
+            {!windowed && (
+              <div style={{ textAlign:'center', marginBottom:8, marginTop:-8 }}>
+                <div style={{ fontSize:22, fontWeight:700, color:dark?'rgba(255,255,255,0.88)':'rgba(0,0,0,0.80)', letterSpacing:'-0.03em' }}>Guten Morgen, Jenning</div>
+                <div style={{ fontSize:13, color:dark?'rgba(255,255,255,0.38)':'rgba(0,0,0,0.35)', marginTop:3 }}>Montag, 22. Juni 2026</div>
+              </div>
+            )}
+            {/* Search bar */}
+            <div style={{ position:'relative', marginBottom:20, display:'flex', gap:8 }}>
+              <div style={{ flex:1, position:'relative' }}>
+                <svg style={{ position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:dark?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.3)' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input style={inputSt} placeholder="Apps suchen…" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+              </div>
+              {desktopMode && (
+                <button style={iconBtn} onClick={() => setFullscreen(!fullscreen)}>
+                  {fullscreen
+                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+                    : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+                  }
+                </button>
+              )}
+              <button style={iconBtn} onClick={onClose}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            {/* Section label — windowed */}
+            {windowed && (
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, marginTop:4 }}>
+                <span style={{ fontSize:12, fontWeight:600, color:dark?'rgba(255,255,255,0.40)':'rgba(0,0,0,0.35)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Alle Apps</span>
+                <span style={{ fontSize:11, color:dark?'rgba(255,255,255,0.28)':'rgba(0,0,0,0.25)' }}>{filtered.length} Apps</span>
+              </div>
+            )}
+            {/* App grid */}
+            {windowed ? (
+              <div style={{ flex:1, overflowY:'auto', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'12px 8px', paddingBottom:8, alignContent:'start' }}>
+                {filtered.map(app => (
+                  <AppIcon key={app.id} src={ICONS_BASE + app.icon} label={app.name} size="md" variant={iconVariant(app)} />
+                ))}
+              </div>
+            ) : (
+              <PagedGrid apps={filtered} dark={dark} tileSize={88} />
+            )}
+            {/* Footer: user + actions (windowed desktop only) */}
+            {windowed && (
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:16, borderTop:`1px solid ${dark?'rgba(255,255,255,0.10)':'rgba(0,0,0,0.08)'}` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:34,height:34,borderRadius:'50%',background:dark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.10)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:dark?'rgba(255,255,255,0.88)':'rgba(0,0,0,0.70)' }}>J</div>
+                  <span style={{ fontSize:13,fontWeight:500,color:dark?'rgba(255,255,255,0.80)':'rgba(0,0,0,0.70)' }}>Jenning Schäfer</span>
+                </div>
+                <div style={{ display:'flex',gap:6 }}>
+                  <button style={iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0"/></svg></button>
+                  <button style={iconBtn}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" x2="12" y1="2" y2="12"/></svg></button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Bottom Dock ────────────────────────────────────────────
+    function BottomDock({ dark, desktopMode, onLauncher, onOverview, vwOverride }) {
+      const DOCK_APPS = [
+        { id:'locus',  icon:'locus.svg' },
+        { id:'stash',  icon:'files.svg' },
+        { id:'tuner',  icon:'settings.svg' },
+        { id:'relay',  icon:'relay.svg' },
+        { id:'iris',   icon:'iris.svg' },
+      ];
+      const [actualVw, setActualVw] = useState(window.innerWidth);
+      useEffect(() => {
+        const h = () => setActualVw(window.innerWidth);
+        window.addEventListener('resize', h);
+        return () => window.removeEventListener('resize', h);
+      }, []);
+      const vw = vwOverride ?? actualVw;
+
+      const g = txt(dark, true);
+      const g2 = txt(dark, false);
+      const div = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)';
+      const dockBg = { ...glass(dark,'panel'), backdropFilter:blurXl, WebkitBackdropFilter:blurXl, boxShadow:shadow };
+
+      const Glyph = ({ sz=18 }) => (
+        <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={g} strokeWidth="2" strokeLinecap="round">
+          <circle cx="5" cy="9" r="2" fill={g} stroke="none"/>
+          <circle cx="11" cy="9" r="2" fill={g} stroke="none"/>
+          <circle cx="5" cy="15" r="2" fill={g} stroke="none"/>
+          <circle cx="11" cy="15" r="2" fill={g} stroke="none"/>
+          <circle cx="17" cy="6" r="4"/><line x1="19.8" y1="8.8" x2="22.5" y2="11.5"/>
+        </svg>
+      );
+      const IcBack = ({ sz=14 }) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={g} strokeWidth="2" strokeLinecap="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>;
+      const IcHome = ({ sz=14 }) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={g} strokeWidth="2" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
+      const IcSquare = ({ sz=13 }) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={g} strokeWidth="2"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>;
+
+      const navBtn = (onClick, children, r=9) => (
+        <button onClick={onClick} style={{ width:32,height:32,borderRadius:r,background:'transparent',border:'none',color:g,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'background 0.12s' }}>
+          {children}
+        </button>
+      );
+
+      const Player = ({ w=64, albumSz=24, albumR=7, fs=10, trackW=64 }) => (
+        <div style={{ display:'flex',alignItems:'center',gap:6,padding:'4px 8px',...glass(dark,'card'),borderRadius:14,backdropFilter:blur,WebkitBackdropFilter:blur }}>
+          <div style={{ width:albumSz,height:albumSz,borderRadius:albumR,background:'linear-gradient(135deg,#a855f7,#ec4899)',flexShrink:0 }} />
+          <div style={{ width:trackW,overflow:'hidden' }}>
+            <div style={{ fontSize:fs,fontWeight:600,color:g,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>Summer Vibes</div>
+            <div style={{ fontSize:fs-1,color:g2,whiteSpace:'nowrap' }}>The Artist</div>
+          </div>
+          <button style={{ width:20,height:20,borderRadius:'50%',background:dark?'rgba(255,255,255,0.9)':'rgba(0,0,0,0.75)',border:'none',color:dark?'#000':'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9 }}>▶</button>
+        </div>
+      );
+
+      const DockIcons = ({ sz=44, activeDot=false }) => (
+        <>
+          {DOCK_APPS.map(a => (
+            <div key={a.id} style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:2 }}>
+              <AppIcon src={ICONS_BASE + a.icon} size={sizeName(sz)} variant={iconVariant(a)} />
+              {a.id==='tuner' && activeDot && <div style={{ width:activeDot==='wide'?20:4,height:activeDot==='wide'?2:4,borderRadius:2,background:g,opacity:0.7 }} />}
+            </div>
+          ))}
+        </>
+      );
+
+      const DockPill = ({ sz=44 }) => (
+        <div style={{ display:'flex',alignItems:'center',gap:4,padding:'8px 12px',...dockBg,borderRadius:24 }}>
+          <DockIcons sz={sz} activeDot />
+          <div style={{ width:1,height:32,background:div,margin:'0 6px' }} />
+          <Player />
+        </div>
+      );
+
+      const bareNavDrop = { filter:'drop-shadow(0 0 4px rgba(255,255,255,0.85))' };
+
+      // ── DESKTOP ─────────────────────────────────────────────────
+      if (desktopMode) return (
+        <div style={{ height:56,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 12px',...glass(dark,'panel'),backdropFilter:blurXl,WebkitBackdropFilter:blurXl,borderTop:`1px solid ${dark?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.40)'}` }}>
+          <button onClick={onLauncher} style={{ width:36,height:36,borderRadius:9,background:'transparent',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><Glyph sz={20}/></button>
+          <div style={{ display:'flex',alignItems:'center',gap:4 }}>
+            {DOCK_APPS.map(a => (
+              <div key={a.id} style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:2 }}>
+                <AppIcon src={ICONS_BASE + a.icon} size="xs" variant={iconVariant(a)} />
+                {a.id==='tuner' && <div style={{ width:20,height:2,borderRadius:1,background:g,opacity:0.7 }} />}
+              </div>
+            ))}
+            <div style={{ width:1,height:28,background:div,margin:'0 6px' }} />
+            <div style={{ display:'flex',alignItems:'center',gap:6,padding:'4px 10px',...glass(dark,'card'),borderRadius:12,backdropFilter:blur,WebkitBackdropFilter:blur }}>
+              <div style={{ width:28,height:28,borderRadius:8,background:'linear-gradient(135deg,#a855f7,#ec4899)',flexShrink:0 }} />
+              <div style={{ width:90 }}>
+                <div style={{ fontSize:11,fontWeight:600,color:g,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>Summer Vibes</div>
+                <div style={{ fontSize:10,color:g2 }}>The Artist</div>
+              </div>
+              <button style={{ width:22,height:22,borderRadius:'50%',background:dark?'rgba(255,255,255,0.9)':'rgba(0,0,0,0.75)',border:'none',color:dark?'#000':'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10 }}>▶</button>
+              <button style={{ width:22,height:22,borderRadius:'50%',background:'transparent',border:'none',color:g2,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10 }}>⏭</button>
+            </div>
+          </div>
+          <div style={{ display:'flex',alignItems:'center',gap:2 }}>
+            {navBtn(undefined, <IcBack sz={14}/>)}
+            {navBtn(onLauncher, <IcHome sz={14}/>)}
+            {navBtn(onOverview, <IcSquare sz={13}/>)}
+          </div>
+        </div>
+      );
+
+      // ── PHONE (< 640px) ──────────────────────────────────────────
+      if (vw < 640) return (
+        <div style={{ display:'flex',flexDirection:'column',gap:8,padding:'0 16px 12px' }}>
+          <div style={{ display:'flex',alignItems:'center',gap:8,padding:'8px 12px',...dockBg,borderRadius:24 }}>
+            {DOCK_APPS.map(a => (
+              <div key={a.id} style={{ flex:1,display:'flex',justifyContent:'center' }}>
+                <AppIcon src={ICONS_BASE + a.icon} size="sm" variant={iconVariant(a)} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-around',...bareNavDrop }}>
+            {navBtn(undefined,    <IcBack sz={16}/>, '50%')}
+            {navBtn(onLauncher,   <Glyph sz={20}/>,  '50%')}
+            {navBtn(onLauncher,   <IcHome sz={16}/>, '50%')}
+            {navBtn(onOverview,   <IcSquare sz={14}/>,'50%')}
+          </div>
+        </div>
+      );
+
+      // ── TABLET PORTRAIT (640–1024px) ─────────────────────────────
+      if (vw < 1024) return (
+        <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:'0 24px 12px' }}>
+          <div style={{ display:'flex',alignItems:'stretch',justifyContent:'center',gap:8 }}>
+            <button onClick={onLauncher} style={{ aspectRatio:'1 / 1',borderRadius:'50%',...dockBg,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',padding:'0 12px' }}>
+              <Glyph sz={22}/>
+            </button>
+            <DockPill />
+          </div>
+          <div style={{ display:'flex',alignItems:'center',gap:24,...bareNavDrop }}>
+            {navBtn(undefined,  <IcBack sz={16}/>, '50%')}
+            {navBtn(onLauncher, <IcHome sz={16}/>, '50%')}
+            {navBtn(onOverview, <IcSquare sz={14}/>,'50%')}
+          </div>
+        </div>
+      );
+
+      // ── LANDSCAPE (>= 1024px) ────────────────────────────────────
+      return (
+        <div style={{ display:'flex',alignItems:'flex-end',justifyContent:'space-between',padding:'0 24px 12px' }}>
+          <button onClick={onLauncher} style={{ width:42,height:42,borderRadius:'50%',...dockBg,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}>
+            <Glyph sz={18}/>
+          </button>
+          <DockPill />
+          <div style={{ display:'flex',alignItems:'center',gap:2,padding:'6px 10px',...glass(dark,'panel'),borderRadius:24,backdropFilter:blur,WebkitBackdropFilter:blur }}>
+            {navBtn(undefined,  <IcBack sz={14}/>)}
+            {navBtn(onLauncher, <IcHome sz={14}/>)}
+            {navBtn(onOverview, <IcSquare sz={13}/>)}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Main App ───────────────────────────────────────────────
+    function App() {
+      const [dark, setDark] = useState(true);
+      const [desktopMode, setDesktopMode] = useState(false);
+      const [showLauncher, setShowLauncher] = useState(false);
+      const [showCC, setShowCC] = useState(false);
+      const [showNotif, setShowNotif] = useState(false);
+      const [showCalendar, setShowCalendar] = useState(false);
+      const [showWifi, setShowWifi] = useState(false);
+      const [showSound, setShowSound] = useState(false);
+      const [showBattery, setShowBattery] = useState(false);
+      const closeAll = () => { setShowCC(false); setShowNotif(false); setShowCalendar(false); setShowWifi(false); setShowSound(false); setShowBattery(false); setShowLauncher(false); };
+      const openPanel = (cur, set) => { closeAll(); if (!cur) set(true); };
+      const [vwPreset, setVwPreset] = useState(null); // null=auto, 390=phone, 768=tablet, 1100=landscape
+
+      const presets = [
+        { label:'Auto', icon:'⬜', vw:null },
+        { label:'Phone', icon:<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>, vw:390 },
+        { label:'Tablet', icon:<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M12 18h.01"/></svg>, vw:768 },
+        { label:'Landscape', icon:<svg width="14" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M12 18h.01"/></svg>, vw:1100 },
+      ];
+
+      return (
+        <div className={dark ? 'dark' : ''} style={{ width:'100%',height:'100%',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative' }}>
+          {/* Device picker */}
+          <div style={{ position:'absolute',top:44,right:8,zIndex:100,display:'flex',gap:4,padding:'4px 8px',borderRadius:12,background:'rgba(0,0,0,0.55)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)' }}>
+            {presets.map(p => (
+              <button key={p.label} onClick={() => setVwPreset(p.vw)} title={p.label} style={{ padding:'3px 7px',borderRadius:8,border:'none',cursor:'pointer',fontSize:10,fontWeight:600,fontFamily:'var(--font-sans)',display:'flex',alignItems:'center',gap:4,background:vwPreset===p.vw?'rgba(255,255,255,0.22)':'transparent',color:vwPreset===p.vw?'#fff':'rgba(255,255,255,0.50)',transition:'all 0.15s' }}>
+                {typeof p.icon==='string'?null:p.icon}{p.label}
+              </button>
+            ))}
+          </div>
+          {/* Wallpaper */}
+          <div style={{ position:'absolute',inset:0,backgroundImage:`url('${dark?DARK_WALL:LIGHT_WALL}')`,backgroundSize:'cover',backgroundPosition:'center' }} />
+          <div style={{ position:'absolute',inset:0,background:dark?'rgba(0,0,0,0.35)':'rgba(255,255,255,0.20)' }} />
+
+          {/* Top bar */}
+          <div style={{ position:'relative',zIndex:50 }}>
+            <TopBar dark={dark}
+              onControlCenter={() => openPanel(showCC, setShowCC)}
+              onNotif={() => openPanel(showNotif, setShowNotif)}
+              onCalendar={() => openPanel(showCalendar, setShowCalendar)}
+              onWifi={() => openPanel(showWifi, setShowWifi)}
+              onSound={() => openPanel(showSound, setShowSound)}
+              onBattery={() => openPanel(showBattery, setShowBattery)}
+              showCC={showCC} showNotif={showNotif} showCalendar={showCalendar}
+              showWifi={showWifi} showSound={showSound} showBattery={showBattery}
+              desktopMode={desktopMode} vwOverride={vwPreset} />
+          </div>
+
+          {/* Desktop / home icons — vertical column in desktop mode, grid in tablet */}
+          <div style={{ flex:1,position:'relative',zIndex:10,overflow:'hidden',padding:desktopMode?20:28 }}>
+            <div style={ desktopMode
+              ? { display:'flex', flexDirection:'column', flexWrap:'wrap', alignContent:'flex-start', height:'100%', gap:'22px 34px' }
+              : { display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'24px 16px', placeItems:'center', alignContent:'start' } }>
+              {DESKTOP_ICONS.map((ic,i) => (
+                <AppIcon key={i} src={ICONS_BASE + ic.icon} label={ic.label} size="md" variant={iconVariant(ic)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom dock */}
+          <div style={{ position:'relative',zIndex:50 }}>
+            <BottomDock dark={dark} desktopMode={desktopMode} vwOverride={vwPreset} onLauncher={() => openPanel(showLauncher, setShowLauncher)} onOverview={() => closeAll()} />
+          </div>
+
+          {/* Overlays */}
+          {showCC && <ControlCenter dark={dark} onClose={() => setShowCC(false)} onToggleDark={() => setDark(!dark)} desktopMode={desktopMode} onToggleDesktop={() => setDesktopMode(d => !d)} />}
+          {showNotif && <NotificationCenter dark={dark} onClose={() => setShowNotif(false)} />}
+          {showCalendar && <CalendarPanel dark={dark} onClose={() => setShowCalendar(false)} />}
+          {desktopMode && showWifi && <WifiPanel dark={dark} onClose={() => setShowWifi(false)} />}
+          {desktopMode && showSound && <SoundPanel dark={dark} onClose={() => setShowSound(false)} />}
+          {desktopMode && showBattery && <BatteryPanel dark={dark} onClose={() => setShowBattery(false)} />}
+          {showLauncher && <AppLauncher dark={dark} desktopMode={desktopMode} onClose={() => setShowLauncher(false)} />}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -39,6 +39,36 @@ The folder names are **convention for humans** (and for CLI generators/lints);
 the compiler merges every `ui/**.nx` regardless of subfolder. The ONE
 exception with semantics is `ui/platform/<profile>/` (overrides, below).
 
+## Enterprise layout (the shipped-apps convention)
+
+The apps in `userspace/apps/` follow the full convention — nested component
+domains, one store per domain, a README per app (see `desktop-shell`,
+`settings`, `search`, `chat` as living examples):
+
+```
+userspace/apps/<app>/
+  README.md                     # purpose, structure, store/route overview
+  manifest.toml                 # identity, bundle_type, payload_kind, caps
+  i18n/en.json
+  ui/
+    pages/                      # routed views + Routes.nx (the entry)
+    components/<domain>/        # Component declarations, nested by domain
+      topbar/  dock/  tiles/    #   (desktop-shell)
+      settings/                 #   (settings)
+    composables/<domain>.store.nx  # ONE store per domain, never a god-store
+    platform/<profile>/pages/   # Page overrides only (desktop/, phone/)
+```
+
+- **Components** carry `props:` and stay presentational; interaction handlers
+  (`on Tap -> …`) attach at the USE SITE — wrap the instance in a `Stack` to
+  carry the handler (handlers bind to nodes, not component instances).
+- **Stores** own state + events + reducers + `@effect`s for one domain; pages
+  bind via `$state.<field>` (field names are program-global — keep them
+  unique across stores).
+- **Tests** live in `tests/dsl_apps_conformance/` — one file per app,
+  compiling the REAL project dir and driving the core interaction against a
+  fake service host.
+
 Optional:
 
 - `ui/services/**.nx` — effect-side service adapters (no reducers; v0.2b+)

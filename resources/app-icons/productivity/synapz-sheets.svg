@@ -1,0 +1,24 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5BE0A0"/>
+      <stop offset="1" stop-color="#007A50"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <rect x="220" y="240" width="584" height="544" rx="48" ry="48" fill="#FFFFFF"/>
+    <g stroke="#007A50" stroke-width="6" stroke-opacity="0.35" fill="none">
+      <line x1="366" y1="290" x2="366" y2="734"/>
+      <line x1="512" y1="290" x2="512" y2="734"/>
+      <line x1="658" y1="290" x2="658" y2="734"/>
+      <line x1="270" y1="376" x2="754" y2="376"/>
+      <line x1="270" y1="512" x2="754" y2="512"/>
+      <line x1="270" y1="648" x2="754" y2="648"/>
+    </g>
+    <rect x="220" y="240" width="584" height="92" rx="48" ry="48" fill="#5BE0A0" opacity="0.45"/>
+  </g>
+</svg>

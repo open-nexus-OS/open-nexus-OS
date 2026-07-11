@@ -1,0 +1,18 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The round floating launcher button (handoff landscape dock: panel glass,
+// bare glyph). Tap handler attaches at the use site (→ /launcher).
+
+Component LauncherButton {
+    Stack {
+        Icon { symbol: plus }
+            .fg(onSurface)
+    }
+    .width(44)
+    .height(44)
+    .material(panel)
+    .rounded(full)
+    .align(center)
+    .justify(center)
+}

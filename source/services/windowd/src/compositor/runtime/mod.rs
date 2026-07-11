@@ -409,6 +409,11 @@ pub(crate) struct DisplayServerRuntime {
     /// work from input rate, so a flood (hidrawd ~800/s) can't back up the cursor
     /// command stream + hit-testing ("mouse vanished then everything caught up").
     pending_input: Option<VisibleState>,
+    /// The DESKTOP surface's material-tagged glass regions (R1 seam): each
+    /// composites as a frosted layer over the wallpaper in the Desktop arm.
+    desktop_layers: [nexus_display_proto::client_surface::LayerDesc;
+        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+    desktop_layer_count: usize,
     /// Hover routing state (RFC-0067 R2): which surface currently receives
     /// frame-aligned pointer MOVEs (`HOVER_ROUTE_*`). On a target change the
     /// previous surface gets an `INPUT_KIND_LEAVE` so its hover wash clears.
@@ -715,6 +720,9 @@ impl DisplayServerRuntime {
             abilitymgr_client: None,
             atlas_alloc: atlas,
             pending_input: None,
+            desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();
+                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
+            desktop_layer_count: 0,
             hover_route: HOVER_ROUTE_NONE,
             hover_last: (0, 0),
             hover_marker_emitted: false,

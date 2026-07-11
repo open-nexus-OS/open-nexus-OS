@@ -13,7 +13,7 @@ use nexus_layout_types::{
     Align, CornerRadius, Direction, EdgeInsets, FlexItem, FxPx, GlassLevel, Justify, LayoutNode,
     Overflow, Spacer, Stack, SurfaceMaterial, TextContent, TextNode, TextStyle, VisualStyle,
 };
-use nexus_theme_tokens::{ColorToken, Tokens, TypographyToken};
+use nexus_theme_tokens::{ColorToken, MaterialToken, Tokens, TypographyToken};
 
 /// Spacing scale: one step = 4px (matches the theme spacing scale).
 #[must_use]
@@ -32,6 +32,7 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "onAccent" => ColorToken::OnAccent,
         "border" => ColorToken::Border,
         "background" => ColorToken::Background,
+        "islandBg" => ColorToken::IslandBg,
         "primary" => ColorToken::Primary,
         "onPrimary" => ColorToken::OnPrimary,
         "danger" => ColorToken::Danger,
@@ -68,6 +69,17 @@ pub fn radius(name: &str) -> FxPx {
 pub struct Mods {
     pub padding: EdgeInsets,
     pub gap: FxPx,
+    /// Fixed box sizes in raw px (`.width(320)`); `full` is a no-op today
+    /// (cross-axis children already stretch by default).
+    pub width: Option<FxPx>,
+    pub height: Option<FxPx>,
+    pub min_width: Option<FxPx>,
+    pub max_width: Option<FxPx>,
+    pub min_height: Option<FxPx>,
+    pub max_height: Option<FxPx>,
+    pub grow: u32,
+    pub shrink: Option<u32>,
+    pub wrap: bool,
     pub direction: Option<Direction>,
     pub align: Option<Align>,
     pub justify: Option<Justify>,
@@ -87,6 +99,15 @@ impl Default for Mods {
         Self {
             padding: EdgeInsets::zero(),
             gap: FxPx::ZERO,
+            width: None,
+            height: None,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            grow: 0,
+            shrink: None,
+            wrap: false,
             direction: None,
             align: None,
             justify: None,
@@ -133,12 +154,38 @@ impl Mods {
         }
         if let Some(material) = self.material {
             visual.material = material;
+            // Glass without an explicit `.bg()` paints the design-system
+            // material TINT (tokens.glass) — the compositor blurs the
+            // backdrop behind the region; tint + blur = the liquid-glass
+            // look, one token SSOT (no ad-hoc rgba in pages).
+            if visual.background.is_none() {
+                if let nexus_layout_types::SurfaceMaterial::Glass(level) = material {
+                    use nexus_layout_types::GlassLevel;
+                    let token = match level {
+                        GlassLevel::Panel => MaterialToken::Panel,
+                        GlassLevel::Card => MaterialToken::Card,
+                        GlassLevel::Subtle => MaterialToken::Subtle,
+                        GlassLevel::Window => MaterialToken::Window,
+                    };
+                    visual.background = Some(tokens.glass(token).tint);
+                }
+            }
         }
         visual
     }
 }
 
 fn plain_stack(mods: &Mods, tokens: &dyn Tokens, children: alloc::vec::Vec<LayoutNode>) -> LayoutNode {
+    // `.width(px)`/`.height(px)` pin the box (min == max); explicit min/max
+    // win over the pin so `.width(320).maxWidth(400)` still means something.
+    let min_w = mods.min_width.or(mods.width);
+    let max_w = mods.max_width.or(mods.width);
+    let min_h = mods.min_height.or(mods.height);
+    let max_h = mods.max_height.or(mods.height);
+    let mut item = FlexItem { flex_grow: mods.grow, ..FlexItem::default() };
+    if let Some(shrink) = mods.shrink {
+        item.flex_shrink = shrink;
+    }
     LayoutNode::Stack(
         Stack {
             id: None,
@@ -148,12 +195,12 @@ fn plain_stack(mods: &Mods, tokens: &dyn Tokens, children: alloc::vec::Vec<Layou
             align: mods.align.unwrap_or(Align::Stretch),
             justify: mods.justify.unwrap_or(Justify::Start),
             overflow: Overflow::Visible,
-            flex_wrap: false,
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            item: FlexItem::default(),
+            flex_wrap: mods.wrap,
+            min_width: min_w,
+            max_width: max_w,
+            min_height: min_h,
+            max_height: max_h,
+            item,
         },
         mods.visual(tokens),
         children,
@@ -363,6 +410,52 @@ pub fn build_widget(
                 sk = sk.circle();
             }
             sk.build(tokens)
+        }
+        "ListItem" => {
+            // Kit promotion: the design-system ListItem (settings rows,
+            // search results) — leading/trailing stay DSL children follow-ups;
+            // title/subtitle/chevron/destructive map 1:1.
+            use nexus_widget_list_item::ListItem;
+            let title = prop("title").map(value_text).unwrap_or_default();
+            let mut li = ListItem::new(title);
+            if let Some(sub) = prop("subtitle").map(value_text) {
+                li = li.subtitle(sub);
+            }
+            if matches!(prop("showChevron"), Some(Value::Bool(true))) {
+                li = li.show_chevron(true);
+            }
+            if matches!(prop("destructive"), Some(Value::Bool(true))) {
+                li = li.destructive(true);
+            }
+            li.build(tokens)
+        }
+        "Toolbar" => {
+            use nexus_widget_toolbar::Toolbar;
+            let mut tb = Toolbar::new();
+            if let Some(title) = prop("title").map(value_text) {
+                tb = tb.title(title);
+            }
+            if let Some(sub) = prop("subtitle").map(value_text) {
+                tb = tb.subtitle(sub);
+            }
+            if matches!(prop("centerTitle"), Some(Value::Bool(true))) {
+                tb = tb.center_title(true);
+            }
+            tb.build(tokens)
+        }
+        "SearchBar" => {
+            use nexus_widget_search_bar::SearchBar;
+            let mut sb = SearchBar::new();
+            if let Some(value) = prop("value").map(value_text) {
+                sb = sb.value(value);
+            }
+            if let Some(ph) = prop("placeholder").map(value_text) {
+                sb = sb.placeholder(ph);
+            }
+            if mods.disabled {
+                sb = sb.state(nexus_style::InteractionState::Disabled);
+            }
+            sb.build(tokens)
         }
         "Text" => {
             let value = prop("value").map(value_text).unwrap_or_default();

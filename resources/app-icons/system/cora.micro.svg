@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="12" y1="0" x2="12" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6B3FAA"/><stop offset="1" stop-color="#3A1F66"/></linearGradient></defs>
+  <g data-layer="background"><rect width="24" height="24" rx="5.4" fill="url(#bg)"/></g>
+  <g data-layer="symbol"><defs><radialGradient id="cora-orb" cx="12" cy="11" r="8" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.3" stop-color="#FFB5E5"/><stop offset="0.65" stop-color="#C566FF"/><stop offset="1" stop-color="#FF5BB3"/></radialGradient></defs><circle cx="12" cy="12" r="7.5" fill="url(#cora-orb)" opacity="0.35"/><circle cx="12" cy="12" r="5.2" fill="url(#cora-orb)" opacity="0.7"/><circle cx="12" cy="12" r="3.4" fill="url(#cora-orb)"/></g>
+</svg>

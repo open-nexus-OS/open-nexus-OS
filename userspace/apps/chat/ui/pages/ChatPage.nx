@@ -1,0 +1,38 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Chat (design-system look): toolbar header, transcript bubbles, composer
+// row. The visible history is bounded by the window height until DSL
+// scrolling lands; side-aligned mine/theirs bubbles follow with record
+// literals (documented gaps).
+
+Page ChatPage {
+    Stack {
+        Toolbar { title: @t("chat.title"), subtitle: @t("chat.subtitle") }
+        Stack {
+            List($state.messages) { msg in
+                Stack {
+                    Text(msg).textSize(sm).fg(onSurface)
+                }
+                .bg(surfaceVariant)
+                .rounded(lg)
+                .padding(2)
+                .key(msg)
+            }
+            .gap(2)
+        }
+        .grow(1)
+        .padding(3)
+        Stack {
+            TextField { label: @t("chat.message"), value: $state.draft }
+            Button { label: @t("chat.send") }
+            on Tap -> dispatch(Send)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .bg(surface)
+    }
+    .gap(0)
+}

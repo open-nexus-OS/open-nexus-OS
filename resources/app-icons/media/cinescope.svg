@@ -1,0 +1,31 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4B5B7A"/>
+      <stop offset="1" stop-color="#1A2540"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <rect x="200" y="240" width="624" height="544" rx="32" fill="#FFFFFF"/>
+    <g fill="#1A2540">
+      <rect x="240" y="280" width="36" height="48" rx="6"/>
+      <rect x="240" y="368" width="36" height="48" rx="6"/>
+      <rect x="240" y="456" width="36" height="48" rx="6"/>
+      <rect x="240" y="544" width="36" height="48" rx="6"/>
+      <rect x="240" y="632" width="36" height="48" rx="6"/>
+      <rect x="240" y="708" width="36" height="48" rx="6"/>
+      <rect x="748" y="280" width="36" height="48" rx="6"/>
+      <rect x="748" y="368" width="36" height="48" rx="6"/>
+      <rect x="748" y="456" width="36" height="48" rx="6"/>
+      <rect x="748" y="544" width="36" height="48" rx="6"/>
+      <rect x="748" y="632" width="36" height="48" rx="6"/>
+      <rect x="748" y="708" width="36" height="48" rx="6"/>
+    </g>
+    <line x1="300" y1="421" x2="724" y2="421" stroke="#4B5B7A" stroke-width="6"/>
+    <line x1="300" y1="603" x2="724" y2="603" stroke="#4B5B7A" stroke-width="6"/>
+  </g>
+</svg>

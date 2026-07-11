@@ -367,6 +367,12 @@ fn dispatch_client_frame(
         // Data-only frame (no moved cap, no reply); the next present composites.
         runtime.handle_surface_layers(frame);
     } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_CONTROL)
+    {
+        // Presentation control (theme / shell profile) from a shell surface.
+        // Data-only frame; windowd applies live + persists via settingsd.
+        runtime.handle_surface_control(frame);
+    } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content

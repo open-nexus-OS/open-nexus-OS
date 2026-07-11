@@ -1,0 +1,29 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF7B7B"/>
+      <stop offset="1" stop-color="#D70015"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <rect x="220" y="260" width="584" height="544" rx="48" ry="48" fill="#FFFFFF"/>
+    <path d="M 220 308 Q 220 260 268 260 L 756 260 Q 804 260 804 308 L 804 376 L 220 376 Z" fill="#D70015"/>
+    <rect x="320" y="220" width="20" height="80" rx="10" fill="#FF7B7B"/>
+    <rect x="684" y="220" width="20" height="80" rx="10" fill="#FF7B7B"/>
+    <g fill="#FF7B7B" opacity="0.7">
+      <circle cx="290" cy="450" r="14"/><circle cx="370" cy="450" r="14"/><circle cx="450" cy="450" r="14"/>
+      <circle cx="530" cy="450" r="14"/><circle cx="610" cy="450" r="14"/><circle cx="690" cy="450" r="14"/>
+      <circle cx="290" cy="540" r="14"/><circle cx="370" cy="540" r="14"/><circle cx="450" cy="540" r="14"/>
+      <circle cx="610" cy="540" r="14"/><circle cx="690" cy="540" r="14"/>
+      <circle cx="290" cy="630" r="14"/><circle cx="370" cy="630" r="14"/><circle cx="450" cy="630" r="14"/>
+      <circle cx="530" cy="630" r="14"/><circle cx="610" cy="630" r="14"/><circle cx="690" cy="630" r="14"/>
+      <circle cx="290" cy="720" r="14"/><circle cx="370" cy="720" r="14"/><circle cx="450" cy="720" r="14"/>
+      <circle cx="530" cy="720" r="14"/>
+    </g>
+    <circle cx="530" cy="540" r="26" fill="#D70015"/>
+  </g>
+</svg>

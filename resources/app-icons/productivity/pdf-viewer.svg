@@ -1,0 +1,24 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF6B6B"/>
+      <stop offset="1" stop-color="#B91C1C"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <path d="M 280 200 L 660 200 L 760 300 L 760 824 Q 760 844 740 844 L 280 844 Q 260 844 260 824 L 260 220 Q 260 200 280 200 Z" fill="#FFFFFF"/>
+    <path d="M 660 200 L 660 300 L 760 300 Z" fill="#FFD5D5"/>
+    <rect x="320" y="340" width="220" height="56" rx="10" fill="#B91C1C"/>
+    <g fill="#FF6B6B" opacity="0.55">
+      <rect x="320" y="440" width="380" height="24" rx="12"/>
+      <rect x="320" y="500" width="380" height="24" rx="12"/>
+      <rect x="320" y="560" width="380" height="24" rx="12"/>
+      <rect x="320" y="620" width="380" height="24" rx="12"/>
+      <rect x="320" y="680" width="260" height="24" rx="12"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,86 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Desktop override (handoff desktop mode): full-width TASKBAR 56px at the
+// bottom (launcher glyph · app icons inline `xs` · nav right), top bar with
+// SEPARATE status pills, top-left column icon field. Same store/events —
+// ONE `.nxir`; the compositor's profile push selects this arm.
+
+Page ShellPage {
+    Stack {
+        Stack {
+            TopBarPill { label: @t("shell.clock") }
+            TopBarPill { label: @t("shell.product") }
+            Spacer
+            Island { }
+            Spacer
+            TopBarPill { label: @t("shell.wifi") }
+            TopBarPill { label: @t("shell.sound") }
+            TopBarPill { label: @t("shell.battery") }
+            Stack {
+                TopBarPill { label: @t("shell.status") }
+            }
+            on Tap -> navigate("/control")
+        }
+        .direction(row)
+        .height(36)
+        .align(center)
+        .paddingX(2)
+        .gap(1)
+        .material(panel)
+        Stack {
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
+                List($state.apps) { app in
+                    Stack {
+                        AppTile { label: app.label }
+                    }
+                    .key(app.id)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .direction(row)
+                .wrap(true)
+                .gap(6)
+            }
+        }
+        .grow(1)
+        .padding(5)
+        Stack {
+            Stack {
+                LauncherButton { }
+            }
+            on Tap -> navigate("/launcher")
+            Stack {
+                List($state.apps) { app in
+                    Stack {
+                        DockTile { label: app.label }
+                    }
+                    .key(app.id)
+                    on Tap -> dispatch(Launch(app.id))
+                }
+                .direction(row)
+                .gap(1)
+            }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            Spacer
+            Stack {
+                TopBarPill { label: @t("shell.navBack") }
+            }
+            on Tap -> navigate("/")
+            Stack {
+                TopBarPill { label: @t("shell.navHome") }
+            }
+            on Tap -> navigate("/")
+        }
+        .direction(row)
+        .height(56)
+        .align(center)
+        .paddingX(2)
+        .gap(2)
+        .material(panel)
+    }
+    .gap(0)
+}

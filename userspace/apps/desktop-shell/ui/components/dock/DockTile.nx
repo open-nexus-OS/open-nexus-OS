@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One dock app icon (handoff dock pill entry: 32×32 tile, radius 9 ≈ md).
+
+Component DockTile {
+    props: {
+        label: Str,
+    }
+    Stack {
+        Icon { symbol: star }
+            .fg(onAccent)
+    }
+    .width(32)
+    .height(32)
+    .bg(accent)
+    .rounded(md)
+    .align(center)
+    .justify(center)
+}

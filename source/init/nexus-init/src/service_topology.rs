@@ -181,6 +181,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::Abilitymgr), // svc.ability.* (launcher e2e)
     (ServiceId::Execd, ServiceId::Bundlemgrd), // svc.bundle.* (app enumeration)
     (ServiceId::Execd, ServiceId::Sessiond),   // svc.session.* (DSL greeter login)
+    (ServiceId::Execd, ServiceId::Settingsd),  // svc.settings.* (DSL settings app)
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
     (ServiceId::Windowd, ServiceId::Settingsd),     // theme GET/SET persistence (TASK-0072 P10)

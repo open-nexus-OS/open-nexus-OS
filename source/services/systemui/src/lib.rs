@@ -53,7 +53,8 @@ pub use profile::{
 };
 pub use registry::{
     available_shells, next_product_id, product_by_id, profile_by_id, resolve_default,
-    resolve_product, shell_by_id, shell_config_default, shell_config_next, summary, switch_shell,
+    resolve_product, shell_by_id, shell_config_default, shell_config_for, shell_config_next, summary,
+    switch_shell,
     DeviceEnvironment, ResolvedConfig, ShellConfig, DEFAULT_PRODUCT_ID, PRODUCTS, PROFILES, SHELLS,
 };
 pub use shell::{
@@ -309,15 +310,21 @@ settings_entry = false
     }
 
     #[test]
-    fn default_product_resolves_to_desktop() {
+    fn boot_default_is_the_tablet_product() {
+        // The boot default = TABLET (touch shell, the handoff's default
+        // posture); the `default` product keeps the desktop profile for the
+        // Control-Center Desktop/Tablet toggle.
         let cfg = resolve_default().expect("default product resolves");
-        assert_eq!(cfg.product.id, "default");
-        assert_eq!(cfg.profile.id, "desktop");
-        assert_eq!(cfg.shell.id, "desktop");
-        assert_eq!(cfg.env.profile, "desktop");
-        assert_eq!(cfg.env.shell_mode, "desktop");
-        assert_eq!(cfg.env.shell_kind, "desktop");
+        assert_eq!(cfg.product.id, "tablet");
+        assert_eq!(cfg.profile.id, "tablet");
+        assert_eq!(cfg.shell.id, "tablet");
+        assert_eq!(cfg.env.profile, "tablet");
         assert!(!cfg.env.is_kiosk());
+
+        let desktop = resolve_product("default").expect("desktop product resolves");
+        assert_eq!(desktop.profile.id, "desktop");
+        assert_eq!(desktop.shell.id, "desktop");
+        assert_eq!(desktop.env.shell_mode, "desktop");
     }
 
     #[test]
@@ -343,13 +350,18 @@ settings_entry = false
 
     #[test]
     fn shell_config_default_is_desktop_chrome() {
-        // The compositor-facing config for the boot default: desktop posture →
-        // desktop chrome on, not locked, 1280x800.
+        // The compositor-facing config for the boot default: TABLET posture →
+        // touch shell without desktop chrome, not locked, 1280x800.
         let sc = super::shell_config_default();
-        assert_eq!(sc.shell_kind, "desktop");
-        assert!(sc.desktop_chrome);
+        assert_eq!(sc.shell_kind, "tablet");
+        assert!(!sc.desktop_chrome);
         assert!(!sc.locked);
         assert_eq!((sc.width, sc.height), (1280, 800));
+
+        // The desktop posture stays reachable as an explicit product.
+        let dc = super::shell_config_for("default");
+        assert_eq!(dc.shell_kind, "desktop");
+        assert!(dc.desktop_chrome);
 
         // A kiosk product flattens to a locked, non-desktop-chrome config.
         let kiosk = super::ShellConfig::from_resolved(&resolve_product("kiosk").unwrap());
@@ -397,7 +409,7 @@ settings_entry = false
         assert_eq!(switch_shell(&tablet, "nope"), Err(SystemUiError::UnsupportedShell));
 
         // Pure desktop profile allows only the desktop shell → cannot switch.
-        let desktop = resolve_default().expect("default");
+        let desktop = resolve_product("default").expect("default");
         assert_eq!(available_shells(&desktop), vec!["desktop".to_string()]);
         assert_eq!(switch_shell(&desktop, "tablet"), Err(SystemUiError::UnsupportedShell));
     }

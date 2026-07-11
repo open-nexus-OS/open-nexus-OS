@@ -1,0 +1,9 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="12" y1="0" x2="12" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7B5FC8"/><stop offset="1" stop-color="#2A1A66"/></linearGradient></defs>
+  <g data-layer="background"><rect width="24" height="24" rx="5.4" fill="url(#bg)"/></g>
+  <g data-layer="symbol">
+    <rect x="3.5" y="6" width="11" height="14" rx="1.2" fill="#FFB85B" transform="rotate(-10 9 13)"/>
+    <rect x="6.5" y="5.5" width="11" height="14" rx="1.2" fill="#5BE0A0"/>
+    <rect x="9.5" y="6" width="11" height="14" rx="1.2" fill="#5BC4FF" transform="rotate(10 15 13)"/>
+  </g>
+</svg>

@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="12" y1="0" x2="12" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF6B8A"/><stop offset="1" stop-color="#C81E5B"/></linearGradient></defs>
+  <g data-layer="background"><rect width="24" height="24" rx="5.4" fill="url(#bg)"/></g>
+  <g data-layer="symbol"><ellipse cx="8" cy="16.5" rx="2" ry="1.5" fill="#FFFFFF" transform="rotate(-15 8 16.5)"/><ellipse cx="15.5" cy="16.5" rx="2" ry="1.5" fill="#FFFFFF" transform="rotate(-15 15.5 16.5)"/><rect x="9.3" y="8" width="0.8" height="9" rx="0.2" fill="#FFFFFF"/><rect x="16.8" y="8" width="0.8" height="9" rx="0.2" fill="#FFFFFF"/><rect x="9.3" y="8" width="8.3" height="1.3" rx="0.3" fill="#FFFFFF"/></g>
+</svg>

@@ -35,30 +35,19 @@ Page LauncherPage {
             } else {
                 List($state.apps) { app in
                     Stack {
-                        Stack {
-                            Icon { symbol: star }
-                                .fg(onAccent)
-                        }
-                        .bg(accent)
-                        .rounded(lg)
-                        .padding(5)
-                        Text(app.label).textSize(sm).fg(onSurface)
+                        AppTile { label: app.label }
                     }
-                    .align(center)
-                    .gap(2)
-                    .padding(2)
-                    .rounded(lg)
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .direction(row)
                 .wrap(true)
-                .gap(4)
+                .gap(6)
+                .justify(center)
             }
             Spacer
         }
         .grow(1)
-        .align(center)
         .padding(4)
     }
     .gap(0)

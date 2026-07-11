@@ -36,6 +36,11 @@ const dslSurface :List(DslMethod) = [
   (service = "library", method = "get", args = ["Str"], result = "Str"),
   (service = "library", method = "list", args = [], result = "List<Str>"),
   (service = "search", method = "query", args = ["Str"], result = "List<Str>"),
+  # -- system settings (settingsd typed registry; presentation keys
+  #    `ui.theme.mode`/`ui.shell.mode` route through windowd — the single
+  #    presentation authority — and come back as theme/profile pushes)
+  (service = "settings", method = "get", args = ["Str"], result = "Str"),
+  (service = "settings", method = "set", args = ["Str", "Str"], result = "Bool"),
   # -- session authority (sessiond, TASK-0065B contract; the DSL greeter
   #    renders and dispatches — sessiond DECIDES (authority stays there))
   (service = "session", method = "login", args = ["Str", "Str"], result = "Bool"),

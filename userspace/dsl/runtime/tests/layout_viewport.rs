@@ -380,6 +380,9 @@ fn design_kit_widgets_mount_through_the_dsl() {
         Toast { message: "Gespeichert" }
         Banner { title: "Status", message: "Synchronisiert" }
         Skeleton
+        ListItem { title: "WLAN", subtitle: "Verbunden", showChevron: true }
+        Toolbar { title: "Einstellungen" }
+        SearchBar { value: "", placeholder: "Suchen" }
     }
 }
 "#,
@@ -509,41 +512,25 @@ fn shell_app_grid_tiles_launch_and_hover() {
         );
     }
 
-    // Tap rounds: a tap may navigate (Apps → /launcher) or launch; after any
-    // visible damage the scene re-emitted, so re-layout + a fresh handler
-    // list (the greeter-test discipline). A Launch must land within bounds.
-    let mut boxes = boxes;
-    'outer: for _round in 0..6 {
-        // Deepest-first: grid tiles have larger pre-order ids than the nav
-        // buttons (Apps/Back), so this reaches a Launch without ping-ponging
-        // between the routes.
-        let mut handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
-        handler_ids.sort_unstable_by(|a, b| b.cmp(a));
-        for id in handler_ids {
-            let Some(b) = boxes.iter().find(|b| b.node_id == id) else { continue };
-            if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
-                continue;
-            }
-            let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
-            let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
-            let damage = view
-                .pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy)
-                .expect("pointer");
-            if !host.launched.is_empty() {
-                break 'outer;
-            }
-            if matches!(damage, Some(d) if d != nexus_dsl_runtime::Damage::None) {
-                boxes = engine
-                    .layout_with_viewport(
-                        view.scene(),
-                        nexus_layout_types::FxPx::new(1280),
-                        Some(nexus_layout_types::FxPx::new(800)),
-                        &nexus_text_baked::measure_text::BakedTextMeasure,
-                    )
-                    .expect("re-lays out")
-                    .boxes;
-                continue 'outer;
-            }
+    // Tap the HOME-GRID tiles: the grid sits between the top bar and the
+    // dock, so a tap-handler box centred in that band IS a tile (pills are
+    // y<60, the dock y>650). No navigation involved — a tile tap dispatches
+    // Launch straight from the home page.
+    let handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+    for id in handler_ids {
+        let Some(b) = boxes.iter().find(|b| b.node_id == id) else { continue };
+        if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
+            continue;
+        }
+        let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
+        let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
+        if cy.as_i32() < 60 || cy.as_i32() > 650 {
+            continue;
+        }
+        view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy)
+            .expect("pointer");
+        if !host.launched.is_empty() {
+            break;
         }
     }
     assert!(
@@ -551,4 +538,419 @@ fn shell_app_grid_tiles_launch_and_hover() {
         "no tile tap reached svc.ability.launch (launched={:?})",
         host.launched
     );
+}
+
+/// Profile plumbing (Launcher-A): the SAME compiled `.nxir` selects different
+/// `ui/platform/<profile>/` override arms purely from the device env the host
+/// passes at mount — the contract the app-host's `OP_SURFACE_PROFILE` push
+/// feeds. Pinned via the real desktop-shell (its LauncherPage has a phone
+/// override): after navigating to /launcher, the phone mount shows a
+/// DIFFERENT layout structure than the desktop mount.
+fn symbols_of(nxir: &[u8]) -> Vec<String> {
+    nexus_dsl_runtime::Runtime::mount(nxir).expect("mounts runtime").symbols().to_vec()
+}
+
+#[test]
+fn platform_override_arms_select_by_device_env() {
+    struct NoServices;
+    impl nexus_dsl_runtime::EffectHost for NoServices {
+        fn call(
+            &mut self,
+            _svc: &str,
+            _method: &str,
+            _args: &[nexus_dsl_runtime::Value],
+            _timeout_ms: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            Err(0)
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+
+    // For each device env: try every home handler on a FRESH mount until one
+    // navigates to the LAUNCHER page — identified by its `on Change` search
+    // handler (the only Change trigger in the shell) — then fingerprint it.
+    let launcher_fingerprint = |device: &nexus_dsl_runtime::FixtureEnv| -> Vec<(usize, u32)> {
+        let engine = nexus_layout::LayoutEngine::new();
+        let home_handler_ids: Vec<usize> = {
+            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+            let view = View::mount(&nxir, &tokens, device, &locale).expect("mounts");
+            view.handlers().iter().map(|(id, _)| *id).collect()
+        };
+        for id in home_handler_ids {
+            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+            let mut view = View::mount(&nxir, &tokens, device, &locale).expect("mounts");
+            let mut host = NoServices;
+            let boxes = engine
+                .layout_with_viewport(
+                    view.scene(),
+                    nexus_layout_types::FxPx::new(1280),
+                    Some(nexus_layout_types::FxPx::new(800)),
+                    &nexus_text_baked::measure_text::BakedTextMeasure,
+                )
+                .expect("lays out")
+                .boxes;
+            let Some(b) = boxes.iter().find(|b| b.node_id == id) else { continue };
+            if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
+                continue;
+            }
+            let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
+            let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
+            let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+            let _ = view
+                .pointer(&tokens, device, &locale, &mut host, &boxes, "Tap", cx, cy)
+                .expect("pointer");
+            let change_sym = symbols_of(&nxir).iter().position(|s| s == "Change");
+            let mut fp: Vec<(usize, u32)> =
+                view.handlers().iter().map(|(id, h)| (*id, h.trigger)).collect();
+            fp.sort_unstable();
+            if let Some(change_sym) = change_sym {
+                if fp.iter().any(|(_, t)| *t == change_sym as u32) {
+                    return fp; // landed on the launcher page
+                }
+            }
+        }
+        panic!("no home handler navigated to the launcher page");
+    };
+
+    let desktop = launcher_fingerprint(&nexus_dsl_runtime::FixtureEnv::desktop());
+    let phone = launcher_fingerprint(&nexus_dsl_runtime::FixtureEnv::phone("portrait"));
+    assert_ne!(
+        desktop, phone,
+        "the phone override arm must produce a different launcher structure"
+    );
+}
+
+/// Control Center (Launcher-D): the status pill navigates to /control, and
+/// the appearance/mode tiles dispatch REAL `svc.settings.set` calls with the
+/// presentation keys (the app-host routes those to windowd → live apply +
+/// persist). Pins the whole chain below the IPC boundary.
+#[test]
+fn control_center_toggles_reach_settings_set() {
+    struct SettingsSpy {
+        sets: Vec<(String, String)>,
+    }
+    impl nexus_dsl_runtime::EffectHost for SettingsSpy {
+        fn call(
+            &mut self,
+            svc: &str,
+            method: &str,
+            args: &[nexus_dsl_runtime::Value],
+            _timeout_ms: u32,
+        ) -> Result<nexus_dsl_runtime::Value, u32> {
+            use nexus_dsl_runtime::Value;
+            match (svc, method) {
+                ("settings", "set") => {
+                    if let (Some(Value::Str(k)), Some(Value::Str(v))) = (args.first(), args.get(1))
+                    {
+                        self.sets.push((k.clone(), v.clone()));
+                    }
+                    Ok(Value::Bool(true))
+                }
+                ("bundlemgr", "enumerate") => Ok(Value::List(vec![])),
+                _ => Err(0),
+            }
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("desktop-shell compiles");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = SettingsSpy { sets: Vec::new() };
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("initial effects");
+
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = |view: &View| {
+        engine
+            .layout_with_viewport(
+                view.scene(),
+                nexus_layout_types::FxPx::new(1280),
+                Some(nexus_layout_types::FxPx::new(800)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            )
+            .expect("lays out")
+            .boxes
+    };
+    let boxes = layout(&view);
+
+    // The status pill: a top-bar handler (cy < 60) on the RIGHT half.
+    let status = view
+        .handlers()
+        .iter()
+        .map(|(id, _)| *id)
+        .filter_map(|id| boxes.iter().find(|b| b.node_id == id))
+        .find(|b| {
+            b.rect.y.as_i32() + b.rect.height.as_i32() / 2 < 60
+                && b.rect.x.as_i32() > 640
+                && b.rect.width.as_i32() > 0
+        })
+        .expect("status pill in the top bar");
+    let cx = status.rect.x + nexus_layout_types::FxPx::new(status.rect.width.as_i32() / 2);
+    let cy = status.rect.y + nexus_layout_types::FxPx::new(status.rect.height.as_i32() / 2);
+    view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy)
+        .expect("pointer")
+        .expect("status pill navigates");
+
+    // On /control: tap every sized handler once — the four appearance/mode
+    // tiles dispatch SetTheme/SetMode → settings.set with presentation keys.
+    let boxes = layout(&view);
+    let handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+    for id in handler_ids {
+        let Some(b) = boxes.iter().find(|b| b.node_id == id) else { continue };
+        if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
+            continue;
+        }
+        // Skip the back button row (top bar) so we stay on the page.
+        if b.rect.y.as_i32() < 60 {
+            continue;
+        }
+        let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
+        let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
+        let _ = view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy);
+    }
+    assert!(
+        host.sets.iter().any(|(k, _)| k == "ui.theme.mode"),
+        "no theme set reached the host: {:?}",
+        host.sets
+    );
+    assert!(
+        host.sets.iter().any(|(k, _)| k == "ui.shell.mode"),
+        "no shell-mode set reached the host: {:?}",
+        host.sets
+    );
+}
+
+
+#[test]
+fn grow_and_size_mods_reach_the_layout_tree() {
+    let nxir = compile(
+        r#"Page Main {
+    Stack {
+        Stack { }
+        .height(36)
+        Stack { }
+        .grow(1)
+        Stack { }
+        .height(56)
+    }
+    .gap(0)
+}
+"#,
+    );
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out");
+    let heights: Vec<i32> = layout
+        .boxes
+        .iter()
+        .skip(1) // the page column itself
+        .map(|b| b.rect.height.as_i32())
+        .collect();
+    assert_eq!(
+        heights,
+        vec![36, 708, 56],
+        "topbar 36 / middle grows to 708 / dock 56 (got {heights:?})"
+    );
+}
+
+
+#[test]
+fn real_shell_column_grows_on_tablet() {
+    struct NoServices;
+    impl nexus_dsl_runtime::EffectHost for NoServices {
+        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
+            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
+    let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = NoServices;
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).ok();
+    let engine = nexus_layout::LayoutEngine::new();
+    let layout = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out");
+    let mut dump = String::new();
+    for b in layout.boxes.iter().take(8) {
+        dump.push_str(&format!("node={} y={} h={}\n", b.node_id, b.rect.y.as_i32(), b.rect.height.as_i32()));
+    }
+    // The dock row must sit at the BOTTOM (y > 700).
+    let dock_bottom = layout.boxes.iter().any(|b| b.rect.y.as_i32() > 700 && b.rect.height.as_i32() > 40);
+    assert!(dock_bottom, "dock not at the bottom; first boxes:\n{dump}");
+}
+
+
+#[test]
+fn shell_grid_tiles_lay_out_in_a_row() {
+    struct Registry { id_sym: u32, label_sym: u32 }
+    impl nexus_dsl_runtime::EffectHost for Registry {
+        fn call(&mut self, svc: &str, method: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
+            -> Result<nexus_dsl_runtime::Value, u32> {
+            use nexus_dsl_runtime::Value;
+            if (svc, method) == ("bundlemgr", "enumerate") {
+                let row = |id: &str, label: &str| {
+                    let mut fields = vec![
+                        (self.id_sym, Value::Str(id.into())),
+                        (self.label_sym, Value::Str(label.into())),
+                    ];
+                    fields.sort_by_key(|(sym, _)| *sym);
+                    Value::Record(fields)
+                };
+                return Ok(Value::List(vec![
+                    row("a", "Alpha"), row("b", "Beta"), row("c", "Gamma"), row("d", "Delta"),
+                ]));
+            }
+            Err(0)
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
+    let symbols = symbols_of(&nxir);
+    let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
+    let mut host = Registry { id_sym: sym("id"), label_sym: sym("label") };
+    let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
+    let engine = nexus_layout::LayoutEngine::new();
+    let boxes = engine
+        .layout_with_viewport(
+            view.scene(),
+            nexus_layout_types::FxPx::new(1280),
+            Some(nexus_layout_types::FxPx::new(800)),
+            &nexus_text_baked::measure_text::BakedTextMeasure,
+        )
+        .expect("lays out")
+        .boxes;
+    // The 64px tiles in the home-grid band (below topbar, above dock).
+    let tiles: Vec<(i32, i32)> = boxes
+        .iter()
+        .filter(|b| {
+            b.rect.width.as_i32() == 64
+                && b.rect.height.as_i32() == 64
+                && b.rect.y.as_i32() > 40
+                && b.rect.y.as_i32() < 700
+        })
+        .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
+        .collect();
+    assert!(tiles.len() >= 4, "expected 4 grid tiles, got {tiles:?}");
+    let first_y = tiles[0].1;
+    assert!(
+        tiles.iter().all(|(_, y)| *y == first_y),
+        "grid tiles must share one row: {tiles:?}"
+    );
+}
+
+
+#[test]
+fn widget_modifiers_survive_inside_branch_arms() {
+    let nxir = compile(
+        r#"Store S { active: Bool = true, }
+Event E { X, }
+reduce E { X => state.active = state.active, }
+Page Main {
+    Stack {
+        if $state.active {
+            Stack {
+                Text("a")
+                Text("b")
+            }
+            .direction(row)
+        } else {
+            Text("off")
+        }
+    }
+}
+"#,
+    );
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    fn find_row(node: &nexus_layout_types::LayoutNode) -> bool {
+        match node {
+            nexus_layout_types::LayoutNode::Stack(st, _, children) => {
+                (st.direction == nexus_layout_types::Direction::Row && children.len() == 2)
+                    || children.iter().any(find_row)
+            }
+            _ => false,
+        }
+    }
+    assert!(find_row(view.scene()), "the branch-arm Stack lost its .direction(row)");
+}
+
+
+#[test]
+fn list_modifiers_survive_inside_branch_arms() {
+    let nxir = compile(
+        r#"Store S { items: List<Str> = ["a", "b"], active: Bool = true, }
+Event E { X, }
+reduce E { X => state.active = state.active, }
+Page Main {
+    Stack {
+        if $state.active {
+            List($state.items) { it in
+                Text(it).key(it)
+            }
+            .direction(row)
+        } else {
+            Text("off")
+        }
+    }
+}
+"#,
+    );
+    let device = FixtureEnv::default();
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    fn find_row(node: &nexus_layout_types::LayoutNode) -> bool {
+        match node {
+            nexus_layout_types::LayoutNode::Stack(st, _, children) => {
+                (st.direction == nexus_layout_types::Direction::Row && children.len() == 2)
+                    || children.iter().any(find_row)
+            }
+            _ => false,
+        }
+    }
+    assert!(find_row(view.scene()), "the branch-arm List lost its .direction(row)");
 }

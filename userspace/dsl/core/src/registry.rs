@@ -147,6 +147,9 @@ pub const WIDGETS: &[WidgetSpec] = &[
     WidgetSpec { name: "Toast", primary_prop: Some("message"), interactive: true, label_prop: Some("message"), allows_children: false },
     WidgetSpec { name: "Banner", primary_prop: Some("message"), interactive: true, label_prop: Some("title"), allows_children: false },
     WidgetSpec { name: "Skeleton", primary_prop: None, interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec { name: "ListItem", primary_prop: Some("title"), interactive: true, label_prop: Some("title"), allows_children: false },
+    WidgetSpec { name: "Toolbar", primary_prop: Some("title"), interactive: false, label_prop: None, allows_children: false },
+    WidgetSpec { name: "SearchBar", primary_prop: Some("value"), interactive: true, label_prop: Some("placeholder"), allows_children: false },
 ];
 
 #[must_use]

@@ -1,0 +1,18 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: Settings — the system settings DSL app (the design handoff's
+# "OS Settings Window"). `bundle_type = "settings"` is the privilege ceiling
+# that admits `nexus.permission.SETTINGS` (settingsd typed registry);
+# presentation keys route through windowd (the presentation authority).
+# Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
+
+name = "settings"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "settings"
+payload_kind = "ui-program"
+abilities = ["settings.MainAbility"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]
+provides = []
+resources = []

@@ -1,0 +1,22 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One section-nav chip (the compact stand-in for the handoff sidebar until
+// floating windows negotiate wider defaults). Selection handlers attach at
+// the use site.
+
+Component SectionChip {
+    props: {
+        label: Str,
+        active: Bool,
+    }
+    Stack {
+        if $props.active {
+            Text($props.label).textSize(sm).fg(onAccent)
+        } else {
+            Text($props.label).textSize(sm).fg(onSurface)
+        }
+    }
+    .padding(2)
+    .rounded(full)
+}

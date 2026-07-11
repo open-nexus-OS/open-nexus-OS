@@ -1,0 +1,47 @@
+/* AIVA OS — Typography Tokens
+   Primary font: Inter, with Noto Sans as fallback (both Google Fonts),
+   then the native system stack. */
+
+:root {
+  /* ─── Font Families ──────────────────────────────────────── */
+  --font-sans:
+    'Inter', 'Noto Sans', -apple-system, BlinkMacSystemFont,
+    'Helvetica Neue', 'Segoe UI',
+    system-ui, sans-serif;
+
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Fira Code',
+    'Cascadia Mono', 'Consolas', monospace;
+
+  /* ─── Font Weights ───────────────────────────────────────── */
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  /* ─── Font Sizes ─────────────────────────────────────────── */
+  --text-xs:   0.6875rem;  /* 11px — status bar, captions */
+  --text-sm:   0.75rem;    /* 12px — metadata, timestamps */
+  --text-base: 0.875rem;   /* 14px — body, list items */
+  --text-md:   1rem;       /* 16px — labels, UI text */
+  --text-lg:   1.125rem;   /* 18px — subheadings */
+  --text-xl:   1.25rem;    /* 20px — headings */
+  --text-2xl:  1.5rem;     /* 24px — titles */
+  --text-3xl:  1.875rem;   /* 30px — large headings */
+  --text-4xl:  2.25rem;    /* 36px — display */
+
+  /* ─── Line Heights ───────────────────────────────────────── */
+  --leading-tight:   1.25;
+  --leading-snug:    1.375;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.625;
+
+  /* ─── Letter Spacing ─────────────────────────────────────── */
+  --tracking-tight:  -0.025em;
+  --tracking-normal:  0em;
+  --tracking-wide:    0.025em;
+  --tracking-wider:   0.05em;
+
+  /* ─── Base size ──────────────────────────────────────────── */
+  --font-size-root: 16px;
+}

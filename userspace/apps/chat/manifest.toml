@@ -1,26 +1,21 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: Chat app bundle manifest (RFC-0065 — chat as a real app).
-# Compiled to `manifest.nxb` (Cap'n Proto) by `tools/nxb-pack` and installed into
-# the `bundlemgrd` registry; `abilitymgr` resolves the launch ability from here.
+# CONTEXT: Chat — a DSL app (`payload.nxir` compiled from ui/ by bundlemgrd's
+# build; launched via abilitymgr → execd → app-host, own windowd surface).
+# The former Rust-crate renderer is retired (promote-best: one UI stack).
+# The app-to-app exports stay DECLARED for the TASK-0081 C2 exports channel.
 # Schema: tools/nexus-idl/schemas/manifest.capnp  ·  Docs: docs/packaging/nxb.md
-#
-# NOTE: `publisher`/`sig` are zero placeholders (unsigned bring-up bundle); real
-# signing lands with the supply-chain pipeline (RFC-0039). `payload.elf` is a
-# placeholder until the chat app crate ships its own ELF (TASK-0065 P4).
 
 name = "chat"
 version = "1.0.0"
 min_sdk = "1.0.0"
 bundle_type = "app"
+payload_kind = "ui-program"
 abilities = ["chat.MainAbility"]
 caps = ["nexus.permission.WINDOW"]
 provides = []
 resources = []
-# v2.2 (TASK-0081): the reference app-to-app exports — other apps (or an AI
-# action like "new appointment") send/receive through the chat app under
-# CHAT-owned permissions; consumers declare them in their own `caps`.
 exports = [
     { ability = "chat.Send", permission = "app.chat.SEND" },
     { ability = "chat.Receive", permission = "app.chat.RECEIVE" },

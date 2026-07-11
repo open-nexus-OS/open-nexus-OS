@@ -245,7 +245,7 @@ mod probe {
         // 1b. Theme: the compositor pushes the active mode (`OP_SURFACE_THEME`)
         //     when the event channel attaches — capture it BEFORE mount so the
         //     app renders with the same tokens as the desktop.
-        let mut theme_mode = wait_for_theme(&events);
+        let (mut theme_mode, mut shell_profile) = wait_for_boot_pushes(&events);
 
         // 2. The DSL payload + its window intent → the geometry handshake. The
         //    WM owns geometry: a desktop/full-screen surface asks windowd for
@@ -293,7 +293,8 @@ mod probe {
         } else {
             190
         };
-        let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, base_alpha);
+        let mut app =
+            DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
         match &app {
             Some(dsl) if dsl.render(vmo) => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
@@ -338,7 +339,7 @@ mod probe {
         raw_marker("APPHOST: probe surface presented");
         // R1 layer seam: declare the initial glass regions to windowd.
         if let Some(dsl) = app.as_ref() {
-            dsl.submit_layers(&client);
+            dsl.submit_layers(&client, surface_id);
         }
 
         // 5. The event loop (R3): ONE unified BLOCKING recv on the app event
@@ -404,13 +405,47 @@ mod probe {
             // Classify the frame: present-ack (flow control) vs input vs theme vs other.
             if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
                 present_in_flight = false;
+            } else if let Some(p) = wire::decode_surface_profile(&event_frame[..len]) {
+                // Live shell-mode switch (Control Center Desktop/Tablet): the
+                // platform override arms re-select — a deliberate re-mount,
+                // same contract as a live re-theme.
+                if p != shell_profile {
+                    shell_profile = p;
+                    app = DslApp::mount(
+                        payload,
+                        surf_w,
+                        surf_h,
+                        theme_mode,
+                        shell_profile,
+                        base_alpha,
+                    );
+                    if let Some(dsl) = app.as_mut() {
+                        if dsl.render(vmo) {
+                            seq = seq.wrapping_add(1);
+                            let plen =
+                                wire::encode_surface_present(surface_id, seq, &damage, &mut buf);
+                            if send_retry(&client, &buf[..plen]).is_ok() {
+                                present_in_flight = true;
+                                raw_marker("APPHOST: profile remounted");
+                            }
+                            dsl.submit_layers(&client, surface_id);
+                        }
+                    }
+                }
             } else if let Some(mode) = wire::decode_surface_theme(&event_frame[..len]) {
                 // Live re-theme: re-mount with the new tokens (state is rebuilt
                 // from the payload — a theme toggle is rare; per-token re-emit
                 // without a remount is a later refinement) and repaint.
                 if mode != theme_mode {
                     theme_mode = mode;
-                    app = DslApp::mount(payload, surf_w, surf_h, theme_mode, base_alpha);
+                    app = DslApp::mount(
+                        payload,
+                        surf_w,
+                        surf_h,
+                        theme_mode,
+                        shell_profile,
+                        base_alpha,
+                    );
                     if let Some(dsl) = app.as_ref() {
                         let _ = dsl.render(vmo);
                     }
@@ -565,7 +600,7 @@ mod probe {
                     raw_marker("APPHOST: interactive frame presented");
                     // Re-declare glass regions: a re-layout may have moved/
                     // resized them. Paint-only spans keep the layout — skip.
-                    dsl.submit_layers(&client);
+                    dsl.submit_layers(&client, surface_id);
                 }
             }
         }
@@ -597,6 +632,9 @@ mod probe {
         /// Active theme mode (`THEME_*`, pushed by windowd). Selects the token
         /// set for every render so the app matches the compositor.
         theme_mode: u8,
+        /// Active shell profile (`PROFILE_*`, pushed by windowd). The device
+        /// env every mount/interaction passes to the runtime.
+        shell_profile: u8,
         /// The `node_id` of the interactive box under the pointer (windowd
         /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
         /// state: hover never re-runs layout (pretext), only a repaint.
@@ -612,9 +650,10 @@ mod probe {
             w: u32,
             h: u32,
             theme_mode: u8,
+            shell_profile: u8,
             base_alpha: u8,
         ) -> Option<Self> {
-            use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+            use nexus_dsl_runtime::{IdentityLocale, View};
 
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
             let symbols = runtime.symbols().to_vec();
@@ -632,7 +671,9 @@ mod probe {
                     _ => alloc::vec::Vec::new(),
                 };
             let tokens = tokens_for(theme_mode);
-            let device = FixtureEnv::default();
+            // The pushed shell profile IS the device env: `device.profile`
+            // selects the platform override arms (tablet base / desktop).
+            let device = device_for(shell_profile);
             let mut view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
                 View::mount(nxir, tokens, &device, &locale).ok()?
@@ -675,6 +716,7 @@ mod probe {
                 w,
                 h,
                 theme_mode,
+                shell_profile,
                 hovered: None,
             })
         }
@@ -683,9 +725,9 @@ mod probe {
         /// damage re-lays-out + refreshes the text runs. Returns whether a
         /// re-render is needed.
         fn tap(&mut self, x: i32, y: i32) -> bool {
-            use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale};
+            use nexus_dsl_runtime::{Damage, IdentityLocale};
             let tokens = tokens_for(self.theme_mode);
-            let device = FixtureEnv::default();
+            let device = device_for(self.shell_profile);
             let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
             let damage = self
                 .view
@@ -799,7 +841,7 @@ mod probe {
         /// `nexus-gfx` layer over the wallpaper. Re-sent whenever the layout
         /// changes (mount + re-layout). No glass nodes ⇒ empty list ⇒ windowd
         /// composites the surface with the default treatment (unchanged).
-        fn submit_layers(&self, client: &KernelClient) {
+        fn submit_layers(&self, client: &KernelClient, surface_id: u32) {
             use nexus_layout_types::{GlassLevel, SurfaceMaterial};
             let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
             let mut layers = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
@@ -828,7 +870,7 @@ mod probe {
                 n += 1;
             }
             let mut buf = [0u8; wire::SURFACE_LAYERS_MAX_LEN];
-            let len = wire::encode_surface_layers(&layers[..n], &mut buf);
+            let len = wire::encode_surface_layers(surface_id, &layers[..n], &mut buf);
             let _ = client.send(&buf[..len], Wait::NonBlocking);
             raw_marker(&alloc::format!("apphost: submitted {n} layers"));
         }
@@ -1017,24 +1059,49 @@ mod probe {
         }
     }
 
-    /// Bounded wait for windowd's initial theme push (`OP_SURFACE_THEME`, sent
-    /// when the event channel attaches — before we mount). Defaults to dark (the
-    /// compositor default) if none arrives; the app still renders, just possibly
-    /// not theme-matched.
-    fn wait_for_theme(events: &KernelClient) -> u8 {
+    /// Bounded wait for windowd's boot pushes (`OP_SURFACE_THEME` +
+    /// `OP_SURFACE_PROFILE`, sent when the event channel attaches — before we
+    /// mount). Returns `(theme, profile)`; either defaults (dark / tablet, the
+    /// compositor defaults) if it does not arrive in time — the app still
+    /// renders, just possibly not matched until the next push.
+    fn wait_for_boot_pushes(events: &KernelClient) -> (u8, u8) {
         let start = nsec().unwrap_or(0);
         let mut frame = [0u8; 64];
+        let mut theme: Option<u8> = None;
+        let mut profile: Option<u8> = None;
         loop {
             if let Ok(len) = events.recv_into(Wait::NonBlocking, &mut frame) {
                 if let Some(mode) = wire::decode_surface_theme(&frame[..len]) {
                     raw_marker("APPHOST: theme received");
-                    return mode;
+                    theme = Some(mode);
+                } else if let Some(p) = wire::decode_surface_profile(&frame[..len]) {
+                    raw_marker("APPHOST: profile received");
+                    profile = Some(p);
+                }
+                if let (Some(t), Some(p)) = (theme, profile) {
+                    return (t, p);
                 }
             }
             if nsec().unwrap_or(u64::MAX).saturating_sub(start) > 500_000_000 {
-                return wire::THEME_DARK;
+                return (
+                    theme.unwrap_or(wire::THEME_DARK),
+                    profile.unwrap_or(wire::PROFILE_TABLET),
+                );
             }
             let _ = yield_();
+        }
+    }
+
+    /// The device environment for a pushed shell profile — what the DSL's
+    /// `device.profile` reads, so `ui/platform/<profile>/` override arms
+    /// select to the environment's windowing policy.
+    fn device_for(profile: u8) -> nexus_dsl_runtime::FixtureEnv {
+        use nexus_dsl_runtime::FixtureEnv;
+        match profile {
+            wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
+            wire::PROFILE_PHONE => FixtureEnv::phone("portrait"),
+            // Our display is landscape 1280×800 (the handoff's touch-landscape).
+            _ => FixtureEnv::tablet("landscape"),
         }
     }
 

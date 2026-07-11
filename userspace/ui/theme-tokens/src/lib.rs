@@ -64,6 +64,8 @@ pub enum ColorToken {
     OnInfo,
     /// Focus ring / keyboard focus indicator.
     FocusRing,
+    /// The Dynamic-Island pill fill (solid black in both themes).
+    IslandBg,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).

@@ -40,6 +40,10 @@ fn is_font_family(v: &str) -> bool {
     v == "inter"
 }
 
+fn is_shell_mode(v: &str) -> bool {
+    v == "tablet" || v == "desktop"
+}
+
 fn is_locale(v: &str) -> bool {
     // BCP-47-ish primary tag: 2-8 ASCII letters, optional -REGION. Prepared
     // key (registered, no consumer yet).
@@ -54,6 +58,7 @@ fn is_locale(v: &str) -> bool {
 /// adding a row here; unknown keys are refused on every path.
 const SPECS: &[KeySpec] = &[
     KeySpec { key: "ui.theme.mode", default: "dark", validate: is_theme_mode },
+    KeySpec { key: "ui.shell.mode", default: "tablet", validate: is_shell_mode },
     KeySpec { key: "ui.font.family", default: "inter", validate: is_font_family },
     KeySpec { key: "ui.locale", default: "de-DE", validate: is_locale },
 ];

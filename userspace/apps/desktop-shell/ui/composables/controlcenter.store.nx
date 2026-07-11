@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Control-Center store: theme + shell-mode requests go through
+// `svc.settings.set` — the app-host routes these PRESENTATION keys to windowd
+// (single presentation authority: live apply + persist), which pushes the new
+// theme/profile back and the shell re-mounts. Idempotent SetTheme/SetMode
+// (two explicit tiles, no local toggle state — a re-mount resets stores, so
+// the ACTIVE state is read from `device.profile`, never mirrored here).
+// Brightness/volume are local UI state until their services land (honest).
+
+Store ControlStore {
+    brightness: Int = 70,
+    volume: Int = 40,
+    applyError: Int = 0,
+}
+
+Event ControlEvent {
+    SetTheme(Str),
+    SetMode(Str),
+    Applied(Bool),
+    ApplyFailed(Int),
+}
+
+reduce ControlEvent {
+    SetTheme(mode) => state.applyError = 0,
+    SetMode(mode) => state.applyError = 0,
+    Applied(ok) => state.applyError = 0,
+    ApplyFailed(code) => state.applyError = code,
+}
+
+@effect on SetTheme(mode) {
+    match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetMode(mode) {
+    match svc.settings.set("ui.shell.mode", mode, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}

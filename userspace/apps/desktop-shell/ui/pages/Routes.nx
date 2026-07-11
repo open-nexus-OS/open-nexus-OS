@@ -4,4 +4,5 @@
 Routes {
     "/" -> ShellPage;
     "/launcher" -> LauncherPage;
+    "/control" -> ControlCenterPage;
 }

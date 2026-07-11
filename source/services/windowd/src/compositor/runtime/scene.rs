@@ -128,6 +128,11 @@ impl DisplayServerRuntime {
         let desktop_layer = self
             .desktop_band
             .map(|b| (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height)));
+        // R1 seam for the DESKTOP surface: its material-tagged glass regions
+        // (topbar/dock/panels) re-composite as frosted layers over the
+        // wallpaper AFTER the base blend below.
+        let desktop_glass = self.desktop_layers;
+        let desktop_glass_count = self.desktop_layer_count;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(USE_DESKTOP_SHELL);
@@ -256,6 +261,37 @@ impl DisplayServerRuntime {
                                 &Layer::opaque(row, x, w, h, 0, 0),
                                 (mode.width, mode.height),
                             );
+                            // Frosted regions: blur the wallpaper behind each
+                            // declared glass rect, then draw the band content
+                            // (tint + text) over it — the liquid-glass look.
+                            use nexus_display_proto::client_surface as wire;
+                            for l in desktop_glass.iter().take(desktop_glass_count) {
+                                if l.material != wire::MATERIAL_GLASS {
+                                    continue;
+                                }
+                                let blur_radius = match l.glass_level {
+                                    wire::GLASS_PANEL => 40,
+                                    wire::GLASS_CARD => 20,
+                                    wire::GLASS_SUBTLE => 12,
+                                    _ => 30,
+                                };
+                                crate::compositor::shell_window::composite_material_glass(
+                                    &mut encoder,
+                                    crate::compositor::shell_window::MaterialLayerParams {
+                                        src_row_abs: row + u32::from(l.y),
+                                        src_x: x + u32::from(l.x),
+                                        width: u32::from(l.w),
+                                        height: u32::from(l.h),
+                                        dst_x: u32::from(l.x),
+                                        dst_y: u32::from(l.y),
+                                        corner_radius: u32::from(l.radius),
+                                        shadow_alpha: u32::from(l.shadow_alpha),
+                                        blur_radius,
+                                    },
+                                    mode.width,
+                                    mode.height,
+                                );
+                            }
                         }
                     }
                     // Legacy window ids (chat/search/settings): their windowd

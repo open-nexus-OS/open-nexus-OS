@@ -68,6 +68,13 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.SESSION",
         child_slot: 13,
     },
+    // Slot 14 is the app-host's EVENTS_SEND_CLONE_SLOT — routes skip it.
+    ServiceRoute {
+        svc: "settings",
+        route: "settingsd",
+        permission: "nexus.permission.SETTINGS",
+        child_slot: 15,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

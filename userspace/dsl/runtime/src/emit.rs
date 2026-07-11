@@ -148,6 +148,15 @@ pub(crate) fn emit_view(
                 Some(body) => body,
                 None => branch.get_else_body().map_err(|_| RtError::Malformed)?,
             };
+            // A single-node body is TRULY transparent: emit it directly, no
+            // wrapper box and no extra path segment. A wrapper here reset the
+            // flex context — `.grow()/.height()` on the page column stopped
+            // stretching once the platform-override `if` wrapped it (the
+            // collapsed-shell bug). Multi-node bodies keep the column wrapper
+            // so the branch stays a single node.
+            if body.len() == 1 {
+                return emit_view(ctx, body.get(0));
+            }
             let mut children = Vec::with_capacity(body.len() as usize);
             for (j, child) in body.iter().enumerate() {
                 ctx.path.push(j as u32);
@@ -155,42 +164,16 @@ pub(crate) fn emit_view(
                 ctx.path.pop();
                 children.push(emitted);
             }
-            // A transparent column wrapper keeps branch output a single node.
             Ok(registry::build_widget("Stack", &[], &Mods::default(), ctx.tokens, children))
         }
         Which::ForEach(for_each) => {
+            // Standalone collection (no widget parent): a plain column wraps
+            // the items so the branch output stays one node. INSIDE a widget
+            // the items SPLICE into the parent instead (emit_widget) — a
+            // wrapper box there reset the parent's row/wrap flex context.
             let for_each = for_each.map_err(|_| RtError::Malformed)?;
-            let binding = for_each.get_binding().map_err(|_| RtError::Malformed)?;
-            ctx.record_deps(binding, Damage::Layout);
-            let items = match ctx.eval(binding)? {
-                Value::List(items) => items,
-                _ => return Err(RtError::TypeMismatch),
-            };
-            let slot = for_each.get_bind_slot() as usize;
-            let template = for_each.get_template().map_err(|_| RtError::Malformed)?;
-            let key_expr = for_each.get_key_expr().map_err(|_| RtError::Malformed)?;
-            let windowed = for_each.get_windowed();
-            let mut children = Vec::with_capacity(items.len());
-            let mut seen_keys: Vec<Vec<u8>> = Vec::with_capacity(items.len());
-            for item in items {
-                *ctx.locals.get_mut(slot).ok_or(RtError::MissingLocal)? = Some(item);
-                if windowed {
-                    // Keyed identity: evaluate the key and enforce uniqueness
-                    // (stable ids for the retained tree; duplicate keys would
-                    // silently corrupt instance state).
-                    let key = ctx.eval(key_expr)?;
-                    let mut bytes = Vec::new();
-                    key.key_bytes(&mut bytes);
-                    if seen_keys.iter().any(|k| *k == bytes) {
-                        return Err(RtError::DuplicateKey);
-                    }
-                    seen_keys.push(bytes);
-                }
-                ctx.path.push(children.len() as u32);
-                let emitted = emit_view(ctx, template)?;
-                ctx.path.pop();
-                children.push(emitted);
-            }
+            let mut children = Vec::new();
+            emit_for_each_items(ctx, for_each, &[], 0, &mut children)?;
             Ok(registry::build_widget("Stack", &[], &Mods::default(), ctx.tokens, children))
         }
         Which::ComponentRef(component_ref) => {
@@ -234,6 +217,55 @@ pub(crate) fn emit_view(
             emit_view(&mut inner, view)
         }
     }
+}
+
+/// Emits every item of a `ForEach` (List body) directly into `out`, path-
+/// tagged at its REAL tree position (`prefix` + `base + out.len()`), so the
+/// items are honest direct children of whatever node receives `out`.
+fn emit_for_each_items(
+    ctx: &mut EmitCtx<'_>,
+    for_each: ir::for_each::Reader<'_>,
+    prefix: &[u32],
+    base: u32,
+    out: &mut Vec<LayoutNode>,
+) -> Result<(), RtError> {
+    let binding = for_each.get_binding().map_err(|_| RtError::Malformed)?;
+    ctx.record_deps(binding, Damage::Layout);
+    let items = match ctx.eval(binding)? {
+        Value::List(items) => items,
+        _ => return Err(RtError::TypeMismatch),
+    };
+    let slot = for_each.get_bind_slot() as usize;
+    let template = for_each.get_template().map_err(|_| RtError::Malformed)?;
+    let key_expr = for_each.get_key_expr().map_err(|_| RtError::Malformed)?;
+    let windowed = for_each.get_windowed();
+    let mut seen_keys: Vec<Vec<u8>> = Vec::with_capacity(items.len());
+    for item in items {
+        *ctx.locals.get_mut(slot).ok_or(RtError::MissingLocal)? = Some(item);
+        if windowed {
+            // Keyed identity: evaluate the key and enforce uniqueness
+            // (stable ids for the retained tree; duplicate keys would
+            // silently corrupt instance state).
+            let key = ctx.eval(key_expr)?;
+            let mut bytes = Vec::new();
+            key.key_bytes(&mut bytes);
+            if seen_keys.iter().any(|k| *k == bytes) {
+                return Err(RtError::DuplicateKey);
+            }
+            seen_keys.push(bytes);
+        }
+        for &seg in prefix {
+            ctx.path.push(seg);
+        }
+        ctx.path.push(base + out.len() as u32);
+        let emitted = emit_view(ctx, template)?;
+        ctx.path.pop();
+        for _ in prefix {
+            ctx.path.pop();
+        }
+        out.push(emitted);
+    }
+    Ok(())
 }
 
 fn emit_widget(
@@ -317,11 +349,18 @@ fn emit_widget(
     let child_list = widget.get_children().map_err(|_| RtError::Malformed)?;
     let (prefix, base) = registry::child_path(&kind);
     let mut children = Vec::with_capacity(child_list.len() as usize);
-    for (k, child) in child_list.iter().enumerate() {
+    for child in child_list.iter() {
+        // A ForEach child SPLICES its items into THIS widget (no wrapper box
+        // — a wrapper reset the parent's row/wrap flex context: the grid
+        // rendered as a column). Paths are tagged at the real positions.
+        if let Ok(ir::view_node::Which::ForEach(Ok(fe))) = child.which() {
+            emit_for_each_items(ctx, fe, prefix, base, &mut children)?;
+            continue;
+        }
         for &seg in prefix {
             ctx.path.push(seg);
         }
-        ctx.path.push(base + k as u32);
+        ctx.path.push(base + children.len() as u32);
         let emitted = emit_view(ctx, child)?;
         ctx.path.pop();
         for _ in prefix {
@@ -354,6 +393,13 @@ fn apply_modifier(
             _ => 0,
         }
     };
+    // Raw-px size argument (`.width(320)`); a token (`full`) yields None.
+    let px_arg = || -> Option<nexus_layout_types::FxPx> {
+        match first.map(|a| a.which()) {
+            Some(Ok(ir::token_arg::Which::Int(i))) => Some(nexus_layout_types::FxPx::new(i.clamp(0, 16384) as i32)),
+            _ => None,
+        }
+    };
     // Catalog order (docs/dev/dsl/modifiers.md); ids are stable.
     match modifier.get_mod_id() {
         0 => mods.padding = EdgeInsets::all(registry::spacing(int_arg())), // padding
@@ -368,6 +414,16 @@ fn apply_modifier(
             mods.padding.bottom = px;
         } // paddingY
         7 => mods.gap = registry::spacing(int_arg()),                      // gap
+        // Sizes are RAW px (modifiers.md: "length token | full | Int px");
+        // `full` stays a no-op (cross-axis children stretch by default).
+        9 => mods.width = px_arg(),                            // width
+        10 => mods.height = px_arg(),                          // height
+        11 => mods.min_width = px_arg(),                       // minWidth
+        12 => mods.max_width = px_arg(),                       // maxWidth
+        13 => mods.min_height = px_arg(),                      // minHeight
+        14 => mods.max_height = px_arg(),                      // maxHeight
+        15 => mods.grow = int_arg().max(0) as u32,                          // grow
+        16 => mods.shrink = Some(int_arg().max(0) as u32),                  // shrink
         18 => {
             mods.align = Some(match token_name(ctx).as_str() {
                 "start" => Align::Start,
@@ -396,6 +452,11 @@ fn apply_modifier(
         28 => mods.material = registry::material_token(&token_name(ctx)),  // material
         29 => mods.rounded = Some(registry::radius(&token_name(ctx))),     // rounded
         32 => mods.text_size = registry::type_size(&token_name(ctx)),      // textSize
+        21 => {
+            if let Some(Ok(ir::token_arg::Which::Boolean(b))) = first.map(|a| a.which()) {
+                mods.wrap = b;
+            }
+        } // wrap
         37 => {
             // disabled(bool | expr) — PAINT-class dependency.
             if let Some(Ok(which)) = first.map(|a| a.which()) {

@@ -1,0 +1,15 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Dynamic Island (handoff: collapsed 118×28, solid black pill, pinned
+// top-centre). Now-playing content + hover expansion land with the media
+// service — until then the collapsed pill.
+
+Component Island {
+    Stack {
+    }
+    .width(118)
+    .height(28)
+    .bg(islandBg)
+    .rounded(full)
+}

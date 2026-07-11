@@ -1,0 +1,20 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One top-bar pill (handoff: hover-fill only, no persistent background —
+// the hover wash comes from the interaction chain). Tap handlers attach at
+// the use site.
+
+Component TopBarPill {
+    props: {
+        label: Str,
+    }
+    Stack {
+        Text($props.label).textSize(xs).fg(onSurface)
+    }
+    .paddingX(2)
+    .paddingY(1)
+    .rounded(full)
+    .align(center)
+    .justify(center)
+}

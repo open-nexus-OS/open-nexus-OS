@@ -769,6 +769,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsl_apps_conformance"
+version = "0.1.0"
+dependencies = [
+ "nexus-dsl-core",
+ "nexus-dsl-runtime",
+ "nexus-layout",
+ "nexus-layout-types",
+ "nexus-text-baked",
+ "nexus-theme-tokens",
+]
+
+[[package]]
 name = "dsl_conformance"
 version = "0.1.0"
 dependencies = [
@@ -1872,13 +1884,16 @@ dependencies = [
  "nexus-widget-checkbox",
  "nexus-widget-chip",
  "nexus-widget-icon",
+ "nexus-widget-list-item",
  "nexus-widget-progress-bar",
+ "nexus-widget-search-bar",
  "nexus-widget-skeleton",
  "nexus-widget-slider",
  "nexus-widget-spinner",
  "nexus-widget-text-field",
  "nexus-widget-toast",
  "nexus-widget-toggle",
+ "nexus-widget-toolbar",
 ]
 
 [[package]]
@@ -3541,10 +3556,6 @@ version = "0.1.0"
 
 [[package]]
 name = "search"
-version = "0.1.0"
-
-[[package]]
-name = "search-app"
 version = "0.1.0"
 
 [[package]]

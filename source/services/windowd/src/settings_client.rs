@@ -59,6 +59,37 @@ pub(crate) fn set_theme_mode(mode: crate::theme::ThemeMode) -> bool {
     matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
 }
 
+/// Best-effort GET of `ui.shell.mode` (`"tablet"`/`"desktop"`); `None` on any
+/// failure or unknown value (caller keeps the SystemUI boot default).
+pub(crate) fn get_shell_mode() -> Option<&'static str> {
+    let mut req = [0u8; 32];
+    let len = wire::encode_get_req(wire::KEY_UI_SHELL_MODE, &mut req)?;
+    let rsp = request_reply(&req[..len])?;
+    let (status, value) = wire::decode_response(wire::OP_GET, &rsp)?;
+    if status != wire::STATUS_OK {
+        return None;
+    }
+    match value {
+        "tablet" => Some("tablet"),
+        "desktop" => Some("desktop"),
+        _ => None,
+    }
+}
+
+/// Best-effort SET of `ui.shell.mode` (the Control-Center Desktop/Tablet
+/// toggle). The live shell switch already happened in windowd; a transport
+/// failure only misses reboot persistence.
+pub(crate) fn set_shell_mode(mode: &str) -> bool {
+    let mut req = [0u8; 48];
+    let Some(len) = wire::encode_set_req(wire::KEY_UI_SHELL_MODE, mode, &mut req) else {
+        return false;
+    };
+    let Some(rsp) = request_reply(&req[..len]) else {
+        return false;
+    };
+    matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
+}
+
 /// Resolves a service (or `@reply`) to its `(send, recv)` slots via the responder.
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
     match budget::route_with_nonce_budgeted(

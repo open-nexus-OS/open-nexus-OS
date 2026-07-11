@@ -182,6 +182,11 @@ fn binop(op: ir::BinOpKind, lhs: Value, rhs: Value) -> Result<Value, RtError> {
                 a.push_str(&b);
                 Ok(Value::Str(a))
             }
+            // List concatenation (`state.items + [x]` — the append recipe).
+            (Value::List(mut a), Value::List(b)) => {
+                a.extend(b);
+                Ok(Value::List(a))
+            }
             _ => Err(RtError::TypeMismatch),
         },
         K::Sub => match (lhs, rhs) {

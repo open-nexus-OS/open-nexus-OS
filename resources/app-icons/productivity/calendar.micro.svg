@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="12" y1="0" x2="12" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FF7B7B"/><stop offset="1" stop-color="#D70015"/></linearGradient></defs>
+  <g data-layer="background"><rect width="24" height="24" rx="5.4" fill="url(#bg)"/></g>
+  <g data-layer="symbol"><rect x="5" y="6" width="14" height="13" rx="1.5" fill="#FFFFFF"/><path d="M 5 7.5 Q 5 6 6.5 6 L 17.5 6 Q 19 6 19 7.5 L 19 9 L 5 9 Z" fill="#D70015"/><rect x="8" y="5" width="0.8" height="2" rx="0.3" fill="#FF7B7B"/><rect x="15.2" y="5" width="0.8" height="2" rx="0.3" fill="#FF7B7B"/><circle cx="12" cy="13" r="0.7" fill="#D70015"/><g fill="#FF7B7B" opacity="0.6"><circle cx="8" cy="13" r="0.4"/><circle cx="10" cy="13" r="0.4"/><circle cx="14" cy="13" r="0.4"/><circle cx="16" cy="13" r="0.4"/><circle cx="8" cy="15.5" r="0.4"/><circle cx="10" cy="15.5" r="0.4"/><circle cx="12" cy="15.5" r="0.4"/><circle cx="14" cy="15.5" r="0.4"/><circle cx="16" cy="15.5" r="0.4"/></g></g>
+</svg>

@@ -657,6 +657,21 @@ pub(crate) fn wire_services(
                         }
                     }
                 }
+                // svc.settings.* (DSL settings app / Control Center): CLONE —
+                // the pre-minted settingsd request endpoint also serves the
+                // windowd arm. Named route (non-positional, behind the probe
+                // block like the others).
+                if let Some((settings_req, _)) = eps.server_pair(ServiceId::Settingsd) {
+                    if let Ok(clone) = nexus_abi::cap_clone(settings_req) {
+                        if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                            chan.set_send(ServiceId::Settingsd, s);
+                            chan.set_recv(ServiceId::Settingsd, reply_recv_slot);
+                            if iw(init_wire, init_fold, "init:execd") {
+                                debug_write_bytes(b"init: execd route->settingsd ok\n");
+                            }
+                        }
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

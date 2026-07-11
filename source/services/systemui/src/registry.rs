@@ -35,7 +35,10 @@ pub struct ManifestEntry {
 }
 
 /// The default product booted when none is otherwise selected.
-pub const DEFAULT_PRODUCT_ID: &str = "default";
+/// Boot default = the TABLET product (touch shell; the handoff's default
+/// posture). The `default` product keeps the desktop profile — the Control
+/// Center Desktop/Tablet toggle switches between the two at runtime.
+pub const DEFAULT_PRODUCT_ID: &str = "tablet";
 
 /// Registered **profile** manifests (device-class axis).
 pub const PROFILES: &[ManifestEntry] = &[
@@ -281,6 +284,13 @@ pub fn next_product_id(current: &str) -> &'static str {
 
 /// Resolve the product that follows `current` straight to a [`ShellConfig`]
 /// (infallible — desktop fallback). The one call a switch trigger makes.
+pub fn shell_config_for(product_id: &str) -> ShellConfig {
+    match resolve_product(product_id) {
+        Ok(cfg) => ShellConfig::from_resolved(&cfg),
+        Err(_) => ShellConfig::desktop_fallback(),
+    }
+}
+
 pub fn shell_config_next(current: &str) -> ShellConfig {
     match resolve_product(next_product_id(current)) {
         Ok(cfg) => ShellConfig::from_resolved(&cfg),

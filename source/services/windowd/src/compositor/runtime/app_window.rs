@@ -897,15 +897,26 @@ impl DisplayServerRuntime {
     /// layers). No reply — the next present reflects it.
     pub(crate) fn handle_surface_layers(&mut self, frame: &[u8]) {
         let mut out = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
-        let Some(n) = wire::decode_surface_layers(frame, &mut out) else {
+        let Some((surface_id, n)) = wire::decode_surface_layers(frame, &mut out) else {
             return;
         };
-        self.app_layers = out;
-        self.app_layer_count = n;
-        self.app_win.surface_dirty = true;
-        let rect = self.app_window_rect();
-        self.queue_dirty_rect(rect);
-        let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
+        // BY ID: the desktop shell's glass regions composite over the
+        // wallpaper (Desktop arm); a floating app's over its window band.
+        if self.desktop_surface_id == Some(surface_id) {
+            self.desktop_layers = out;
+            self.desktop_layer_count = n;
+            self.desktop_dirty = true;
+            self.desktop_dirty_rows = (0, u32::MAX);
+            self.queue_full_frame_damage();
+            let _ = debug_println(&alloc::format!("WINDOWD: desktop layers={n}"));
+        } else {
+            self.app_layers = out;
+            self.app_layer_count = n;
+            self.app_win.surface_dirty = true;
+            let rect = self.app_window_rect();
+            self.queue_dirty_rect(rect);
+            let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
+        }
     }
 
     /// Stores the app's dedicated event channel (SEND cap slot moved with an
@@ -965,6 +976,43 @@ impl DisplayServerRuntime {
             let frame = wire::encode_surface_theme(mode);
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            // And the active SHELL PROFILE, so the app's `device.profile`
+            // selects the right `ui/platform/<profile>/` override arms at
+            // mount (tablet default, desktop override).
+            let pframe = wire::encode_surface_profile(self.shell_profile_wire());
+            let phdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, pframe.len() as u32);
+            let _ = nexus_abi::ipc_send_v1(slot, &phdr, &pframe, nexus_abi::IPC_SYS_NONBLOCK, 0);
+        }
+    }
+
+    /// The active shell profile as its wire tag (`PROFILE_*`), derived from
+    /// the SystemUI shell config (the windowing-policy SSOT).
+    pub(crate) fn shell_profile_wire(&self) -> u8 {
+        use nexus_display_proto::client_surface as wire;
+        match self.shell_config.profile_id.as_str() {
+            "tablet" => wire::PROFILE_TABLET,
+            "phone" => wire::PROFILE_PHONE,
+            "tv" => wire::PROFILE_TV,
+            _ => wire::PROFILE_DESKTOP,
+        }
+    }
+
+    /// Sends the active shell profile to EVERY connected app-host (floating
+    /// window, desktop shell, pending channels) — the live Desktop/Tablet
+    /// switch; apps re-mount so their platform override arms re-select.
+    pub(crate) fn push_app_profile(&mut self) {
+        use nexus_display_proto::client_surface as wire;
+        let frame = wire::encode_surface_profile(self.shell_profile_wire());
+        let _ = self.send_app_frame(&frame);
+        #[cfg(nexus_env = "os")]
+        {
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+            if let Some(slot) = self.desktop_channel {
+                let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            }
+            for e in &self.event_channels[..self.event_channels_len] {
+                let _ = nexus_abi::ipc_send_v1(e.1, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
+            }
         }
     }
 

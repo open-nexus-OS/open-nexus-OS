@@ -1,0 +1,24 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5BC4FF"/>
+      <stop offset="1" stop-color="#0A4FCC"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <circle cx="512" cy="512" r="290" fill="#FFFFFF"/>
+    <circle cx="512" cy="512" r="60" fill="#0A4FCC"/>
+    <g fill="#0A4FCC">
+      <circle cx="512" cy="280" r="56"/>
+      <circle cx="713" cy="396" r="56"/>
+      <circle cx="713" cy="628" r="56"/>
+      <circle cx="512" cy="744" r="56"/>
+      <circle cx="311" cy="628" r="56"/>
+      <circle cx="311" cy="396" r="56"/>
+    </g>
+  </g>
+</svg>

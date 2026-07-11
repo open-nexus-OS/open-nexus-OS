@@ -1,0 +1,45 @@
+/* open nexus OS — Motion Tokens
+   One physics vocabulary for the whole OS. Interfaces feel like one
+   material: controls spring, surfaces glide, exits are quick and quiet.
+
+   Rules:
+   - Enter/expand: spring (slight overshoot) — the UI is alive
+   - Exit/collapse: smooth, faster than entry — never bouncy on the way out
+   - Micro (hover/press): swift, immediate feedback
+   - Respect prefers-reduced-motion in every component */
+
+:root {
+  /* ─── Easing curves ─────────────────────────────────────── */
+  --motion-spring:        cubic-bezier(0.34, 1.4, 0.5, 1); /* @kind other */ /* panel/expand entry, elastic */
+  --motion-spring-soft:   cubic-bezier(0.34, 1.2, 0.5, 1); /* @kind other */ /* subtle overshoot: thumbs, chips */
+  --motion-spring-icon:   cubic-bezier(0.34, 1.56, 0.64, 1); /* @kind other */ /* icon pop, strongest overshoot */
+  --motion-smooth:        cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */ /* collapse, exit, fades */
+  --motion-glide:         cubic-bezier(0.22, 1, 0.36, 1); /* @kind other */ /* page swipes, large moves */
+
+  /* ─── Durations ─────────────────────────────────────────── */
+  --motion-instant:  0.10s; /* @kind other */ /* press-down feedback */
+  --motion-swift:    0.16s; /* @kind other */ /* hover, color/bg shifts */
+  --motion-quick:    0.28s; /* @kind other */ /* toggles, toggles, small controls */
+  --motion-base:     0.40s; /* @kind other */ /* collapse, dismiss */
+  --motion-slow:     0.50s; /* @kind other */ /* spring expand, window entry */
+
+  /* ─── Composite transitions (drop-in values) ────────────── */
+  --transition-press:   transform var(--motion-quick) var(--motion-spring-soft);
+  --transition-surface: background var(--motion-swift) ease, border-color var(--motion-swift) ease, box-shadow var(--motion-quick) ease;
+}
+
+/* ─── Shared keyframes (referenced by components) ──────────── */
+@keyframes nx-scrim-in   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nx-overlay-in { from { opacity: 0; transform: scale(0.94) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+@keyframes nx-menu-in    { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+@keyframes nx-sheet-in   { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes nx-toast-in   { from { opacity: 0; transform: translateX(-16px) scale(0.96); } to { opacity: 1; transform: translateX(0) scale(1); } }
+@keyframes nx-toast-rise { from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.95); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+@keyframes nx-toast-drop { from { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.95); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-instant: 0.01ms; /* @kind other */ --motion-swift: 0.01ms; /* @kind other */ --motion-quick: 0.01ms; /* @kind other */
+    --motion-base: 0.01ms; /* @kind other */ --motion-slow: 0.01ms; /* @kind other */
+  }
+}

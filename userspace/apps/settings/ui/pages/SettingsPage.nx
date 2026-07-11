@@ -1,0 +1,80 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Settings (design handoff "OS Settings Window", compact layout): toolbar,
+// section-nav chip row (sidebar stand-in at the floating default size),
+// grouped setting rows per section. REAL function: Personalisierung →
+// light/dark via `svc.settings` (windowd re-themes live). Connection rows
+// are honest static placeholders (no radio services yet).
+
+Page SettingsPage {
+    Stack {
+        Toolbar { title: @t("settings.title") }
+        Stack {
+            Stack {
+                SectionChip { label: @t("settings.connections"), active: $state.section == 0 }
+            }
+            on Tap -> dispatch(Select(0))
+            Stack {
+                SectionChip { label: @t("settings.personalization"), active: $state.section == 1 }
+            }
+            on Tap -> dispatch(Select(1))
+            Stack {
+                SectionChip { label: @t("settings.general"), active: $state.section == 2 }
+            }
+            on Tap -> dispatch(Select(2))
+        }
+        .direction(row)
+        .gap(1)
+        .padding(2)
+        Stack {
+            if $state.section == 0 {
+                Card {
+                    Stack {
+                        ListItem { title: @t("settings.wifi"), subtitle: @t("settings.wifiNet"), showChevron: true }
+                        ListItem { title: @t("settings.bluetooth"), subtitle: @t("settings.off"), showChevron: true }
+                        ListItem { title: @t("settings.dataUsage"), showChevron: true }
+                    }
+                    .gap(1)
+                    .padding(2)
+                }
+            } else {
+                if $state.section == 1 {
+                    Card {
+                        Stack {
+                            Text(@t("settings.appearance")).textSize(sm).fg(onSurfaceVariant)
+                            Stack {
+                                Button { label: @t("settings.light") }
+                                on Tap -> dispatch(SetTheme("light"))
+                                Button { label: @t("settings.dark") }
+                                on Tap -> dispatch(SetTheme("dark"))
+                            }
+                            .direction(row)
+                            .gap(2)
+                            if $state.applyError != 0 {
+                                Text(@t("settings.applyFailed")).fg(danger)
+                            } else {
+                                Spacer
+                            }
+                        }
+                        .gap(2)
+                        .padding(2)
+                    }
+                } else {
+                    Card {
+                        Stack {
+                            ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
+                            ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
+                            ListItem { title: @t("settings.about"), showChevron: true }
+                        }
+                        .gap(1)
+                        .padding(2)
+                    }
+                }
+            }
+        }
+        .grow(1)
+        .padding(2)
+    }
+    .gap(0)
+}

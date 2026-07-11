@@ -1,0 +1,21 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD75B"/>
+      <stop offset="1" stop-color="#FF9F0A"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <path d="M 240 200 L 700 200 L 800 300 L 800 824 Q 800 844 780 844 L 260 844 Q 240 844 240 824 Z" fill="#FFFFFF"/>
+    <path d="M 700 200 L 700 300 L 800 300 Z" fill="#FFE89A"/>
+    <line x1="320" y1="400" x2="720" y2="400" stroke="#FF9F0A" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+    <line x1="320" y1="490" x2="720" y2="490" stroke="#FF9F0A" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+    <line x1="320" y1="580" x2="720" y2="580" stroke="#FF9F0A" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+    <line x1="320" y1="670" x2="720" y2="670" stroke="#FF9F0A" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+    <line x1="320" y1="760" x2="560" y2="760" stroke="#FF9F0A" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+  </g>
+</svg>

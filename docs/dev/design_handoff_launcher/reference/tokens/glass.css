@@ -1,0 +1,134 @@
+/* AIVA OS — Liquid Glass Tokens
+   The signature visual language: frosted-glass panels with
+   translucent backgrounds, white borders, and backdrop-blur.
+   Tokens auto-adapt between light and dark mode via .dark class. */
+
+:root {
+  /* ─── Panel (main surfaces: dock, overlays, popovers) ────── */
+  --glass-panel-bg:               rgba(255, 255, 255, 0.50);
+  --glass-panel-border:           rgba(255, 255, 255, 0.75);
+  --glass-panel-shadow:           0 25px 50px rgba(0, 0, 0, 0.15);
+
+  /* ─── Overlay material (modal/alert/sheet/popover: dense,
+         high-contrast reading surfaces — crisper than panels) ── */
+  --glass-overlay-bg:             rgba(252, 252, 254, 0.82);
+  --glass-overlay-border:         rgba(255, 255, 255, 0.85);
+  --glass-overlay-shadow:         0 25px 60px rgba(0, 0, 0, 0.22);
+  --glass-scrim:                  rgba(0, 0, 0, 0.28);
+
+  /* ─── Card (inner panels, nested containers) ─────────────── */
+  --glass-card-bg:                rgba(255, 255, 255, 0.60);
+  --glass-card-border:            rgba(255, 255, 255, 0.80);
+
+  /* ─── Subtle (settings rows, list items) ─────────────────── */
+  --glass-subtle-bg:              rgba(255, 255, 255, 0.70);
+
+  /* ─── Window (dense app-window surface — solider than panel,
+         the chrome every app/settings window is built from) ──── */
+  --glass-window-bg:              linear-gradient(165deg, rgba(248,249,251,0.94), rgba(236,238,243,0.90)); /* @kind other */
+  --glass-window-border:          rgba(255, 255, 255, 0.90);
+  --glass-window-shadow:          0 30px 60px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.85);
+  --glass-window-icon:            rgba(0, 0, 0, 0.50);
+  --glass-window-pane-bg:         linear-gradient(160deg, rgba(255,255,255,0.96), rgba(250,251,253,0.88)); /* @kind other */
+  --glass-window-pane-border:     rgba(0, 0, 0, 0.07);
+  --glass-window-pane-inset:      rgba(255, 255, 255, 0.70);
+  --glass-window-chip-bg:         rgba(0, 0, 0, 0.05);
+  --glass-window-chip-border:     rgba(0, 0, 0, 0.09);
+  --glass-window-bar-bg:          linear-gradient(165deg, rgba(255,255,255,0.90), rgba(246,247,250,0.84)); /* @kind other */
+  --glass-window-bar-border:      rgba(255, 255, 255, 0.95);
+  --glass-window-bar-shadow:      0 14px 36px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.85);
+
+  /* ─── App Icon Backing ───────────────────────────────────── */
+  --glass-icon-bg:                rgba(255, 255, 255, 0.15);
+  --glass-icon-border:            rgba(255, 255, 255, 0.20);
+
+  /* ─── Hover / Active ─────────────────────────────────────── */
+  --glass-hover-bg:               rgba(0, 0, 0, 0.08);
+  --glass-active-bg:              rgba(0, 0, 0, 0.12);
+
+  /* ─── Dividers ───────────────────────────────────────────── */
+  --glass-divider:                rgba(0, 0, 0, 0.10);
+
+  /* ─── Text on Glass ──────────────────────────────────────── */
+  --glass-text-primary:           rgba(0, 0, 0, 0.80);
+  --glass-text-secondary:         rgba(0, 0, 0, 0.40);
+  --glass-text-strong:            rgba(0, 0, 0, 0.92);
+
+  /* App-icon label legibility halo — light theme: black text → light halo */
+  --glass-label-shadow:           0 0 3px rgba(255,255,255,0.70), 0 1px 3px rgba(255,255,255,0.55);
+
+  /* ─── Shine Overlay ──────────────────────────────────────── */
+  --glass-shine:                  linear-gradient(to bottom, rgba(255,255,255,0.15), transparent); /* @kind other */
+
+  /* ─── Blur Amounts ───────────────────────────────────────── */
+  --glass-blur-sm:   8px;
+  --glass-blur-md:  20px;
+  --glass-blur-lg:  40px;
+  --glass-blur-xl:  64px;
+
+  /* ─── Toggle / Active States ─────────────────────────────── */
+  --glass-toggle-on-bg:           rgba(59, 130, 246, 0.85);
+  --glass-toggle-on-border:       rgba(96, 165, 250, 0.40);
+  --glass-toggle-on-shadow:       rgba(59, 130, 246, 0.30);
+  --glass-toggle-off-bg:          rgba(255, 255, 255, 0.85);
+  --glass-toggle-off-border:      rgba(255, 255, 255, 1.0);
+
+  /* ─── Notification Dot ───────────────────────────────────── */
+  --glass-notif-dot:              #ef4444;
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────── */
+.dark {
+  --glass-panel-bg:               rgba(255, 255, 255, 0.10);
+  --glass-panel-border:           rgba(255, 255, 255, 0.18);
+  --glass-panel-shadow:           0 25px 50px rgba(0, 0, 0, 0.60);
+
+  --glass-overlay-bg:             rgba(34, 39, 52, 0.80);
+  --glass-overlay-border:         rgba(255, 255, 255, 0.16);
+  --glass-overlay-shadow:         0 25px 60px rgba(0, 0, 0, 0.66);
+  --glass-scrim:                  rgba(0, 0, 0, 0.45);
+
+  --glass-card-bg:                rgba(255, 255, 255, 0.08);
+  --glass-card-border:            rgba(255, 255, 255, 0.12);
+
+  --glass-subtle-bg:              rgba(255, 255, 255, 0.06);
+
+  --glass-window-bg:              linear-gradient(165deg, rgba(52,54,62,0.82), rgba(32,34,42,0.74)); /* @kind other */
+  --glass-window-border:          rgba(255, 255, 255, 0.12);
+  --glass-window-shadow:          0 30px 60px rgba(0,0,0,0.72), inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.28);
+  --glass-window-icon:            rgba(255, 255, 255, 0.55);
+  --glass-window-pane-bg:         linear-gradient(160deg, rgba(72,74,84,0.48), rgba(52,54,64,0.32)); /* @kind other */
+  --glass-window-pane-border:     rgba(255, 255, 255, 0.08);
+  --glass-window-pane-inset:      rgba(255, 255, 255, 0.10);
+  --glass-window-chip-bg:         rgba(255, 255, 255, 0.10);
+  --glass-window-chip-border:     rgba(255, 255, 255, 0.14);
+  --glass-window-bar-bg:          linear-gradient(165deg, rgba(64,66,74,0.95), rgba(46,48,56,0.92)); /* @kind other */
+  --glass-window-bar-border:      rgba(255, 255, 255, 0.16);
+  --glass-window-bar-shadow:      0 14px 36px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.16);
+
+  --glass-icon-bg:                rgba(255, 255, 255, 0.10);
+  --glass-icon-border:            rgba(255, 255, 255, 0.15);
+
+  --glass-hover-bg:               rgba(255, 255, 255, 0.15);
+  --glass-active-bg:              rgba(255, 255, 255, 0.20);
+
+  --glass-divider:                rgba(255, 255, 255, 0.10);
+
+  --glass-text-primary:           rgba(255, 255, 255, 0.90);
+  --glass-text-secondary:         rgba(255, 255, 255, 0.45);
+  --glass-text-strong:            rgba(255, 255, 255, 0.95);
+
+  /* dark theme: white text → dark halo */
+  --glass-label-shadow:           0 0 3px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.45);
+
+  --glass-shine:                  linear-gradient(to bottom, rgba(255,255,255,0.10), transparent); /* @kind other */
+
+  --glass-toggle-off-bg:          rgba(255, 255, 255, 0.14);
+  --glass-toggle-off-border:      rgba(255, 255, 255, 0.15);
+}
+
+/* ─── Window entrance (spring) ───────────────────────────── */
+@keyframes aiva-window-in {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}

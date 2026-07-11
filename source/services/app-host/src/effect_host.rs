@@ -173,6 +173,89 @@ impl AppEffectHost {
             Err(ERR_SVC_UNAVAILABLE)
         }
     }
+    /// `svc.settings.get(key)` → the registered value (settingsd typed
+    /// registry; unknown keys are a shape error, never a silent default).
+    fn settings_get(&self, key: &str) -> Result<Value, u32> {
+        use nexus_abi::settingsd as sw;
+        let send_slot = Self::svc_send_slot("settings").ok_or(ERR_SVC_UNKNOWN)?;
+        let mut req = [0u8; 300];
+        let n = sw::encode_get_req(key, &mut req).ok_or(ERR_SVC_SHAPE)?;
+        let mut resp = [0u8; REPLY_BUF];
+        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
+            raw_marker("apphost: dsl svc settings.get FAIL (settingsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        match sw::decode_response(sw::OP_GET, &resp[..len]) {
+            Some((sw::STATUS_OK, value)) => {
+                raw_marker("apphost: dsl svc settings.get ok");
+                Ok(Value::Str(String::from(value)))
+            }
+            _ => {
+                raw_marker("apphost: dsl svc settings.get FAIL (status)");
+                Err(ERR_SVC_SHAPE)
+            }
+        }
+    }
+
+    /// `svc.settings.set(key, value)` → `Bool` (validated + persisted).
+    ///
+    /// PRESENTATION keys (`ui.theme.mode`, `ui.shell.mode`) route to windowd
+    /// (`OP_SURFACE_CONTROL`) instead of settingsd: the compositor is the
+    /// single presentation authority — it applies the change LIVE and
+    /// persists via settingsd itself, so a toggle can never desynchronize
+    /// the desktop from the stored value.
+    fn settings_set(&self, key: &str, value: &str) -> Result<Value, u32> {
+        use nexus_abi::settingsd as sw;
+        if key == sw::KEY_UI_THEME_MODE || key == sw::KEY_UI_SHELL_MODE {
+            return self.presentation_control(key, value);
+        }
+        let send_slot = Self::svc_send_slot("settings").ok_or(ERR_SVC_UNKNOWN)?;
+        let mut req = [0u8; 300];
+        let n = sw::encode_set_req(key, value, &mut req).ok_or(ERR_SVC_SHAPE)?;
+        let mut resp = [0u8; REPLY_BUF];
+        let Some(len) = call_reply(send_slot, &req[..n], &mut resp) else {
+            raw_marker("apphost: dsl svc settings.set FAIL (settingsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        let ok = matches!(sw::decode_response(sw::OP_SET, &resp[..len]), Some((sw::STATUS_OK, _)));
+        raw_marker(if ok {
+            "apphost: dsl svc settings.set ok"
+        } else {
+            "apphost: dsl svc settings.set FAIL (status)"
+        });
+        Ok(Value::Bool(ok))
+    }
+
+    /// Sends a presentation control to windowd on the surface request channel
+    /// (fire-and-forget NONBLOCK; windowd pushes the resulting theme/profile
+    /// back over the event channel, which re-mounts the view).
+    fn presentation_control(&self, key: &str, value: &str) -> Result<Value, u32> {
+        use nexus_abi::settingsd as sw;
+        use nexus_display_proto::client_surface as wire;
+        let (control, v) = if key == sw::KEY_UI_THEME_MODE {
+            let v = if value == "light" { wire::THEME_LIGHT } else { wire::THEME_DARK };
+            (wire::CONTROL_THEME, v)
+        } else {
+            let v = if value == "desktop" { wire::PROFILE_DESKTOP } else { wire::PROFILE_TABLET };
+            (wire::CONTROL_SHELL_PROFILE, v)
+        };
+        let frame = wire::encode_surface_control(control, v);
+        // The windowd surface request slot (main.rs WINDOWD_SEND_SLOT).
+        const WINDOWD_SEND_SLOT: u32 = 5;
+        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+        match nexus_abi::ipc_send_v1(WINDOWD_SEND_SLOT, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
+        {
+            Ok(_) => {
+                raw_marker("apphost: dsl svc settings.set control ok");
+                Ok(Value::Bool(true))
+            }
+            Err(_) => {
+                raw_marker("apphost: dsl svc settings.set control FAIL (send)");
+                Err(ERR_SVC_UNAVAILABLE)
+            }
+        }
+    }
+
 }
 
 impl EffectHost for AppEffectHost {
@@ -185,6 +268,15 @@ impl EffectHost for AppEffectHost {
     ) -> Result<Value, u32> {
         match (service, method) {
             ("bundlemgr", "enumerate") => self.enumerate(),
+            ("settings", "get") => {
+                let key = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.settings_get(key)
+            }
+            ("settings", "set") => {
+                let key = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                let value = args.get(1).and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.settings_set(key, value)
+            }
             ("session", "users") => self.session_users(),
             ("session", "login") => {
                 let user = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;

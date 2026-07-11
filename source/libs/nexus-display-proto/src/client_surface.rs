@@ -61,8 +61,9 @@ pub const OP_SURFACE_RECT: u8 = 14;
 /// `composite_layer_full` SSOT — real cached backdrop blur + SDF rounded +
 /// shadow — over the retained wallpaper, so the shell's panels are true glass
 /// layers, not a flat bitmap. Regions not covered by a glass layer blit opaque.
-/// Payload: `count:u8, [LayerDesc; count]`. Empty/absent = the whole surface
-/// composites with the default (window) treatment (the pre-R1 behavior).
+/// Payload: `surface_id:u32, count:u8, [LayerDesc; count]`. Empty/absent =
+/// the whole surface composites with the default treatment (pre-R1). The id
+/// routes the regions to their surface (desktop shell vs floating window).
 pub const OP_SURFACE_LAYERS: u8 = 15;
 
 /// Material kinds for a submitted layer region.
@@ -97,15 +98,21 @@ pub struct LayerDesc {
 }
 
 const LAYER_DESC_BYTES: usize = 12;
-pub const SURFACE_LAYERS_MAX_LEN: usize = HEADER_LEN + 1 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
+pub const SURFACE_LAYERS_MAX_LEN: usize =
+    HEADER_LEN + 5 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
 
 /// Encodes the layer list; clamps to [`MAX_SURFACE_LAYERS`]. Returns the length.
 #[must_use]
-pub fn encode_surface_layers(layers: &[LayerDesc], out: &mut [u8; SURFACE_LAYERS_MAX_LEN]) -> usize {
+pub fn encode_surface_layers(
+    surface_id: u32,
+    layers: &[LayerDesc],
+    out: &mut [u8; SURFACE_LAYERS_MAX_LEN],
+) -> usize {
     let count = layers.len().min(MAX_SURFACE_LAYERS);
     out[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_LAYERS));
-    out[4] = count as u8;
-    let mut pos = 5;
+    out[4..8].copy_from_slice(&surface_id.to_le_bytes());
+    out[8] = count as u8;
+    let mut pos = 9;
     for l in &layers[..count] {
         out[pos..pos + 2].copy_from_slice(&l.x.to_le_bytes());
         out[pos + 2..pos + 4].copy_from_slice(&l.y.to_le_bytes());
@@ -125,15 +132,16 @@ pub fn encode_surface_layers(layers: &[LayerDesc], out: &mut [u8; SURFACE_LAYERS
 pub fn decode_surface_layers(
     frame: &[u8],
     out: &mut [LayerDesc; MAX_SURFACE_LAYERS],
-) -> Option<usize> {
-    if !has_op(frame, OP_SURFACE_LAYERS) || frame.len() < HEADER_LEN + 1 {
+) -> Option<(u32, usize)> {
+    if !has_op(frame, OP_SURFACE_LAYERS) || frame.len() < HEADER_LEN + 5 {
         return None;
     }
-    let count = frame[4] as usize;
-    if count > MAX_SURFACE_LAYERS || frame.len() != HEADER_LEN + 1 + count * LAYER_DESC_BYTES {
+    let surface_id = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+    let count = frame[8] as usize;
+    if count > MAX_SURFACE_LAYERS || frame.len() != HEADER_LEN + 5 + count * LAYER_DESC_BYTES {
         return None;
     }
-    let mut pos = 5;
+    let mut pos = 9;
     for slot in out.iter_mut().take(count) {
         *slot = LayerDesc {
             x: u16::from_le_bytes([frame[pos], frame[pos + 1]]),
@@ -147,7 +155,7 @@ pub fn decode_surface_layers(
         };
         pos += LAYER_DESC_BYTES;
     }
-    Some(count)
+    Some((surface_id, count))
 }
 
 /// windowd → app: the active theme mode, so an app renders with the SAME
@@ -177,6 +185,71 @@ pub fn decode_surface_theme(frame: &[u8]) -> Option<u8> {
         return None;
     }
     Some(frame[4])
+}
+
+/// windowd → app: the active SHELL PROFILE, so an app's `device.profile`
+/// matches the environment's windowing policy and the compiler's
+/// `ui/platform/<profile>/` override arms select at runtime (tablet default,
+/// desktop override). Sent when the app event channel attaches (before mount)
+/// and again on every mode switch (Control Center Desktop/Tablet toggle →
+/// `ui.shell.mode`). Payload: `profile:u8` (`PROFILE_*`).
+pub const OP_SURFACE_PROFILE: u8 = 17;
+/// Shell profiles (align with the DSL `device.profile` vocabulary).
+pub const PROFILE_TABLET: u8 = 0;
+pub const PROFILE_DESKTOP: u8 = 1;
+pub const PROFILE_PHONE: u8 = 2;
+pub const PROFILE_TV: u8 = 3;
+
+pub const SURFACE_PROFILE_FRAME_LEN: usize = HEADER_LEN + 1;
+
+/// Encodes the shell profile.
+#[must_use]
+pub fn encode_surface_profile(profile: u8) -> [u8; SURFACE_PROFILE_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_PROFILE_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_PROFILE));
+    f[4] = profile;
+    f
+}
+
+/// `profile`.
+#[must_use]
+pub fn decode_surface_profile(frame: &[u8]) -> Option<u8> {
+    if !has_op(frame, OP_SURFACE_PROFILE) || frame.len() != SURFACE_PROFILE_FRAME_LEN {
+        return None;
+    }
+    Some(frame[4])
+}
+
+/// app → windowd: a PRESENTATION CONTROL request from a shell surface (the
+/// Control Center / settings toggles). windowd is the single authority for
+/// presentation modes: it applies the change LIVE (theme swap / shell-config
+/// switch + profile push) and persists it via settingsd — the same path as
+/// the native toggle, so a DSL shell can never desynchronize the compositor.
+/// Payload: `control:u8, value:u8`.
+pub const OP_SURFACE_CONTROL: u8 = 18;
+/// Control kinds.
+pub const CONTROL_THEME: u8 = 0; // value = THEME_*
+pub const CONTROL_SHELL_PROFILE: u8 = 1; // value = PROFILE_*
+
+pub const SURFACE_CONTROL_FRAME_LEN: usize = HEADER_LEN + 2;
+
+/// Encodes a control request.
+#[must_use]
+pub fn encode_surface_control(control: u8, value: u8) -> [u8; SURFACE_CONTROL_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_CONTROL_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_CONTROL));
+    f[4] = control;
+    f[5] = value;
+    f
+}
+
+/// `(control, value)`.
+#[must_use]
+pub fn decode_surface_control(frame: &[u8]) -> Option<(u8, u8)> {
+    if !has_op(frame, OP_SURFACE_CONTROL) || frame.len() != SURFACE_CONTROL_FRAME_LEN {
+        return None;
+    }
+    Some((frame[4], frame[5]))
 }
 
 /// Window-intent wire tags (mirror the IR `WindowStyle`/`WindowLevel`/
@@ -580,6 +653,22 @@ mod tests {
     }
 
     #[test]
+    fn control_round_trip_and_guards() {
+        let f = encode_surface_control(CONTROL_SHELL_PROFILE, PROFILE_DESKTOP);
+        assert_eq!(decode_surface_control(&f), Some((CONTROL_SHELL_PROFILE, PROFILE_DESKTOP)));
+        assert_eq!(decode_surface_control(&f[..f.len() - 1]), None);
+    }
+
+    #[test]
+    fn profile_round_trip_and_guards() {
+        let f = encode_surface_profile(PROFILE_TABLET);
+        assert_eq!(decode_surface_profile(&f), Some(PROFILE_TABLET));
+        assert_eq!(decode_surface_profile(&f[..f.len() - 1]), None);
+        let d = encode_surface_profile(PROFILE_DESKTOP);
+        assert_eq!(decode_surface_profile(&d), Some(PROFILE_DESKTOP));
+    }
+
+    #[test]
     fn theme_round_trip_and_guards() {
         let f = encode_surface_theme(THEME_DARK);
         assert_eq!(decode_surface_theme(&f), Some(THEME_DARK));
@@ -606,15 +695,15 @@ mod tests {
             LayerDesc { x: 20, y: 60, w: 200, h: 120, material: MATERIAL_GLASS, glass_level: GLASS_CARD, radius: 12, shadow_alpha: 80 },
         ];
         let mut buf = [0u8; SURFACE_LAYERS_MAX_LEN];
-        let len = encode_surface_layers(&layers, &mut buf);
+        let len = encode_surface_layers(7, &layers, &mut buf);
         let mut out = [LayerDesc::default(); MAX_SURFACE_LAYERS];
-        let n = decode_surface_layers(&buf[..len], &mut out).expect("decodes");
-        assert_eq!(n, 2);
+        let (sid, n) = decode_surface_layers(&buf[..len], &mut out).expect("decodes");
+        assert_eq!((sid, n), (7, 2));
         assert_eq!(out[0], layers[0]);
         assert_eq!(out[1], layers[1]);
         // Empty list is valid (whole-surface default treatment).
-        let empty = encode_surface_layers(&[], &mut buf);
-        assert_eq!(decode_surface_layers(&buf[..empty], &mut out), Some(0));
+        let empty = encode_surface_layers(7, &[], &mut buf);
+        assert_eq!(decode_surface_layers(&buf[..empty], &mut out), Some((7, 0)));
         // Truncated + wrong-op frames rejected.
         assert_eq!(decode_surface_layers(&buf[..len - 1], &mut out), None);
         let mut wrong = buf;

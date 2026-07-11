@@ -1,0 +1,33 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Settings store: the selected section (Int id — 0 connections,
+// 1 personalization, 2 general) + REAL theme writes through `svc.settings`
+// (the app-host routes `ui.theme.mode` to windowd: live apply + persist).
+// Connection rows are honest placeholders until their services land.
+
+Store SettingsStore {
+    section: Int = 0,
+    applyError: Int = 0,
+}
+
+Event SettingsEvent {
+    Select(Int),
+    SetTheme(Str),
+    Applied(Bool),
+    ApplyFailed(Int),
+}
+
+reduce SettingsEvent {
+    Select(section) => state.section = section,
+    SetTheme(mode) => state.applyError = 0,
+    Applied(ok) => state.applyError = 0,
+    ApplyFailed(code) => state.applyError = code,
+}
+
+@effect on SetTheme(mode) {
+    match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}

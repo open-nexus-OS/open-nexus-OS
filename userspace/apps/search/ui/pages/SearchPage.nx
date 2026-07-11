@@ -1,0 +1,31 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Search (design-system look): toolbar + SearchBar + result rows (ListItem).
+// Results are apps from the registry; tapping one launches it.
+
+Page SearchPage {
+    Stack {
+        Toolbar { title: @t("search.title") }
+        Stack {
+            SearchBar { value: $state.query, placeholder: @t("search.placeholder") }
+            on Change -> dispatch(QueryChanged)
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
+                List($state.results) { app in
+                    Stack {
+                        ListItem { title: app.label, subtitle: app.id, showChevron: true }
+                    }
+                    .key(app.id)
+                    on Tap -> dispatch(Open(app.id))
+                }
+                .gap(1)
+            }
+        }
+        .grow(1)
+        .gap(2)
+        .padding(3)
+    }
+    .gap(0)
+}

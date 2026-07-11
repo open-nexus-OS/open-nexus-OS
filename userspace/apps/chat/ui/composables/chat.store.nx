@@ -1,0 +1,32 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Chat store: a LOCAL transcript (append + echo reply) until the messaging
+// transport lands (the manifest's chat.Send/Receive exports, TASK-0081 C2).
+// Entries are pre-labelled strings (`List<Str>` — the proven v0.1 subset;
+// typed Msg records + side-aligned bubbles follow with record literals).
+// `draft` two-way-binds the input.
+
+Store ChatStore {
+    messages: List<Str> = [],
+    draft: Str = "",
+}
+
+Event ChatEvent {
+    Send,
+    Received(Str),
+}
+
+reduce ChatEvent {
+    Send => {
+        state.messages = state.messages + ["Du: " + state.draft];
+        state.draft = "";
+    },
+    Received(text) => {
+        state.messages = state.messages + [text];
+    },
+}
+
+@effect on Send {
+    dispatch(Received("Echo: angekommen."));
+}

@@ -32,7 +32,78 @@ impl DisplayServerRuntime {
         self.shell_config = cfg;
         // The chrome IS the DSL shell app-host's surface now — a shell switch
         // just changes policy (chrome flag, lockdown) and repaints everything.
+        // Push the new profile so every app-host re-mounts with the matching
+        // `ui/platform/<profile>/` override arms (tablet ⇄ desktop).
+        self.push_app_profile();
         self.queue_full_frame_damage();
+    }
+
+    /// `OP_SURFACE_CONTROL` from a shell surface: windowd is the single
+    /// presentation authority — apply the change LIVE, then persist via
+    /// settingsd (the native-toggle path; a DSL Control Center can never
+    /// desynchronize the compositor). Unknown controls are reported, not
+    /// silently dropped.
+    /// RECORDED FOLLOW-UP: enforce the sender ROLE (desktop-surface owner or
+    /// settings-role app) once the server endpoint carries per-sender identity
+    /// (the execd requester-id pattern) — today any surface client could send
+    /// this; presentation-only blast radius, but it should be fail-closed.
+    pub(crate) fn handle_surface_control(&mut self, frame: &[u8]) {
+        use nexus_display_proto::client_surface as wire;
+        let Some((control, value)) = wire::decode_surface_control(frame) else {
+            let _ = debug_println("WINDOWD: FAIL control (malformed)");
+            return;
+        };
+        match control {
+            wire::CONTROL_THEME => {
+                let mode = if value == wire::THEME_LIGHT {
+                    crate::theme::ThemeMode::Light
+                } else {
+                    crate::theme::ThemeMode::Dark
+                };
+                self.set_theme_mode(mode);
+                #[cfg(all(nexus_env = "os", target_os = "none"))]
+                {
+                    let _ = crate::settings_client::set_theme_mode(mode);
+                    self.mark_theme_user_set();
+                }
+            }
+            wire::CONTROL_SHELL_PROFILE => {
+                self.set_shell_profile_wire(value, true);
+            }
+            other => {
+                let _ = debug_println(&alloc::format!(
+                    "WINDOWD: control unknown kind={other} value={value}"
+                ));
+            }
+        }
+    }
+
+    /// Switch the shell to the product matching a `PROFILE_*` wire tag
+    /// (tablet ⇄ desktop), optionally persisting `ui.shell.mode`. No-op when
+    /// the profile already matches (idempotent — the boot restore path).
+    pub(crate) fn set_shell_profile_wire(&mut self, profile: u8, persist: bool) {
+        use nexus_display_proto::client_surface as wire;
+        let (product, mode_str) = if profile == wire::PROFILE_TABLET {
+            ("tablet", "tablet")
+        } else {
+            // The `default` product carries the desktop profile/shell.
+            ("default", "desktop")
+        };
+        if self.shell_profile_wire() == profile {
+            return;
+        }
+        let cfg = systemui::shell_config_for(product);
+        self.apply_shell_config(cfg);
+        #[cfg(all(nexus_env = "os", target_os = "none"))]
+        if persist {
+            if crate::settings_client::set_shell_mode(mode_str) {
+                let _ = debug_println("windowd: shell mode persist ok");
+            } else {
+                let _ = debug_println("windowd: shell mode persist unroutable");
+            }
+        }
+        #[cfg(not(all(nexus_env = "os", target_os = "none")))]
+        let _ = (persist, mode_str);
     }
 
     /// Launch an installed app that windowd does not host directly (e.g. a real
@@ -223,6 +294,20 @@ impl DisplayServerRuntime {
                 "windowd: theme restored (mode={})",
                 mode.as_str()
             ));
+            // settingsd is reachable — restore the persisted shell mode in the
+            // same breath (no second probe): apply-only, never re-persist.
+            if let Some(shell_mode) = crate::settings_client::get_shell_mode() {
+                use nexus_display_proto::client_surface as wire;
+                let profile = if shell_mode == "desktop" {
+                    wire::PROFILE_DESKTOP
+                } else {
+                    wire::PROFILE_TABLET
+                };
+                self.set_shell_profile_wire(profile, false);
+                let _ = debug_println(&alloc::format!(
+                    "windowd: shell mode restored (mode={shell_mode})"
+                ));
+            }
         }
     }
 

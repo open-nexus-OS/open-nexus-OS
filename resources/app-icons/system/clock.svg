@@ -1,0 +1,26 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4B5B7A"/>
+      <stop offset="1" stop-color="#1A2540"/>
+    </linearGradient>
+  </defs>
+  <g data-layer="background">
+    <rect width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+    <rect x="1.5" y="1.5" width="1021" height="1021" rx="228.5" ry="228.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+  <g data-layer="symbol">
+    <circle cx="512" cy="512" r="300" fill="#FFFFFF"/>
+    <circle cx="512" cy="512" r="280" fill="#1A2540"/>
+    <g fill="#FFFFFF">
+      <rect x="500" y="244" width="24" height="40" rx="6"/>
+      <rect x="500" y="740" width="24" height="40" rx="6"/>
+      <rect x="244" y="500" width="40" height="24" rx="6"/>
+      <rect x="740" y="500" width="40" height="24" rx="6"/>
+    </g>
+    <line x1="512" y1="512" x2="512" y2="340" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+    <line x1="512" y1="512" x2="680" y2="512" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+    <line x1="512" y1="512" x2="512" y2="280" stroke="#FF5B5B" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="18" fill="#FFFFFF"/>
+  </g>
+</svg>

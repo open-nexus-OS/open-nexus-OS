@@ -1,0 +1,20 @@
+{
+  "settings.title": "Settings",
+  "settings.connections": "Connections",
+  "settings.personalization": "Personalization",
+  "settings.general": "General",
+  "settings.wifi": "WLAN",
+  "settings.wifiNet": "MyHomeIsWhereMyWifiIs",
+  "settings.bluetooth": "Bluetooth",
+  "settings.off": "Off",
+  "settings.dataUsage": "Data usage",
+  "settings.appearance": "Appearance",
+  "settings.light": "Light",
+  "settings.dark": "Dark",
+  "settings.applyFailed": "Could not apply setting",
+  "settings.language": "Language",
+  "settings.languageValue": "English",
+  "settings.time": "Time & region",
+  "settings.timeValue": "24-hour",
+  "settings.about": "About this device"
+}

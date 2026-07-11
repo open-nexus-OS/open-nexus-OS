@@ -554,7 +554,17 @@ fn lower_view(
             if collection.body.len() != 1 {
                 return Err(unsupported(collection.span, "multi-root collection templates"));
             }
-            let mut fe = b.init_for_each();
+            // The collection lowers as its WIDGET (the container carrying the
+            // authored `.direction/.wrap/.gap/...` modifiers) with ONE ForEach
+            // child; the runtime splices the items into the container. The
+            // former bare-ForEach lowering DROPPED `collection.modifiers` —
+            // every `List(...).direction(row)` silently laid out as a column.
+            let mut w = b.init_widget();
+            w.set_kind(ctx.sym(&collection.kind.text));
+            w.reborrow().init_props(0);
+            lower_modifiers(ctx, env, &collection.modifiers, &mut w)?;
+            let children = w.init_children(1);
+            let mut fe = children.get(0).init_for_each();
             fe.set_windowed(true);
             lower_expr(env, &collection.binding, fe.reborrow().init_binding())?;
             let slot = env.bind_local(&collection.var.text);

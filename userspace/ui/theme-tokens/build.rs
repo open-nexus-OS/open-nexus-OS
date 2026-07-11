@@ -50,6 +50,7 @@ const ROLES: &[(&str, &str)] = &[
     ("OnSuccess", "successFg"),
     ("OnInfo", "infoFg"),
     ("FocusRing", "focusRing"),
+    ("IslandBg", "islandBg"),
 ];
 
 fn main() {

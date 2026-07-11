@@ -1013,6 +1013,9 @@ pub mod settingsd {
     /// Seed keys (TASK-0225 vocabulary). The registry defines defaults +
     /// validation server-side; clients only name keys.
     pub const KEY_UI_THEME_MODE: &str = "ui.theme.mode";
+    /// Shell windowing mode (`tablet`/`desktop`) — the Control-Center
+    /// Desktop/Tablet toggle; windowd applies + persists it.
+    pub const KEY_UI_SHELL_MODE: &str = "ui.shell.mode";
     /// UI font family (read-only default today; live switching is a follow-up).
     pub const KEY_UI_FONT_FAMILY: &str = "ui.font.family";
     /// Prepared (registered, no consumer yet): locale + MIME defaults.
