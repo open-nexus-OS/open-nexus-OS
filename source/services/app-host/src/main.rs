@@ -329,6 +329,10 @@ mod probe {
             mode,
             resizable,
             nonce,
+            // Scroll band (WebRender path) — 0 = non-scrollable, wired in a later phase.
+            0,
+            0,
+            0,
         );
         send_retry_cap(&client, &create, clone)?;
         let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)?;
@@ -540,6 +544,10 @@ mod probe {
                                 mode,
                                 resizable,
                                 nonce,
+                                // Scroll band (WebRender path) — wired in a later phase.
+                                0,
+                                0,
+                                0,
                             );
                             if send_retry_cap(&client, &create, clone).is_ok() {
                                 if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect) {

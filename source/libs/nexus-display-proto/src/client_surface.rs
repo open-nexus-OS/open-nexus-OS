@@ -324,6 +324,11 @@ pub const INPUT_KIND_LEAVE: u8 = 2;
 /// `as i16` — see `wheel_delta_from_wire`). The sign is the RAW Linux
 /// `REL_WHEEL` convention: +1 = wheel UP (away from the user).
 pub const INPUT_KIND_WHEEL: u8 = 3;
+/// Compositor scroll position push (windowd → app): `y` carries the resolved
+/// ABSOLUTE scroll offset in rows. Sent when windowd owns the scroll (WebRender
+/// path: it shifts the layer `src_row` itself) so the app can keep its hit-test
+/// + EndReached state in sync WITHOUT re-rendering on every notch.
+pub const INPUT_KIND_SCROLL_POS: u8 = 4;
 
 /// Recovers the signed wheel delta a `INPUT_KIND_WHEEL` frame carries in its
 /// `y` field (the wire field is `u16`; the delta is an `i16` reinterpret).
@@ -386,7 +391,15 @@ fn has_op(frame: &[u8], op: u8) -> bool {
 // rides ATOMICALLY with the create — a separate pre-create OP_SURFACE_INTENT
 // raced when two app-hosts connected concurrently (shell + counter: the
 // pending intent crossed and BOTH surfaces landed in the desktop role).
-pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 17;
+//
+// +6 scroll-band bytes (content_h, header_h, footer_h): WebRender-style
+// compositor scroll. `content_h` = full resident-content band height (0 =
+// non-scrollable, unchanged behavior); `header_h`/`footer_h` = fixed top/bottom
+// chrome rows inside the band that never scroll (chat: Toolbar / composer).
+// The band is allocated at create time so this geometry must ride atomically.
+pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 23;
+/// Legacy create frame (no scroll band) — still decoded for back-compat.
+pub const SURFACE_CREATE_FRAME_LEN_V1: usize = HEADER_LEN + 17;
 
 #[must_use]
 #[allow(clippy::too_many_arguments)]
@@ -399,6 +412,9 @@ pub fn encode_surface_create(
     mode: u8,
     resizable: bool,
     nonce: u64,
+    content_h: u16,
+    header_h: u16,
+    footer_h: u16,
 ) -> [u8; SURFACE_CREATE_FRAME_LEN] {
     let mut f = [0u8; SURFACE_CREATE_FRAME_LEN];
     f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_CREATE));
@@ -410,16 +426,32 @@ pub fn encode_surface_create(
     f[11] = mode;
     f[12] = resizable as u8;
     f[13..21].copy_from_slice(&nonce.to_le_bytes());
+    f[21..23].copy_from_slice(&content_h.to_le_bytes());
+    f[23..25].copy_from_slice(&header_h.to_le_bytes());
+    f[25..27].copy_from_slice(&footer_h.to_le_bytes());
     f
 }
 
-/// `(width, height, format, style, level, mode, resizable, nonce)`.
+/// `(width, height, format, style, level, mode, resizable, nonce, content_h,
+/// header_h, footer_h)`. Accepts both the current frame and the legacy (no
+/// scroll band) frame; a legacy frame yields `content_h = header_h = footer_h = 0`.
 #[must_use]
 #[allow(clippy::type_complexity)]
-pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8, u8, u8, u8, bool, u64)> {
-    if !has_op(frame, OP_SURFACE_CREATE) || frame.len() != SURFACE_CREATE_FRAME_LEN {
+pub fn decode_surface_create(
+    frame: &[u8],
+) -> Option<(u16, u16, u8, u8, u8, u8, bool, u64, u16, u16, u16)> {
+    if !has_op(frame, OP_SURFACE_CREATE) {
         return None;
     }
+    let (content_h, header_h, footer_h) = match frame.len() {
+        SURFACE_CREATE_FRAME_LEN => (
+            u16::from_le_bytes([frame[21], frame[22]]),
+            u16::from_le_bytes([frame[23], frame[24]]),
+            u16::from_le_bytes([frame[25], frame[26]]),
+        ),
+        SURFACE_CREATE_FRAME_LEN_V1 => (0, 0, 0),
+        _ => return None,
+    };
     Some((
         u16::from_le_bytes([frame[4], frame[5]]),
         u16::from_le_bytes([frame[6], frame[7]]),
@@ -431,6 +463,9 @@ pub fn decode_surface_create(frame: &[u8]) -> Option<(u16, u16, u8, u8, u8, u8, 
         u64::from_le_bytes([
             frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19], frame[20],
         ]),
+        content_h,
+        header_h,
+        footer_h,
     ))
 }
 
@@ -684,12 +719,21 @@ mod tests {
             WIN_MODE_FULLSCREEN,
             false,
             0xA1B2_C3D4_E5F6_0718,
+            2304,
+            40,
+            48,
         );
         assert_eq!(
             decode_surface_create(&f),
-            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718))
+            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718, 2304, 40, 48))
         );
+        // A truncated (but not legacy-length) frame is malformed.
         assert_eq!(decode_surface_create(&f[..f.len() - 1]), None);
+        // Legacy (no scroll band) frame decodes with content_h/header_h/footer_h = 0.
+        assert_eq!(
+            decode_surface_create(&f[..SURFACE_CREATE_FRAME_LEN_V1]),
+            Some((320, 240, FORMAT_BGRA8888, WIN_STYLE_PLAIN, WIN_LEVEL_DESKTOP, WIN_MODE_FULLSCREEN, false, 0xA1B2_C3D4_E5F6_0718, 0, 0, 0))
+        );
         let mut wrong = f;
         wrong[3] = OP_SURFACE_PRESENT;
         assert_eq!(decode_surface_create(&wrong), None);

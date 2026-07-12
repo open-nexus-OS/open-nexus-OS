@@ -26,7 +26,11 @@ use nexus_display_proto::client_surface::{
 /// is content-sized), and fullscreen skips the cached-blur band, so the ceiling
 /// does NOT reserve display-sized rows per window.
 pub const MAX_SURFACE_W: u16 = 1280;
-pub const MAX_SURFACE_H: u16 = 800;
+// Raised for WebRender-style compositor scroll: a scrollable app uploads its
+// FULL resident content as one tall atlas band (bounded by the app's own resident
+// window, e.g. chat's tail(messages,64)), and gpud shifts only src_row per scroll
+// frame. Non-scrollable surfaces (content_h == 0) still stay well under the old 800.
+pub const MAX_SURFACE_H: u16 = 3072;
 pub const MIN_SURFACE_DIM: u16 = 16;
 
 /// One live client surface.

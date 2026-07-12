@@ -311,8 +311,7 @@ fn dispatch_client_frame(
         // reach the CREATING client's own event channel — `send_app_frame`
         // (the floating channel) sent DESKTOP create-acks into the void and
         // the shell/greeter app-host hung in its ack wait forever.
-        let nonce = nexus_display_proto::client_surface::decode_surface_create(frame)
-            .map(|(_, _, _, _, _, _, _, n)| n);
+        let nonce = nexus_display_proto::client_surface::decode_surface_create(frame).map(|t| t.7);
         let ack = runtime.handle_surface_create(frame, vmo_slot);
         let delivered = match nonce {
             Some(n) => runtime.send_frame_for_nonce(n, &ack),

@@ -45,8 +45,19 @@ impl DisplayServerRuntime {
         frame: &[u8],
         vmo_slot: Option<u32>,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
-        let Some((width, height, format, style, level, mode, resizable, nonce)) =
-            wire::decode_surface_create(frame)
+        let Some((
+            width,
+            height,
+            format,
+            style,
+            level,
+            mode,
+            resizable,
+            nonce,
+            _content_h,
+            _header_h,
+            _footer_h,
+        )) = wire::decode_surface_create(frame)
         else {
             return wire::encode_surface_ack(
                 wire::OP_SURFACE_CREATE,
