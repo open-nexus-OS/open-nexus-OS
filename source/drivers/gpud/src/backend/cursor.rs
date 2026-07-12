@@ -187,6 +187,87 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
+    /// Fill a cursor shape-cache slot (OP_UPLOAD_CURSOR_SHAPE). Does NOT arm
+    /// or switch anything — `select_cursor_shape` activates a cached slot.
+    pub fn cache_cursor_shape(
+        &mut self,
+        shape_id: u8,
+        bgra: &[u8],
+        width: u32,
+        height: u32,
+        hot_x: u32,
+        hot_y: u32,
+    ) -> Result<(), GfxError> {
+        let slot = shape_id as usize;
+        if slot >= self.cursor_shape_cache.len() {
+            return Err(GfxError::InvalidArgument);
+        }
+        let needed = (width as usize).saturating_mul(height as usize).saturating_mul(4);
+        if needed == 0 || bgra.len() < needed {
+            return Err(GfxError::InvalidArgument);
+        }
+        // Reuse the slot's existing allocation on re-upload (bump heap never
+        // frees — clear+extend keeps the capacity instead of leaking a Vec).
+        match &mut self.cursor_shape_cache[slot] {
+            Some((buf, w, h, hx, hy)) => {
+                buf.clear();
+                buf.extend_from_slice(&bgra[..needed]);
+                (*w, *h, *hx, *hy) = (width, height, hot_x, hot_y);
+            }
+            empty => {
+                let mut buf = alloc::vec::Vec::with_capacity(needed);
+                buf.extend_from_slice(&bgra[..needed]);
+                *empty = Some((buf, width, height, hot_x, hot_y));
+            }
+        }
+        Ok(())
+    }
+
+    /// Switch the active cursor sprite to a cached shape (OP_SELECT_CURSOR_SHAPE).
+    /// GL/SW paths pick the new sprite up on their next present/paint; when the
+    /// hardware overlay is armed the 64×64 cursor resource is refreshed too.
+    /// Alloc-free on the hot path: the slot is taken and RETURNED (bump heap —
+    /// a per-switch clone would leak 4KB per window-edge crossing).
+    pub fn select_cursor_shape(&mut self, shape_id: u8) -> Result<(), GfxError> {
+        let slot = shape_id as usize;
+        if slot >= self.cursor_shape_cache.len() {
+            return Err(GfxError::InvalidArgument);
+        }
+        let Some((buf, w, h, hot_x, hot_y)) = self.cursor_shape_cache[slot].take() else {
+            return Err(GfxError::InvalidArgument);
+        };
+        let needed = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+        self.cursor_sprite.clear();
+        self.cursor_sprite.extend_from_slice(&buf[..needed]);
+        self.cursor_sprite_w = w;
+        self.cursor_sprite_h = h;
+        self.cursor_hot = (hot_x, hot_y);
+        // Keep the save-under sized for the new sprite (SW paint path).
+        let cap = needed.max(4);
+        if self.cursor_saveunder.len() < cap {
+            self.cursor_saveunder.resize(cap, 0);
+        }
+        // virgl GL scanout: the build-up samples the cursor from a GL TEXTURE
+        // initialized from the sprite — refresh it or the shape switch stays
+        // invisible (the sprite alone only feeds SW BlendCursor).
+        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+        let _ = self.cursor_tex_refresh();
+        // HW overlay armed (mmio path): refresh the 64×64 cursor resource so
+        // the host-composited pointer shows the new shape. Never reached on the
+        // virgl GL scanout (upload_cursor is not armed there by design).
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        let hw_result = if self.hw_cursor_active() {
+            self.upload_cursor(&buf, w, h, hot_x, hot_y)
+        } else {
+            Ok(())
+        };
+        #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+        let hw_result: Result<(), GfxError> = Ok(());
+        // Return the taken slot (mem::take rule: every take needs its put-back).
+        self.cursor_shape_cache[slot] = Some((buf, w, h, hot_x, hot_y));
+        hw_result
+    }
+
     /// Mark gpud as the cursor compositor and store the sprite/hotspot. The
     /// sprite stays the BlendCursor source; the first move paints it.
     pub fn cursor_take_ownership(&mut self, hot_x: u32, hot_y: u32) {

@@ -523,11 +523,14 @@ impl DisplayServerRuntime {
                 _ => {}
             }
         }
-        // Throttle MOVE forwarding (~33Hz): hover only needs the crossing,
-        // not every sample — an unthrottled stream filled the client queue
-        // under fast motion and starved TAP delivery.
+        // Throttle MOVE forwarding to the frame pace (120Hz): app-side hover
+        // washes track the pointer at display rate. The historical flood risk
+        // (unthrottled per-EVENT forwarding filled the client queue and starved
+        // TAP delivery) is gone twice over: moves apply frame-aligned (once per
+        // staged sample) and `send_input_frame` drops MOVEs on a full queue
+        // while TAPs retry — so display-rate forwarding is safe.
         let now = nexus_abi::nsec().unwrap_or(0);
-        let move_due = now.saturating_sub(self.hover_last_move_ns) >= 30_000_000;
+        let move_due = now.saturating_sub(self.hover_last_move_ns) >= PACER_INTERVAL_NS;
         if move_due {
             match route {
                 HOVER_ROUTE_APP => {

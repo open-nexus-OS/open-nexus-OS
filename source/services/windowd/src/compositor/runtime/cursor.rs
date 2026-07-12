@@ -46,6 +46,26 @@ impl CursorShape {
         }
     }
 
+    /// All shapes, in shape-cache slot order (`id` = index).
+    pub(crate) const ALL: [CursorShape; 5] = [
+        CursorShape::Default,
+        CursorShape::ResizeEw,
+        CursorShape::ResizeNs,
+        CursorShape::ResizeNesw,
+        CursorShape::ResizeNwse,
+    ];
+
+    /// Stable shape-cache slot id (gpud side: OP_UPLOAD/SELECT_CURSOR_SHAPE).
+    pub(crate) fn id(self) -> u8 {
+        match self {
+            CursorShape::Default => 0,
+            CursorShape::ResizeEw => 1,
+            CursorShape::ResizeNs => 2,
+            CursorShape::ResizeNesw => 3,
+            CursorShape::ResizeNwse => 4,
+        }
+    }
+
     /// Marker-stable shape name.
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -70,9 +90,12 @@ impl CursorShape {
 }
 
 impl DisplayServerRuntime {
-    /// Switch the pointer shape (edge hover / active resize). Re-sends the
-    /// sprite via the existing cursor-upload path on change; the SW/GL draw
-    /// hotspot follows via `cursor_hot`. Rate: only on actual change.
+    /// Switch the pointer shape (edge hover / active resize). Hot path: a
+    /// 2-byte fire-and-forget OP_SELECT_CURSOR_SHAPE against gpud's pre-filled
+    /// shape cache — no blocking round-trip per window-edge crossing. Falls
+    /// back to the full blocking upload while the cache isn't pushed (or a
+    /// send fails), so a lost cache can never lose the pointer. Rate: only on
+    /// actual change.
     pub(crate) fn set_cursor_shape(&mut self, shape: CursorShape) {
         if shape == self.cursor_shape {
             return;
@@ -83,7 +106,13 @@ impl DisplayServerRuntime {
         self.cursor_width = w;
         self.cursor_height = h;
         let _ = debug_println(&alloc::format!("cursor: shape={}", shape.name()));
-        self.upload_cursor_bitmap_to_gpud();
+        let selected = self.shape_cache_pushed && {
+            let frame = [GPU_SELECT_CURSOR_SHAPE_OP, shape.id()];
+            self.send_gpud_fire_forget(&frame)
+        };
+        if !selected {
+            self.upload_cursor_bitmap_to_gpud();
+        }
         // Repaint the pointer region so the SW/GL cursor shows the new shape
         // without waiting for the next move.
         self.queue_cursor_damage(
@@ -92,6 +121,50 @@ impl DisplayServerRuntime {
             self.state.cursor_x,
             self.state.cursor_y,
         );
+    }
+
+    /// Push every pointer shape into gpud's shape cache once (right after the
+    /// cursor is armed). 18-byte header + 4KB sprite per shape, bounded sends;
+    /// the 1-byte OK acks drain harmlessly. On any failure the cache is marked
+    /// un-pushed and shape changes keep using the blocking upload path.
+    pub(super) fn push_cursor_shape_cache_to_gpud(&mut self) {
+        if self.shape_cache_pushed || !self.ensure_gpud_client() {
+            return;
+        }
+        for shape in CursorShape::ALL {
+            let (bitmap, w, h, hot_x, hot_y) = shape.sprite();
+            let bgra_len = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+            if bgra_len == 0 || bgra_len > bitmap.len() {
+                return;
+            }
+            let total = 18usize.saturating_add(bgra_len);
+            let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
+            frame[0] = GPU_UPLOAD_CURSOR_SHAPE_OP;
+            frame[1] = shape.id();
+            frame[2..6].copy_from_slice(&w.to_le_bytes());
+            frame[6..10].copy_from_slice(&h.to_le_bytes());
+            frame[10..14].copy_from_slice(&(hot_x.max(0) as u32).to_le_bytes());
+            frame[14..18].copy_from_slice(&(hot_y.max(0) as u32).to_le_bytes());
+            frame[18..total].copy_from_slice(&bitmap[..bgra_len]);
+            // Bounded wait: five 4KB frames in a row can transiently fill the
+            // queue; a short timeout absorbs that without stalling the loop.
+            let sent = {
+                let Some(client) = self.gpud_client.as_ref() else {
+                    return;
+                };
+                client
+                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(4)))
+                    .is_ok()
+            };
+            // Give gpud a chance to drain + ack between sprites.
+            self.drain_gpud_replies();
+            if !sent {
+                let _ = debug_println("windowd: cursor shape cache push failed");
+                return;
+            }
+        }
+        self.shape_cache_pushed = true;
+        let _ = debug_println("windowd: cursor shape cache pushed");
     }
 
     pub(super) fn upload_cursor_bitmap_to_gpud(&mut self) {
@@ -181,6 +254,10 @@ impl DisplayServerRuntime {
                     // in `apply_input_state`) so the build-up present re-renders it.
                     self.send_cursor_move_to_gpud();
                 }
+                // Cursor path is armed and alive: pre-fill gpud's shape cache
+                // once so later shape changes are 2-byte selects (no blocking
+                // re-upload per window-edge crossing). Guarded internally.
+                self.push_cursor_shape_cache_to_gpud();
                 if hw {
                     // Place the overlay at the current pointer position.
                     self.send_cursor_move_to_gpud();

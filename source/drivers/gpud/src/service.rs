@@ -44,6 +44,11 @@ pub const OP_SET_LAYER_SCROLL: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
 /// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
 /// is GPU-downscaled to dst_w×dst_h. Stored + composited like the cursor sprite.
 pub const OP_UPLOAD_ICON: u8 = nexus_display_proto::OP_UPLOAD_ICON;
+/// Cursor shape cache: fill a slot (no arming) / switch the active sprite.
+/// Together they replace the blocking per-shape-change 4KB re-upload with a
+/// 2-byte fire-and-forget select (hyper-smooth pointer at window edges).
+pub const OP_UPLOAD_CURSOR_SHAPE: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
+pub const OP_SELECT_CURSOR_SHAPE: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
 /// Self-paced re-present interval for the build-up spin-blur demo (~120 Hz). Used
 /// as the gpud server-recv timeout: an idle recv wakes here to re-present.
 #[cfg(all(nexus_env = "os", feature = "virgl"))]
@@ -1014,6 +1019,33 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
                     let _ = backend.submit(cmd);
                     STATUS_OK
                 }
+                Err(_) => STATUS_MALFORMED,
+            }
+        }
+        OP_UPLOAD_CURSOR_SHAPE => {
+            // Frame: [op, shape_id, w(4), h(4), hot_x(4), hot_y(4), bgra].
+            // Cache fill only — arming stays OP_UPLOAD_CURSOR. 1-byte reply.
+            if frame.len() < 18 {
+                return STATUS_MALFORMED;
+            }
+            let shape_id = frame[1];
+            let w = u32::from_le_bytes([frame[2], frame[3], frame[4], frame[5]]);
+            let h = u32::from_le_bytes([frame[6], frame[7], frame[8], frame[9]]);
+            let hot_x = u32::from_le_bytes([frame[10], frame[11], frame[12], frame[13]]);
+            let hot_y = u32::from_le_bytes([frame[14], frame[15], frame[16], frame[17]]);
+            match backend.cache_cursor_shape(shape_id, &frame[18..], w, h, hot_x, hot_y) {
+                Ok(()) => STATUS_OK,
+                Err(_) => STATUS_MALFORMED,
+            }
+        }
+        OP_SELECT_CURSOR_SHAPE => {
+            // Frame: [op, shape_id]. Fire-and-forget hot path: swap the active
+            // sprite from the cache; the next present draws the new shape.
+            if frame.len() < 2 {
+                return STATUS_MALFORMED;
+            }
+            match backend.select_cursor_shape(frame[1]) {
+                Ok(()) => STATUS_OK,
                 Err(_) => STATUS_MALFORMED,
             }
         }

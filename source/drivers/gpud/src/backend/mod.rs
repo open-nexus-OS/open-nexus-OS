@@ -116,6 +116,12 @@ pub struct VirtioGpuBackend {
     pub(crate) cursor_sprite: alloc::vec::Vec<u8>,
     pub(crate) cursor_sprite_w: u32,
     pub(crate) cursor_sprite_h: u32,
+    /// Cursor shape cache (OP_UPLOAD_CURSOR_SHAPE): pre-uploaded sprites so a
+    /// pointer shape change is a 2-byte OP_SELECT_CURSOR_SHAPE instead of a
+    /// blocking 4KB re-upload per window-edge crossing. Slot = shape id;
+    /// entry = (premultiplied BGRA, w, h, hot_x, hot_y).
+    pub(crate) cursor_shape_cache:
+        [Option<(alloc::vec::Vec<u8>, u32, u32, u32, u32)>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
     /// Real icon sprite (premultiplied BGRA), rendered by windowd from an SVG via
     /// the nexus-svg HiDPI pipeline and uploaded once. Composited as a GPU sprite
     /// layer at (`icon_dst_x`,`icon_dst_y`) in the virgl buildup — the production
@@ -387,6 +393,7 @@ impl VirtioGpuBackend {
             cursor_sprite: alloc::vec::Vec::new(),
             cursor_sprite_w: 0,
             cursor_sprite_h: 0,
+            cursor_shape_cache: [const { None }; nexus_display_proto::CURSOR_SHAPE_SLOTS],
             icon_sprite: alloc::vec::Vec::new(),
             icon_sprite_w: 0,
             icon_sprite_h: 0,

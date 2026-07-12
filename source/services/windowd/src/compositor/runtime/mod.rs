@@ -63,6 +63,8 @@ const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
 const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
+const GPU_UPLOAD_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
+const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
@@ -397,6 +399,11 @@ pub(crate) struct DisplayServerRuntime {
     /// pos) AND damage the cursor rect so a present re-renders the procedural
     /// arrow at the new position.
     gl_cursor_active: bool,
+    /// True once every pointer shape has been pushed into gpud's shape cache
+    /// (OP_UPLOAD_CURSOR_SHAPE). Shape changes are then a 2-byte fire-and-forget
+    /// OP_SELECT_CURSOR_SHAPE instead of a blocking 4KB re-upload per
+    /// window-edge crossing. False = self-healing fallback to the upload path.
+    shape_cache_pushed: bool,
     /// Active light/dark theme (TASK-0072 Phase 9). Colors come from the matching
     /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
     /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
@@ -737,6 +744,7 @@ impl DisplayServerRuntime {
             first_handoff_present_sent: false,
             hw_cursor_active: false,
             gl_cursor_active: false,
+            shape_cache_pushed: false,
             theme_mode: crate::theme::ThemeMode::Dark,
             session_probe: session::SessionProbe::default(),
             theme_probe: shell::ThemeProbe::default(),

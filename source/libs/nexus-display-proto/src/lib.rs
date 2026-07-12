@@ -54,6 +54,17 @@ pub const OP_UPLOAD_CURSOR: u8 = 5;
 pub const OP_SET_LAYER_SCROLL: u8 = 6;
 /// Upload a real icon sprite to composite as a GPU layer.
 pub const OP_UPLOAD_ICON: u8 = 7;
+/// Fill a cursor shape-cache slot WITHOUT arming it. Payload:
+/// `[shape_id: u8][w: u32][h: u32][hot_x: u32][hot_y: u32][bgra]`.
+/// Reply: single status byte. Arming stays `OP_UPLOAD_CURSOR`; switching a
+/// cached shape is `OP_SELECT_CURSOR_SHAPE` — together they turn a pointer
+/// shape change from a blocking 4KB re-upload into a 2-byte fire-and-forget.
+pub const OP_UPLOAD_CURSOR_SHAPE: u8 = 8;
+/// Switch the active cursor sprite to a previously cached shape slot.
+/// Payload: `[shape_id: u8]`. Reply: single status byte (fire-and-forget safe).
+pub const OP_SELECT_CURSOR_SHAPE: u8 = 9;
+/// Number of cursor shape-cache slots gpud guarantees.
+pub const CURSOR_SHAPE_SLOTS: usize = 8;
 
 // ── Status codes (reply byte 0) ──────────────────────────────────────────────
 
