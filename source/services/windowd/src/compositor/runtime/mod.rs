@@ -231,6 +231,29 @@ pub(crate) struct AppWindowSlot {
     /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
     /// composited frame, then cleared — the client re-requests while animating.
     pub(crate) frame_pulse_pending: bool,
+    /// WebRender compositor-scroll id (0 = non-scrollable, unchanged behavior).
+    /// Assigned `slot_index + 1` at create when the surface declared a scroll
+    /// band (`content_h > 0`); ≤ `MAX_SCROLL_IDS`. windowd is the SINGLE writer
+    /// of the scroll position: a wheel notch shifts the gpud layer `src_row`
+    /// (`OP_SET_LAYER_SCROLL`) instead of the app re-rendering per frame.
+    pub(crate) scroll_id: u32,
+    /// Scroll band geometry from `SURFACE_CREATE` (surface rows): the tall
+    /// resident-content height, and the fixed top/bottom chrome heights the app
+    /// packed into the band (chat: Toolbar / composer). `content_h == 0` ⇒ not
+    /// scrollable.
+    pub(crate) content_h: u32,
+    pub(crate) header_h: u32,
+    pub(crate) footer_h: u32,
+    /// Current absolute scroll offset (rows), windowd-owned. Clamped to
+    /// `content_h - visible_body_h`; drives the `src_row` override.
+    pub(crate) scroll_rows: u32,
+    /// Per-slot scroll physics (reused `animation::ScrollMomentum`): a wheel
+    /// notch extends a target the offset eases toward; the pacer ticks it while
+    /// animating and re-emits `OP_SET_LAYER_SCROLL` each tick (flings without
+    /// the app in the per-frame loop).
+    pub(crate) scroll_momentum: ScrollMomentum,
+    /// Last scroll-physics tick (ns) for dt integration.
+    pub(crate) scroll_last_ns: u64,
 }
 
 impl AppWindowSlot {
@@ -265,6 +288,13 @@ impl AppWindowSlot {
             #[cfg(nexus_env = "os")]
             event_channel: None,
             frame_pulse_pending: false,
+            scroll_id: 0,
+            content_h: 0,
+            header_h: 0,
+            footer_h: 0,
+            scroll_rows: 0,
+            scroll_momentum: ScrollMomentum::new(ScrollConfig::default()),
+            scroll_last_ns: 0,
         }
     }
 }
@@ -272,6 +302,15 @@ impl AppWindowSlot {
 /// Frame pacing interval (120 Hz). SSOT for both the compositor loop's pacer
 /// timer and the paced damage flush (`flush_pending_damage_paced`).
 pub(crate) const PACER_INTERVAL_NS: u64 = 8_333_333;
+
+/// WebRender compositor-scroll id-table capacity — MUST match gpud's
+/// `backend::MAX_SCROLL_IDS` (ids `1..=MAX_SCROLL_IDS`; 0 = not scrollable).
+/// `MAX_APP_WINDOWS` (4) is ≤ this, so a `slot_index + 1` id always fits.
+pub(crate) const MAX_SCROLL_IDS: usize = 8;
+
+/// Per-notch scroll step (surface rows) — the fixed, predictable amount a wheel
+/// notch adds to the scroll target (mirrors the app-host `STEP_PX`).
+pub(crate) const SCROLL_STEP_PX: i32 = 72;
 
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,

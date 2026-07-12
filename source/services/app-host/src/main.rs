@@ -272,14 +272,10 @@ mod probe {
         // applied by the event loop as if it had just been received.
         let mut pending_rect: Option<(u16, u16)> = None;
 
-        // 3. The app's own surface VMO, sized to the content rect (ADR-0037).
-        //    Mutable: a WM resize (`OP_SURFACE_RECT`) re-creates it at the new
-        //    size so the CONTENT grows with the frame (not just the shadow).
-        let mut vmo = vmo_create(surf_w as usize * surf_h as usize * 4)
-            .map_err(|_| "apphost: vmo create failed")?;
-
-        // 4. Mount + render the DSL program into the VMO; the solid fill stays
-        //    as the fail-closed VISIBLE fallback.
+        // 4. Mount the DSL program FIRST (before the VMO) so its scroll-region
+        //    geometry decides the VMO size. The DSL lays out at the VISIBLE
+        //    surface size; a windowed page with a scroll region then uses the
+        //    WebRender compositor-scroll path (a TALL packed band, rendered once).
         // Declarative base alpha: a DESKTOP surface paints a fully
         // TRANSPARENT base — windowd alpha-blends the band over the retained
         // wallpaper plane, so empty desktop area IS the wallpaper (elements
@@ -298,7 +294,37 @@ mod probe {
         };
         let mut app =
             DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
-        let first_render_ok = app.as_mut().map(|dsl| dsl.render(vmo)).unwrap_or(false);
+        // WebRender scroll band geometry — ONLY for a floating windowed app that
+        // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
+        // desktop uses a separate windowd path that ignores the scroll band).
+        let band: Option<(u32, u32, u32)> =
+            if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
+                app.as_ref().and_then(|d| d.band_geometry())
+            } else {
+                None
+            };
+        let (create_content_h, create_header_h, create_footer_h) =
+            band.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
+                (c.min(u16::MAX as u32) as u16, h.min(u16::MAX as u32) as u16, f.min(u16::MAX as u32) as u16)
+            });
+        // VMO height: the packed band (header + footer + content) when banded,
+        // else the VISIBLE surface height (create `height` field stays VISIBLE).
+        let vmo_h = band.map_or(surf_h, |(h, f, c)| h + f + c);
+        if let Some(dsl) = app.as_mut() {
+            dsl.banded = band.is_some();
+            dsl.alloc_band_h = vmo_h;
+        }
+
+        // 3. The app's own surface VMO. Sized TALL for a banded surface so the
+        //    whole resident scroll content lives in it ONCE; visible-sized
+        //    otherwise. Mutable: a WM resize re-creates it at the new size.
+        let mut vmo = vmo_create(surf_w as usize * vmo_h as usize * 4)
+            .map_err(|_| "apphost: vmo create failed")?;
+
+        let first_render_ok = app
+            .as_mut()
+            .map(|dsl| if dsl.banded { dsl.render_band(vmo) } else { dsl.render(vmo) })
+            .unwrap_or(false);
         match &app {
             Some(_) if first_render_ok => raw_marker("APPHOST: dsl frame rendered"),
             _ => {
@@ -309,7 +335,8 @@ mod probe {
                 for px in row.chunks_exact_mut(4) {
                     px.copy_from_slice(&FILL_BGRA);
                 }
-                for y in 0..surf_h as usize {
+                // app == None ⇒ band == None ⇒ vmo_h == surf_h (visible fill).
+                for y in 0..vmo_h as usize {
                     vmo_write(vmo, y * row_bytes, &row).map_err(|_| "apphost: vmo fill failed")?;
                 }
             }
@@ -317,7 +344,10 @@ mod probe {
         raw_marker("apphost: vmo filled");
 
         // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
-        //    (the gpud-attach pattern); the original stays ours for redraws.
+        //    (the gpud-attach pattern); the original stays ours for redraws. The
+        //    create `height` field is the VISIBLE frame height; the scroll band
+        //    (content_h/header_h/footer_h) rides atomically so windowd allocs the
+        //    tall atlas band up front (0,0,0 = non-scrollable, unchanged).
         let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
         let create =
             wire::encode_surface_create(
@@ -329,10 +359,9 @@ mod probe {
             mode,
             resizable,
             nonce,
-            // Scroll band (WebRender path) — 0 = non-scrollable, wired in a later phase.
-            0,
-            0,
-            0,
+            create_content_h,
+            create_header_h,
+            create_footer_h,
         );
         send_retry_cap(&client, &create, clone)?;
         let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)?;
@@ -524,15 +553,42 @@ mod probe {
                 // VMO, re-layout (state-preserving) + render, re-create + present.
                 let (nw, nh) = (u32::from(rw), u32::from(rh));
                 if nw > 0 && nh > 0 && (nw, nh) != (surf_w, surf_h) {
-                    if let Ok(nv) = vmo_create(nw as usize * nh as usize * 4) {
+                    surf_w = nw;
+                    surf_h = nh;
+                    // Re-layout at the new VISIBLE size, then recompute the scroll
+                    // band (a resize re-sends CREATE, so the tall band is
+                    // re-negotiated). Banded ⇒ tall VMO + render_band; else visible.
+                    let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_mut() {
+                        dsl.resize(surf_w, surf_h);
+                        if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
+                            dsl.band_geometry()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    let nvmo_h = band2.map_or(surf_h, |(h, f, c)| h + f + c);
+                    let (rc_content_h, rc_header_h, rc_footer_h) =
+                        band2.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
+                            (
+                                c.min(u16::MAX as u32) as u16,
+                                h.min(u16::MAX as u32) as u16,
+                                f.min(u16::MAX as u32) as u16,
+                            )
+                        });
+                    if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
                         let _ = send_retry(&client, &wire::encode_surface_destroy(surface_id));
                         let _ = nexus_abi::cap_close(vmo);
                         vmo = nv;
-                        surf_w = nw;
-                        surf_h = nh;
                         if let Some(dsl) = app.as_mut() {
-                            dsl.resize(surf_w, surf_h);
-                            let _ = dsl.render(vmo);
+                            dsl.banded = band2.is_some();
+                            dsl.alloc_band_h = nvmo_h;
+                            if dsl.banded {
+                                let _ = dsl.render_band(vmo);
+                            } else {
+                                let _ = dsl.render(vmo);
+                            }
                         }
                         if let Ok(clone) = cap_clone(vmo) {
                             let create = wire::encode_surface_create(
@@ -544,10 +600,9 @@ mod probe {
                                 mode,
                                 resizable,
                                 nonce,
-                                // Scroll band (WebRender path) — wired in a later phase.
-                                0,
-                                0,
-                                0,
+                                rc_content_h,
+                                rc_header_h,
+                                rc_footer_h,
                             );
                             if send_retry_cap(&client, &create, clone).is_ok() {
                                 if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect) {
@@ -630,32 +685,49 @@ mod probe {
                             "APPHOST: wheel rx n={wheel_rx_markers} d={d}"
                         ));
                     }
-                    // Wheel: an IMPULSE into the scroll physics (paint-only
-                    // over the retained boxes). The momentum decays in the
-                    // loop's timeout ticks; every repaint is the VIEWPORT
-                    // span only, and nearing the end fires the declarative
-                    // `EndReached` handler (lazy loading).
+                    // WebRender compositor-scroll: a banded surface does NOT
+                    // self-scroll — windowd owns the scroll (it shifts the gpud
+                    // layer `src_row`) and pushes `INPUT_KIND_SCROLL_POS`. It also
+                    // won't forward WHEEL to a banded slot, so this is defensive.
+                    if !app.as_ref().map(|d| d.banded).unwrap_or(false) {
+                        // Wheel: an IMPULSE into the scroll physics (paint-only
+                        // over the retained boxes). The momentum decays in the
+                        // loop's timeout ticks; every repaint is the VIEWPORT
+                        // span only, and nearing the end fires the declarative
+                        // `EndReached` handler (lazy loading).
+                        if let Some(dsl) = app.as_mut() {
+                            let delta = wire::wheel_delta_from_wire(y);
+                            let (span, end) = dsl.scroll_wheel(delta);
+                            if let Some(span) = span {
+                                dirty_rows = match (dirty, dirty_rows) {
+                                    (true, None) => None,
+                                    (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                    (false, None) => Some(span),
+                                };
+                                dirty = true;
+                            }
+                            if end && dsl.fire_end_reached() {
+                                dirty = true;
+                                dirty_rows = None; // model changed: full repaint
+                            }
+                            // Choreographer contract: while the ease/fling is
+                            // live, ask the compositor for ONE frame pulse — the
+                            // physics ticks on the REAL frame cadence.
+                            if dsl.momentum_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_SCROLL_POS {
+                    // Compositor owns the scroll (WebRender path): mirror the
+                    // pushed ABSOLUTE offset for hit-test/EndReached WITHOUT a
+                    // re-render. Only a LoadMore (content change) re-renders the
+                    // tall band — the content change is the sole repaint.
                     if let Some(dsl) = app.as_mut() {
-                        let delta = wire::wheel_delta_from_wire(y);
-                        let (span, end) = dsl.scroll_wheel(delta);
-                        if let Some(span) = span {
-                            dirty_rows = match (dirty, dirty_rows) {
-                                (true, None) => None,
-                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                                (false, None) => Some(span),
-                            };
+                        if dsl.scroll_pos(i32::from(y)) {
                             dirty = true;
-                        }
-                        if end && dsl.fire_end_reached() {
-                            dirty = true;
-                            dirty_rows = None; // model changed: full repaint
-                        }
-                        // Choreographer contract: while the ease/fling is
-                        // live, ask the compositor for ONE frame pulse — the
-                        // physics ticks on the REAL frame cadence.
-                        if dsl.momentum_active() {
-                            let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::NonBlocking);
+                            dirty_rows = None; // model changed: full band repaint
                         }
                     }
                 } else if kind == wire::INPUT_KIND_TAP {
@@ -692,10 +764,17 @@ mod probe {
             // shown without waiting for the next input.
             if dirty && !present_in_flight {
                 let Some(dsl) = app.as_mut() else { continue };
-                let span = dirty_rows;
-                let ok = match span {
-                    Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
-                    None => dsl.render(vmo),
+                // A banded (compositor-scroll) surface only ever repaints on a
+                // CONTENT change (LoadMore/theme/resize) — always the WHOLE tall
+                // band; scroll itself never repaints (windowd shifts src_row).
+                let span = if dsl.banded { None } else { dirty_rows };
+                let ok = if dsl.banded {
+                    dsl.render_band(vmo)
+                } else {
+                    match span {
+                        Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
+                        None => dsl.render(vmo),
+                    }
                 };
                 if !ok {
                     raw_marker("apphost: FAIL interactive render");
@@ -713,6 +792,8 @@ mod probe {
                         width: damage[0].width,
                         height: (y1 - y0).max(0) as u16,
                     }],
+                    // Full present (banded band re-render included): the VISIBLE
+                    // window damage — windowd blits the whole tall band on dirty.
                     None => damage,
                 };
                 let plen = wire::encode_surface_present(surface_id, seq, &present_damage, &mut buf);
@@ -791,6 +872,21 @@ mod probe {
         vis_pick: alloc::vec::Vec<u32>,
         /// Reused (box index, texts index) pairs for the span's text runs.
         vis_text: alloc::vec::Vec<(u32, u32)>,
+        /// WebRender compositor-scroll: this surface renders a TALL packed band
+        /// (fixed header + fixed footer + the whole resident scroll content) ONCE
+        /// and windowd/gpud shift the source row per scroll. When set, wheel is
+        /// owned by the compositor: the app never self-scrolls/re-renders on a
+        /// notch — it only mirrors the pushed `INPUT_KIND_SCROLL_POS` and
+        /// re-renders the band on a content change (LoadMore). `false` = the
+        /// legacy paint-time-`dy` scroll (unchanged).
+        banded: bool,
+        /// The tall VMO/band height (rows) allocated at create — render_band
+        /// clamps to it so a LoadMore that grows content never overflows the VMO
+        /// (the compositor band is the same fixed size; `tail(…)` keeps it finite).
+        alloc_band_h: u32,
+        /// Reused pick buffer for render_band's unclipped (fixed header/footer)
+        /// region — recycled like `vis_pick`, never allocated per render.
+        band_pick: alloc::vec::Vec<u32>,
     }
 
     /// Monotonic now (ns) for physics dt; 0 on ABI failure (tick clamps dt).
@@ -890,7 +986,28 @@ mod probe {
                 end_fired: false,
                 vis_pick: alloc::vec::Vec::new(),
                 vis_text: alloc::vec::Vec::new(),
+                banded: false,
+                alloc_band_h: 0,
+                band_pick: alloc::vec::Vec::new(),
             })
+        }
+
+        /// The WebRender scroll band geometry `(header_h, footer_h, content_h)`
+        /// in surface rows, or `None` when the page has no scrollable region.
+        /// `header_h` = the fixed rows ABOVE the viewport (Toolbar), `footer_h`
+        /// = the fixed rows BELOW it (composer), `content_h` = the tall resident
+        /// scroll-content extent. Derived from the retained layout's scroll
+        /// region (the engine's `clip_rect` viewport) — O(boxes), no cached state.
+        fn band_geometry(&self) -> Option<(u32, u32, u32)> {
+            let (clip, _cw, content_h) = self.scroll_region()?;
+            let (_, cy0, _, cy1) = clip;
+            let content_h = content_h.max(0) as u32;
+            if content_h == 0 {
+                return None; // content fits — nothing scrolls, keep the plain path
+            }
+            let header_h = cy0.max(0) as u32;
+            let footer_h = (self.h as i32 - cy1).max(0) as u32;
+            Some((header_h, footer_h, content_h))
         }
 
         /// The page's scroll viewport, derived from the RETAINED boxes (the
@@ -1412,6 +1529,150 @@ mod probe {
             self.vis_pick = vis_pick;
             self.vis_text = vis_text;
             true
+        }
+
+        /// WebRender packed-band render (compositor-scroll): paint the WHOLE
+        /// resident content into the TALL VMO ONCE — NOT scrolled. The band is
+        /// packed `[fixed header][fixed footer][scroll content]`:
+        ///   * fixed Toolbar → band rows `[0, header_h)` (IDENTITY, model rows
+        ///     `[0, clip.top)`);
+        ///   * fixed composer → band rows `[header_h, header_h+footer_h)`
+        ///     (model rows `[clip.bottom, h)`);
+        ///   * scroll content (boxes with a `clip_rect`) → band rows
+        ///     `[band_content_top, …)` at `band_content_top + (model_y -
+        ///     clip.top)` with NO paint-time `dy` (the compositor supplies the
+        ///     offset via the layer `src_row`).
+        /// The compositor then composites 3 slices out of this band. Runs on a
+        /// CONTENT change only (mount / resize / LoadMore), never per notch.
+        fn render_band(&mut self, vmo: u32) -> bool {
+            use nexus_dsl_runtime::theme_tokens::ColorToken;
+            let Some((header_h, footer_h, content_h)) = self.band_geometry() else {
+                // No scroll region (content shrank below the viewport): fall back
+                // to the plain render so the visible frame still paints.
+                return self.render(vmo);
+            };
+            let Some((clip, _cw, _ch)) = self.scroll_region() else {
+                return self.render(vmo);
+            };
+            let (_vx0, vy0, _vx1, vy1) = clip;
+            let header_h = header_h as i32;
+            let band_content_top = header_h + footer_h as i32;
+            // Bound the band to the VMO allocated at create (a LoadMore that grows
+            // content can't grow the VMO — `tail(…)` keeps the content finite).
+            let mut band_h = header_h + footer_h as i32 + content_h as i32;
+            if self.alloc_band_h > 0 {
+                band_h = band_h.min(self.alloc_band_h as i32);
+            }
+            let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
+            let base = [s.b, s.g, s.r, self.base_alpha];
+            let surf_w = self.w as usize;
+            let row_bytes = surf_w * 4;
+            let mut row = core::mem::take(&mut self.row_scratch);
+            if row.len() < row_bytes {
+                row.resize(row_bytes, 0);
+            }
+            // Two region picks (recycled): clipped boxes = the scroll content;
+            // unclipped = the fixed header/footer/base. `paint_row_picked` skips a
+            // box that does not intersect the row, so one pick per region suffices.
+            let mut clipped = core::mem::take(&mut self.vis_pick);
+            let mut unclipped = core::mem::take(&mut self.band_pick);
+            clipped.clear();
+            unclipped.clear();
+            for (bi, b) in self.layout.boxes.iter().enumerate() {
+                if b.rect.width.0 <= 0 || b.rect.height.0 <= 0 {
+                    continue;
+                }
+                if b.clip_rect.is_some() {
+                    clipped.push(bi as u32);
+                } else {
+                    unclipped.push(bi as u32);
+                }
+            }
+            let mut ok = true;
+            for br in 0..band_h {
+                for px in row[..row_bytes].chunks_exact_mut(4) {
+                    px.copy_from_slice(&base);
+                }
+                // Band row → model row + which region's boxes paint here.
+                let (model_y, pick): (i32, &[u32]) = if br < header_h {
+                    (br, &unclipped) // fixed header (identity)
+                } else if br < band_content_top {
+                    (vy1 + (br - header_h), &unclipped) // fixed footer
+                } else {
+                    (vy0 + (br - band_content_top), &clipped) // scroll content (no dy)
+                };
+                {
+                    let mut canvas =
+                        nexus_scene_raster::RowCanvas::new(&mut row, model_y, self.w as i32);
+                    // scroll = None: IDENTITY paint (the compositor owns the
+                    // scroll offset). Clipped boxes still paint at their model
+                    // position; the band row remap is via `model_y`.
+                    nexus_scene_raster::paint_row_picked(
+                        &mut canvas,
+                        &self.layout.boxes,
+                        pick,
+                        None,
+                        None,
+                    );
+                }
+                // Glyph pass: the runs of this region's boxes intersecting model_y.
+                for &bi in pick.iter() {
+                    let b = &self.layout.boxes[bi as usize];
+                    let (bx, by, bw, bh) = (
+                        b.rect.x.0,
+                        b.rect.y.0,
+                        b.rect.width.0,
+                        b.rect.height.0,
+                    );
+                    if bw <= 0 || bh <= 0 || model_y < by || model_y >= by + bh {
+                        continue;
+                    }
+                    if let Ok(ti) =
+                        self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
+                    {
+                        let (_, content, font, color) = &self.texts[ti];
+                        nexus_text_baked::draw_text_row(
+                            &mut row,
+                            model_y as u32,
+                            by,
+                            bx.max(0) as u32,
+                            self.w,
+                            content.chars(),
+                            *font,
+                            *color,
+                        );
+                    }
+                }
+                if vmo_write(vmo, br as usize * row_bytes, &row[..row_bytes]).is_err() {
+                    ok = false;
+                    break;
+                }
+            }
+            self.row_scratch = row;
+            self.vis_pick = clipped;
+            self.band_pick = unclipped;
+            ok
+        }
+
+        /// Compositor-owned scroll position push (`INPUT_KIND_SCROLL_POS`):
+        /// windowd is the scroll authority, so mirror the pushed ABSOLUTE offset
+        /// into `scroll_y` (keeps tap hit-testing + the EndReached lazy-load
+        /// check correct) WITHOUT re-rendering. Returns `true` only when the
+        /// near-end check fired the declarative `EndReached` and the model
+        /// changed (LoadMore) — the caller re-renders the tall band + re-presents.
+        fn scroll_pos(&mut self, rows: i32) -> bool {
+            let Some((clip, _cw, content_h)) = self.scroll_region() else {
+                return false;
+            };
+            let view_h = clip.3 - clip.1;
+            let max_y = (content_h - view_h).max(0);
+            self.scroll_y = rows.clamp(0, max_y);
+            let near_end = max_y > 0 && self.scroll_y >= max_y - view_h / 2;
+            if near_end && !self.end_fired {
+                self.end_fired = true;
+                return self.fire_end_reached();
+            }
+            false
         }
     }
 

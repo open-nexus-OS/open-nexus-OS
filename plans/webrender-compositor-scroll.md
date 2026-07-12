@@ -108,3 +108,40 @@ shift; app re-renders only on LoadMore.
   compositor/runtime/gpud.rs (send_gpud_fire_forget).
 - app-host: src/main.rs.
 - proto: libs/nexus-display-proto/src/client_surface.rs.
+
+## DEBUG FINDINGS (2026-07-12, boot 16-33-59) — Phases 2-4 implemented, ONE bug left
+
+Boot-verified WORKING:
+- app-host packed-band render: chat packs correctly (fixed Toolbar header / scrolling
+  message body / fixed composer footer) — 3-slice band structure is CORRECT.
+- windowd scroll ownership: on wheel over the chat body, windowd emits OP_SET_LAYER_SCROLL
+  (marker `gpud: layer scroll live id=2 row=4176`), does NOT forward INPUT_KIND_WHEEL to
+  the app (`APPHOST: wheel rx` +0), and the app does NOT re-render per notch
+  (`interactive frame` +0). The WebRender wiring is LIVE and correct.
+
+BUG (visual): the chat body does NOT visibly scroll. It shows the content TOP (#1/#2/#3)
+regardless of scroll_rows (pinned at max, row=4176). Confirmed via BOTH paths:
+- gpud override: `record_layer_scroll(id=2, row=4176)` fires but the composited body does
+  not move → gpud's OP_SET_LAYER_SCROLL flush/composite does NOT apply scroll_src_rows to
+  the RT layer. This op was "ungenutzt bereit" = NEVER driven e2e before, so the gpud path
+  (gl_scanout.rs flush_layer_scroll / backend/present.rs:825 composite override) is likely
+  broken/untested — flush_layer_scroll may re-scanout WITHOUT re-running
+  composite_pending_rt_layers with the override (rt_layers_dirty stays false).
+- scene.rs baseline: forcing a FULL present (drag the window) STILL shows the top → the
+  body layer is composited with scroll_rows=0, i.e. composite_scrollable_glass's
+  content_offset is NOT reflecting the updated slot.scroll_rows (AppSceneSnap.scroll_rows
+  snapshot stale, or the offset param not wired through).
+
+NEXT (focused, ~1-2 boot iterations):
+1. Verify gpud actually re-composites the RT layer on OP_SET_LAYER_SCROLL (not just
+   re-scanout): flush_layer_scroll must re-run composite_pending_rt_layers so the
+   scroll_src_rows override reaches virgl_composite src_row UV. Add a marker inside the
+   composite override branch (present.rs:825) to confirm it's hit with row=4176.
+2. Verify scene.rs snapshots the CURRENT slot.scroll_rows into AppSceneSnap and
+   composite_scrollable_glass passes content_offset = header_h+footer_h+scroll_rows to the
+   body layer's src_row.
+3. Watch the title_h off-by: content in the atlas starts at atlas_row+header_h+footer_h
+   (NO title_h — the app band row 0 is the Toolbar, not the windowd title bar). The
+   src_row formula currently adds title_h; drop it unless render_app_surface blits the band
+   at atlas_row+title_h.
+Phases 2-4 are UNCOMMITTED — `git checkout .` restores the working item-1 chat.

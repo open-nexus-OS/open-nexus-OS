@@ -133,6 +133,15 @@ pub enum Command {
         /// fast path, the analogue of the cursor's `OP_MOVE_CURSOR`; the id
         /// generalizes it beyond the single hardcoded chat layer (TASK-0070 Phase 7).
         scroll_id: u32,
+        /// WebRender scroll band bounds (`0` = not scrollable). When
+        /// `scroll_band_h > 0` the backend uploads the WHOLE band
+        /// `[scroll_band_top_abs, +scroll_band_h)` to the GPU atlas texture ONCE
+        /// (on a full present) so the per-id `src_row` override can shift within
+        /// it — otherwise only the visible `height` rows are uploaded and a
+        /// shifted `src_row` samples never-uploaded rows (body doesn't scroll).
+        /// The SAMPLE row stays `src_row_abs` (+ `height`).
+        scroll_band_top_abs: u32,
+        scroll_band_h: u32,
     },
 }
 
@@ -436,6 +445,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 scroll_id,
                 content_w,
                 content_h,
+                scroll_band_top_abs,
+                scroll_band_h,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -456,6 +467,8 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *scroll_id,
                         *content_w,
                         *content_h,
+                        *scroll_band_top_abs,
+                        *scroll_band_h,
                     ],
                 )?;
             }
@@ -614,8 +627,8 @@ fn ser_drop_shadow(
 }
 
 /// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 15]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 15 * 4;
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 17]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 17 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -816,10 +829,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 60 {
+    if buf.len() < pos + 68 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 15];
+    let mut w = [0u32; 17];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -841,8 +854,10 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             scroll_id: w[12],
             content_w: w[13],
             content_h: w[14],
+            scroll_band_top_abs: w[15],
+            scroll_band_h: w[16],
         },
-        pos + 60,
+        pos + 68,
     ))
 }
 
@@ -1006,6 +1021,8 @@ mod scroll_tag_tests {
                     scroll_id: 1,
                     content_w: 200,
                     content_h: 300,
+                    scroll_band_top_abs: 3200,
+                    scroll_band_h: 2600,
                 },
                 Command::CompositeLayer {
                     src_row_abs: 4000,
@@ -1023,6 +1040,8 @@ mod scroll_tag_tests {
                     scroll_id: 0,
                     content_w: 0,
                     content_h: 0,
+                    scroll_band_top_abs: 0,
+                    scroll_band_h: 0,
                 },
             ],
         };

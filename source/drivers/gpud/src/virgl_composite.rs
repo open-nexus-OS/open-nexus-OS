@@ -466,6 +466,13 @@ impl VirtioGpuBackend {
         shadow_blur: u32,
         shadow_offset_y: i32,
         shadow_alpha: u32,
+        // WebRender scroll band (`scroll_band_h == 0` = not scrollable). When set,
+        // the UPLOAD covers the WHOLE band `[scroll_band_top_abs, +scroll_band_h)`
+        // ONCE so the `src_row` override (the SAMPLE row below) can shift within
+        // already-uploaded rows — otherwise only `height` visible rows are
+        // uploaded and a shifted `src_row` samples never-uploaded rows.
+        scroll_band_top_abs: u32,
+        scroll_band_h: u32,
         upload: bool,
     ) -> Result<(), GfxError> {
         if !self.virgl_capable || !self.virgl_draw_ok {
@@ -495,7 +502,28 @@ impl VirtioGpuBackend {
         // whole layer. Only the source region is transferred to the GL texture.
         let (src_w, src_h) = if content_w > 0 { (content_w, content_h) } else { (width, height) };
         if upload {
-            self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, src_w, src_h, FB_STRIDE)?;
+            if scroll_band_h > 0 {
+                // WebRender scroll: upload the WHOLE resident band ONCE so the
+                // per-id `src_row` override can shift WITHIN uploaded rows. The
+                // band top/height are FIXED (independent of the current scroll
+                // position); the SAMPLE below still uses `src_row_rel` + `height`.
+                let band_top_rel = scroll_band_top_abs.saturating_sub(ATLAS_ROW);
+                // Never transfer past the GL atlas texture (rows 0..ATLAS_ROWS).
+                let mut band_h = scroll_band_h;
+                if band_top_rel.saturating_add(band_h) > ATLAS_ROWS {
+                    let clamped = ATLAS_ROWS.saturating_sub(band_top_rel);
+                    if !self.scroll_band_clamp_logged {
+                        self.scroll_band_clamp_logged = true;
+                        let _ = nexus_abi::debug_println(&alloc::format!(
+                            "gpud: scroll band clamped top_rel={band_top_rel} h={band_h} -> {clamped} (atlas rows={ATLAS_ROWS})"
+                        ));
+                    }
+                    band_h = clamped;
+                }
+                self.virgl_transfer_to_host(ATLAS_RES, src_x, band_top_rel, src_w, band_h, FB_STRIDE)?;
+            } else {
+                self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, src_w, src_h, FB_STRIDE)?;
+            }
         }
         // Composite the content straight onto the scanout RT (alpha-over base).
         if src_w != width || src_h != height {

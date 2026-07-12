@@ -29,6 +29,15 @@ struct AppSceneSnap {
     fullscreen: bool,
     /// (atlas_row, atlas_x, win_x, win_y, title_h) of the content band.
     layer_geom: Option<(u32, u32, u32, u32, u32)>,
+    /// WebRender compositor-scroll (0 = non-scrollable, unchanged compose path).
+    scroll_id: u32,
+    /// The app's fixed top/bottom chrome heights + tall content + WM title bar
+    /// height + current scroll offset — the 3-slice scrollable-glass params.
+    header_h: u32,
+    footer_h: u32,
+    content_h: u32,
+    scroll_rows: u32,
+    title_h: u32,
 }
 
 impl Default for AppSceneSnap {
@@ -41,6 +50,12 @@ impl Default for AppSceneSnap {
             title_overlay: None,
             fullscreen: false,
             layer_geom: None,
+            scroll_id: 0,
+            header_h: 0,
+            footer_h: 0,
+            content_h: 0,
+            scroll_rows: 0,
+            title_h: 0,
         }
     }
 }
@@ -156,6 +171,12 @@ impl DisplayServerRuntime {
                         win.title_h,
                     )
                 }),
+                scroll_id: self.apps[idx].scroll_id,
+                header_h: self.apps[idx].header_h,
+                footer_h: self.apps[idx].footer_h,
+                content_h: self.apps[idx].content_h,
+                scroll_rows: self.apps[idx].scroll_rows,
+                title_h: win.title_h,
             };
         }
         // Desktop base surface (declarative, Umbau #17): the shell/greeter
@@ -217,7 +238,10 @@ impl DisplayServerRuntime {
                     crate::window_scene::WindowId::App(slot) => {
                         use nexus_display_proto::client_surface as wire;
                         let sn = &app_snaps[slot as usize];
-                        if sn.layer_count > 0 {
+                        // A scrollable surface owns the whole-window 3-slice
+                        // composite — it takes priority over per-region material
+                        // glass (the body's frosted backdrop covers the viewport).
+                        if sn.scroll_id == 0 && sn.layer_count > 0 {
                             if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = sn.layer_geom
                             {
                                 for l in sn.layers.iter().take(sn.layer_count) {
@@ -247,6 +271,33 @@ impl DisplayServerRuntime {
                                         mode.height,
                                     );
                                 }
+                            }
+                        } else if sn.scroll_id != 0 {
+                            // WebRender compositor-scroll: a 3-slice packed-band
+                            // composite — the fixed top (WM title + app header)
+                            // and fixed bottom (app footer) stay put while the
+                            // body layer scrolls purely by a gpud `src_row` shift
+                            // (`OP_SET_LAYER_SCROLL`). The body's full-present
+                            // `src_row_abs` = `atlas_row + content_offset` MUST
+                            // equal the override row windowd emits, so a full
+                            // present mid-scroll agrees (no snap-to-top).
+                            if let Some(p) = sn.glass {
+                                let top_h = sn.title_h.saturating_add(sn.header_h);
+                                let bot_h = sn.footer_h;
+                                let content_offset =
+                                    top_h.saturating_add(bot_h).saturating_add(sn.scroll_rows);
+                                let _ =
+                                    crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
+                                        &mut encoder,
+                                        p,
+                                        sn.scroll_id,
+                                        content_offset,
+                                        top_h,
+                                        bot_h,
+                                        sn.content_h,
+                                        mode.width,
+                                        mode.height,
+                                    );
                             }
                         } else if let Some(p) = sn.glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(

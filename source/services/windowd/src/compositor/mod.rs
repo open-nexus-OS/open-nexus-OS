@@ -545,6 +545,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 || runtime.has_pending_damage()
                 || runtime.frames_in_flight() > 0
                 || runtime.has_frame_pulse_clients()
+                || runtime.has_scroll_momentum()
                 || session_pending
                 || greeter_watch_pending
                 || theme_pending;
@@ -603,6 +604,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         if runtime.has_active_animations() {
                             runtime.tick(now_ns);
                         }
+                        // WebRender compositor-scroll flings: advance each
+                        // scrollable window's physics and re-emit
+                        // OP_SET_LAYER_SCROLL while animating (gpud re-composites
+                        // the retained layers — the app stays out of the loop).
+                        runtime.advance_app_scrolls(now_ns);
                         // Submit frame if pending damage and a ring slot is free.
                         if runtime.has_pending_damage()
                             && runtime.frames_in_flight()

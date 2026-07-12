@@ -54,9 +54,9 @@ impl DisplayServerRuntime {
             mode,
             resizable,
             nonce,
-            _content_h,
-            _header_h,
-            _footer_h,
+            content_h,
+            header_h,
+            footer_h,
         )) = wire::decode_surface_create(frame)
         else {
             return wire::encode_surface_ack(
@@ -116,6 +116,23 @@ impl DisplayServerRuntime {
         self.apps[idx].intent_level = level;
         self.apps[idx].intent_mode = mode;
         self.apps[idx].intent_resizable = resizable;
+        // WebRender compositor-scroll band geometry (rides atomically on CREATE
+        // so the tall band is alloc'd with the right size). `content_h == 0` ⇒
+        // the surface is NOT scrollable — byte-identical to the pre-scroll path.
+        // A scrollable surface gets a per-slot scroll id (`slot_index + 1`,
+        // bounded by `MAX_SCROLL_IDS`); windowd owns its scroll position.
+        self.apps[idx].content_h = u32::from(content_h);
+        self.apps[idx].header_h = u32::from(header_h);
+        self.apps[idx].footer_h = u32::from(footer_h);
+        self.apps[idx].scroll_rows = 0;
+        self.apps[idx].scroll_momentum =
+            animation::ScrollMomentum::new(animation::ScrollConfig::default());
+        self.apps[idx].scroll_last_ns = 0;
+        self.apps[idx].scroll_id = if content_h > 0 && (idx + 1) <= MAX_SCROLL_IDS {
+            (idx as u32) + 1
+        } else {
+            0
+        };
         match self.client_surfaces.create(width, height, format, vmo_slot) {
             Ok(id) => {
                 self.apps[idx].surface_id = Some(id);
@@ -563,19 +580,29 @@ impl DisplayServerRuntime {
         if !self.apps[idx].win.is_mounted() {
             let w = self.apps[idx].win.w;
             let h = self.apps[idx].win.h;
-            let Some(content) = self.atlas_alloc.alloc(w, h) else {
+            // WebRender compositor-scroll: the CONTENT band is physically TALL —
+            // it holds the whole resident content ONCE (WM title + the app's
+            // packed header/footer/content band) so a scroll is a pure gpud
+            // `src_row` shift, no per-frame re-blit. A non-scroll surface
+            // (`scroll_id == 0`) keeps the VISIBLE-sized band (unchanged).
+            let content_rows = if self.apps[idx].scroll_id != 0 {
+                self.app_band_height(idx).max(h)
+            } else {
+                h
+            };
+            let Some(content) = self.atlas_alloc.alloc(w, content_rows) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
                     w,
-                    h,
+                    content_rows,
                     self.atlas_alloc.rows_remaining()
                 ));
                 return false;
             };
-            // A desktop/full-screen surface uses the R1 layer path
-            // (`BackdropCache::None`), so it needs NO per-window blur band — a
-            // full-screen blur band would starve the atlas. Windowed apps keep
-            // the cached-blur band.
+            // The BLUR band stays VISIBLE-sized (the glass clamps to w×h anyway;
+            // a tall blur band would starve the atlas). A desktop/full-screen
+            // surface uses the R1 layer path (`BackdropCache::None`), so it needs
+            // NO per-window blur band at all.
             let blur = if self.app_is_desktop_surface(idx) {
                 None
             } else {
@@ -664,7 +691,26 @@ impl DisplayServerRuntime {
         // the shell): the title-bar block never runs and the body fills from
         // row 0. A normal window keeps `APP_TITLE_H` — the WM-drawn frame.
         let title_h = self.apps[idx].win.title_h;
-        for ly in 0..win_h {
+        // WebRender compositor-scroll: a scrollable surface blits the WHOLE tall
+        // band ONCE (WM title + the app's packed header/footer/content band), so
+        // a scroll is a pure gpud `src_row` shift with no re-blit. The client's
+        // VMO is physically tall (`band_body_h` rows), independent of the frame's
+        // VISIBLE `client.height`. A non-scroll surface is byte-identical to
+        // before: iterate `win_h`, body bound = `client.height`.
+        let scrollable = self.apps[idx].scroll_id != 0;
+        let band_body_h = self.apps[idx]
+            .header_h
+            .saturating_add(self.apps[idx].footer_h)
+            .saturating_add(self.apps[idx].content_h);
+        let (blit_rows, body_limit) = if scrollable {
+            (
+                title_h.saturating_add(band_body_h).min(surface.height),
+                band_body_h,
+            )
+        } else {
+            (win_h, client.height as u32)
+        };
+        for ly in 0..blit_rows {
             let row_bytes = win_w as usize * 4;
             let row = &mut self.band_scratch[0..stride];
             row[..row_bytes].fill(0);
@@ -690,7 +736,7 @@ impl DisplayServerRuntime {
                 )?;
             } else {
                 let body_y = ly - title_h;
-                if body_y < client.height as u32 {
+                if body_y < body_limit {
                     // The damage-blit: one surface row out of the app's VMO.
                     #[cfg(nexus_env = "os")]
                     {
@@ -816,6 +862,20 @@ impl DisplayServerRuntime {
 
     pub(super) fn app_window_rect(&self, idx: usize) -> DamageRect {
         self.apps[idx].win.damage_rect(self.mode.width, self.mode.height)
+    }
+
+    /// The full atlas-band height (rows) for a SCROLLABLE app surface: the WM
+    /// title bar + the app's packed band (fixed header + fixed footer + the tall
+    /// resident content, `header_h + footer_h + content_h`). This is what the
+    /// tall content band is alloc'd to and what `render_app_surface` blits ONCE.
+    /// Only meaningful when `scroll_id != 0`.
+    pub(super) fn app_band_height(&self, idx: usize) -> u32 {
+        self.apps[idx]
+            .win
+            .title_h
+            .saturating_add(self.apps[idx].header_h)
+            .saturating_add(self.apps[idx].footer_h)
+            .saturating_add(self.apps[idx].content_h)
     }
 
     /// Window intent (`OP_SURFACE_INTENT`, sent before create): store the

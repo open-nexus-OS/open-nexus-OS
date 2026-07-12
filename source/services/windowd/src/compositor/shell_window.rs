@@ -454,6 +454,8 @@ impl ShellWindow {
                 opacity: 255,
                 corner_radius: p.radius,
                 scroll_id: 0,
+                scroll_band_top_abs: 0,
+                scroll_band_h: 0,
                 shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                     blur: p.shadow_blur,
                     offset_y: p.shadow_offset_y,
@@ -490,70 +492,113 @@ impl ShellWindow {
     }
 
     /// Composite a glass window whose body **scrolls** by a GPU source-row offset
-    /// while the title bar stays fixed — the chat mechanism, now shared so the
-    /// chat and search windows scroll identically (render once, GPU offset, no
-    /// per-frame re-render). The halo is restored from the retained plane each
-    /// present so the soft shadow never accumulates (virgl rebuilds the scanout
-    /// every present). `content_offset` is the body's scroll-within-surface in
-    /// rows; `header_h` is the fixed title-bar height. Returns true when the blur
-    /// cache was (re)built this present.
+    /// while a fixed top (WM title + app header) AND a fixed bottom (app footer)
+    /// stay put — the WebRender packed-band mechanism (render once into a TALL
+    /// atlas band, GPU `src_row` offset per scroll, no per-frame re-render). This
+    /// is a THREE-slice composite:
+    ///
+    /// 1. **Body** (the scrolling viewport): a `scroll_id`-tagged layer covering
+    ///    the region between the fixed top and bottom. gpud retains it and
+    ///    re-samples it at the id's `src_row` override on `OP_SET_LAYER_SCROLL`
+    ///    (the scroll fast path). Its full-present `src_row_abs =
+    ///    atlas_row + content_offset` — where `content_offset =
+    ///    header_h + footer_h + scroll_rows` — MUST equal the override row
+    ///    windowd emits, so a full present mid-scroll agrees (no snap-to-top).
+    /// 2. **Fixed top slice** (`header_h` rows = WM title bar + app header):
+    ///    composited from atlas row 0, opaque, occludes the top of the body.
+    /// 3. **Fixed bottom slice** (`footer_h` rows = app composer): composited from
+    ///    the atlas rows RIGHT AFTER the top slice (`atlas_row + header_h`, where
+    ///    the app packed the footer) to the bottom of the window, opaque.
+    ///
+    /// The three slices TILE the window with no overlap/gap (top / body / bottom).
+    /// Returns true when the blur cache was (re)built this present.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn composite_scrollable_glass(
         encoder: &mut RenderCommandEncoder<'_>,
         p: GlassCompositeParams,
         scroll_id: u32,
         content_offset: u32,
         header_h: u32,
+        footer_h: u32,
+        content_h: u32,
         mode_w: u32,
         mode_h: u32,
     ) -> bool {
         if p.x >= mode_w || p.y >= mode_h {
             return false;
         }
-        // Body layer: restores the window + shadow-pad halo from the retained plane
-        // (so the soft shadow never trails), blurs/caches the window rect, and
-        // composites the surface SCROLLABLE (sampled at the scroll offset so gpud
-        // retains it for the cheap re-sample fast path). Routed through the layer
-        // SSOT, which owns the halo math + the cached-with-halo restore.
-        let pad = p.shadow_blur.saturating_add(p.shadow_offset_y.unsigned_abs());
-        let _ = encoder.composite_layer_full(
-            &Layer {
-                src_row_abs: p.atlas_row + content_offset,
-                src_x: p.atlas_x,
-                width: p.w,
-                height: p.h,
-                content_w: 0,
-                content_h: 0,
-                dst_x: p.x,
-                dst_y: p.y,
-                opacity: 255,
-                corner_radius: p.radius,
-                scroll_id,
-                shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
-                    blur: p.shadow_blur,
-                    offset_y: p.shadow_offset_y,
-                    alpha: p.shadow_alpha,
-                }),
-                backdrop: p.blur.map(|blur| LayerBackdrop {
-                    blur_radius: DARK_GLASS_BLUR_RADIUS,
-                    saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-                    restore_halo_pad: pad,
-                    retained_src_y_offset: RETAINED_ROW_OFFSET,
-                    cache: glass_cache(blur),
-                }),
-            },
-            (mode_w, mode_h),
-        );
-        // Title bar: composited FIXED on top (src row 0) so it never scrolls. It
-        // must be OPAQUE (see `draw_title_bar_row`) so it occludes the scrollable
-        // body that covers the whole window underneath — otherwise scrolled rows
-        // bleed through it. `header_h` is exactly the title bar (no translucent pad),
-        // so content clips cleanly at the bar's bottom edge. Works on both the VMO
-        // (mmio) and the layer (virgl) paths because occlusion is at the layer level.
-        // Composited SQUARE (radius 0): the title bar's TOP corners are rounded at
-        // the SURFACE level instead (transparent corner pixels, see
-        // `draw_title_bar_row`), so the top corners reveal the body's rounded corners
-        // underneath while the bottom edge stays straight — no all-corner "notch".
-        let _ = encoder.try_composite_layer(p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0);
+        // 1. Body (viewport): the scrolling content between the fixed slices.
+        //    `scroll_id` set + `content_w/h: 0` (1:1 scroll path). The frosted
+        //    backdrop is cached (built once, re-read thereafter). No corners /
+        //    shadow — those belong to the fixed top/bottom (a scroll viewport in
+        //    the middle of a window has straight edges).
+        //    `scroll_band_*`: gpud must upload the WHOLE atlas band
+        //    `[atlas_row, +header_h+footer_h+content_h]` (WM title + header +
+        //    footer + tall content) to its GL texture ONCE, so the `src_row`
+        //    override can shift within uploaded rows (else the body never
+        //    scrolls — only the visible rows were ever uploaded). The header/
+        //    footer fixed slices then sample already-uploaded rows.
+        let viewport_h = p.h.saturating_sub(header_h.saturating_add(footer_h));
+        let band_h = header_h.saturating_add(footer_h).saturating_add(content_h);
+        if viewport_h > 0 {
+            let _ = encoder.composite_layer_full(
+                &Layer {
+                    src_row_abs: p.atlas_row + content_offset,
+                    src_x: p.atlas_x,
+                    width: p.w,
+                    height: viewport_h,
+                    content_w: 0,
+                    content_h: 0,
+                    dst_x: p.x,
+                    dst_y: p.y + header_h,
+                    opacity: 255,
+                    corner_radius: 0,
+                    scroll_id,
+                    scroll_band_top_abs: p.atlas_row,
+                    scroll_band_h: band_h,
+                    shadow: None,
+                    backdrop: p.blur.map(|blur| LayerBackdrop {
+                        blur_radius: DARK_GLASS_BLUR_RADIUS,
+                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
+                        restore_halo_pad: 0,
+                        retained_src_y_offset: RETAINED_ROW_OFFSET,
+                        cache: glass_cache(blur),
+                    }),
+                },
+                (mode_w, mode_h),
+            );
+        }
+        // 2. Fixed top slice (WM title + app header): atlas rows [0, header_h) →
+        //    window top. OPAQUE (see `draw_title_bar_row`) so it occludes the
+        //    scrolling body underneath. SQUARE (radius 0): the WM title bar's TOP
+        //    corners are rounded at the SURFACE level (transparent corner pixels),
+        //    revealing the rounded body/backdrop underneath, straight bottom edge.
+        if header_h > 0 {
+            let _ = encoder.try_composite_layer(
+                p.atlas_row, p.atlas_x, p.w, header_h, p.x, p.y, 255, 0, 0, 0, 0, 0,
+            );
+        }
+        // 3. Fixed bottom slice (app footer / composer): atlas rows
+        //    [atlas_row + header_h, + footer_h) (where the app packed the footer,
+        //    right after the header in the band) → window bottom. OPAQUE, so
+        //    scrolled rows never bleed through it.
+        if footer_h > 0 {
+            let footer_dst_y = p.y + p.h.saturating_sub(footer_h);
+            let _ = encoder.try_composite_layer(
+                p.atlas_row + header_h,
+                p.atlas_x,
+                p.w,
+                footer_h,
+                p.x,
+                footer_dst_y,
+                255,
+                0,
+                0,
+                0,
+                0,
+                0,
+            );
+        }
         // `built_blur`: the cache was (re)built this present iff a cache exists
         // and was invalid (no cache → nothing was built).
         p.blur.map(|b| !b.valid).unwrap_or(false)
@@ -609,6 +654,8 @@ pub(crate) fn composite_material_glass(
             opacity: 255,
             corner_radius: p.corner_radius,
             scroll_id: 0,
+            scroll_band_top_abs: 0,
+            scroll_band_h: 0,
             shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
                 blur: 24,
                 offset_y: 8,

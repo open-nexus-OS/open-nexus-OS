@@ -234,6 +234,12 @@ pub struct VirtioGpuBackend {
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
+    /// One-shot latch: a scroll band was clamped to the GL atlas texture height
+    /// (logged once so a mis-sized band is diagnosable without flooding the UART).
+    /// Gated to match the `virgl_composite` module (`feature = "virgl"`) that
+    /// reads it in `composite_layer_rt` (a top-level module — needs `pub(crate)`).
+    #[cfg(feature = "virgl")]
+    pub(crate) scroll_band_clamp_logged: bool,
     /// One-shot markers: first GPU-executed gradient fill / drop shadow.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_grad_marker_done: bool,
@@ -324,6 +330,12 @@ struct PendingRtLayer {
     /// Scroll identity (0 = not scrollable). Non-zero: gpud re-samples the layer
     /// at the id's `scroll_src_rows` override on the lightweight scroll fast path.
     scroll_id: u32,
+    /// WebRender scroll band (0 = not scrollable): the FULL resident-content band
+    /// `[scroll_band_top_abs, +scroll_band_h)` uploaded to the GL atlas texture
+    /// ONCE (on a full present) so the `src_row` override can shift within it. The
+    /// SAMPLE still uses `src_row_abs` + `height` (the overridden scroll row).
+    scroll_band_top_abs: u32,
+    scroll_band_h: u32,
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -454,6 +466,8 @@ impl VirtioGpuBackend {
             layer_scroll_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
+            #[cfg(feature = "virgl")]
+            scroll_band_clamp_logged: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_grad_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

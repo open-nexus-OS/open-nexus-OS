@@ -83,6 +83,16 @@ pub struct Layer {
     /// at the id's source-row override on a lightweight scroll command (GPU
     /// scroll fast path).
     pub scroll_id: u32,
+    /// WebRender scroll band: the FULL resident-content band the compositor must
+    /// upload to the GPU atlas texture ONCE so the `src_row` override can shift
+    /// WITHIN it (`0` = not scrollable, upload only the visible rows). Without
+    /// this the backend uploads only `height` rows at the current source row, so
+    /// a shifted `src_row` samples never-uploaded rows (the body never scrolls).
+    /// `scroll_band_top_abs` = absolute atlas row of the band top;
+    /// `scroll_band_h` = band height (rows). The SAMPLE still uses `src_row_abs`
+    /// + `height` (the overridden scroll position) — only the UPLOAD region grows.
+    pub scroll_band_top_abs: u32,
+    pub scroll_band_h: u32,
     pub shadow: Option<LayerShadow>,
     pub backdrop: Option<LayerBackdrop>,
 }
@@ -102,6 +112,8 @@ impl Layer {
             opacity: 255,
             corner_radius: 0,
             scroll_id: 0,
+            scroll_band_top_abs: 0,
+            scroll_band_h: 0,
             shadow: None,
             backdrop: None,
         }
@@ -147,6 +159,8 @@ mod tests {
                 scroll_id: 0,
                 content_w: 0,
                 content_h: 0,
+                scroll_band_top_abs: 0,
+                scroll_band_h: 0,
             }
         );
     }

@@ -392,6 +392,8 @@ impl VirtioGpuBackend {
                         scroll_id,
                         content_w,
                         content_h,
+                        scroll_band_top_abs,
+                        scroll_band_h,
                     } = cmd
                     {
                         if self.pending_rt_count < MAX_PENDING_RT_LAYERS {
@@ -411,6 +413,8 @@ impl VirtioGpuBackend {
                                 shadow_alpha: *shadow_alpha,
                                 backdrop_blur: *backdrop_blur,
                                 scroll_id: *scroll_id,
+                                scroll_band_top_abs: *scroll_band_top_abs,
+                                scroll_band_h: *scroll_band_h,
                             };
                             self.pending_rt_count += 1;
                         }
@@ -668,14 +672,17 @@ impl VirtioGpuBackend {
                     scroll_id,
                     content_w,
                     content_h,
+                    scroll_band_top_abs,
+                    scroll_band_h,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
                     // relies on the content's own alpha (translucent panel bg).
                     #[cfg(not(feature = "virgl"))]
                     let _ = opacity;
-                    // `scroll_id` only drives the virgl RT-direct fast path below.
+                    // `scroll_id` + the scroll-band bounds only drive the virgl
+                    // RT-direct fast path below.
                     #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-                    let _ = scroll_id;
+                    let _ = (scroll_id, scroll_band_top_abs, scroll_band_h);
                     // RT-direct (Increment 1): defer non-glass layers and
                     // composite them straight onto the scanout RT after the base
                     // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
@@ -702,6 +709,8 @@ impl VirtioGpuBackend {
                             shadow_alpha: *shadow_alpha,
                             backdrop_blur: *backdrop_blur,
                             scroll_id: *scroll_id,
+                            scroll_band_top_abs: *scroll_band_top_abs,
+                            scroll_band_h: *scroll_band_h,
                         };
                         self.pending_rt_count += 1;
                         continue; // composited onto the RT in gl_present, not here
@@ -822,14 +831,11 @@ impl VirtioGpuBackend {
             // re-sampled at its id's override row when set — no CPU re-render,
             // just a different source offset into the already-uploaded atlas
             // texture.
-            let src_row_abs = match l
+            let src_row_abs = l
                 .scroll_id
                 .checked_sub(1)
                 .and_then(|i| self.scroll_src_rows.get(i as usize).copied().flatten())
-            {
-                Some(row) => row,
-                None => l.src_row_abs,
-            };
+                .unwrap_or(l.src_row_abs);
             // Frosted glass: blur what is beneath this layer's rect (destination-
             // so-far — layers composite back-to-front, so lower windows/chrome are
             // already on the RT) into the glass RT first; the layer's translucent
@@ -860,6 +866,8 @@ impl VirtioGpuBackend {
                     l.shadow_blur,
                     l.shadow_offset_y,
                     l.shadow_alpha,
+                    l.scroll_band_top_abs,
+                    l.scroll_band_h,
                     upload,
                 )
                 .is_ok();
