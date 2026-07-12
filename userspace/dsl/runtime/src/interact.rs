@@ -84,6 +84,23 @@ pub fn hit<'h>(
     x: FxPx,
     y: FxPx,
 ) -> Option<(usize, &'h HandlerEntry)> {
+    hit_scrolled(handlers, boxes, trigger_sym, x, y, None)
+}
+
+/// Paint-time scroll transform for hit-testing: boxes INSIDE the scroll
+/// viewport (they carry a `clip_rect`) are tested against the SHIFTED point
+/// `(x + dx, y + dy)` — the same transform the scrolled painter applies —
+/// and only when the raw point is inside the viewport. Input and pixels can
+/// never disagree. `scroll` = (viewport x0,y0,x1,y1, dx, dy).
+#[must_use]
+pub fn hit_scrolled<'h>(
+    handlers: &'h [(usize, HandlerEntry)],
+    boxes: &[nexus_layout::LayoutBox],
+    trigger_sym: u32,
+    x: FxPx,
+    y: FxPx,
+    scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+) -> Option<(usize, &'h HandlerEntry)> {
     let mut best: Option<(usize, &HandlerEntry)> = None;
     for (box_id, entry) in handlers {
         if entry.trigger != trigger_sym {
@@ -92,11 +109,20 @@ pub fn hit<'h>(
         let Some(layout_box) = boxes.iter().find(|b| b.node_id == *box_id) else {
             continue;
         };
+        let (mut px, mut py) = (x, y);
+        if let (Some((clip, dx, dy)), Some(_)) = (scroll, layout_box.clip_rect) {
+            // Outside the viewport nothing scrolled is hittable.
+            if x.0 < clip.0 || x.0 >= clip.2 || y.0 < clip.1 || y.0 >= clip.3 {
+                continue;
+            }
+            px = FxPx::new(x.0 + dx);
+            py = FxPx::new(y.0 + dy);
+        }
         let rect = layout_box.rect;
-        let inside = x >= rect.x
-            && y >= rect.y
-            && x < rect.x + rect.width
-            && y < rect.y + rect.height;
+        let inside = px >= rect.x
+            && py >= rect.y
+            && px < rect.x + rect.width
+            && py < rect.y + rect.height;
         if inside && best.map_or(true, |(id, _)| *box_id > id) {
             best = Some((*box_id, entry));
         }

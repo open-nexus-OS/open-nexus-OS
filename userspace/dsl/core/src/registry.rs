@@ -99,6 +99,10 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     ModifierSpec { name: "effect", args: &[ModArg::Token, ModArg::Expr], class: FieldClass::Paint },
     // -- identity (layout)
     ModifierSpec { name: "key", args: &[ModArg::Expr], class: FieldClass::Layout },
+    // -- scrolling (layout): `.scroll(vertical|horizontal)` marks THIS
+    // container as the page's scroll viewport (overflow clipped; the host
+    // applies a paint-time offset — pretext: scrolling never re-layouts).
+    ModifierSpec { name: "scroll", args: &[ModArg::Token], class: FieldClass::Layout },
 ];
 
 #[must_use]
@@ -158,7 +162,7 @@ pub fn widget_spec(name: &str) -> Option<&'static WidgetSpec> {
 }
 
 /// Interaction triggers handlers may bind (`on Tap -> …`).
-pub const TRIGGERS: &[&str] = &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress"];
+pub const TRIGGERS: &[&str] = &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress", "EndReached",];
 
 /// Read-only device environment fields (docs/dev/dsl/profiles.md) + their
 /// value vocabulary where enum-like.

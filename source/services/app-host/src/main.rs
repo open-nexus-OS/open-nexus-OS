@@ -372,6 +372,7 @@ mod probe {
         let mut recv_err_marked = false;
         let mut odd_frame_markers: u32 = 0;
         let mut tap_miss_markers: u32 = 0;
+        let mut wheel_rx_markers: u32 = 0;
         let mut present_in_flight = false;
         let mut dirty = false;
         // Damage discipline (5K/120Hz contract): `None` = full repaint
@@ -388,12 +389,68 @@ mod probe {
                 event_frame[..f.len()].copy_from_slice(&f);
                 f.len()
             } else {
-                match events.recv_into(Wait::Blocking, &mut event_frame) {
+                // Scroll physics pacing: while the ease/fling is animating,
+                // recv with a short timeout so ticks advance even when no
+                // event arrives — the timeout path repaints the viewport span
+                // (apple-smooth decay instead of notch jumps).
+                let wait = if app.as_ref().map(|d| d.momentum_active()).unwrap_or(false) {
+                    Wait::Timeout(core::time::Duration::from_millis(12))
+                } else {
+                    Wait::Blocking
+                };
+                match events.recv_into(wait, &mut event_frame) {
                 Ok(len) => {
                     recv_err_marked = false;
                     len
                 }
                 Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
+                    if let Some(dsl) = app.as_mut() {
+                        let (span, end) = dsl.momentum_tick();
+                        if let Some(span) = span {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None,
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                        }
+                        if end && dsl.fire_end_reached() {
+                            dirty = true;
+                            dirty_rows = None;
+                        }
+                        if dirty && !present_in_flight {
+                            // Fall through to the present block via a zero-len
+                            // sentinel is not possible here — render inline.
+                            let ok = match dirty_rows {
+                                Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
+                                None => dsl.render(vmo),
+                            };
+                            if ok {
+                                seq = seq.wrapping_add(1);
+                                let pd = match dirty_rows {
+                                    Some((y0, y1)) => [wire::DamageRect {
+                                        x: 0,
+                                        y: y0.max(0) as u16,
+                                        width: surf_w as u16,
+                                        height: (y1 - y0).max(0) as u16,
+                                    }],
+                                    None => [wire::DamageRect {
+                                        x: 0,
+                                        y: 0,
+                                        width: surf_w as u16,
+                                        height: surf_h as u16,
+                                    }],
+                                };
+                                let plen =
+                                    wire::encode_surface_present(surface_id, seq, &pd, &mut buf);
+                                if send_retry(&client, &buf[..plen]).is_ok() {
+                                    present_in_flight = true;
+                                }
+                                dirty = false;
+                                dirty_rows = None;
+                            }
+                        }
+                    }
                     continue;
                 }
                 Err(_) => {
@@ -509,6 +566,28 @@ mod probe {
                         raw_marker("apphost: FAIL resize vmo");
                     }
                 }
+            } else if wire::decode_surface_frame(&event_frame[..len]).is_some() {
+                // Compositor frame pulse (Choreographer): advance the scroll
+                // physics one REAL frame and re-arm while motion continues.
+                if let Some(dsl) = app.as_mut() {
+                    let (span, end) = dsl.momentum_tick();
+                    if let Some(span) = span {
+                        dirty_rows = match (dirty, dirty_rows) {
+                            (true, None) => None,
+                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                            (false, None) => Some(span),
+                        };
+                        dirty = true;
+                    }
+                    if end && dsl.fire_end_reached() {
+                        dirty = true;
+                        dirty_rows = None;
+                    }
+                    if dsl.momentum_active() {
+                        let req = wire::encode_surface_frame_req(surface_id);
+                        let _ = client.send(&req, Wait::NonBlocking);
+                    }
+                }
             } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
                 if kind == wire::INPUT_KIND_MOVE {
                     // Frame-aligned hover: paint-only, and only the union row
@@ -533,6 +612,42 @@ mod probe {
                                 (false, None) => Some(span),
                             };
                             dirty = true;
+                        }
+                    }
+                } else if kind == wire::INPUT_KIND_WHEEL {
+                    if wheel_rx_markers < 40 {
+                        wheel_rx_markers += 1;
+                        let d = wire::wheel_delta_from_wire(y);
+                        raw_marker(&alloc::format!(
+                            "APPHOST: wheel rx n={wheel_rx_markers} d={d}"
+                        ));
+                    }
+                    // Wheel: an IMPULSE into the scroll physics (paint-only
+                    // over the retained boxes). The momentum decays in the
+                    // loop's timeout ticks; every repaint is the VIEWPORT
+                    // span only, and nearing the end fires the declarative
+                    // `EndReached` handler (lazy loading).
+                    if let Some(dsl) = app.as_mut() {
+                        let delta = wire::wheel_delta_from_wire(y);
+                        let (span, end) = dsl.scroll_wheel(delta);
+                        if let Some(span) = span {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None,
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
+                            dirty = true;
+                        }
+                        if end && dsl.fire_end_reached() {
+                            dirty = true;
+                            dirty_rows = None; // model changed: full repaint
+                        }
+                        // Choreographer contract: while the ease/fling is
+                        // live, ask the compositor for ONE frame pulse — the
+                        // physics ticks on the REAL frame cadence.
+                        if dsl.momentum_active() {
+                            let req = wire::encode_surface_frame_req(surface_id);
+                            let _ = client.send(&req, Wait::NonBlocking);
                         }
                     }
                 } else if kind == wire::INPUT_KIND_TAP {
@@ -648,6 +763,38 @@ mod probe {
         /// heap page-faulted (the "nothing clickable after mousing around"
         /// crash). One allocation at mount, resized on WM resize.
         row_scratch: alloc::vec::Vec<u8>,
+        /// Scroll offsets of the page's `.scroll(...)` viewport (paint-time
+        /// state like `hovered`: scrolling NEVER re-runs layout and NEVER
+        /// allocates — the retained boxes are repainted shifted).
+        scroll_x: i32,
+        scroll_y: i32,
+        /// The vertical scroll PHYSICS (SSOT `animation::ScrollMomentum`):
+        /// wheel notches extend a target the position eases toward; the loop
+        /// ticks it while `is_animating` — apple-smooth, never a hard jump.
+        momentum: animation::ScrollMomentum,
+        /// Last physics tick (ns) for dt integration.
+        momentum_last_ns: u64,
+        /// EndReached latch: fired once per approach to the content end;
+        /// re-armed whenever layout re-runs (content grew/shrank).
+        end_fired: bool,
+        /// Reused visibility index (box indices intersecting the repaint
+        /// span) — per-row paint cost follows what is ON SCREEN, not the
+        /// page's total box count (the 1000-message transcript contract).
+        vis_pick: alloc::vec::Vec<u32>,
+        /// Reused (box index, texts index) pairs for the span's text runs.
+        vis_text: alloc::vec::Vec<(u32, u32)>,
+    }
+
+    /// Monotonic now (ns) for physics dt; 0 on ABI failure (tick clamps dt).
+    fn nsec_now() -> u64 {
+        #[cfg(nexus_env = "os")]
+        {
+            nexus_abi::nsec().unwrap_or(0)
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            0
+        }
     }
 
     impl DslApp {
@@ -728,7 +875,208 @@ mod probe {
                 shell_profile,
                 hovered: None,
                 row_scratch: alloc::vec![0u8; w as usize * 4],
+                scroll_x: 0,
+                scroll_y: 0,
+                momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
+                momentum_last_ns: 0,
+                end_fired: false,
+                vis_pick: alloc::vec::Vec::new(),
+                vis_text: alloc::vec::Vec::new(),
             })
+        }
+
+        /// The page's scroll viewport, derived from the RETAINED boxes (the
+        /// engine stamps `clip_rect` on every descendant of the one
+        /// `.scroll(...)` container): (viewport x0,y0,x1,y1, content_w,
+        /// content_h). O(boxes), alloc-free, no cached state to drift.
+        fn scroll_region(&self) -> Option<((i32, i32, i32, i32), i32, i32)> {
+            self.scroll_region_axis().map(|(clip, cw, ch, _)| (clip, cw, ch))
+        }
+
+        /// [`Self::scroll_region`] + the DECLARED axis (from the container
+        /// box's `Overflow::Scroll(axis)` — the `.scroll(...)` author decides
+        /// what scrolls; content shape never guesses it).
+        fn scroll_region_axis(
+            &self,
+        ) -> Option<((i32, i32, i32, i32), i32, i32, nexus_layout_types::ScrollAxis)> {
+            let mut clip: Option<(i32, i32, i32, i32)> = None;
+            let mut axis = nexus_layout_types::ScrollAxis::Vertical;
+            let (mut content_r, mut content_b) = (0i32, 0i32);
+            for b in &self.layout.boxes {
+                if let nexus_layout_types::Overflow::Scroll(a) = b.overflow {
+                    axis = a;
+                }
+                let Some(c) = b.clip_rect else { continue };
+                if clip.is_none() {
+                    clip = Some((c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0));
+                }
+                content_r = content_r.max(b.rect.x.0 + b.rect.width.0);
+                content_b = content_b.max(b.rect.y.0 + b.rect.height.0);
+            }
+            let clip = clip?;
+            Some((clip, content_r - clip.0, content_b - clip.1, axis))
+        }
+
+        /// The active paint/hit scroll transform (`None` = nothing scrolls).
+        fn scroll_param(&self) -> Option<((i32, i32, i32, i32), i32, i32)> {
+            if self.scroll_x == 0 && self.scroll_y == 0 {
+                // Identity transform still needs the clip for correctness,
+                // but the zero case is the common path — skip the box walk.
+                if self.scroll_region().is_none() {
+                    return None;
+                }
+            }
+            self.scroll_region().map(|(clip, _, _)| (clip, self.scroll_x, self.scroll_y))
+        }
+
+        /// Wheel notches over the viewport: an IMPULSE into the scroll
+        /// physics — the target moves by `notches × STEP_PX`, the position
+        /// EASES toward it across the loop's ticks (`momentum_tick`). Returns
+        /// (repaint row span of the VIEWPORT ONLY, end-reached?) for the
+        /// immediate first step. Paint-only — the retained boxes stay
+        /// untouched; the span is bounded by the viewport, never the window.
+        fn scroll_wheel(&mut self, delta_notches: i32) -> (Option<(i32, i32)>, bool) {
+            const STEP_PX: i32 = 72;
+            let Some((clip, content_w, content_h, axis)) = self.scroll_region_axis() else {
+                return (None, false);
+            };
+            let view_w = clip.2 - clip.0;
+            let view_h = clip.3 - clip.1;
+            let max_x = (content_w - view_w).max(0);
+            let max_y = (content_h - view_h).max(0);
+            // Linux REL_WHEEL convention: +1 = wheel UP (away from the user).
+            // Wheel DOWN (toward the user, delta −1) moves the CONTENT up,
+            // i.e. the offset target GROWS — hence the inversion.
+            let delta = -delta_notches * STEP_PX;
+            // The DECLARED axis decides — never the content shape (a wrapped
+            // tile grid is taller than its viewport yet scrolls horizontally).
+            if axis == nexus_layout_types::ScrollAxis::Vertical && max_y > 0 {
+                self.momentum.set_extent(view_h as f32, content_h as f32);
+                let _ = self.momentum.scroll_wheel(delta as f32);
+                self.momentum_last_ns = nsec_now();
+                // The eased position advances on ticks; apply the first step
+                // now so a single notch responds within THIS frame.
+                return self.momentum_step(clip, max_y, view_h);
+            }
+            // Horizontal viewports (launcher pages) stay direct-stepped v1.
+            if axis == nexus_layout_types::ScrollAxis::Horizontal && max_x > 0 {
+                let old = self.scroll_x;
+                self.scroll_x = (self.scroll_x + delta).clamp(0, max_x);
+                if self.scroll_x != old {
+                    let span = (clip.1.max(0), clip.3.min(self.h as i32));
+                    let near_end = self.scroll_x >= max_x - view_w / 2;
+                    let fire = near_end && !self.end_fired;
+                    if fire {
+                        self.end_fired = true;
+                    }
+                    return (Some(span), fire);
+                }
+            }
+            (None, false)
+        }
+
+        /// Advance the vertical scroll physics by real elapsed time and apply
+        /// the eased position. Returns the viewport repaint span while moving.
+        fn momentum_tick(&mut self) -> (Option<(i32, i32)>, bool) {
+            if !self.momentum.is_animating() {
+                return (None, false);
+            }
+            let Some((clip, _, content_h)) = self.scroll_region() else {
+                return (None, false);
+            };
+            let view_h = clip.3 - clip.1;
+            let max_y = (content_h - view_h).max(0);
+            let now = nsec_now();
+            let dt = now.saturating_sub(self.momentum_last_ns).min(100_000_000);
+            self.momentum_last_ns = now;
+            let _ = self.momentum.tick(dt);
+            self.momentum_step(clip, max_y, view_h)
+        }
+
+        /// Apply the physics position to the paint offset + the lazy-load
+        /// latch. Shared by the impulse (first step) and the ticks.
+        fn momentum_step(
+            &mut self,
+            clip: (i32, i32, i32, i32),
+            max_y: i32,
+            view_h: i32,
+        ) -> (Option<(i32, i32)>, bool) {
+            let pos = self.momentum.offset_px().clamp(0, max_y);
+            let near_end = max_y > 0 && pos >= max_y - view_h / 2;
+            let fire = near_end && !self.end_fired;
+            if fire {
+                self.end_fired = true;
+            }
+            if pos == self.scroll_y {
+                return (None, fire);
+            }
+            self.scroll_y = pos;
+            let span = (clip.1.max(0), clip.3.min(self.h as i32));
+            (Some(span), fire)
+        }
+
+        /// Whether the physics still eases/coasts (the loop keeps ticking).
+        fn momentum_active(&self) -> bool {
+            self.momentum.is_animating()
+        }
+
+        /// Dispatches the declarative `on EndReached` handler of the scroll
+        /// container (lazy loading: the app decides what "more" means — e.g.
+        /// `dispatch(LoadMore)` continuing a QuerySpec page token). Returns
+        /// whether the model changed (caller full-repaints like a tap).
+        fn fire_end_reached(&mut self) -> bool {
+            use nexus_dsl_runtime::{Damage, IdentityLocale};
+            let tokens = tokens_for(self.theme_mode);
+            let device = device_for(self.shell_profile);
+            let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+            // Container-scoped event: dispatched by NAME, never by hit-test —
+            // the handler may sit on a (scrolled-away) content node, and "the
+            // end was reached" has no pixel anyway.
+            let damage = self
+                .view
+                .fire_trigger(tokens, &device, &locale, &mut self.host, "EndReached")
+                .ok()
+                .flatten();
+            if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
+                return false;
+            }
+            if matches!(damage, Some(Damage::Layout)) {
+                self.relayout_retained();
+            }
+            true
+        }
+
+        /// Re-run layout for the CURRENT scene (model changed) and reconcile
+        /// scroll state: offsets clamp to the new content, the EndReached
+        /// latch re-arms. Shared by tap/EndReached layout damage.
+        fn relayout_retained(&mut self) {
+            let engine = nexus_layout::LayoutEngine::new();
+            let Ok(layout) = engine.layout_with_viewport(
+                self.view.scene(),
+                nexus_layout_types::FxPx::new(self.w as i32),
+                Some(nexus_layout_types::FxPx::new(self.h as i32)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            ) else {
+                return;
+            };
+            self.layout = layout;
+            self.texts.clear();
+            collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            self.end_fired = false;
+            if let Some((clip, content_w, content_h)) = self.scroll_region() {
+                let view_h = clip.3 - clip.1;
+                let max_x = (content_w - (clip.2 - clip.0)).max(0);
+                let max_y = (content_h - view_h).max(0);
+                self.scroll_x = self.scroll_x.clamp(0, max_x);
+                self.scroll_y = self.scroll_y.clamp(0, max_y);
+                // Content grew/shrank: the physics keeps position + target
+                // (set_extent re-clamps both) so a LoadMore append continues
+                // the ease seamlessly instead of snapping.
+                self.momentum.set_extent(view_h as f32, content_h as f32);
+            } else {
+                self.scroll_x = 0;
+                self.scroll_y = 0;
+            }
         }
 
         /// Runs the interpreter's hit-testing for a body tap; on visible
@@ -739,9 +1087,10 @@ mod probe {
             let tokens = tokens_for(self.theme_mode);
             let device = device_for(self.shell_profile);
             let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+            let scroll = self.scroll_param();
             let damage = self
                 .view
-                .pointer(
+                .pointer_scrolled(
                     tokens,
                     &device,
                     &locale,
@@ -750,6 +1099,7 @@ mod probe {
                     "Tap",
                     nexus_layout_types::FxPx::new(x),
                     nexus_layout_types::FxPx::new(y),
+                    scroll,
                 )
                 .ok()
                 .flatten();
@@ -761,18 +1111,7 @@ mod probe {
             // A paint-only change re-renders from the RETAINED boxes: the
             // pre-measured text + kept layout make that the cheap path.
             if matches!(damage, Some(Damage::Layout)) {
-                let engine = nexus_layout::LayoutEngine::new();
-                let Ok(layout) = engine.layout_with_viewport(
-                    self.view.scene(),
-                    nexus_layout_types::FxPx::new(self.w as i32),
-                    Some(nexus_layout_types::FxPx::new(self.h as i32)),
-                    &nexus_text_baked::measure_text::BakedTextMeasure,
-                ) else {
-                    return false;
-                };
-                self.layout = layout;
-                self.texts.clear();
-                collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+                self.relayout_retained();
             }
             true
         }
@@ -783,11 +1122,13 @@ mod probe {
         /// changed (`None` = no change) — a PAINT-only change: the caller
         /// re-renders exactly that span; layout and boxes stay retained.
         fn hover(&mut self, x: i32, y: i32) -> Option<(i32, i32)> {
-            let target = self.view.hover_box_id(
+            let scroll = self.scroll_param();
+            let target = self.view.hover_box_id_scrolled(
                 &self.layout.boxes,
                 "Tap",
                 nexus_layout_types::FxPx::new(x),
                 nexus_layout_types::FxPx::new(y),
+                scroll,
             );
             if target == self.hovered {
                 return None;
@@ -832,6 +1173,9 @@ mod probe {
             self.row_scratch.resize(w as usize * 4, 0);
             // Box geometry moves under the pointer; the next MOVE re-resolves.
             self.hovered = None;
+            // Scroll extents changed with the geometry: re-arm + re-clamp
+            // after the fresh layout below (relayout path does the same).
+            self.end_fired = false;
             let engine = nexus_layout::LayoutEngine::new();
             if let Ok(layout) = engine.layout_with_viewport(
                 self.view.scene(),
@@ -942,6 +1286,43 @@ mod probe {
             }
             let y_start = y0.max(0);
             let y_end = y1.min(self.h as i32);
+            // Paint-time scroll transform of the page's `.scroll(...)`
+            // viewport (identity when the page has none).
+            let scroll_view = self
+                .scroll_param()
+                .map(|(clip, dx, dy)| nexus_scene_raster::ScrollView { clip, dx, dy });
+            // Visibility index, ONCE per repaint (not per row): which boxes
+            // intersect the span — clipped boxes tested in MODEL space (span
+            // shifted by the scroll offset), chrome tested directly. `texts`
+            // is pre-order sorted (collect_texts counts), so the text run per
+            // box resolves by binary search.
+            let mut vis_pick = core::mem::take(&mut self.vis_pick);
+            let mut vis_text = core::mem::take(&mut self.vis_text);
+            vis_pick.clear();
+            vis_text.clear();
+            for (bi, b) in self.layout.boxes.iter().enumerate() {
+                let (by, bh) = (b.rect.y.0, b.rect.height.0);
+                if bh <= 0 || b.rect.width.0 <= 0 {
+                    continue;
+                }
+                let visible = match (scroll_view, b.clip_rect) {
+                    (Some(sv), Some(_)) => {
+                        let s0 = y_start.max(sv.clip.1);
+                        let s1 = y_end.min(sv.clip.3);
+                        s0 < s1 && by < s1 + sv.dy && by + bh > s0 + sv.dy
+                    }
+                    _ => by < y_end && by + bh > y_start,
+                };
+                if !visible {
+                    continue;
+                }
+                vis_pick.push(bi as u32);
+                if let Ok(ti) =
+                    self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
+                {
+                    vis_text.push((bi as u32, ti as u32));
+                }
+            }
             for y in y_start..y_end {
                 for px in row.chunks_exact_mut(4) {
                     px.copy_from_slice(&base);
@@ -952,30 +1333,47 @@ mod probe {
                 // goldens by construction (the flat rect spans this replaces
                 // were the "buttons are square" report).
                 {
-                    let mut canvas = nexus_scene_raster::RowCanvas {
-                        buf: &mut row,
-                        y,
-                        width: self.w as i32,
-                    };
-                    nexus_scene_raster::paint_row_hover(&mut canvas, &self.layout.boxes, hover);
+                    let mut canvas = nexus_scene_raster::RowCanvas::new(&mut row, y, self.w as i32);
+                    nexus_scene_raster::paint_row_picked(
+                        &mut canvas,
+                        &self.layout.boxes,
+                        &vis_pick,
+                        hover,
+                        scroll_view,
+                    );
                 }
                 // Glyph pass: the shared text SSOT (same blender windowd uses)
                 // blends each run's slice intersecting this row.
-                for b in &self.layout.boxes {
+                for &(bi, ti) in &vis_text {
+                    let b = &self.layout.boxes[bi as usize];
                     let (bx, by, bw, bh) =
                         (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
-                    if bw <= 0 || bh <= 0 || y < by || y >= by + bh {
+                    if bw <= 0 || bh <= 0 {
                         continue;
                     }
-                    if let Some((_, content, font, color)) =
-                        self.texts.iter().find(|(id, _, _, _)| *id == b.node_id)
+                    // Scrolled text: boxes inside the viewport sample at the
+                    // shifted model row/column; right edge clips at the
+                    // viewport (left overhang is bounded by the box width).
+                    let (y_eff, bx_eff, right) = match (scroll_view, b.clip_rect) {
+                        (Some(sv), Some(_)) => {
+                            if y < sv.clip.1 || y >= sv.clip.3 {
+                                continue;
+                            }
+                            (y + sv.dy, bx - sv.dx, sv.clip.2.min(self.w as i32).max(0) as u32)
+                        }
+                        _ => (y, bx, self.w),
+                    };
+                    if y_eff < by || y_eff >= by + bh {
+                        continue;
+                    }
                     {
+                        let (_, content, font, color) = &self.texts[ti as usize];
                         nexus_text_baked::draw_text_row(
                             &mut row,
-                            y as u32,
+                            y_eff as u32,
                             by,
-                            bx.max(0) as u32,
-                            self.w,
+                            bx_eff.max(0) as u32,
+                            right,
                             content.chars(),
                             *font,
                             *color,
@@ -984,10 +1382,16 @@ mod probe {
                 }
                 if vmo_write(vmo, y as usize * row_bytes, &row[..row_bytes]).is_err() {
                     self.row_scratch = row;
+                    self.vis_pick = vis_pick;
+                    self.vis_text = vis_text;
                     return false;
                 }
             }
             self.row_scratch = row;
+            // Hand the visibility buffers back (mem::take recycling — the
+            // SAME close-the-loop rule the inputd events scratch violated).
+            self.vis_pick = vis_pick;
+            self.vis_text = vis_text;
             true
         }
     }

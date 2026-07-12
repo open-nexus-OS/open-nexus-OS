@@ -45,6 +45,7 @@ Page ShellPage {
             }
         }
         .grow(1)
+        .scroll(vertical)
         .padding(5)
         Stack {
             Stack {

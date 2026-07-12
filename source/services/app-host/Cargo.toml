@@ -36,6 +36,13 @@ nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 # TASK-0080C: SSOT for cap→service→child-slot routing — the effect host
 # derives `svc.<name>` → provisioned fixed slot from this (no_std const table).
 nexus-sdk-routes = { path = "../../libs/nexus-sdk-routes" }
+# Scroll-Track S4: the IN-PROCESS query engine (no_std+alloc) behind
+# `EffectHost::query()` — the same engine queryd will host once its capnp
+# glue is no_std; keyset paging feeds the DSL's lazy-loading window.
+nexus-query = { path = "../../libs/nexus-query", default-features = false }
+# Scroll physics SSOT (Android OverScroller analog, no_std, heap-free): wheel
+# notches ease toward a target; flings coast + decay — the apple-smooth feel.
+animation = { path = "../../../userspace/ui/animation" }
 # The DSL runtime IN the app process (R2): mount + layout the compiled
 # program; hash-verify stays OFF for the embedded payload (binary = trust
 # boundary, same rule as windowd's demo mount).

@@ -227,6 +227,52 @@ pub fn decode_surface_profile(frame: &[u8]) -> Option<u8> {
 /// the native toggle, so a DSL shell can never desynchronize the compositor.
 /// Payload: `control:u8, value:u8`.
 pub const OP_SURFACE_CONTROL: u8 = 18;
+
+/// Frame pulse (the Choreographer contract): a client that is ANIMATING
+/// (scroll ease, fling) sends `OP_SURFACE_FRAME_REQ` — a ONE-SHOT request —
+/// and the compositor answers with ONE `OP_SURFACE_FRAME` pulse on the
+/// client's event channel after its next composited frame. The client ticks
+/// its physics on the pulse and re-requests while motion continues. One-shot
+/// semantics bound the traffic to the animation's lifetime — no idle pulses,
+/// no client-side timer guessing (recv-timeout self-pacing measured ~3-12Hz;
+/// the pulse rides the REAL frame cadence).
+pub const OP_SURFACE_FRAME_REQ: u8 = 19;
+/// The compositor's pulse answering `OP_SURFACE_FRAME_REQ`.
+pub const OP_SURFACE_FRAME: u8 = 20;
+
+pub const SURFACE_FRAME_FRAME_LEN: usize = HEADER_LEN + 4;
+
+#[must_use]
+pub fn encode_surface_frame_req(surface_id: u32) -> [u8; SURFACE_FRAME_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_FRAME_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_FRAME_REQ));
+    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
+    f
+}
+
+#[must_use]
+pub fn decode_surface_frame_req(frame: &[u8]) -> Option<u32> {
+    if !has_op(frame, OP_SURFACE_FRAME_REQ) || frame.len() != SURFACE_FRAME_FRAME_LEN {
+        return None;
+    }
+    Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
+}
+
+#[must_use]
+pub fn encode_surface_frame(surface_id: u32) -> [u8; SURFACE_FRAME_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_FRAME_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_FRAME));
+    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
+    f
+}
+
+#[must_use]
+pub fn decode_surface_frame(frame: &[u8]) -> Option<u32> {
+    if !has_op(frame, OP_SURFACE_FRAME) || frame.len() != SURFACE_FRAME_FRAME_LEN {
+        return None;
+    }
+    Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
+}
 /// Control kinds.
 pub const CONTROL_THEME: u8 = 0; // value = THEME_*
 pub const CONTROL_SHELL_PROFILE: u8 = 1; // value = PROFILE_*
@@ -273,6 +319,31 @@ pub const INPUT_KIND_MOVE: u8 = 1;
 /// The pointer left the surface (or moved onto another surface/chrome):
 /// the client clears any hover presentation. x/y carry the last position.
 pub const INPUT_KIND_LEAVE: u8 = 2;
+/// Wheel scroll over the surface: `x` carries the surface-local pointer x,
+/// `y` carries the SIGNED notch delta reinterpreted as `u16` (decode with
+/// `as i16` — see `wheel_delta_from_wire`). The sign is the RAW Linux
+/// `REL_WHEEL` convention: +1 = wheel UP (away from the user).
+pub const INPUT_KIND_WHEEL: u8 = 3;
+
+/// Recovers the signed wheel delta a `INPUT_KIND_WHEEL` frame carries in its
+/// `y` field (the wire field is `u16`; the delta is an `i16` reinterpret).
+#[must_use]
+pub const fn wheel_delta_from_wire(y: u16) -> i32 {
+    y as i16 as i32
+}
+
+/// The `y`-field wire encoding of a signed wheel delta (clamped to `i16`).
+#[must_use]
+pub const fn wheel_delta_to_wire(delta: i32) -> u16 {
+    let d = if delta > i16::MAX as i32 {
+        i16::MAX
+    } else if delta < i16::MIN as i32 {
+        i16::MIN
+    } else {
+        delta as i16
+    };
+    d as u16
+}
 
 /// Pixel format tags. v1: BGRA8888 only.
 pub const FORMAT_BGRA8888: u8 = 0;

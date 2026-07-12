@@ -177,6 +177,7 @@ version = "0.1.0"
 name = "app-host"
 version = "0.1.0"
 dependencies = [
+ "animation",
  "nexus-abi",
  "nexus-display-proto",
  "nexus-dsl-core",
@@ -185,6 +186,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-query",
  "nexus-scene-raster",
  "nexus-sdk-routes",
  "nexus-service-entry",
@@ -776,6 +778,7 @@ dependencies = [
  "nexus-dsl-runtime",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-query",
  "nexus-text-baked",
  "nexus-theme-tokens",
 ]

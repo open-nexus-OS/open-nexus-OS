@@ -58,7 +58,24 @@ pub enum Justify {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Overflow {
     Visible,
+    /// Scissor-clip only: the container keeps its content-derived size
+    /// (rounded cards etc.) — nothing scrolls.
     Hidden,
+    /// A SCROLL VIEWPORT: clipped like `Hidden`, but the container measures
+    /// collapsed on its main axis (flex `grow` gives it its size — the CSS
+    /// `min-height: 0` rule), children lay out UNBOUNDED (content overflows
+    /// the clip; that overflow is the scrollable extent) and are never
+    /// flex-shrunk to fit. The HOST owns the paint-time scroll offset along
+    /// the DECLARED axis (`.scroll(vertical|horizontal)` — never guessed
+    /// from content shape).
+    Scroll(ScrollAxis),
+}
+
+/// The declared axis of a `.scroll(...)` viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScrollAxis {
+    Vertical,
+    Horizontal,
 }
 
 // ─── Position ───

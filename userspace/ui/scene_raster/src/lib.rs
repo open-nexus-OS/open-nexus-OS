@@ -67,12 +67,31 @@ pub struct RowCanvas<'a> {
     pub y: i32,
     /// Surface width in px (clip bound).
     pub width: i32,
+    /// Horizontal paint shift (scroll): a pixel painted at model-x lands at
+    /// `x - shift_x` on the surface. 0 = identity (the common case).
+    pub shift_x: i32,
+    /// Horizontal scissor on the SURFACE (x0, x1 exclusive) — the scroll
+    /// viewport's columns. `None` = full row.
+    pub clip_x: Option<(i32, i32)>,
 }
 
 impl RowCanvas<'_> {
-    /// Src-over blend one pixel of this row.
+    /// A plain unscrolled row canvas.
+    #[must_use]
+    pub fn new(buf: &mut [u8], y: i32, width: i32) -> RowCanvas<'_> {
+        RowCanvas { buf, y, width, shift_x: 0, clip_x: None }
+    }
+
+    /// Src-over blend one pixel of this row (model-x; scroll shift + viewport
+    /// scissor applied here so every shape/text painter inherits them).
     #[inline]
     pub fn blend(&mut self, x: i32, c: Rgba8) {
+        let x = x - self.shift_x;
+        if let Some((x0, x1)) = self.clip_x {
+            if x < x0 || x >= x1 {
+                return;
+            }
+        }
         if x < 0 || x >= self.width || c.a == 0 {
             return;
         }
@@ -307,11 +326,84 @@ pub struct HoverWash {
     pub color: Rgba8,
 }
 
+/// Paint-time scroll transform for the page's scroll viewport (pretext:
+/// scrolling is a REPAINT with an offset over the RETAINED boxes — never a
+/// re-layout, never a per-event allocation). Boxes carrying a `clip_rect`
+/// (the engine stamps it on every descendant of an `Overflow::Hidden`
+/// container) render shifted by `(dx, dy)` and scissored to the viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollView {
+    /// Viewport rect on the surface: x0, y0, x1, y1 (exclusive).
+    pub clip: (i32, i32, i32, i32),
+    /// Content shift right→left (horizontal scroll offset).
+    pub dx: i32,
+    /// Content shift down→up (vertical scroll offset).
+    pub dy: i32,
+}
+
 /// [`paint_row`] plus an optional hover wash over the hovered box. The wash
 /// paints directly after its box (before later siblings/children), so nested
 /// content still reads on top of the wash like a real material highlight.
 pub fn paint_row_hover(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox], hover: Option<HoverWash>) {
+    paint_row_scrolled(canvas, boxes, hover, None);
+}
+
+/// [`paint_row_hover`] with the scroll transform. `canvas.y` is the SURFACE
+/// row; clipped boxes are sampled at model row `canvas.y + dy` and shifted
+/// left by `dx`, unclipped boxes paint identity — one pass, alloc-free.
+pub fn paint_row_scrolled(
+    canvas: &mut RowCanvas<'_>,
+    boxes: &[LayoutBox],
+    hover: Option<HoverWash>,
+    scroll: Option<ScrollView>,
+) {
+    let surface_y = canvas.y;
     for b in boxes {
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y);
+    }
+}
+
+/// [`paint_row_scrolled`] over a PRE-FILTERED index list (`pick` = indices
+/// into `boxes` that intersect the repaint span). The caller computes the
+/// visibility set ONCE per repaint — the per-row cost is then proportional
+/// to what is on screen, not to the page's total box count (the 1000-message
+/// transcript contract). Alloc-free.
+pub fn paint_row_picked(
+    canvas: &mut RowCanvas<'_>,
+    boxes: &[LayoutBox],
+    pick: &[u32],
+    hover: Option<HoverWash>,
+    scroll: Option<ScrollView>,
+) {
+    let surface_y = canvas.y;
+    for &i in pick {
+        let Some(b) = boxes.get(i as usize) else { continue };
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y);
+    }
+}
+
+#[inline]
+fn paint_one_scrolled(
+    canvas: &mut RowCanvas<'_>,
+    b: &LayoutBox,
+    hover: Option<HoverWash>,
+    scroll: Option<ScrollView>,
+    surface_y: i32,
+) {
+    {
+        let scrolled = match (scroll, b.clip_rect) {
+            (Some(sv), Some(_)) => {
+                // Inside the viewport: visible only on the viewport's rows.
+                if surface_y < sv.clip.1 || surface_y >= sv.clip.3 {
+                    return;
+                }
+                canvas.y = surface_y + sv.dy;
+                canvas.shift_x = sv.dx;
+                canvas.clip_x = Some((sv.clip.0, sv.clip.2));
+                true
+            }
+            _ => false,
+        };
         paint_box_row(canvas, b);
         if let Some(hw) = hover {
             if b.node_id == hw.node_id && hw.color.a > 0 {
@@ -322,8 +414,14 @@ pub fn paint_row_hover(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox], hover: O
                 }
             }
         }
+        if scrolled {
+            canvas.y = surface_y;
+            canvas.shift_x = 0;
+            canvas.clip_x = None;
+        }
     }
 }
+
 
 fn paint_borders_row(
     canvas: &mut RowCanvas<'_>,
@@ -399,7 +497,7 @@ mod tests {
         b.node_id = 2;
         let wash = HoverWash { node_id: 2, color: Rgba8 { r: 255, g: 255, b: 255, a: 64 } };
         let mut row = [0u8; 20 * 4];
-        let mut canvas = RowCanvas { buf: &mut row, y: 0, width: 20 };
+        let mut canvas = RowCanvas::new(&mut row, 0, 20);
         paint_row_hover(&mut canvas, &[a, b], Some(wash));
         assert_eq!(row[5 * 4 + 2], 100, "unhovered box keeps its base color");
         assert!(row[15 * 4 + 2] > 100, "hovered box is washed brighter");
@@ -410,7 +508,7 @@ mod tests {
     fn rounded_corners_clip_the_corner_pixels() {
         let b = boxed(0, 0, 20, 20, 8, Rgba8 { r: 255, g: 0, b: 0, a: 255 });
         let mut row = [0u8; 20 * 4];
-        let mut canvas = RowCanvas { buf: &mut row, y: 0, width: 20 };
+        let mut canvas = RowCanvas::new(&mut row, 0, 20);
         paint_box_row(&mut canvas, &b);
         assert_eq!(row[0], 0, "corner pixel stays empty");
         assert_ne!(row[10 * 4 + 2], 0, "centre pixel painted red");
@@ -422,7 +520,7 @@ mod tests {
         b.visual.shape = ShapeKind::Circle;
         let painted = |y: i32| {
             let mut row = [0u8; 32 * 4];
-            let mut canvas = RowCanvas { buf: &mut row, y, width: 32 };
+            let mut canvas = RowCanvas::new(&mut row, y, 32);
             paint_box_row(&mut canvas, &b);
             row.chunks_exact(4).filter(|px| px[1] != 0).count()
         };
@@ -437,13 +535,13 @@ mod tests {
         // Top row (y=0): the ring must NOT paint the extreme corner pixel
         // (a square frame would) but MUST paint near the rounded arc.
         let mut row = [0u8; 24 * 4];
-        let mut canvas = RowCanvas { buf: &mut row, y: 0, width: 24 };
+        let mut canvas = RowCanvas::new(&mut row, 0, 24);
         paint_box_row(&mut canvas, &b);
         assert_eq!(row[0], 0, "corner pixel outside the rounded ring stays empty");
         assert_eq!(row[12 * 4], 255, "top-centre pixel is border blue");
         // Mid row: ring = left/right edges only; the centre is fill, not border.
         let mut mid = [0u8; 24 * 4];
-        let mut canvas = RowCanvas { buf: &mut mid, y: 12, width: 24 };
+        let mut canvas = RowCanvas::new(&mut mid, 12, 24);
         paint_box_row(&mut canvas, &b);
         assert_eq!(mid[0], 255, "left edge is border blue");
         assert_ne!(mid[12 * 4], 255, "centre is the fill, not the border");
@@ -456,7 +554,7 @@ mod tests {
         for px in row.chunks_exact_mut(4) {
             px[3] = 0xff;
         }
-        let mut canvas = RowCanvas { buf: &mut row, y: 1, width: 4 };
+        let mut canvas = RowCanvas::new(&mut row, 1, 4);
         paint_box_row(&mut canvas, &b);
         assert!(row[0] > 0x40 && row[0] < 0xff, "50% white over grey = mid blend");
     }

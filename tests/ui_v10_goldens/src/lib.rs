@@ -66,7 +66,7 @@ pub fn render_to_bgra(node: &LayoutNode) -> SnapResult<Vec<u8>> {
     }
     for y in 0..CANVAS_H {
         let row = &mut buf[(y * CANVAS_W * 4) as usize..((y + 1) * CANVAS_W * 4) as usize];
-        let mut canvas = nexus_scene_raster::RowCanvas { buf: row, y, width: CANVAS_W };
+        let mut canvas = nexus_scene_raster::RowCanvas::new(row, y, CANVAS_W);
         nexus_scene_raster::paint_row(&mut canvas, &result.boxes);
     }
     Ok(buf)

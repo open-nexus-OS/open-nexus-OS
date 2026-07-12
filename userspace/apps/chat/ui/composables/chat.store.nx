@@ -1,32 +1,69 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat store: a LOCAL transcript (append + echo reply) until the messaging
-// transport lands (the manifest's chat.Send/Receive exports, TASK-0081 C2).
-// Entries are pre-labelled strings (`List<Str>` — the proven v0.1 subset;
-// typed Msg records + side-aligned bubbles follow with record literals).
-// `draft` two-way-binds the input.
+// Chat store: a QuerySpec-fed transcript (Scroll-Track S4). The history is a
+// LARGE table behind `EffectHost::query()` (keyset paging) — only the loaded
+// WINDOW is ever resident in `messages` (the lazy-loading contract). The
+// first page loads at mount (root effect); scrolling to the end fires the
+// container's `EndReached` → `LoadMore` → next page appends. Local sends
+// still append (echo transport until chat.Send/Receive exports, TASK-0081 C2).
 
 Store ChatStore {
-    messages: List<Str> = [],
+    messages: List<Msg> = [],
     draft: Str = "",
+    nextToken: Str = "",
+    loading: Bool = false,
+    lastError: Int = 0,
 }
 
 Event ChatEvent {
+    LoadFirst,
+    LoadMore,
+    Loaded(List<Msg>, Str),
+    LoadFailed(Int),
     Send,
     Received(Str),
 }
 
 reduce ChatEvent {
+    LoadFirst => state.loading = true,
+    LoadMore => state.loading = true,
+    Loaded(rows, next) => {
+        state.messages = state.messages + rows;
+        state.nextToken = next;
+        state.loading = false;
+    },
+    LoadFailed(code) => {
+        state.lastError = code;
+        state.loading = false;
+    },
     Send => {
-        state.messages = state.messages + ["Du: " + state.draft];
         state.draft = "";
     },
     Received(text) => {
-        state.messages = state.messages + [text];
+        state.messages = state.messages;
     },
 }
 
-@effect on Send {
-    dispatch(Received("Echo: angekommen."));
+Query Transcript on messages {
+    orderBy seq,
+    limit 60,
+}
+
+// Root effect: nothing dispatches LoadFirst — it fires once at mount and
+// loads the first page.
+@effect on LoadFirst {
+    match Transcript(token: state.nextToken) {
+        Ok(rows, next) => dispatch(Loaded(rows, next)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
+}
+
+// Lazy loading: the scroll container's `on EndReached` dispatches LoadMore;
+// the continuation token resumes exactly where the last page ended.
+@effect on LoadMore {
+    match Transcript(token: state.nextToken) {
+        Ok(rows, next) => dispatch(Loaded(rows, next)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }

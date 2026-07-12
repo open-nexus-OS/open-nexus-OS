@@ -29,7 +29,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use nexus_dsl_runtime::{EffectHost, Value};
+use nexus_dsl_runtime::{EffectHost, QueryCall, QueryPage, Value};
 use nexus_sdk_routes::{route_for_svc, CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SLOT};
 
 /// Stable effect error codes (surfaced to the DSL `Err(e)` arm) — the same
@@ -62,6 +62,71 @@ fn raw_marker(line: &str) {
 pub(crate) struct AppEffectHost {
     id_sym: Option<u32>,
     label_sym: Option<u32>,
+    seq_sym: Option<u32>,
+    text_sym: Option<u32>,
+    /// Lazily seeded in-process query store (`EffectHost::query()`). Same
+    /// engine queryd hosts; keyset paging = the DSL's lazy-loading window.
+    query_store: Option<QueryStore>,
+}
+
+/// The embedded `nexus-query` engine + its KV. v1 catalog: one demo
+/// `messages` table (seq Int pk/order, text Str) seeded with a large
+/// transcript — the scrolling/lazy-loading proof corpus until statefsd-backed
+/// tables land (@persist wiring).
+struct QueryStore {
+    engine: nexus_query::Engine,
+    kv: nexus_query::MemKv,
+}
+
+/// Demo transcript scale: large enough that only WINDOWS of it are ever
+/// resident in the DSL store (the lazy-loading contract), small enough to
+/// seed in one bounded pass.
+// Demo-source size: bounded by the CURRENT scene-materialization cost — every
+// loaded page re-emits the whole scene on the app's non-freeing 2MB bump heap
+// (~5 pages fit). Scroll paint/data paths are already scale-independent
+// (visibility index + keyset paging); lifting this to 1000+ needs the
+// documented subtree re-emit (dsl runtime view.rs) or a store-window builtin.
+const SEED_MESSAGES: i64 = 120;
+
+impl QueryStore {
+    fn seeded() -> Self {
+        use nexus_query::{QType, QVal, TableDef};
+        let engine = nexus_query::Engine::new(alloc::vec![TableDef {
+            id: 0,
+            columns: alloc::vec![QType::Int, QType::Str],
+            pk_col: 0,
+            indexed: alloc::vec![0],
+        }]);
+        let mut kv = nexus_query::MemKv::new();
+        // Deterministic two-voice transcript (no external data source yet).
+        const LINES: [&str; 6] = [
+            "Hast du den neuen Build schon gebootet?",
+            "Ja - der Frost-Effekt sitzt jetzt richtig.",
+            "Dann teste mal drei Fenster gleichzeitig.",
+            "Laeuft. Fokus und Drag fuehlen sich gut an.",
+            "Als naechstes kommt das lange Transcript.",
+            "Genau dafuer ist diese Nachricht da.",
+        ];
+        for seq in 1..=SEED_MESSAGES {
+            let voice = if seq % 2 == 0 { "Du" } else { "Mira" };
+            let line = LINES[(seq as usize) % LINES.len()];
+            let mut text = String::new();
+            let _ = core::fmt::write(
+                &mut text,
+                format_args!("{voice} #{seq}: {line}"),
+            );
+            let _ = engine.put(&mut kv, 0, &[QVal::Int(seq), QVal::Str(text)]);
+        }
+        Self { engine, kv }
+    }
+
+    /// Column index of `name` in the `messages` table.
+    fn col(name: &str) -> usize {
+        match name {
+            "text" => 1,
+            _ => 0, // seq (pk/order)
+        }
+    }
 }
 
 impl AppEffectHost {
@@ -69,6 +134,9 @@ impl AppEffectHost {
         Self {
             id_sym: symbols.iter().position(|s| s == "id").map(|i| i as u32),
             label_sym: symbols.iter().position(|s| s == "label").map(|i| i as u32),
+            seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
+            text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
+            query_store: None,
         }
     }
 
@@ -258,7 +326,159 @@ impl AppEffectHost {
 
 }
 
+fn to_qval(value: &Value) -> Option<nexus_query::QVal> {
+    match value {
+        Value::Bool(b) => Some(nexus_query::QVal::Bool(*b)),
+        Value::Int(i) => Some(nexus_query::QVal::Int(*i)),
+        Value::Fx(f) => Some(nexus_query::QVal::Fx(*f)),
+        Value::Str(s) => Some(nexus_query::QVal::Str(s.clone())),
+        _ => None,
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0xf) as usize] as char);
+    }
+    out
+}
+
+fn hex_decode(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    (0..text.len() / 2)
+        .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).ok())
+        .collect()
+}
+
 impl EffectHost for AppEffectHost {
+    fn query(&mut self, call: &QueryCall) -> Result<QueryPage, u32> {
+        if call.source != "messages" {
+            return Err(ERR_SVC_UNKNOWN);
+        }
+        let (Some(seq_sym), Some(text_sym)) = (self.seq_sym, self.text_sym) else {
+            raw_marker("apphost: dsl query FAIL (no seq/text symbol)");
+            return Err(ERR_SVC_SHAPE);
+        };
+        // Demo `messages` source: rows are GENERATED from the keyset cursor —
+        // no in-process KV. The 1000-row MemKv seed cost ~½ of the app heap
+        // and, together with scene+layout growth, page-faulted the 2MB bump
+        // heap ("wieder ein absturz"). A synthetic source is the honest
+        // placeholder until statefsd-backed tables land: identical paging
+        // contract (token = last seq, `""` at the end), ZERO resident bytes,
+        // arbitrarily large. The real engine path stays proven by the
+        // dsl_conformance EngineHost tests.
+        let start: i64 = if call.token.is_empty() {
+            1
+        } else {
+            call.token.parse::<i64>().map_err(|_| ERR_SVC_SHAPE)?.saturating_add(1)
+        };
+        let limit = call.limit.clamp(1, 200) as i64;
+        let end = (start + limit - 1).min(SEED_MESSAGES);
+        if start > SEED_MESSAGES {
+            raw_marker("apphost: dsl query messages page ok");
+            return Ok(QueryPage { rows: Value::List(Vec::new()), next: String::new() });
+        }
+        const LINES: [&str; 6] = [
+            "Hast du den neuen Build schon gebootet?",
+            "Ja - der Frost-Effekt sitzt jetzt richtig.",
+            "Dann teste mal drei Fenster gleichzeitig.",
+            "Laeuft. Fokus und Drag fuehlen sich gut an.",
+            "Als naechstes kommt das lange Transcript.",
+            "Genau dafuer ist diese Nachricht da.",
+        ];
+        let mut rows: Vec<Value> = Vec::with_capacity((end - start + 1) as usize);
+        for seq in start..=end {
+            let voice = if seq % 2 == 0 { "Du" } else { "Mira" };
+            let line = LINES[(seq as usize) % LINES.len()];
+            let mut text = String::new();
+            let _ = core::fmt::write(&mut text, format_args!("{voice} #{seq}: {line}"));
+            let mut fields: Vec<(u32, Value)> =
+                alloc::vec![(seq_sym, Value::Int(seq)), (text_sym, Value::Str(text))];
+            fields.sort_by_key(|(sym, _)| *sym);
+            rows.push(Value::Record(fields));
+        }
+        let next = if end >= SEED_MESSAGES {
+            String::new()
+        } else {
+            let mut t = String::new();
+            let _ = core::fmt::write(&mut t, format_args!("{end}"));
+            t
+        };
+        raw_marker("apphost: dsl query messages page ok");
+        return Ok(QueryPage { rows: Value::List(rows), next });
+        // Unreachable engine path below is kept for the NEXT real table
+        // source (statefsd-backed) — see QueryStore.
+        #[allow(unreachable_code)]
+        {
+        use nexus_query::{PageToken, QuerySpec, Range};
+        let store = self.query_store.get_or_insert_with(QueryStore::seeded);
+        let mut spec = QuerySpec {
+            table: 0,
+            eq: call
+                .eq
+                .iter()
+                .map(|(name, v)| Some((QueryStore::col(name), to_qval(v)?)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(ERR_SVC_SHAPE)?,
+            range: None,
+            order_col: QueryStore::col(&call.order_col),
+            descending: call.descending,
+            limit: call.limit,
+        };
+        if call.low.is_some() || call.high.is_some() {
+            spec.range = Some(Range {
+                low: call.low.as_ref().and_then(to_qval),
+                high: call.high.as_ref().and_then(to_qval),
+            });
+        }
+        let token = if call.token.is_empty() {
+            None
+        } else {
+            Some(
+                hex_decode(&call.token)
+                    .and_then(|b| PageToken::from_bytes(&b))
+                    .ok_or(ERR_SVC_SHAPE)?,
+            )
+        };
+        let page = store
+            .engine
+            .query(&store.kv, &spec, token.as_ref())
+            .map_err(|_| ERR_SVC_UNAVAILABLE)?;
+        let rows: Vec<Value> = page
+            .rows
+            .into_iter()
+            .map(|row| {
+                let mut fields: Vec<(u32, Value)> = row
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, qv)| {
+                        let sym = if i == 0 { seq_sym } else { text_sym };
+                        let v = match qv {
+                            nexus_query::QVal::Int(n) => Value::Int(n),
+                            nexus_query::QVal::Str(s) => Value::Str(s),
+                            nexus_query::QVal::Bool(b) => Value::Bool(b),
+                            nexus_query::QVal::Fx(f) => Value::Fx(f),
+                        };
+                        (sym, v)
+                    })
+                    .collect();
+                fields.sort_by_key(|(s, _)| *s);
+                Value::Record(fields)
+            })
+            .collect();
+        raw_marker("apphost: dsl query messages page ok");
+        Ok(QueryPage {
+            rows: Value::List(rows),
+            next: page.next.map(|t| hex_encode(t.as_bytes())).unwrap_or_default(),
+        })
+        }
+    }
+
     fn call(
         &mut self,
         service: &str,

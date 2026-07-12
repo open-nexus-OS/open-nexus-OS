@@ -19,3 +19,4 @@ nexus-layout = { path = "../../userspace/ui/layout" }
 nexus-layout-types = { path = "../../userspace/ui/layout-types" }
 nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
 nexus-text-baked = { path = "../../userspace/ui/text-baked", features = ["layout"] }
+nexus-query = { path = "../../source/libs/nexus-query" }

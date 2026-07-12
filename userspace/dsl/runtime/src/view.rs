@@ -148,6 +148,27 @@ impl<'p> View<'p> {
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
     ) -> Result<Option<Damage>, RtError> {
+        self.pointer_scrolled(tokens, device, locale, host, boxes, trigger, x, y, None)
+    }
+
+    /// [`Self::pointer`] under the paint-time scroll transform (`scroll` =
+    /// viewport rect + offsets, see `interact::hit_scrolled`).
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pointer_scrolled(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        boxes: &[nexus_layout::LayoutBox],
+        trigger: &str,
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+        scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+    ) -> Result<Option<Damage>, RtError> {
         let Some(trigger_sym) = self
             .runtime
             .symbols()
@@ -157,7 +178,9 @@ impl<'p> View<'p> {
         else {
             return Ok(None);
         };
-        let Some((_, entry)) = interact::hit(&self.handlers, boxes, trigger_sym, x, y) else {
+        let Some((_, entry)) =
+            interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll)
+        else {
             return Ok(None);
         };
         match entry.action.clone() {
@@ -193,13 +216,70 @@ impl<'p> View<'p> {
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
     ) -> Option<usize> {
+        self.hover_box_id_scrolled(boxes, trigger, x, y, None)
+    }
+
+    /// Dispatches the FIRST handler bound to `trigger` WITHOUT a hit-test —
+    /// for container-scoped events that are not pointer positions (e.g.
+    /// `EndReached` when the scroll offset nears the content end: the
+    /// viewport fired it, no pixel was "hit"). Returns the damage, `None`
+    /// when the page declares no such handler.
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    pub fn fire_trigger(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        trigger: &str,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(trigger_sym) = self
+            .runtime
+            .symbols()
+            .iter()
+            .position(|s| s == trigger)
+            .map(|i| i as u32)
+        else {
+            return Ok(None);
+        };
+        let Some(entry) = self
+            .handlers
+            .iter()
+            .find(|(_, e)| e.trigger == trigger_sym)
+            .map(|(_, e)| e.action.clone())
+        else {
+            return Ok(None);
+        };
+        match entry {
+            HandlerAction::Dispatch { event, case, payload } => {
+                self.dispatch(tokens, device, locale, host, event, case, payload).map(Some)
+            }
+            HandlerAction::Navigate { path } => {
+                self.navigate(tokens, device, locale, &path).map(Some)
+            }
+            HandlerAction::Bind { .. } => Ok(None),
+        }
+    }
+
+    /// [`Self::hover_box_id`] under the paint-time scroll transform.
+    #[must_use]
+    pub fn hover_box_id_scrolled(
+        &self,
+        boxes: &[nexus_layout::LayoutBox],
+        trigger: &str,
+        x: nexus_layout_types::FxPx,
+        y: nexus_layout_types::FxPx,
+        scroll: Option<((i32, i32, i32, i32), i32, i32)>,
+    ) -> Option<usize> {
         let trigger_sym = self
             .runtime
             .symbols()
             .iter()
             .position(|s| s == trigger)
             .map(|i| i as u32)?;
-        interact::hit(&self.handlers, boxes, trigger_sym, x, y).map(|(id, _)| id)
+        interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll).map(|(id, _)| id)
     }
 
     /// Writes text into the innermost Change-bound field containing (x, y)

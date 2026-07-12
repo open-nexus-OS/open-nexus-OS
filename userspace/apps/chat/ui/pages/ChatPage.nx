@@ -1,10 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat (design-system look): toolbar header, transcript bubbles, composer
-// row. The visible history is bounded by the window height until DSL
-// scrolling lands; side-aligned mine/theirs bubbles follow with record
-// literals (documented gaps).
+// Chat (design-system look): toolbar header, a SCROLLABLE QuerySpec-fed
+// transcript, composer row. The transcript Stack is the page's `.scroll`
+// viewport: wheel input pans it paint-only (no re-layout), and reaching the
+// end fires `EndReached` → `LoadMore` → the next keyset page appends.
 
 Page ChatPage {
     Stack {
@@ -12,17 +12,19 @@ Page ChatPage {
         Stack {
             List($state.messages) { msg in
                 Stack {
-                    Text(msg).textSize(sm).fg(onSurface)
+                    Text(msg.text).textSize(sm).fg(onSurface)
                 }
                 .bg(surfaceVariant)
                 .rounded(lg)
                 .padding(2)
-                .key(msg)
+                .key(msg.seq)
             }
             .gap(2)
         }
         .grow(1)
         .padding(3)
+        .scroll(vertical)
+        on EndReached -> dispatch(LoadMore)
         Stack {
             TextField { label: @t("chat.message"), value: $state.draft }
             Button { label: @t("chat.send") }

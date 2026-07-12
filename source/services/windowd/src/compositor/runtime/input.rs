@@ -21,6 +21,13 @@ impl DisplayServerRuntime {
     /// can be sent immediately by the caller — staging always "accepts". This is
     /// the consumer half of the Android frame-aligned input model.
     pub(crate) fn stage_input_state(&mut self, mut state: VisibleState) -> u8 {
+        if state.wheel_delta_y != 0 && self.wheel_stage_count < 40 {
+            self.wheel_stage_count += 1;
+            let _ = debug_println(&alloc::format!(
+                "windowd: wheel staged n={} d={}",
+                self.wheel_stage_count, state.wheel_delta_y
+            ));
+        }
         if let Some(prev) = self.pending_input.take() {
             // Carry the accumulated wheel forward (sum), keep the newest of all else.
             state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
@@ -271,6 +278,16 @@ impl DisplayServerRuntime {
         if old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y {
             self.forward_pointer_hover(self.state.cursor_x, self.state.cursor_y);
         }
+        // Wheel routing (Scroll-Track S1) — MUST run BEFORE the no-change
+        // short-circuit below: the summed delta lives ONLY in the staged
+        // frame (`upstream`), never in the mirrored `self.state`, so a pure
+        // wheel series leaves `state == old_state` and the short-circuit
+        // silently ate every notch after the indicator's first edge (the
+        // "~10% of notches work" bug). Consumed exactly once per applied
+        // frame; same hit-order SSOT as hover/taps.
+        if upstream.wheel_delta_y != 0 {
+            self.forward_wheel(self.state.cursor_x, self.state.cursor_y, upstream.wheel_delta_y);
+        }
         // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text
         // change counter that still drives the filter selftest markers below.
         if !USE_DESKTOP_SHELL {
@@ -428,11 +445,6 @@ impl DisplayServerRuntime {
             self.note_filter_text_changed();
         }
 
-        // Wheel routing: windowd hosts no scrollable windows anymore (chat/
-        // search are DSL apps). Wheel PROOF flags are mirrored above; wheel
-        // FORWARDING to client surfaces (app scroll) lands with the surface
-        // wheel event (`OP_SURFACE_INPUT` kind=wheel — recorded follow-up).
-
         // ── v3b: selftest summary markers (once) ──
         if !self.selftest_v3b_emitted
             && self.live_scroll_marker_emitted
@@ -537,6 +549,51 @@ impl DisplayServerRuntime {
         self.hover_route = route;
         self.hover_app_idx = route_idx;
         self.hover_last = local;
+    }
+
+    /// Route a wheel delta to the surface under the pointer (the TOPMOST
+    /// window wins — the retired `resolve_wheel_target`'s contract, now on
+    /// the one z-stack SSOT). Sent as `OP_SURFACE_INPUT` kind=WHEEL with the
+    /// signed delta riding the `y` field (`wheel_delta_to_wire`). Single-shot
+    /// NONBLOCK like MOVE: dropping wheel under queue pressure is correct —
+    /// the next notch re-derives the position. Alloc-free.
+    pub(crate) fn forward_wheel(&mut self, cursor_x: i32, cursor_y: i32, delta_y: i32) {
+        use crate::compositor::shell_window::WindowPress;
+        use crate::window_scene::WindowId;
+        use nexus_display_proto::client_surface as wire;
+        let wire_delta = wire::wheel_delta_to_wire(delta_y);
+        if self.wheel_route_count < 40 {
+            self.wheel_route_count += 1;
+            let _ = debug_println(&alloc::format!(
+                "windowd: wheel fwd n={} d={delta_y}",
+                self.wheel_route_count
+            ));
+        }
+        let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+        for i in 0..hit_n {
+            let wid = hit[i];
+            match wid {
+                WindowId::App(a) => {
+                    let idx = a as usize;
+                    let frame = self.apps[idx].win.frame();
+                    match frame.press(cursor_x, cursor_y) {
+                        WindowPress::Miss => continue,
+                        WindowPress::Body => {
+                            let local_x = (cursor_x - frame.x).max(0) as u16;
+                            self.send_app_wheel(idx, local_x, wire_delta);
+                        }
+                        // Title bar / buttons: chrome, not app scroll.
+                        _ => {}
+                    }
+                }
+                WindowId::Desktop => {
+                    if self.windows.is_visible(WindowId::Desktop) {
+                        self.send_desktop_wheel(cursor_x.max(0) as u16, wire_delta);
+                    }
+                }
+            }
+            break;
+        }
     }
 
     pub(super) fn note_filter_text_changed(&mut self) {

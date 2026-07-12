@@ -470,6 +470,19 @@ fn apply_modifier(
                 }
             }
         } // disabled
+        22 => {
+            // overflow(visible|hidden) — hidden = clipped container.
+            if token_name(ctx).as_str() == "hidden" {
+                mods.scroll = mods.scroll.or(Some(registry::ScrollAxis::Vertical));
+            }
+        } // overflow
+        47 => {
+            // scroll(vertical|horizontal): the page's scroll viewport.
+            mods.scroll = Some(match token_name(ctx).as_str() {
+                "horizontal" => registry::ScrollAxis::Horizontal,
+                _ => registry::ScrollAxis::Vertical,
+            });
+        } // scroll
         _ => {} // key/label/others: identity/semantics — no paint effect here
     }
     Ok(())

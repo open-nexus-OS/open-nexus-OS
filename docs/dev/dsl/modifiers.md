@@ -56,7 +56,8 @@ Rules:
 | `.justify(j)` | `start\|center\|end\|between\|around` | main-axis distribution |
 | `.direction(d)` | `row\|column` | stack direction (containers) |
 | `.wrap(b)` | `Bool` | flex wrap |
-| `.overflow(o)` | `visible\|clip\|scroll` | overflow behavior |
+| `.overflow(o)` | `visible\|hidden` | overflow behavior (`hidden` clips) |
+| `.scroll(a)` | `vertical\|horizontal` | marks THIS container as the page's scroll viewport: content is clipped and wheel input pans it paint-only (no re-layout). Pair with `on EndReached -> dispatch(...)` on the same container for lazy loading (fires once when the offset nears the content end; re-arms after each layout). |
 | `.zIndex(t)` | z-index token | stacking layer |
 
 ## Color & surface (class: paint)

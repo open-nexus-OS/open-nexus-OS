@@ -148,6 +148,17 @@ struct LiveRouteRuntime {
     chain_normalize_fail_emitted: bool,
     absolute_source_debug_emitted: bool,
     relative_blocked_debug_emitted: bool,
+    wheel_debug_emitted: bool,
+    /// Bounded S1 rate diagnostics: wheel deltas shipped to windowd.
+    wheel_ship_count: u32,
+    /// Wheel notches ACCUMULATED until a push actually LANDS: the visible-
+    /// state push runs a 2ms-timeout send, and windowd is routinely busy
+    /// compositing the very scroll this wheel drives — a failed push must
+    /// never drop the notch (input outlives render backpressure, the
+    /// Android rule). Cleared only on a successful send.
+    pending_wheel_delta: i32,
+    /// Bounded diagnostics: visible-state pushes that hit backpressure.
+    push_fail_count: u32,
     /// Recycled HID-event decode buffer (capacity reused across batches —
     /// a fresh per-batch `Vec` leaked ~256B/batch on the non-freeing bump
     /// heap and killed input after ~1 min of mousing: `alloc-fail svc=inputd`).
@@ -228,6 +239,10 @@ impl LiveRouteRuntime {
             chain_normalize_fail_emitted: false,
             absolute_source_debug_emitted: false,
             relative_blocked_debug_emitted: false,
+            wheel_debug_emitted: false,
+            wheel_ship_count: 0,
+            pending_wheel_delta: 0,
+            push_fail_count: 0,
             hid_events_scratch: Vec::new(),
             windowd_push_ok_emitted: false,
             windowd_route_fallback_emitted: false,
@@ -310,7 +325,15 @@ impl LiveRouteRuntime {
             }
         };
         let previous_source = self.input.active_pointer_source();
-        if self.input.apply_hid_batch_in_place(&hid_batch).is_err() {
+        let apply_overflowed = self.input.apply_hid_batch_in_place(&hid_batch).is_err();
+        // CLOSE THE RECYCLING LOOP: `decode_wire_batch_reusing` took the
+        // scratch Vec by `mem::take` — hand its capacity back for the next
+        // batch. Dropping the batch instead leaked one events-Vec per batch
+        // on the non-freeing bump heap (the SECOND "input dies after minutes
+        // of mousing" crash; the first was the per-batch alloc this scratch
+        // replaced). EVERY path past decode must run this line.
+        self.hid_events_scratch = hid_batch.into_events();
+        if apply_overflowed {
             self.chain.route_overflow_apply = self.chain.route_overflow_apply.saturating_add(1);
             return STATUS_OVERFLOW;
         }
@@ -498,7 +521,15 @@ impl LiveRouteRuntime {
         // Carry the real signed wheel magnitude (0 when no wheel motion this
         // update) so windowd scrolls by the actual notch count, not one quantized
         // step. The pulse booleans below remain a latched direction indicator.
-        self.visible_state.wheel_delta_y = pointer_wheel_delta;
+        self.pending_wheel_delta = self.pending_wheel_delta.saturating_add(pointer_wheel_delta);
+        self.visible_state.wheel_delta_y = self.pending_wheel_delta;
+        if pointer_wheel_delta != 0 && self.wheel_ship_count < 40 {
+            self.wheel_ship_count += 1;
+            let _ = debug_println(&format!(
+                "inputd: wheel ship n={} d={}",
+                self.wheel_ship_count, pointer_wheel_delta
+            ));
+        }
         if pointer_wheel_delta != 0 {
             self.visible_state.pointer_route_live = true;
             self.visible_state.input_visible_on = true;
@@ -610,6 +641,10 @@ impl LiveRouteRuntime {
         let frame = encode_update_visible_state(self.visible_state);
         match client.send(&frame, Wait::Timeout(core::time::Duration::from_millis(2))) {
             Ok(()) => {
+                // The accumulated wheel delta is DELIVERED: clear it so the
+                // next (possibly move-throttled) push cannot replay it.
+                self.pending_wheel_delta = 0;
+                self.visible_state.wheel_delta_y = 0;
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
                 if !self.windowd_push_ok_emitted {
@@ -622,6 +657,13 @@ impl LiveRouteRuntime {
             Err(nexus_ipc::IpcError::WouldBlock)
             | Err(nexus_ipc::IpcError::Timeout)
             | Err(nexus_ipc::IpcError::NoSpace) => {
+                if self.push_fail_count < 40 {
+                    self.push_fail_count += 1;
+                    let _ = debug_println(&format!(
+                        "inputd: push backpressure n={}",
+                        self.push_fail_count
+                    ));
+                }
                 // Backpressure only: keep route/client and retry next tick.
             }
             Err(_) => {

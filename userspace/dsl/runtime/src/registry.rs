@@ -92,6 +92,17 @@ pub struct Mods {
     /// Compositing material (`.material(panel|card|subtle|window|opaque)`) — a
     /// glass node becomes a backdrop-blurred layer at the compositor.
     pub material: Option<SurfaceMaterial>,
+    /// `.scroll(vertical|horizontal)`: this container is the page's scroll
+    /// viewport — the layout clips it (`Overflow::Hidden`) and the HOST owns
+    /// a paint-time scroll offset over the retained boxes (never a re-layout).
+    pub scroll: Option<ScrollAxis>,
+}
+
+/// Scroll axis of a `.scroll(...)` viewport.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScrollAxis {
+    Vertical,
+    Horizontal,
 }
 
 impl Default for Mods {
@@ -118,6 +129,7 @@ impl Default for Mods {
             opacity: None,
             disabled: false,
             material: None,
+            scroll: None,
         }
     }
 }
@@ -194,7 +206,18 @@ fn plain_stack(mods: &Mods, tokens: &dyn Tokens, children: alloc::vec::Vec<Layou
             padding: mods.padding,
             align: mods.align.unwrap_or(Align::Stretch),
             justify: mods.justify.unwrap_or(Justify::Start),
-            overflow: Overflow::Visible,
+            // `.scroll(...)` clips this container (the scroll viewport); the
+            // engine then stamps `clip_rect` on every descendant box, which is
+            // what the host's paint-time scroll offset keys on.
+            overflow: match mods.scroll {
+                Some(ScrollAxis::Horizontal) => {
+                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Horizontal)
+                }
+                Some(ScrollAxis::Vertical) => {
+                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical)
+                }
+                None => Overflow::Visible,
+            },
             flex_wrap: mods.wrap,
             min_width: min_w,
             max_width: max_w,

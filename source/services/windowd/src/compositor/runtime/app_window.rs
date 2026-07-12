@@ -1081,6 +1081,101 @@ impl DisplayServerRuntime {
     /// inputd's ack drain — a tap there could be consumed by any receiver).
     /// Best-effort non-blocking — input must never stall the compositor.
     /// Markers are honest: `routed` prints only on a delivered send.
+    /// Routes a wheel notch to an app window (`INPUT_KIND_WHEEL`): the signed
+    /// delta rides the wire `y` field UNCLAMPED (`wheel_delta_to_wire` — the
+    /// `max(0)` clamp of the pointer kinds would destroy negative deltas).
+    /// Single-shot NONBLOCK: dropped wheel under pressure is correct.
+    pub(crate) fn send_app_wheel(&mut self, idx: usize, local_x: u16, wire_delta: u16) {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(client) = self.apps[idx]
+                .surface_id
+                .and_then(|id| self.client_surfaces.get_by_id(id))
+            else {
+                return;
+            };
+            let frame = nexus_display_proto::client_surface::encode_surface_input(
+                client.id,
+                nexus_display_proto::client_surface::INPUT_KIND_WHEEL,
+                local_x,
+                wire_delta,
+            );
+            if let Some(slot) = self.apps[idx].event_channel {
+                let _ = send_input_frame(slot, &frame, false);
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (idx, local_x, wire_delta);
+        }
+    }
+
+    /// [`Self::send_app_wheel`] for the DESKTOP surface (shell launcher grid).
+    pub(crate) fn send_desktop_wheel(&mut self, local_x: u16, wire_delta: u16) {
+        #[cfg(nexus_env = "os")]
+        {
+            let Some(id) = self.desktop_surface_id else { return };
+            let frame = nexus_display_proto::client_surface::encode_surface_input(
+                id,
+                nexus_display_proto::client_surface::INPUT_KIND_WHEEL,
+                local_x,
+                wire_delta,
+            );
+            if let Some(slot) = self.desktop_channel {
+                let _ = send_input_frame(slot, &frame, false);
+            }
+        }
+        #[cfg(not(nexus_env = "os"))]
+        {
+            let _ = (local_x, wire_delta);
+        }
+    }
+
+    /// `OP_SURFACE_FRAME_REQ`: arm the one-shot frame pulse for the owning
+    /// window (desktop surface included via its own flag-less immediate path:
+    /// the desktop is composited every frame anyway, so its pulse sends on
+    /// the next flush like any window's).
+    pub(crate) fn handle_surface_frame_req(&mut self, frame: &[u8]) {
+        let Some(surface_id) =
+            nexus_display_proto::client_surface::decode_surface_frame_req(frame)
+        else {
+            return;
+        };
+        if let Some(idx) = self.app_index_by_surface(surface_id) {
+            self.apps[idx].frame_pulse_pending = true;
+        } else if self.desktop_surface_id == Some(surface_id) {
+            self.desktop_frame_pulse = true;
+        }
+    }
+
+    /// Send the armed frame pulses (once per composited frame, after the
+    /// present work): ONE `OP_SURFACE_FRAME` per requesting client, then the
+    /// request clears — the Choreographer one-shot contract. NONBLOCK +
+    /// droppable: a lost pulse only delays one physics tick; the client's
+    /// timeout fallback keeps motion alive.
+    pub(crate) fn flush_frame_pulses(&mut self) {
+        #[cfg(nexus_env = "os")]
+        {
+            for idx in 0..self.apps.len() {
+                if !self.apps[idx].frame_pulse_pending {
+                    continue;
+                }
+                self.apps[idx].frame_pulse_pending = false;
+                let Some(id) = self.apps[idx].surface_id else { continue };
+                let Some(slot) = self.apps[idx].event_channel else { continue };
+                let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
+                let _ = send_input_frame(slot, &frame, false);
+            }
+            if self.desktop_frame_pulse {
+                self.desktop_frame_pulse = false;
+                if let (Some(id), Some(slot)) = (self.desktop_surface_id, self.desktop_channel) {
+                    let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
+                    let _ = send_input_frame(slot, &frame, false);
+                }
+            }
+        }
+    }
+
     pub(crate) fn send_app_input(&mut self, idx: usize, local_x: i32, local_y: i32) {
         self.send_app_input_kind(
             idx,

@@ -60,6 +60,7 @@ Page ShellPage {
         }
         .grow(1)
         .padding(7)
+        .scroll(horizontal)
         Stack {
             Stack {
                 LauncherButton { }

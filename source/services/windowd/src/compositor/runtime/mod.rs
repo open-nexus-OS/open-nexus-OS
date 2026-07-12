@@ -225,6 +225,10 @@ pub(crate) struct AppWindowSlot {
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
     pub(crate) event_channel: Option<u32>,
+    /// One-shot frame-pulse request (`OP_SURFACE_FRAME_REQ`, the Choreographer
+    /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
+    /// composited frame, then cleared — the client re-requests while animating.
+    pub(crate) frame_pulse_pending: bool,
 }
 
 impl AppWindowSlot {
@@ -258,6 +262,7 @@ impl AppWindowSlot {
             intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channel: None,
+            frame_pulse_pending: false,
         }
     }
 }
@@ -415,6 +420,8 @@ pub(crate) struct DisplayServerRuntime {
     desktop_channel: Option<u32>,
     desktop_band: Option<crate::atlas::AtlasSurface>,
     desktop_dirty: bool,
+    /// One-shot frame pulse armed by the desktop surface (shell scroll).
+    desktop_frame_pulse: bool,
 
     /// Once-guard for the transitional shell-as-app-host launch (TASK-0080C
     /// #17): fired on the FIRST session activation (STATE_ACTIVE — after
@@ -458,6 +465,10 @@ pub(crate) struct DisplayServerRuntime {
     /// `hover_route == HOVER_ROUTE_APP`; a window-to-window crossing is a
     /// route change so the old window gets its LEAVE).
     hover_app_idx: usize,
+    /// Bounded S1 rate diagnostics: wheel deltas that reached the router.
+    wheel_route_count: u32,
+    /// Bounded S1 rate diagnostics: wheel deltas staged from inputd pushes.
+    wheel_stage_count: u32,
     /// One-time proof marker latch for the hover chain.
     hover_marker_emitted: bool,
     /// Last hover-MOVE forward (ns) — ~33Hz throttle.
@@ -734,6 +745,7 @@ impl DisplayServerRuntime {
             desktop_channel: None,
             desktop_band: None,
             desktop_dirty: false,
+            desktop_frame_pulse: false,
             shell_app_launched: false,
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
             #[cfg(nexus_env = "os")]
@@ -746,6 +758,8 @@ impl DisplayServerRuntime {
             hover_route: HOVER_ROUTE_NONE,
             hover_last: (0, 0),
             hover_app_idx: 0,
+            wheel_route_count: 0,
+            wheel_stage_count: 0,
             hover_marker_emitted: false,
             hover_last_move_ns: 0,
             shell_config,

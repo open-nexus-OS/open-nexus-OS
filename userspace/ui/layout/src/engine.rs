@@ -474,7 +474,8 @@ impl LayoutEngine {
             measured.height
         };
         let container_index = boxes.len();
-        let is_overflow_hidden = matches!(stack.overflow, Overflow::Hidden);
+        let is_overflow_hidden =
+            matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_));
         let container_scroll =
             if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(stack.padding.horizontal());
@@ -503,7 +504,15 @@ impl LayoutEngine {
         let padding = stack.padding;
         let content_x = x + padding.left - container_scroll.0;
         let content_y = y + padding.top - container_scroll.1;
-        let child_constraints = LayoutConstraints::new(content_width, Some(content_height));
+        // A scroll viewport lays its children out UNBOUNDED on the main axis:
+        // content is allowed to overflow the clip (that overflow IS the
+        // scrollable extent). A definite height here made the inner list
+        // shrink its rows to fit — nothing left to scroll.
+        let child_constraints = if matches!(stack.overflow, Overflow::Scroll(_)) {
+            LayoutConstraints::new(content_width, None)
+        } else {
+            LayoutConstraints::new(content_width, Some(content_height))
+        };
         if stack.direction.is_horizontal() {
             self.place_stack_row(
                 stack,
@@ -767,6 +776,13 @@ impl LayoutEngine {
                 allocations.push(allocation);
                 used_main += allocation;
             }
+        } else if matches!(stack.overflow, Overflow::Scroll(_)) {
+            // Scroll viewport: children KEEP their content size and overflow
+            // the clip — shrinking them to fit would leave nothing to scroll.
+            for (_, _, _, base_main) in &in_flow {
+                allocations.push(*base_main);
+                used_main += *base_main;
+            }
         } else {
             // Deficit: distribute via flex_shrink (proportional shrink)
             let deficit = (-free_or_deficit) as u32;
@@ -884,7 +900,8 @@ impl LayoutEngine {
         let width = measured.width;
         let height = measured.height;
         let container_index = boxes.len();
-        let is_overflow_hidden = matches!(grid.overflow, Overflow::Hidden);
+        let is_overflow_hidden =
+            matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_));
         let container_scroll =
             if is_overflow_hidden { scroll_offset } else { (FxPx::ZERO, FxPx::ZERO) };
         let content_width = width.saturating_sub(grid.padding.horizontal());
@@ -1118,6 +1135,14 @@ impl LayoutEngine {
         if visible_children > 1 {
             main += stack.gap * (visible_children as i32 - 1);
         }
+        // A clipped container is a SCROLL VIEWPORT: its content scrolls, so
+        // its preferred MAIN size must not be the content sum (that squeezed
+        // every sibling to its minimum — the CSS `min-height: 0` flex rule).
+        // The viewport takes only what flex gives it (`grow`); CROSS still
+        // follows the content so a horizontal scroller keeps its row height.
+        if matches!(stack.overflow, Overflow::Scroll(_)) {
+            main = FxPx::ZERO;
+        }
         let preferred_width = if stack.direction.is_horizontal() {
             main + stack.padding.horizontal()
         } else {
@@ -1283,7 +1308,8 @@ fn update_box_geometry(
     };
     layout_box.rect = Rect::new(x, y, width, height);
     match node {
-        LayoutNode::Stack(stack, _, _) if matches!(stack.overflow, Overflow::Hidden) => {
+        LayoutNode::Stack(stack, _, _)
+            if matches!(stack.overflow, Overflow::Hidden | Overflow::Scroll(_)) => {
             let own = Rect::new(
                 x + stack.padding.left,
                 y + stack.padding.top,
@@ -1292,7 +1318,8 @@ fn update_box_geometry(
             );
             layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
         }
-        LayoutNode::Grid(grid, _, _) if matches!(grid.overflow, Overflow::Hidden) => {
+        LayoutNode::Grid(grid, _, _)
+            if matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_)) => {
             let own = Rect::new(
                 x + grid.padding.left,
                 y + grid.padding.top,

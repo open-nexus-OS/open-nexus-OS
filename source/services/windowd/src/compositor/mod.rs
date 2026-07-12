@@ -372,6 +372,12 @@ fn dispatch_client_frame(
         // Data-only frame (no moved cap, no reply); the next present composites.
         runtime.handle_surface_layers(frame);
     } else if frame.get(3).copied()
+        == Some(nexus_display_proto::client_surface::OP_SURFACE_FRAME_REQ)
+    {
+        // Frame pulse request (Choreographer one-shot): armed here, answered
+        // after the next composited frame in the present loop.
+        runtime.handle_surface_frame_req(frame);
+    } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_CONTROL)
     {
         // Presentation control (theme / shell profile) from a shell surface.
@@ -594,6 +600,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 let _ = debug_println(flush_error_label(err));
             }
         }
+        // Frame pulses AFTER the frame's compose/present work: animating
+        // clients tick their physics on the REAL frame cadence.
+        runtime.flush_frame_pulses();
         // Phase D.1 / RFC-0033: deadline-driven sleep instead of busy yield_().
         // During animation/present the supervisor timer IRQ is now ENABLED, so the one-shot
         // pacer timer-cap armed above delivers OP_TIMER_FIRED into our endpoint at the frame
