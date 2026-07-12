@@ -8,7 +8,13 @@
 
 use input_live_protocol::VisibleState;
 
-pub(crate) const POINTER_PUSH_INTERVAL_NS: u64 = 8_000_000;
+// Pointer-move push budget. This is a FLOOD GUARD (caps a ~1000Hz device at
+// 250 pushes/s), not the display pace — windowd stages pushes and aligns
+// presents to its 120Hz pacer. It must be comfortably BELOW the display
+// interval: pushes only fire on hid-batch arrival, so the effective period
+// quantizes UP to the next batch (measured: an 8ms budget + ~5ms batches
+// aliased to ~11ms = 91Hz visible cursor, under the 120Hz target).
+pub(crate) const POINTER_PUSH_INTERVAL_NS: u64 = 4_000_000;
 
 pub(crate) fn should_push_visible_state(
     previous: Option<VisibleState>,

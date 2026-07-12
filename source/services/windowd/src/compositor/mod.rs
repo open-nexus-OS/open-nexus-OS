@@ -457,7 +457,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     #[cfg(nexus_env = "os")]
     let mut pacer_timer_log_emitted = false;
     // Phase 7: unified pacing timer drives frame submission at display refresh rate.
-    const PACER_INTERVAL_NS: u64 = 8_333_333; // 120 Hz
+    const PACER_INTERVAL_NS: u64 = runtime::PACER_INTERVAL_NS; // 120 Hz (SSOT in runtime)
                                               // Animation pacing. The supervisor-timer IRQ is now ENABLED in the kernel
                                               // (`timer_irq` default + `enable_timer_interrupts` in kmain), so the 120Hz
                                               // one-shot timer cap armed below delivers OP_TIMER_FIRED reactively while an
@@ -468,8 +468,41 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                                               // not the animation's duration or final state. (A fully poll-free wait
                                               // depends on idle-time timer-cap delivery and is a separate step.)
     let mut last_anim_tick_ns: u64 = 0;
+    // Loop-cadence telemetry (hyper-smooth diagnosis): counts per ~1s window,
+    // emitted only while input/present traffic is flowing (idle stays silent).
+    // This measures the ACTUAL frame cadence the pointer/scroll pipeline gets,
+    // independent of gpud's own present stats (which only show GPU-side cost).
+    #[cfg(nexus_env = "os")]
+    let mut lt_window_start_ns: u64 = 0;
+    #[cfg(nexus_env = "os")]
+    let (mut lt_iters, mut lt_applies) = (0u32, 0u32);
+    #[cfg(nexus_env = "os")]
+    let mut lt_seq_base: u32 = 0;
     loop {
         runtime.drain_gpud_replies();
+        #[cfg(nexus_env = "os")]
+        {
+            lt_iters += 1;
+            let now = nexus_abi::nsec().unwrap_or(0);
+            if lt_window_start_ns == 0 {
+                lt_window_start_ns = now;
+                lt_seq_base = runtime.present_seq_value();
+            } else if now.saturating_sub(lt_window_start_ns) >= 1_000_000_000 {
+                let presents = runtime.present_seq_value().wrapping_sub(lt_seq_base);
+                // Only report windows with real traffic (>=8 presents) — boots
+                // and idle periods stay quiet.
+                if presents >= 8 {
+                    let _ = debug_println(&alloc::format!(
+                        "windowd: loop hz={} apply={} present={}",
+                        lt_iters, lt_applies, presents
+                    ));
+                }
+                lt_window_start_ns = now;
+                lt_seq_base = runtime.present_seq_value();
+                lt_iters = 0;
+                lt_applies = 0;
+            }
+        }
         // Stall watchdog: self-reports a "stopped responding" present stall to the
         // UART log (build/logs/*/uart.log). Cheap — one nsec() + integer checks per
         // iteration; only formats on an actual stall (rate-limited).
@@ -512,6 +545,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             let needs_pacing = runtime.has_active_animations()
                 || runtime.has_pending_damage()
                 || runtime.frames_in_flight() > 0
+                || runtime.has_frame_pulse_clients()
                 || session_pending
                 || greeter_watch_pending
                 || theme_pending;
@@ -575,8 +609,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             && runtime.frames_in_flight()
                                 < runtime::DisplayServerRuntime::max_in_flight()
                         {
-                            let _ = runtime.flush_pending_damage();
+                            // force=true: this IS the vsync tick.
+                            let _ = runtime.flush_pending_damage_paced(now_ns, true);
                         }
+                        // The pacer tick IS the animating clients' vsync.
+                        runtime.flush_frame_pulses();
                         continue;
                     }
                     dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take());
@@ -592,11 +629,22 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // summed wheel) ONCE — one hit-test/hover/cursor-move per frame,
         // independent of how many raw events arrived (the Android Choreographer
         // model).
-        let _ = runtime.apply_staged_input();
+        let applied = runtime.apply_staged_input();
+        #[cfg(nexus_env = "os")]
+        {
+            lt_applies += applied as u32;
+        }
+        #[cfg(not(nexus_env = "os"))]
+        let _ = applied;
         // Phase 4: skip present while handoff is pending — the VMO must arrive
         // at gpud before any present-damage frames.
         if !runtime.is_handoff_pending() {
-            if let Err(err) = runtime.flush_pending_damage() {
+            // VSYNC-aligned: a lone event flushes immediately, but a sustained
+            // input burst (pointer pushes up to 250Hz) is paced to the 120Hz
+            // interval — the pacer tick (armed while damage is pending) submits
+            // the merged newest-wins frame. Prevents present-per-push overdraw.
+            let now_ns = nsec().unwrap_or(0);
+            if let Err(err) = runtime.flush_pending_damage_paced(now_ns, false) {
                 let _ = debug_println(flush_error_label(err));
             }
         }
@@ -636,12 +684,15 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     if runtime.has_active_animations() {
                         runtime.tick(now_ns);
                     }
+                    // The pacer tick IS the animating clients' vsync.
+                    runtime.flush_frame_pulses();
                     // Submit frame if pending damage and a ring slot is free.
                     if runtime.has_pending_damage()
                         && runtime.frames_in_flight()
                             < runtime::DisplayServerRuntime::max_in_flight()
                     {
-                        let _ = runtime.flush_pending_damage();
+                        // force=true: this IS the vsync tick.
+                        let _ = runtime.flush_pending_damage_paced(now_ns, true);
                     }
                     continue;
                 }
@@ -668,7 +719,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                             && runtime.frames_in_flight()
                                 < runtime::DisplayServerRuntime::max_in_flight()
                         {
-                            let _ = runtime.flush_pending_damage();
+                            // force=true: this is the self-paced vsync fallback
+                            // tick (already gated to the pacer interval above).
+                            let _ = runtime.flush_pending_damage_paced(now_ns, true);
                         }
                     }
                     // Cooperative yield: hand the CPU to gpud (to render the frame

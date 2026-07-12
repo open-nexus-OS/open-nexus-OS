@@ -1148,6 +1148,15 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Whether any client is waiting on a frame pulse — while true the
+    /// compositor keeps its 120Hz pacer armed: the pulses ARE the vsync the
+    /// animating client ticks on (without this, a scroll ease degraded to
+    /// the client's coarse recv-timeout fallback — "kann dem Scroll nicht
+    /// mit den Augen folgen").
+    pub(crate) fn has_frame_pulse_clients(&self) -> bool {
+        self.desktop_frame_pulse || self.apps.iter().any(|a| a.frame_pulse_pending)
+    }
+
     /// Send the armed frame pulses (once per composited frame, after the
     /// present work): ONE `OP_SURFACE_FRAME` per requesting client, then the
     /// request clears — the Choreographer one-shot contract. NONBLOCK +

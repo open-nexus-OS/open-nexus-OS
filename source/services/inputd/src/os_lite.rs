@@ -159,6 +159,10 @@ struct LiveRouteRuntime {
     pending_wheel_delta: i32,
     /// Bounded diagnostics: visible-state pushes that hit backpressure.
     push_fail_count: u32,
+    /// Delivered visible-state pushes in the current ~1s telemetry window.
+    push_rate_count: u32,
+    /// Start of the current push-rate telemetry window (0 = not started).
+    push_rate_window_ns: u64,
     /// Recycled HID-event decode buffer (capacity reused across batches —
     /// a fresh per-batch `Vec` leaked ~256B/batch on the non-freeing bump
     /// heap and killed input after ~1 min of mousing: `alloc-fail svc=inputd`).
@@ -243,6 +247,8 @@ impl LiveRouteRuntime {
             wheel_ship_count: 0,
             pending_wheel_delta: 0,
             push_fail_count: 0,
+            push_rate_count: 0,
+            push_rate_window_ns: 0,
             hid_events_scratch: Vec::new(),
             windowd_push_ok_emitted: false,
             windowd_route_fallback_emitted: false,
@@ -647,6 +653,21 @@ impl LiveRouteRuntime {
                 self.visible_state.wheel_delta_y = 0;
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
+                // Push-cadence telemetry (hyper-smooth diagnosis): report the
+                // real delivered push rate ~1/s, only under sustained traffic.
+                self.push_rate_count = self.push_rate_count.saturating_add(1);
+                if self.push_rate_window_ns == 0 {
+                    self.push_rate_window_ns = now_ns;
+                } else if now_ns.saturating_sub(self.push_rate_window_ns) >= 1_000_000_000 {
+                    if self.push_rate_count >= 8 {
+                        let _ = debug_println(&format!(
+                            "inputd: push hz={}",
+                            self.push_rate_count
+                        ));
+                    }
+                    self.push_rate_window_ns = now_ns;
+                    self.push_rate_count = 0;
+                }
                 if !self.windowd_push_ok_emitted {
                     let _ = nexus_abi::trace_line("inputd: windowd visible-state pushed");
                     // Input-chain hop I5: normalized state delivered to windowd.

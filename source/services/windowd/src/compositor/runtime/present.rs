@@ -376,6 +376,30 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// VSYNC-aligned flush: submit pending damage at most once per pacer
+    /// interval. A lone event after idle flushes immediately (the stamp is
+    /// stale); a sustained input burst (pointer pushes at up to 250Hz) becomes
+    /// a steady ~120Hz present train — the staged-input newest-wins coalescing
+    /// keeps each presented frame fresh. `force` marks a real pacer tick (the
+    /// vsync itself) and always flushes.
+    pub(crate) fn flush_pending_damage_paced(
+        &mut self,
+        now_ns: u64,
+        force: bool,
+    ) -> Result<(), WindowdError> {
+        if !self.has_pending_damage() {
+            return Ok(());
+        }
+        if !force && now_ns.saturating_sub(self.last_paced_flush_ns) < super::PACER_INTERVAL_NS {
+            // Too soon after the last present: leave the damage pending. The
+            // pacer stays armed while damage is pending (needs_pacing), so the
+            // next tick — at most one interval away — submits the merged rect.
+            return Ok(());
+        }
+        self.last_paced_flush_ns = now_ns;
+        self.flush_pending_damage()
+    }
+
     pub(crate) fn has_pending_damage(&self) -> bool {
         self.pending_gpu_blit_rect.is_some()
             || !self.pending_damage_rects.is_empty()
@@ -482,5 +506,10 @@ impl DisplayServerRuntime {
     /// Phase 7: current frames in flight to gpud (exposed for pacing).
     pub(crate) fn frames_in_flight(&self) -> u32 {
         self.frames_in_flight
+    }
+
+    /// Monotone count of presents actually sent to gpud (loop-cadence telemetry).
+    pub(crate) fn present_seq_value(&self) -> u32 {
+        self.present_seq
     }
 }

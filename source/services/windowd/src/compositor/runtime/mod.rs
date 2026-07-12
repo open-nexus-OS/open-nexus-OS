@@ -267,6 +267,10 @@ impl AppWindowSlot {
     }
 }
 
+/// Frame pacing interval (120 Hz). SSOT for both the compositor loop's pacer
+/// timer and the paced damage flush (`flush_pending_damage_paced`).
+pub(crate) const PACER_INTERVAL_NS: u64 = 8_333_333;
+
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
     source_frame: SourceFrame,
@@ -292,6 +296,9 @@ pub(crate) struct DisplayServerRuntime {
     /// separately from content damage: cursor rects only need a retained→display
     /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
     pending_cursor_rect: Option<DamageRect>,
+    /// Monotonic stamp of the last paced damage flush — vsync alignment for
+    /// sustained input bursts (see `flush_pending_damage_paced`).
+    last_paced_flush_ns: u64,
     /// Animation-driven frame: only GPU CB params changed (translate_x, opacity).
     /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
@@ -689,6 +696,7 @@ impl DisplayServerRuntime {
             tile_map: TileMap::new(),
             pending_damage_rect: None,
             pending_cursor_rect: None,
+            last_paced_flush_ns: 0,
             pending_gpu_blit_rect: None,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
