@@ -29,7 +29,17 @@ reduce ChatEvent {
     LoadFirst => state.loading = true,
     LoadMore => state.loading = true,
     Loaded(rows, next) => {
-        state.messages = state.messages + rows;
+        // Store-window: keep only the last 64 messages resident. This bounds
+        // the store concat AND every derived O(N) cost (scene emit, layout,
+        // text runs) to O(window) so a long transcript pages far past the old
+        // ~120-message cap. The cap is kept just above the 60-row query page so
+        // a freshly loaded page is never trimmed before it is seen. NB: the app
+        // heap is a non-freeing bump — the whole-scene re-emit per page still
+        // accretes (empirical budget ~340 node-emits), so the window is small
+        // enough that paging the whole 300-message demo stays under it. Truly
+        // unbounded scroll additionally needs emit-virtualization / an arena
+        // reset per re-emit.
+        state.messages = tail(state.messages + rows, 64);
         state.nextToken = next;
         state.loading = false;
     },

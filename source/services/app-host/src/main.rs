@@ -1062,6 +1062,17 @@ mod probe {
             self.layout = layout;
             self.texts.clear();
             collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+            // Store-window proof: with `tail(messages, 256)` the resident text
+            // run count stays bounded no matter how many pages are loaded —
+            // without the cap this grew unbounded and OOM'd the bump heap.
+            {
+                let mut m = alloc::string::String::new();
+                let _ = core::fmt::write(
+                    &mut m,
+                    format_args!("apphost: scroll window texts={}", self.texts.len()),
+                );
+                raw_marker(&m);
+            }
             self.end_fired = false;
             if let Some((clip, content_w, content_h)) = self.scroll_region() {
                 let view_h = clip.3 - clip.1;

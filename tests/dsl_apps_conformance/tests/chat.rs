@@ -132,6 +132,40 @@ fn chat_transcript_pages_lazily() {
     assert!(!texts.iter().any(|t| t == "msg 121"), "loaded past the second window");
 }
 
+/// Store-window: `tail(messages, 64)` keeps only the last 64 messages resident
+/// no matter how far the transcript is paged. Paging a 400-message source to
+/// the end trims the head — emit/layout/paint and the store concat stay
+/// O(window), which is what lifts the former ~120-message re-emit cap (the
+/// whole-scene re-emit on the app's non-freeing bump heap).
+#[test]
+fn chat_transcript_windows_to_last_64() {
+    let nxir = common::compile("chat");
+    let symbols = common::program_symbols(&nxir);
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::tablet("landscape");
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = TranscriptHost::seeded(&symbols, 400);
+
+    // Mount loads 1..60; six LoadMore pages (60 each) reach seq 400, at which
+    // point the continuation token is empty. Dispatch EXACTLY that many — an
+    // extra LoadMore on an empty token would restart paging from seq 1.
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("initial effects");
+    for _ in 0..6 {
+        common::dispatch(&mut view, &device, &mut host, &symbols, "ChatEvent", "LoadMore", vec![]);
+    }
+
+    let texts = common::scene_texts(&view);
+    let resident = texts.iter().filter(|t| t.starts_with("msg ")).count();
+    // Newest resident, window floor (400-64+1 = 337) present, older trimmed.
+    assert!(texts.iter().any(|t| t == "msg 400"), "newest message missing");
+    assert!(texts.iter().any(|t| t == "msg 337"), "window floor (msg 337) missing");
+    assert!(!texts.iter().any(|t| t == "msg 336"), "message past the 64-window still resident");
+    assert!(!texts.iter().any(|t| t == "msg 1"), "head not trimmed");
+    assert!(resident <= 64, "resident window {resident} exceeds cap 64");
+}
+
 /// The transcript viewport is a real `.scroll` container: the engine stamps
 /// `clip_rect` on its descendants (what the paint-time offset keys on).
 #[test]

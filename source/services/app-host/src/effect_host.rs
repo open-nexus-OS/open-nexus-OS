@@ -81,12 +81,14 @@ struct QueryStore {
 /// Demo transcript scale: large enough that only WINDOWS of it are ever
 /// resident in the DSL store (the lazy-loading contract), small enough to
 /// seed in one bounded pass.
-// Demo-source size: bounded by the CURRENT scene-materialization cost — every
-// loaded page re-emits the whole scene on the app's non-freeing 2MB bump heap
-// (~5 pages fit). Scroll paint/data paths are already scale-independent
-// (visibility index + keyset paging); lifting this to 1000+ needs the
-// documented subtree re-emit (dsl runtime view.rs) or a store-window builtin.
-const SEED_MESSAGES: i64 = 120;
+// Demo-source size: the synthetic generator below is zero-resident (only the
+// requested page is materialized), so this is just the upper bound of the
+// transcript. The store-window builtin `tail(list, 96)` in chat.store.nx keeps
+// the resident `messages` list (and the derived emit/layout/paint/concat cost)
+// bounded, so paging this far no longer grows unbounded. The ceiling now is the
+// non-freeing bump heap's tolerance for the per-page whole-scene re-emit churn
+// (see chat.store.nx); 300 pages cleanly, unbounded needs emit-virtualization.
+const SEED_MESSAGES: i64 = 300;
 
 impl QueryStore {
     fn seeded() -> Self {
@@ -381,7 +383,12 @@ impl EffectHost for AppEffectHost {
         let end = (start + limit - 1).min(SEED_MESSAGES);
         if start > SEED_MESSAGES {
             raw_marker("apphost: dsl query messages page ok");
-            return Ok(QueryPage { rows: Value::List(Vec::new()), next: String::new() });
+            // Past the end: ECHO the cursor (never ""). An empty `next` is
+            // ambiguous with the mount cursor, so returning it here would make
+            // the next LoadMore re-page from seq 1 — re-materializing the whole
+            // transcript and, on the non-freeing heap, eventually OOM'ing. A
+            // stable non-empty cursor keeps over-scroll an empty no-op.
+            return Ok(QueryPage { rows: Value::List(Vec::new()), next: call.token.clone() });
         }
         const LINES: [&str; 6] = [
             "Hast du den neuen Build schon gebootet?",
@@ -402,13 +409,12 @@ impl EffectHost for AppEffectHost {
             fields.sort_by_key(|(sym, _)| *sym);
             rows.push(Value::Record(fields));
         }
-        let next = if end >= SEED_MESSAGES {
-            String::new()
-        } else {
-            let mut t = String::new();
-            let _ = core::fmt::write(&mut t, format_args!("{end}"));
-            t
-        };
+        // The cursor is ALWAYS the last returned seq (never "" — see the
+        // past-the-end branch above). At the end this pins the cursor at
+        // SEED_MESSAGES, so a further LoadMore reads start>end → empty no-op
+        // instead of restarting the transcript from the first page.
+        let mut next = String::new();
+        let _ = core::fmt::write(&mut next, format_args!("{end}"));
         raw_marker("apphost: dsl query messages page ok");
         return Ok(QueryPage { rows: Value::List(rows), next });
         // Unreachable engine path below is kept for the NEXT real table

@@ -170,10 +170,19 @@ pub(super) fn lower_expr(
                 return Err(unsupported(*span, "unresolved path"));
             }
         }
-        Expr::Call { span, .. } => {
-            // Calls are only lowered at effect-step level (svc) — an
-            // expression-position call is outside the v0.1 subset.
-            return Err(unsupported(*span, "expression-position calls"));
+        Expr::Call { path, args, span } => {
+            // The one expression-position call in the v0.1 subset is the
+            // `tail(list, n)` store-window builtin (keep the last n elements).
+            // Everything else (svc.*) is lowered at effect-step level only.
+            if path.len() == 1 && path[0].text == "tail" && args.len() == 2 {
+                set_opaque_type(&mut b);
+                let mut lop = b.init_list_op();
+                lop.set_op(ir::ListOpKind::Tail);
+                lower_expr(env, &args[0].value, lop.reborrow().init_base())?;
+                lower_expr(env, &args[1].value, lop.init_arg())?;
+            } else {
+                return Err(unsupported(*span, "expression-position calls"));
+            }
         }
         Expr::I18n { key, args, .. } => {
             set_opaque_type(&mut b);

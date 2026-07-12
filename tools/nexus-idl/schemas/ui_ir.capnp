@@ -192,6 +192,10 @@ enum BinOpKind {
 enum ListOpKind {
   len @0; get @1; append @2; removeWhere @3; map @4; filter @5; findFirst @6;
   isEmpty @7; contains @8;
+  # tail(list, n): keep the last n elements (drop the head). Store-window
+  # builtin — bounds resident list growth on the app's non-freeing bump heap
+  # so a paged transcript stays O(window), not O(all-loaded).
+  tail @9;
 }
 
 struct Expr {

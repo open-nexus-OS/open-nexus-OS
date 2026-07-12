@@ -142,7 +142,32 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
         Which::DeviceGet(field) => Ok(ctx.device.get(field)),
         Which::OptionSome(inner) => eval(ctx, inner.map_err(|_| RtError::Malformed)?),
         Which::OptionNone(()) => Ok(Value::Unit),
-        Which::ListOp(_) => Err(RtError::Unsupported), // combinators land in v0.2
+        Which::ListOp(lop) => {
+            let lop = lop.map_err(|_| RtError::Malformed)?;
+            match lop.get_op().map_err(|_| RtError::Malformed)? {
+                // tail(list, n): keep the last n elements (drop the head).
+                // Store-window: bounds resident list growth on the app's
+                // non-freeing bump heap so a paged transcript stays O(window).
+                ir::ListOpKind::Tail => {
+                    let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
+                    let n = match eval(ctx, lop.get_arg().map_err(|_| RtError::Malformed)?)? {
+                        Value::Int(i) => i.max(0) as usize,
+                        _ => return Err(RtError::TypeMismatch),
+                    };
+                    match base {
+                        Value::List(mut items) => {
+                            if items.len() > n {
+                                items.drain(0..items.len() - n);
+                            }
+                            Ok(Value::List(items))
+                        }
+                        _ => Err(RtError::TypeMismatch),
+                    }
+                }
+                // Other combinators (map/filter/…) still land in v0.2.
+                _ => Err(RtError::Unsupported),
+            }
+        }
     }
 }
 
