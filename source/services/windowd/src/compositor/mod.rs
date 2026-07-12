@@ -672,7 +672,10 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         let animation_wait = Wait::NonBlocking;
         let wait = if runtime.is_handoff_pending() {
             Wait::NonBlocking
-        } else if runtime.has_active_animations() || runtime.has_pending_damage() {
+        } else if runtime.has_active_animations()
+            || runtime.has_pending_damage()
+            || runtime.has_scroll_momentum()
+        {
             animation_wait
         } else {
             // Fully idle: block until the next input message. Zero CPU.
@@ -689,6 +692,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                     if runtime.has_active_animations() {
                         runtime.tick(now_ns);
                     }
+                    // WebRender scroll fling: coast every scrollable window on the
+                    // pacer tick too (the scroll-only case lands HERE, on the
+                    // blocking recv — not the drain batch — so without this the
+                    // coast froze after the first notch).
+                    runtime.advance_app_scrolls(now_ns);
                     // The pacer tick IS the animating clients' vsync.
                     runtime.flush_frame_pulses();
                     // Submit frame if pending damage and a ring slot is free.
@@ -713,13 +721,18 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 // clock (gated to ~120Hz) and present. `tick` integrates real
                 // elapsed time, so this converges correctly regardless of the
                 // exact poll cadence.
-                if runtime.has_active_animations() || runtime.has_pending_damage() {
+                if runtime.has_active_animations()
+                    || runtime.has_pending_damage()
+                    || runtime.has_scroll_momentum()
+                {
                     let now_ns = nsec().unwrap_or(0);
                     if now_ns.saturating_sub(last_anim_tick_ns) >= PACER_INTERVAL_NS {
                         last_anim_tick_ns = now_ns;
                         if runtime.has_active_animations() {
                             runtime.tick(now_ns);
                         }
+                        // Scroll fling coast on the self-paced fallback tick too.
+                        runtime.advance_app_scrolls(now_ns);
                         if runtime.has_pending_damage()
                             && runtime.frames_in_flight()
                                 < runtime::DisplayServerRuntime::max_in_flight()

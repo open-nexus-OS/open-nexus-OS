@@ -102,14 +102,26 @@ impl DisplayServerRuntime {
         if max_rows == 0 {
             return; // content fits the viewport — nothing to scroll
         }
-        // Direct wheel scroll: accumulate the offset and apply it immediately so
-        // the gpud `src_row` shift is 1:1 responsive per notch. gpud re-composites
-        // its retained layers on each `OP_SET_LAYER_SCROLL` (the app stays out of
-        // the loop). Linux REL_WHEEL: +1 = wheel UP (away) ⇒ wheel DOWN grows the
-        // offset (content moves up), hence the inversion. (A pacer-eased fling
-        // coast is a follow-up polish; the direct path is reliable and snappy.)
+        // Eased wheel scroll: the notch extends the momentum TARGET (fixed step
+        // per notch, no acceleration); `pos` coasts toward it in
+        // `advance_app_scrolls` on the pacer tick — each tick a pure gpud
+        // `src_row` shift, the app OUT of the loop. Linux REL_WHEEL: +1 = wheel
+        // UP (away) ⇒ wheel DOWN grows the offset (content moves up).
+        let visible = self.visible_body_h(idx) as f32;
+        let content = self.apps[idx].content_h as f32;
+        self.apps[idx].scroll_momentum.set_extent(visible, content);
+        // Seed the tick clock ONLY when starting from rest. Resetting it on every
+        // notch of a continuous burst collapses advance's `dt = now - last` to ~0
+        // and starves the ease (it crawled a few px). The momentum owns the dt.
+        if !self.apps[idx].scroll_momentum.is_animating() {
+            self.apps[idx].scroll_last_ns = nexus_abi::nsec().unwrap_or(0);
+        }
         let delta = -delta_notches * SCROLL_STEP_PX;
-        let pos = (self.apps[idx].scroll_rows as i32 + delta).clamp(0, max_rows as i32) as u32;
+        let _ = self.apps[idx].scroll_momentum.scroll_wheel(delta as f32);
+        // Keep the pacer alive from THIS wheel event onward: apply the eased pos
+        // now (may be ~0), and mark that scroll pacing is needed so the coast is
+        // never dropped between the wheel and the first pacer tick.
+        let pos = (self.apps[idx].scroll_momentum.offset_px().max(0) as u32).min(max_rows);
         self.apply_scroll_rows(idx, pos);
     }
 
