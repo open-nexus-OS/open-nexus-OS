@@ -207,6 +207,13 @@ impl DisplayServerRuntime {
             }
         }
         // Continue dragging whichever app window is mid-drag (ADR-0042).
+        // Track C1 (layer transform): a MOVE changes only the composite
+        // DESTINATION — the band content is untouched. Queue a GPU-only
+        // recomposite of old ∪ new (Plane 1 is wallpaper-only and already
+        // current there; the window is a retained GPU layer drawn at the new
+        // `win.x/y` each present, `drag_to` invalidates the backdrop blur for
+        // the live GPU re-blur). The old path CPU-recomposited Plane 1 AND
+        // full-re-blitted the band per pointer move — the drag jank.
         for idx in 0..self.apps.len() {
             if !self.apps[idx].win.is_dragging() {
                 continue;
@@ -214,11 +221,12 @@ impl DisplayServerRuntime {
             if let Some(old) =
                 self.apps[idx].win.drag_to(cursor_x, cursor_y, mode.width, mode.height)
             {
-                self.queue_dirty_rect(old);
                 let rect = self.app_window_rect(idx);
-                self.queue_dirty_rect(rect);
-                self.apps[idx].win.surface_dirty = true;
-                self.apps[idx].surface_dirty_rows = None; // moved: full re-blit
+                self.queue_gpu_blit_rect(old.merge(rect));
+                if !self.drag_transform_marker {
+                    self.drag_transform_marker = true;
+                    let _ = debug_println("windowd: drag gpu-transform");
+                }
             }
         }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).

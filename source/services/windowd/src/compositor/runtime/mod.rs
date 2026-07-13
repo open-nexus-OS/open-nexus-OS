@@ -531,6 +531,9 @@ pub(crate) struct DisplayServerRuntime {
     hover_app_idx: usize,
     /// Bounded S1 rate diagnostics: wheel deltas that reached the router.
     wheel_route_count: u32,
+    /// One-time proof marker: the first drag move composited as a pure GPU
+    /// transform (Track C1 — no CPU Plane-1 recomposite, no band re-blit).
+    drag_transform_marker: bool,
     /// Bounded S1 rate diagnostics: wheel deltas staged from inputd pushes.
     wheel_stage_count: u32,
     /// One-time proof marker latch for the hover chain.
@@ -825,6 +828,7 @@ impl DisplayServerRuntime {
             hover_last: (0, 0),
             hover_app_idx: 0,
             wheel_route_count: 0,
+            drag_transform_marker: false,
             wheel_stage_count: 0,
             hover_marker_emitted: false,
             hover_last_move_ns: 0,
