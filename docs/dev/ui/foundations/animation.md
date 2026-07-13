@@ -79,6 +79,34 @@ fill path). Whole-node scale/exit transitions and window-level transforms are
 Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
 `MAX_ACTIVE_ANIMATIONS` (6).
 
+### Widget animation (kit widgets)
+
+Inherently-animated **kit widgets** (`userspace/ui/widgets/*`) — the `Skeleton`
+loading placeholder, `Spinner`, indeterminate `ProgressBar` — build one *resting*
+frame for a `phase`; their motion is the animation system's job, not a re-render.
+
+The binding runs the resting frame through the **same paint-time transform loop**
+as the modifiers, NOT a per-frame re-emit. This is a hard constraint: the app-host
+heap is a **non-freeing bump allocator**, so re-emitting the whole view every frame
+(to advance a widget's internal `phase`) would leak the old scene each frame and
+OOM. Instead the runtime stamps a continuous `AnimKind::Loop` intent on the widget
+node (`is_looping_widget`, `emit.rs`) and the app-host breathes the node via a
+spring that **re-fires toward the opposite endpoint on each convergence**
+(`AnimState::{sync_loops,tick_loops}`, `AnimationDriver::is_active`). The spring
+path carries no `Vec`, so the loop is allocation-free — it runs forever without
+growing the heap. The pulse stays armed while the widget is on screen and stops
+the instant it leaves the tree.
+
+`Skeleton` fits this directly (its root is a filled rect the per-node fill
+transform can fade). A `Spinner`'s spoke rotation and a shimmer's clipped sweep are
+NOT expressible as a single filled-rect transform (paths / clip) — they belong on
+the **compositor layer transform** (Track C, Tier 1), the render-server-owns-
+rotation model. The widgets' `.phase()` builders remain the deterministic CPU
+resting-frame API used by goldens.
+
+**Live demo:** `Skeleton { … }` on the counter page breathes continuously on the
+frame pulse (leak-free); boot-proven by a multi-frame present burst.
+
 ## Default posture
 
 The default animation model should follow the **idea** of SwiftUI more than CSS:

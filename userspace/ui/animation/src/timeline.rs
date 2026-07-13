@@ -169,6 +169,16 @@ impl AnimationDriver {
         self.animations.len()
     }
 
+    /// Whether a specific `(layer, prop)` animation is still running — lets a
+    /// caller driving a CONTINUOUS loop (e.g. a breathing widget) detect that
+    /// its spring/keyframe has converged and re-fire the next half-cycle.
+    pub fn is_active(&self, layer: LayerId, prop: AnimProp) -> bool {
+        self.animations.iter().any(|a| match a {
+            ActiveAnimation::Spring { layer: l, prop: p, .. } => *l == layer && *p == prop,
+            ActiveAnimation::Keyframe { layer: l, prop: p, .. } => *l == layer && *p == prop,
+        })
+    }
+
     fn push_animation(&mut self, animation: ActiveAnimation) {
         if self.animations.len() >= MAX_ACTIVE_ANIMATIONS {
             // Keep runtime deterministic and allocation-bounded on os-lite:

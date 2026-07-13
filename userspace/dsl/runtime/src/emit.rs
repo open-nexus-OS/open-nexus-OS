@@ -374,7 +374,26 @@ fn emit_widget(
         children.push(emitted);
     }
 
+    // Inherently-animated KIT WIDGET: emit a CONTINUOUS loop intent for this
+    // node so the host breathes its resting frame (paint-time transform loop —
+    // the app-host heap never frees, so per-frame re-emit is out). Only widgets
+    // whose motion maps to the per-node fill transform qualify here; spoke
+    // rotation / shimmer sweep are the compositor's job (Track C).
+    if is_looping_widget(&kind) {
+        ctx.anim_intents.push((
+            ctx.path.clone(),
+            AnimIntent::new(AnimKind::Loop, animation::MotionToken::Pulse.id(), 0),
+        ));
+    }
     Ok(registry::build_widget(&kind, &props, &mods, ctx.tokens, children))
+}
+
+/// KIT widgets whose resting frame should breathe continuously via the host's
+/// paint-time transform loop (leak-free). `Skeleton` (a filled rect root) fits
+/// the per-node fill transform; `Spinner`/`ProgressBar` (paths / clipped
+/// sweeps) are deferred to the compositor layer transform (Track C).
+fn is_looping_widget(kind: &str) -> bool {
+    matches!(kind, "Skeleton")
 }
 
 /// Applies one modifier; mod ids index the compiler catalog
@@ -524,6 +543,9 @@ fn stamp_anim(
     // Driving value snapshot (animate/effect carry a second expr arg; a
     // transition is a lifecycle event with no expr → "present" = 1).
     let value = match kind {
+        // `Loop` is never authored via a modifier (the runtime emits it for a
+        // widget); `stamp_anim` only handles the modifier kinds.
+        AnimKind::Loop => return,
         AnimKind::Transition => 1,
         AnimKind::Animate | AnimKind::Effect => {
             let Some(second) = (args.len() > 1).then(|| args.get(1)) else { return };

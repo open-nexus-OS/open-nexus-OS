@@ -239,6 +239,13 @@ impl super::DslApp {
         if row.len() < row_bytes {
             row.resize(row_bytes, 0);
         }
+        // Per-node animation transforms apply on the banded path too (an
+        // animated fixed header / a breathing Skeleton in the content) —
+        // same snapshot contract as `render_rows`.
+        let mut anim_buf =
+            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_NODE_ANIMS];
+        let anim_n = self.node_anims_snapshot(&mut anim_buf);
+        let anims = &anim_buf[..anim_n];
         // Two region picks (recycled): clipped boxes = the scroll content;
         // unclipped = the fixed header/footer/base. `paint_row_picked` skips a
         // box that does not intersect the row, so one pick per region suffices.
@@ -275,12 +282,13 @@ impl super::DslApp {
                 // scroll = None: IDENTITY paint (the compositor owns the
                 // scroll offset). Clipped boxes still paint at their model
                 // position; the band row remap is via `model_y`.
-                nexus_scene_raster::paint_row_picked(
+                nexus_scene_raster::paint_row_picked_animated(
                     &mut canvas,
                     &self.layout.boxes,
                     pick,
                     None,
                     None,
+                    anims,
                 );
             }
             // Glyph pass: the runs of this region's boxes intersecting model_y.
@@ -299,15 +307,28 @@ impl super::DslApp {
                     self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
                 {
                     let (_, content, font, color) = &self.texts[ti];
+                    // Animated text node: fade + horizontal shift (same
+                    // contract as the plain-path glyph pass).
+                    let (color, bx_glyph) = match anims
+                        .iter()
+                        .find(|a| a.node_id == b.node_id && !a.is_identity())
+                    {
+                        Some(a) => {
+                            let mut c = *color;
+                            c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
+                            (c, bx - a.dx)
+                        }
+                        None => (*color, bx),
+                    };
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         model_y as u32,
                         by,
-                        bx.max(0) as u32,
+                        bx_glyph.max(0) as u32,
                         self.w,
                         content.chars(),
                         *font,
-                        *color,
+                        color,
                     );
                 }
             }

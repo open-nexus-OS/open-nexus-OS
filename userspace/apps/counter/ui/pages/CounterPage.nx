@@ -44,6 +44,11 @@ Page CounterPage {
             .height(6)
             .bg(surfaceVariant)
             .animate(fadeScale, value: $state.value)
+        // Widget animation (Track B): the Skeleton loading placeholder is an
+        // inherently-animated kit widget — the runtime emits a continuous Loop
+        // intent and the app-host breathes its opacity on the frame pulse
+        // (leak-free paint-time transform, no per-frame re-emit). No modifier.
+        Skeleton { width: 180, height: 16 }
         Stack {
             Button { label: "-" }
                 .bg(surfaceVariant)

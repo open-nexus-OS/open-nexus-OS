@@ -24,7 +24,7 @@
 //! the per-frame tick is allocation-free (`tick_into` into a stack buffer).
 
 use super::*;
-use animation::{AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate};
+use animation::{AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig};
 use nexus_dsl_runtime::theme_tokens::Tokens;
 use nexus_dsl_runtime::{AnimIntent, AnimKind};
 use nexus_scene_raster::NodeAnim;
@@ -42,6 +42,13 @@ const WIGGLE_PX: f32 = 6.0;
 const PULSE_PEAK: f32 = 0.12;
 /// FadeScale's absent-state scale (grows to 1.0 on enter, per animation.md).
 const FADE_SCALE_FROM: f32 = 0.92;
+/// Continuous-loop (`AnimKind::Loop`) breathe opacity endpoints + midpoint —
+/// an inherently-animated widget (Skeleton) pulses between these forever via a
+/// spring that re-fires toward the opposite endpoint on each convergence
+/// (alloc-free: `spring_to` allocates nothing, so the loop never grows the heap).
+const BREATHE_BRIGHT: f32 = 1.0;
+const BREATHE_DIM: f32 = 0.15;
+const BREATHE_MID: f32 = 0.55;
 
 /// The identity value of an animation property (opacity/scale rest at 1.0,
 /// translate at 0.0) — the "no visible effect" anchor for interpolation.
@@ -95,6 +102,11 @@ pub(super) struct AnimState {
     /// The current interpolated transform per node the painter consumes;
     /// entries that converge back to identity are pruned. Bounded by the cap.
     anims: alloc::vec::Vec<NodeAnim>,
+    /// Node ids running a CONTINUOUS breathe loop (`AnimKind::Loop`, an
+    /// inherently-animated kit widget). The spring re-fires toward the opposite
+    /// endpoint on each convergence; these keep the frame pulse armed while the
+    /// widget is on screen. Bounded by the cap.
+    loops: alloc::vec::Vec<usize>,
     /// Last physics tick (ns) for dt integration (diagnostics/telemetry).
     last_ns: u64,
 }
@@ -105,6 +117,7 @@ impl AnimState {
             driver: AnimationDriver::new(),
             seen: alloc::vec::Vec::new(),
             anims: alloc::vec::Vec::new(),
+            loops: alloc::vec::Vec::new(),
             last_ns: 0,
         }
     }
@@ -249,6 +262,8 @@ impl AnimState {
             AnimKind::Transition => self.enter(node_id, token, tokens),
             // Effects have no resting change — they fire on a trigger change.
             AnimKind::Effect => {}
+            // Continuous loops are reconciled in `sync_loops`, never here.
+            AnimKind::Loop => {}
         }
     }
 
@@ -270,6 +285,8 @@ impl AnimState {
             }
             AnimKind::Transition => self.enter(node_id, token, tokens),
             AnimKind::Effect => self.start_effect(node_id, token, tokens),
+            // Continuous loops are reconciled in `sync_loops`, never here.
+            AnimKind::Loop => {}
         }
     }
 
@@ -292,6 +309,73 @@ impl AnimState {
         if let Some(i) = self.anims.iter().position(|a| a.node_id == node_id) {
             if self.anims[i].is_identity() {
                 self.anims.swap_remove(i);
+            }
+        }
+    }
+
+    /// A slow, smooth (over-damped) breathe spring — a calm ~1s approach with
+    /// no overshoot, so the loop reads as a gentle pulse, not a bounce.
+    fn breathe_config() -> SpringConfig {
+        SpringConfig { stiffness: 18.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 }
+    }
+
+    /// (Re)start a breathe half-cycle for `node_id`: spring the opacity from its
+    /// current value toward the OPPOSITE endpoint (dim when currently bright,
+    /// bright when currently dim). Alloc-free (`spring_to` carries no Vec).
+    fn start_breathe(&mut self, node_id: usize) {
+        let cur = self.cur(node_id, AnimProp::Opacity);
+        let target = if cur > BREATHE_MID { BREATHE_DIM } else { BREATHE_BRIGHT };
+        self.driver.spring_to(
+            LayerId(node_id as u64),
+            AnimProp::Opacity,
+            cur,
+            target,
+            Self::breathe_config(),
+        );
+    }
+
+    /// Reconcile the continuous-loop set with the freshly-emitted `Loop`
+    /// intents: forget nodes gone from the tree (cancel + restore to full
+    /// opacity) and start a breathe for each newly-seen looping widget.
+    fn sync_loops(&mut self, present: &[(usize, AnimIntent)]) {
+        let is_present_loop = |n: usize| {
+            present.iter().any(|(pn, pi)| *pn == n && pi.kind == AnimKind::Loop)
+        };
+        // Drop gone loops: cancel the spring, reset to bright, prune the slot.
+        let mut i = 0;
+        while i < self.loops.len() {
+            let n = self.loops[i];
+            if is_present_loop(n) {
+                i += 1;
+            } else {
+                self.driver.cancel(LayerId(n as u64), AnimProp::Opacity);
+                self.set_prop(n, AnimProp::Opacity, BREATHE_BRIGHT);
+                self.prune_identity(n);
+                self.loops.swap_remove(i);
+            }
+        }
+        // Start newly-seen loops.
+        for &(node_id, intent) in present {
+            if intent.kind != AnimKind::Loop || self.loops.contains(&node_id) {
+                continue;
+            }
+            if self.loops.len() >= MAX_NODE_ANIMS {
+                break;
+            }
+            self.loops.push(node_id);
+            self.start_breathe(node_id);
+        }
+    }
+
+    /// Keep every breathe loop alive: a node whose opacity spring has converged
+    /// re-fires toward the opposite endpoint. Called each frame pulse after the
+    /// driver tick — the driver is never idle while a loop exists, so the pulse
+    /// stays armed. Alloc-free.
+    fn tick_loops(&mut self) {
+        for idx in 0..self.loops.len() {
+            let node_id = self.loops[idx];
+            if !self.driver.is_active(LayerId(node_id as u64), AnimProp::Opacity) {
+                self.start_breathe(node_id);
             }
         }
     }
@@ -324,6 +408,10 @@ impl super::DslApp {
         // the idle→active edge — a mid-flight driver already tracks dt.
         let was_idle = self.anim.driver.active_count() == 0;
         for &(node_id, intent) in present {
+            // Continuous kit-widget loops are reconciled below (not value-diffed).
+            if intent.kind == AnimKind::Loop {
+                continue;
+            }
             let Some(token) = MotionToken::from_id(intent.token) else {
                 continue;
             };
@@ -337,8 +425,12 @@ impl super::DslApp {
         }
         // Nodes removed from the tree: forget them (no exit motion in the
         // immediate-mode model — an exit needs the node kept alive, Track C).
-        self.anim.seen.retain(|(id, _)| present.iter().any(|(p, _)| p == id));
+        self.anim.seen.retain(|(id, _)| {
+            present.iter().any(|(p, i)| p == id && i.kind != AnimKind::Loop)
+        });
         self.anim.anims.retain(|a| present.iter().any(|(p, _)| *p == a.node_id));
+        // Continuous loops (inherently-animated widgets): start new, drop gone.
+        self.anim.sync_loops(present);
         // Arm the clock on the idle→active edge (see `was_idle` above).
         if was_idle && self.anim.driver.active_count() > 0 {
             self.anim.driver.reset_clock(nsec_now());
@@ -350,16 +442,13 @@ impl super::DslApp {
     /// Returns whether anything changed (the caller repaints + re-arms the
     /// pulse while [`anim_active`](Self::anim_active)). Allocation-free.
     pub(super) fn anim_tick(&mut self) -> bool {
-        if self.anim.driver.active_count() == 0 {
+        if self.anim.driver.active_count() == 0 && self.anim.loops.is_empty() {
             return false;
         }
         let now = nsec_now();
         let mut updates = [SceneUpdate::default(); MAX_NODE_ANIMS * 2];
         let count = self.anim.driver.tick_into(now, &mut updates);
         self.anim.last_ns = now;
-        if count == 0 {
-            return false;
-        }
         for u in &updates[..count] {
             let node_id = u.layer_id.0 as usize;
             self.anim.set_prop(node_id, u.property, u.value);
@@ -368,13 +457,16 @@ impl super::DslApp {
                 self.anim.prune_identity(node_id);
             }
         }
-        true
+        // Re-fire any breathe loop whose spring has converged, so it never stops.
+        self.anim.tick_loops();
+        count > 0
     }
 
-    /// Whether any DSL animation is still interpolating (keeps the compositor
-    /// frame pulse armed, exactly like `momentum_active` for scroll).
+    /// Whether any DSL animation is still interpolating OR a continuous widget
+    /// loop is live — keeps the compositor frame pulse armed, exactly like
+    /// `momentum_active` for scroll.
     pub(super) fn anim_active(&self) -> bool {
-        self.anim.driver.active_count() > 0
+        self.anim.driver.active_count() > 0 || !self.anim.loops.is_empty()
     }
 
     /// Copy the current per-node transforms into `out` for the painter; returns

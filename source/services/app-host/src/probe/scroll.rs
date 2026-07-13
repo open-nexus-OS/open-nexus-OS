@@ -39,24 +39,47 @@ impl super::DslApp {
     /// [`Self::scroll_region`] + the DECLARED axis (from the container
     /// box's `Overflow::Scroll(axis)` — the `.scroll(...)` author decides
     /// what scrolls; content shape never guesses it).
+    ///
+    /// GATED on an actual `Overflow::Scroll` container: keying on "any box
+    /// with a `clip_rect`" misdetected pages whose WIDGETS clip internally
+    /// (the Skeleton's shimmer band is an `Overflow::Hidden` stack) as
+    /// scrollable — which silently flipped them onto the BANDED
+    /// compositor-scroll surface path (`render_band`, windowd-owned wheel)
+    /// with a bogus 16-row "viewport". The viewport is the scroll
+    /// container's own stamped clip; content extents count only boxes
+    /// clipped WITHIN it (a widget's internal clip elsewhere is not scroll
+    /// content).
     pub(super) fn scroll_region_axis(
         &self,
     ) -> Option<((i32, i32, i32, i32), i32, i32, nexus_layout_types::ScrollAxis)> {
-        let mut clip: Option<(i32, i32, i32, i32)> = None;
-        let mut axis = nexus_layout_types::ScrollAxis::Vertical;
+        let (container, axis) = self.layout.boxes.iter().find_map(|b| {
+            if let nexus_layout_types::Overflow::Scroll(a) = b.overflow {
+                Some((b, a))
+            } else {
+                None
+            }
+        })?;
+        // The engine stamps the container's own clip (`Overflow::Scroll` is a
+        // clipping overflow); the padded rect is the fallback contract.
+        let clip = match container.clip_rect {
+            Some(c) => (c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0),
+            None => (
+                container.rect.x.0,
+                container.rect.y.0,
+                container.rect.x.0 + container.rect.width.0,
+                container.rect.y.0 + container.rect.height.0,
+            ),
+        };
         let (mut content_r, mut content_b) = (0i32, 0i32);
         for b in &self.layout.boxes {
-            if let nexus_layout_types::Overflow::Scroll(a) = b.overflow {
-                axis = a;
-            }
             let Some(c) = b.clip_rect else { continue };
-            if clip.is_none() {
-                clip = Some((c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0));
+            let cr = (c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0);
+            if cr.0 < clip.0 || cr.1 < clip.1 || cr.2 > clip.2 || cr.3 > clip.3 {
+                continue; // clipped by a widget elsewhere, not scroll content
             }
             content_r = content_r.max(b.rect.x.0 + b.rect.width.0);
             content_b = content_b.max(b.rect.y.0 + b.rect.height.0);
         }
-        let clip = clip?;
         Some((clip, content_r - clip.0, content_b - clip.1, axis))
     }
 

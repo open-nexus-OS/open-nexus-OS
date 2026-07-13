@@ -109,3 +109,17 @@ fn idle_gap_without_reset_jumps() {
     assert!((updates[0].value - 1.0).abs() < 0.001, "jumped to end: {}", updates[0].value);
     assert_eq!(d.active_count(), 0, "completed in one tick");
 }
+
+#[test]
+fn is_active_tracks_layer_prop() {
+    // Continuous loops (breathing widgets) re-fire when their spring converges;
+    // is_active is how the host detects the convergence per (layer, prop).
+    let mut d = AnimationDriver::new();
+    assert!(!d.is_active(LayerId(7), AnimProp::Opacity));
+    d.spring_to(LayerId(7), AnimProp::Opacity, 1.0, 0.4, SpringConfig::default());
+    assert!(d.is_active(LayerId(7), AnimProp::Opacity));
+    assert!(!d.is_active(LayerId(7), AnimProp::ScaleX)); // different prop
+    assert!(!d.is_active(LayerId(8), AnimProp::Opacity)); // different layer
+    d.cancel(LayerId(7), AnimProp::Opacity);
+    assert!(!d.is_active(LayerId(7), AnimProp::Opacity));
+}

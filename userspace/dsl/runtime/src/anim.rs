@@ -23,6 +23,15 @@ pub enum AnimKind {
     Transition,
     /// `.effect(token, trigger: expr)` — bounded attention effect on change.
     Effect,
+    /// A CONTINUOUS, self-sustaining loop — NOT from a modifier: emitted by the
+    /// runtime for an inherently-animated KIT WIDGET (e.g. a `Skeleton` loading
+    /// placeholder) whose resting frame should breathe until it leaves the tree.
+    /// The host runs it as a paint-time transform loop (no per-frame re-emit —
+    /// the app-host bump heap never frees), the same `AnimationDriver` + per-node
+    /// transform path the modifiers use. Widgets whose motion is spoke rotation
+    /// or a shimmer sweep (paths / clipped translate) are deferred to the
+    /// compositor layer transform (Track C), not this CPU paint loop.
+    Loop,
 }
 
 /// One animation stamped on a node. `Copy`/`Eq` so the host can diff intents
