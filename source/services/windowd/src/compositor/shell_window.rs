@@ -42,103 +42,14 @@ use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandE
 /// soft drop shadow is restored from the retained plane on move/close.
 const SHADOW_HALO_PAD: u32 = 24;
 
-// ── Shared window chrome: title bar tint + title text + close "x" ──
-// One title-bar renderer for every ShellWindow so the chat and search windows
-// share the exact same look (the user's "same close x / same frame" goal). The
-// glass body + corners + shadow come from the composite; this paints the atlas.
-// Titles render with the 13px runtime face (TASK-0070 Phase 6).
-const TITLE_FONT: crate::text::FontSize = crate::text::FontSize::Small;
-/// Title-bar background tint (slightly lighter than the body for separation),
-/// hover highlight behind the close zone, and the chrome text colour. Straight
-/// alpha — gpud's layer blend composites these over the blurred backdrop.
-// The title bar is OPAQUE (theme `surface_alt`, alpha 255): composited FIXED on
-// top of the scrollable window body, it must fully occlude scrolled rows passing
-// underneath — a translucent bar would let them bleed through. `HOVER_TINT[3]` is
-// the SSOT for the button hover-cell alpha (the theme swaps only the RGB).
-const HOVER_TINT: [u8; 4] = [120, 110, 100, 96];
-
-/// Draw one window-local row of the shared title bar: the header tint across
-/// the bar, the title on the left, and the right-aligned window controls
-/// `[– □ ×]` (TASK-0070 Phase 2), the hovered one highlighted. Button zone
-/// geometry comes from the SAME host-tested [`Frame`] math the hit-tester uses
-/// (`Frame::button_local_x`), so hover/press and pixels can never disagree.
-/// `local_y` is window-local; rows `>= title_h` are left untouched (the body).
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
-/// Title-bar wash alpha over the blurred backdrop (frosted chrome, not a slab).
-const TITLE_BAR_TINT_ALPHA: u8 = 150;
-
-pub(crate) fn draw_title_bar_row(
-    local_y: u32,
-    row: &mut [u8],
-    w: u32,
-    title: &str,
-    title_h: u32,
-    close_w: u32,
-    hover: Option<TitleButton>,
-    radius: u32,
-    tk: &crate::theme::ThemeTokens,
-) -> Result<(), WindowdError> {
-    if local_y >= title_h {
-        return Ok(());
-    }
-    // Title bar is part of the frosted material — a TRANSLUCENT wash over the
-    // blurred backdrop, not an opaque strip (the opaque `surface_alt` fill made
-    // the whole bar read as a solid slab and hid the gaussian entirely). Text +
-    // button glyphs use fg; the button hover cell uses accent (TASK-0072 P9).
-    let hover_col = crate::theme::with_alpha(tk.accent, HOVER_TINT[3]);
-    let glyph_tint = Some(crate::theme::rgb3(tk.fg));
-    write_tint_span(row, 0, w, crate::theme::with_alpha(tk.surface_alt, TITLE_BAR_TINT_ALPHA));
-    let text_top = title_h.saturating_sub(crate::text::line_height(TITLE_FONT)) / 2;
-    crate::text::draw_text_row(
-        row,
-        local_y,
-        text_top as i32,
-        14,
-        w,
-        title.chars(),
-        TITLE_FONT,
-        tk.fg,
-    );
-    // Zone geometry SSOT: a zero-positioned frame gives the window-local x.
-    let zones = Frame { x: 0, y: 0, w, h: title_h, title_h, close_w };
-    for (button, icon, dim) in [
-        (
-            TitleButton::Minimize,
-            crate::assets::MINIMIZE_ICON_BGRA,
-            crate::assets::MINIMIZE_ICON_DIM,
-        ),
-        (
-            TitleButton::Maximize,
-            crate::assets::MAXIMIZE_ICON_BGRA,
-            crate::assets::MAXIMIZE_ICON_DIM,
-        ),
-        (TitleButton::Close, crate::assets::CLOSE_ICON_BGRA, crate::assets::CLOSE_ICON_DIM),
-    ] {
-        let bx = zones.button_local_x(button);
-        if hover == Some(button) {
-            write_tint_span(row, bx, bx + close_w, hover_col);
-        }
-        // Real Lucide glyphs (monochrome, straight-alpha) recolored to the theme
-        // fg and centred in each zone.
-        let cy0 = title_h.saturating_sub(dim) / 2;
-        if local_y >= cy0 && local_y < cy0 + dim {
-            let cix = bx + close_w.saturating_sub(dim) / 2;
-            crate::assets::blend_icon_row(row, cix, icon, dim, local_y - cy0, 255, glyph_tint);
-        }
-    }
-    // Round the TOP corners at the surface level: clear (make transparent) the
-    // pixels of the top-left/top-right `radius`×`radius` squares that fall OUTSIDE
-    // the corner arc. The window body underneath is rounded by the composite SDF
-    // with the same radius, so the cleared corners reveal it — giving rounded top
-    // corners with a straight bottom edge (the title bar is composited square).
-    round_top_corners(local_y, row, w, radius);
-    Ok(())
-}
+// ── Window chrome: P3.2 windows-as-widgets — the title bar renders FROM the
+// `ui/widgets/window` chrome via `runtime/chrome_widget.rs` (widget → layout →
+// nexus-scene-raster into ONE shared cache). The hand-rasterizer that lived
+// here is retired; only the corner mask below remains (shared by the cache).
 
 /// Clear the out-of-arc pixels of the two TOP corners (transparent), so a
 /// square-composited title bar still presents rounded top corners.
-fn round_top_corners(local_y: u32, row: &mut [u8], w: u32, radius: u32) {
+pub(crate) fn round_top_corners(local_y: u32, row: &mut [u8], w: u32, radius: u32) {
     if radius == 0 || local_y >= radius {
         return;
     }

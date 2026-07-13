@@ -430,6 +430,9 @@ impl DisplayServerRuntime {
                     // makes everything vanish" bug). The user-close path (× button)
                     // calls `close_app_window` directly, not this.
                     self.release_app_surface_band(idx);
+                    // Rows freed: occluded windows waiting on occlusion
+                    // residency may re-mount now (no-op under fullscreen).
+                    self.ensure_visible_bands();
                 }
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface destroyed id={surface_id}"

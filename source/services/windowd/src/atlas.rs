@@ -40,10 +40,14 @@ pub(crate) const ATLAS_WIDTH: u32 = 1280;
 /// First atlas row (immediately after the four display planes, each 800 rows).
 pub(crate) const ATLAS_ROW_OFFSET: u32 = 3200;
 /// Atlas height in rows.
-pub(crate) const ATLAS_ROWS: u32 = 4000;
+// 6400 rows: a real desktop needs desktop band (800) + one resident scroll
+// band (chat ≈ 2568) + 3 floating windows (+ blur bands) + dock + fullscreen
+// round-trips. 4000 starved on the fullscreen re-create with 4 windows open
+// (`FAIL atlas need=1280x800 rows_remaining=24`).
+pub(crate) const ATLAS_ROWS: u32 = 6400;
 /// Total framebuffer-resource height including the atlas. windowd sizes the VMO
 /// to this; gpud's `RESOURCE_HEIGHT` MUST match (separate crate, no shared dep).
-pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 7200
+pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 9600
 
 /// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,7 +234,7 @@ mod tests {
 
     #[test]
     fn resource_height_matches_layout() {
-        assert_eq!(RESOURCE_HEIGHT, 7200);
+        assert_eq!(RESOURCE_HEIGHT, 9600);
         assert_eq!(ATLAS_ROW_OFFSET, 4 * 800);
     }
 

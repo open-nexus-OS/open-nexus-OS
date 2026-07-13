@@ -132,6 +132,26 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// Re-mount every z-visible, non-minimized app window that lost its atlas
+    /// band to occlusion residency (fullscreen released it) — idempotent, and
+    /// a no-op while a fullscreen window still covers the stack. Called on
+    /// leave-fullscreen and after band releases (rows may have freed up).
+    pub(super) fn ensure_visible_bands(&mut self) {
+        if self.windows.fullscreen_active().is_some() {
+            return; // still covered — occluded windows stay bandless
+        }
+        for idx in 0..self.apps.len() {
+            let wid = crate::window_scene::WindowId::App(idx as u8);
+            if self.apps[idx].surface_id.is_some()
+                && self.apps[idx].win.visible
+                && self.windows.is_visible(wid)
+                && !self.apps[idx].win.is_mounted()
+            {
+                let _ = self.open_app_window(idx);
+            }
+        }
+    }
+
     /// Free the app window's atlas band(s) WITHOUT touching window state
     /// (visibility, fullscreen, position). Used by the resize/fullscreen
     /// re-create (protocol SURFACE_DESTROY): the band must be reclaimed before
@@ -221,6 +241,11 @@ impl DisplayServerRuntime {
         // the title chrome and untouched body rows keep their band bytes (a
         // 16-row animation present costs 16 row-copies, not a full window +
         // chrome re-raster at animation rate).
+        if title_h > 0 {
+            // Rebuild the widget chrome raster only if (w/hover/theme/radius)
+            // changed — bounded blits skip title rows entirely.
+            self.ensure_chrome_cache(win_w, title_h, title_hover, corner_radius);
+        }
         let (ly_start, ly_end) = if scrollable {
             (0, blit_rows)
         } else {
@@ -237,25 +262,15 @@ impl DisplayServerRuntime {
             let row = &mut self.band_scratch[0..stride];
             row[..row_bytes].fill(0);
             if ly < title_h {
-                // Chrome (bar + title text + real icon controls `[– □ ×]` +
-                // hover) is RASTERIZED into the band here, only when the band is
-                // dirty (create/resize/hover/theme) — NOT per frame. It then
-                // composites as ONE cached surface (`composite_glass`). This is
-                // the glyph/chrome-CACHE pattern: never emit per-glyph vector
-                // tiles every present (that floods gpud's non-freeing heap →
-                // `alloc-fail svc=gpud`, the resize crash). The scene graph
-                // renders this as a Surface (blit), not vector text.
-                crate::compositor::shell_window::draw_title_bar_row(
-                    ly,
-                    row,
-                    win_w,
-                    "App",
-                    title_h,
-                    APP_CLOSE_W,
-                    title_hover,
-                    corner_radius,
-                    tk,
-                )?;
+                // Chrome rows come from the WIDGET raster cache (P3.2
+                // windows-as-widgets, `chrome_widget.rs`): the title bar is
+                // built from `ui/widgets/window` chrome, laid out and painted
+                // by nexus-scene-raster ONCE per chrome-state change — the
+                // blit only memcpys. Never per-glyph work per present (the
+                // chrome-cache pattern; `alloc-fail svc=gpud` history).
+                let src = ly as usize * row_bytes;
+                row[..row_bytes]
+                    .copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
             } else {
                 let body_y = ly - title_h;
                 if body_y < body_limit {
@@ -360,21 +375,15 @@ impl DisplayServerRuntime {
             APP_WIN_RADIUS
         };
         let hover = self.apps[idx].win.title_hover;
-        let tk = self.theme();
+        // P3.2: the overlay renders from the SAME widget chrome cache, at the
+        // overlay width (re-rasters only on a width/hover/theme change).
+        self.ensure_chrome_cache(w, title_h, hover, corner_radius);
+        let row_bytes = w as usize * 4;
         for ly in 0..title_h.min(surface.height) {
             let row = &mut self.band_scratch[0..stride];
-            row[..w as usize * 4].fill(0);
-            crate::compositor::shell_window::draw_title_bar_row(
-                ly,
-                row,
-                w,
-                "App",
-                title_h,
-                APP_CLOSE_W,
-                hover,
-                corner_radius,
-                tk,
-            )?;
+            let src = ly as usize * row_bytes;
+            row[..row_bytes]
+                .copy_from_slice(&self.chrome_cache.buf[src..src + row_bytes]);
             let dst = (surface.abs_row + ly) as usize * stride + surface.x as usize * 4;
             vmo_write(handle, dst, &self.band_scratch[..w as usize * 4])
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;

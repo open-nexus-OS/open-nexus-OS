@@ -111,6 +111,13 @@ migrate the rest → delete the old → commit.
 - **P3.2 — window chrome as the `Window` widget.** The title bar + controls
   become `window::Window`/`chrome` `LayoutNode`s; windowd stops drawing title
   rows by hand. Still composited by `build_scene_cb_into` for now.
+  **Status 2026-07-13: DONE** — `runtime/chrome_widget.rs` renders the bar from
+  `WindowControls` (+ a `gap()` builder so the 30 px buttons center in the
+  `Frame`'s 40 px hit zones) + a text title through `nexus-layout` +
+  `nexus-scene-raster` into ONE shared `ChromeCache` (keyed w/hover/theme/
+  radius; band blits memcpy rows). The hand rasterizer `draw_title_bar_row`
+  is deleted (`round_top_corners` survives as the cache's corner mask).
+  Boot-proven with 4 windows + hover + fullscreen round-trips.
 - **P4.0 — the `LayoutNode` → `SceneNode` bridge (the enabler).** Today
   `scene_graph` is populated **by hand** (`systemui_shell` calls `insert_node` +
   `RenderPrimitive` per element); there is **no** bridge from a laid-out widget

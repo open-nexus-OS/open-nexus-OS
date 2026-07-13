@@ -41,8 +41,12 @@ nexus-display-proto = { path = "../../libs/nexus-display-proto" }
 nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 nexus-shell-desktop = { path = "../../../userspace/ui/shells/desktop" }
 nexus-widget-window = { path = "../../../userspace/ui/widgets/window" }
+# P3.2 windows-as-widgets: the WM title bar renders FROM the widget chrome —
+# scene-raster is the promoted painter SSOT, widget-text the title node.
+nexus-scene-raster = { path = "../../../userspace/ui/scene_raster" }
+nexus-widget-text = { path = "../../../userspace/ui/widgets/text" }
 nexus-theme-tokens = { path = "../../../userspace/ui/theme-tokens" }
-nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false }
+nexus-text-baked = { path = "../../../userspace/ui/text-baked", default-features = false, features = ["layout"] }
 # RFC-0065 / ADR-0037 step 1: the search window's content (word list + filter) is
 
 [build-dependencies]

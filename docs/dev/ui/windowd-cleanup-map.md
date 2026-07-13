@@ -51,7 +51,7 @@ der Atlas ist ein On-Demand-Pool (Desktop-Band + Floating + Dock).
 
 | Datei | Ersetzt durch | Status |
 |---|---|---|
-| `compositor/shell_window.rs` | Fenster-Chrome = `ui/widgets/window` + Scene-Graph; Compositing = nexus-gfx-Layer | **BLEIBT vorerst** — trägt das Floating-App-Fenster (Frame/Titel/Resize); Retirement = Widget-Promotion (#23 + windows-as-widgets) |
+| `compositor/shell_window.rs` | Fenster-Chrome = `ui/widgets/window` + Scene-Graph; Compositing = nexus-gfx-Layer | **P3.2 AUSGEFÜHRT 2026-07-13**: Chrome-PIXEL kommen aus dem Widget (`runtime/chrome_widget.rs`), Handraster gelöscht; Geometrie war schon `window::frame` (P3.1). Rest der Datei = Mount-/Glass-State; volles Retirement = P4 Scene-Bridge |
 | `runtime/app_window.rs` (Chrome-/Sonderfall-Teile) | generisches Client-Surface-Handling | Teilweise (schrumpft weiter mit shell_window-Retirement) |
 | `window_scene.rs` Chat/Search/Settings-Varianten | Surface-Ids + Rollen (voll deklarativ) | Varianten ungenutzt; Enum-Retirement mit Multi-Window-Generalisierung |
 

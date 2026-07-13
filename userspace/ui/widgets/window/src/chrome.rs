@@ -87,16 +87,32 @@ impl WindowButton {
 }
 
 /// The minimise / maximise / close cluster.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WindowControls {
     minimize: Option<&'static str>,
     maximize: Option<&'static str>,
     close: Option<&'static str>,
+    gap: i32,
+}
+
+impl Default for WindowControls {
+    fn default() -> Self {
+        Self { minimize: None, maximize: None, close: None, gap: 4 }
+    }
 }
 
 impl WindowControls {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Gap between the buttons (px). A compositor rendering this cluster into
+    /// a WM title bar aligns the visuals with its `Frame` hit zones by picking
+    /// the gap so each button centers in its zone (e.g. 40 px zones + 30 px
+    /// buttons ⇒ gap 10).
+    pub fn gap(mut self, gap: i32) -> Self {
+        self.gap = gap.max(0);
+        self
     }
     pub fn minimize(mut self, id: &'static str) -> Self {
         self.minimize = Some(id);
@@ -156,7 +172,7 @@ impl WindowControls {
             Stack {
                 id: None,
                 direction: Direction::Row,
-                gap: FxPx::new(4),
+                gap: FxPx::new(self.gap),
                 padding: EdgeInsets::zero(),
                 align: Align::Center,
                 justify: Justify::End,

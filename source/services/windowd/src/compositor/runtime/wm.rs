@@ -62,6 +62,12 @@ impl DisplayServerRuntime {
         // hold the minimized window — re-blur them (see close_app_window).
         if let WindowId::App(i) = id {
             self.invalidate_overlapping_blur(vacated, i as usize);
+            // Atlas residency (the HarmonyOS model): only VISIBLE windows hold
+            // atlas rows. A minimized window frees its content+blur bands;
+            // restore re-allocates and re-blits from the client VMO. Four open
+            // windows otherwise starved the pool (`surface open FAIL atlas
+            // need=1280x800 rows_remaining=24` on the fullscreen re-create).
+            self.release_app_surface_band(i as usize);
         }
         self.update_dock();
     }
@@ -75,6 +81,13 @@ impl DisplayServerRuntime {
         self.windows.restore(id);
         if let Some(slot) = self.app_slot_mut(id) {
             slot.win.blur_valid = false;
+        }
+        // Atlas residency: the minimized window released its bands — re-mount
+        // (alloc + full re-blit from the client VMO) via the open path.
+        if let WindowId::App(i) = id {
+            if !self.open_app_window(i as usize) {
+                let _ = debug_println("windowd: FAIL restore band alloc");
+            }
         }
         let _ = debug_println(&alloc::format!("windowd: restore id={}", Self::window_name(id)));
         let rect = self.window_damage_rect(id);
@@ -103,6 +116,10 @@ impl DisplayServerRuntime {
             self.apps[idx].win.leave_fullscreen();
             self.apps[idx].win.title_h = self.app_title_h(idx);
             self.windows.set_fullscreen(id, false);
+            // The fullscreen band shrinks on the re-create; the occluded
+            // windows re-mount as soon as rows free up (retried below and on
+            // every band release).
+            self.ensure_visible_bands();
             let _ =
                 debug_println(&alloc::format!("windowd: unfullscreen id={}", Self::window_name(id)));
         } else {
@@ -112,6 +129,15 @@ impl DisplayServerRuntime {
             // floating window). The client re-render owns the pixels.
             self.apps[idx].win.enter_fullscreen(mode_w, mode_h);
             self.windows.set_fullscreen(id, true);
+            // Occlusion residency: fullscreen COVERS every other window —
+            // release their atlas bands so the display-sized band can mount
+            // (four open windows starved the pool: `FAIL atlas need=1280x800`).
+            // Leaving fullscreen re-mounts them (`ensure_visible_bands`).
+            for j in 0..self.apps.len() {
+                if j != idx && self.apps[j].win.visible && self.apps[j].win.is_mounted() {
+                    self.release_app_surface_band(j);
+                }
+            }
             let _ =
                 debug_println(&alloc::format!("windowd: fullscreen id={}", Self::window_name(id)));
         }

@@ -83,6 +83,7 @@ const ANIMATION_UPDATE_CAP: usize = 8;
 // file (TASK-0063 modularization). Child modules of `runtime` so they retain
 // access to the struct's private fields without weakening encapsulation.
 mod anim;
+mod chrome_widget;
 mod cursor;
 mod gpud;
 mod marker_emit;
@@ -534,6 +535,9 @@ pub(crate) struct DisplayServerRuntime {
     /// One-time proof marker: the first drag move composited as a pure GPU
     /// transform (Track C1 — no CPU Plane-1 recomposite, no band re-blit).
     drag_transform_marker: bool,
+    /// P3.2 windows-as-widgets: the ONE shared widget-rendered title-bar
+    /// raster (see `chrome_widget.rs`).
+    chrome_cache: chrome_widget::ChromeCache,
     /// Bounded S1 rate diagnostics: wheel deltas staged from inputd pushes.
     wheel_stage_count: u32,
     /// One-time proof marker latch for the hover chain.
@@ -829,6 +833,7 @@ impl DisplayServerRuntime {
             hover_app_idx: 0,
             wheel_route_count: 0,
             drag_transform_marker: false,
+            chrome_cache: chrome_widget::ChromeCache::new(),
             wheel_stage_count: 0,
             hover_marker_emitted: false,
             hover_last_move_ns: 0,
