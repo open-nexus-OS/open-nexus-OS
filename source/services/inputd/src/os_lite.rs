@@ -16,7 +16,8 @@ use hid::HidEvent;
 
 use hidrawd::PointerSource;
 use input_live_protocol::{
-    decode_push_hid_batch, encode_status, encode_update_visible_state, encode_visible_state_frame,
+    decode_push_hid_batch_reusing, encode_status, encode_update_visible_state,
+    encode_visible_state_frame,
     frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
@@ -167,6 +168,12 @@ struct LiveRouteRuntime {
     /// a fresh per-batch `Vec` leaked ~256B/batch on the non-freeing bump
     /// heap and killed input after ~1 min of mousing: `alloc-fail svc=inputd`).
     hid_events_scratch: Vec<HidEvent>,
+    /// Recycled WIRE-event decode buffer (same recycling contract one hop
+    /// earlier): `decode_push_hid_batch` allocated a fresh `Vec<WireHidEvent>`
+    /// per received push frame (~54 B per mouse batch at up to 250 push/s) —
+    /// the leak that exhausted inputd's heap in ~30 s of active input and
+    /// killed the whole chain ("Absturz").
+    wire_events_scratch: Vec<input_live_protocol::WireHidEvent>,
     windowd_push_ok_emitted: bool,
     windowd_route_fallback_emitted: bool,
     windowd_push_fail_emitted: bool,
@@ -250,6 +257,7 @@ impl LiveRouteRuntime {
             push_rate_count: 0,
             push_rate_window_ns: 0,
             hid_events_scratch: Vec::new(),
+            wire_events_scratch: Vec::new(),
             windowd_push_ok_emitted: false,
             windowd_route_fallback_emitted: false,
             windowd_push_fail_emitted: false,
@@ -275,16 +283,26 @@ impl LiveRouteRuntime {
                 let _ = nexus_abi::trace_line("inputd: chain I3 wire recv from hidrawd");
                 self.hid_batch_recv_debug_emitted = true;
             }
-            let Some(batch) = decode_push_hid_batch(frame) else {
-                self.chain.frame_decode_malformed =
-                    self.chain.frame_decode_malformed.saturating_add(1);
-                self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
-                // Input-chain hop I4 fail: the wire batch could not be decoded.
-                if !self.chain_normalize_fail_emitted {
-                    let _ = debug_println("inputd: chain I4 normalize FAIL (malformed wire batch)");
-                    self.chain_normalize_fail_emitted = true;
+            let batch = match decode_push_hid_batch_reusing(
+                frame,
+                core::mem::take(&mut self.wire_events_scratch),
+            ) {
+                Ok(batch) => batch,
+                Err(scratch) => {
+                    // Malformed: recover the scratch capacity, then reject.
+                    self.wire_events_scratch = scratch;
+                    self.chain.frame_decode_malformed =
+                        self.chain.frame_decode_malformed.saturating_add(1);
+                    self.chain.hid_malformed = self.chain.hid_malformed.saturating_add(1);
+                    // Input-chain hop I4 fail: the wire batch didn't decode.
+                    if !self.chain_normalize_fail_emitted {
+                        let _ = debug_println(
+                            "inputd: chain I4 normalize FAIL (malformed wire batch)",
+                        );
+                        self.chain_normalize_fail_emitted = true;
+                    }
+                    return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
                 }
-                return encode_status(OP_PUSH_HID_BATCH, STATUS_MALFORMED);
             };
             // Input-chain hop I4: the wire batch decoded into normalized events.
             if !self.chain_normalize_ok_emitted {
@@ -315,11 +333,18 @@ impl LiveRouteRuntime {
         }
         let batch_pointer_source = batch.pointer_source;
         let batch_normalized_event_count = batch.normalized_event_count;
-        let hid_batch = match decode_wire_batch_reusing(
-            batch,
+        let decoded = decode_wire_batch_reusing(
+            &batch,
             self.input.pointer_transform(),
             &mut self.hid_events_scratch,
-        ) {
+        );
+        // The wire events are consumed by the decode above — recycle their
+        // buffer NOW (single recovery point, covers the reject early-return
+        // too). This closes the LAST per-batch allocation in the chain.
+        let mut batch = batch;
+        batch.events.clear();
+        self.wire_events_scratch = core::mem::take(&mut batch.events);
+        let hid_batch = match decoded {
             Ok(batch) => batch,
             Err(reject) => {
                 self.chain.record_wire_reject(reject);

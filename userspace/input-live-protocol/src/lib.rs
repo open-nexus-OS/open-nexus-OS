@@ -223,12 +223,27 @@ pub fn encode_push_hid_batch_into(
 }
 
 pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
+    decode_push_hid_batch_reusing(frame, Vec::new()).ok()
+}
+
+/// [`decode_push_hid_batch`] with a RECYCLED events buffer: the caller hands
+/// in the `Vec` recovered from the previous batch (`WireHidBatch.events`
+/// after use) and its capacity is reused. The live input loop decodes every
+/// pointer push on a NON-FREEING bump allocator — the plain decode's fresh
+/// per-frame `Vec` (~54 B per mouse batch at up to 250 push/s) exhausted
+/// inputd's 384 KB heap within ~30 s of active input (`alloc-fail
+/// svc=inputd` → the whole input chain died). On a malformed frame the
+/// scratch comes back in `Err` so its capacity survives the reject path too.
+pub fn decode_push_hid_batch_reusing(
+    frame: &[u8],
+    mut events: Vec<WireHidEvent>,
+) -> Result<WireHidBatch, Vec<WireHidEvent>> {
     if frame.len() < HEADER_LEN + 4 || !frame_has_op(frame, OP_PUSH_HID_BATCH) {
-        return None;
+        return Err(events);
     }
     let event_count = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]) as usize;
     if frame.len() != HEADER_LEN + 16 + event_count * EVENT_LEN {
-        return None;
+        return Err(events);
     }
     let device_kind = frame[8];
     let device_id = u16::from_le_bytes([frame[9], frame[10]]);
@@ -237,7 +252,8 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
     let abs_max_y = i32::from_le_bytes([frame[16], frame[17], frame[18], frame[19]]);
     let raw_event_count = u16::from_le_bytes([frame[20], frame[21]]);
     let normalized_event_count = u16::from_le_bytes([frame[22], frame[23]]);
-    let mut events = Vec::with_capacity(event_count);
+    events.clear();
+    events.reserve(event_count);
     let mut offset = 24;
     for _ in 0..event_count {
         let kind = frame[offset];
@@ -261,7 +277,7 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
         events.push(WireHidEvent { kind, code, value, timestamp_ns });
         offset += EVENT_LEN;
     }
-    Some(WireHidBatch {
+    Ok(WireHidBatch {
         device_kind,
         device_id,
         pointer_source,
@@ -511,5 +527,51 @@ mod tests {
         let update = encode_update_visible_state(state);
         assert_eq!(decode_visible_state(&update), None);
         assert_eq!(decode_update_visible_state(&update[..update.len() - 1]), None);
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    #[test]
+    fn decode_reusing_recycles_capacity_and_returns_scratch_on_reject() {
+        // The live input loop runs on a non-freeing bump allocator: the
+        // per-frame Vec of the plain decode exhausted inputd's heap under
+        // sustained mouse input. The reusing decode must (a) reuse the passed
+        // buffer's capacity and (b) hand it back on a malformed frame.
+        let batch = WireHidBatch {
+            device_kind: HID_KIND_MOUSE,
+            device_id: 7,
+            pointer_source: POINTER_SOURCE_MOUSE_RELATIVE,
+            abs_max_x: 0,
+            abs_max_y: 0,
+            raw_event_count: 2,
+            normalized_event_count: 2,
+            events: alloc::vec![
+                WireHidEvent { kind: EVENT_KIND_REL, code: 0, value: 3, timestamp_ns: 1 },
+                WireHidEvent { kind: EVENT_KIND_REL, code: 1, value: -2, timestamp_ns: 2 },
+            ],
+        };
+        let frame = encode_push_hid_batch(&batch);
+        // Round 1: decode into a scratch with pre-grown capacity.
+        let scratch: Vec<WireHidEvent> = Vec::with_capacity(16);
+        let cap_before = scratch.capacity();
+        let decoded = decode_push_hid_batch_reusing(&frame, scratch).expect("decodes");
+        assert_eq!(decoded.events.len(), 2);
+        assert!(decoded.events.capacity() >= cap_before, "capacity reused, not shrunk");
+        // Round 2 (the recycling contract): recover the buffer, decode again —
+        // no growth needed (steady-state zero alloc).
+        let mut recovered = decoded.events;
+        recovered.clear();
+        let cap = recovered.capacity();
+        let decoded2 = decode_push_hid_batch_reusing(&frame, recovered).expect("decodes");
+        assert_eq!(decoded2.events.capacity(), cap, "steady state must not reallocate");
+        // Reject path: a malformed frame must return the scratch in Err.
+        let scratch2 = decoded2.events;
+        let cap2 = scratch2.capacity();
+        let err = decode_push_hid_batch_reusing(&[0u8; 4], scratch2)
+            .expect_err("malformed frame rejects");
+        assert_eq!(err.capacity(), cap2, "scratch survives the reject path");
     }
 }

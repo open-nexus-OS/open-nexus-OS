@@ -92,7 +92,7 @@ pub fn decode_wire_batch(
     pointer_transform: PointerTransform,
 ) -> Result<HidBatch, WireBatchReject> {
     let mut events_buf = Vec::new();
-    decode_wire_batch_reusing(batch, pointer_transform, &mut events_buf)
+    decode_wire_batch_reusing(&batch, pointer_transform, &mut events_buf)
 }
 
 /// [`decode_wire_batch`] with a RECYCLED events buffer: the caller passes the
@@ -102,7 +102,7 @@ pub fn decode_wire_batch(
 /// batch and exhausted inputd's heap in under a minute of active input
 /// (`alloc-fail svc=inputd` → dead input chain).
 pub fn decode_wire_batch_reusing(
-    batch: WireHidBatch,
+    batch: &WireHidBatch,
     pointer_transform: PointerTransform,
     events_buf: &mut Vec<HidEvent>,
 ) -> Result<HidBatch, WireBatchReject> {
@@ -131,7 +131,7 @@ pub fn decode_wire_batch_reusing(
     events_buf.clear();
     events_buf.reserve(batch.events.len());
     let events = events_buf;
-    for event in batch.events {
+    for event in batch.events.iter().copied() {
         let timestamp = TimestampNs::new(event.timestamp_ns);
         let hid_event = match event.kind {
             EVENT_KIND_KEY if kind == HidDeviceKind::Keyboard => {
