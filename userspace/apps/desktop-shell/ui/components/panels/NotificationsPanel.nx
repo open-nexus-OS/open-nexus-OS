@@ -1,0 +1,81 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Notifications drop-down (design_handoff_launcher: 330 wide, top left):
+// title + "clear all", a stacked mail card (count badge), then individual
+// notification cards. Demo content (mirrors the handoff's static demo) until
+// a notification service lands.
+
+Component NotificationsPanel {
+    Stack {
+        Stack {
+            Text(@t("panels.notifications")).textSize(sm).fg(onSurface)
+            Spacer
+            Text(@t("panels.clearAll")).textSize(xs).fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        Stack {
+            Stack {
+                Icon { symbol: "message", size: 16 }
+                    .fg(onSurface)
+            }
+            .width(28)
+            .height(28)
+            .bg(accent)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            Stack {
+                Text(@t("panels.mailTitle")).textSize(sm).fg(onSurface)
+                Text(@t("panels.mailBody")).textSize(xs).fg(onSurfaceVariant)
+            }
+            .gap(0)
+            Spacer
+            Stack {
+                Text(@t("panels.mailCount")).textSize(xs).fg(onAccent)
+            }
+            .paddingX(2)
+            .paddingY(1)
+            .bg(accent)
+            .rounded(full)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(3)
+        .material(card)
+        .rounded(lg)
+        Stack {
+            Stack {
+                Icon { symbol: "bell", size: 16 }
+                    .fg(onSurface)
+            }
+            .width(28)
+            .height(28)
+            .material(subtle)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            Stack {
+                Text(@t("panels.noteTitle")).textSize(sm).fg(onSurface)
+                Text(@t("panels.noteBody")).textSize(xs).fg(onSurfaceVariant)
+            }
+            .gap(0)
+            Spacer
+            Text(@t("panels.noteTime")).textSize(xs).fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(3)
+        .material(card)
+        .rounded(lg)
+    }
+    .width(330)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}

@@ -103,6 +103,12 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // container as the page's scroll viewport (overflow clipped; the host
     // applies a paint-time offset — pretext: scrolling never re-layouts).
     ModifierSpec { name: "scroll", args: &[ModArg::Token], class: FieldClass::Layout },
+    // -- overlay (layout, APPEND-ONLY id): `.overlay()` lifts THIS container
+    // OUT OF FLOW as a full-bleed layer over its parent's content (drop-down
+    // panels, dialogs — design_handoff_launcher). Anchor inside the layer
+    // with ordinary flex (rows/Spacer/justify); paint and hit-testing prefer
+    // the layer naturally (later node ids win).
+    ModifierSpec { name: "overlay", args: &[], class: FieldClass::Layout },
 ];
 
 #[must_use]

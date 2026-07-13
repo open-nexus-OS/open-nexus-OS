@@ -1,0 +1,58 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Control Center drop-down (design_handoff_launcher: 328 wide, top
+// right, panel glass — the touch shell's single hub). Appearance + windowing
+// mode are REAL (windowd presentation authority); brightness/volume are
+// local UI state until their services land; connectivity chips are honest
+// disabled placeholders. The `/control` page remains as the deep-link twin.
+
+Component ControlCenterPanel {
+    Stack {
+        Text(@t("control.appearance")).textSize(sm).fg(onSurfaceVariant)
+        Stack {
+            Button { label: @t("control.light") }
+            on Tap -> dispatch(SetTheme("light"))
+            Button { label: @t("control.dark") }
+            on Tap -> dispatch(SetTheme("dark"))
+        }
+        .direction(row)
+        .gap(2)
+        Text(@t("control.mode")).textSize(sm).fg(onSurfaceVariant)
+        Stack {
+            Button { label: @t("control.tablet") }
+            on Tap -> dispatch(SetMode("tablet"))
+            Button { label: @t("control.desktop") }
+            on Tap -> dispatch(SetMode("desktop"))
+        }
+        .direction(row)
+        .gap(2)
+        Text(@t("control.brightness")).textSize(sm).fg(onSurfaceVariant)
+        Slider { value: $state.brightness }
+            .label(@t("control.brightness"))
+        Text(@t("control.volume")).textSize(sm).fg(onSurfaceVariant)
+        Slider { value: $state.volume }
+            .label(@t("control.volume"))
+        Stack {
+            Chip { label: @t("control.wifi") }
+                .disabled(true)
+            Chip { label: @t("control.bluetooth") }
+                .disabled(true)
+            Chip { label: @t("control.airplane") }
+                .disabled(true)
+        }
+        .direction(row)
+        .gap(2)
+        if $state.applyError != 0 {
+            Text(@t("control.applyFailed")).fg(danger)
+        } else {
+            Stack { }
+        }
+    }
+    .width(328)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}

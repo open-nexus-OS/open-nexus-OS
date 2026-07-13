@@ -1,0 +1,50 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Sound drop-down (design_handoff_launcher: 300 wide, top right, DESKTOP
+// mode only). Output device rows are static placeholders; the volume slider
+// is the Control-Center store's local value (one source for both surfaces).
+
+Component SoundPanel {
+    Stack {
+        Stack {
+            Icon { symbol: "speaker.wave", size: 14 }
+                .fg(onSurface)
+            Text(@t("panels.sound")).textSize(sm).fg(onSurface)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Stack {
+            Text(@t("panels.output1")).textSize(sm).fg(onSurface)
+            Spacer
+            Icon { symbol: "checkmark", size: 12 }
+                .fg(accent)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+        Stack {
+            Text(@t("panels.output2")).textSize(sm).fg(onSurfaceVariant)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+        Text(@t("control.volume")).textSize(xs).fg(onSurfaceVariant)
+        Slider { value: $state.volume }
+            .label(@t("control.volume"))
+    }
+    .width(300)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}

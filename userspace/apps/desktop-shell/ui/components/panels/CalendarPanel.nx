@@ -1,0 +1,142 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Calendar drop-down (design_handoff_launcher: 288 wide, top left):
+// month label, Mon-first weekday header, day grid (today = accent circle),
+// and an upcoming list. STATIC July 2026 demo — honest until a clock/
+// calendar service lands (the shell has no date source yet).
+
+Component CalendarPanel {
+    Stack {
+        Stack {
+            Text(@t("panels.month")).textSize(sm).fg(onSurface)
+            Spacer
+            Text(@t("panels.today")).textSize(xs).fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        Stack {
+            List(["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]) { d in
+                Stack {
+                    Text(d).textSize(xs).fg(onSurfaceVariant)
+                }
+                .width(34)
+                .align(center)
+                .key(d)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        // Five DETERMINISTIC week rows (no wrap: shrinking cells squeezed the
+        // whole month into one line). Pads are unique whitespace strings
+        // (keys must be unique; a space renders invisibly). July 2026 starts
+        // on a Wednesday; today = 13 (accent circle).
+        Stack {
+            List([" ", "  ", "1", "2", "3", "4", "5"]) { day in
+                Stack {
+                    Text(day).textSize(xs).fg(onSurface)
+                }
+                .width(34)
+                .height(28)
+                .align(center)
+                .justify(center)
+                .key(day)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        Stack {
+            List(["6", "7", "8", "9", "10", "11", "12"]) { day in
+                Stack {
+                    Text(day).textSize(xs).fg(onSurface)
+                }
+                .width(34)
+                .height(28)
+                .align(center)
+                .justify(center)
+                .key(day)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        Stack {
+            List(["13", "14", "15", "16", "17", "18", "19"]) { day in
+                Stack {
+                    if day == "13" {
+                        Stack {
+                            Text(day).textSize(xs).fg(onAccent)
+                        }
+                        .width(24)
+                        .height(24)
+                        .bg(accent)
+                        .rounded(full)
+                        .align(center)
+                        .justify(center)
+                    } else {
+                        Text(day).textSize(xs).fg(onSurface)
+                    }
+                }
+                .width(34)
+                .height(28)
+                .align(center)
+                .justify(center)
+                .key(day)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        Stack {
+            List(["20", "21", "22", "23", "24", "25", "26"]) { day in
+                Stack {
+                    Text(day).textSize(xs).fg(onSurface)
+                }
+                .width(34)
+                .height(28)
+                .align(center)
+                .justify(center)
+                .key(day)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        Stack {
+            List(["27", "28", "29", "30", "31", "   ", "    "]) { day in
+                Stack {
+                    Text(day).textSize(xs).fg(onSurface)
+                }
+                .width(34)
+                .height(28)
+                .align(center)
+                .justify(center)
+                .key(day)
+            }
+            .direction(row)
+        }
+        .direction(row)
+        Text(@t("panels.upcoming")).textSize(xs).fg(onSurfaceVariant)
+        Stack {
+            Stack { }
+                .width(3)
+                .height(28)
+                .bg(accent)
+                .rounded(full)
+            Stack {
+                Text(@t("panels.event1")).textSize(sm).fg(onSurface)
+                Text(@t("panels.event1When")).textSize(xs).fg(onSurfaceVariant)
+            }
+            .gap(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(card)
+        .rounded(lg)
+    }
+    .width(288)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}

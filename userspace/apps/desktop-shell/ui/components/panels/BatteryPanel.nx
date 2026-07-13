@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The Battery drop-down (design_handoff_launcher: 300 wide, top right,
+// DESKTOP mode only). Static demo values until a power service lands.
+
+Component BatteryPanel {
+    Stack {
+        Stack {
+            Icon { symbol: "battery.75", size: 14 }
+                .fg(onSurface)
+            Text(@t("panels.battery")).textSize(sm).fg(onSurface)
+            Spacer
+            Text(@t("shell.battery")).textSize(sm).fg(onSurface)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Text(@t("panels.powerSource")).textSize(xs).fg(onSurfaceVariant)
+        Stack {
+            Text(@t("panels.profileBalanced")).textSize(sm).fg(onSurface)
+            Spacer
+            Icon { symbol: "checkmark", size: 12 }
+                .fg(accent)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+        Stack {
+            Text(@t("panels.profileSaver")).textSize(sm).fg(onSurfaceVariant)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+    }
+    .width(300)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}

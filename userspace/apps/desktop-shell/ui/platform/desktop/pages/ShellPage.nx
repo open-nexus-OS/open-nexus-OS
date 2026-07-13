@@ -12,7 +12,10 @@
 Page ShellPage {
     Stack {
         Stack {
-            TopBarPill { label: @t("shell.clock") }
+            Stack {
+                TopBarPill { label: @t("shell.clock") }
+            }
+            on Tap -> dispatch(SetPanel("calendar"))
             Stack {
                 Icon { symbol: "bell", size: 13 }
                     .fg(onSurface)
@@ -22,7 +25,7 @@ Page ShellPage {
             .align(center)
             .justify(center)
             .rounded(full)
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("notifications"))
             Spacer
             Island { }
             Spacer
@@ -35,7 +38,7 @@ Page ShellPage {
             .align(center)
             .justify(center)
             .rounded(full)
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("wifi"))
             Stack {
                 Icon { symbol: "speaker.wave", size: 13 }
                     .fg(onSurface)
@@ -45,7 +48,7 @@ Page ShellPage {
             .align(center)
             .justify(center)
             .rounded(full)
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("sound"))
             Stack {
                 Icon { symbol: "battery.75", size: 13 }
                     .fg(onSurface)
@@ -57,7 +60,7 @@ Page ShellPage {
             .paddingX(2)
             .height(28)
             .rounded(full)
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("battery"))
             Stack {
                 Icon { symbol: "menu", size: 13 }
                     .fg(onSurface)
@@ -67,7 +70,7 @@ Page ShellPage {
             .align(center)
             .justify(center)
             .rounded(full)
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("control"))
         }
         .direction(row)
         .height(36)
@@ -75,24 +78,88 @@ Page ShellPage {
         .paddingX(3)
         .gap(1)
         Stack {
-            if $state.loading {
-                Text(@t("common.loading")).fg(onSurfaceVariant)
-            } else {
-                List($state.apps) { app in
-                    Stack {
-                        AppTile { label: app.label, icon: app.icon }
+            Stack {
+                if $state.loading {
+                    Text(@t("common.loading")).fg(onSurfaceVariant)
+                } else {
+                    List($state.apps) { app in
+                        Stack {
+                            AppTile { label: app.label, icon: app.icon }
+                        }
+                        .key(app.id)
+                        on Tap -> dispatch(Launch(app.id))
                     }
-                    .key(app.id)
-                    on Tap -> dispatch(Launch(app.id))
+                    .direction(row)
+                    .wrap(true)
+                    .gap(6)
                 }
-                .direction(row)
-                .wrap(true)
-                .gap(6)
+            }
+            .grow(1)
+            .scroll(vertical)
+            .padding(5)
+            if $state.panel == "" {
+                Stack { }
+            } else {
+                Stack {
+                    Stack { }
+                        .height(8)
+                    Stack {
+                        if $state.panel == "notifications" {
+                            Stack {
+                                NotificationsPanel { }
+                            }
+                            on Tap -> dispatch(PanelNoop)
+                        } else {
+                            if $state.panel == "calendar" {
+                                Stack {
+                                    CalendarPanel { }
+                                }
+                                on Tap -> dispatch(PanelNoop)
+                            } else {
+                                Stack { }
+                            }
+                        }
+                        Spacer
+                        if $state.panel == "control" {
+                            Stack {
+                                ControlCenterPanel { }
+                            }
+                            on Tap -> dispatch(PanelNoop)
+                        } else {
+                            if $state.panel == "wifi" {
+                                Stack {
+                                    WifiPanel { }
+                                }
+                                on Tap -> dispatch(PanelNoop)
+                            } else {
+                                if $state.panel == "sound" {
+                                    Stack {
+                                        SoundPanel { }
+                                    }
+                                    on Tap -> dispatch(PanelNoop)
+                                } else {
+                                    if $state.panel == "battery" {
+                                        Stack {
+                                            BatteryPanel { }
+                                        }
+                                        on Tap -> dispatch(PanelNoop)
+                                    } else {
+                                        Stack { }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .direction(row)
+                    .align(start)
+                    .paddingX(3)
+                    .grow(1)
+                }
+                .overlay()
+                on Tap -> dispatch(SetPanel(""))
             }
         }
         .grow(1)
-        .scroll(vertical)
-        .padding(5)
         Stack {
             Stack {
                 Icon { symbol: "square.grid", size: 20 }

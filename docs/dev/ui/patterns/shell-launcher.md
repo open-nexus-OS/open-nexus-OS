@@ -63,7 +63,26 @@ compact/regular mount+dock, desktop taskbar heights). On-device: tablet wide
 regular boot proof waits on virtio-gpu display-info plumbing (the guest mode
 is fixed 1280×800 today — QEMU `xres=` hints are ignored).
 
-Known deltas vs the handoff (deliberate v1): island bars are static (media
-service pending), no drop-down panels yet (Control Center is a page, panels
-= v2), paged launcher grid + page dots land when one page overflows, desktop
-icon field wraps in rows (column-wrap pending engine support).
+## Drop-down panels (v2, shipped)
+
+The handoff's drop-down panels are `.overlay()` layers INSIDE the shell's
+middle content region (so the top bar stays above them — pill-to-pill
+switching works; the handoff's z:50-bar-over-z:39-backdrop equivalent). One
+`PanelStore.panel: Str` selects the open panel; `SetPanel(p)` TOGGLES (same
+id closes, another id switches — only one open at a time); the layer's own
+tap handler is the outside-click closer, panel bodies consume with
+`PanelNoop`. Components in `ui/components/panels/`: ControlCenterPanel (328,
+top right — the touch hub: appearance/mode REAL, sliders local, chips
+disabled-honest), NotificationsPanel (330, top left, demo cards),
+CalendarPanel (288, top left, static July-2026 month grid — five
+deterministic week rows, today = accent circle), and the DESKTOP-ONLY
+WifiPanel/SoundPanel/BatteryPanel (300, top right). Panels use the denser
+`window` material: the compositor's glass blur samples the WALLPAPER plane
+only, so surface content under a panel would ghost through the lighter
+`panel` fill (documented limit until content-blur lands). Entry =
+`.transition(slideUp)`.
+
+Known deltas vs the handoff (deliberate): island bars are static (media
+service pending), paged launcher grid + page dots land when one page
+overflows, desktop icon field wraps in rows (column-wrap pending engine
+support), panel glass blurs the wallpaper plane only (see above).

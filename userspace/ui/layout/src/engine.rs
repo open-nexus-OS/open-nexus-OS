@@ -702,11 +702,19 @@ impl LayoutEngine {
             let child_x = content_x + item.margin.left;
             let child_y = content_y + item.margin.top;
             let child_width = content_width.saturating_sub(item.margin.horizontal());
+            // Overlay contract: an absolute child WITH `flex_grow` FILLS the
+            // parent's content box (definite constraints — the viewport-root
+            // fill semantic). Plain absolutes keep content sizing (pips).
+            let child_c = if item.flex_grow > 0 {
+                LayoutConstraints::definite(child_width, constraints.max_height)
+            } else {
+                child_constraints(constraints, item, child_width, constraints.max_height)
+            };
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_constraints(constraints, item, child_width, constraints.max_height),
+                child_c,
                 depth + 1,
                 parent_clip,
                 scroll_offset,
@@ -861,11 +869,19 @@ impl LayoutEngine {
             let child_x = content_x + item.margin.left;
             let child_y = content_y + item.margin.top;
             let child_width = content_width.saturating_sub(item.margin.horizontal());
+            // Overlay contract: an absolute child WITH `flex_grow` FILLS the
+            // parent's content box (definite constraints — the viewport-root
+            // fill semantic). Plain absolutes keep content sizing (pips).
+            let child_c = if item.flex_grow > 0 {
+                LayoutConstraints::definite(child_width, constraints.max_height)
+            } else {
+                child_constraints(constraints, item, child_width, constraints.max_height)
+            };
             self.place_node(
                 child,
                 child_x,
                 child_y,
-                child_constraints(constraints, item, child_width, constraints.max_height),
+                child_c,
                 depth + 1,
                 parent_clip,
                 scroll_offset,

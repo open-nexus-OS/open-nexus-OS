@@ -41,10 +41,13 @@ Page ShellPage {
                 .paddingX(2)
                 .height(28)
                 .rounded(full)
-                on Tap -> navigate("/control")
+                on Tap -> dispatch(SetPanel("notifications"))
             } else {
                 Stack {
-                    TopBarPill { label: @t("shell.clock") }
+                    Stack {
+                        TopBarPill { label: @t("shell.clock") }
+                    }
+                    on Tap -> dispatch(SetPanel("calendar"))
                     Stack {
                         Icon { symbol: "bell", size: 13 }
                             .fg(onSurface)
@@ -54,11 +57,11 @@ Page ShellPage {
                     .align(center)
                     .justify(center)
                     .rounded(full)
+                    on Tap -> dispatch(SetPanel("notifications"))
                 }
                 .direction(row)
                 .align(center)
                 .gap(1)
-                on Tap -> navigate("/control")
             }
             Spacer
             Island { }
@@ -66,7 +69,7 @@ Page ShellPage {
             Stack {
                 StatusPill { }
             }
-            on Tap -> navigate("/control")
+            on Tap -> dispatch(SetPanel("control"))
         }
         .direction(row)
         .height(36)
@@ -87,6 +90,46 @@ Page ShellPage {
                 .wrap(true)
                 .gap(6)
                 .justify(center)
+            }
+            if $state.panel == "" {
+                Stack { }
+            } else {
+                Stack {
+                    Stack { }
+                        .height(8)
+                    Stack {
+                        if $state.panel == "notifications" {
+                            Stack {
+                                NotificationsPanel { }
+                            }
+                            on Tap -> dispatch(PanelNoop)
+                        } else {
+                            if $state.panel == "calendar" {
+                                Stack {
+                                    CalendarPanel { }
+                                }
+                                on Tap -> dispatch(PanelNoop)
+                            } else {
+                                Stack { }
+                            }
+                        }
+                        Spacer
+                        if $state.panel == "control" {
+                            Stack {
+                                ControlCenterPanel { }
+                            }
+                            on Tap -> dispatch(PanelNoop)
+                        } else {
+                            Stack { }
+                        }
+                    }
+                    .direction(row)
+                    .align(start)
+                    .paddingX(3)
+                    .grow(1)
+                }
+                .overlay()
+                on Tap -> dispatch(SetPanel(""))
             }
         }
         .grow(1)

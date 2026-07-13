@@ -1,0 +1,28 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Drop-down panel state (design_handoff_launcher): ONE panel open at a time;
+// opening another closes the first; triggering the OPEN panel's pill again
+// closes it (toggle). The invisible overlay backdrop dispatches
+// `SetPanel("")` on outside taps; panel bodies consume taps with `PanelNoop`
+// (no state change → no re-emit).
+
+Store PanelStore {
+    panel: Str = "",
+}
+
+Event PanelEvent {
+    SetPanel(Str),
+    PanelNoop,
+}
+
+reduce PanelEvent {
+    SetPanel(p) => {
+        if state.panel == p {
+            state.panel = "";
+        } else {
+            state.panel = p;
+        }
+    },
+    PanelNoop => state.panel = state.panel,
+}

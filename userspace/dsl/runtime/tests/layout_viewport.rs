@@ -708,8 +708,11 @@ fn control_center_toggles_reach_settings_set() {
         .expect("pointer")
         .expect("status pill navigates");
 
-    // On /control: tap every sized handler once — the four appearance/mode
-    // tiles dispatch SetTheme/SetMode → settings.set with presentation keys.
+    // The Control-Center PANEL is open (top right, an `.overlay()` layer):
+    // tap only handlers INSIDE the panel region — the appearance/mode tiles
+    // dispatch SetTheme/SetMode → settings.set with presentation keys.
+    // (Tapping arbitrary handlers would hit the overlay's backdrop closer —
+    // the layer wins every overlap by node-id order — and close the panel.)
     let boxes = layout(&view);
     let handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
     for id in handler_ids {
@@ -717,8 +720,15 @@ fn control_center_toggles_reach_settings_set() {
         if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
             continue;
         }
-        // Skip the back button row (top bar) so we stay on the page.
-        if b.rect.y.as_i32() < 60 {
+        // Panel region only: the right-anchored 328-wide panel hangs below
+        // the top bar (44..~450). Anything else (nav icons bottom right, the
+        // grid) would hit the overlay's BACKDROP closer instead — the layer
+        // wins every overlap by node-id order — and close the panel mid-loop.
+        if b.rect.y.as_i32() < 44
+            || b.rect.y.as_i32() > 450
+            || b.rect.x.as_i32() < 900
+            || b.rect.width.as_i32() > 340
+        {
             continue;
         }
         let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
@@ -782,6 +792,57 @@ fn grow_and_size_mods_reach_the_layout_tree() {
     );
 }
 
+
+/// Drop-down panels (design_handoff_launcher): `SetPanel("control")` opens
+/// the Control-Center panel as an `.overlay()` layer — 328 wide, anchored at
+/// the RIGHT edge below the top bar; dispatching the same panel again
+/// toggles it closed. The overlay layer spans the full viewport (the
+/// backdrop tap-catcher must cover everything below the panel too).
+#[test]
+fn real_shell_control_panel_overlays_top_right() {
+    struct NoServices;
+    impl nexus_dsl_runtime::EffectHost for NoServices {
+        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
+            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
+    let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    let mut host = NoServices;
+    view.run_initial_effects(&tokens, &device, &locale, &mut host).ok();
+    let (e, c) = view.runtime().event_case("PanelEvent", "SetPanel").expect("SetPanel");
+    let layout_boxes = |view: &View| {
+        nexus_layout::LayoutEngine::new()
+            .layout_with_viewport(
+                view.scene(),
+                nexus_layout_types::FxPx::new(1280),
+                Some(nexus_layout_types::FxPx::new(800)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            )
+            .expect("lays out")
+            .boxes
+    };
+    let panel_box = |boxes: &[nexus_layout::LayoutBox]| {
+        boxes
+            .iter()
+            .find(|b| b.rect.width.as_i32() == 328 && b.rect.x.as_i32() > 850)
+            .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
+    };
+    assert!(panel_box(&layout_boxes(&view)).is_none(), "panel closed at mount");
+    view.dispatch(&tokens, &device, &locale, &mut host, e, c,
+        vec![nexus_dsl_runtime::Value::Str("control".into())]).expect("open");
+    let opened = panel_box(&layout_boxes(&view)).expect("control panel visible top-right");
+    assert!(opened.1 >= 40, "panel anchored below the top bar (y={})", opened.1);
+    // Toggle: the SAME panel id closes it.
+    view.dispatch(&tokens, &device, &locale, &mut host, e, c,
+        vec![nexus_dsl_runtime::Value::Str("control".into())]).expect("toggle");
+    assert!(panel_box(&layout_boxes(&view)).is_none(), "panel toggled closed");
+}
 
 /// Mobile-first width classes (design_handoff_launcher): the SAME shell page
 /// selects a different dock family per `device.sizeClass`. compact (phone,

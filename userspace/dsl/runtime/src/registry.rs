@@ -96,6 +96,10 @@ pub struct Mods {
     /// viewport — the layout clips it (`Overflow::Hidden`) and the HOST owns
     /// a paint-time scroll offset over the retained boxes (never a re-layout).
     pub scroll: Option<ScrollAxis>,
+    /// `.overlay()`: lift this container OUT OF FLOW as a full-bleed layer
+    /// over its parent's content (drop-down panels / dialogs). Anchoring
+    /// happens INSIDE the layer with ordinary flex.
+    pub overlay: bool,
 }
 
 /// Scroll axis of a `.scroll(...)` viewport.
@@ -130,6 +134,7 @@ impl Default for Mods {
             disabled: false,
             material: None,
             scroll: None,
+            overlay: false,
         }
     }
 }
@@ -197,6 +202,13 @@ fn plain_stack(mods: &Mods, tokens: &dyn Tokens, children: alloc::vec::Vec<Layou
     let mut item = FlexItem { flex_grow: mods.grow, ..FlexItem::default() };
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
+    }
+    if mods.overlay {
+        // Out-of-flow layer: absolute + grow = the engine's overlay contract
+        // (the layer FILLS the parent's content box — definite constraints,
+        // the viewport-root fill semantic). Anchoring happens inside.
+        item.position = nexus_layout_types::Position::Absolute;
+        item.flex_grow = item.flex_grow.max(1);
     }
     LayoutNode::Stack(
         Stack {

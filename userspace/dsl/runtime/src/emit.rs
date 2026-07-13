@@ -517,6 +517,7 @@ fn apply_modifier(
                 _ => registry::ScrollAxis::Vertical,
             });
         } // scroll
+        48 => mods.overlay = true, // overlay(): full-bleed out-of-flow layer
         // -- motion (paint): the curated `.animate`/`.transition`/`.effect`
         //    (docs/dev/ui/foundations/animation.md). The runtime stays PURE —
         //    it stamps a value-typed INTENT (token id + committed snapshot of

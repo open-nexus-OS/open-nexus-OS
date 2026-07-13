@@ -1,0 +1,56 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The WiFi drop-down (design_handoff_launcher: 300 wide, top right, DESKTOP
+// mode only — touch folds it into the Control Center). Static demo network
+// list until a radio service lands (honest: rows are disabled placeholders).
+
+Component WifiPanel {
+    Stack {
+        Stack {
+            Icon { symbol: "wifi", size: 14 }
+                .fg(onSurface)
+            Text(@t("panels.wifi")).textSize(sm).fg(onSurface)
+            Spacer
+            Chip { label: @t("panels.wiredOnly") }
+                .disabled(true)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        Stack {
+            Icon { symbol: "wifi", size: 13 }
+                .fg(onSurface)
+            Text(@t("panels.net1")).textSize(sm).fg(onSurface)
+            Spacer
+            Icon { symbol: "lock", size: 12 }
+                .fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+        Stack {
+            Icon { symbol: "wifi", size: 13 }
+                .fg(onSurfaceVariant)
+            Text(@t("panels.net2")).textSize(sm).fg(onSurfaceVariant)
+            Spacer
+            Icon { symbol: "lock", size: 12 }
+                .fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .padding(2)
+        .material(subtle)
+        .rounded(md)
+    }
+    .width(300)
+    .padding(4)
+    .gap(2)
+    .material(window)
+    .rounded(xl)
+    .transition(slideUp)
+}
