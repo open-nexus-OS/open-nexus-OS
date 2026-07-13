@@ -84,6 +84,7 @@ const ANIMATION_UPDATE_CAP: usize = 8;
 // access to the struct's private fields without weakening encapsulation.
 mod anim;
 mod chrome_widget;
+mod transitions;
 mod cursor;
 mod gpud;
 mod marker_emit;
@@ -265,6 +266,41 @@ pub(crate) struct AppWindowSlot {
     /// rows out of the client VMO — a 16-row animation present costs 16
     /// row-copies, not the whole window body + title chrome re-raster.
     pub(crate) surface_dirty_rows: Option<(u32, u32)>,
+    /// Track C3: the window's CURRENT animated whole-layer transform (window
+    /// transitions — open/close/minimize). Identity at rest; windowd's own
+    /// `AnimationDriver` interpolates it and each tick emits ONE
+    /// `OP_SET_LAYER_TRANSFORM` (gpud records + re-composites, no re-render).
+    /// Full presents BAKE translate+opacity into the encoded layer (gpud
+    /// clears its override table then — the scroll snap-back contract).
+    pub(crate) transform: WinTransform,
+    /// Deferred WM action executed when the transition converges (close
+    /// after fade-out, minimize after fly-to-dock).
+    pub(crate) pending_wm: Option<PendingWm>,
+}
+
+/// A window's animated whole-layer transform (identity = no visible change).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct WinTransform {
+    pub(crate) dx: f32,
+    pub(crate) dy: f32,
+    /// 0.0..=1.0 (1.0 = opaque).
+    pub(crate) opacity: f32,
+    /// 1.0 = identity (uniform, about the window center).
+    pub(crate) scale: f32,
+    /// True while a transition drives this window (emit overrides + bake).
+    pub(crate) active: bool,
+}
+
+impl WinTransform {
+    pub(crate) const IDENTITY: WinTransform =
+        WinTransform { dx: 0.0, dy: 0.0, opacity: 1.0, scale: 1.0, active: false };
+}
+
+/// The WM action a finished transition performs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PendingWm {
+    Close,
+    Minimize,
 }
 
 impl AppWindowSlot {
@@ -307,6 +343,8 @@ impl AppWindowSlot {
             scroll_momentum: ScrollMomentum::new(ScrollConfig::default()),
             scroll_last_ns: 0,
             surface_dirty_rows: None,
+            transform: WinTransform::IDENTITY,
+            pending_wm: None,
         }
     }
 }

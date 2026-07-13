@@ -328,6 +328,8 @@ impl ShellWindow {
             content_w: 0,
             content_h: 0,
             radius: self.radius,
+            layer_id: 0,
+            opacity: 255,
             shadow_blur: self.shadow_blur,
             shadow_offset_y: self.shadow_offset_y,
             shadow_alpha: self.shadow_alpha,
@@ -362,9 +364,10 @@ impl ShellWindow {
                 content_h: p.content_h,
                 dst_x: p.x,
                 dst_y: p.y,
-                opacity: 255,
+                opacity: p.opacity as u32,
                 corner_radius: p.radius,
                 scroll_id: 0,
+                layer_id: p.layer_id,
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
                 shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
@@ -462,9 +465,10 @@ impl ShellWindow {
                     content_h: 0,
                     dst_x: p.x,
                     dst_y: p.y + header_h,
-                    opacity: 255,
+                    opacity: p.opacity as u32,
                     corner_radius: 0,
                     scroll_id,
+                    layer_id: p.layer_id,
                     scroll_band_top_abs: p.atlas_row,
                     scroll_band_h: band_h,
                     shadow: None,
@@ -565,6 +569,9 @@ pub(crate) fn composite_material_glass(
             opacity: 255,
             corner_radius: p.corner_radius,
             scroll_id: 0,
+            // Material glass regions ride their app's DESKTOP surface —
+            // untagged (window transitions target floating windows).
+            layer_id: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             shadow: (p.shadow_alpha > 0).then_some(LayerShadow {
@@ -630,6 +637,14 @@ pub(crate) struct GlassCompositeParams {
     pub(crate) content_w: u32,
     pub(crate) content_h: u32,
     pub(crate) radius: u32,
+    /// Transform identity (Track C2): tags every slice of this window's
+    /// composite so `OP_SET_LAYER_TRANSFORM` can move/fade/scale the whole
+    /// window on the GPU. `slot + 1`; 0 = untagged.
+    pub(crate) layer_id: u32,
+    /// Baked whole-window opacity (255 = opaque) — a full present mid-
+    /// transition encodes the CURRENT animated opacity (snap-back
+    /// agreement; gpud clears its override table on full presents).
+    pub(crate) opacity: u8,
     pub(crate) shadow_blur: u32,
     pub(crate) shadow_offset_y: i32,
     pub(crate) shadow_alpha: u32,

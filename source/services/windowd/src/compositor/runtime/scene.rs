@@ -140,6 +140,14 @@ impl DisplayServerRuntime {
                     p.radius = 0;
                     p.shadow_alpha = 0;
                 }
+                // Track C2: tag every slice with the window's transform id
+                // (slot+1). The encode is ALWAYS the untransformed base -
+                // the gpud override (delta translate / multiplied opacity /
+                // center scale) SURVIVES full presents (no clear, no bake).
+                // Baking multiplied WITH the override: an open baked at
+                // opacity 0 stayed 0x-anything = invisible forever unless
+                // unrelated presents happened to re-bake it brighter.
+                p.layer_id = (idx as u32) + 1;
                 if resizing {
                     if let Some(a) = win.atlas {
                         p.content_w = a.width.min(win.w);

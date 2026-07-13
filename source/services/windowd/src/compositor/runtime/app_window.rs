@@ -97,10 +97,17 @@ impl DisplayServerRuntime {
         // ⇒ honest QUOTA — never hijack another app's window (the singleton-era
         // behavior that made "nur ein Programm gleichzeitig").
         #[cfg(nexus_env = "os")]
-        let slot_idx = self
+        let bound_idx = self
             .event_channel_for(nonce)
-            .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)))
-            .or_else(|| self.free_app_index());
+            .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)));
+        // FRESH launch (vs a resize/fullscreen re-create resuming its slot):
+        // only a fresh window plays the open transition (Track C3).
+        #[cfg(nexus_env = "os")]
+        let fresh_launch = bound_idx.is_none();
+        #[cfg(not(nexus_env = "os"))]
+        let fresh_launch = true;
+        #[cfg(nexus_env = "os")]
+        let slot_idx = bound_idx.or_else(|| self.free_app_index());
         #[cfg(not(nexus_env = "os"))]
         let slot_idx = self.free_app_index();
         let Some(idx) = slot_idx else {
@@ -178,6 +185,14 @@ impl DisplayServerRuntime {
                         wire::SURFACE_STATUS_QUOTA,
                         0,
                     );
+                }
+                // Track C3: a FRESH floating window fades+scales in (the
+                // decided enter motion); re-creates resume without replay.
+                if fresh_launch
+                    && !self.app_presentation(idx).full_screen
+                    && !self.windows.is_fullscreen(wid)
+                {
+                    self.start_open_transition(idx);
                 }
                 // The freshly created band matches the frame again — the
                 // live-resize title overlay (if any) retires here (TASK #23).

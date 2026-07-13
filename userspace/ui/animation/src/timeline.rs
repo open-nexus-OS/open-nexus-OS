@@ -11,7 +11,10 @@ enum ActiveAnimation {
     Keyframe { layer: LayerId, prop: AnimProp, track: KeyframeTrack },
 }
 
-const MAX_ACTIVE_ANIMATIONS: usize = 6;
+// Sized for a real desktop: a window transition drives 2-3 properties and
+// several windows can transition while chrome proof layers animate. 6 evicted
+// mid-flight window transitions (Track C3).
+const MAX_ACTIVE_ANIMATIONS: usize = 16;
 
 pub struct AnimationDriver {
     start: u64,

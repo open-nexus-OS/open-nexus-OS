@@ -474,6 +474,32 @@ impl VirtioGpuBackend {
         Ok(())
     }
 
+    /// Transform fast path, RECORD half (Track C2 — mirrors
+    /// [`Self::record_layer_scroll`]): store the latest translate/opacity/
+    /// scale override for `layer_id`; the service loop drains the queued burst
+    /// (latest wins) and re-composites ONCE via [`Self::flush_layer_scroll`].
+    pub(crate) fn record_layer_transform(
+        &mut self,
+        layer_id: u32,
+        t: crate::backend::LayerTransform,
+    ) -> Result<(), GfxError> {
+        let Some(slot) = layer_id
+            .checked_sub(1)
+            .and_then(|i| self.layer_transforms.get_mut(i as usize))
+        else {
+            return Err(GfxError::InvalidArgument); // id 0 / beyond the table
+        };
+        *slot = Some(t);
+        // Honest one-shot: the unified layer-transform path took effect.
+        if !self.layer_transform_marker_done {
+            self.layer_transform_marker_done = true;
+            let _ = nexus_abi::debug_println(&alloc::format!(
+                "gpud: layer transform live id={layer_id}"
+            ));
+        }
+        Ok(())
+    }
+
     /// Scroll fast path, PRESENT half: one GPU re-composite at the latest
     /// recorded override rows. `rt_layers_dirty` stays false → NO atlas
     /// re-upload, just a different source offset into the already-uploaded

@@ -21,8 +21,21 @@ The motion surface below is **implemented** for in-surface DSL nodes: `.animate`
 43/44/45) parse, validate their token against the curated set
 (`check/names.rs::check_motion_token`), lower generically, and are now **bound at
 runtime** end-to-end. This is **Tier 2** of the animation architecture (ADR-0031,
-RFC-0059); **Tier 1** (compositor layer transforms for whole windows/layers, the
-"same as scroll" `OP_SET_LAYER_TRANSFORM`) is the open Track C.
+RFC-0059).
+
+**Tier 1 is implemented too** (Track C): `OP_SET_LAYER_TRANSFORM` (wire op 10)
+generalizes the compositor scroll override — windowd animates a retained window
+layer's translate / opacity / uniform scale purely on the GPU (record + coalesced
+flush in gpud, no re-render, no re-upload). Every window slice carries a
+`Layer::layer_id` (slot+1, DISTINCT from `scroll_id` so scrolling never moves the
+chrome slices); gpud keys a per-id override table applied in
+`composite_pending_rt_layers`. **Override semantics: the encode is always the
+untransformed base and the override survives full presents** (no bake, no clear —
+a baked opacity multiplied with the override froze windows invisible at 0×x).
+windowd's own `AnimationDriver` drives the WINDOW TRANSITIONS on it
+(`runtime/transitions.rs`): open = fade+scale-in from 92%, close = fade-out then
+the deferred close, minimize = fly-to-dock then the deferred minimize. Markers:
+`windowd: transition open/close/minimize`, `gpud: layer transform live id=N`.
 
 Pipeline (one engine, host owns the clock, the DSL stays pure —
 `docs/dev/dsl/principles.md` §4):

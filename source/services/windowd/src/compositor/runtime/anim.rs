@@ -44,6 +44,9 @@ impl DisplayServerRuntime {
         }
         let updates = &anim_updates[..update_count];
         self.apply_scene_updates(updates);
+        // Converged window transitions run their deferred WM action here
+        // (close after fade, minimize after fly) or settle to identity.
+        self.finish_window_transitions();
 
         // Per-layer damage: only mark regions that actually changed.
         // Sidebar animation → only sidebar rect; hover/click/key → only panel.
@@ -112,6 +115,11 @@ impl DisplayServerRuntime {
 
     fn apply_scene_updates(&mut self, updates: &[SceneUpdate]) {
         for update in updates {
+            // Track C3: window transitions fold into the slot transform
+            // and emit the gpud layer-transform override (no re-render).
+            if self.apply_window_transform_update(update) {
+                continue;
+            }
             // Route to the scene graph via the shell's explicit layer→node
             // mapping (unknown layers are dropped, never mistargeted).
             if let Some(target) = self.shell.animation_target(update.layer_id) {

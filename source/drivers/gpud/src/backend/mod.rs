@@ -231,6 +231,8 @@ pub struct VirtioGpuBackend {
     /// One-shot marker: first `OP_SET_LAYER_SCROLL` applied (scroll fast path live).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) layer_scroll_marker_done: bool,
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) layer_transform_marker_done: bool,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -295,12 +297,33 @@ pub struct VirtioGpuBackend {
     /// fresh authoritative layer set. Index = `scroll_id - 1`.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) scroll_src_rows: [Option<u32>; MAX_SCROLL_IDS],
+    /// Transform fast path (Track C2, the scroll generalization): per-layer-id
+    /// translate/opacity/scale overrides. A retained layer whose id has an
+    /// override composites transformed — no re-render, no re-upload. Set by
+    /// `OP_SET_LAYER_TRANSFORM` (record + coalesced flush, the scroll
+    /// contract), cleared when a full present brings a fresh authoritative
+    /// layer set (windowd bakes the transform into the encoded layer).
+    /// Index = `layer_id - 1` (same id domain as `scroll_id`: slot + 1).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) layer_transforms: [Option<LayerTransform>; MAX_SCROLL_IDS],
     /// Build-up only: the retained layer set's atlas content changed, so the next
     /// composite must re-upload it to the GL texture (`virgl_transfer_to_host`).
     /// Cleared after upload — cursor-move presents then re-composite from the
     /// already-uploaded texture WITHOUT the per-frame transfer (the slow path).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     rt_layers_dirty: bool,
+}
+
+/// One recorded layer-transform override (Track C2): identity = absent.
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+#[derive(Clone, Copy)]
+pub(crate) struct LayerTransform {
+    pub(crate) dx: i16,
+    pub(crate) dy: i16,
+    /// Multiplies the layer's encoded opacity (255 = unchanged).
+    pub(crate) opacity: u8,
+    /// Uniform scale about the layer center, percent (100 = unchanged).
+    pub(crate) scale_pct: u16,
 }
 
 /// A CompositeLayer op deferred for RT-direct compositing after the base upload.
@@ -336,6 +359,10 @@ struct PendingRtLayer {
     /// SAMPLE still uses `src_row_abs` + `height` (the overridden scroll row).
     scroll_band_top_abs: u32,
     scroll_band_h: u32,
+    /// Transform identity (`0` = none) - keys `layer_transforms` (Track C2).
+    /// DISTINCT from `scroll_id`: all slices of a window share one transform
+    /// id, only the scrolling body carries the scroll id.
+    layer_id: u32,
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -469,6 +496,8 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             layer_scroll_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            layer_transform_marker_done: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
             #[cfg(feature = "virgl")]
             scroll_band_clamp_logged: false,
@@ -496,6 +525,8 @@ impl VirtioGpuBackend {
             rt_direct_layers: true,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             pending_rt_layers: [PendingRtLayer::default(); MAX_PENDING_RT_LAYERS],
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            layer_transforms: [None; MAX_SCROLL_IDS],
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             pending_rt_count: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

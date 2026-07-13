@@ -110,6 +110,11 @@ impl DisplayServerRuntime {
         self.apps[idx].footer_h = 0;
         self.apps[idx].scroll_rows = 0;
         self.apps[idx].layer_count = 0;
+        // Retire the transform override (it survives full presents now):
+        // the slot's next tenant must not inherit a faded-out state.
+        self.apps[idx].transform = WinTransform::IDENTITY;
+        self.apps[idx].pending_wm = None;
+        self.send_layer_transform(idx);
         let _ = debug_println(&alloc::format!("WINDOWD: app window closed slot={idx}"));
     }
 

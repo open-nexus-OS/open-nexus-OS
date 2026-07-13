@@ -83,6 +83,12 @@ pub struct Layer {
     /// at the id's source-row override on a lightweight scroll command (GPU
     /// scroll fast path).
     pub scroll_id: u32,
+    /// Transform identity of the layer (`0` = none). The backend keeps a
+    /// per-id translate/opacity/scale override (`OP_SET_LAYER_TRANSFORM`) —
+    /// the Track C2 generalization of the scroll override. DISTINCT from
+    /// `scroll_id`: a scrollable window tags only its BODY slice scrollable,
+    /// but ALL its slices share one transform id (whole-window transitions).
+    pub layer_id: u32,
     /// WebRender scroll band: the FULL resident-content band the compositor must
     /// upload to the GPU atlas texture ONCE so the `src_row` override can shift
     /// WITHIN it (`0` = not scrollable, upload only the visible rows). Without
@@ -112,6 +118,7 @@ impl Layer {
             opacity: 255,
             corner_radius: 0,
             scroll_id: 0,
+            layer_id: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             shadow: None,
@@ -161,6 +168,7 @@ mod tests {
                 content_h: 0,
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
+                layer_id: 0,
             }
         );
     }

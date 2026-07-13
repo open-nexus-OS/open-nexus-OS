@@ -375,6 +375,12 @@ impl VirtioGpuBackend {
                                              // A fresh full layer set carries the authoritative scroll offset in
                                              // the scrollable layers' `src_row_abs`, so drop any fast-path overrides.
                 self.scroll_src_rows = [None; crate::backend::MAX_SCROLL_IDS];
+                // Transform overrides SURVIVE full presents (unlike scroll):
+                // the encode is always the untransformed base, the override
+                // is the whole animated state - clearing it here would snap
+                // a mid-transition window to identity until the next tick.
+                // windowd retires overrides explicitly (identity sends on
+                // settle/close).
                 for cmd in cmds {
                     if let Command::CompositeLayer {
                         src_row_abs,
@@ -394,6 +400,7 @@ impl VirtioGpuBackend {
                         content_h,
                         scroll_band_top_abs,
                         scroll_band_h,
+                        layer_id,
                     } = cmd
                     {
                         if self.pending_rt_count < MAX_PENDING_RT_LAYERS {
@@ -415,6 +422,7 @@ impl VirtioGpuBackend {
                                 scroll_id: *scroll_id,
                                 scroll_band_top_abs: *scroll_band_top_abs,
                                 scroll_band_h: *scroll_band_h,
+                                layer_id: *layer_id,
                             };
                             self.pending_rt_count += 1;
                         } else {
@@ -682,6 +690,7 @@ impl VirtioGpuBackend {
                     content_h,
                     scroll_band_top_abs,
                     scroll_band_h,
+                    layer_id,
                 } => {
                     // `opacity` is honoured by the GPU path; the CPU fallback
                     // relies on the content's own alpha (translucent panel bg).
@@ -690,7 +699,7 @@ impl VirtioGpuBackend {
                     // `scroll_id` + the scroll-band bounds only drive the virgl
                     // RT-direct fast path below.
                     #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-                    let _ = (scroll_id, scroll_band_top_abs, scroll_band_h);
+                    let _ = (scroll_id, scroll_band_top_abs, scroll_band_h, layer_id);
                     // RT-direct (Increment 1): defer non-glass layers and
                     // composite them straight onto the scanout RT after the base
                     // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
@@ -719,6 +728,7 @@ impl VirtioGpuBackend {
                             scroll_id: *scroll_id,
                             scroll_band_top_abs: *scroll_band_top_abs,
                             scroll_band_h: *scroll_band_h,
+                            layer_id: *layer_id,
                         };
                         self.pending_rt_count += 1;
                         continue; // composited onto the RT in gl_present, not here
@@ -834,7 +844,37 @@ impl VirtioGpuBackend {
         // per-frame transfer, which is what made mouse-move slow.
         let upload = if buildup { self.rt_layers_dirty } else { true };
         for i in 0..n {
-            let l = self.pending_rt_layers[i];
+            let mut l = self.pending_rt_layers[i];
+            // Transform fast path (Track C2): apply the id's recorded
+            // translate / opacity-multiply / center-scale override BEFORE the
+            // composite — the blur + draw below both read the adjusted rect.
+            if let Some(t) = l
+                .layer_id
+                .checked_sub(1)
+                .and_then(|i| self.layer_transforms.get(i as usize).copied().flatten())
+            {
+                l.dst_x = (l.dst_x as i32 + i32::from(t.dx)).max(0) as u32;
+                l.dst_y = (l.dst_y as i32 + i32::from(t.dy)).max(0) as u32;
+                l.opacity = l.opacity * u32::from(t.opacity) / 255;
+                if t.scale_pct != 100 && t.scale_pct > 0 {
+                    let nw = (l.width * u32::from(t.scale_pct) / 100).max(1);
+                    let nh = (l.height * u32::from(t.scale_pct) / 100).max(1);
+                    // Source stays the un-scaled band: the shader scales
+                    // content → frame when they differ (the resize path).
+                    if l.content_w == 0 {
+                        l.content_w = l.width;
+                    }
+                    if l.content_h == 0 {
+                        l.content_h = l.height;
+                    }
+                    l.dst_x =
+                        (l.dst_x as i32 + (l.width as i32 - nw as i32) / 2).max(0) as u32;
+                    l.dst_y =
+                        (l.dst_y as i32 + (l.height as i32 - nh as i32) / 2).max(0) as u32;
+                    l.width = nw;
+                    l.height = nh;
+                }
+            }
             // Scroll fast path: a scrollable layer (non-zero scroll_id) is
             // re-sampled at its id's override row when set — no CPU re-render,
             // just a different source offset into the already-uploaded atlas

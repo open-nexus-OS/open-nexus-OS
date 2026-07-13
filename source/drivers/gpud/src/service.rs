@@ -39,6 +39,7 @@ pub const OP_UPLOAD_CURSOR: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 /// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
 /// `OP_MOVE_CURSOR`.
 pub const OP_SET_LAYER_SCROLL: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
+pub const OP_SET_LAYER_TRANSFORM: u8 = nexus_display_proto::OP_SET_LAYER_TRANSFORM;
 /// Upload a real icon sprite to composite as a GPU layer in the virgl buildup.
 /// Payload: op + tex_w(u32) + tex_h(u32) + dst_x(u32) + dst_y(u32) + dst_w(u32) +
 /// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
@@ -1105,9 +1106,35 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
                 STATUS_OK
             }
         }
+        OP_SET_LAYER_TRANSFORM => {
+            // Track C2 (the scroll generalization): RECORD-only + the same
+            // coalesced flush — presenting per request would backlog stale
+            // transforms exactly like the scroll fling did.
+            let Some((layer_id, dx, dy, opacity, scale_pct)) =
+                nexus_display_proto::decode_set_layer_transform(frame)
+            else {
+                return STATUS_MALFORMED;
+            };
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            {
+                let t = crate::backend::LayerTransform { dx, dy, opacity, scale_pct };
+                return match backend.record_layer_transform(layer_id, t) {
+                    Ok(()) => {
+                        *scroll_flush = true;
+                        STATUS_OK
+                    }
+                    Err(_) => STATUS_DEVICE_ERROR,
+                };
+            }
+            #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
+            {
+                let _ = (backend, layer_id, dx, dy, opacity, scale_pct, scroll_flush);
+                STATUS_OK
+            }
+        }
         OP_PRESENT_DAMAGE => {
-            // A full present composites the recorded scroll rows anyway — the
-            // deferred scroll flush would be a redundant second re-composite.
+            // A full present composites the recorded scroll/transform overrides
+            // anyway — the deferred flush would be a redundant re-composite.
             *scroll_flush = false;
             handle_present_damage(backend, frame)
         }

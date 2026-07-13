@@ -157,12 +157,18 @@ impl DisplayServerRuntime {
                     WindowPress::Close => {
                         window_consumed_press = true;
                         if let Some(idx) = app_idx {
-                            self.close_app_window(idx);
+                            // Track C3: fade-out first; close_app_window
+                            // runs when the exit spring converges.
+                            self.start_close_transition(idx);
                         }
                     }
                     WindowPress::Minimize => {
                         window_consumed_press = true;
-                        self.minimize_window(wid);
+                        // Track C3: fly-to-dock; minimize_window runs on
+                        // convergence.
+                        if let WindowId::App(i) = wid {
+                            self.start_minimize_transition(i as usize);
+                        }
                     }
                     WindowPress::Maximize => {
                         window_consumed_press = true;

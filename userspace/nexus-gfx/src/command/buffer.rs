@@ -142,6 +142,8 @@ pub enum Command {
         /// The SAMPLE row stays `src_row_abs` (+ `height`).
         scroll_band_top_abs: u32,
         scroll_band_h: u32,
+        /// Transform identity (`0` = none) — see `Layer::layer_id`.
+        layer_id: u32,
     },
 }
 
@@ -447,6 +449,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 content_h,
                 scroll_band_top_abs,
                 scroll_band_h,
+                layer_id,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -469,6 +472,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *content_h,
                         *scroll_band_top_abs,
                         *scroll_band_h,
+                        *layer_id,
                     ],
                 )?;
             }
@@ -627,7 +631,7 @@ fn ser_drop_shadow(
 }
 
 /// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 17]) -> Result<usize, GfxError> {
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 18]) -> Result<usize, GfxError> {
     let needed = pos + 1 + 17 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
@@ -829,10 +833,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 68 {
+    if buf.len() < pos + 72 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 17];
+    let mut w = [0u32; 18];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -856,8 +860,9 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             content_h: w[14],
             scroll_band_top_abs: w[15],
             scroll_band_h: w[16],
+            layer_id: w[17],
         },
-        pos + 68,
+        pos + 72,
     ))
 }
 
@@ -1023,6 +1028,7 @@ mod scroll_tag_tests {
                     content_h: 300,
                     scroll_band_top_abs: 3200,
                     scroll_band_h: 2600,
+                    layer_id: 0,
                 },
                 Command::CompositeLayer {
                     src_row_abs: 4000,
@@ -1042,6 +1048,7 @@ mod scroll_tag_tests {
                     content_h: 0,
                     scroll_band_top_abs: 0,
                     scroll_band_h: 0,
+                    layer_id: 0,
                 },
             ],
         };
