@@ -15,23 +15,61 @@ impl super::DslApp {
         use nexus_dsl_runtime::{Damage, IdentityLocale};
         let tokens = tokens_for(self.theme_mode);
         let device = device_for(self.shell_profile);
-        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
         let scroll = self.scroll_param();
-        let damage = self
-            .view
-            .pointer_scrolled(
-                tokens,
-                &device,
-                &locale,
-                &mut self.host,
-                &self.layout.boxes,
-                "Tap",
-                nexus_layout_types::FxPx::new(x),
-                nexus_layout_types::FxPx::new(y),
-                scroll,
-            )
-            .ok()
-            .flatten();
+        // Interaction motion (handoff "Press: instant down, springy release"):
+        // the pressed control dips to 92% and pops back elastically. Resolved
+        // with the SAME hit-test the dispatch below uses, BEFORE the re-emit
+        // (node ids are stable across a paint-damage dispatch; the retain in
+        // `anim_sync` carries the bounce across a re-emit).
+        let hit = self.view.hover_box_id_scrolled(
+            &self.layout.boxes,
+            "Tap",
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            scroll,
+        );
+        // Some kinds animate a PART instead of the whole control (the toggle's
+        // thumb): the handler carries a structural box-id offset (registry
+        // `press_offset`, resolved at emit time — no widget kind leaks here).
+        let press_part = hit.map(|h| {
+            let off = self
+                .view
+                .handlers()
+                .iter()
+                .find(|(box_id, _)| *box_id == h)
+                .map_or(0, |(_, e)| e.press_offset as usize);
+            h + off
+        });
+        match (hit, press_part) {
+            (Some(h), Some(p)) if p == h => self.interaction_press(h),
+            _ => {} // part-press (toggle thumb) fires AFTER the flip below
+        }
+        // The part's pre-dispatch x (the thumb slides on a toggle flip; the
+        // slide-in animates from old − new).
+        let part_x_before = press_part.and_then(|p| {
+            self.layout.boxes.iter().find(|b| b.node_id == p).map(|b| b.rect.x.0)
+        });
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        let damage = match self.view.pointer_scrolled(
+            tokens,
+            &device,
+            &locale,
+            &mut self.host,
+            &self.layout.boxes,
+            "Tap",
+            nexus_layout_types::FxPx::new(x),
+            nexus_layout_types::FxPx::new(y),
+            scroll,
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                // A dispatch error must never be silent: the store may have
+                // committed while the re-emit failed (stale UI). Bounded by
+                // user tap rate.
+                raw_marker(&alloc::format!("apphost: tap dispatch ERR {e:?}"));
+                None
+            }
+        };
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
             return false;
         }
@@ -41,6 +79,20 @@ impl super::DslApp {
         // pre-measured text + kept layout make that the cheap path.
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_retained();
+        }
+        // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
+        // at its new end — stretch it along the travel axis and slide it in
+        // from where it was (node ids are stable across the re-emit).
+        if let (Some(h), Some(p), Some(x0)) = (hit, press_part, part_x_before) {
+            if p != h {
+                let x1 = self
+                    .layout
+                    .boxes
+                    .iter()
+                    .find(|b| b.node_id == p)
+                    .map_or(x0, |b| b.rect.x.0);
+                self.interaction_toggle_thumb(p, (x0 - x1) as f32);
+            }
         }
         // The dispatch re-emitted the scene: reconcile the animation driver
         // with the new intents (a changed `.animate`/`.effect` value starts
@@ -67,6 +119,10 @@ impl super::DslApp {
             return None;
         }
         let old = core::mem::replace(&mut self.hovered, target);
+        // Interaction motion (handoff): grow the newly hovered control with a
+        // soft spring, shrink the old one back — the caller arms the frame
+        // pulse (`anim_active`) so the springs tick on the real cadence.
+        self.interaction_hover(old, target);
         self.hover_span(old, target)
     }
 
@@ -74,6 +130,7 @@ impl super::DslApp {
     /// Returns the cleared box's row span for the partial repaint.
     pub(super) fn hover_clear(&mut self) -> Option<(i32, i32)> {
         let old = self.hovered.take();
+        self.interaction_hover(old, None);
         self.hover_span(old, None)
     }
 

@@ -364,7 +364,10 @@ pub fn build_widget(
         }
         "Spinner" => {
             use nexus_widget_spinner::Spinner;
-            let mut spinner = Spinner::new();
+            // Flat spokes: the host's carousel loop paints the rotating fade
+            // as a per-spoke opacity wash (a wash OVER the baked resting fade
+            // would double-fade the tail).
+            let mut spinner = Spinner::new().flat();
             if let Some(Value::Int(size)) = prop("size") {
                 spinner = spinner.size(*size as i32);
             }
@@ -597,5 +600,18 @@ pub fn child_path(kind: &str) -> (&'static [u32], u32) {
         // GlassButton: root → content stack (0) → label (0), children (1+).
         "Button" => (&[0], 1),
         _ => (&[], 0),
+    }
+}
+
+/// Pre-order box-id offset from a kind's handler node to the part the PRESS
+/// interaction animates (see `HandlerEntry::press_offset`). Mirrors the kit
+/// builders' structure — update together with `build_widget`.
+#[must_use]
+pub fn press_offset(kind: &str) -> u32 {
+    match kind {
+        // GlassToggle: root = the track, sole child (+1 pre-order) = the
+        // thumb — the press stretches the thumb along the travel axis.
+        "Toggle" => 1,
+        _ => 0,
     }
 }

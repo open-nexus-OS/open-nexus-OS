@@ -50,6 +50,9 @@ pub const CURSOR_RESIZE_NS_BGRA: &[u8] = generated::CURSOR_RESIZE_NS_BGRA;
 pub const CURSOR_RESIZE_NESW_BGRA: &[u8] = generated::CURSOR_RESIZE_NESW_BGRA;
 pub const CURSOR_RESIZE_NWSE_BGRA: &[u8] = generated::CURSOR_RESIZE_NWSE_BGRA;
 pub const CURSOR_RESIZE_HOTSPOT: i32 = 16;
+/// Loading-ring wait-cursor frames (animated wait cursor): 32×32 premultiplied
+/// BGRA, hotspot = center, one sprite per ring rotation step.
+pub const CURSOR_RING_FRAMES: [&[u8]; 8] = generated::CURSOR_RING_FRAMES;
 
 /// Dock icons for minimized windows (Lucide `message-circle` / `search`).
 pub const DOCK_CHAT_ICON_BGRA: &[u8] = generated::DOCK_CHAT_ICON_BGRA;

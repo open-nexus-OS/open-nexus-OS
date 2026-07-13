@@ -343,6 +343,7 @@ fn emit_widget(
                     path: ctx.path.clone(),
                     trigger: handler.get_trigger(),
                     action,
+                    press_offset: registry::press_offset(&kind),
                 });
             }
         }
@@ -375,25 +376,34 @@ fn emit_widget(
     }
 
     // Inherently-animated KIT WIDGET: emit a CONTINUOUS loop intent for this
-    // node so the host breathes its resting frame (paint-time transform loop —
-    // the app-host heap never frees, so per-frame re-emit is out). Only widgets
-    // whose motion maps to the per-node fill transform qualify here; spoke
-    // rotation / shimmer sweep are the compositor's job (Track C).
-    if is_looping_widget(&kind) {
+    // node (paint-time transform loop — the app-host heap never frees, so
+    // per-frame re-emit is out). The intent VALUE carries the loop sub-kind
+    // (`crate::anim::LOOP_*`); the animated part is a stable pre-order child
+    // offset of the builder's fixed structure, so the host targets child
+    // boxes without any rebuild.
+    if let Some(sub) = loop_subkind(&kind, &props) {
         ctx.anim_intents.push((
             ctx.path.clone(),
-            AnimIntent::new(AnimKind::Loop, animation::MotionToken::Pulse.id(), 0),
+            AnimIntent::new(AnimKind::Loop, animation::MotionToken::Pulse.id(), sub),
         ));
     }
     Ok(registry::build_widget(&kind, &props, &mods, ctx.tokens, children))
 }
 
-/// KIT widgets whose resting frame should breathe continuously via the host's
-/// paint-time transform loop (leak-free). `Skeleton` (a filled rect root) fits
-/// the per-node fill transform; `Spinner`/`ProgressBar` (paths / clipped
-/// sweeps) are deferred to the compositor layer transform (Track C).
-fn is_looping_widget(kind: &str) -> bool {
-    matches!(kind, "Skeleton")
+/// Continuous-loop sub-kind for inherently-animated kit widgets (None = the
+/// widget does not loop). Mirrors the registry arms: a `ProgressBar` is
+/// indeterminate exactly when it has no Int `value` prop.
+fn loop_subkind(kind: &str, props: &[(String, Value)]) -> Option<i32> {
+    match kind {
+        "Skeleton" => Some(crate::anim::LOOP_SWEEP),
+        "Spinner" => Some(crate::anim::LOOP_CAROUSEL),
+        "ProgressBar"
+            if !props.iter().any(|(n, v)| n == "value" && matches!(v, Value::Int(_))) =>
+        {
+            Some(crate::anim::LOOP_SWEEP)
+        }
+        _ => None,
+    }
 }
 
 /// Applies one modifier; mod ids index the compiler catalog

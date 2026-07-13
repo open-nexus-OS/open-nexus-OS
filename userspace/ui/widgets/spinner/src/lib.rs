@@ -47,12 +47,16 @@ pub struct Spinner {
     /// Leading-spoke index (0..12) — the motion system advances this each
     /// tick to rotate the fade around the circle.
     phase: usize,
+    /// All spokes opaque (the host paints the rotating fade). See [`flat`].
+    ///
+    /// [`flat`]: Spinner::flat
+    flat: bool,
     id: Option<&'static str>,
 }
 
 impl Default for Spinner {
     fn default() -> Self {
-        Self { size: FxPx::new(28), color: ColorToken::OnSurface, phase: 0, id: None }
+        Self { size: FxPx::new(28), color: ColorToken::OnSurface, phase: 0, flat: false, id: None }
     }
 }
 
@@ -76,6 +80,15 @@ impl Spinner {
     /// Animation phase: which spoke leads the fade (wraps at 12).
     pub fn phase(mut self, phase: usize) -> Self {
         self.phase = phase % SPOKES.len();
+        self
+    }
+
+    /// Build every spoke fully opaque (no baked resting fade): for hosts that
+    /// animate the fade themselves as a per-spoke paint-time opacity wash (the
+    /// DSL carousel loop) — a multiplicative wash over the baked fade would
+    /// double-fade the tail.
+    pub fn flat(mut self) -> Self {
+        self.flat = true;
         self
     }
 
@@ -105,7 +118,8 @@ impl Spinner {
                 PathPoint::new(quad[2].0, quad[2].1),
                 PathPoint::new(quad[3].0, quad[3].1),
             ]);
-            let color = Rgba8::new(base.r, base.g, base.b, self.spoke_alpha(i));
+            let alpha = if self.flat { 255 } else { self.spoke_alpha(i) };
+            let color = Rgba8::new(base.r, base.g, base.b, alpha);
             spokes.push(LayoutNode::Stack(
                 Stack {
                     id: None,

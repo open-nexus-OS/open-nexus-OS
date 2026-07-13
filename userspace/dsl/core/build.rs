@@ -13,7 +13,13 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 fn main() {
-    let schema = Path::new(env!("CARGO_MANIFEST_DIR"))
+    // Runtime env (NOT `env!`): the compile-time macro bakes the manifest dir
+    // of whichever environment compiled this script — host and container
+    // builds share `target/`, so a baked absolute path poisons the other
+    // side's cache (/workspace vs the host checkout).
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+    let schema = Path::new(&manifest_dir)
         .join("../../../tools/nexus-idl/schemas/dsl_services.capnp");
     println!("cargo:rerun-if-changed={}", schema.display());
     let text = std::fs::read_to_string(&schema)

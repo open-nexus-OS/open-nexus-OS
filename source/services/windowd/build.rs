@@ -174,6 +174,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
+    // Loading-ring wait-cursor frames: a Mocu-style activity ring — a light
+    // ring with a rotating fading tail over a soft dark halo (readable on both
+    // themes) — drawn procedurally with distance-based AA (no SVG source),
+    // premultiplied BGRA like every cursor sprite, 32×32, hotspot = center.
+    // Frame `i` leads at angle `i/N × 2π`; windowd cycles the pre-uploaded
+    // shape-cache slots while a launch is pending.
+    const RING_FRAME_COUNT: u32 = 8;
+    for f in 0..RING_FRAME_COUNT {
+        let bgra = render_ring_frame(CURSOR_DIM, f, RING_FRAME_COUNT);
+        let path = out_dir.join(format!("cursor_ring_{f}.bgra"));
+        fs::write(&path, &bgra)?;
+        writeln!(
+            generated,
+            "pub const CURSOR_RING_{f}_BGRA: &[u8] = include_bytes!(r#\"{}\"#);",
+            path.display()
+        )?;
+    }
+    writeln!(
+        generated,
+        "pub const CURSOR_RING_FRAMES: [&[u8]; {RING_FRAME_COUNT}] = [{}];",
+        (0..RING_FRAME_COUNT)
+            .map(|f| format!("CURSOR_RING_{f}_BGRA"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )?;
+
     // Real icon (TASK #61 "real icon layer"): render a Lucide icon through the
     // nexus-svg render-at-scale pipeline (currentColor → tint) into a BGRA sprite.
     // gpud composites it as a GPU sprite layer on the virgl scanout — the
@@ -447,6 +473,50 @@ fn box_average_downscale(src: &[u8], sw: u32, sh: u32, factor: u32) -> Vec<u8> {
 /// Convert a premultiplied BGRA buffer to straight (un-associated) alpha:
 /// `straight_rgb = premul_rgb · 255 / a` (rounded, clamped), alpha unchanged.
 /// Transparent pixels (a=0) stay zero. Matches gpud's straight-alpha layer blend.
+/// One wait-cursor ring frame: premultiplied BGRA, `dim`×`dim`, drawn with
+/// distance-field AA. Geometry: ring radius `dim×0.34`, core thickness ~3px,
+/// plus a 1px dark halo under the light core so the ring reads on light AND
+/// dark backdrops. The tail fades from the leading angle around the circle.
+fn render_ring_frame(dim: u32, frame: u32, frames: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (dim * dim * 4) as usize];
+    let c = dim as f32 / 2.0;
+    let r_mid = dim as f32 * 0.34;
+    let core_half = 1.6f32;
+    let halo_half = 2.8f32;
+    let lead = frame as f32 / frames as f32 * core::f32::consts::TAU;
+    // Light core over dark halo (straight colors; premultiplied at write).
+    let core = (245.0f32, 245.0, 248.0); // B,G,R equal-ish neutral light
+    let halo = (36.0f32, 33.0, 30.0);
+    for y in 0..dim {
+        for x in 0..dim {
+            let dx = x as f32 + 0.5 - c;
+            let dy = y as f32 + 0.5 - c;
+            let d = (dx * dx + dy * dy).sqrt();
+            // Angular tail: 1.0 at the leading angle, fading to 0.12 behind it.
+            let ang = dy.atan2(dx);
+            let mut behind = (lead - ang) / core::f32::consts::TAU;
+            behind -= behind.floor(); // wrap into [0,1)
+            let tail = 1.0 - behind * 0.88;
+            let core_cov = (core_half - (d - r_mid).abs() + 0.5).clamp(0.0, 1.0);
+            let halo_cov = (halo_half - (d - r_mid).abs() + 0.5).clamp(0.0, 1.0);
+            // src-over: halo below, core above (both tail-faded).
+            let a_halo = halo_cov * 0.85 * tail;
+            let a_core = core_cov * tail;
+            let a = a_core + a_halo * (1.0 - a_core);
+            if a <= 0.0 {
+                continue;
+            }
+            let blend = |cc: f32, hc: f32| cc * a_core + hc * a_halo * (1.0 - a_core);
+            let i = ((y * dim + x) * 4) as usize;
+            out[i] = blend(core.0, halo.0) as u8; // B (premultiplied)
+            out[i + 1] = blend(core.1, halo.1) as u8; // G
+            out[i + 2] = blend(core.2, halo.2) as u8; // R
+            out[i + 3] = (a * 255.0) as u8;
+        }
+    }
+    out
+}
+
 fn unpremultiply_bgra(src: &[u8]) -> Vec<u8> {
     let mut out = src.to_vec();
     for px in out.chunks_exact_mut(4) {

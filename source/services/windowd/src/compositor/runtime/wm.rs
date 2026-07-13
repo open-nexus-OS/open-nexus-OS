@@ -267,10 +267,10 @@ impl DisplayServerRuntime {
         };
         match target {
             snap::SnapTarget::Fullscreen => {
-                // Route through the fullscreen toggle: chrome-cover + restore
-                // semantics live in ONE place.
+                // Route through the fullscreen transition: chrome-cover +
+                // restore semantics live in ONE place (toggle inside).
                 if !self.windows.is_fullscreen(id) {
-                    self.toggle_fullscreen(id);
+                    self.start_fullscreen_transition(id);
                 }
                 let _ = debug_println(&alloc::format!(
                     "windowd: snap edge=top id={}",

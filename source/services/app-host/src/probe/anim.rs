@@ -26,13 +26,21 @@
 use super::*;
 use animation::{AnimProp, AnimationDriver, Easing, LayerId, MotionToken, SceneUpdate, SpringConfig};
 use nexus_dsl_runtime::theme_tokens::Tokens;
-use nexus_dsl_runtime::{AnimIntent, AnimKind};
+use nexus_dsl_runtime::{
+    AnimIntent, AnimKind, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
+};
 use nexus_scene_raster::NodeAnim;
 
 /// Max concurrent DSL node transforms (mirrors the engine's active-animation
 /// cap). Bounds the driver, the value-diff table, and the paint transform
-/// table so none grows on the non-freeing bump heap.
-pub(super) const MAX_NODE_ANIMS: usize = 6;
+/// table so none grows on the non-freeing bump heap. Sized for the modifier
+/// anims + widget loops (a Spinner carousel alone holds 12 spoke entries) +
+/// the INTERACTION motions (hover-grow/press-bounce can touch several nodes
+/// while sweeping the pointer).
+pub(super) const MAX_NODE_ANIMS: usize = 32;
+/// Expanded (subtree-cascaded) paint transform cap — each animated container
+/// may fan out to its contained boxes (tile + glyph + label…).
+pub(super) const MAX_EXPANDED_ANIMS: usize = 48;
 
 /// SlideUp travel (px): the offset a slide-in transition starts from.
 const SLIDE_PX: f32 = 16.0;
@@ -42,6 +50,29 @@ const WIGGLE_PX: f32 = 6.0;
 const PULSE_PEAK: f32 = 0.12;
 /// FadeScale's absent-state scale (grows to 1.0 on enter, per animation.md).
 const FADE_SCALE_FROM: f32 = 0.92;
+/// Interaction motion (design handoff "Animations & Motion"): hover grows the
+/// control, press dips then springs back — swift, immediate, slightly elastic
+/// (the `--motion-spring-soft` / `--motion-spring-icon` feel).
+/// Hover-grow target scale ("Icons: scale(1.08) hover" — 1.06 generic reads
+/// right on buttons too).
+const HOVER_SCALE: f32 = 1.06;
+/// Press dip ("instant down scale(0.9–0.95)").
+const PRESS_SCALE: f32 = 0.92;
+/// Press overshoot on the springy release (elastic pop past identity).
+const PRESS_POP: f32 = 1.04;
+/// Press pulse duration (down 0.1s + springy release).
+const PRESS_MS: u64 = 280;
+/// Hover spring: swift with subtle overshoot (`--motion-spring-soft`).
+const HOVER_SPRING: animation::SpringConfig = animation::SpringConfig {
+    stiffness: 420.0,
+    damping: 22.0,
+    mass: 1.0,
+    initial_velocity: 0.0,
+};
+/// Toggle-thumb press: peak stretch along the travel axis (the handoff
+/// "toggles stretch the thumb while pressed" — capsule, Y pinned).
+const TOGGLE_STRETCH: f32 = 1.35;
+
 /// Continuous-loop (`AnimKind::Loop`) breathe opacity endpoints + midpoint —
 /// an inherently-animated widget (Skeleton) pulses between these forever via a
 /// spring that re-fires toward the opposite endpoint on each convergence
@@ -49,6 +80,18 @@ const FADE_SCALE_FROM: f32 = 0.92;
 const BREATHE_BRIGHT: f32 = 1.0;
 const BREATHE_DIM: f32 = 0.15;
 const BREATHE_MID: f32 = 0.55;
+
+/// Sweep loop spring (`LOOP_SWEEP`: shimmer band / indeterminate pip): an
+/// overdamped ~1s glide across the track; the sawtooth RESETS to 0 on
+/// convergence and re-fires. Springs only — a `keyframe_to` per cycle would
+/// alloc a waypoint Vec on the non-freeing bump heap forever.
+const SWEEP_SPRING: SpringConfig =
+    SpringConfig { stiffness: 16.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 };
+/// Carousel step interval (`LOOP_CAROUSEL`): ~80ms per spoke — one revolution
+/// ≈ 1s over the 12 spokes, the classic activity-ring cadence.
+const SPINNER_STEP_NS: u64 = 80_000_000;
+/// Trailing-spoke minimum alpha (mirrors the Spinner builder's `TAIL_ALPHA`).
+const SPINNER_TAIL_ALPHA: u16 = 64;
 
 /// The identity value of an animation property (opacity/scale rest at 1.0,
 /// translate at 0.0) — the "no visible effect" anchor for interpolation.
@@ -92,6 +135,17 @@ fn target_for(token: MotionToken, prop: AnimProp, value: i32) -> f32 {
     }
 }
 
+/// One continuous widget loop (reconciled against the emitted Loop intents).
+#[derive(Clone, Copy)]
+struct LoopEnt {
+    /// The widget ROOT node the intent targets.
+    node_id: usize,
+    /// Loop sub-kind (`nexus_dsl_runtime::LOOP_*`, stamped in the intent value).
+    sub: i32,
+    /// Carousel: current leading-spoke step on the time grid.
+    step: u8,
+}
+
 /// Host-owned animation state for one `DslApp` surface. See the module header.
 pub(super) struct AnimState {
     /// The OS-wide physics SSOT — springs/keyframes interpolated on the pulse.
@@ -102,11 +156,11 @@ pub(super) struct AnimState {
     /// The current interpolated transform per node the painter consumes;
     /// entries that converge back to identity are pruned. Bounded by the cap.
     anims: alloc::vec::Vec<NodeAnim>,
-    /// Node ids running a CONTINUOUS breathe loop (`AnimKind::Loop`, an
-    /// inherently-animated kit widget). The spring re-fires toward the opposite
-    /// endpoint on each convergence; these keep the frame pulse armed while the
-    /// widget is on screen. Bounded by the cap.
-    loops: alloc::vec::Vec<usize>,
+    /// CONTINUOUS widget loops (`AnimKind::Loop`, inherently-animated kit
+    /// widgets), keyed by root node + sub-kind. Sweep springs re-fire on each
+    /// convergence; the carousel steps on a time grid. These keep the frame
+    /// pulse armed while the widget is on screen. Bounded by the cap.
+    loops: alloc::vec::Vec<LoopEnt>,
     /// Last physics tick (ns) for dt integration (diagnostics/telemetry).
     last_ns: u64,
 }
@@ -155,7 +209,10 @@ impl AnimState {
             AnimProp::Opacity => a.opacity as f32 / 255.0,
             AnimProp::TranslateX => a.dx as f32,
             AnimProp::TranslateY => a.dy as f32,
-            AnimProp::ScaleX | AnimProp::ScaleY => a.scale_pct as f32 / 100.0,
+            AnimProp::ScaleX => a.scale_pct as f32 / 100.0,
+            // ScaleY mirrors X unless a non-uniform interaction split it
+            // (toggle-thumb stretch) — the NodeAnim superset contract.
+            AnimProp::ScaleY => a.scale_y_pct.unwrap_or(a.scale_pct) as f32 / 100.0,
             _ => prop_identity(prop),
         }
     }
@@ -168,7 +225,11 @@ impl AnimState {
             AnimProp::Opacity => a.opacity = (v.clamp(0.0, 1.0) * 255.0) as u8,
             AnimProp::TranslateX => a.dx = v as i32,
             AnimProp::TranslateY => a.dy = v as i32,
-            AnimProp::ScaleX | AnimProp::ScaleY => a.scale_pct = (v.max(0.0) * 100.0) as u16,
+            // ScaleX stays the uniform scale every existing consumer animates
+            // (hover/press/pulse); an explicit ScaleY SPLITS the axes (the
+            // toggle-thumb stretch). While split, ScaleX only moves X.
+            AnimProp::ScaleX => a.scale_pct = (v.max(0.0) * 100.0) as u16,
+            AnimProp::ScaleY => a.scale_y_pct = Some((v.max(0.0) * 100.0) as u16),
             _ => {}
         }
     }
@@ -334,50 +395,159 @@ impl AnimState {
         );
     }
 
-    /// Reconcile the continuous-loop set with the freshly-emitted `Loop`
-    /// intents: forget nodes gone from the tree (cancel + restore to full
-    /// opacity) and start a breathe for each newly-seen looping widget.
-    fn sync_loops(&mut self, present: &[(usize, AnimIntent)]) {
-        let is_present_loop = |n: usize| {
-            present.iter().any(|(pn, pi)| *pn == n && pi.kind == AnimKind::Loop)
+    /// Sweep travel distance (px) for a loop root: parent width − band/pip
+    /// child width, from the CURRENT layout boxes (layout-fresh each cycle).
+    fn sweep_travel(node_id: usize, boxes: &[nexus_layout::LayoutBox]) -> f32 {
+        let w_of = |id: usize| {
+            boxes.iter().find(|b| b.node_id == id).map_or(0, |b| b.rect.width.0)
         };
-        // Drop gone loops: cancel the spring, reset to bright, prune the slot.
+        (w_of(node_id) - w_of(node_id + 1)).max(0) as f32
+    }
+
+    /// (Re)start a sweep half…full cycle: the band/pip child springs from the
+    /// track's left edge to the right end of its travel. Alloc-free.
+    fn start_sweep(&mut self, node_id: usize, boxes: &[nexus_layout::LayoutBox]) {
+        let travel = Self::sweep_travel(node_id, boxes);
+        if travel < 1.0 {
+            return; // no room (or boxes mid-relayout) — retried next tick
+        }
+        let child = node_id + 1;
+        self.set_prop(child, AnimProp::TranslateX, 0.0);
+        self.driver.spring_to(
+            LayerId(child as u64),
+            AnimProp::TranslateX,
+            0.0,
+            travel,
+            SWEEP_SPRING,
+        );
+    }
+
+    /// Write the carousel's stepped spoke opacities: the leading spoke is
+    /// opaque, trailing spokes fade linearly to the tail alpha (mirrors the
+    /// Spinner builder's resting fade — stepping the lead rotates it).
+    fn write_carousel(&mut self, node_id: usize, step: u8) {
+        let n = LOOP_CAROUSEL_SPOKES;
+        for i in 0..n {
+            let d = (i + n - step as usize) % n;
+            let a = (255u16 - (255 - SPINNER_TAIL_ALPHA) * d as u16 / (n as u16 - 1)) as u8;
+            self.node_mut(node_id + 1 + i).opacity = a;
+        }
+    }
+
+    /// Forget one loop's paint state (the widget left the tree): cancel its
+    /// springs and reset the touched nodes to identity so nothing stays faded.
+    fn forget_loop(&mut self, ent: LoopEnt) {
+        match ent.sub {
+            LOOP_SWEEP => {
+                let child = ent.node_id + 1;
+                self.driver.cancel(LayerId(child as u64), AnimProp::TranslateX);
+                self.set_prop(child, AnimProp::TranslateX, 0.0);
+                self.prune_identity(child);
+            }
+            LOOP_CAROUSEL => {
+                for i in 0..LOOP_CAROUSEL_SPOKES {
+                    let c = ent.node_id + 1 + i;
+                    self.node_mut(c).opacity = 255;
+                    self.prune_identity(c);
+                }
+            }
+            _ => {
+                self.driver.cancel(LayerId(ent.node_id as u64), AnimProp::Opacity);
+                self.set_prop(ent.node_id, AnimProp::Opacity, BREATHE_BRIGHT);
+                self.prune_identity(ent.node_id);
+            }
+        }
+    }
+
+    /// Reconcile the continuous-loop set with the freshly-emitted `Loop`
+    /// intents: forget loops gone from the tree and start each newly-seen
+    /// looping widget's motion (sub-kind from the intent value).
+    fn sync_loops(&mut self, present: &[(usize, AnimIntent)], boxes: &[nexus_layout::LayoutBox]) {
+        let is_present = |e: &LoopEnt| {
+            present
+                .iter()
+                .any(|(pn, pi)| *pn == e.node_id && pi.kind == AnimKind::Loop && pi.value == e.sub)
+        };
         let mut i = 0;
         while i < self.loops.len() {
-            let n = self.loops[i];
-            if is_present_loop(n) {
+            if is_present(&self.loops[i]) {
                 i += 1;
             } else {
-                self.driver.cancel(LayerId(n as u64), AnimProp::Opacity);
-                self.set_prop(n, AnimProp::Opacity, BREATHE_BRIGHT);
-                self.prune_identity(n);
-                self.loops.swap_remove(i);
+                let ent = self.loops.swap_remove(i);
+                self.forget_loop(ent);
             }
         }
         // Start newly-seen loops.
         for &(node_id, intent) in present {
-            if intent.kind != AnimKind::Loop || self.loops.contains(&node_id) {
+            if intent.kind != AnimKind::Loop
+                || self.loops.iter().any(|e| e.node_id == node_id)
+            {
                 continue;
             }
             if self.loops.len() >= MAX_NODE_ANIMS {
                 break;
             }
-            self.loops.push(node_id);
-            self.start_breathe(node_id);
+            // step 0xFF = "not painted yet": the first tick always writes.
+            self.loops.push(LoopEnt { node_id, sub: intent.value, step: 0xFF });
+            match intent.value {
+                LOOP_SWEEP => self.start_sweep(node_id, boxes),
+                // Carousel paints on the first tick's time grid.
+                LOOP_CAROUSEL => {}
+                _ => self.start_breathe(node_id),
+            }
         }
     }
 
-    /// Keep every breathe loop alive: a node whose opacity spring has converged
-    /// re-fires toward the opposite endpoint. Called each frame pulse after the
-    /// driver tick — the driver is never idle while a loop exists, so the pulse
-    /// stays armed. Alloc-free.
-    fn tick_loops(&mut self) {
+    /// Keep every loop alive: a converged sweep resets to the left edge and
+    /// re-fires (sawtooth), a converged breathe springs to the opposite
+    /// endpoint, and the carousel advances its leading spoke on the time
+    /// grid. Returns the union ROW SPAN of loop-driven paint changes the
+    /// driver's own updates do NOT cover (the sawtooth jump-back + the
+    /// carousel steps). Alloc-free.
+    fn tick_loops(
+        &mut self,
+        now_ns: u64,
+        boxes: &[nexus_layout::LayoutBox],
+    ) -> Option<(i32, i32)> {
+        let mut span: Option<(i32, i32)> = None;
+        let mut grow = |boxes: &[nexus_layout::LayoutBox], node_id: usize,
+                        span: &mut Option<(i32, i32)>| {
+            if let Some(b) = boxes.iter().find(|b| b.node_id == node_id) {
+                let (y0, y1) = (b.rect.y.0 - 1, b.rect.y.0 + b.rect.height.0 + 1);
+                *span = Some(match *span {
+                    Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+                    None => (y0, y1),
+                });
+            }
+        };
         for idx in 0..self.loops.len() {
-            let node_id = self.loops[idx];
-            if !self.driver.is_active(LayerId(node_id as u64), AnimProp::Opacity) {
-                self.start_breathe(node_id);
+            let ent = self.loops[idx];
+            match ent.sub {
+                LOOP_SWEEP => {
+                    let child = ent.node_id + 1;
+                    if !self.driver.is_active(LayerId(child as u64), AnimProp::TranslateX) {
+                        // Sawtooth: jump back to the left edge, glide again.
+                        self.start_sweep(ent.node_id, boxes);
+                        grow(boxes, ent.node_id, &mut span);
+                    }
+                }
+                LOOP_CAROUSEL => {
+                    let step =
+                        ((now_ns / SPINNER_STEP_NS) % LOOP_CAROUSEL_SPOKES as u64) as u8;
+                    if step != ent.step {
+                        self.loops[idx].step = step;
+                        self.write_carousel(ent.node_id, step);
+                        grow(boxes, ent.node_id, &mut span);
+                    }
+                }
+                _ => {
+                    if !self.driver.is_active(LayerId(ent.node_id as u64), AnimProp::Opacity) {
+                        self.start_breathe(ent.node_id);
+                    }
+                }
             }
         }
+        span
     }
 }
 
@@ -428,9 +598,33 @@ impl super::DslApp {
         self.anim.seen.retain(|(id, _)| {
             present.iter().any(|(p, i)| p == id && i.kind != AnimKind::Loop)
         });
-        self.anim.anims.retain(|a| present.iter().any(|(p, _)| *p == a.node_id));
+        // Keep a node's transform when it is intent-driven OR its driver
+        // animation still runs — INTERACTION motions (hover/press) target
+        // handler boxes that carry no intent and must survive re-emits (a tap
+        // re-emits the scene mid-press-bounce).
+        let driver = &self.anim.driver;
+        let loops = &self.anim.loops;
+        self.anim.anims.retain(|a| {
+            let layer = LayerId(a.node_id as u64);
+            present.iter().any(|(p, _)| *p == a.node_id)
+                || driver.is_active(layer, AnimProp::ScaleX)
+                || driver.is_active(layer, AnimProp::Opacity)
+                || driver.is_active(layer, AnimProp::TranslateX)
+                || driver.is_active(layer, AnimProp::TranslateY)
+                // Loop-owned CHILD entries (sweep band / carousel spokes)
+                // carry no driver spring at every instant — keep them so a
+                // re-emit mid-cycle doesn't flash the widget to identity.
+                || loops.iter().any(|e| match e.sub {
+                    LOOP_SWEEP => a.node_id == e.node_id + 1,
+                    LOOP_CAROUSEL => {
+                        a.node_id > e.node_id
+                            && a.node_id <= e.node_id + LOOP_CAROUSEL_SPOKES
+                    }
+                    _ => a.node_id == e.node_id,
+                })
+        });
         // Continuous loops (inherently-animated widgets): start new, drop gone.
-        self.anim.sync_loops(present);
+        self.anim.sync_loops(present, &self.layout.boxes);
         // Arm the clock on the idle→active edge (see `was_idle` above).
         if was_idle && self.anim.driver.active_count() > 0 {
             self.anim.driver.reset_clock(nsec_now());
@@ -465,8 +659,17 @@ impl super::DslApp {
             // …and AFTER (where it paints now) — the union covers the motion.
             self.grow_anim_span(node_id, &mut span);
         }
-        // Re-fire any breathe loop whose spring has converged, so it never stops.
-        self.anim.tick_loops();
+        // Advance the continuous loops (sawtooth re-fire / breathe re-fire /
+        // carousel step) and merge their extra paint damage.
+        if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes) {
+            let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+            if y0 < y1 {
+                span = Some(match span {
+                    Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+                    None => (y0, y1),
+                });
+            }
+        }
         span
     }
 
@@ -508,17 +711,106 @@ impl super::DslApp {
         self.anim.driver.active_count() > 0 || !self.anim.loops.is_empty()
     }
 
+    /// INTERACTION MOTION (design handoff): the pointer entered/left an
+    /// interactive control — spring the new target up to the hover scale
+    /// (subtle overshoot, `--motion-spring-soft`) and the old one back to
+    /// identity. Rides the same driver + NodeAnim + frame-pulse machinery as
+    /// every other animation (no extra loop).
+    pub(super) fn interaction_hover(&mut self, old: Option<usize>, new: Option<usize>) {
+        let was_idle = self.anim.driver.active_count() == 0;
+        if let Some(id) = old {
+            let cur = self.anim.cur(id, AnimProp::ScaleX);
+            if (cur - 1.0).abs() > 0.001
+                || self.anim.driver.is_active(LayerId(id as u64), AnimProp::ScaleX)
+            {
+                self.anim.driver.spring_to(
+                    LayerId(id as u64),
+                    AnimProp::ScaleX,
+                    cur,
+                    1.0,
+                    HOVER_SPRING,
+                );
+            }
+        }
+        if let Some(id) = new {
+            let cur = self.anim.cur(id, AnimProp::ScaleX);
+            self.anim.driver.spring_to(
+                LayerId(id as u64),
+                AnimProp::ScaleX,
+                cur,
+                HOVER_SCALE,
+                HOVER_SPRING,
+            );
+        }
+        if was_idle && self.anim.driver.active_count() > 0 {
+            self.anim.driver.reset_clock(nsec_now());
+        }
+    }
+
+    /// INTERACTION MOTION: press feedback on tap — instant dip to 92% then a
+    /// springy release with an elastic pop past identity (the handoff's
+    /// "instant down, springy release" / `--motion-spring-icon` character).
+    pub(super) fn interaction_press(&mut self, node_id: usize) {
+        let was_idle = self.anim.driver.active_count() == 0;
+        let cur = self.anim.cur(node_id, AnimProp::ScaleX);
+        self.anim.driver.keyframe_to(
+            LayerId(node_id as u64),
+            AnimProp::ScaleX,
+            alloc::vec![(0.0, cur), (0.3, PRESS_SCALE), (0.7, PRESS_POP), (1.0, 1.0)],
+            PRESS_MS * 1_000_000,
+            Easing::EaseOut,
+        );
+        if was_idle {
+            self.anim.driver.reset_clock(nsec_now());
+        }
+    }
+
+    /// INTERACTION MOTION (handoff): toggle press — the THUMB stretches along
+    /// the travel axis (X) with Y pinned (capsule, never an ellipse), and when
+    /// the flip moved the knob to the other end (`dx_from` = old − new x), it
+    /// elastically slides into place from where it was. Non-uniform scale is
+    /// the `NodeAnim` superset; every other interaction stays uniform.
+    pub(super) fn interaction_toggle_thumb(&mut self, thumb_id: usize, dx_from: f32) {
+        let was_idle = self.anim.driver.active_count() == 0;
+        let layer = LayerId(thumb_id as u64);
+        // Split the axes for this node: pin Y at identity.
+        self.anim.set_prop(thumb_id, AnimProp::ScaleY, 1.0);
+        let cur = self.anim.cur(thumb_id, AnimProp::ScaleX).max(1.0);
+        self.anim.driver.keyframe_to(
+            layer,
+            AnimProp::ScaleX,
+            alloc::vec![(0.0, cur), (0.35, TOGGLE_STRETCH), (1.0, 1.0)],
+            PRESS_MS * 1_000_000,
+            Easing::EaseOut,
+        );
+        if dx_from.abs() >= 1.0 {
+            self.anim.set_prop(thumb_id, AnimProp::TranslateX, dx_from);
+            self.anim.driver.spring_to(layer, AnimProp::TranslateX, dx_from, 0.0, HOVER_SPRING);
+        }
+        if was_idle && self.anim.driver.active_count() > 0 {
+            self.anim.driver.reset_clock(nsec_now());
+        }
+    }
+
     /// Whether a BOUNDED (non-loop) animation is interpolating — the only
     /// animation state that may arm the recv-timeout SELF-PACE fallback. A
     /// continuous loop must ride the compositor frame pulse EXCLUSIVELY
     /// (the compositor owns pacing + visibility; a self-paced loop kept
     /// rendering at ~80Hz forever, hidden windows included).
     pub(super) fn anim_transient_active(&self) -> bool {
+        let driver = &self.anim.driver;
         let loop_springs = self
             .anim
             .loops
             .iter()
-            .filter(|&&n| self.anim.driver.is_active(LayerId(n as u64), AnimProp::Opacity))
+            .filter(|e| match e.sub {
+                LOOP_SWEEP => {
+                    driver.is_active(LayerId((e.node_id + 1) as u64), AnimProp::TranslateX)
+                }
+                // The carousel owns no spring — it steps on the pulse only.
+                LOOP_CAROUSEL => false,
+                _ => driver.is_active(LayerId(e.node_id as u64), AnimProp::Opacity),
+            })
             .count();
         self.anim.driver.active_count() > loop_springs
     }
@@ -529,6 +821,64 @@ impl super::DslApp {
     pub(super) fn node_anims_snapshot(&self, out: &mut [NodeAnim]) -> usize {
         let n = self.anim.anims.len().min(out.len());
         out[..n].copy_from_slice(&self.anim.anims[..n]);
+        n
+    }
+
+    /// Expand the per-node transforms into a SUBTREE CASCADE for the painter:
+    /// each animated container also transforms every box laid out INSIDE it
+    /// (pre-order descendants ≈ rect containment + higher `node_id`),
+    /// anchored at the CONTAINER's center — a hovered launcher tile grows
+    /// tile, glyph and all as one control (the handoff interaction feel).
+    /// A box with its OWN animation keeps its own entry. Alloc-free, bounded
+    /// by `out.len()`.
+    pub(super) fn expand_node_anims(&self, out: &mut [NodeAnim]) -> usize {
+        let mut n = 0usize;
+        for a in &self.anim.anims {
+            if n >= out.len() {
+                break;
+            }
+            let Some(owner) = self.layout.boxes.iter().find(|b| b.node_id == a.node_id)
+            else {
+                out[n] = *a;
+                n += 1;
+                continue;
+            };
+            let (ox, oy, ow, oh) = (
+                owner.rect.x.0,
+                owner.rect.y.0,
+                owner.rect.width.0,
+                owner.rect.height.0,
+            );
+            let (cx, cy) = (ox + ow / 2, oy + oh / 2);
+            out[n] = a.anchored_at(cx, cy);
+            n += 1;
+            if a.is_identity() {
+                continue; // identity: nothing to cascade
+            }
+            for b in &self.layout.boxes {
+                if n >= out.len() {
+                    break;
+                }
+                if b.node_id <= a.node_id
+                    || b.rect.width.0 <= 0
+                    || b.rect.height.0 <= 0
+                {
+                    continue;
+                }
+                let contained = b.rect.x.0 >= ox
+                    && b.rect.y.0 >= oy
+                    && b.rect.x.0 + b.rect.width.0 <= ox + ow
+                    && b.rect.y.0 + b.rect.height.0 <= oy + oh;
+                if !contained {
+                    continue;
+                }
+                if self.anim.anims.iter().any(|o| o.node_id == b.node_id) {
+                    continue; // its own animation wins
+                }
+                out[n] = NodeAnim { node_id: b.node_id, ..a.anchored_at(cx, cy) };
+                n += 1;
+            }
+        }
         n
     }
 }

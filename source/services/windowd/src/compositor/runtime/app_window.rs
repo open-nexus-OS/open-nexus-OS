@@ -115,6 +115,10 @@ impl DisplayServerRuntime {
             let _ = debug_println("WINDOWD: surface create FAIL (window slots exhausted)");
             return wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_QUOTA, 0);
         };
+        // The launch surfaced: stop the wait ring (one waiter done).
+        if fresh_launch {
+            self.end_cursor_wait();
+        }
         let wid = crate::window_scene::WindowId::App(idx as u8);
         // The declared intent rides ATOMICALLY on the create frame (the old
         // separate pre-create OP_SURFACE_INTENT raced concurrent connects).

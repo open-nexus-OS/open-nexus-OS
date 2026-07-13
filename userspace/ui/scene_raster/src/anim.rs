@@ -18,9 +18,12 @@
 //! DSL nodes are panels/bars/text); text is faded/translated by the caller's
 //! separate glyph pass, not here.
 
-use crate::{paint_borders_row, paint_box_row, RowCanvas};
+use crate::RowCanvas;
 use nexus_layout::LayoutBox;
-use nexus_layout_types::{Rgba8, ShapeKind};
+use nexus_layout_types::Rgba8;
+
+/// Anchor sentinel: the transform scales about the box's OWN center.
+const SELF_ANCHOR: i32 = i32::MIN;
 
 /// The animation engine's current values for one node, ready for paint. `100`
 /// scale + `255` opacity + zero translate is the identity (no visible change).
@@ -35,33 +38,84 @@ pub struct NodeAnim {
     /// Surface-space translate applied to the node (px).
     pub dx: i32,
     pub dy: i32,
-    /// Uniform scale about the box center, in percent (`100` = identity).
+    /// Horizontal scale, in percent (`100` = identity), about the anchor.
+    /// Also the vertical scale unless `scale_y_pct` overrides it (uniform
+    /// scale = the common case, and the byte-identical legacy behavior).
     pub scale_pct: u16,
+    /// Vertical scale override. `None` = mirror `scale_pct` (uniform). Only
+    /// non-uniform interactions set it (e.g. the toggle thumb stretching along
+    /// its travel axis while pressed — the fill stays a capsule: the corner
+    /// radius follows the SMALLER axis, see [`NodeAnim::radius_pct`]).
+    pub scale_y_pct: Option<u16>,
+    /// Scale anchor (surface px). `SELF_ANCHOR` sentinel = the box's own
+    /// center. A SUBTREE cascade (interaction hover-grow on a container)
+    /// derives per-child anims anchored at the CONTAINER's center, so the
+    /// whole control — tile, glyph, children — grows as one shape.
+    pub anchor_x: i32,
+    pub anchor_y: i32,
 }
 
 impl NodeAnim {
     /// The identity (no-op) transform for `node_id`.
     #[must_use]
     pub fn identity(node_id: usize) -> Self {
-        Self { node_id, opacity: 255, dx: 0, dy: 0, scale_pct: 100 }
+        Self {
+            node_id,
+            opacity: 255,
+            dx: 0,
+            dy: 0,
+            scale_pct: 100,
+            scale_y_pct: None,
+            anchor_x: SELF_ANCHOR,
+            anchor_y: SELF_ANCHOR,
+        }
+    }
+
+    /// Re-anchor this transform at an explicit center (the subtree cascade).
+    #[must_use]
+    pub fn anchored_at(mut self, cx: i32, cy: i32) -> Self {
+        self.anchor_x = cx;
+        self.anchor_y = cy;
+        self
     }
 
     /// True when the transform has no visible effect (skip the anim path).
     #[must_use]
     pub fn is_identity(&self) -> bool {
-        self.opacity == 255 && self.dx == 0 && self.dy == 0 && self.scale_pct == 100
+        self.opacity == 255
+            && self.dx == 0
+            && self.dy == 0
+            && self.scale_pct == 100
+            && self.scale_y_pct.map_or(true, |v| v == 100)
     }
 
-    /// The box rect after uniform scale about its center + translate.
+    /// The corner-radius scale: the SMALLER axis, so a non-uniform stretch
+    /// keeps round end-caps (a stretched circle reads as a capsule, not an
+    /// ellipse). For the uniform case this is exactly `scale_pct`.
+    #[must_use]
+    pub fn radius_pct(&self) -> u16 {
+        self.scale_pct.min(self.scale_y_pct.unwrap_or(self.scale_pct))
+    }
+
+    /// The box rect after scale about the anchor + translate.
     #[must_use]
     pub fn transform_rect(&self, x: i32, y: i32, w: i32, h: i32) -> (i32, i32, i32, i32) {
         let s = self.scale_pct.max(1) as i64;
+        let sy = self.scale_y_pct.map_or(s, |v| v.max(1) as i64);
         let nw = (w as i64 * s / 100) as i32;
-        let nh = (h as i64 * s / 100) as i32;
-        // Keep the center fixed, then translate.
-        let nx = x + (w - nw) / 2 + self.dx;
-        let ny = y + (h - nh) / 2 + self.dy;
-        (nx, ny, nw, nh)
+        let nh = (h as i64 * sy / 100) as i32;
+        let (nx, ny) = if self.anchor_x == SELF_ANCHOR {
+            // Keep the box's own center fixed.
+            (x + (w - nw) / 2, y + (h - nh) / 2)
+        } else {
+            // Scale the box's position about the shared anchor so a whole
+            // subtree moves coherently outward/inward.
+            (
+                (self.anchor_x as i64 + (x as i64 - self.anchor_x as i64) * s / 100) as i32,
+                (self.anchor_y as i64 + (y as i64 - self.anchor_y as i64) * sy / 100) as i32,
+            )
+        };
+        (nx + self.dx, ny + self.dy, nw, nh)
     }
 }
 
@@ -73,31 +127,19 @@ fn fade(c: Rgba8, opacity: u8) -> Rgba8 {
     Rgba8 { r: c.r, g: c.g, b: c.b, a }
 }
 
-/// Paints one animated box's fill + border for the current row, transformed
-/// and alpha-scaled. Rect/rounded fills honor the full transform; other shapes
-/// fall back to the identity `paint_box_row` (they are not the animated-node
-/// case this binding targets).
+/// Paints one animated box for the current row, transformed and alpha-scaled,
+/// through the SHARED shape dispatch (`paint_box_row_at`) — every `ShapeKind`
+/// (rect/triangles/circle/path/vector) scales + translates, so icon glyphs and
+/// round controls animate as whole shapes (the interaction hover-grow /
+/// press-bounce contract), not just their bounding fill.
 pub(crate) fn paint_anim_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox, a: &NodeAnim) {
     let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
     if w <= 0 || h <= 0 {
         return;
     }
-    // Non-rect shapes: no transform path — draw at rest so the node stays
-    // honest (documented scope limit).
-    if !matches!(b.visual.shape, ShapeKind::Rect) {
-        paint_box_row(canvas, b);
-        return;
-    }
     let (nx, ny, nw, nh) = a.transform_rect(x, y, w, h);
-    if nw <= 0 || nh <= 0 || canvas.y < ny || canvas.y >= ny + nh {
-        return;
-    }
-    let radius = b.visual.corner_radius.top_left.0.max(0);
-    let radius = (radius as i64 * a.scale_pct.max(1) as i64 / 100) as i32;
-    if let Some(bg) = b.visual.background {
-        canvas.fill_round_rect_row(nx, ny, nw, nh, radius, fade(bg, a.opacity));
-    }
-    paint_borders_row(canvas, nx, ny, nw, nh, radius, &b.visual.border);
+    let bg = b.visual.background.map(|c| fade(c, a.opacity));
+    crate::paint_box_row_at(canvas, b, nx, ny, nw, nh, bg, a.radius_pct());
 }
 
 #[cfg(test)]
@@ -107,17 +149,34 @@ mod tests {
     #[test]
     fn identity_detects_no_op() {
         assert!(NodeAnim::identity(3).is_identity());
-        assert!(!NodeAnim { node_id: 3, opacity: 128, dx: 0, dy: 0, scale_pct: 100 }.is_identity());
-        assert!(!NodeAnim { node_id: 3, opacity: 255, dx: 4, dy: 0, scale_pct: 100 }.is_identity());
+        assert!(!NodeAnim { opacity: 128, ..NodeAnim::identity(3) }.is_identity());
+        assert!(!NodeAnim { dx: 4, ..NodeAnim::identity(3) }.is_identity());
     }
 
     #[test]
     fn scale_keeps_center() {
         // Halving a 100x40 box about its center leaves a 50x20 box centered.
-        let a = NodeAnim { node_id: 1, opacity: 255, dx: 0, dy: 0, scale_pct: 50 };
+        let a = NodeAnim { scale_pct: 50, ..NodeAnim::identity(1) };
         let (nx, ny, nw, nh) = a.transform_rect(0, 0, 100, 40);
         assert_eq!((nw, nh), (50, 20));
         assert_eq!((nx, ny), (25, 10));
+    }
+
+    #[test]
+    fn non_uniform_stretch_is_superset() {
+        // X-stretch with pinned Y: width grows, height stays, radius follows
+        // the SMALLER axis (capsule contract) — and the uniform path is
+        // untouched when scale_y_pct is None.
+        let a = NodeAnim { scale_pct: 150, scale_y_pct: Some(100), ..NodeAnim::identity(1) };
+        let (nx, ny, nw, nh) = a.transform_rect(10, 20, 40, 20);
+        assert_eq!((nw, nh), (60, 20));
+        assert_eq!((nx, ny), (0, 20)); // centered in x, pinned in y
+        assert_eq!(a.radius_pct(), 100);
+        assert!(!a.is_identity());
+        assert!(NodeAnim { scale_y_pct: Some(100), ..NodeAnim::identity(1) }.is_identity());
+        let uniform = NodeAnim { scale_pct: 50, ..NodeAnim::identity(1) };
+        assert_eq!(uniform.radius_pct(), 50);
+        assert_eq!(uniform.transform_rect(0, 0, 100, 40), (25, 10, 50, 20));
     }
 
     #[test]

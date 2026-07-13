@@ -33,9 +33,26 @@ chrome slices); gpud keys a per-id override table applied in
 untransformed base and the override survives full presents** (no bake, no clear —
 a baked opacity multiplied with the override froze windows invisible at 0×x).
 windowd's own `AnimationDriver` drives the WINDOW TRANSITIONS on it
-(`runtime/transitions.rs`): open = fade+scale-in from 92%, close = fade-out then
-the deferred close, minimize = fly-to-dock then the deferred minimize. Markers:
-`windowd: transition open/close/minimize`, `gpud: layer transform live id=N`.
+(`runtime/transitions.rs`): open = fade+scale-in from 92%; close = fade-out then
+the deferred close; minimize = fly to the window's EXACT future dock cell
+(`dock::dock_slot_rect`, center-to-center — gpud scale is center-anchored) then
+the deferred minimize; restore = the reverse fly-in FROM the clicked dock cell
+(WM state change runs UP FRONT, springs settle at identity — no deferred
+action); fullscreen enter/leave = the geometry flips instantly and the
+transform seeds the OLD frame's apparent rect, springing to identity while the
+async band re-create swaps in sharp content (the live-resize clamping covers
+the gap). Markers: `windowd: transition open/close/minimize/restore/fullscreen`,
+`gpud: layer transform live id=N`.
+
+The compositor also owns the **wait cursor** (loading ring): 8 procedurally
+rastered ring frames ride the cursor shape cache (slots 5..12 of 16, uploaded
+once at arm + retried from the wait tick), and `cursor_wait_tick` cycles them
+with the 2-byte `OP_SELECT_CURSOR_SHAPE` on a ~90 ms grid while a launch is
+pending — begun by windowd's own `launch_app` (greeter/shell) or the
+`CONTROL_LAUNCH_PENDING` surface-control hint an app-host sends on
+`svc.ability.launch`, ended by the fresh window's `SURFACE_CREATE` (desktop or
+app), with a 4 s failsafe so a crashing launch never wedges the pointer.
+Markers: `windowd: cursor ring on/off`.
 
 Pipeline (one engine, host owns the clock, the DSL stays pure —
 `docs/dev/dsl/principles.md` §4):
@@ -92,6 +109,19 @@ fill path). Whole-node scale/exit transitions and window-level transforms are
 Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
 `MAX_ACTIVE_ANIMATIONS` (6).
 
+### Interaction motion (design-handoff feel)
+
+Pointer interactions ride the SAME driver + per-node transform (no extra loop):
+**hover** springs the hovered handler box to 1.06 with a bright 2 px ring
+(`HoverWash.ring_alpha`), cascading to the contained subtree anchored at the
+control's center; **press** dips to 0.92 and pops elastically past identity
+(280 ms keyframe). Kinds that animate a PART instead of the whole control carry
+a structural `press_offset` on their handler (`registry::press_offset`, like
+`child_path`): the **toggle** stretches its THUMB along the travel axis
+(`NodeAnim.scale_y_pct` — a non-uniform-scale superset where `None` mirrors the
+uniform scale byte-identically, radius follows the SMALLER axis so the knob
+stays a capsule) and elastically slides it in from the old end after the flip.
+
 ### Widget animation (kit widgets)
 
 Inherently-animated **kit widgets** (`userspace/ui/widgets/*`) — the `Skeleton`
@@ -103,22 +133,36 @@ as the modifiers, NOT a per-frame re-emit. This is a hard constraint: the app-ho
 heap is a **non-freeing bump allocator**, so re-emitting the whole view every frame
 (to advance a widget's internal `phase`) would leak the old scene each frame and
 OOM. Instead the runtime stamps a continuous `AnimKind::Loop` intent on the widget
-node (`is_looping_widget`, `emit.rs`) and the app-host breathes the node via a
-spring that **re-fires toward the opposite endpoint on each convergence**
-(`AnimState::{sync_loops,tick_loops}`, `AnimationDriver::is_active`). The spring
-path carries no `Vec`, so the loop is allocation-free — it runs forever without
-growing the heap. The pulse stays armed while the widget is on screen and stops
-the instant it leaves the tree.
+node whose **value carries the loop sub-kind** (`loop_subkind`, `emit.rs`;
+`LOOP_*` consts in `nexus-dsl-runtime::anim`), and the app-host drives the
+widget's fixed builder structure at paint time
+(`AnimState::{sync_loops,tick_loops}`):
 
-`Skeleton` fits this directly (its root is a filled rect the per-node fill
-transform can fade). A `Spinner`'s spoke rotation and a shimmer's clipped sweep are
-NOT expressible as a single filled-rect transform (paths / clip) — they belong on
-the **compositor layer transform** (Track C, Tier 1), the render-server-owns-
-rotation model. The widgets' `.phase()` builders remain the deterministic CPU
-resting-frame API used by goldens.
+- **`LOOP_SWEEP`** — `Skeleton` shimmer band + indeterminate `ProgressBar` pip:
+  the sole child (`root+1`) rides a TranslateX **sawtooth** — an overdamped
+  spring glides it across the track (travel = parent − child width, read from
+  the live layout each cycle), resets to the left edge on convergence, and
+  re-fires. Springs only: a `keyframe_to` per cycle would alloc a waypoint
+  `Vec` on the non-freeing heap forever.
+- **`LOOP_CAROUSEL`** — `Spinner`: the 12 spoke children (`root+1..=root+12`)
+  get a stepped per-spoke opacity fade (leading spoke opaque, tail fading)
+  advanced on a ~80 ms time grid — a rotation with **no springs and no
+  rebuild**. The DSL registry builds the spinner `.flat()` (all spokes opaque)
+  so the paint-time wash is the only fade — a wash over the baked resting fade
+  would double-fade the tail.
+- **`LOOP_BREATHE`** — the generic whole-node opacity pulse (spring re-fires
+  toward the opposite endpoint on each convergence) stays available for
+  future resting-frame widgets.
 
-**Live demo:** `Skeleton { … }` on the counter page breathes continuously on the
-frame pulse (leak-free); boot-proven by a multi-frame present burst.
+All three are allocation-free per tick, damage only the widget's rows, keep the
+frame pulse armed while the widget is on screen (compositor visibility gating
+parks hidden windows), and stop the instant the node leaves the tree. The
+widgets' `.phase()` builders remain the deterministic CPU resting-frame API
+used by goldens.
+
+**Live demo (boot-proven):** the counter page runs `Skeleton` (shimmer sweep),
+`ProgressBar` (indeterminate pip) and `Spinner` (spoke carousel) concurrently;
+double-snapshot diffs show band/pip travel + spoke rotation on device.
 
 ## Default posture
 

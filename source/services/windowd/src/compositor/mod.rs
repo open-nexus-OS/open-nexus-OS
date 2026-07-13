@@ -536,6 +536,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             // Persisted-theme probe (TASK-0072 Phase 10): same cadence — restore
             // `ui.theme.mode` from settingsd once it binds; bounded, then default.
             let theme_pending = runtime.theme_probe_tick(nexus_abi::nsec().unwrap_or(0));
+            // Animated wait cursor: while a launch is pending the ring frame
+            // advances on the pacer (2-byte SELECT per ~90ms step; bounded by
+            // the launch failsafe deadline).
+            let cursor_wait_pending =
+                runtime.cursor_wait_tick(nexus_abi::nsec().unwrap_or(0));
             // Un-acked presents keep the pacer alive too: gpud's ack/NACK replies
             // arrive on the gpud client, not the server recv below — an idle-blocked
             // windowd would otherwise only drain a present NACK (P0.3 requeue
@@ -548,7 +553,8 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 || runtime.has_scroll_momentum()
                 || session_pending
                 || greeter_watch_pending
-                || theme_pending;
+                || theme_pending
+                || cursor_wait_pending;
             if handoff_done && !pacer_timer_armed && needs_pacing {
                 if pacer_timer_cap.is_none() {
                     // One-shot timer (interval_ns = 0): windowd rearms it every tick

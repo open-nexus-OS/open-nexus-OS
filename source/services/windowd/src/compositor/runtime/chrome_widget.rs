@@ -172,6 +172,7 @@ impl DisplayServerRuntime {
                 nexus_scene_raster::HoverWash {
                     node_id: bx.node_id,
                     color: nexus_layout_types::Rgba8::new(a.r, a.g, a.b, HOVER_ALPHA),
+                    ring_alpha: 0, // chrome buttons: wash only (handoff)
                 }
             })
         });

@@ -84,8 +84,23 @@ impl DisplayServerRuntime {
         let _ = debug_println("windowd: transition close");
     }
 
-    /// MINIMIZE transition: fly toward the dock (translate + shrink + fade),
-    /// then the deferred `minimize_window` runs on convergence.
+    /// Center of the dock cell the window will occupy AFTER minimizing: it is
+    /// appended to the minimized list, so its slot index is the current count
+    /// and the bar is laid out for count+1 icons (exact dock geometry SSOT —
+    /// not the old fixed bottom-center approximation).
+    fn dock_cell_center_after_minimize(&self) -> (f32, f32) {
+        let (_, n) = self.windows.minimized_list();
+        let bar = crate::dock::dock_rect(self.mode.width, self.mode.height, n + 1);
+        let cell = crate::dock::dock_slot_rect(bar, n);
+        (
+            cell.x as f32 + cell.width as f32 / 2.0,
+            cell.y as f32 + cell.height as f32 / 2.0,
+        )
+    }
+
+    /// MINIMIZE transition: fly toward the window's own future dock cell
+    /// (translate + shrink + fade), then the deferred `minimize_window` runs
+    /// on convergence.
     pub(super) fn start_minimize_transition(&mut self, idx: usize) {
         if self.apps[idx].pending_wm.is_some() {
             return;
@@ -93,10 +108,12 @@ impl DisplayServerRuntime {
         let cur = self.apps[idx].transform;
         self.apps[idx].transform.active = true;
         self.apps[idx].pending_wm = Some(PendingWm::Minimize);
-        // Fly target: the dock area (bottom center) relative to the window.
+        // Fly target: the exact dock cell, as a delta from the window center
+        // (the layer scale is CENTER-anchored in gpud — center-to-center math).
+        let (cell_cx, cell_cy) = self.dock_cell_center_after_minimize();
         let win = &self.apps[idx].win;
-        let target_x = (self.mode.width / 2) as f32 - (win.x as f32 + win.w as f32 / 2.0);
-        let target_y = self.mode.height as f32 - 46.0 - (win.y as f32 + win.h as f32 / 2.0);
+        let target_x = cell_cx - (win.x as f32 + win.w as f32 / 2.0);
+        let target_y = cell_cy - (win.y as f32 + win.h as f32 / 2.0);
         let layer = Self::wt_layer(idx);
         let now = nexus_abi::nsec().unwrap_or(0);
         self.animation_driver.reset_clock(now);
@@ -105,6 +122,80 @@ impl DisplayServerRuntime {
         self.animation_driver.spring_to(layer, AnimProp::Opacity, cur.opacity, 0.15, EXIT_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::ScaleX, cur.scale, MIN_SCALE_TO, EXIT_SPRING);
         let _ = debug_println("windowd: transition minimize");
+    }
+
+    /// RESTORE transition: the window flies IN from its dock cell (the exact
+    /// reverse of minimize). Unlike close/minimize the WM state change runs UP
+    /// FRONT (`restore_window` re-mounts + raises + focuses), then the springs
+    /// carry the transform from the dock origin to identity — convergence
+    /// falls into `finish_window_transitions`' `None` arm (settle at
+    /// identity), no `PendingWm` needed.
+    pub(super) fn start_restore_transition(&mut self, id: crate::window_scene::WindowId, from_cx: f32, from_cy: f32) {
+        let crate::window_scene::WindowId::App(i) = id else {
+            return;
+        };
+        let idx = i as usize;
+        if !self.windows.is_minimized(id) || self.apps[idx].pending_wm.is_some() {
+            return;
+        }
+        self.restore_window(id);
+        let win = &self.apps[idx].win;
+        let dx = from_cx - (win.x as f32 + win.w as f32 / 2.0);
+        let dy = from_cy - (win.y as f32 + win.h as f32 / 2.0);
+        self.apps[idx].transform =
+            WinTransform { dx, dy, opacity: 0.15, scale: MIN_SCALE_TO, active: true };
+        let layer = Self::wt_layer(idx);
+        let now = nexus_abi::nsec().unwrap_or(0);
+        self.animation_driver.reset_clock(now);
+        self.animation_driver.spring_to(layer, AnimProp::TranslateX, dx, 0.0, ENTER_SPRING);
+        self.animation_driver.spring_to(layer, AnimProp::TranslateY, dy, 0.0, ENTER_SPRING);
+        self.animation_driver.spring_to(layer, AnimProp::Opacity, 0.15, 1.0, ENTER_SPRING);
+        self.animation_driver.spring_to(layer, AnimProp::ScaleX, MIN_SCALE_TO, 1.0, ENTER_SPRING);
+        // Pre-seed the dock-origin state at gpud before the restore's queued
+        // present composites (the gpud queue is sequential) — no full-size
+        // flash before the first spring tick.
+        self.send_layer_transform(idx);
+        let _ = debug_println("windowd: transition restore");
+    }
+
+    /// FULLSCREEN transition (enter AND leave): the geometry flips instantly
+    /// (`toggle_fullscreen` — band re-create is async, the resize path shows
+    /// the old content clamped inside the growing glass frame), then the
+    /// transform seeds the OLD frame's apparent rect relative to the NEW frame
+    /// and springs to identity — the window visibly grows/shrinks between the
+    /// two frames while the client re-renders underneath.
+    pub(super) fn start_fullscreen_transition(&mut self, id: crate::window_scene::WindowId) {
+        let crate::window_scene::WindowId::App(i) = id else {
+            return;
+        };
+        let idx = i as usize;
+        if self.apps[idx].pending_wm.is_some() {
+            return;
+        }
+        let w0 = &self.apps[idx].win;
+        let (old_cx, old_cy, old_w) =
+            (w0.x as f32 + w0.w as f32 / 2.0, w0.y as f32 + w0.h as f32 / 2.0, w0.w as f32);
+        self.toggle_fullscreen(id);
+        let w1 = &self.apps[idx].win;
+        let (new_cx, new_cy, new_w) =
+            (w1.x as f32 + w1.w as f32 / 2.0, w1.y as f32 + w1.h as f32 / 2.0, w1.w as f32);
+        if new_w <= 0.0 || (new_w - old_w).abs() < 1.0 {
+            return; // geometry did not change — nothing to animate
+        }
+        let scale_from = (old_w / new_w).clamp(0.05, 4.0);
+        let dx = old_cx - new_cx;
+        let dy = old_cy - new_cy;
+        self.apps[idx].transform =
+            WinTransform { dx, dy, opacity: 1.0, scale: scale_from, active: true };
+        let layer = Self::wt_layer(idx);
+        let now = nexus_abi::nsec().unwrap_or(0);
+        self.animation_driver.reset_clock(now);
+        self.animation_driver.spring_to(layer, AnimProp::TranslateX, dx, 0.0, ENTER_SPRING);
+        self.animation_driver.spring_to(layer, AnimProp::TranslateY, dy, 0.0, ENTER_SPRING);
+        self.animation_driver.spring_to(layer, AnimProp::ScaleX, scale_from, 1.0, ENTER_SPRING);
+        // Seed before the toggle's queued full present (sequential gpud queue).
+        self.send_layer_transform(idx);
+        let _ = debug_println("windowd: transition fullscreen");
     }
 
     /// Fold one driver update into the slot transform. Returns true when it

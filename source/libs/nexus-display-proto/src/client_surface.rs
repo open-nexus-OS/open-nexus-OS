@@ -276,6 +276,10 @@ pub fn decode_surface_frame(frame: &[u8]) -> Option<u32> {
 /// Control kinds.
 pub const CONTROL_THEME: u8 = 0; // value = THEME_*
 pub const CONTROL_SHELL_PROFILE: u8 = 1; // value = PROFILE_*
+/// A shell-initiated app launch is pending: the compositor shows the wait
+/// cursor (loading ring) until the fresh window's surface arrives (value
+/// unused). Fire-and-forget hint — losing it only skips the ring.
+pub const CONTROL_LAUNCH_PENDING: u8 = 2;
 
 pub const SURFACE_CONTROL_FRAME_LEN: usize = HEADER_LEN + 2;
 

@@ -108,7 +108,14 @@ impl DisplayServerRuntime {
                     window_consumed_press = true;
                     let (list, n) = self.windows.minimized_list();
                     if let Some(slot) = crate::dock::dock_slot_at(bar, n, cursor_x, cursor_y) {
-                        self.restore_window(list[slot]);
+                        // Track C3: fly-in from the clicked dock cell (state
+                        // change runs up front inside the transition).
+                        let cell = crate::dock::dock_slot_rect(bar, slot);
+                        self.start_restore_transition(
+                            list[slot],
+                            cell.x as f32 + cell.width as f32 / 2.0,
+                            cell.y as f32 + cell.height as f32 / 2.0,
+                        );
                     }
                 }
             }
@@ -172,7 +179,8 @@ impl DisplayServerRuntime {
                     }
                     WindowPress::Maximize => {
                         window_consumed_press = true;
-                        self.toggle_fullscreen(wid);
+                        // Track C3: grow/shrink between the two frames.
+                        self.start_fullscreen_transition(wid);
                     }
                     WindowPress::TitleDrag => {
                         window_consumed_press = true;

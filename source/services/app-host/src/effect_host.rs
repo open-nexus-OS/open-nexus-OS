@@ -237,6 +237,23 @@ impl AppEffectHost {
         req.extend_from_slice(ABIL);
         if send_fire_and_forget(send_slot, &req) {
             raw_marker("apphost: dsl svc ability.launch ok");
+            // Wait-cursor hint: tell the compositor a launch is pending so it
+            // shows the loading ring until the fresh window's surface arrives
+            // (fire-and-forget on the surface request slot — losing it only
+            // skips the ring).
+            {
+                use nexus_display_proto::client_surface as wire;
+                let frame = wire::encode_surface_control(wire::CONTROL_LAUNCH_PENDING, 0);
+                const WINDOWD_SEND_SLOT: u32 = 5;
+                let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+                let _ = nexus_abi::ipc_send_v1(
+                    WINDOWD_SEND_SLOT,
+                    &hdr,
+                    &frame,
+                    nexus_abi::IPC_SYS_NONBLOCK,
+                    0,
+                );
+            }
             Ok(Value::Bool(true))
         } else {
             raw_marker("apphost: dsl svc ability.launch FAIL (abilitymgr unreachable)");

@@ -39,6 +39,13 @@ pub struct HandlerEntry {
     /// Interaction trigger symbol id (`Tap`, `Change`, …).
     pub trigger: u32,
     pub action: HandlerAction,
+    /// Pre-order box-id OFFSET from the handler's node to the part the PRESS
+    /// interaction animates (`registry::press_offset` — a structural constant
+    /// per widget kind, like `child_path`). `0` = the node itself (the
+    /// uniform press dip); the toggle points at its thumb (`+1`) so the press
+    /// stretches the knob along the travel axis instead of squeezing the
+    /// whole track.
+    pub press_offset: u32,
 }
 
 /// Pre-order box id (1-based, matches `LayoutBox::node_id`) for a path.

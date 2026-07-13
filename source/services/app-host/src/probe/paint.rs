@@ -54,6 +54,9 @@ impl super::DslApp {
                     fg.b,
                     nexus_style::InteractionState::Hover.wash_alpha(),
                 ),
+                // The handoff's bright hover ring ("Slider größer mit einem
+                // hellen Ring") — tracks the hover-grow scale in the painter.
+                ring_alpha: 70,
             }
         });
         let surf_w = self.w as usize;
@@ -80,12 +83,14 @@ impl super::DslApp {
         // frame — a COPY (not a borrow) so the render scratch stays mutable.
         // Bounded by the host's active-animation cap; empty at rest.
         let mut anim_buf =
-            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_NODE_ANIMS];
-        let anim_n = self.node_anims_snapshot(&mut anim_buf);
+            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
+        let anim_n = self.expand_node_anims(&mut anim_buf);
         let anims = &anim_buf[..anim_n];
         let mut vis_pick = core::mem::take(&mut self.vis_pick);
+        let mut vis_anim = core::mem::take(&mut self.vis_anim);
         let mut vis_text = core::mem::take(&mut self.vis_text);
         vis_pick.clear();
+        vis_anim.clear();
         vis_text.clear();
         for (bi, b) in self.layout.boxes.iter().enumerate() {
             let (by, bh) = (b.rect.y.0, b.rect.height.0);
@@ -104,6 +109,13 @@ impl super::DslApp {
                 continue;
             }
             vis_pick.push(bi as u32);
+            // Box -> anim mapping ONCE per repaint (not per row).
+            vis_anim.push(
+                anims
+                    .iter()
+                    .position(|a| a.node_id == b.node_id)
+                    .map_or(-1, |i| i as i16),
+            );
             if let Ok(ti) =
                 self.texts.binary_search_by_key(&b.node_id, |(id, _, _, _)| *id)
             {
@@ -121,10 +133,11 @@ impl super::DslApp {
             // were the "buttons are square" report).
             {
                 let mut canvas = nexus_scene_raster::RowCanvas::new(&mut row, y, self.w as i32);
-                nexus_scene_raster::paint_row_picked_animated(
+                nexus_scene_raster::paint_row_picked_indexed(
                     &mut canvas,
                     &self.layout.boxes,
                     &vis_pick,
+                    &vis_anim,
                     hover,
                     scroll_view,
                     anims,
@@ -187,6 +200,7 @@ impl super::DslApp {
             if vmo_write(vmo, y as usize * row_bytes, &row[..row_bytes]).is_err() {
                 self.row_scratch = row;
                 self.vis_pick = vis_pick;
+                self.vis_anim = vis_anim;
                 self.vis_text = vis_text;
                 return false;
             }
@@ -195,6 +209,7 @@ impl super::DslApp {
         // Hand the visibility buffers back (mem::take recycling — the
         // SAME close-the-loop rule the inputd events scratch violated).
         self.vis_pick = vis_pick;
+        self.vis_anim = vis_anim;
         self.vis_text = vis_text;
         true
     }
@@ -243,8 +258,8 @@ impl super::DslApp {
         // animated fixed header / a breathing Skeleton in the content) —
         // same snapshot contract as `render_rows`.
         let mut anim_buf =
-            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_NODE_ANIMS];
-        let anim_n = self.node_anims_snapshot(&mut anim_buf);
+            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_EXPANDED_ANIMS];
+        let anim_n = self.expand_node_anims(&mut anim_buf);
         let anims = &anim_buf[..anim_n];
         // Two region picks (recycled): clipped boxes = the scroll content;
         // unclipped = the fixed header/footer/base. `paint_row_picked` skips a

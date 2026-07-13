@@ -15,6 +15,15 @@
 
 use super::*;
 
+/// First shape-cache slot of the loading-ring frames (after the 5 pointer
+/// shapes); `CURSOR_RING_FRAMES.len()` consecutive slots follow. Fits
+/// `nexus_display_proto::CURSOR_SHAPE_SLOTS` (16).
+const RING_SLOT_BASE: u8 = 5;
+/// Ring rotation step (~90ms → 8 frames ≈ 0.72s per revolution).
+const CURSOR_RING_STEP_NS: u64 = 90_000_000;
+/// Wait-ring failsafe: give up on a launch that never surfaces.
+const CURSOR_WAIT_TIMEOUT_NS: u64 = 4_000_000_000;
+
 /// The pointer shapes windowd can arm (TASK-0070 Phase 3). One sprite per
 /// shape, all 32×32 — a shape switch is a plain `OP_UPLOAD_CURSOR` re-send
 /// (4 KB < the 8 KB IPC frame cap), so no new wire op exists for it.
@@ -153,7 +162,7 @@ impl DisplayServerRuntime {
                     return;
                 };
                 client
-                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(4)))
+                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(10)))
                     .is_ok()
             };
             // Give gpud a chance to drain + ack between sprites.
@@ -163,8 +172,106 @@ impl DisplayServerRuntime {
                 return;
             }
         }
+        // Loading-ring frames ride the same cache (slots RING_SLOT_BASE..):
+        // uploaded once, cycled with the 2-byte SELECT while a launch waits.
+        for (i, bitmap) in crate::assets::CURSOR_RING_FRAMES.iter().enumerate() {
+            let (w, h) = (32u32, 32u32);
+            let hot = 16u32;
+            let bgra_len = (w * h * 4) as usize;
+            if bgra_len > bitmap.len() {
+                return;
+            }
+            let total = 18usize + bgra_len;
+            let mut frame: alloc::vec::Vec<u8> = alloc::vec![0u8; total];
+            frame[0] = GPU_UPLOAD_CURSOR_SHAPE_OP;
+            frame[1] = RING_SLOT_BASE + i as u8;
+            frame[2..6].copy_from_slice(&w.to_le_bytes());
+            frame[6..10].copy_from_slice(&h.to_le_bytes());
+            frame[10..14].copy_from_slice(&hot.to_le_bytes());
+            frame[14..18].copy_from_slice(&hot.to_le_bytes());
+            frame[18..total].copy_from_slice(&bitmap[..bgra_len]);
+            let sent = {
+                let Some(client) = self.gpud_client.as_ref() else {
+                    return;
+                };
+                client
+                    .send(&frame, Wait::Timeout(core::time::Duration::from_millis(10)))
+                    .is_ok()
+            };
+            self.drain_gpud_replies();
+            if !sent {
+                let _ = debug_println("windowd: cursor ring cache push failed");
+                return;
+            }
+        }
         self.shape_cache_pushed = true;
         let _ = debug_println("windowd: cursor shape cache pushed");
+    }
+
+    /// A launch started (app or post-login shell): show the animated wait
+    /// ring until the fresh window's surface arrives (or the failsafe
+    /// deadline passes — a crashing launch must never wedge the pointer).
+    pub(crate) fn begin_cursor_wait(&mut self) {
+        let now = nexus_abi::nsec().unwrap_or(0);
+        self.cursor_wait_n = self.cursor_wait_n.saturating_add(1);
+        self.cursor_wait_deadline_ns = now.saturating_add(CURSOR_WAIT_TIMEOUT_NS);
+    }
+
+    /// A fresh launch produced its surface: one waiter done.
+    pub(crate) fn end_cursor_wait(&mut self) {
+        self.cursor_wait_n = self.cursor_wait_n.saturating_sub(1);
+    }
+
+    /// Pacer-driven wait-ring advance. Returns whether the ring is live
+    /// (keeps the 120Hz pacer armed). Cheap: one 2-byte fire-and-forget
+    /// SELECT per ring STEP (~90ms) + a pointer-rect damage blit to show it —
+    /// nothing at all between steps.
+    pub(crate) fn cursor_wait_tick(&mut self, now_ns: u64) -> bool {
+        if self.cursor_wait_n > 0 && now_ns > self.cursor_wait_deadline_ns {
+            self.cursor_wait_n = 0; // failsafe: the launch never surfaced
+        }
+        if self.cursor_wait_n == 0 {
+            if self.cursor_ring_active {
+                // Restore the real pointer shape.
+                self.cursor_ring_active = false;
+                let id = self.cursor_shape.id();
+                let _ = self.send_gpud_fire_forget(&[GPU_SELECT_CURSOR_SHAPE_OP, id]);
+                self.queue_cursor_damage(
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                    self.state.cursor_x,
+                    self.state.cursor_y,
+                );
+                let _ = debug_println("windowd: cursor ring off");
+            }
+            return false;
+        }
+        if !self.shape_cache_pushed {
+            // A boot-load send timeout left the cache unfilled — retry now
+            // (guarded internally; a launch wait is the moment it's needed).
+            self.push_cursor_shape_cache_to_gpud();
+            if !self.shape_cache_pushed {
+                return false; // still no sprites at gpud — plain wait
+            }
+        }
+        let step = ((now_ns / CURSOR_RING_STEP_NS)
+            % crate::assets::CURSOR_RING_FRAMES.len() as u64) as u8;
+        if !self.cursor_ring_active || step != self.cursor_ring_frame {
+            if !self.cursor_ring_active {
+                let _ = debug_println("windowd: cursor ring on");
+            }
+            self.cursor_ring_active = true;
+            self.cursor_ring_frame = step;
+            let _ =
+                self.send_gpud_fire_forget(&[GPU_SELECT_CURSOR_SHAPE_OP, RING_SLOT_BASE + step]);
+            self.queue_cursor_damage(
+                self.state.cursor_x,
+                self.state.cursor_y,
+                self.state.cursor_x,
+                self.state.cursor_y,
+            );
+        }
+        true
     }
 
     pub(super) fn upload_cursor_bitmap_to_gpud(&mut self) {

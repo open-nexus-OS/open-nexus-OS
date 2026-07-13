@@ -44,11 +44,20 @@ Page CounterPage {
             .height(6)
             .bg(surfaceVariant)
             .animate(fadeScale, value: $state.value)
-        // Widget animation (Track B): the Skeleton loading placeholder is an
-        // inherently-animated kit widget — the runtime emits a continuous Loop
-        // intent and the app-host breathes its opacity on the frame pulse
-        // (leak-free paint-time transform, no per-frame re-emit). No modifier.
+        // Widget animation (Track B): inherently-animated kit widgets — the
+        // runtime emits a continuous Loop intent per widget and the app-host
+        // runs it as a leak-free paint-time loop on the frame pulse (shimmer
+        // sweep / pip sweep / spoke carousel — no per-frame re-emit, no
+        // modifier needed).
         Skeleton { width: 180, height: 16 }
+        ProgressBar { height: 6 }
+        Spinner { size: 28 }
+        // Interaction animation (design handoff): the toggle's thumb
+        // stretches along the travel axis on press and slides elastically
+        // into the other end (`press_offset` targets the knob, not the track).
+        Toggle { checked: $state.busy }
+            .label("Busy")
+        on Tap -> dispatch(SetBusy(!$state.busy))
         Stack {
             Button { label: "-" }
                 .bg(surfaceVariant)

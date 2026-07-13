@@ -70,6 +70,11 @@ impl DisplayServerRuntime {
             wire::CONTROL_SHELL_PROFILE => {
                 self.set_shell_profile_wire(value, true);
             }
+            wire::CONTROL_LAUNCH_PENDING => {
+                // Shell-initiated app launch (svc.ability.launch): show the
+                // wait ring until the fresh window's surface arrives.
+                self.begin_cursor_wait();
+            }
             other => {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: control unknown kind={other} value={value}"
@@ -117,6 +122,9 @@ impl DisplayServerRuntime {
     /// drained bounded so the shared response queue never fills up.
     pub(super) fn launch_app(&mut self, app_id: &str) {
         let _ = debug_println(&alloc::format!("windowd: launch request app={app_id}"));
+        // Animated wait cursor until the fresh window's surface arrives
+        // (`handle_surface_create` ends it; a failsafe deadline backs it up).
+        self.begin_cursor_wait();
         #[cfg(nexus_env = "os")]
         {
             use nexus_ipc::Client as _;

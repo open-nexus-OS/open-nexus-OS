@@ -31,7 +31,9 @@ pub mod store;
 pub mod svc;
 pub mod view;
 
-pub use anim::{AnimIntent, AnimKind};
+pub use anim::{
+    AnimIntent, AnimKind, LOOP_BREATHE, LOOP_CAROUSEL, LOOP_CAROUSEL_SPOKES, LOOP_SWEEP,
+};
 pub use emit::{Damage, Dep};
 pub use nexus_theme_tokens as theme_tokens;
 pub use interact::HandlerEntry;

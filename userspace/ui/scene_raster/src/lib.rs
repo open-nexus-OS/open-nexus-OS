@@ -273,14 +273,35 @@ fn ceil_i32(v: f32) -> i32 {
 /// Paint one box's contribution to this row (fill + borders).
 pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
     let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+    paint_box_row_at(canvas, b, x, y, w, h, b.visual.background, 100);
+}
+
+/// [`paint_box_row`] at an EXPLICIT geometry + background: the shared shape
+/// dispatch used by the plain path (the box's own rect) and the per-node
+/// ANIMATION path (the transformed rect + faded fill) — every `ShapeKind`
+/// (rect/triangles/circle/path/vector) scales and translates, so icons and
+/// round buttons animate as whole shapes, not just their bounding fill.
+/// `radius_pct` scales the corner radius (100 = as authored).
+pub(crate) fn paint_box_row_at(
+    canvas: &mut RowCanvas<'_>,
+    b: &LayoutBox,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    background: Option<Rgba8>,
+    radius_pct: u16,
+) {
     if w <= 0 || h <= 0 || canvas.y < y || canvas.y >= y + h {
         return;
     }
-    if let Some(bg) = b.visual.background {
+    if let Some(bg) = background {
         let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
         match &b.visual.shape {
             ShapeKind::Rect => {
-                let radius = b.visual.corner_radius.top_left.0.max(0);
+                let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
+                    * radius_pct.max(1) as i64
+                    / 100) as i32;
                 canvas.fill_round_rect_row(x, y, w, h, radius, bg);
             }
             ShapeKind::TriangleUp => {
@@ -310,7 +331,9 @@ pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
             }
         }
     }
-    paint_borders_row(canvas, x, y, w, h, b.visual.corner_radius.top_left.0.max(0), &b.visual.border);
+    let radius = (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64
+        / 100) as i32;
+    paint_borders_row(canvas, x, y, w, h, radius, &b.visual.border);
 }
 
 /// Paint every box's contribution to this row, in box (z) order.
@@ -327,6 +350,10 @@ pub fn paint_row(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox]) {
 pub struct HoverWash {
     pub node_id: usize,
     pub color: Rgba8,
+    /// Alpha of a bright 2px outline ring around the hovered control
+    /// (0 = none) — the handoff's hover ring ("Slider größer mit einem hellen
+    /// Ring"). Drawn at the node's ANIMATED rect so it tracks the hover-grow.
+    pub ring_alpha: u8,
 }
 
 /// Paint-time scroll transform for the page's scroll viewport (pretext:
@@ -362,7 +389,7 @@ pub fn paint_row_scrolled(
 ) {
     let surface_y = canvas.y;
     for b in boxes {
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y, &[]);
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y, None);
     }
 }
 
@@ -398,7 +425,34 @@ pub fn paint_row_picked_animated(
     let surface_y = canvas.y;
     for &i in pick {
         let Some(b) = boxes.get(i as usize) else { continue };
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anims);
+        let anim = anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity());
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anim);
+    }
+}
+
+/// [`paint_row_picked_animated`] with a PRECOMPUTED per-picked-box animation
+/// index (`anim_of[k]` = index into `anims` for `pick[k]`, `-1` = none) — the
+/// caller resolves the box→anim mapping ONCE per repaint instead of the
+/// painter scanning the anims slice per box per row. With the interaction
+/// subtree cascade (up to ~48 entries) the per-row scan multiplied into
+/// millions of comparisons per shell repaint ("hover makes everything slow").
+pub fn paint_row_picked_indexed(
+    canvas: &mut RowCanvas<'_>,
+    boxes: &[LayoutBox],
+    pick: &[u32],
+    anim_of: &[i16],
+    hover: Option<HoverWash>,
+    scroll: Option<ScrollView>,
+    anims: &[NodeAnim],
+) {
+    let surface_y = canvas.y;
+    for (k, &i) in pick.iter().enumerate() {
+        let Some(b) = boxes.get(i as usize) else { continue };
+        let anim = anim_of
+            .get(k)
+            .and_then(|&ai| if ai >= 0 { anims.get(ai as usize) } else { None })
+            .filter(|a| !a.is_identity());
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anim);
     }
 }
 
@@ -409,7 +463,7 @@ fn paint_one_scrolled(
     hover: Option<HoverWash>,
     scroll: Option<ScrollView>,
     surface_y: i32,
-    anims: &[NodeAnim],
+    anim: Option<&NodeAnim>,
 ) {
     {
         let scrolled = match (scroll, b.clip_rect) {
@@ -429,16 +483,41 @@ fn paint_one_scrolled(
         // scale). A matching non-identity `NodeAnim` replaces the box's fill
         // with a transformed, alpha-scaled draw; otherwise the box paints as
         // usual. Text is faded/translated by the caller's glyph pass.
-        match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
+        match anim {
             Some(a) => anim::paint_anim_box_row(canvas, b, a),
             None => paint_box_row(canvas, b),
         }
         if let Some(hw) = hover {
-            if b.node_id == hw.node_id && hw.color.a > 0 {
-                let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+            if b.node_id == hw.node_id && (hw.color.a > 0 || hw.ring_alpha > 0) {
+                let (bx, by, bw, bh) =
+                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                // Track the hover-grow: wash + ring follow the ANIMATED rect.
+                let (x, y, w, h, rpct) = match anim {
+                    Some(a) => {
+                        let (nx, ny, nw, nh) = a.transform_rect(bx, by, bw, bh);
+                        (nx, ny, nw, nh, a.radius_pct())
+                    }
+                    None => (bx, by, bw, bh, 100),
+                };
                 if w > 0 && h > 0 && canvas.y >= y && canvas.y < y + h {
-                    let radius = b.visual.corner_radius.top_left.0.max(0);
-                    canvas.fill_round_rect_row(x, y, w, h, radius, hw.color);
+                    let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
+                        * rpct.max(1) as i64
+                        / 100) as i32;
+                    if hw.color.a > 0 {
+                        canvas.fill_round_rect_row(x, y, w, h, radius, hw.color);
+                    }
+                    if hw.ring_alpha > 0 {
+                        // Bright 2px outline (reads as the Tahoe hover ring on
+                        // both themes, over the wash).
+                        let ring = Rgba8::new(255, 255, 255, hw.ring_alpha);
+                        let inside = canvas.y >= y + 2 && canvas.y < y + h - 2;
+                        if !inside {
+                            canvas.fill_round_rect_row(x, y, w, h, radius, ring);
+                        } else {
+                            canvas.fill_round_rect_row(x, y, 2, h, 0, ring);
+                            canvas.fill_round_rect_row(x + w - 2, y, 2, h, 0, ring);
+                        }
+                    }
                 }
             }
         }
@@ -523,7 +602,11 @@ mod tests {
         let a = boxed(0, 0, 10, 10, 0, grey);
         let mut b = boxed(10, 0, 10, 10, 4, grey);
         b.node_id = 2;
-        let wash = HoverWash { node_id: 2, color: Rgba8 { r: 255, g: 255, b: 255, a: 64 } };
+        let wash = HoverWash {
+            node_id: 2,
+            color: Rgba8 { r: 255, g: 255, b: 255, a: 64 },
+            ring_alpha: 0,
+        };
         let mut row = [0u8; 20 * 4];
         let mut canvas = RowCanvas::new(&mut row, 0, 20);
         paint_row_hover(&mut canvas, &[a, b], Some(wash));

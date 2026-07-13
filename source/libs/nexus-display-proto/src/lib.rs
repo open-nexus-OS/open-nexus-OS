@@ -111,8 +111,10 @@ pub fn decode_set_layer_transform(frame: &[u8]) -> Option<(u32, i16, i16, u8, u1
         u16::from_le_bytes([frame[10], frame[11]]),
     ))
 }
-/// Number of cursor shape-cache slots gpud guarantees.
-pub const CURSOR_SHAPE_SLOTS: usize = 8;
+/// Number of cursor shape-cache slots gpud guarantees: 5 pointer shapes
+/// (default + 4 resize) + 8 loading-ring frames (the animated wait cursor
+/// cycles pre-uploaded slots via the 2-byte SELECT — no per-frame upload).
+pub const CURSOR_SHAPE_SLOTS: usize = 16;
 
 // ── Status codes (reply byte 0) ──────────────────────────────────────────────
 

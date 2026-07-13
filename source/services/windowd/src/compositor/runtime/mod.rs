@@ -573,6 +573,12 @@ pub(crate) struct DisplayServerRuntime {
     /// One-time proof marker: the first drag move composited as a pure GPU
     /// transform (Track C1 — no CPU Plane-1 recomposite, no band re-blit).
     drag_transform_marker: bool,
+    /// Wait-cursor state (animated loading ring): pending launches that have
+    /// not surfaced yet + the failsafe deadline + the ring's current frame.
+    cursor_wait_n: u32,
+    cursor_wait_deadline_ns: u64,
+    cursor_ring_frame: u8,
+    cursor_ring_active: bool,
     /// P3.2 windows-as-widgets: the ONE shared widget-rendered title-bar
     /// raster (see `chrome_widget.rs`).
     chrome_cache: chrome_widget::ChromeCache,
@@ -871,6 +877,10 @@ impl DisplayServerRuntime {
             hover_app_idx: 0,
             wheel_route_count: 0,
             drag_transform_marker: false,
+            cursor_wait_n: 0,
+            cursor_wait_deadline_ns: 0,
+            cursor_ring_frame: 0,
+            cursor_ring_active: false,
             chrome_cache: chrome_widget::ChromeCache::new(),
             wheel_stage_count: 0,
             hover_marker_emitted: false,

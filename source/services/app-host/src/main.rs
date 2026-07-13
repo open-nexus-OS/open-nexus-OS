@@ -682,6 +682,12 @@ mod probe {
                                 (false, None) => Some(span),
                             };
                             dirty = true;
+                            // Hover started interaction springs (grow/shrink):
+                            // arm the frame pulse so they tick.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
                         }
                     }
                 } else if kind == wire::INPUT_KIND_LEAVE {
@@ -693,6 +699,11 @@ mod probe {
                                 (false, None) => Some(span),
                             };
                             dirty = true;
+                            // The un-hover spring needs pulses too.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
                         }
                     }
                 } else if kind == wire::INPUT_KIND_WHEEL {
@@ -896,6 +907,10 @@ mod probe {
         /// EndReached latch: fired once per approach to the content end;
         /// re-armed whenever layout re-runs (content grew/shrank).
         end_fired: bool,
+        /// Reused per-picked-box animation index (parallel to `vis_pick`;
+        /// -1 = none) — resolved ONCE per repaint so the painter never scans
+        /// the anims slice per box per row (the hover slowdown).
+        vis_anim: alloc::vec::Vec<i16>,
         /// Reused visibility index (box indices intersecting the repaint
         /// span) — per-row paint cost follows what is ON SCREEN, not the
         /// page's total box count (the 1000-message transcript contract).
@@ -1016,6 +1031,7 @@ mod probe {
                 anim: anim::AnimState::new(),
                 end_fired: false,
                 vis_pick: alloc::vec::Vec::new(),
+                vis_anim: alloc::vec::Vec::new(),
                 vis_text: alloc::vec::Vec::new(),
                 banded: false,
                 alloc_band_h: 0,

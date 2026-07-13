@@ -56,7 +56,12 @@ impl DisplayServerRuntime {
         }
         // A relaunched shell replaces the previous desktop surface (its VMO cap
         // was already released via destroy; ids never alias — monotonic).
+        let fresh = self.desktop_surface_id != Some(id);
         self.desktop_surface_id = Some(id);
+        // The shell launch surfaced (greeter → shell swap): stop the wait ring.
+        if fresh {
+            self.end_cursor_wait();
+        }
         #[cfg(nexus_env = "os")]
         if let Some(ch) = self.event_channel_for(nonce) {
             self.desktop_channel = Some(ch);
