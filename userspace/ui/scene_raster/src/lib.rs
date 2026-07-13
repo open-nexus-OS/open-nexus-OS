@@ -20,6 +20,9 @@
 //! features — `nexus-gfx` `LayerBackdrop`/shadow on the live path); text
 //! glyphs blend in the separate baked-text pass.
 
+pub mod anim;
+pub use anim::NodeAnim;
+
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{PathShape, Rgba8, ShapeKind};
 
@@ -108,7 +111,7 @@ impl RowCanvas<'_> {
     }
 
     /// This row's slice of an (optionally rounded) rect fill.
-    fn fill_round_rect_row(&mut self, x: i32, y: i32, w: i32, h: i32, radius: i32, c: Rgba8) {
+    pub(crate) fn fill_round_rect_row(&mut self, x: i32, y: i32, w: i32, h: i32, radius: i32, c: Rgba8) {
         if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
             return;
         }
@@ -168,7 +171,7 @@ impl RowCanvas<'_> {
 
     /// This row's slice of a rounded BORDER ring: pixels inside the outer
     /// rounded rect but outside the (border-width-inset) inner one.
-    fn stroke_round_rect_row(
+    pub(crate) fn stroke_round_rect_row(
         &mut self,
         x: i32,
         y: i32,
@@ -359,7 +362,7 @@ pub fn paint_row_scrolled(
 ) {
     let surface_y = canvas.y;
     for b in boxes {
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y);
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y, &[]);
     }
 }
 
@@ -375,10 +378,27 @@ pub fn paint_row_picked(
     hover: Option<HoverWash>,
     scroll: Option<ScrollView>,
 ) {
+    paint_row_picked_animated(canvas, boxes, pick, hover, scroll, &[]);
+}
+
+/// [`paint_row_picked`] with per-node **animation** transforms (opacity fade +
+/// translate + uniform scale, keyed by `node_id`) applied to matching boxes —
+/// the paint tail of the DSL `.animate`/`.transition`/`.effect` binding
+/// (docs/dev/ui/foundations/animation.md). An identity/absent `NodeAnim`
+/// paints exactly as [`paint_row_picked`]. Alloc-free; `anims` is bounded by
+/// the host's active-animation cap.
+pub fn paint_row_picked_animated(
+    canvas: &mut RowCanvas<'_>,
+    boxes: &[LayoutBox],
+    pick: &[u32],
+    hover: Option<HoverWash>,
+    scroll: Option<ScrollView>,
+    anims: &[NodeAnim],
+) {
     let surface_y = canvas.y;
     for &i in pick {
         let Some(b) = boxes.get(i as usize) else { continue };
-        paint_one_scrolled(canvas, b, hover, scroll, surface_y);
+        paint_one_scrolled(canvas, b, hover, scroll, surface_y, anims);
     }
 }
 
@@ -389,6 +409,7 @@ fn paint_one_scrolled(
     hover: Option<HoverWash>,
     scroll: Option<ScrollView>,
     surface_y: i32,
+    anims: &[NodeAnim],
 ) {
     {
         let scrolled = match (scroll, b.clip_rect) {
@@ -404,7 +425,14 @@ fn paint_one_scrolled(
             }
             _ => false,
         };
-        paint_box_row(canvas, b);
+        // Per-node animation transform (opacity fade + translate + uniform
+        // scale). A matching non-identity `NodeAnim` replaces the box's fill
+        // with a transformed, alpha-scaled draw; otherwise the box paints as
+        // usual. Text is faded/translated by the caller's glyph pass.
+        match anims.iter().find(|a| a.node_id == b.node_id && !a.is_identity()) {
+            Some(a) => anim::paint_anim_box_row(canvas, b, a),
+            None => paint_box_row(canvas, b),
+        }
         if let Some(hw) = hover {
             if b.node_id == hw.node_id && hw.color.a > 0 {
                 let (x, y, w, h) = (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
@@ -423,7 +451,7 @@ fn paint_one_scrolled(
 }
 
 
-fn paint_borders_row(
+pub(crate) fn paint_borders_row(
     canvas: &mut RowCanvas<'_>,
     x: i32,
     y: i32,

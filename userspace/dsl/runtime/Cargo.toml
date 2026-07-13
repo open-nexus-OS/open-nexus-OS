@@ -43,6 +43,7 @@ nexus-widget-list-item = { path = "../../ui/widgets/list_item" }
 nexus-widget-toolbar = { path = "../../ui/widgets/toolbar" }
 nexus-widget-search-bar = { path = "../../ui/widgets/search_bar" }
 nexus-theme-tokens = { path = "../../ui/theme-tokens" }
+animation = { path = "../../ui/animation" }
 
 [dev-dependencies]
 nexus-dsl-core = { path = "../core" }

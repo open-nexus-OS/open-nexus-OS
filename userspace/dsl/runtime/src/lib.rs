@@ -17,6 +17,7 @@
 
 extern crate alloc;
 
+pub mod anim;
 pub mod effects;
 pub mod emit;
 pub mod i18n;
@@ -30,6 +31,7 @@ pub mod store;
 pub mod svc;
 pub mod view;
 
+pub use anim::{AnimIntent, AnimKind};
 pub use emit::{Damage, Dep};
 pub use nexus_theme_tokens as theme_tokens;
 pub use interact::HandlerEntry;

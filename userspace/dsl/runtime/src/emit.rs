@@ -4,6 +4,7 @@
 //! View emission: IR view tree + committed state → `LayoutNode` scene,
 //! recording state→node dependencies with their invalidation class.
 
+use crate::anim::{AnimIntent, AnimKind};
 use crate::interact::{HandlerAction, HandlerEntry};
 use crate::reduce::{eval, EvalCtx};
 use crate::registry::{self, Mods};
@@ -41,6 +42,9 @@ pub(crate) struct EmitCtx<'a> {
     pub deps: &'a mut Vec<Dep>,
     /// Interactive regions collected during emission (paths in the final tree).
     pub handlers: &'a mut Vec<HandlerEntry>,
+    /// Animation intents collected during emission — `(node path, intent)`,
+    /// resolved to a pre-order box id after emit (same walk as `handlers`).
+    pub anim_intents: &'a mut Vec<(Vec<u32>, AnimIntent)>,
     /// Absolute child-index path of the node currently being emitted.
     pub path: Vec<u32>,
     pub components: capnp::struct_list::Reader<'a, ir::component::Owned>,
@@ -211,6 +215,7 @@ pub(crate) fn emit_view(
                 symbols: ctx.symbols,
                 deps: ctx.deps,
                 handlers: ctx.handlers,
+                anim_intents: ctx.anim_intents,
                 path,
                 components: ctx.components,
             };
@@ -483,7 +488,68 @@ fn apply_modifier(
                 _ => registry::ScrollAxis::Vertical,
             });
         } // scroll
+        // -- motion (paint): the curated `.animate`/`.transition`/`.effect`
+        //    (docs/dev/ui/foundations/animation.md). The runtime stays PURE —
+        //    it stamps a value-typed INTENT (token id + committed snapshot of
+        //    the driving value) onto this node's path; the HOST owns the clock
+        //    and physics (`AnimationDriver`). The driving/trigger expr records
+        //    a PAINT dep so a change re-emits and refreshes the snapshot.
+        43 => stamp_anim(ctx, args, AnimKind::Animate), // animate(token, value:)
+        44 => stamp_anim(ctx, args, AnimKind::Transition), // transition(token)
+        45 => stamp_anim(ctx, args, AnimKind::Effect),  // effect(token, trigger:)
         _ => {} // key/label/others: identity/semantics — no paint effect here
     }
     Ok(())
+}
+
+/// Stamps a motion intent (`.animate`/`.transition`/`.effect`) onto the
+/// current node's path. Reads the first argument as the curated motion token
+/// (resolved to its stable `animation::MotionToken` id) and, for
+/// animate/effect, evaluates the second argument as the driving `value:` /
+/// `trigger:` expression — recording it as a PAINT dependency and snapshotting
+/// the committed value so the host can detect a change on the next emit. An
+/// unknown token (the checker rejects it) or a missing value is a no-op.
+fn stamp_anim(
+    ctx: &mut EmitCtx<'_>,
+    args: capnp::struct_list::Reader<'_, ir::token_arg::Owned>,
+    kind: AnimKind,
+) {
+    let token_name = match args.get(0).which() {
+        Ok(ir::token_arg::Which::Token(sym)) => alloc::string::String::from(ctx.symbol(sym)),
+        _ => return,
+    };
+    let Some(token) = animation::MotionToken::from_name(&token_name).map(|t| t.id()) else {
+        return;
+    };
+    // Driving value snapshot (animate/effect carry a second expr arg; a
+    // transition is a lifecycle event with no expr → "present" = 1).
+    let value = match kind {
+        AnimKind::Transition => 1,
+        AnimKind::Animate | AnimKind::Effect => {
+            let Some(second) = (args.len() > 1).then(|| args.get(1)) else { return };
+            match second.which() {
+                Ok(ir::token_arg::Which::Expr(Ok(expr))) => {
+                    ctx.record_deps(expr, Damage::Paint);
+                    match ctx.eval(expr) {
+                        Ok(v) => snapshot_i32(&v),
+                        Err(_) => return,
+                    }
+                }
+                Ok(ir::token_arg::Which::Boolean(b)) => i32::from(b),
+                Ok(ir::token_arg::Which::Int(i)) => i.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+                _ => return,
+            }
+        }
+    };
+    ctx.anim_intents.push((ctx.path.clone(), AnimIntent::new(kind, token, value)));
+}
+
+/// Collapses a committed [`Value`] to the `i32` change-detector the host diffs.
+fn snapshot_i32(v: &Value) -> i32 {
+    match v {
+        Value::Bool(b) => i32::from(*b),
+        Value::Int(i) => (*i).clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+        Value::Fx(raw) => (raw >> 32).clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+        _ => 0,
+    }
 }

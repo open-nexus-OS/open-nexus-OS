@@ -10,6 +10,7 @@
 //! geometry stays valid (`Paint`: repaint with current boxes). Subtree-scoped
 //! re-emit and arena-backed zero-alloc dispatch are recorded follow-ups.
 
+use crate::anim::AnimIntent;
 use crate::emit::{self, Damage, Dep, EmitCtx};
 use crate::interact::{self, HandlerAction, HandlerEntry};
 use crate::nav::Nav;
@@ -25,6 +26,10 @@ pub struct View<'p> {
     deps: Vec<Dep>,
     /// Interactive regions: (pre-order box id, handler).
     handlers: Vec<(usize, HandlerEntry)>,
+    /// Motion intents of the current scene: (pre-order box id, intent). The
+    /// host reads these each frame, seeds its `AnimationDriver` on a change,
+    /// and paints the interpolated result (docs/dev/ui/foundations/animation.md).
+    animations: Vec<(usize, AnimIntent)>,
     /// Route table + history; the active page drives emission.
     pub nav: Nav,
     /// i18n key table (key index → symbol id) for locale sources.
@@ -68,6 +73,7 @@ impl<'p> View<'p> {
             scene: LayoutNode::Spacer(nexus_layout_types::Spacer::default()),
             deps: Vec::new(),
             handlers: Vec::new(),
+            animations: Vec::new(),
             nav,
             keys,
             initial_effects,
@@ -127,6 +133,15 @@ impl<'p> View<'p> {
     #[must_use]
     pub fn handlers(&self) -> &[(usize, HandlerEntry)] {
         &self.handlers
+    }
+
+    /// Motion intents of the current scene (`.animate`/`.transition`/
+    /// `.effect`), resolved to pre-order box ids. The host diffs these across
+    /// re-emits to drive the animation engine; empty when the page declares
+    /// no motion.
+    #[must_use]
+    pub fn animations(&self) -> &[(usize, AnimIntent)] {
+        &self.animations
     }
 
     /// Routes a pointer event: finds the innermost handler for `trigger`
@@ -381,6 +396,7 @@ impl<'p> View<'p> {
         self.deps.clear();
         let symbols = self.runtime.symbols().to_vec();
         let mut handlers: Vec<HandlerEntry> = Vec::new();
+        let mut anim_intents: Vec<(Vec<u32>, AnimIntent)> = Vec::new();
         let mut ctx = EmitCtx {
             stores: self.runtime.stores(),
             locals: &mut locals,
@@ -391,6 +407,7 @@ impl<'p> View<'p> {
             symbols: &symbols,
             deps: &mut self.deps,
             handlers: &mut handlers,
+            anim_intents: &mut anim_intents,
             path: Vec::new(),
             components,
         };
@@ -400,6 +417,14 @@ impl<'p> View<'p> {
         for entry in handlers {
             if let Some(box_id) = interact::path_to_box_id(&self.scene, &entry.path) {
                 self.handlers.push((box_id, entry));
+            }
+        }
+        // Resolve motion-intent paths the same way (one box id per animated
+        // node) so the host can key its `AnimationDriver` by `node_id`.
+        self.animations.clear();
+        for (path, intent) in anim_intents {
+            if let Some(box_id) = interact::path_to_box_id(&self.scene, &path) {
+                self.animations.push((box_id, intent));
             }
         }
         Ok(())

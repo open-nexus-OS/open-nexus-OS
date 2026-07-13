@@ -164,6 +164,21 @@ pub fn widget_spec(name: &str) -> Option<&'static WidgetSpec> {
 /// Interaction triggers handlers may bind (`on Tap -> …`).
 pub const TRIGGERS: &[&str] = &["Tap", "Change", "Submit", "Focus", "Blur", "LongPress", "EndReached",];
 
+/// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md
+/// "Recommended v1 scope"). The token argument of `.animate`/`.transition`/
+/// `.effect` validates against exactly this closed set — no free-form CSS
+/// keyframes, no `--animate-*` vars. This mirrors the runtime SSOT
+/// `animation::MotionToken` (same names, same order); the two are kept in
+/// lock-step (the runtime resolves the id, the frontend validates the name).
+pub const MOTION_TOKENS: &[&str] =
+    &["snappy", "smooth", "emphasized", "fade", "slideUp", "fadeScale", "wiggle", "pulse"];
+
+/// Whether `name` is a valid motion token.
+#[must_use]
+pub fn is_motion_token(name: &str) -> bool {
+    MOTION_TOKENS.contains(&name)
+}
+
 /// Read-only device environment fields (docs/dev/dsl/profiles.md) + their
 /// value vocabulary where enum-like.
 pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[

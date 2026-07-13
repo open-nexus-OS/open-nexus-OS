@@ -10,3 +10,4 @@ name = "animation"
 path = "src/lib.rs"
 
 [dependencies]
+nexus-theme-tokens = { path = "../theme-tokens" }
