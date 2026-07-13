@@ -1,0 +1,39 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The dock mini player (design_handoff_launcher `Player`): card glass,
+// 24×24 album square, track title + artist column, round play button.
+// Demo now-playing content (mirrors the handoff's static demo) until the
+// media service lands; it then binds the island's now-playing state.
+
+Component MiniPlayer {
+    Stack {
+        Stack { }
+            .width(24)
+            .height(24)
+            .bg(accent)
+            .rounded(md)
+        Stack {
+            Text(@t("shell.trackTitle")).textSize(xs).fg(onSurface)
+            Text(@t("shell.trackArtist")).textSize(xs).fg(onSurfaceVariant)
+        }
+        .gap(0)
+        Stack {
+            Icon { symbol: "play", size: 12 }
+                .fg(onSurface)
+        }
+        .width(22)
+        .height(22)
+        .material(subtle)
+        .rounded(full)
+        .align(center)
+        .justify(center)
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(2)
+    .paddingY(1)
+    .material(card)
+    .rounded(lg)
+}

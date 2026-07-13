@@ -10,6 +10,8 @@ name = "search"
 version = "1.0.0"
 min_sdk = "1.0.0"
 bundle_type = "app"
+# Launcher tile glyph (theme icon-set symbol, resources/themes [icons.symbols]).
+icon = "magnifyingglass"
 payload_kind = "ui-program"
 abilities = ["search.MainAbility"]
 caps = ["nexus.permission.WINDOW", "nexus.permission.ENUMERATE", "nexus.permission.LAUNCH"]

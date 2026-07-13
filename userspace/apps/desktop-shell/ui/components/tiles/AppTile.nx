@@ -1,22 +1,25 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One home-grid app tile (handoff AppIcon `md`: 64×64 tile, radius 2xl,
-// label below). Symbol placeholder until the asset pipeline (TASK-0081 3.3)
-// delivers per-app icons. Tap handlers attach at the use site.
+// One home-grid app tile (design_handoff_launcher `AppIcon md`): a UNIFORM
+// glass tile — the handoff differentiates apps only by the icon artwork,
+// never by tile color — 64×64, radius xl (~handoff 18), card glass, glyph
+// from the app's manifest `icon` (theme icon-set symbol), label 12/600
+// below. Tap handlers attach at the use site.
 
 Component AppTile {
     props: {
         label: Str,
+        icon: Str,
     }
     Stack {
         Stack {
-            Icon { symbol: star }
-                .fg(onAccent)
+            Icon { symbol: $props.icon, size: 30 }
+                .fg(onSurface)
         }
         .width(64)
         .height(64)
-        .bg(accent)
+        .material(card)
         .rounded(xl)
         .align(center)
         .justify(center)

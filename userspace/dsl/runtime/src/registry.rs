@@ -553,9 +553,14 @@ pub fn build_widget(
             // SwiftUI-style vocabulary from the maintained vendor repo), then
             // the built-in fallback shapes (legacy camelCase names).
             let name = prop("symbol").map(value_text).unwrap_or_default();
+            // Glyph size in px (launcher tiles need ~28; default 16 = inline).
+            let size = match prop("size") {
+                Some(Value::Int(s)) => (*s).clamp(8, 96) as i32,
+                _ => 16,
+            };
             if let Some(lucide) = nexus_widget_icon::lucide_symbol_named(&name) {
                 return nexus_widget_icon::Icon::lucide(lucide)
-                    .size(16)
+                    .size(size)
                     .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
                     .build(tokens);
             }
@@ -572,7 +577,7 @@ pub fn build_widget(
             };
             match symbol {
                 Some(symbol) => nexus_widget_icon::Icon::new(symbol)
-                    .size(16)
+                    .size(size)
                     .color(mods.fg.unwrap_or(ColorToken::OnSurfaceVariant))
                     .build(tokens),
                 None => {

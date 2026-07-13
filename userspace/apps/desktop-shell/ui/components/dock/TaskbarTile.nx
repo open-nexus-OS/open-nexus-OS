@@ -1,0 +1,23 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One desktop-taskbar app icon (design_handoff_launcher `AppIcon xs`):
+// 32×32, sits DIRECTLY on the taskbar (no pill wrapper), radius md. Tap
+// handlers attach at the use site.
+
+Component TaskbarTile {
+    props: {
+        label: Str,
+        icon: Str,
+    }
+    Stack {
+        Icon { symbol: $props.icon, size: 18 }
+            .fg(onSurface)
+    }
+    .width(32)
+    .height(32)
+    .material(card)
+    .rounded(md)
+    .align(center)
+    .justify(center)
+}

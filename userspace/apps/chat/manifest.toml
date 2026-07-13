@@ -11,6 +11,8 @@ name = "chat"
 version = "1.0.0"
 min_sdk = "1.0.0"
 bundle_type = "app"
+# Launcher tile glyph (theme icon-set symbol, resources/themes [icons.symbols]).
+icon = "message"
 payload_kind = "ui-program"
 abilities = ["chat.MainAbility"]
 caps = ["nexus.permission.WINDOW"]

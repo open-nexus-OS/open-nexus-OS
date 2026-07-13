@@ -183,7 +183,10 @@ impl FixtureEnv {
             posture: "",
             orientation,
             shell_mode: "tablet",
-            size_class: "regular",
+            // The touch width classes (design_handoff_launcher): landscape
+            // (≥1024) = wide, portrait = regular. Hosts override from the
+            // REAL surface width; this preset mirrors that mapping.
+            size_class: if matches!(orientation, "landscape") { "wide" } else { "regular" },
             dpi_class: "high",
             input: &["touch", "kbd"],
         }

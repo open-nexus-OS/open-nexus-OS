@@ -1,40 +1,86 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Desktop override (handoff desktop mode): full-width TASKBAR 56px at the
-// bottom (launcher glyph · app icons inline `xs` · nav right), top bar with
-// SEPARATE status pills, top-left column icon field. Same store/events —
-// ONE `.nxir`; the compositor's profile push selects this arm.
+// Desktop override (design_handoff_launcher desktop MODE — the explicit
+// Control-Center toggle, not width): full-width TASKBAR 56 at the bottom
+// (bare launcher glyph left · app icons xs DIRECTLY on the bar + divider +
+// mini player centre · bare nav right), top bar with the time+date pill,
+// bell pill, and FOUR separate status pills (wifi · sound · battery ·
+// control centre), top-left icon field. Same store/events — ONE `.nxir`;
+// the compositor's profile push selects this override.
 
 Page ShellPage {
     Stack {
         Stack {
             TopBarPill { label: @t("shell.clock") }
-            TopBarPill { label: @t("shell.product") }
+            Stack {
+                Icon { symbol: "bell", size: 13 }
+                    .fg(onSurface)
+            }
+            .paddingX(2)
+            .height(28)
+            .align(center)
+            .justify(center)
+            .rounded(full)
+            on Tap -> navigate("/control")
             Spacer
             Island { }
             Spacer
-            TopBarPill { label: @t("shell.wifi") }
-            TopBarPill { label: @t("shell.sound") }
-            TopBarPill { label: @t("shell.battery") }
             Stack {
-                TopBarPill { label: @t("shell.status") }
+                Icon { symbol: "wifi", size: 13 }
+                    .fg(onSurface)
             }
+            .paddingX(2)
+            .height(28)
+            .align(center)
+            .justify(center)
+            .rounded(full)
+            on Tap -> navigate("/control")
+            Stack {
+                Icon { symbol: "speaker.wave", size: 13 }
+                    .fg(onSurface)
+            }
+            .paddingX(2)
+            .height(28)
+            .align(center)
+            .justify(center)
+            .rounded(full)
+            on Tap -> navigate("/control")
+            Stack {
+                Icon { symbol: "battery.75", size: 13 }
+                    .fg(onSurface)
+                Text(@t("shell.battery")).textSize(xs).fg(onSurface)
+            }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            .paddingX(2)
+            .height(28)
+            .rounded(full)
+            on Tap -> navigate("/control")
+            Stack {
+                Icon { symbol: "menu", size: 13 }
+                    .fg(onSurface)
+            }
+            .paddingX(2)
+            .height(28)
+            .align(center)
+            .justify(center)
+            .rounded(full)
             on Tap -> navigate("/control")
         }
         .direction(row)
         .height(36)
         .align(center)
-        .paddingX(2)
+        .paddingX(3)
         .gap(1)
-        .material(panel)
         Stack {
             if $state.loading {
                 Text(@t("common.loading")).fg(onSurfaceVariant)
             } else {
                 List($state.apps) { app in
                     Stack {
-                        AppTile { label: app.label }
+                        AppTile { label: app.label, icon: app.icon }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
@@ -49,43 +95,71 @@ Page ShellPage {
         .padding(5)
         Stack {
             Stack {
-                LauncherButton { }
+                Icon { symbol: "square.grid", size: 20 }
+                    .fg(onSurface)
             }
+            .width(36)
+            .height(36)
+            .align(center)
+            .justify(center)
+            .rounded(md)
             on Tap -> navigate("/launcher")
+            Spacer
             Stack {
                 List($state.apps) { app in
                     Stack {
-                        DockTile { label: app.label }
+                        TaskbarTile { label: app.label, icon: app.icon }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .direction(row)
                 .gap(1)
+                Stack { }
+                    .width(1)
+                    .height(28)
+                    .bg(surfaceVariant)
+                MiniPlayer { }
             }
             .direction(row)
             .align(center)
-            .gap(1)
+            .gap(2)
             Spacer
             Stack {
-                Icon { symbol: "chevron.left" }
+                Icon { symbol: "chevron.left", size: 14 }
                     .fg(onSurface)
             }
-            .padding(2)
-            .rounded(full)
+            .width(32)
+            .height(32)
+            .align(center)
+            .justify(center)
+            .rounded(md)
             on Tap -> navigate("/")
             Stack {
-                Icon { symbol: "house" }
+                Icon { symbol: "house", size: 14 }
                     .fg(onSurface)
             }
-            .padding(2)
-            .rounded(full)
+            .width(32)
+            .height(32)
+            .align(center)
+            .justify(center)
+            .rounded(md)
+            on Tap -> navigate("/")
+            Stack {
+                Icon { symbol: "square", size: 13 }
+                    .fg(onSurface)
+            }
+            .width(32)
+            .height(32)
+            .align(center)
+            .justify(center)
+            .rounded(md)
             on Tap -> navigate("/")
         }
         .direction(row)
         .height(56)
         .align(center)
-        .paddingX(2)
+        .paddingX(3)
         .gap(2)
         .material(panel)
     }

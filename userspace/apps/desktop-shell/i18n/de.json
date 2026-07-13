@@ -1,8 +1,15 @@
 {
   "shell.product": "Open Nexus",
   "shell.apps": "Apps",
+  "shell.trackTitle": "Summer Vibes",
+  "shell.trackArtist": "The Artist",
   "launcher.title": "Anwendungen",
-  "launcher.search": "Suchen",
+  "launcher.search": "Apps suchen…",
   "launcher.back": "Zurück",
+  "launcher.greeting": "Guten Morgen, Jenning",
+  "launcher.date": "Sonntag, 13. Juli",
+  "launcher.allApps": "Alle Apps",
+  "launcher.userInitial": "J",
+  "launcher.userName": "Jenning Schaefer",
   "common.loading": "Lädt…"
 }

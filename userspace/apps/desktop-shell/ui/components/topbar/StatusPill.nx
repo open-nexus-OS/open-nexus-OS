@@ -1,0 +1,25 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The combined touch status pill (design_handoff_launcher: wifi + volume +
+// battery "78%" in ONE pill → opens the Control Center). Desktop mode
+// splits these into four separate pills instead. Hover fill comes from the
+// interaction chain; no persistent background.
+
+Component StatusPill {
+    Stack {
+        Icon { symbol: "wifi", size: 13 }
+            .fg(onSurface)
+        Icon { symbol: "speaker.wave", size: 13 }
+            .fg(onSurface)
+        Icon { symbol: "battery.75", size: 13 }
+            .fg(onSurface)
+        Text(@t("shell.battery")).textSize(xs).fg(onSurface)
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+    .paddingX(2)
+    .height(28)
+    .rounded(full)
+}

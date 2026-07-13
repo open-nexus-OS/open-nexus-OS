@@ -1,0 +1,109 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Desktop override: the WINDOWED launcher (design_handoff_launcher desktop
+// default) — a 720×520 floating panel anchored above the taskbar, "Alle
+// Apps" section label + ✕, search, 4-column-ish grid, and a footer with the
+// user identity + settings/power actions. No backdrop scrim (the desktop
+// stays sharp behind it); the panel itself is panel glass.
+
+Page LauncherPage {
+    Stack {
+        Spacer
+        Stack {
+            Spacer
+            Stack {
+                Stack {
+                    Text(@t("launcher.allApps")).textSize(sm).fg(onSurfaceVariant)
+                    Spacer
+                    Stack {
+                        Icon { symbol: "xmark", size: 14 }
+                            .fg(onSurface)
+                    }
+                    .width(32)
+                    .height(32)
+                    .align(center)
+                    .justify(center)
+                    .rounded(md)
+                    on Tap -> navigate("/")
+                }
+                .direction(row)
+                .align(center)
+                Stack {
+                    SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+                    on Change -> dispatch(QueryChanged)
+                }
+                Stack {
+                    if $state.loading {
+                        Text(@t("common.loading")).fg(onSurfaceVariant)
+                    } else {
+                        List($state.apps) { app in
+                            Stack {
+                                AppTile { label: app.label, icon: app.icon }
+                            }
+                            .key(app.id)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .direction(row)
+                        .wrap(true)
+                        .gap(5)
+                        .justify(center)
+                    }
+                }
+                .grow(1)
+                .paddingY(3)
+                Stack {
+                    Stack {
+                        Text(@t("launcher.userInitial")).textSize(sm).fg(onAccent)
+                    }
+                    .width(34)
+                    .height(34)
+                    .bg(accent)
+                    .rounded(full)
+                    .align(center)
+                    .justify(center)
+                    Text(@t("launcher.userName")).textSize(sm).fg(onSurface)
+                    Spacer
+                    Stack {
+                        Icon { symbol: "gearshape", size: 15 }
+                            .fg(onSurface)
+                    }
+                    .width(36)
+                    .height(36)
+                    .align(center)
+                    .justify(center)
+                    .material(card)
+                    .rounded(lg)
+                    on Tap -> dispatch(Launch("settings"))
+                    Stack {
+                        Icon { symbol: "power", size: 15 }
+                            .fg(onSurface)
+                    }
+                    .width(36)
+                    .height(36)
+                    .align(center)
+                    .justify(center)
+                    .material(card)
+                    .rounded(lg)
+                    on Tap -> navigate("/")
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .paddingY(2)
+            }
+            .width(720)
+            .height(520)
+            .padding(6)
+            .gap(2)
+            .material(panel)
+            .rounded(xl)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        Stack { }
+            .height(88)
+    }
+    .gap(0)
+}

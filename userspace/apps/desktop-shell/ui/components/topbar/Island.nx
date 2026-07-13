@@ -1,15 +1,46 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Dynamic Island (handoff: collapsed 118×28, solid black pill, pinned
-// top-centre). Now-playing content + hover expansion land with the media
-// service — until then the collapsed pill.
+// The Dynamic Island (design_handoff_launcher: collapsed 118×28, solid black
+// pill, pinned top-centre). Collapsed content = now-playing hint: 14×14
+// rounded art square + four level bars (static resting frame — animated bars
+// + hover expansion to 288×64 land with the media service).
 
 Component Island {
     Stack {
+        Stack { }
+            .width(14)
+            .height(14)
+            .bg(accent)
+            .rounded(sm)
+        Spacer
+        Stack { }
+            .width(3)
+            .height(8)
+            .bg(onAccent)
+            .rounded(full)
+        Stack { }
+            .width(3)
+            .height(12)
+            .bg(onAccent)
+            .rounded(full)
+        Stack { }
+            .width(3)
+            .height(6)
+            .bg(onAccent)
+            .rounded(full)
+        Stack { }
+            .width(3)
+            .height(10)
+            .bg(onAccent)
+            .rounded(full)
     }
+    .direction(row)
     .width(118)
     .height(28)
     .bg(islandBg)
     .rounded(full)
+    .align(center)
+    .paddingX(3)
+    .gap(1)
 }

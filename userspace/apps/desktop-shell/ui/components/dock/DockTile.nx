@@ -1,20 +1,23 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One dock app icon (handoff dock pill entry: 32×32 tile, radius 9 ≈ md).
+// One dock app icon (design_handoff_launcher dock pill entry, `AppIcon sm`):
+// 44×44 uniform glass tile, radius lg (~handoff 14), glyph from the app's
+// manifest `icon`. Tap handlers attach at the use site.
 
 Component DockTile {
     props: {
         label: Str,
+        icon: Str,
     }
     Stack {
-        Icon { symbol: star }
-            .fg(onAccent)
+        Icon { symbol: $props.icon, size: 22 }
+            .fg(onSurface)
     }
-    .width(32)
-    .height(32)
-    .bg(accent)
-    .rounded(md)
+    .width(44)
+    .height(44)
+    .material(card)
+    .rounded(lg)
     .align(center)
     .justify(center)
 }

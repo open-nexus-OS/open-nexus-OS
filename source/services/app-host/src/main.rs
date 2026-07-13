@@ -556,6 +556,15 @@ mod probe {
                     // band (a resize re-sends CREATE, so the tall band is
                     // re-negotiated). Banded ⇒ tall VMO + render_band; else visible.
                     let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_mut() {
+                        // Mobile-first breakpoints: a resize that crosses a
+                        // width class (compact/regular/wide) changes the
+                        // PAGE STRUCTURE (`if device.sizeClass` arms) — a
+                        // plain relayout keeps the old arm, so re-emit the
+                        // scene at the new class first. State survives (same
+                        // View, no remount); the relayout below reflows it.
+                        if size_class_for(dsl.w) != size_class_for(nw) {
+                            dsl.reemit_for_size_class(nw);
+                        }
                         dsl.resize(surf_w, surf_h);
                         if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
                             dsl.band_geometry()
@@ -978,7 +987,7 @@ mod probe {
             let tokens = tokens_for(theme_mode);
             // The pushed shell profile IS the device env: `device.profile`
             // selects the platform override arms (tablet base / desktop).
-            let device = device_for(shell_profile);
+            let device = device_for(shell_profile, w);
             let mut view = {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
                 View::mount(nxir, tokens, &device, &locale).ok()?
@@ -1064,16 +1073,40 @@ mod probe {
         }
     }
 
+    /// The width class of the TOUCH axis (design_handoff_launcher: mode ⟂
+    /// width — `desktopMode` is an explicit toggle, width only picks between
+    /// the touch layouts). Mobile-first breakpoints, `device.sizeClass`:
+    /// compact = phone (<640), regular = tablet portrait (<1024), wide =
+    /// landscape (≥1024).
+    fn size_class_for(w: u32) -> &'static str {
+        if w < 640 {
+            "compact"
+        } else if w < 1024 {
+            "regular"
+        } else {
+            "wide"
+        }
+    }
+
     /// The device environment for a pushed shell profile — what the DSL's
     /// `device.profile` reads, so `ui/platform/<profile>/` override arms
-    /// select to the environment's windowing policy.
-    fn device_for(profile: u8) -> nexus_dsl_runtime::FixtureEnv {
+    /// select to the environment's windowing policy. Touch profiles derive
+    /// `device.sizeClass` from the REAL surface width (the handoff's `vw`
+    /// axis); desktop mode ignores width (one taskbar layout).
+    fn device_for(profile: u8, w: u32) -> nexus_dsl_runtime::FixtureEnv {
         use nexus_dsl_runtime::FixtureEnv;
         match profile {
             wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
-            wire::PROFILE_PHONE => FixtureEnv::phone("portrait"),
-            // Our display is landscape 1280×800 (the handoff's touch-landscape).
-            _ => FixtureEnv::tablet("landscape"),
+            profile => {
+                let mut env = if profile == wire::PROFILE_PHONE {
+                    FixtureEnv::phone("portrait")
+                } else {
+                    // Our display is landscape 1280×800 (touch-landscape).
+                    FixtureEnv::tablet("landscape")
+                };
+                env.size_class = size_class_for(w);
+                env
+            }
         }
     }
 

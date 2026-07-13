@@ -421,6 +421,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
     struct FakeRegistry {
         id_sym: u32,
         label_sym: u32,
+        icon_sym: u32,
         launched: Vec<String>,
     }
     impl nexus_dsl_runtime::EffectHost for FakeRegistry {
@@ -438,6 +439,7 @@ fn shell_app_grid_tiles_launch_and_hover() {
                         let mut fields = vec![
                             (self.id_sym, Value::Str(id.into())),
                             (self.label_sym, Value::Str(label.into())),
+                            (self.icon_sym, Value::Str("star".into())),
                         ];
                         fields.sort_by_key(|(sym, _)| *sym);
                         Value::Record(fields)
@@ -465,8 +467,12 @@ fn shell_app_grid_tiles_launch_and_hover() {
             panic!("symbol '{name}' missing from the compiled shell")
         }) as u32
     };
-    let mut host =
-        FakeRegistry { id_sym: sym("id"), label_sym: sym("label"), launched: Vec::new() };
+    let mut host = FakeRegistry {
+        id_sym: sym("id"),
+        label_sym: sym("label"),
+        icon_sym: sym("icon"),
+        launched: Vec::new(),
+    };
 
     let device = FixtureEnv::default();
     let tokens = nexus_theme_tokens::BaseTokens;
@@ -777,6 +783,52 @@ fn grow_and_size_mods_reach_the_layout_tree() {
 }
 
 
+/// Mobile-first width classes (design_handoff_launcher): the SAME shell page
+/// selects a different dock family per `device.sizeClass`. compact (phone,
+/// <640) = full-width dock row + bare nav row; regular (tablet portrait,
+/// <1024) = launcher + dock pill centred with the nav row below; wide
+/// (landscape) = three floating elements (asserted by the tablet probe
+/// below). Each class must mount + lay out with the dock at the bottom.
+/// (On-device the app-host derives the class from the REAL surface width —
+/// `size_class_for` in app-host `main.rs`; boot proof for compact/regular
+/// waits on virtio-gpu display-info plumbing, the guest mode is fixed
+/// 1280×800 today.)
+#[test]
+fn real_shell_selects_compact_and_regular_dock_families() {
+    struct NoServices;
+    impl nexus_dsl_runtime::EffectHost for NoServices {
+        fn call(&mut self, _s: &str, _m: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
+            -> Result<nexus_dsl_runtime::Value, u32> { Err(0) }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop-shell");
+    let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    for (size_class, w) in [("compact", 600), ("regular", 900)] {
+        let mut device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
+        device.size_class = size_class;
+        let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+        let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+        let mut host = NoServices;
+        view.run_initial_effects(&tokens, &device, &locale, &mut host).ok();
+        let layout = nexus_layout::LayoutEngine::new()
+            .layout_with_viewport(
+                view.scene(),
+                nexus_layout_types::FxPx::new(w),
+                Some(nexus_layout_types::FxPx::new(800)),
+                &nexus_text_baked::measure_text::BakedTextMeasure,
+            )
+            .expect("lays out");
+        // The dock family sits at the BOTTOM at every width class.
+        let dock_bottom = layout
+            .boxes
+            .iter()
+            .any(|b| b.rect.y.as_i32() > 650 && b.rect.height.as_i32() > 30);
+        assert!(dock_bottom, "{size_class}@{w}: dock family not at the bottom");
+    }
+}
+
 #[test]
 fn real_shell_column_grows_on_tablet() {
     struct NoServices;
@@ -815,7 +867,7 @@ fn real_shell_column_grows_on_tablet() {
 
 #[test]
 fn shell_grid_tiles_lay_out_in_a_row() {
-    struct Registry { id_sym: u32, label_sym: u32 }
+    struct Registry { id_sym: u32, label_sym: u32, icon_sym: u32 }
     impl nexus_dsl_runtime::EffectHost for Registry {
         fn call(&mut self, svc: &str, method: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
             -> Result<nexus_dsl_runtime::Value, u32> {
@@ -825,6 +877,7 @@ fn shell_grid_tiles_lay_out_in_a_row() {
                     let mut fields = vec![
                         (self.id_sym, Value::Str(id.into())),
                         (self.label_sym, Value::Str(label.into())),
+                        (self.icon_sym, Value::Str("star".into())),
                     ];
                     fields.sort_by_key(|(sym, _)| *sym);
                     Value::Record(fields)
@@ -840,7 +893,8 @@ fn shell_grid_tiles_lay_out_in_a_row() {
     let nxir = nexus_dsl_core::compile_project_dir(&root).expect("compiles");
     let symbols = symbols_of(&nxir);
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
-    let mut host = Registry { id_sym: sym("id"), label_sym: sym("label") };
+    let mut host =
+        Registry { id_sym: sym("id"), label_sym: sym("label"), icon_sym: sym("icon") };
     let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
     let tokens = nexus_theme_tokens::BaseTokens;
     let keys: Vec<u32> = Vec::new();

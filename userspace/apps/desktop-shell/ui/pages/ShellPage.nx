@@ -1,13 +1,22 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The shell home (design_handoff_launcher, TOUCH-LANDSCAPE base — the boot
-// default; `ui/platform/desktop/pages/ShellPage.nx` overrides with the
-// desktop taskbar). Handoff geometry: top bar 36px (pills · island 118×28
-// centre · status pill), centred app grid (AppIcon md, gap 24×16) on the
-// wallpaper, floating landscape dock at the bottom (round launcher button ·
-// glass dock pill with 32px tiles · glass nav pill). Glass = `.material()`
-// regions — the compositor blurs the wallpaper behind them (R1 seam).
+// The shell home (design_handoff_launcher, TOUCH base — the boot default;
+// `ui/platform/desktop/pages/ShellPage.nx` overrides with the desktop
+// taskbar). Two independent axes (the handoff's one driving concept):
+// desktop MODE is the explicit Control-Center toggle (→ the platform
+// override), WIDTH picks between the touch layouts via `device.sizeClass`
+// (mobile-first): compact = phone (<640), regular = tablet portrait
+// (<1024), wide = landscape (≥1024).
+//
+// Handoff geometry: transparent top bar 36 (time/bell pills · island 118×28
+// centre · combined status pill), top-aligned centred app grid (uniform
+// glass tiles, icon from the app manifest), dock family per width class —
+// wide: three floating glass elements (round launcher · dock pill with
+// divider + mini player · nav pill); regular: launcher + dock pill centred
+// side by side, bare nav row below; compact: full-width dock row of the
+// apps, bare nav row (back · launcher · home · overview) below. Glass =
+// `.material()` regions — the compositor blurs the wallpaper behind them.
 
 // The shell is the desktop: chromeless, full-screen, desktop z-band, on a
 // transparent base over the wallpaper plane (no page-wide `.bg()`).
@@ -20,101 +29,256 @@ Window {
 Page ShellPage {
     Stack {
         Stack {
-            TopBarPill { label: @t("shell.clock") }
-            TopBarPill { label: @t("shell.product") }
+            if device.sizeClass == "compact" {
+                Stack {
+                    Text(@t("shell.clock")).textSize(xs).fg(onSurface)
+                    Icon { symbol: "bell", size: 13 }
+                        .fg(onSurface)
+                }
+                .direction(row)
+                .align(center)
+                .gap(1)
+                .paddingX(2)
+                .height(28)
+                .rounded(full)
+                on Tap -> navigate("/control")
+            } else {
+                Stack {
+                    TopBarPill { label: @t("shell.clock") }
+                    Stack {
+                        Icon { symbol: "bell", size: 13 }
+                            .fg(onSurface)
+                    }
+                    .paddingX(2)
+                    .height(28)
+                    .align(center)
+                    .justify(center)
+                    .rounded(full)
+                }
+                .direction(row)
+                .align(center)
+                .gap(1)
+                on Tap -> navigate("/control")
+            }
             Spacer
             Island { }
             Spacer
             Stack {
-                TopBarPill { label: @t("shell.status") }
+                StatusPill { }
             }
             on Tap -> navigate("/control")
         }
         .direction(row)
         .height(36)
         .align(center)
-        .paddingX(2)
-        .gap(1)
-        .material(panel)
+        .paddingX(3)
         Stack {
-            Stack {
-                Spacer
-                if $state.loading {
-                    Text(@t("common.loading")).fg(onSurfaceVariant)
-                } else {
-                    List($state.apps) { app in
-                        Stack {
-                            AppTile { label: app.label }
-                        }
-                        .key(app.id)
-                        on Tap -> dispatch(Launch(app.id))
-                    }
-                    .direction(row)
-                    .wrap(true)
-                    .gap(6)
-                }
-                Spacer
-            }
-            .direction(row)
-            .align(center)
-        }
-        .grow(1)
-        .padding(7)
-        .scroll(horizontal)
-        Stack {
-            Stack {
-                LauncherButton { }
-            }
-            on Tap -> navigate("/launcher")
-            Spacer
-            Stack {
+            if $state.loading {
+                Text(@t("common.loading")).fg(onSurfaceVariant)
+            } else {
                 List($state.apps) { app in
                     Stack {
-                        DockTile { label: app.label }
+                        AppTile { label: app.label, icon: app.icon }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .direction(row)
-                .gap(1)
+                .wrap(true)
+                .gap(6)
+                .justify(center)
             }
-            .direction(row)
-            .align(center)
-            .gap(1)
-            .paddingX(2)
-            .paddingY(1)
-            .material(panel)
-            .rounded(full)
-            Spacer
+        }
+        .grow(1)
+        .padding(7)
+        if device.sizeClass == "wide" {
             Stack {
                 Stack {
-                    Icon { symbol: "chevron.left" }
-                        .fg(onSurface)
+                    LauncherButton { }
                 }
-                .padding(2)
-                .rounded(full)
-                on Tap -> navigate("/")
+                on Tap -> navigate("/launcher")
+                Spacer
                 Stack {
-                    Icon { symbol: "house" }
-                        .fg(onSurface)
+                    List($state.apps) { app in
+                        Stack {
+                            DockTile { label: app.label, icon: app.icon }
+                        }
+                        .key(app.id)
+                        on Tap -> dispatch(Launch(app.id))
+                    }
+                    .direction(row)
+                    .gap(1)
+                    Stack { }
+                        .width(1)
+                        .height(32)
+                        .bg(surfaceVariant)
+                    MiniPlayer { }
                 }
-                .padding(2)
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .paddingX(3)
+                .paddingY(2)
+                .material(panel)
                 .rounded(full)
-                on Tap -> navigate("/")
+                Spacer
+                Stack {
+                    Stack {
+                        Icon { symbol: "chevron.left", size: 14 }
+                            .fg(onSurface)
+                    }
+                    .padding(2)
+                    .rounded(full)
+                    on Tap -> navigate("/")
+                    Stack {
+                        Icon { symbol: "house", size: 14 }
+                            .fg(onSurface)
+                    }
+                    .padding(2)
+                    .rounded(full)
+                    on Tap -> navigate("/")
+                    Stack {
+                        Icon { symbol: "square", size: 13 }
+                            .fg(onSurface)
+                    }
+                    .padding(2)
+                    .rounded(full)
+                    on Tap -> navigate("/")
+                }
+                .direction(row)
+                .align(center)
+                .gap(1)
+                .paddingX(2)
+                .paddingY(1)
+                .material(panel)
+                .rounded(full)
             }
             .direction(row)
-            .align(center)
-            .gap(1)
-            .paddingX(2)
-            .paddingY(1)
-            .material(panel)
-            .rounded(full)
+            .align(end)
+            .paddingX(6)
+            .paddingY(3)
+        } else {
+            if device.sizeClass == "regular" {
+                Stack {
+                    Stack {
+                        Stack {
+                            LauncherButton { }
+                        }
+                        on Tap -> navigate("/launcher")
+                        Stack {
+                            List($state.apps) { app in
+                                Stack {
+                                    DockTile { label: app.label, icon: app.icon }
+                                }
+                                .key(app.id)
+                                on Tap -> dispatch(Launch(app.id))
+                            }
+                            .direction(row)
+                            .gap(1)
+                            Stack { }
+                                .width(1)
+                                .height(32)
+                                .bg(surfaceVariant)
+                            MiniPlayer { }
+                        }
+                        .direction(row)
+                        .align(center)
+                        .gap(2)
+                        .paddingX(3)
+                        .paddingY(2)
+                        .material(panel)
+                        .rounded(full)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    Stack {
+                        Stack {
+                            Icon { symbol: "chevron.left", size: 16 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                        Stack {
+                            Icon { symbol: "house", size: 16 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                        Stack {
+                            Icon { symbol: "square", size: 14 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(6)
+                }
+                .align(center)
+                .gap(2)
+                .paddingY(3)
+            } else {
+                Stack {
+                    Stack {
+                        List($state.apps) { app in
+                            Stack {
+                                DockTile { label: app.label, icon: app.icon }
+                            }
+                            .key(app.id)
+                            .grow(1)
+                            .align(center)
+                            on Tap -> dispatch(Launch(app.id))
+                        }
+                        .direction(row)
+                        .grow(1)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .paddingX(3)
+                    .paddingY(2)
+                    .material(panel)
+                    .rounded(full)
+                    Stack {
+                        Spacer
+                        Stack {
+                            Icon { symbol: "chevron.left", size: 16 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                        Spacer
+                        Stack {
+                            Icon { symbol: "square.grid", size: 20 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/launcher")
+                        Spacer
+                        Stack {
+                            Icon { symbol: "house", size: 16 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                        Spacer
+                        Stack {
+                            Icon { symbol: "square", size: 14 }
+                                .fg(onSurface)
+                        }
+                        .padding(2)
+                        on Tap -> navigate("/")
+                        Spacer
+                    }
+                    .direction(row)
+                    .align(center)
+                }
+                .paddingX(4)
+                .paddingY(3)
+                .gap(2)
+            }
         }
-        .direction(row)
-        .align(center)
-        .paddingX(4)
-        .paddingY(3)
-        .gap(3)
     }
     .gap(0)
 }

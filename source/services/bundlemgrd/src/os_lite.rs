@@ -97,7 +97,9 @@ fn is_launchable(bundle_type: &str) -> bool {
 }
 
 /// Builds the `OP_LIST_APPS` response:
-/// `[B,N,ver,OP_LIST_APPS|0x80, STATUS_OK, count:u16le, (id_len,id,label_len,label)*]`.
+/// `[B,N,ver,OP_LIST_APPS|0x80, STATUS_OK, count:u16le,
+///  (id_len,id, label_len,label, icon_len,icon)*]` — `icon` is the manifest's
+/// launcher-tile glyph (theme icon-set symbol name; empty = tile fallback).
 fn build_list_apps_response() -> alloc::vec::Vec<u8> {
     use alloc::vec::Vec;
     // The app LIST is the USER-LAUNCHABLE surface. Two orthogonal axes:
@@ -106,7 +108,7 @@ fn build_list_apps_response() -> alloc::vec::Vec<u8> {
     // by the user — it just carries the extra SETTINGS privilege); `shell`/
     // `greeter` are system roles (never in the grid), and service/library/
     // driver/framework are non-UI. Filter here, at the enumerate boundary.
-    let launchable = APP_REGISTRY.iter().filter(|(_, _, ty)| is_launchable(ty));
+    let launchable = APP_REGISTRY.iter().filter(|(_, _, ty, _)| is_launchable(ty));
     let count = launchable.clone().count();
     let mut out = Vec::new();
     out.push(MAGIC0);
@@ -115,11 +117,13 @@ fn build_list_apps_response() -> alloc::vec::Vec<u8> {
     out.push(OP_LIST_APPS | 0x80);
     out.push(STATUS_OK);
     out.extend_from_slice(&(count as u16).to_le_bytes());
-    for (id, label, _ty) in launchable {
+    for (id, label, _ty, icon) in launchable {
         out.push(id.len() as u8);
         out.extend_from_slice(id.as_bytes());
         out.push(label.len() as u8);
         out.extend_from_slice(label.as_bytes());
+        out.push(icon.len() as u8);
+        out.extend_from_slice(icon.as_bytes());
     }
     out
 }
@@ -757,7 +761,8 @@ mod tests {
         assert_eq!(rsp[4], STATUS_OK);
         let count = u16::from_le_bytes([rsp[5], rsp[6]]);
         // Only user-launchable bundles are listed (shell/greeter filtered out).
-        let launchable = APP_REGISTRY.iter().filter(|(_, _, ty)| is_launchable(ty)).count();
+        let launchable =
+            APP_REGISTRY.iter().filter(|(_, _, ty, _)| is_launchable(ty)).count();
         assert_eq!(count, launchable as u16);
         // First entry id is "chat".
         let id_len = rsp[7] as usize;

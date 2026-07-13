@@ -103,22 +103,37 @@ pub mod os {
     // windowd needs 2MiB: interactive mode (high-rate input events + GPU command
     // buffers) filled ~1MiB, and the login-greeter bake (TASK-0065B: blur ring +
     // avatar-card buffers, ~0.5MiB one-time on a never-freeing bump) overflowed it.
-    #[cfg(feature = "heap-2m")]
+    // app-host needs 4MiB: the shell REMOUNTS its DSL program on every
+    // profile switch (tablet ⇄ desktop) and width-class re-emit — each mount
+    // allocates a fresh program + view + layout on the never-freeing bump, so
+    // repeated toggles page-faulted the 2MiB heap on the third mount.
+    #[cfg(feature = "heap-4m")]
+    const HEAP_SIZE: usize = 4 * 1024 * 1024;
+    #[cfg(all(feature = "heap-2m", not(feature = "heap-4m")))]
     const HEAP_SIZE: usize = 2 * 1024 * 1024;
-    #[cfg(all(feature = "heap-1m", not(feature = "heap-2m")))]
+    #[cfg(all(feature = "heap-1m", not(any(feature = "heap-2m", feature = "heap-4m"))))]
     const HEAP_SIZE: usize = 1024 * 1024;
-    #[cfg(all(feature = "heap-768k", not(any(feature = "heap-1m", feature = "heap-2m"))))]
+    #[cfg(all(
+        feature = "heap-768k",
+        not(any(feature = "heap-1m", feature = "heap-2m", feature = "heap-4m"))
+    ))]
     const HEAP_SIZE: usize = 768 * 1024;
     #[cfg(all(
         feature = "heap-512k",
-        not(any(feature = "heap-768k", feature = "heap-1m", feature = "heap-2m"))
+        not(any(
+            feature = "heap-768k",
+            feature = "heap-1m",
+            feature = "heap-2m",
+            feature = "heap-4m"
+        ))
     ))]
     const HEAP_SIZE: usize = 512 * 1024;
     #[cfg(not(any(
         feature = "heap-512k",
         feature = "heap-768k",
         feature = "heap-1m",
-        feature = "heap-2m"
+        feature = "heap-2m",
+        feature = "heap-4m"
     )))]
     const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];

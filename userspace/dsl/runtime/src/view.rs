@@ -340,6 +340,22 @@ impl<'p> View<'p> {
     ///
     /// # Errors
     /// Emission errors.
+    /// Forces a re-emit under the CURRENT state — for device-ENVIRONMENT
+    /// changes (a resize crossing a `device.sizeClass` breakpoint, an
+    /// orientation flip) that alter `if device.*` arms without any store
+    /// change. Stores survive (no remount); deps/handlers/intents refresh.
+    ///
+    /// # Errors
+    /// Emission errors.
+    pub fn reemit(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+    ) -> Result<(), RtError> {
+        self.emit(tokens, device, locale)
+    }
+
     pub fn dispatch_noop_reemit(
         &mut self,
         tokens: &dyn Tokens,

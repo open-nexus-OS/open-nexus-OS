@@ -11,6 +11,8 @@ name = "settings"
 version = "0.1.0"
 min_sdk = "1.0.0"
 bundle_type = "settings"
+# Launcher tile glyph (theme icon-set symbol, resources/themes [icons.symbols]).
+icon = "gearshape"
 payload_kind = "ui-program"
 abilities = ["settings.MainAbility"]
 caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]

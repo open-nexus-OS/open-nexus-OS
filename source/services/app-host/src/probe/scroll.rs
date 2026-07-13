@@ -193,7 +193,7 @@ impl super::DslApp {
     pub(super) fn fire_end_reached(&mut self) -> bool {
         use nexus_dsl_runtime::{Damage, IdentityLocale};
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile);
+        let device = device_for(self.shell_profile, self.w);
         let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
         // Container-scoped event: dispatched by NAME, never by hit-test —
         // the handler may sit on a (scrolled-away) content node, and "the

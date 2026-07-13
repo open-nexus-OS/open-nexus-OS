@@ -30,7 +30,7 @@ fn main() {
     let bundles_dir = manifest_dir.join("../../../userspace/apps");
     println!("cargo:rerun-if-changed={}", bundles_dir.display());
 
-    let mut apps: Vec<(String, String, String)> = Vec::new();
+    let mut apps: Vec<(String, String, String, String)> = Vec::new();
     let mut ui_programs: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&bundles_dir) {
         for entry in entries.flatten() {
@@ -39,11 +39,11 @@ fn main() {
                 continue;
             }
             println!("cargo:rerun-if-changed={}", manifest.display());
-            if let Some((id, label, bundle_type)) = read_app(&manifest) {
+            if let Some((id, label, bundle_type, icon)) = read_app(&manifest) {
                 if manifest_is_ui_program(&manifest) {
                     ui_programs.push(id.clone());
                 }
-                apps.push((id, label, bundle_type));
+                apps.push((id, label, bundle_type, icon));
             }
         }
     }
@@ -59,11 +59,11 @@ fn main() {
     // user-launchable — see os_lite `build_list_apps_response`).
     let _ = writeln!(
         out,
-        "pub(crate) const APP_REGISTRY: [(&str, &str, &str); {}] = [",
+        "pub(crate) const APP_REGISTRY: [(&str, &str, &str, &str); {}] = [",
         apps.len()
     );
-    for (id, label, bundle_type) in &apps {
-        let _ = writeln!(out, "    ({id:?}, {label:?}, {bundle_type:?}),");
+    for (id, label, bundle_type, icon) in &apps {
+        let _ = writeln!(out, "    ({id:?}, {label:?}, {bundle_type:?}, {icon:?}),");
     }
     out.push_str("];\n");
 
@@ -111,7 +111,7 @@ fn manifest_is_ui_program(manifest: &Path) -> bool {
 
 /// Parses the bundle `name` from a manifest's `name = "..."` line and derives a
 /// display label (capitalized name). Returns `None` if no name is found.
-fn read_app(manifest: &Path) -> Option<(String, String, String)> {
+fn read_app(manifest: &Path) -> Option<(String, String, String, String)> {
     let text = std::fs::read_to_string(manifest).ok()?;
     let field = |key: &str| -> Option<String> {
         text.lines().find_map(|line| {
@@ -128,7 +128,10 @@ fn read_app(manifest: &Path) -> Option<(String, String, String)> {
     // The launcher lists only `app`; `shell`/`greeter`/service/library are
     // registered + servable but not user-launchable entries.
     let bundle_type = field("bundle_type").unwrap_or_else(|| "app".to_string());
-    Some((name, label, bundle_type))
+    // Launcher tile glyph: a theme icon-set symbol name (`[icons.symbols]`).
+    // Absent = empty — the shell tile renders its fallback glyph.
+    let icon = field("icon").unwrap_or_default();
+    Some((name, label, bundle_type, icon))
 }
 
 /// "chat" -> "Chat". ASCII first-letter capitalization (app ids are lowercase).

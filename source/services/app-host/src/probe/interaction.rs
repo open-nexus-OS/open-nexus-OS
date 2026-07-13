@@ -14,7 +14,7 @@ impl super::DslApp {
     pub(super) fn tap(&mut self, x: i32, y: i32) -> bool {
         use nexus_dsl_runtime::{Damage, IdentityLocale};
         let tokens = tokens_for(self.theme_mode);
-        let device = device_for(self.shell_profile);
+        let device = device_for(self.shell_profile, self.w);
         let scroll = self.scroll_param();
         // Interaction motion (handoff "Press: instant down, springy release"):
         // the pressed control dips to 92% and pops back elastically. Resolved
@@ -151,6 +151,27 @@ impl super::DslApp {
             }
         }
         span
+    }
+
+    /// Re-emits the scene under a NEW width class (mobile-first breakpoints:
+    /// the resize crossed a `device.sizeClass` boundary, so `if device.*`
+    /// arms select a different structure). Store state survives — this is a
+    /// re-emit, never a remount. The caller runs `resize` (relayout) after.
+    pub(super) fn reemit_for_size_class(&mut self, new_w: u32) {
+        use nexus_dsl_runtime::IdentityLocale;
+        let tokens = tokens_for(self.theme_mode);
+        self.w = new_w;
+        let device = device_for(self.shell_profile, new_w);
+        let locale = IdentityLocale { symbols: &self.symbols, keys: &self.keys };
+        if self.view.reemit(tokens, &device, &locale).is_err() {
+            raw_marker("apphost: FAIL size-class reemit");
+            return;
+        }
+        raw_marker("apphost: size-class reemit");
+        // New structure ⇒ new node ids: reconcile animations + drop the
+        // stale hover anchor (the next MOVE re-resolves).
+        self.hovered = None;
+        self.anim_sync();
     }
 
     /// WM resize (`OP_SURFACE_RECT`): re-lay-out the current view at the new

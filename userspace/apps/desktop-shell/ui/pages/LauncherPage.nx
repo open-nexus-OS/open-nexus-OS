@@ -1,54 +1,63 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The launcher page (TASK-0080B): registry-driven app grid + service-side
-// search, in the same tile design as the ShellPage desktop grid. Every tile
-// taps into `dispatch(Launch(app.id))` — the id comes from the AppRecord the
-// registry returned, never a hardcoded list. The phone override
-// (`ui/platform/phone/pages/LauncherPage.nx`) swaps the grid for a
-// single-column list (structural divergence, not a modifier tweak).
-// No page `.bg()`: the desktop surface blends over the wallpaper plane; the
-// search header sits on its own surface bar.
+// The app launcher, TOUCH fullscreen (design_handoff_launcher): a full-bleed
+// panel-glass overlay over the wallpaper — greeting + date header, search
+// field, centred app grid (registry-driven: every tile dispatches
+// `Launch(app.id)` from the AppRecord, never a hardcoded list). A ✕ pill
+// (top right) returns home. The desktop override
+// (`ui/platform/desktop/pages/LauncherPage.nx`) swaps this for the WINDOWED
+// 720×520 panel; the phone override keeps the single-column list.
 
 Page LauncherPage {
     Stack {
         Stack {
-            Button { label: @t("launcher.back") }
-                .bg(surfaceVariant)
-                .fg(onSurface)
-                .rounded(md)
-            on Tap -> navigate("/")
-            Text(@t("launcher.title")).textSize(lg).fg(onSurface)
+            Stack {
+                Text(@t("launcher.greeting")).textSize(xl).fg(onSurface)
+                Text(@t("launcher.date")).textSize(sm).fg(onSurfaceVariant)
+            }
+            .gap(1)
             Spacer
-            TextField { label: @t("launcher.search"), value: $state.query }
-            on Change -> dispatch(QueryChanged)
+            Stack {
+                Icon { symbol: "xmark", size: 16 }
+                    .fg(onSurface)
+            }
+            .width(36)
+            .height(36)
+            .align(center)
+            .justify(center)
+            .material(card)
+            .rounded(full)
+            on Tap -> navigate("/")
         }
         .direction(row)
         .align(center)
-        .padding(2)
-        .gap(3)
-        .bg(surface)
+        .padding(6)
         Stack {
-            Spacer
+            SearchBar { value: $state.query, placeholder: @t("launcher.search") }
+            on Change -> dispatch(QueryChanged)
+        }
+        .paddingX(6)
+        Stack {
             if $state.loading {
                 Text(@t("common.loading")).fg(onSurfaceVariant)
             } else {
                 List($state.apps) { app in
                     Stack {
-                        AppTile { label: app.label }
+                        AppTile { label: app.label, icon: app.icon }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
                 }
                 .direction(row)
                 .wrap(true)
-                .gap(6)
+                .gap(8)
                 .justify(center)
             }
-            Spacer
         }
         .grow(1)
-        .padding(4)
+        .padding(7)
     }
-    .gap(0)
+    .gap(2)
+    .material(panel)
 }

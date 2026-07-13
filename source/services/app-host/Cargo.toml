@@ -17,7 +17,7 @@ default = ["std"]
 std = []
 os-lite = [
     "dep:nexus-service-entry",
-    "nexus-service-entry/heap-2m",
+    "nexus-service-entry/heap-4m",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",

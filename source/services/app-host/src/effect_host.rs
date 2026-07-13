@@ -62,6 +62,7 @@ fn raw_marker(line: &str) {
 pub(crate) struct AppEffectHost {
     id_sym: Option<u32>,
     label_sym: Option<u32>,
+    icon_sym: Option<u32>,
     seq_sym: Option<u32>,
     text_sym: Option<u32>,
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
@@ -136,6 +137,7 @@ impl AppEffectHost {
         Self {
             id_sym: symbols.iter().position(|s| s == "id").map(|i| i as u32),
             label_sym: symbols.iter().position(|s| s == "label").map(|i| i as u32),
+            icon_sym: symbols.iter().position(|s| s == "icon").map(|i| i as u32),
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
             query_store: None,
@@ -167,9 +169,14 @@ impl AppEffectHost {
         let entries = parse_app_entries(&resp[..len]);
         let rows: Vec<Value> = entries
             .into_iter()
-            .map(|(id, label)| {
+            .map(|(id, label, icon)| {
                 let mut fields =
                     alloc::vec![(id_sym, Value::Str(id)), (label_sym, Value::Str(label))];
+                // The launcher-tile glyph: only pages that READ `app.icon`
+                // have the symbol; others get the two-field record unchanged.
+                if let Some(icon_sym) = self.icon_sym {
+                    fields.push((icon_sym, Value::Str(icon)));
+                }
                 fields.sort_by_key(|(sym, _)| *sym);
                 Value::Record(fields)
             })
@@ -621,10 +628,11 @@ fn send_fire_and_forget(send_slot: u32, req: &[u8]) -> bool {
     }
 }
 
-/// Parses the `OP_LIST_APPS` response body into `(id, label)` pairs. Header +
-/// per-entry length-prefixed strings (`[id_len, id, label_len, label]`); a
-/// malformed/short frame yields the entries parsed so far (fail-soft, bounded).
-fn parse_app_entries(frame: &[u8]) -> Vec<(String, String)> {
+/// Parses the `OP_LIST_APPS` response body into `(id, label, icon)` triples.
+/// Header + per-entry length-prefixed strings
+/// (`[id_len,id, label_len,label, icon_len,icon]`); a malformed/short frame
+/// yields the entries parsed so far (fail-soft, bounded).
+fn parse_app_entries(frame: &[u8]) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     let Some((status, count)) = nexus_abi::bundlemgrd::decode_list_apps_header(frame) else {
         return out;
@@ -636,7 +644,8 @@ fn parse_app_entries(frame: &[u8]) -> Vec<(String, String)> {
     for _ in 0..count {
         let Some(id) = take_lp_str(frame, &mut pos) else { break };
         let Some(label) = take_lp_str(frame, &mut pos) else { break };
-        out.push((id, label));
+        let Some(icon) = take_lp_str(frame, &mut pos) else { break };
+        out.push((id, label, icon));
     }
     out
 }
