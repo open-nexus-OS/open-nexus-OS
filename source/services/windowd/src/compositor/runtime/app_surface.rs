@@ -15,7 +15,7 @@
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
 use super::*;
-use super::app_window::{APP_CLOSE_W, APP_WIN_RADIUS};
+use super::app_window::{nexus_abi_cap_close, APP_CLOSE_W, APP_WIN_RADIUS};
 
 impl DisplayServerRuntime {
     /// Acquire atlas surfaces + show the window (mirrors `open_dsl_demo`).
@@ -63,11 +63,73 @@ impl DisplayServerRuntime {
     }
 
     pub(super) fn close_app_window(&mut self, idx: usize) {
+        let vacated = self.app_window_rect(idx);
         self.apps[idx].win.visible = false;
         self.update_app_title_overlay(idx); // frees (band drops below)
         self.hide_window(crate::window_scene::WindowId::App(idx as u8));
         self.apps[idx].win.end_drag();
         self.release_app_surface_band(idx);
+        // The backdrop blur is destination-so-far: any window whose cached
+        // blur was captured while the closed window overlapped it keeps a
+        // GHOST of it under the glass. Invalidate every intersecting window's
+        // blur cache (GPU re-blur next composite — cheap).
+        self.invalidate_overlapping_blur(vacated, idx);
+        // W4 slot recycling ("öffnen öffnen schließen … super effizient"): a
+        // user-close ENDS the binding — destroy the surface registration
+        // (frees the registry entry + the app's VMO capability), release the
+        // event channel (cap + nonce table entry), and reset the slot so the
+        // NEXT launch reuses it. Without this every close leaked the slot —
+        // four opens+closes exhausted the window quota — and the surface/VMO
+        // registry grew forever. The parked app process itself is the open
+        // reaper (#29); it costs zero CPU (its frame pulses are withheld and
+        // its presents hit the stale-id guard).
+        if let Some(id) = self.apps[idx].surface_id.take() {
+            if let Ok(vmo_slot) = self.client_surfaces.destroy(id) {
+                let _ = nexus_abi_cap_close(vmo_slot);
+            }
+        }
+        #[cfg(nexus_env = "os")]
+        if let Some(ch) = self.apps[idx].event_channel.take() {
+            if let Some(pos) = self.event_channels[..self.event_channels_len]
+                .iter()
+                .position(|e| e.1 == ch)
+            {
+                // Compact the nonce table (order-preserving shift).
+                for i in pos..self.event_channels_len - 1 {
+                    self.event_channels[i] = self.event_channels[i + 1];
+                }
+                self.event_channels_len -= 1;
+            }
+            let _ = nexus_abi_cap_close(ch);
+        }
+        self.apps[idx].frame_pulse_pending = false;
+        self.apps[idx].surface_dirty_rows = None;
+        self.apps[idx].scroll_id = 0;
+        self.apps[idx].content_h = 0;
+        self.apps[idx].header_h = 0;
+        self.apps[idx].footer_h = 0;
+        self.apps[idx].scroll_rows = 0;
+        self.apps[idx].layer_count = 0;
+        let _ = debug_println(&alloc::format!("WINDOWD: app window closed slot={idx}"));
+    }
+
+    /// Invalidate the cached backdrop blur of every OTHER visible window
+    /// intersecting `rect` — their destination-so-far blur may hold a ghost
+    /// of content that just vanished/moved there (close, minimize).
+    pub(super) fn invalidate_overlapping_blur(&mut self, rect: DamageRect, skip_idx: usize) {
+        for i in 0..self.apps.len() {
+            if i == skip_idx || !self.apps[i].win.visible {
+                continue;
+            }
+            let r = self.app_window_rect(i);
+            let intersects = rect.x < r.x + r.width
+                && rect.x + rect.width > r.x
+                && rect.y < r.y + r.height
+                && rect.y + rect.height > r.y;
+            if intersects {
+                self.apps[i].win.blur_valid = false;
+            }
+        }
     }
 
     /// Free the app window's atlas band(s) WITHOUT touching window state

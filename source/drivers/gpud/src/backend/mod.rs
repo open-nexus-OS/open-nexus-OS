@@ -339,7 +339,11 @@ struct PendingRtLayer {
 }
 
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-const MAX_PENDING_RT_LAYERS: usize = 8;
+// Sized for a REAL desktop: 4 app windows already need 16+ composites (a
+// scrollable window is 3 band slices + a title overlay; plus per-app glass
+// regions, dock, top bar). The old cap of 8 SILENTLY dropped the overflow —
+// windows/chrome vanished with 4 apps open. ~68 B/entry, static array.
+const MAX_PENDING_RT_LAYERS: usize = 32;
 /// Scroll-id table capacity (ids 1..=MAX_SCROLL_IDS; 0 = not scrollable).
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 pub(crate) const MAX_SCROLL_IDS: usize = 8;

@@ -58,6 +58,11 @@ impl DisplayServerRuntime {
         self.windows.minimize(id);
         let _ = debug_println(&alloc::format!("windowd: minimize id={}", Self::window_name(id)));
         self.queue_gpu_blit_rect(vacated);
+        // Ghost guard: overlapping windows' destination-so-far blur caches may
+        // hold the minimized window — re-blur them (see close_app_window).
+        if let WindowId::App(i) = id {
+            self.invalidate_overlapping_blur(vacated, i as usize);
+        }
         self.update_dock();
     }
 

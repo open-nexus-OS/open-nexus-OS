@@ -417,6 +417,14 @@ impl VirtioGpuBackend {
                                 scroll_band_h: *scroll_band_h,
                             };
                             self.pending_rt_count += 1;
+                        } else {
+                            // NEVER silent (fake-proof discipline): a dropped
+                            // composite = a missing window / lost chrome on
+                            // screen. The 8-layer cap did exactly that with 4
+                            // open windows (chat alone is 4 commands: 3 band
+                            // slices + title overlay) — "Chat hat das Chrome
+                            // verloren".
+                            let _ = nexus_abi::debug_println("gpud: FAIL rt-layer overflow");
                         }
                     }
                 }

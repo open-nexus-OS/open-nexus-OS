@@ -462,6 +462,16 @@ mod probe {
                     }
                     continue;
                 }
+                Err(nexus_ipc::IpcError::Disconnected)
+                | Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint)) => {
+                    // The compositor released our event channel: the window is
+                    // gone (user close). The app's lifetime IS its window —
+                    // exit cleanly so the kernel frees the process (the
+                    // app-side half of the reaper, #29). Spinning on the dead
+                    // channel would burn the core forever instead.
+                    raw_marker("APPHOST: window closed - exiting");
+                    return Ok(());
+                }
                 Err(_) => {
                     if !recv_err_marked {
                         recv_err_marked = true;
