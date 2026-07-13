@@ -231,6 +231,10 @@ impl super::DslApp {
             self.scroll_x = 0;
             self.scroll_y = 0;
         }
+        // A relayout follows a re-emit (tap Layout damage / EndReached
+        // LoadMore): reconcile the animation driver with the new intents.
+        // Idempotent when the tap path also calls it (values already `seen`).
+        self.anim_sync();
     }
 
     /// Compositor-owned scroll position push (`INPUT_KIND_SCROLL_POS`):

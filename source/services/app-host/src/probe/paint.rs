@@ -75,6 +75,14 @@ impl super::DslApp {
         // shifted by the scroll offset), chrome tested directly. `texts`
         // is pre-order sorted (collect_texts counts), so the text run per
         // box resolves by binary search.
+        // Snapshot the per-node animation transforms (opacity/translate/scale)
+        // the DSL `.animate`/`.transition`/`.effect` binding is driving this
+        // frame — a COPY (not a borrow) so the render scratch stays mutable.
+        // Bounded by the host's active-animation cap; empty at rest.
+        let mut anim_buf =
+            [nexus_scene_raster::NodeAnim::identity(0); super::anim::MAX_NODE_ANIMS];
+        let anim_n = self.node_anims_snapshot(&mut anim_buf);
+        let anims = &anim_buf[..anim_n];
         let mut vis_pick = core::mem::take(&mut self.vis_pick);
         let mut vis_text = core::mem::take(&mut self.vis_text);
         vis_pick.clear();
@@ -113,12 +121,13 @@ impl super::DslApp {
             // were the "buttons are square" report).
             {
                 let mut canvas = nexus_scene_raster::RowCanvas::new(&mut row, y, self.w as i32);
-                nexus_scene_raster::paint_row_picked(
+                nexus_scene_raster::paint_row_picked_animated(
                     &mut canvas,
                     &self.layout.boxes,
                     &vis_pick,
                     hover,
                     scroll_view,
+                    anims,
                 );
             }
             // Glyph pass: the shared text SSOT (same blender windowd uses)
@@ -147,15 +156,31 @@ impl super::DslApp {
                 }
                 {
                     let (_, content, font, color) = &self.texts[ti as usize];
+                    // Animated text node (`.animate(fade)`/`.effect(wiggle)` on a
+                    // Text): fade its glyphs by the node opacity and shift them
+                    // by the horizontal translate. Vertical translate + scale on
+                    // TEXT are the fill path's domain (documented scope: glyphs
+                    // fade + wiggle, filled nodes take the full transform).
+                    let (color, bx_glyph) = match anims
+                        .iter()
+                        .find(|a| a.node_id == b.node_id && !a.is_identity())
+                    {
+                        Some(a) => {
+                            let mut c = *color;
+                            c[3] = (c[3] as u32 * a.opacity as u32 / 255) as u8;
+                            (c, bx_eff - a.dx)
+                        }
+                        None => (*color, bx_eff),
+                    };
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         y_eff as u32,
                         by,
-                        bx_eff.max(0) as u32,
+                        bx_glyph.max(0) as u32,
                         right,
                         content.chars(),
                         *font,
-                        *color,
+                        color,
                     );
                 }
             }

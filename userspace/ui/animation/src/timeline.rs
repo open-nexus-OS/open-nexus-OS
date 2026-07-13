@@ -138,6 +138,20 @@ impl AnimationDriver {
         });
     }
 
+    /// Re-seed the integration clock to `now_ns` so the NEXT `tick` measures a
+    /// small dt (one frame) instead of the whole idle gap since the last tick.
+    /// Call this when starting an animation on an otherwise-idle driver: `tick`
+    /// computes `dt = now − last_tick`, and after an idle period `last_tick` is
+    /// stale, so the first tick's dt is the entire idle span — a keyframe track
+    /// jumps straight to its end (an instant pop instead of eased motion).
+    /// Mirrors the scroll momentum's `scroll_last_ns` seed.
+    pub fn reset_clock(&mut self, now_ns: u64) {
+        self.last_tick = now_ns;
+        if self.start == 0 {
+            self.start = now_ns;
+        }
+    }
+
     pub fn cancel(&mut self, layer: LayerId, prop: AnimProp) {
         self.animations.retain(|a| match a {
             ActiveAnimation::Spring { layer: l, prop: p, .. } => *l != layer || *p != prop,

@@ -50,6 +50,33 @@ fn counter_compiles_and_mounts() {
     compile_and_mount("counter");
 }
 
+/// The DSL animation binding (TASK-0062/0075): the counter page authors
+/// `.effect(wiggle, …)` on the value text and `.animate(fadeScale, …)` on the
+/// activity bar. Both intents must reach the mounted `View` — proof the
+/// front-end stamps the decided motion modifiers (not a silent `_ => {}`).
+#[test]
+fn counter_emits_animation_intents() {
+    use nexus_dsl_runtime::AnimKind;
+    let nxir = nexus_dsl_core::compile_project_dir(&app_root("counter"))
+        .unwrap_or_else(|e| panic!("counter compiles: {e}"));
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::tablet("landscape");
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale)
+        .unwrap_or_else(|e| panic!("counter mounts: {e:?}"));
+    let anims = view.animations();
+    assert!(
+        anims.iter().any(|(_, i)| i.kind == AnimKind::Effect),
+        "counter: expected the `.effect(wiggle)` intent, got {anims:?}"
+    );
+    assert!(
+        anims.iter().any(|(_, i)| i.kind == AnimKind::Animate),
+        "counter: expected the `.animate(fadeScale)` intent, got {anims:?}"
+    );
+}
+
 #[test]
 fn settings_compiles_and_mounts() {
     compile_and_mount("settings");

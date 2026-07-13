@@ -172,6 +172,12 @@ Button { label: @t("cta") }
 Reduced-motion behavior is part of each token's contract. There are no CSS-style
 keyframes, no free-form animation variables, no magic one-off utilities.
 
+These are **implemented** (TASK-0062/0075): the app-host `AnimationDriver` ticks
+the intent on the compositor frame pulse and the painter applies the per-node
+transform (the app stays out of the per-frame loop). See
+`docs/dev/ui/foundations/animation.md`. Live demo:
+`userspace/apps/counter/ui/pages/CounterPage.nx`.
+
 ## Escape hatch: `NativeWidget`
 
 For surfaces the first-party catalog cannot express (document canvas, waveform,

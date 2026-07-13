@@ -42,6 +42,10 @@ impl super::DslApp {
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_retained();
         }
+        // The dispatch re-emitted the scene: reconcile the animation driver
+        // with the new intents (a changed `.animate`/`.effect` value starts
+        // its motion). The caller arms the frame pulse when `anim_active`.
+        self.anim_sync();
         true
     }
 

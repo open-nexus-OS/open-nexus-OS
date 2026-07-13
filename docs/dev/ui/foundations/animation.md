@@ -14,6 +14,71 @@ See also:
 - `docs/dev/ui/foundations/quality/performance-philosophy.md` for the default frame-budget/degrade stance,
 - `docs/dev/ui/foundations/quality/testing.md` for how animation scenes should be exercised.
 
+## Implementation status (TASK-0062 / TASK-0075)
+
+The motion surface below is **implemented** for in-surface DSL nodes: `.animate`,
+`.transition`, and `.effect` (`userspace/dsl/core/src/registry.rs`, modifier ids
+43/44/45) parse, validate their token against the curated set
+(`check/names.rs::check_motion_token`), lower generically, and are now **bound at
+runtime** end-to-end. This is **Tier 2** of the animation architecture (ADR-0031,
+RFC-0059); **Tier 1** (compositor layer transforms for whole windows/layers, the
+"same as scroll" `OP_SET_LAYER_TRANSFORM`) is the open Track C.
+
+Pipeline (one engine, host owns the clock, the DSL stays pure —
+`docs/dev/dsl/principles.md` §4):
+
+1. **Stamp (DSL, pure).** Emit records a value-typed `AnimIntent{kind, token,
+   value}` per animated node and marks the driving `value:`/`trigger:` expression
+   a **Paint** dependency (`userspace/dsl/runtime/src/{anim,emit,view}.rs`;
+   `View::animations()`). No clock, no physics in the DSL.
+2. **Drive (app-host, Tier 2).** The app-host owns an
+   `animation::AnimationDriver` (the OS-wide physics SSOT) and diffs the intents
+   across re-emits: a changed value (re)starts the token's keyframe/spring;
+   mounted resting states are seeded (`source/services/app-host/src/probe/anim.rs`,
+   `anim_sync`). It is ticked on the compositor **Choreographer frame pulse**
+   (`OP_SURFACE_FRAME`) — the exact cadence scroll momentum rides — so the app is
+   out of the per-frame loop and the pulse re-arms only while motion is live.
+   On the idle→active edge the driver's clock is re-seeded
+   (`AnimationDriver::reset_clock`) so the first tick measures one frame, not the
+   whole idle gap — otherwise the keyframe jumps straight to its end (an instant
+   pop). Same tick-clock seed the scroll momentum does.
+3. **Paint (scene-raster).** Each tick's `SceneUpdate`s fold into a per-node
+   `NodeAnim` (opacity/translate/scale) the CPU painter applies
+   (`userspace/ui/scene_raster/src/anim.rs`, `paint_row_picked_animated`).
+
+Token → physics mapping (SSOT `userspace/ui/animation/src/motion.rs` +
+`userspace/ui/theme-tokens/src/lib.rs`):
+
+| Token | Category | Primary prop | Secondary | Duration | CPU easing |
+|---|---|---|---|---|---|
+| `snappy` | value | opacity | — | Swift (160ms) | ease-out |
+| `smooth` | value | opacity | — | Base (400ms) | ease-in-out |
+| `emphasized` | value | opacity | — | Slow (500ms) | ease-out |
+| `fade` | transition | opacity | — | Quick (280ms) | ease-in-out |
+| `slideUp` | transition | translateY | (+opacity) | Base (400ms) | ease-out |
+| `fadeScale` | transition | opacity | scale | Quick (280ms) | ease-out |
+| `wiggle` | effect | translateX | — | Base (400ms) | linear (osc.) |
+| `pulse` | effect | scale | — | Quick (280ms) | linear (osc.) |
+
+A nonzero `value:` is "present/in place", zero is "absent/offset" — the
+value-tracking contract (a `Bool` is the canonical driver). Effects fire a bounded
+oscillation that returns to identity on every `trigger:` change.
+
+**Reduced motion** is honored for free: a reduced-motion theme resolves
+`motion_ms` to 0 and the keyframe track jumps straight to the final frame
+(`KeyframeTrack::new` clamps to 1ns) — no per-token special-casing.
+
+**Live demo:** `userspace/apps/counter/ui/pages/CounterPage.nx` authors
+`.effect(wiggle, trigger: $state.value)` on the value text (wiggles on every ±)
+and `.animate(fadeScale, value: $state.value)` on an activity bar (fades+scales in
+while the count is non-zero). Host proof: `apps_compile.rs::counter_emits_animation_intents`.
+
+**Current scope limits** (documented, not silent): TEXT nodes fade + horizontally
+translate (`wiggle`); vertical translate and scale apply to **filled** nodes (the
+fill path). Whole-node scale/exit transitions and window-level transforms are
+Track C (Tier 1). Concurrent animations are capped at `MAX_NODE_ANIMS` /
+`MAX_ACTIVE_ANIMATIONS` (6).
+
 ## Default posture
 
 The default animation model should follow the **idea** of SwiftUI more than CSS:

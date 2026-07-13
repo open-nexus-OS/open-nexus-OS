@@ -116,6 +116,13 @@ Semantic motion tokens with explicit categories — no free-form animation langu
 
 Reduced-motion behavior is part of each token's contract.
 
+**Status: implemented** (Tier 2, TASK-0062/0075). The token argument is validated
+against the curated motion set (`snappy, smooth, emphasized, fade, slideUp,
+fadeScale, wiggle, pulse`); an intent is bound at runtime and interpolated by the
+app-host `AnimationDriver` on the compositor frame pulse, then painted per-node.
+See `docs/dev/ui/foundations/animation.md` (token→physics mapping, scope, demo).
+Whole-window/layer compositor transforms are the open Track C (Tier 1).
+
 ## Keys (class: layout — identity)
 
 | Modifier | Args | Meaning |

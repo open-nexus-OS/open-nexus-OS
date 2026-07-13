@@ -60,6 +60,7 @@ mod probe {
     use nexus_display_proto::client_surface as wire;
     use nexus_ipc::{Client as _, KernelClient, Wait};
 
+    mod anim;
     mod boot;
     mod scroll;
     mod paint;
@@ -325,6 +326,13 @@ mod probe {
         // R1 layer seam: declare the initial glass regions to windowd.
         if let Some(dsl) = app.as_ref() {
             dsl.submit_layers(&client, surface_id);
+            // Mount-time `.transition` enter animations were seeded in
+            // `anim_sync`: arm the frame pulse so they play from the first
+            // frame (value/effect tokens are inert until a state change).
+            if dsl.anim_active() {
+                let req = wire::encode_surface_frame_req(surface_id);
+                let _ = client.send(&req, Wait::NonBlocking);
+            }
         }
 
         // 5. The event loop (R3): ONE unified BLOCKING recv on the app event
@@ -374,7 +382,11 @@ mod probe {
                 // recv with a short timeout so ticks advance even when no
                 // event arrives — the timeout path repaints the viewport span
                 // (apple-smooth decay instead of notch jumps).
-                let wait = if app.as_ref().map(|d| d.momentum_active()).unwrap_or(false) {
+                let animating = app
+                    .as_ref()
+                    .map(|d| d.momentum_active() || d.anim_active())
+                    .unwrap_or(false);
+                let wait = if animating {
                     Wait::Timeout(core::time::Duration::from_millis(12))
                 } else {
                     Wait::Blocking
@@ -396,6 +408,12 @@ mod probe {
                             dirty = true;
                         }
                         if end && dsl.fire_end_reached() {
+                            dirty = true;
+                            dirty_rows = None;
+                        }
+                        // DSL animation physics also advance on the self-paced
+                        // tick (a full repaint span — see the frame-pulse arm).
+                        if dsl.anim_tick() {
                             dirty = true;
                             dirty_rows = None;
                         }
@@ -579,7 +597,8 @@ mod probe {
                 }
             } else if wire::decode_surface_frame(&event_frame[..len]).is_some() {
                 // Compositor frame pulse (Choreographer): advance the scroll
-                // physics one REAL frame and re-arm while motion continues.
+                // physics AND the DSL animation physics one REAL frame, and
+                // re-arm while either is still in motion.
                 if let Some(dsl) = app.as_mut() {
                     let (span, end) = dsl.momentum_tick();
                     if let Some(span) = span {
@@ -594,7 +613,15 @@ mod probe {
                         dirty = true;
                         dirty_rows = None;
                     }
-                    if dsl.momentum_active() {
+                    // Animation tick: a per-node transform can move a node
+                    // anywhere on the surface, so its damage is a FULL repaint
+                    // (the animated DSL pages are small; the chat band is not
+                    // animated). A full request wins over a scroll span.
+                    if dsl.anim_tick() {
+                        dirty = true;
+                        dirty_rows = None;
+                    }
+                    if dsl.momentum_active() || dsl.anim_active() {
                         let req = wire::encode_surface_frame_req(surface_id);
                         let _ = client.send(&req, Wait::NonBlocking);
                     }
@@ -683,6 +710,13 @@ mod probe {
                         if dsl.tap(i32::from(x), i32::from(y)) {
                             dirty = true;
                             dirty_rows = None; // model change: full repaint
+                            // A tap may have started an animation (`.animate`/
+                            // `.effect` on the changed state): arm the frame
+                            // pulse so the physics ticks on the real cadence.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
                         } else if tap_miss_markers < 8 {
                             // No handler hit / no visible change: report the
                             // first few WITH VALUES (coordinate-mapping bugs
@@ -811,6 +845,11 @@ mod probe {
         momentum: animation::ScrollMomentum,
         /// Last physics tick (ns) for dt integration.
         momentum_last_ns: u64,
+        /// The DSL animation subsystem (`.animate`/`.transition`/`.effect`):
+        /// the `AnimationDriver` physics + per-node paint transforms, ticked on
+        /// the compositor frame pulse. Host owns the clock (the DSL stays pure);
+        /// see `probe/anim.rs`.
+        anim: anim::AnimState,
         /// EndReached latch: fired once per approach to the content end;
         /// re-armed whenever layout re-runs (content grew/shrank).
         end_fired: bool,
@@ -913,7 +952,7 @@ mod probe {
                 .ok()?;
             let mut texts = alloc::vec::Vec::new();
             collect_texts(view.scene(), &mut 0, &mut texts);
-            Some(Self {
+            let mut app = Self {
                 view,
                 symbols,
                 keys,
@@ -931,13 +970,19 @@ mod probe {
                 scroll_y: 0,
                 momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
                 momentum_last_ns: 0,
+                anim: anim::AnimState::new(),
                 end_fired: false,
                 vis_pick: alloc::vec::Vec::new(),
                 vis_text: alloc::vec::Vec::new(),
                 banded: false,
                 alloc_band_h: 0,
                 band_pick: alloc::vec::Vec::new(),
-            })
+            };
+            // Seed the animation state from the mounted scene: resting
+            // transforms for value-tracked nodes, enter transitions for
+            // `.transition` nodes (the first present's frame pulse plays them).
+            app.anim_sync();
+            Some(app)
         }
 
     }

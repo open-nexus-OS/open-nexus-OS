@@ -3,6 +3,15 @@
 //
 // The canonical counter — the smallest complete program: one store, three
 // events, a reducer, and a page that reads `$state` and dispatches on Tap.
+//
+// It is ALSO the DSL animation demo (docs/dev/ui/foundations/animation.md,
+// TASK-0062/0075): the value text carries `.effect(wiggle, …)` — a bounded
+// attention wiggle on every change — and the activity bar carries
+// `.animate(fadeScale, …)` — a value-tracked fade+scale that is present only
+// while the count is non-zero. Both are authored purely in the DSL; the
+// app-host `AnimationDriver` interpolates them on the compositor frame pulse
+// (the app is out of the per-frame loop), and the CPU painter applies the
+// per-node transform. No imperative animation code.
 
 Store CounterStore {
     value: Int = 0,
@@ -23,7 +32,18 @@ reduce CounterEvent {
 
 Page CounterPage {
     Stack {
-        Text($state.value).textSize(xl)
+        // `.effect(wiggle, trigger:)` — a bounded attention effect fired on
+        // every change of the trigger value (each +/-). Returns to rest.
+        Text($state.value)
+            .textSize(xl)
+            .effect(wiggle, trigger: $state.value)
+        // `.animate(fadeScale, value:)` — a value-tracked transition: present
+        // (fade+scale in) while the count is non-zero, absent (fade out) at 0.
+        Stack { Spacer }
+            .width(80)
+            .height(6)
+            .bg(surfaceVariant)
+            .animate(fadeScale, value: $state.value)
         Stack {
             Button { label: "-" }
                 .bg(surfaceVariant)

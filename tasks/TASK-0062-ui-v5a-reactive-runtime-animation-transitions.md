@@ -24,6 +24,16 @@ font, cursor, path_cache, tests). The compositor is "immediate": no animation ti
 
 RFC-0059 defines the architecture. This task implements all phases.
 
+> **Follow-up (2026-07-13): DSL animation binding (Tier 2) landed.** RFC-0059 scoped
+> the `.animate`/`.transition`/`.effect` DSL binding OUT (deferred here + TASK-0075).
+> It is now implemented + boot-verified: the app-host runs the engine's
+> `AnimationDriver` on the compositor frame pulse and the CPU painter applies the
+> per-node transform. Also fixed a latent `AnimationDriver` idle tick-clock bug
+> (first tick after idle used `dt = now`, jumping keyframes to their end) via
+> `AnimationDriver::reset_clock`. Contract + demo:
+> `docs/dev/ui/foundations/animation.md`; demo `userspace/apps/counter`. Compositor
+> layer transforms (Tier 1, `OP_SET_LAYER_TRANSFORM`) remain open (Track C).
+
 ## Completed Phases
 
 - Phase 0 (Animation Engine): ✅ — `userspace/ui/animation/`
