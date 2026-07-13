@@ -56,6 +56,7 @@ impl DisplayServerRuntime {
         self.apps[idx].win.visible = true;
         self.show_window(crate::window_scene::WindowId::App(idx as u8));
         self.apps[idx].win.surface_dirty = true;
+        self.apps[idx].surface_dirty_rows = None; // (re)shown: full re-blit
         let rect = self.app_window_rect(idx);
         self.queue_dirty_rect(rect);
         true
@@ -153,7 +154,23 @@ impl DisplayServerRuntime {
         } else {
             (win_h, client.height as u32)
         };
-        for ly in 0..blit_rows {
+        // Damage-bounded blit (ADR-0042, the 120Hz damage contract): a
+        // non-scroll present WITH damage rects re-copies only those body rows —
+        // the title chrome and untouched body rows keep their band bytes (a
+        // 16-row animation present costs 16 row-copies, not a full window +
+        // chrome re-raster at animation rate).
+        let (ly_start, ly_end) = if scrollable {
+            (0, blit_rows)
+        } else {
+            match self.apps[idx].surface_dirty_rows {
+                Some((y0, y1)) => (
+                    title_h.saturating_add(y0).min(blit_rows),
+                    title_h.saturating_add(y1).min(blit_rows),
+                ),
+                None => (0, blit_rows),
+            }
+        };
+        for ly in ly_start..ly_end {
             let row_bytes = win_w as usize * 4;
             let row = &mut self.band_scratch[0..stride];
             row[..row_bytes].fill(0);

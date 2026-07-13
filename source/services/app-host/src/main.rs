@@ -382,9 +382,15 @@ mod probe {
                 // recv with a short timeout so ticks advance even when no
                 // event arrives — the timeout path repaints the viewport span
                 // (apple-smooth decay instead of notch jumps).
+                // Self-pace fallback ONLY for BOUNDED motion (scroll momentum,
+                // a tap-triggered fade): they converge, so a dropped pulse
+                // costs at most a few self-paced frames. Continuous loops
+                // (widget breathe) ride the compositor frame pulse EXCLUSIVELY
+                // — windowd owns pacing + visibility (a self-paced loop kept
+                // rendering hidden windows at ~80Hz forever).
                 let animating = app
                     .as_ref()
-                    .map(|d| d.momentum_active() || d.anim_active())
+                    .map(|d| d.momentum_active() || d.anim_transient_active())
                     .unwrap_or(false);
                 let wait = if animating {
                     Wait::Timeout(core::time::Duration::from_millis(12))
@@ -412,10 +418,14 @@ mod probe {
                             dirty_rows = None;
                         }
                         // DSL animation physics also advance on the self-paced
-                        // tick (a full repaint span — see the frame-pulse arm).
-                        if dsl.anim_tick() {
+                        // tick — same union-span damage as the frame-pulse arm.
+                        if let Some(span) = dsl.anim_tick() {
+                            dirty_rows = match (dirty, dirty_rows) {
+                                (true, None) => None,
+                                (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                                (false, None) => Some(span),
+                            };
                             dirty = true;
-                            dirty_rows = None;
                         }
                         if dirty && !present_in_flight {
                             // Fall through to the present block via a zero-len
@@ -489,6 +499,12 @@ mod probe {
                                 raw_marker("APPHOST: profile remounted");
                             }
                             dsl.submit_layers(&client, surface_id);
+                            // A remount re-seeds continuous loops/transitions:
+                            // re-arm the frame pulse or they stay frozen.
+                            if dsl.anim_active() {
+                                let req = wire::encode_surface_frame_req(surface_id);
+                                let _ = client.send(&req, Wait::NonBlocking);
+                            }
                         }
                     }
                 }
@@ -508,6 +524,11 @@ mod probe {
                     );
                     if let Some(dsl) = app.as_mut() {
                         let _ = dsl.render(vmo);
+                        // Remount re-seeded loops/transitions: re-arm the pulse.
+                        if dsl.anim_active() {
+                            let req = wire::encode_surface_frame_req(surface_id);
+                            let _ = client.send(&req, Wait::NonBlocking);
+                        }
                     }
                     dirty = true;
                     raw_marker("apphost: re-themed");
@@ -588,6 +609,13 @@ mod probe {
                                     present_in_flight = false;
                                     dirty = true;
                                     raw_marker("apphost: resized");
+                                    // Fresh surface id: any pulse parked at
+                                    // windowd for the OLD id is gone — re-arm
+                                    // so continuous loops survive a resize.
+                                    if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
+                                        let req = wire::encode_surface_frame_req(surface_id);
+                                        let _ = client.send(&req, Wait::NonBlocking);
+                                    }
                                 }
                             }
                         }
@@ -613,13 +641,18 @@ mod probe {
                         dirty = true;
                         dirty_rows = None;
                     }
-                    // Animation tick: a per-node transform can move a node
-                    // anywhere on the surface, so its damage is a FULL repaint
-                    // (the animated DSL pages are small; the chat band is not
-                    // animated). A full request wins over a scroll span.
-                    if dsl.anim_tick() {
+                    // Animation tick: damage EXACTLY the animated nodes' union
+                    // row span (old ∪ new transformed AABB) — the 120Hz damage
+                    // contract; a full repaint per breathe tick starved the
+                    // input path. Unions with any scroll span; a pending full
+                    // request still wins.
+                    if let Some(span) = dsl.anim_tick() {
+                        dirty_rows = match (dirty, dirty_rows) {
+                            (true, None) => None,
+                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
+                            (false, None) => Some(span),
+                        };
                         dirty = true;
-                        dirty_rows = None;
                     }
                     if dsl.momentum_active() || dsl.anim_active() {
                         let req = wire::encode_surface_frame_req(surface_id);

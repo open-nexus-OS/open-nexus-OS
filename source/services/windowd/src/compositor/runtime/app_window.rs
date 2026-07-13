@@ -295,9 +295,62 @@ impl DisplayServerRuntime {
                         }
                     }
                 } else if let Some(idx) = self.app_index_by_surface(surface_id) {
+                    // Damage-bounded blit (ADR-0042 / the 120Hz contract):
+                    // honor the client's damage rects — union their ROW span
+                    // for the band blit and queue only that screen band. A
+                    // present with no rects, or a scrollable (banded) surface
+                    // (band rows ≠ visible rows), stays a FULL re-blit.
+                    let bounded: Option<(u32, u32)> = if self.apps[idx].scroll_id == 0
+                        && count > 0
+                    {
+                        let mut rows: Option<(u32, u32)> = None;
+                        for r in &rects[..count] {
+                            let y0 = r.y as u32;
+                            let y1 = y0.saturating_add(r.height as u32);
+                            rows = Some(match rows {
+                                Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+                                None => (y0, y1),
+                            });
+                        }
+                        rows
+                    } else {
+                        None
+                    };
+                    // Merge with a still-pending blit; FULL (None) wins.
+                    self.apps[idx].surface_dirty_rows =
+                        if self.apps[idx].win.surface_dirty {
+                            match (self.apps[idx].surface_dirty_rows, bounded) {
+                                (Some((a0, a1)), Some((b0, b1))) => {
+                                    Some((a0.min(b0), a1.max(b1)))
+                                }
+                                _ => None,
+                            }
+                        } else {
+                            bounded
+                        };
                     self.apps[idx].win.surface_dirty = true;
                     let rect = self.app_window_rect(idx);
-                    self.queue_dirty_rect(rect);
+                    match self.apps[idx].surface_dirty_rows {
+                        // Bounded: damage only the presented body rows on
+                        // screen (body starts under the WM title bar).
+                        Some((y0, y1)) => {
+                            let top = rect
+                                .y
+                                .saturating_add(self.apps[idx].win.title_h)
+                                .saturating_add(y0);
+                            let bottom =
+                                (rect.y + rect.height).min(top.saturating_add(y1 - y0));
+                            if bottom > top {
+                                self.queue_dirty_rect(DamageRect {
+                                    x: rect.x,
+                                    y: top,
+                                    width: rect.width,
+                                    height: bottom - top,
+                                });
+                            }
+                        }
+                        None => self.queue_dirty_rect(rect),
+                    }
                 } else {
                     // Stale surface (e.g. the retired greeter's after the
                     // shell replaced the desktop slot): ack, queue nothing —
@@ -495,6 +548,7 @@ impl DisplayServerRuntime {
             self.apps[idx].layers = out;
             self.apps[idx].layer_count = n;
             self.apps[idx].win.surface_dirty = true;
+            self.apps[idx].surface_dirty_rows = None; // layer set changed: full
             let rect = self.app_window_rect(idx);
             self.queue_dirty_rect(rect);
             let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
@@ -699,13 +753,21 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Whether any client is waiting on a frame pulse — while true the
+    /// Whether any VISIBLE client is waiting on a frame pulse — while true the
     /// compositor keeps its 120Hz pacer armed: the pulses ARE the vsync the
     /// animating client ticks on (without this, a scroll ease degraded to
     /// the client's coarse recv-timeout fallback — "kann dem Scroll nicht
-    /// mit den Augen folgen").
+    /// mit den Augen folgen"). A HIDDEN window's pending request is parked
+    /// (see [`Self::flush_frame_pulses`]) and must NOT arm the pacer — a
+    /// closed animated window would otherwise keep windowd spinning at 120Hz
+    /// forever with nothing to draw.
     pub(crate) fn has_frame_pulse_clients(&self) -> bool {
-        self.desktop_frame_pulse || self.apps.iter().any(|a| a.frame_pulse_pending)
+        self.desktop_frame_pulse
+            || self.apps.iter().enumerate().any(|(idx, a)| {
+                a.frame_pulse_pending
+                    && a.win.visible
+                    && self.windows.is_visible(crate::window_scene::WindowId::App(idx as u8))
+            })
     }
 
     /// Send the armed frame pulses (once per composited frame, after the
@@ -718,6 +780,21 @@ impl DisplayServerRuntime {
         {
             for idx in 0..self.apps.len() {
                 if !self.apps[idx].frame_pulse_pending {
+                    continue;
+                }
+                // Visibility gate (the Choreographer contract: the COMPOSITOR
+                // owns animation pacing): a closed/minimized/hidden window gets
+                // NO pulses — the request stays PENDING at zero cost, and the
+                // first flush after re-expose resumes the chain. Without this a
+                // closed window running a continuous animation (widget breathe)
+                // kept rendering+presenting invisibly forever — every
+                // open/close stacked a permanent ~20Hz zombie load (the "mouse
+                // gets slower the longer I use the system" report).
+                if !self.apps[idx].win.visible
+                    || !self
+                        .windows
+                        .is_visible(crate::window_scene::WindowId::App(idx as u8))
+                {
                     continue;
                 }
                 self.apps[idx].frame_pulse_pending = false;

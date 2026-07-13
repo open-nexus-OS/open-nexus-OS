@@ -152,6 +152,7 @@ impl DisplayServerRuntime {
             if hover != self.apps[idx].win.title_hover {
                 self.apps[idx].win.title_hover = hover;
                 self.apps[idx].win.surface_dirty = true;
+                self.apps[idx].surface_dirty_rows = None; // title chrome: full
                 let rect = self.app_window_rect(idx);
                 self.queue_dirty_rect(rect);
             }
@@ -280,6 +281,7 @@ impl DisplayServerRuntime {
         let h = h.min(self.mode.height);
         self.apps[idx].win.set_frame(x, y, w, h);
         self.apps[idx].win.surface_dirty = true;
+        self.apps[idx].surface_dirty_rows = None; // resized: full re-blit
         // TASK #23: keep the title bar sharp at the TRUE frame width while the
         // band lags (live resize) — re-rasterized only on width change.
         self.update_app_title_overlay(idx);

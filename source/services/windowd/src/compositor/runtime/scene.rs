@@ -90,6 +90,9 @@ impl DisplayServerRuntime {
             if self.apps[idx].win.visible && self.apps[idx].win.surface_dirty {
                 self.render_app_surface(idx)?;
                 self.apps[idx].win.surface_dirty = false;
+                // The bounded rows are consumed with the blit; the next
+                // present re-seeds them (None = full, see ADR-0042 bounding).
+                self.apps[idx].surface_dirty_rows = None;
             }
         }
         // Desktop surface (Umbau #17): blit the shell app-host's VMO into the

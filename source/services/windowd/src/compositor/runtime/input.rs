@@ -218,6 +218,7 @@ impl DisplayServerRuntime {
                 let rect = self.app_window_rect(idx);
                 self.queue_dirty_rect(rect);
                 self.apps[idx].win.surface_dirty = true;
+                self.apps[idx].surface_dirty_rows = None; // moved: full re-blit
             }
         }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).

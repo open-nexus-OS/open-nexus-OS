@@ -257,6 +257,13 @@ pub(crate) struct AppWindowSlot {
     pub(crate) scroll_momentum: ScrollMomentum,
     /// Last scroll-physics tick (ns) for dt integration.
     pub(crate) scroll_last_ns: u64,
+    /// Damage-bounded band blit (ADR-0042, the 120Hz damage contract): union
+    /// of the client's presented damage rows (surface/body coords, end
+    /// exclusive) still to blit. `None` = FULL body re-blit (a present with no
+    /// rects, resize, scrollable band). `render_app_surface` copies only these
+    /// rows out of the client VMO — a 16-row animation present costs 16
+    /// row-copies, not the whole window body + title chrome re-raster.
+    pub(crate) surface_dirty_rows: Option<(u32, u32)>,
 }
 
 impl AppWindowSlot {
@@ -298,6 +305,7 @@ impl AppWindowSlot {
             scroll_rows: 0,
             scroll_momentum: ScrollMomentum::new(ScrollConfig::default()),
             scroll_last_ns: 0,
+            surface_dirty_rows: None,
         }
     }
 }

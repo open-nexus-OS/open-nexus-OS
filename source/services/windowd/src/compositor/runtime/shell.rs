@@ -219,6 +219,7 @@ impl DisplayServerRuntime {
         // OP_SURFACE_THEME (the DSL apps remount in the new mode).
         for slot in self.apps.iter_mut() {
             slot.win.surface_dirty = true;
+            slot.surface_dirty_rows = None; // re-theme: full re-blit (chrome too)
             slot.win.blur_valid = false;
         }
         self.dock_dirty = true;

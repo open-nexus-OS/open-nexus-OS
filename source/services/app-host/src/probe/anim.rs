@@ -439,34 +439,88 @@ impl super::DslApp {
 
     /// Advance the animation physics by real elapsed time on the frame pulse and
     /// fold the driver's `SceneUpdate`s into the per-node transform table.
-    /// Returns whether anything changed (the caller repaints + re-arms the
-    /// pulse while [`anim_active`](Self::anim_active)). Allocation-free.
-    pub(super) fn anim_tick(&mut self) -> bool {
+    /// Returns the union ROW SPAN the changes damage (old ∪ new transformed
+    /// AABB per touched node, ±1 row rounding pad) — `None` = nothing moved.
+    /// The caller repaints EXACTLY that span (the 120Hz damage contract: a
+    /// 16px skeleton breathe must never trigger a full-surface repaint +
+    /// full-band re-blit + full recomposite). Allocation-free.
+    pub(super) fn anim_tick(&mut self) -> Option<(i32, i32)> {
         if self.anim.driver.active_count() == 0 && self.anim.loops.is_empty() {
-            return false;
+            return None;
         }
         let now = nsec_now();
         let mut updates = [SceneUpdate::default(); MAX_NODE_ANIMS * 2];
         let count = self.anim.driver.tick_into(now, &mut updates);
         self.anim.last_ns = now;
+        let mut span: Option<(i32, i32)> = None;
         for u in &updates[..count] {
             let node_id = u.layer_id.0 as usize;
+            // Damage rows BEFORE the fold (the node's currently-painted rect).
+            self.grow_anim_span(node_id, &mut span);
             self.anim.set_prop(node_id, u.property, u.value);
             // Converged (progress==1) back to identity → drop the slot.
             if u.progress >= 1.0 {
                 self.anim.prune_identity(node_id);
             }
+            // …and AFTER (where it paints now) — the union covers the motion.
+            self.grow_anim_span(node_id, &mut span);
         }
         // Re-fire any breathe loop whose spring has converged, so it never stops.
         self.anim.tick_loops();
-        count > 0
+        span
+    }
+
+    /// Grow `span` by `node_id`'s CURRENT painted row extent: its layout box
+    /// transformed by the node's active [`NodeAnim`] (scale can overpaint the
+    /// box; translate moves it), ±1 row rounding pad, surface-clamped. A node
+    /// without a layout box (mid-relayout) falls back to the full surface —
+    /// correctness over thrift on the rare path.
+    fn grow_anim_span(&self, node_id: usize, span: &mut Option<(i32, i32)>) {
+        let (y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
+            Some(b) => {
+                let (x, y, w, h) =
+                    (b.rect.x.0, b.rect.y.0, b.rect.width.0, b.rect.height.0);
+                match self.anim.anims.iter().find(|a| a.node_id == node_id) {
+                    Some(a) => {
+                        let (_, ny, _, nh) = a.transform_rect(x, y, w, h);
+                        (ny - 1, ny + nh + 1)
+                    }
+                    None => (y - 1, y + h + 1),
+                }
+            }
+            None => (0, self.h as i32),
+        };
+        let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+        if y0 >= y1 {
+            return;
+        }
+        *span = Some(match *span {
+            Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
+            None => (y0, y1),
+        });
     }
 
     /// Whether any DSL animation is still interpolating OR a continuous widget
-    /// loop is live — keeps the compositor frame pulse armed, exactly like
-    /// `momentum_active` for scroll.
+    /// loop is live — the FRAME-arm re-arms the compositor pulse while true
+    /// (windowd parks the request for hidden windows, so a continuous loop
+    /// costs nothing off-screen).
     pub(super) fn anim_active(&self) -> bool {
         self.anim.driver.active_count() > 0 || !self.anim.loops.is_empty()
+    }
+
+    /// Whether a BOUNDED (non-loop) animation is interpolating — the only
+    /// animation state that may arm the recv-timeout SELF-PACE fallback. A
+    /// continuous loop must ride the compositor frame pulse EXCLUSIVELY
+    /// (the compositor owns pacing + visibility; a self-paced loop kept
+    /// rendering at ~80Hz forever, hidden windows included).
+    pub(super) fn anim_transient_active(&self) -> bool {
+        let loop_springs = self
+            .anim
+            .loops
+            .iter()
+            .filter(|&&n| self.anim.driver.is_active(LayerId(n as u64), AnimProp::Opacity))
+            .count();
+        self.anim.driver.active_count() > loop_springs
     }
 
     /// Copy the current per-node transforms into `out` for the painter; returns
