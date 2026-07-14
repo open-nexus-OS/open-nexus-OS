@@ -68,6 +68,10 @@ pub(crate) struct AppEffectHost {
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
     /// engine queryd hosts; keyset paging = the DSL's lazy-loading window.
     query_store: Option<QueryStore>,
+    /// This app's windowd surface id (set by main once the CREATE acks; 0 =
+    /// none yet). Rides in `CONTROL_WIN_*` values so windowd resolves the
+    /// caller's window — the recv path carries no sender identity (sid=0).
+    pub(crate) surface_id: u32,
 }
 
 /// The embedded `nexus-query` engine + its KV. v1 catalog: one demo
@@ -141,6 +145,7 @@ impl AppEffectHost {
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
             query_store: None,
+            surface_id: 0,
         }
     }
 
@@ -303,6 +308,7 @@ impl AppEffectHost {
         if key == sw::KEY_UI_THEME_MODE
             || key == sw::KEY_UI_SHELL_MODE
             || key == sw::KEY_UI_THEME_ACCENT
+            || key == "window.control"
         {
             return self.presentation_control(key, value);
         }
@@ -340,6 +346,34 @@ impl AppEffectHost {
                 return Err(ERR_SVC_UNAVAILABLE);
             };
             (wire::CONTROL_THEME_ACCENT, idx)
+        } else if key == "window.control" {
+            // App-chrome window controls (the window-kit app menu). The recv
+            // path carries no sender identity, so the value byte names the
+            // caller's own surface: minimize/close = the surface id; mode =
+            // `id << 4 | WIN_MODE_*` (ids and modes are both < 16).
+            // RECORDED FOLLOW-UP (same class as the CONTROL sender-role
+            // check): a client could name a foreign id — presentation-only
+            // blast radius until per-sender identity lands.
+            let sid = (self.surface_id & 0x0F) as u8;
+            if sid == 0 {
+                raw_marker("apphost: dsl svc settings.set FAIL (no surface id)");
+                return Err(ERR_SVC_UNAVAILABLE);
+            }
+            match value {
+                "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
+                "close" => (wire::CONTROL_WIN_CLOSE, sid),
+                // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
+                "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
+                "mode.fullscreen" => {
+                    (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN)
+                }
+                "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
+                "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
+                _ => {
+                    raw_marker("apphost: dsl svc settings.set FAIL (window control)");
+                    return Err(ERR_SVC_UNAVAILABLE);
+                }
+            }
         } else {
             let v = if value == "desktop" { wire::PROFILE_DESKTOP } else { wire::PROFILE_TABLET };
             (wire::CONTROL_SHELL_PROFILE, v)

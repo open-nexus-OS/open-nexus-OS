@@ -131,6 +131,15 @@ impl DisplayServerRuntime {
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
+                // Shell chrome contract: the strip above SHELL_TOPBAR_H
+                // belongs to the SHELL — its top bar composites above every
+                // window and stays usable (windows sit BEHIND it). Presses
+                // there skip app windows and fall through to the desktop.
+                if matches!(wid, WindowId::App(_))
+                    && cursor_y < super::SHELL_TOPBAR_H as i32
+                {
+                    continue;
+                }
                 // A visible app window's frame; the desktop base is chromeless
                 // full-screen.
                 let (frame, app_idx) = match wid {
@@ -501,6 +510,13 @@ impl DisplayServerRuntime {
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
+                // Shell chrome contract (mirrors the press loop): the top-bar
+                // strip hovers the SHELL, never a window behind it.
+                if matches!(wid, WindowId::App(_))
+                    && cursor_y < super::SHELL_TOPBAR_H as i32
+                {
+                    continue;
+                }
                 match wid {
                     WindowId::App(a) => {
                         let idx = a as usize;

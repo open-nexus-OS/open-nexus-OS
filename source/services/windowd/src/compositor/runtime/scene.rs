@@ -387,8 +387,14 @@ impl DisplayServerRuntime {
                                 if l.material != wire::MATERIAL_GLASS {
                                     continue;
                                 }
+                                // Shell chrome contract: PANEL-level glass
+                                // (Control Center / notifications / calendar
+                                // drop-downs) composites ABOVE the windows —
+                                // drawn in pass 2b below, skipped here.
+                                if l.glass_level == wire::GLASS_PANEL {
+                                    continue;
+                                }
                                 let blur_radius = match l.glass_level {
-                                    wire::GLASS_PANEL => 40,
                                     wire::GLASS_CARD => 20,
                                     wire::GLASS_SUBTLE => 12,
                                     _ => 30,
@@ -417,6 +423,44 @@ impl DisplayServerRuntime {
                     // these arms are unreachable; explicit to keep the match
                     // total until the WindowId enum retires (surface-id roles).
                     _ => {}
+                }
+            }
+
+            // 2b. SHELL CHROME ABOVE WINDOWS (user contract: windows sit
+            //     BEHIND the shell top bar, which stays readable + usable):
+            //     re-composite the desktop band's top-bar strip over every
+            //     window (per-pixel alpha — only the pills/island pixels
+            //     land), then the shell's PANEL-level glass drop-downs so an
+            //     open Control Center overlays fullscreen windows too.
+            if let Some((row, x, w, _h)) = desktop_layer {
+                let bar_h = super::SHELL_TOPBAR_H.min(mode.height);
+                let _ = encoder.composite_layer_full(
+                    &Layer::opaque(row, x, w, bar_h, 0, 0),
+                    (mode.width, mode.height),
+                );
+                use nexus_display_proto::client_surface as wire;
+                for l in desktop_glass.iter().take(desktop_glass_count) {
+                    if l.material != wire::MATERIAL_GLASS
+                        || l.glass_level != wire::GLASS_PANEL
+                    {
+                        continue;
+                    }
+                    crate::compositor::shell_window::composite_material_glass(
+                        &mut encoder,
+                        crate::compositor::shell_window::MaterialLayerParams {
+                            src_row_abs: row + u32::from(l.y),
+                            src_x: x + u32::from(l.x),
+                            width: u32::from(l.w),
+                            height: u32::from(l.h),
+                            dst_x: u32::from(l.x),
+                            dst_y: u32::from(l.y),
+                            corner_radius: u32::from(l.radius),
+                            shadow_alpha: u32::from(l.shadow_alpha),
+                            blur_radius: 40,
+                        },
+                        mode.width,
+                        mode.height,
+                    );
                 }
             }
 

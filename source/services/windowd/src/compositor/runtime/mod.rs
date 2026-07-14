@@ -68,6 +68,13 @@ const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHA
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 pub(crate) const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
 pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
+/// Shell chrome contract (design-handoff shell — the DSL shell draws these,
+/// windowd reserves/overlays them): the top bar is ALWAYS above app windows
+/// (windows sit BEHIND it; its strip stays clickable), the desktop taskbar
+/// is reserved in the desktop profile (windows never cover it) while the
+/// tablet dock is overlaid (fullscreen reaches the bottom edge).
+pub(crate) const SHELL_TOPBAR_H: u32 = 36;
+pub(crate) const SHELL_TASKBAR_H: u32 = 56;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
@@ -228,6 +235,11 @@ pub(crate) struct AppWindowSlot {
     pub(crate) intent_style: u8,
     pub(crate) intent_level: u8,
     pub(crate) intent_mode: u8,
+    /// Per-request sender service id captured at SURFACE_CREATE — resolves
+    /// `CONTROL_WIN_*` (app-chrome window controls) to the SENDING client's
+    /// window without any wire-visible window id (fail-closed: no match =
+    /// no action).
+    pub(crate) owner_sid: u64,
     pub(crate) intent_resizable: bool,
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
@@ -331,6 +343,7 @@ impl AppWindowSlot {
             intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
             intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
             intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
+            owner_sid: 0,
             intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channel: None,

@@ -183,6 +183,17 @@ impl super::DslApp {
     /// surface size — WITHOUT resetting store state (a remount would). Both
     /// width AND height take effect (the scene reflows to `w`; the render
     /// bound uses `h`). The caller re-renders into the freshly-sized VMO.
+    /// Publish this app's windowd surface id to the effect host — it rides
+    /// in `CONTROL_WIN_*` values (window-kit app-menu window actions).
+    pub(super) fn set_surface_id(&mut self, id: u32) {
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        {
+            self.host.surface_id = id;
+        }
+        #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+        let _ = id;
+    }
+
     pub(super) fn resize(&mut self, w: u32, h: u32) {
         self.w = w;
         self.h = h;

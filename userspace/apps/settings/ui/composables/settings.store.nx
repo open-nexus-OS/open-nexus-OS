@@ -136,3 +136,10 @@ reduce SettingsEvent {
         Err(e) => dispatch(ApplyFailed(e)),
     }
 }
+
+@effect on WinAct(a) {
+    match svc.settings.set("window.control", a, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}

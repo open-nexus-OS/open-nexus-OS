@@ -314,6 +314,9 @@ mod probe {
         );
         send_retry_cap(&client, &create, clone)?;
         let mut surface_id = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)?;
+        if let Some(dsl) = app.as_mut() {
+            dsl.set_surface_id(surface_id);
+        }
         raw_marker("APPHOST: surface created");
 
         // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
@@ -622,6 +625,9 @@ mod probe {
                             if send_retry_cap(&client, &create, clone).is_ok() {
                                 if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect) {
                                     surface_id = id;
+                                    if let Some(dsl) = app.as_mut() {
+                                        dsl.set_surface_id(id);
+                                    }
                                     damage = [wire::DamageRect {
                                         x: 0,
                                         y: 0,

@@ -341,6 +341,10 @@ pub const WIN_LEVEL_OVERLAY: u8 = 2;
 pub const WIN_MODE_AUTO: u8 = 0;
 pub const WIN_MODE_FREEFORM: u8 = 1;
 pub const WIN_MODE_FULLSCREEN: u8 = 2;
+/// `CONTROL_WIN_MODE`-only presentation value (NOT an intent): snap the
+/// window to the left work-area half. `WIN_MODE_AUTO` in that control =
+/// toggle fullscreen ⇄ freeform (the title-bar zoom semantics).
+pub const WIN_MODE_SPLIT: u8 = 3;
 
 /// Input kinds (taps + hover motion; keys land with the focus model).
 pub const INPUT_KIND_TAP: u8 = 0;

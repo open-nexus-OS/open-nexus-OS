@@ -47,7 +47,7 @@ impl DisplayServerRuntime {
     /// settings-role app) once the server endpoint carries per-sender identity
     /// (the execd requester-id pattern) — today any surface client could send
     /// this; presentation-only blast radius, but it should be fail-closed.
-    pub(crate) fn handle_surface_control(&mut self, frame: &[u8]) {
+    pub(crate) fn handle_surface_control(&mut self, frame: &[u8], _sender_sid: u64) {
         use nexus_display_proto::client_surface as wire;
         let Some((control, value)) = wire::decode_surface_control(frame) else {
             let _ = debug_println("WINDOWD: FAIL control (malformed)");
@@ -91,6 +91,34 @@ impl DisplayServerRuntime {
                 // Shell-initiated app launch (svc.ability.launch): show the
                 // wait ring until the fresh window's surface arrives.
                 self.begin_cursor_wait();
+            }
+            // App-chrome window controls (window-kit app menu). The recv
+            // path carries no sender identity (sid=0 observed), so the value
+            // byte names the caller's own surface id: minimize/close =
+            // `id`; mode = `id << 4 | WIN_MODE_*`. Fail-closed on no match.
+            // RECORDED FOLLOW-UP: enforce per-sender identity once the
+            // kernel meta carries it (presentation-only blast radius).
+            wire::CONTROL_WIN_MINIMIZE => {
+                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    self.start_minimize_transition(idx);
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                }
+            }
+            wire::CONTROL_WIN_CLOSE => {
+                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
+                    self.start_close_transition(idx);
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                }
+            }
+            wire::CONTROL_WIN_MODE => {
+                let (sid, mode) = (u32::from(value >> 4), value & 0x0F);
+                if let Some(idx) = self.app_idx_by_surface(sid) {
+                    self.apply_window_mode(idx, mode);
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                }
             }
             other => {
                 let _ = debug_println(&alloc::format!(

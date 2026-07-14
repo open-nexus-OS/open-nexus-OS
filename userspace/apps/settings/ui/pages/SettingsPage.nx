@@ -16,6 +16,11 @@ Window {
 
 Page SettingsPage {
     Stack {
+        // Fullscreen chrome inset: the window sits BEHIND the shell top bar
+        // (windowd composites the bar above us) — the window's own chrome
+        // starts below it so both stay readable and usable.
+        Stack { }
+            .height(40)
         WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "" }
         Stack {
             if $state.leftOpen == 1 {
@@ -175,14 +180,14 @@ Page SettingsPage {
                             Stack {
                                 Panel {
                                     Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
-                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "" }
-                                    WinMenuItem { id: "mode.full", label: @t("win.fullscreen"), icon: "maximize", kind: "check" }
-                                    WinMenuItem { id: "mode.free", label: @t("win.freeform"), icon: "square", kind: "" }
+                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
+                                    WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
+                                    WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
                                     Stack { }
                                         .height(1)
                                         .bg(border)
-                                    WinMenuItem { id: "win.minimize", label: @t("win.minimize"), icon: "minimize", kind: "" }
-                                    WinMenuItem { id: "win.close", label: @t("win.close"), icon: "xmark", kind: "danger" }
+                                    WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
+                                    WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
                                 }
                                 .width(230)
                                 .gap(0)
@@ -196,9 +201,9 @@ Page SettingsPage {
                         if $state.menu == "more.datei" {
                             Stack {
                                 Panel {
-                                    WinMenuItem { id: "datei.neu", label: @t("win.new"), icon: "plus", kind: "" }
-                                    WinMenuItem { id: "datei.open", label: @t("win.open"), icon: "folder", kind: "" }
-                                    WinMenuItem { id: "datei.save", label: @t("win.save"), icon: "arrow.down.circle", kind: "" }
+                                    WinMenuItem { id: "datei.neu", label: @t("win.new"), icon: "plus", kind: "", act: false }
+                                    WinMenuItem { id: "datei.open", label: @t("win.open"), icon: "folder", kind: "", act: false }
+                                    WinMenuItem { id: "datei.save", label: @t("win.save"), icon: "arrow.down.circle", kind: "", act: false }
                                 }
                                 .width(200)
                                 .gap(0)
@@ -209,9 +214,9 @@ Page SettingsPage {
                             if $state.menu == "more.ansicht" {
                                 Stack {
                                     Panel {
-                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check" }
-                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "" }
-                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "" }
+                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check", act: false }
+                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
+                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
                                     }
                                     .width(220)
                                     .gap(0)
@@ -225,12 +230,12 @@ Page SettingsPage {
                         if $state.menu == "more" {
                             Stack {
                                 Panel {
-                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub" }
-                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub" }
+                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub", act: false }
+                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
                                     Stack { }
                                         .height(1)
                                         .bg(border)
-                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "" }
+                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
                                 }
                                 .width(210)
                                 .gap(0)

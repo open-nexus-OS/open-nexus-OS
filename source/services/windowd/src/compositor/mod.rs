@@ -260,6 +260,7 @@ fn dispatch_client_frame(
     server: &KernelServer,
     frame: &[u8],
     mut moved_cap: Option<nexus_ipc::ReplyCap>,
+    sender_sid: u64,
 ) {
     use nexus_ipc::Server as _;
     if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
@@ -325,7 +326,7 @@ fn dispatch_client_frame(
         // (the floating channel) sent DESKTOP create-acks into the void and
         // the shell/greeter app-host hung in its ack wait forever.
         let nonce = nexus_display_proto::client_surface::decode_surface_create(frame).map(|t| t.7);
-        let ack = runtime.handle_surface_create(frame, vmo_slot);
+        let ack = runtime.handle_surface_create(frame, vmo_slot, sender_sid);
         let delivered = match nonce {
             Some(n) => runtime.send_frame_for_nonce(n, &ack),
             None => false,
@@ -394,7 +395,7 @@ fn dispatch_client_frame(
     {
         // Presentation control (theme / shell profile) from a shell surface.
         // Data-only frame; windowd applies live + persists via settingsd.
-        runtime.handle_surface_control(frame);
+        runtime.handle_surface_control(frame, sender_sid);
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
@@ -693,7 +694,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         }
         for _ in 0..IPC_BATCH_LIMIT {
             match server.recv_request_with_meta_into(Wait::NonBlocking, &mut recv_frame) {
-                Ok((frame_len, _sid, mut moved_cap)) => {
+                Ok((frame_len, sender_sid, mut moved_cap)) => {
                     let frame = &recv_frame[..frame_len];
                     #[cfg(nexus_env = "os")]
                     if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
@@ -719,7 +720,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                         runtime.flush_frame_pulses();
                         continue;
                     }
-                    dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take());
+                    dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take(), sender_sid);
                 }
                 Err(IpcError::WouldBlock)
                 | Err(IpcError::Timeout)
@@ -780,7 +781,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             Wait::Blocking
         };
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
-            Ok((frame_len, _sid, mut moved_cap)) => {
+            Ok((frame_len, sender_sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
                 #[cfg(nexus_env = "os")]
                 if let Some(now_ns) = decode_timer_fired_now_ns(frame) {
@@ -811,7 +812,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 // create/present/destroy/events are handled here too. The idle
                 // recv used to answer them UNSUPPORTED (a client present while
                 // the desktop was idle was dropped → the "+ reacts once" bug).
-                dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take());
+                dispatch_client_frame(&mut runtime, &server, frame, moved_cap.take(), sender_sid);
             }
             Err(IpcError::Timeout) | Err(IpcError::WouldBlock) => {
                 // No message ready. If an animation is running, this is our

@@ -44,6 +44,7 @@ impl DisplayServerRuntime {
         &mut self,
         frame: &[u8],
         vmo_slot: Option<u32>,
+        sender_sid: u64,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
         let Some((
             width,
@@ -127,6 +128,7 @@ impl DisplayServerRuntime {
         self.apps[idx].intent_level = level;
         self.apps[idx].intent_mode = mode;
         self.apps[idx].intent_resizable = resizable;
+        self.apps[idx].owner_sid = sender_sid;
         // WebRender compositor-scroll band geometry (rides atomically on CREATE
         // so the tall band is alloc'd with the right size). `content_h == 0` ⇒
         // the surface is NOT scrollable — byte-identical to the pre-scroll path.
@@ -168,11 +170,18 @@ impl DisplayServerRuntime {
                 if self.app_presentation(idx).full_screen || self.windows.is_fullscreen(wid) {
                     // Full-screen presentation (declared desktop level /
                     // fullscreen mode — the shell/greeter base or a kiosk app) or
-                    // the transient user-maximize: cover the whole display. Titled
-                    // apps keep the title bar at the top (content = display −
-                    // title, drawn by `render_app_surface`); chromeless surfaces
-                    // fill edge-to-edge. Content-sizing here would re-float it.
-                    self.apps[idx].win.set_frame(0, 0, self.mode.width, self.mode.height);
+                    // the transient user-maximize: cover the WORK AREA. The
+                    // shell/greeter (desktop level) still spans the whole
+                    // display; a normal fullscreen APP window stops above the
+                    // desktop taskbar (tablet: bottom edge) and sits BEHIND the
+                    // shell top bar (full height at the top — the bar
+                    // composites above it and stays usable).
+                    let h = if self.apps[idx].intent_level == wire::WIN_LEVEL_DESKTOP {
+                        self.mode.height
+                    } else {
+                        self.work_area_h()
+                    };
+                    self.apps[idx].win.set_frame(0, 0, self.mode.width, h);
                 } else {
                     let content_h =
                         u32::from(height).saturating_add(self.apps[idx].win.title_h);
@@ -201,6 +210,12 @@ impl DisplayServerRuntime {
                 // The freshly created band matches the frame again — the
                 // live-resize title overlay (if any) retires here (TASK #23).
                 self.update_app_title_overlay(idx);
+                // A RE-CREATE (mode switch / resize) can shrink the frame:
+                // repaint the whole scene so vacated area doesn't keep the
+                // old band's pixels (fullscreen→freeform left stale rows).
+                if !fresh_launch {
+                    self.queue_full_frame_damage();
+                }
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface created id={id} {width}x{height}"
                 ));
@@ -489,7 +504,14 @@ impl DisplayServerRuntime {
             self.windowing_policy,
         );
         let (rw, rh) = if p.full_screen {
-            (self.mode.width as u16, self.mode.height as u16)
+            // Same work-area rule as the create branch: shell/greeter span
+            // the display; a fullscreen APP window gets the work-area height.
+            let h = if level == wire::WIN_LEVEL_DESKTOP {
+                self.mode.height
+            } else {
+                self.work_area_h()
+            };
+            (self.mode.width as u16, h as u16)
         } else {
             // Default body size for a NEW window: the next free slot's default
             // frame (a re-creating client will re-negotiate through create).
@@ -516,6 +538,20 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!(
             "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
         ));
+    }
+
+    /// The work-area HEIGHT for fullscreen/maximized APP windows: the display
+    /// minus the desktop taskbar (desktop profile only — "nicht über die
+    /// Taskleiste"); the tablet dock is overlaid, so fullscreen reaches the
+    /// bottom edge there. The top is NOT inset — windows sit BEHIND the shell
+    /// top bar (it composites above them, `SHELL_TOPBAR_H`).
+    pub(crate) fn work_area_h(&self) -> u32 {
+        use nexus_display_proto::client_surface as wire;
+        if self.shell_profile_wire() == wire::PROFILE_DESKTOP {
+            self.mode.height.saturating_sub(super::SHELL_TASKBAR_H)
+        } else {
+            self.mode.height
+        }
     }
 
     /// The app surface's resolved presentation — declared intent ⟂ the

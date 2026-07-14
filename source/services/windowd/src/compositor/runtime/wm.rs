@@ -127,7 +127,8 @@ impl DisplayServerRuntime {
             // re-create its surface at display size (the atlas band is
             // reallocated on that re-create — no display-sized band held for a
             // floating window). The client re-render owns the pixels.
-            self.apps[idx].win.enter_fullscreen(mode_w, mode_h);
+            let _ = mode_h;
+            self.apps[idx].win.enter_fullscreen(mode_w, self.work_area_h());
             self.windows.set_fullscreen(id, true);
             // Occlusion residency: fullscreen COVERS every other window —
             // release their atlas bands so the display-sized band can mount
@@ -243,6 +244,86 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// The app slot presenting windowd surface `id` — resolves app-chrome
+    /// `CONTROL_WIN_*` requests (the value byte names the caller's own
+    /// surface). `0` never matches.
+    pub(super) fn app_idx_by_surface(&self, id: u32) -> Option<usize> {
+        if id == 0 {
+            return None;
+        }
+        self.apps.iter().position(|a| a.surface_id == Some(id))
+    }
+
+    /// Apply an app-chrome window-mode request (`CONTROL_WIN_MODE`): the
+    /// window-kit app menu's Split / Fullscreen / Free-form entries (AUTO =
+    /// toggle fullscreen ⇄ freeform, the zoom semantics). Updates the slot's
+    /// INTENT mode (the presentation resolver + re-creates follow it), frames
+    /// the window per the shell-chrome work-area rules, and pushes the new
+    /// content rect so the client re-creates its surface at that size.
+    pub(super) fn apply_window_mode(&mut self, idx: usize, value: u8) {
+        use nexus_display_proto::client_surface as wire;
+        let wid = WindowId::App(idx as u8);
+        let full_now = self.windows.is_fullscreen(wid)
+            || self.apps[idx].intent_mode == wire::WIN_MODE_FULLSCREEN;
+        let mode = match value {
+            wire::WIN_MODE_AUTO => {
+                if full_now {
+                    wire::WIN_MODE_FREEFORM
+                } else {
+                    wire::WIN_MODE_FULLSCREEN
+                }
+            }
+            other => other,
+        };
+        match mode {
+            wire::WIN_MODE_FULLSCREEN => {
+                self.apps[idx].intent_mode = wire::WIN_MODE_FULLSCREEN;
+                if !self.windows.is_fullscreen(wid) {
+                    // Reuses the WM toggle: work-area frame, band residency,
+                    // content-rect push, full damage.
+                    self.toggle_fullscreen(wid);
+                } else {
+                    self.push_app_content_rect(idx);
+                }
+                let _ = debug_println("windowd: win mode fullscreen");
+            }
+            wire::WIN_MODE_SPLIT => {
+                // Presentation-only: the INTENT becomes freeform (a split
+                // window is a positioned floating window); the frame snaps
+                // to the left work-area half.
+                self.apps[idx].intent_mode = wire::WIN_MODE_FREEFORM;
+                if self.windows.is_fullscreen(wid) {
+                    self.toggle_fullscreen(wid);
+                }
+                let (x, y, w, h) =
+                    snap::snap_frame(snap::SnapTarget::LeftHalf, self.mode.width, self.work_area_h());
+                self.apps[idx].win.title_h = self.app_title_h(idx);
+                self.apply_window_frame(wid, x, y, w, h);
+                self.push_app_content_rect(idx);
+                let _ = debug_println("windowd: win mode split");
+            }
+            _ => {
+                // Free form: a centered floating default in the work area
+                // ("bis nach oben" allowed — y may reach 0; the shell top
+                // bar composites above every window regardless).
+                self.apps[idx].intent_mode = wire::WIN_MODE_FREEFORM;
+                if self.windows.is_fullscreen(wid) {
+                    self.toggle_fullscreen(wid);
+                }
+                let wa_h = self.work_area_h();
+                let w = (self.mode.width * 3 / 4).max(MIN_WIN_W);
+                let h = (wa_h * 3 / 4).max(MIN_WIN_H);
+                let x = ((self.mode.width.saturating_sub(w)) / 2) as i32;
+                let y = ((wa_h.saturating_sub(h)) / 2) as i32;
+                self.apps[idx].win.title_h = self.app_title_h(idx);
+                self.apply_window_frame(wid, x, y, w, h);
+                self.push_app_content_rect(idx);
+                let _ = debug_println("windowd: win mode freeform");
+            }
+        }
+        self.queue_full_frame_damage();
+    }
+
     /// Tell the app-client its current CONTENT rect (`OP_SURFACE_RECT`) so it
     /// re-creates its surface at that size (WM owns geometry).
     pub(crate) fn push_app_content_rect(&mut self, idx: usize) {
@@ -278,7 +359,7 @@ impl DisplayServerRuntime {
                 ));
             }
             half => {
-                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.mode.height);
+                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.work_area_h());
                 self.apply_window_frame(id, x, y, w, h);
                 let _ = debug_println(&alloc::format!(
                     "windowd: snap edge={} id={}",
