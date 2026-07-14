@@ -92,6 +92,12 @@ pub struct VirtioGpuBackend {
     _mmio_len: usize,
     next_resource_id: u32,
     probed: bool,
+    /// The scanout's VISIBLE mode, resolved once at probe from the device's
+    /// `GET_DISPLAY_INFO` (QEMU: `xres=`/`yres=`), falling back to 1280×800.
+    /// The RESOURCE layout (plane rows, strides, atlas budget) stays at the
+    /// fixed maximum — this is the visible sub-rect the compositor targets.
+    pub(crate) display_w: u32,
+    pub(crate) display_h: u32,
     /// True when virgl GPU acceleration is detected at probe time.
     /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
     #[allow(dead_code)]
@@ -425,6 +431,8 @@ impl VirtioGpuBackend {
             _mmio_len: mmio_len,
             next_resource_id: 1,
             probed: false,
+            display_w: 1280,
+            display_h: 800,
             virgl_capable: false,
             virgl_ctx_id: 0,
             resources: alloc::vec::Vec::new(),
@@ -633,20 +641,21 @@ impl VirtioGpuBackend {
             let _ = GPUD_CPU_FALLBACK;
         }
 
-        // Query available displays. Without this, QEMU may not report
-        // scanout dimensions correctly.
+        // Resolve the scanout's VISIBLE mode from the device
+        // (GET_DISPLAY_INFO → pmodes[0], QEMU's `xres=`/`yres=`). The
+        // RESOURCE layout stays at the fixed maximum budget; consumers size
+        // the visible sub-rect from this. Fallback = the 1280×800 defaults.
         #[cfg(all(feature = "os-lite", target_os = "none"))]
-        {
-            let info_cmd = protocol::VirtioGpuCtrlHdr {
-                type_: protocol::VIRTIO_GPU_CMD_GET_DISPLAY_INFO,
-                flags: 0,
-                fence_id: 0,
-                ctx_id: 0,
-                _padding: 0,
-            };
-            // GET_DISPLAY_INFO has no additional payload beyond the header.
-            if self.ctrlq.is_some() {
-                let _ = self.ctrl_submit_struct(&info_cmd);
+        if self.ctrlq.is_some() {
+            if let Some((w, h)) = self.ctrl_query_display_info() {
+                // Clamp to the fixed resource budget (planes are laid out
+                // for at most 1280×800 — larger modes need the atlas/VMO
+                // budget work first).
+                self.display_w = w.min(1280);
+                self.display_h = h.min(800);
+                emit_display_info_marker(self.display_w, self.display_h);
+            } else {
+                let _ = nexus_abi::trace_line("gpud: display info query fail (1280x800)");
             }
         }
 
@@ -746,6 +755,45 @@ impl GfxBackend for VirtioGpuBackend {
         self.move_cursor_os(x as u32, y as u32)?;
         Ok(())
     }
+}
+
+/// `gpud: display info WxH` — the resolved visible mode (alloc-free: gpud's
+/// stack-buffer marker pattern, the heap never sees boot markers).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+fn emit_display_info_marker(w: u32, h: u32) {
+    fn put(buf: &mut [u8; 40], p: &mut usize, s: &[u8]) {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    }
+    fn put_dec(buf: &mut [u8; 40], p: &mut usize, mut v: u32) {
+        let mut tmp = [0u8; 10];
+        let mut n = 0;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            v /= 10;
+            n += 1;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            put(buf, p, &tmp[n..=n]);
+        }
+    }
+    let mut buf = [0u8; 40];
+    let mut p = 0usize;
+    put(&mut buf, &mut p, b"gpud: display info ");
+    put_dec(&mut buf, &mut p, w);
+    put(&mut buf, &mut p, b"x");
+    put_dec(&mut buf, &mut p, h);
+    let _ = nexus_abi::trace_line(
+        core::str::from_utf8(&buf[..p]).unwrap_or("gpud: display info"),
+    );
 }
 
 

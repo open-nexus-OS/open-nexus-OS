@@ -7,8 +7,9 @@ pub const GPUD_VIRTIO_GPU_PROBED: &str = "gpud: virtio-gpu probed";
 pub const GPUD_NO_DEVICE: &str = "gpud: no device";
 pub const GPUD_CURSOR_ON: &str = "gpud: cursor on";
 pub const GPUD_SCANOUT_OK: &str = "gpud: scanout ok";
-pub const GPUD_SCANOUT_MODE: &str = "gpud: scanout 1280x800 bgra8888";
-pub const GPUD_DISPLAY_READY: &str = "gpud: display ready (w=1280, h=800)";
+// Size-agnostic (the dynamic `gpud: display info WxH` line carries the mode).
+pub const GPUD_SCANOUT_MODE: &str = "gpud: scanout bgra8888";
+pub const GPUD_DISPLAY_READY: &str = "gpud: display ready";
 pub const GPUD_MMIO_FAULT: &str = "gpud: mmio fault";
 pub const GPUD_RESOURCE_VMO_CREATE_FAIL: &str = "gpud: resource vmo_create fail";
 pub const GPUD_RESOURCE_VMO_MAP_FAIL: &str = "gpud: resource vmo_map_page fail";

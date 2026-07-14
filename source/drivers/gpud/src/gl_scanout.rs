@@ -92,8 +92,10 @@ const H_SAMPLER: u32 = 0x34;
 /// Fullscreen −1..1 quad VBO (resource 0xFA, created by `virgl_blur_init`).
 const QUAD_RES: u32 = 0xFA;
 
-const SCREEN_W: u32 = 1280;
-const SCREEN_H: u32 = 800;
+// self.display_w/H are GONE: the visible mode is `self.display_w/h`, resolved at
+// probe from GET_DISPLAY_INFO (fallback 1280×800). The fixed RESOURCE layout
+// (plane rows/strides of the shared windowd VMO) stays at its max budget —
+// only the GL textures/scanout/viewport follow the visible mode.
 
 // Boot-splash wordmark + glow: owned by `backend::bootstrap` (the earliest
 // phase that draws it — task #122 unified both splash phases onto one image);
@@ -164,7 +166,7 @@ const SPIN_ORBIT_LUT: [(i32, i32); 16] = [
     (34, -34),
     (44, -18),
 ];
-const FB_STRIDE: u32 = SCREEN_W * 4;
+
 
 /// Single-tap textured blit: window position → display-texture UV via
 /// CONST[0] = (scale_x, scale_y, offset_x, offset_y). The scale/offset form
@@ -212,15 +214,15 @@ impl VirtioGpuBackend {
         }
         const SAMPLE_W: u32 = 64;
         const SAMPLE_H: u32 = 4;
-        let x = (SCREEN_W - SAMPLE_W) / 2;
-        let y = (SCREEN_H - SAMPLE_H) / 2;
-        self.virgl_transfer_from_host(GL_SCANOUT_RES, x, y, SAMPLE_W, SAMPLE_H, FB_STRIDE)
+        let x = (self.display_w - SAMPLE_W) / 2;
+        let y = (self.display_h - SAMPLE_H) / 2;
+        self.virgl_transfer_from_host(GL_SCANOUT_RES, x, y, SAMPLE_W, SAMPLE_H, (self.display_w * 4))
             .ok()?;
         let mut best = [0u8; 4];
         let mut best_sum: u32 = 0;
         for row in 0..SAMPLE_H {
             for col in 0..SAMPLE_W {
-                let off = ((y + row) * FB_STRIDE + (x + col) * 4) as usize;
+                let off = ((y + row) * (self.display_w * 4) + (x + col) * 4) as usize;
                 let px = unsafe {
                     core::ptr::read_volatile(
                         (self.gl_scanout_backing_va + off) as *const [u8; 4],
@@ -274,8 +276,8 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_SCANOUT,
-            width: SCREEN_W,
-            height: SCREEN_H,
+            width: self.display_w,
+            height: self.display_h,
             depth: 1,
             array_size: 1,
             last_level: 0,
@@ -291,7 +293,7 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_struct(&ctx_attach)?;
         self.gl_scanout_backing_va =
-            self.virgl_attach_backing(GL_SCANOUT_RES, (SCREEN_W * SCREEN_H * 4) as usize)?;
+            self.virgl_attach_backing(GL_SCANOUT_RES, (self.display_w * self.display_h * 4) as usize)?;
 
         // NON-ALIASED display texture (1280×800, own backing — NOT a VMO alias).
         // The present copies windowd's composed frame here and blits it to the RT;
@@ -302,8 +304,8 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_SAMPLER_VIEW,
-            width: SCREEN_W,
-            height: SCREEN_H,
+            width: self.display_w,
+            height: self.display_h,
             depth: 1,
             array_size: 1,
             last_level: 0,
@@ -319,7 +321,7 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_struct(&dt_ctx)?;
         self.gl_display_tex_va =
-            self.virgl_attach_backing(H_DISPLAY_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
+            self.virgl_attach_backing(H_DISPLAY_TEX, (self.display_w * self.display_h * 4) as usize)?;
 
         // Wallpaper texture: created here and seeded with recognizable BGRA color
         // bands as a boot fallback (proves "a sampled texture renders"). The first
@@ -331,8 +333,8 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_SAMPLER_VIEW,
-            width: SCREEN_W,
-            height: SCREEN_H,
+            width: self.display_w,
+            height: self.display_h,
             depth: 1,
             array_size: 1,
             last_level: 0,
@@ -348,7 +350,7 @@ impl VirtioGpuBackend {
         };
         self.ctrl_submit_struct(&wp_ctx)?;
         let wp_va =
-            self.virgl_attach_backing(H_WALLPAPER_TEX, (SCREEN_W * SCREEN_H * 4) as usize)?;
+            self.virgl_attach_backing(H_WALLPAPER_TEX, (self.display_w * self.display_h * 4) as usize)?;
         // Remember the backing so the first build-up present can fill it with the real
         // wallpaper (windowd's decoded JPEG in VMO Plane 0, via try_upload_wallpaper_from_vmo).
         self.gl_wallpaper_tex_va = wp_va as usize;
@@ -358,11 +360,11 @@ impl VirtioGpuBackend {
         // GL is visually seamless. The single frame before the real wallpaper
         // lands reads as one uniform splash → desktop, never a fallback pattern.
         {
-            let len = SCREEN_W as usize * SCREEN_H as usize * 4;
+            let len = self.display_w as usize * self.display_h as usize * 4;
             let dst = unsafe { core::slice::from_raw_parts_mut(wp_va as *mut u8, len) };
-            compose_splash_region(dst, SCREEN_W, SCREEN_H, 0, 0, SCREEN_W, SCREEN_H, 256);
+            compose_splash_region(dst, self.display_w, self.display_h, 0, 0, self.display_w, self.display_h, 256);
         }
-        self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE)?;
+        self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, self.display_w, self.display_h, (self.display_w * 4))?;
 
         // Surface + blit fragment shader (vertex shader 10 persists from boot).
         let mut s = Submit3d::new();
@@ -374,7 +376,7 @@ impl VirtioGpuBackend {
         // G0 proof: GPU-clear the scanout RT so the first flip shows GPU output
         // (dark slate, replaced by the real UI on the first present).
         s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        s.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        s.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         // Initial GPU clear so the first flip shows GPU output (dark slate).
         s.emit_clear(PIPE_CLEAR_COLOR0, [0.09, 0.10, 0.12, 1.0], 1.0, 0);
         let bytes = s.as_bytes();
@@ -401,14 +403,14 @@ impl VirtioGpuBackend {
         sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         sp.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
         sp.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        sp.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        sp.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         sp.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
         sp.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
         sp.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
             &[
-                1.0 / SCREEN_W as f32,
-                1.0 / SCREEN_H as f32,
+                1.0 / self.display_w as f32,
+                1.0 / self.display_h as f32,
                 0.0,
                 0.0,
                 splash_f,
@@ -433,12 +435,12 @@ impl VirtioGpuBackend {
         // the 2D path's tall-VMO row addressing ends here).
         let scanout = VirtioGpuSetScanout {
             hdr: crate::backend::ctrl_hdr(VIRTIO_GPU_CMD_SET_SCANOUT),
-            r: protocol::VirtioGpuRect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H },
+            r: protocol::VirtioGpuRect { x: 0, y: 0, width: self.display_w, height: self.display_h },
             scanout_id: 0,
             resource_id: GL_SCANOUT_RES,
         };
         self.ctrl_submit_struct(&scanout)?;
-        self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H })?;
+        self.gl_flush_rect(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h })?;
 
         self.gl_scanout_active = true;
         let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_SCANOUT_OK);
@@ -505,7 +507,7 @@ impl VirtioGpuBackend {
     /// re-upload, just a different source offset into the already-uploaded
     /// texture — a ~54µs GPU pass, no CPU re-render.
     pub(crate) fn flush_layer_scroll(&mut self) -> Result<(), GfxError> {
-        self.gl_present_damage(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H })
+        self.gl_present_damage(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h })
     }
 
     /// Boot-time GPU pipeline warmup — absorb the one-time virgl texture-sampling
@@ -536,12 +538,12 @@ impl VirtioGpuBackend {
         sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
         sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
         sw.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        sw.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        sw.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
         sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
         sw.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
-            &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+            &[1.0 / self.display_w as f32, 1.0 / self.display_h as f32, 0.0, 0.0],
         );
         sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
         sw.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
@@ -554,7 +556,7 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_header_tail(&wh, wb)?;
-        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
+        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h });
         let _ = nexus_abi::trace_line("gpud: pipeline warmup ok");
         Ok(())
     }
@@ -569,10 +571,10 @@ impl VirtioGpuBackend {
         if COMPOSITOR_BUILDUP {
             return self.compositor_buildup_present();
         }
-        let x = rect.x.min(SCREEN_W);
-        let y = rect.y.min(SCREEN_H);
-        let w = rect.width.min(SCREEN_W - x);
-        let h = rect.height.min(SCREEN_H - y);
+        let x = rect.x.min(self.display_w);
+        let y = rect.y.min(self.display_h);
+        let w = rect.width.min(self.display_w - x);
+        let h = rect.height.min(self.display_h - y);
         if w == 0 || h == 0 {
             return Ok(());
         }
@@ -588,7 +590,7 @@ impl VirtioGpuBackend {
                 for row in 0..h as usize {
                     let src_off =
                         (display_row as usize + y as usize + row) * stride + x as usize * 4;
-                    let dst_off = (y as usize + row) * (SCREEN_W as usize * 4) + x as usize * 4;
+                    let dst_off = (y as usize + row) * (self.display_w as usize * 4) + x as usize * 4;
                     let len = w as usize * 4;
                     if src_off + len <= fb_len {
                         unsafe {
@@ -598,7 +600,7 @@ impl VirtioGpuBackend {
                 }
             }
         }
-        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, FB_STRIDE).map_err(|e| {
+        self.virgl_transfer_to_host(H_DISPLAY_TEX, x, y, w, h, (self.display_w * 4)).map_err(|e| {
             let _ = nexus_abi::debug_println(
                 "gpud: chain G4.1 display-tex upload FAIL (transfer_to_host)",
             );
@@ -621,7 +623,7 @@ impl VirtioGpuBackend {
         // H_DISPLAY_TEX is exactly screen-sized (1280×800), so UV = fragcoord/screen.
         s.emit_set_constant_buffer(
             PIPE_SHADER_FRAGMENT,
-            &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+            &[1.0 / self.display_w as f32, 1.0 / self.display_h as f32, 0.0, 0.0],
         );
         s.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
         s.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
@@ -674,13 +676,13 @@ impl VirtioGpuBackend {
             return false;
         }
         let stride = fb_w * 4;
-        if SCREEN_H as usize * stride > fb_len {
+        if self.display_h as usize * stride > fb_len {
             return false;
         }
         let probes = [
             0usize,
-            (SCREEN_H as usize / 2) * stride + (SCREEN_W as usize / 2) * 4,
-            (SCREEN_H as usize - 1) * stride + (SCREEN_W as usize - 1) * 4,
+            (self.display_h as usize / 2) * stride + (self.display_w as usize / 2) * 4,
+            (self.display_h as usize - 1) * stride + (self.display_w as usize - 1) * 4,
         ];
         for p in probes {
             if p + 3 < fb_len {
@@ -695,7 +697,7 @@ impl VirtioGpuBackend {
     }
 
     /// Copy the real wallpaper from windowd's shared-VMO **Plane 0** (rows
-    /// 0..SCREEN_H — the decoded JPEG it writes once at boot) into the wallpaper
+    /// 0..self.display_h — the decoded JPEG it writes once at boot) into the wallpaper
     /// texture's backing and transfer it to the host. One-shot: replaces the boot
     /// color-bands with the real background. No-op (leaves the bands) until Plane 0
     /// is reachable. The shared VMO base is `scanout_fb`'s `fb` (Plane 0 = offset 0).
@@ -708,9 +710,9 @@ impl VirtioGpuBackend {
             return;
         }
         let stride = fb_w * 4; // VMO row stride (bytes)
-        let row_bytes = (SCREEN_W as usize * 4).min(stride);
-        // Plane 0 (wallpaper) occupies rows 0..SCREEN_H of the shared VMO.
-        if SCREEN_H as usize * stride > fb_len {
+        let row_bytes = (self.display_w as usize * 4).min(stride);
+        // Plane 0 (wallpaper) occupies rows 0..self.display_h of the shared VMO.
+        if self.display_h as usize * stride > fb_len {
             return;
         }
         // Hold the boot splash while Plane 0 is still empty (see `plane0_has_content`):
@@ -719,14 +721,14 @@ impl VirtioGpuBackend {
         if !self.plane0_has_content() {
             return;
         }
-        for row in 0..SCREEN_H as usize {
+        for row in 0..self.display_h as usize {
             let src_off = row * stride;
-            let dst_off = row * (SCREEN_W as usize * 4);
+            let dst_off = row * (self.display_w as usize * 4);
             unsafe {
                 core::ptr::copy_nonoverlapping(fb.add(src_off), dst.add(dst_off), row_bytes);
             }
         }
-        if self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, SCREEN_W, SCREEN_H, FB_STRIDE).is_ok()
+        if self.virgl_transfer_to_host(H_WALLPAPER_TEX, 0, 0, self.display_w, self.display_h, (self.display_w * 4)).is_ok()
         {
             self.wallpaper_from_vmo_uploaded = true;
             let _ = nexus_abi::trace_line("gpud: wallpaper uploaded from vmo (jpeg)");
@@ -748,8 +750,8 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
-            width: SCREEN_W,
-            height: SCREEN_H,
+            width: self.display_w,
+            height: self.display_h,
             depth: 1,
             array_size: 1,
             last_level: 0,
@@ -771,8 +773,8 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
-            width: SCREEN_W,
-            height: SCREEN_H,
+            width: self.display_w,
+            height: self.display_h,
             depth: 1,
             array_size: 1,
             last_level: 0,
@@ -839,8 +841,8 @@ impl VirtioGpuBackend {
         // Padded halo so edge taps of both passes stay inside snapshotted data.
         let x0 = x.saturating_sub(radius);
         let y0 = y.saturating_sub(radius);
-        let x1 = (x + w + radius).min(SCREEN_W);
-        let y1 = (y + h + radius).min(SCREEN_H);
+        let x1 = (x + w + radius).min(self.display_w);
+        let y1 = (y + h + radius).min(self.display_h);
         let mut sb = Submit3d::new();
         if dst_so_far {
             // Snapshot the RT beneath the layer (+radius halo, clamped).
@@ -881,8 +883,8 @@ impl VirtioGpuBackend {
             sb.emit_set_constant_buffer(
                 PIPE_SHADER_FRAGMENT,
                 &[
-                    1.0 / SCREEN_W as f32,
-                    1.0 / SCREEN_H as f32,
+                    1.0 / self.display_w as f32,
+                    1.0 / self.display_h as f32,
                     radius as f32,
                     k,
                     1.0,
@@ -899,8 +901,8 @@ impl VirtioGpuBackend {
             sb.emit_set_constant_buffer(
                 PIPE_SHADER_FRAGMENT,
                 &[
-                    1.0 / SCREEN_W as f32,
-                    1.0 / SCREEN_H as f32,
+                    1.0 / self.display_w as f32,
+                    1.0 / self.display_h as f32,
                     radius as f32,
                     k,
                     0.0,
@@ -919,8 +921,8 @@ impl VirtioGpuBackend {
             sb.emit_set_constant_buffer(
                 PIPE_SHADER_FRAGMENT,
                 &[
-                    1.0 / SCREEN_W as f32,
-                    1.0 / SCREEN_H as f32,
+                    1.0 / self.display_w as f32,
+                    1.0 / self.display_h as f32,
                     radius as f32,
                     k,
                     0.0,
@@ -1022,7 +1024,7 @@ impl VirtioGpuBackend {
         // Background: solid clear (a later stage replaces this with the wallpaper).
         let mut s = Submit3d::new();
         s.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-        s.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+        s.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
         s.emit_clear(PIPE_CLEAR_COLOR0, [0.05, 0.07, 0.12, 1.0], 1.0, 0);
         let bytes = s.as_bytes();
         let hdr = VirtioGpuSubmit3d {
@@ -1048,7 +1050,7 @@ impl VirtioGpuBackend {
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_RASTERIZER, 0x22);
             sw.emit_bind_object(crate::virgl::VIRGL_OBJECT_VERTEX_ELEMENTS, 0x23);
             sw.emit_set_framebuffer_state(0, &[H_GLS_SURF]);
-            sw.emit_set_viewport_box(0.0, 0.0, SCREEN_W as f32, SCREEN_H as f32);
+            sw.emit_set_viewport_box(0.0, 0.0, self.display_w as f32, self.display_h as f32);
             sw.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[H_SV_WALLPAPER]);
             sw.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
             if holding_pulse {
@@ -1056,14 +1058,14 @@ impl VirtioGpuBackend {
                     / 256.0;
                 sw.emit_set_constant_buffer(
                     PIPE_SHADER_FRAGMENT,
-                    &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0, f, f, f, 1.0],
+                    &[1.0 / self.display_w as f32, 1.0 / self.display_h as f32, 0.0, 0.0, f, f, f, 1.0],
                 );
                 sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
                 sw.emit_bind_shader(H_FS_BLIT_TINT, PIPE_SHADER_FRAGMENT);
             } else {
                 sw.emit_set_constant_buffer(
                     PIPE_SHADER_FRAGMENT,
-                    &[1.0 / SCREEN_W as f32, 1.0 / SCREEN_H as f32, 0.0, 0.0],
+                    &[1.0 / self.display_w as f32, 1.0 / self.display_h as f32, 0.0, 0.0],
                 );
                 sw.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
                 sw.emit_bind_shader(H_FS_BLIT, PIPE_SHADER_FRAGMENT);
@@ -1130,8 +1132,8 @@ impl VirtioGpuBackend {
                 sb.emit_set_constant_buffer(
                     PIPE_SHADER_FRAGMENT,
                     &[
-                        1.0 / SCREEN_W as f32,
-                        1.0 / SCREEN_H as f32,
+                        1.0 / self.display_w as f32,
+                        1.0 / self.display_h as f32,
                         20.0,
                         -0.02,
                         0.0,
@@ -1198,8 +1200,8 @@ impl VirtioGpuBackend {
             // cursor_ox/oy; the sprite's top-left sits hotspot-left/up of it
             // (resize shapes center the hotspot — TASK-0070 Phase 3).
             let (hot_x, hot_y) = self.cursor_hot;
-            let cx = (self.cursor_ox - hot_x as i32).clamp(0, SCREEN_W as i32 - 20) as u32;
-            let cy = (self.cursor_oy - hot_y as i32).clamp(0, SCREEN_H as i32 - 28) as u32;
+            let cx = (self.cursor_ox - hot_x as i32).clamp(0, self.display_w as i32 - 20) as u32;
+            let cy = (self.cursor_oy - hot_y as i32).clamp(0, self.display_h as i32 - 28) as u32;
             if self.cursor_tex_ready() {
                 // Production path: composite the real cursor sprite as a layer
                 // (alpha-blended; its own alpha shapes the arrow). Reuses the generic
@@ -1234,7 +1236,7 @@ impl VirtioGpuBackend {
         // present; it is reaped one frame later. (G3c "pipeline flowing" is emitted
         // by ctrl_batch_end once a prior batch is reclaimed.)
         let first = !self.gl_present_parity_done;
-        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: SCREEN_W, height: SCREEN_H });
+        let _ = self.gl_flush_rect(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h });
         if first {
             self.gl_present_parity_done = true;
             let _ = nexus_abi::trace_line("gpud: compositor buildup present");

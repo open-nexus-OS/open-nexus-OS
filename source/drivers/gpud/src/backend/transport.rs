@@ -339,4 +339,27 @@ impl VirtioGpuBackend {
         }
     }
 
+    /// Query scanout 0's preferred mode (`GET_DISPLAY_INFO` with a decoded
+    /// reply — the ONE control command whose OK carries data). Blocking
+    /// round-trip on the control queue; `None` = query failed / scanout
+    /// disabled (callers keep their fallback mode).
+    pub(crate) fn ctrl_query_display_info(&mut self) -> Option<(u32, u32)> {
+        let cmd = protocol::VirtioGpuCtrlHdr {
+            type_: protocol::VIRTIO_GPU_CMD_GET_DISPLAY_INFO,
+            flags: 0,
+            fence_id: 0,
+            ctx_id: 0,
+            _padding: 0,
+        };
+        let bytes = unsafe {
+            core::slice::from_raw_parts(
+                (&cmd as *const protocol::VirtioGpuCtrlHdr).cast::<u8>(),
+                core::mem::size_of::<protocol::VirtioGpuCtrlHdr>(),
+            )
+        };
+        let mmio = self.mmio_base;
+        let queue = self.ctrlq.as_mut()?;
+        queue.submit_display_info_query(mmio, bytes).ok()
+    }
+
 }

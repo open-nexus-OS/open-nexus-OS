@@ -106,13 +106,14 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // Branded splash FIRST (task #122): the same glow+wordmark image the GL
     // splash shows later — the scanout switch becomes invisible and the pulse
     // animates from the very first frame. Text, then solid, as fallbacks.
-    if backend.attach_bootstrap_splash_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok()
-        || backend.attach_bootstrap_text_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT).is_ok()
+    let (display_w, display_h) = (backend.display_w, backend.display_h);
+    if backend.attach_bootstrap_splash_scanout(display_w, display_h).is_ok()
+        || backend.attach_bootstrap_text_scanout(display_w, display_h).is_ok()
     {
         let _ = debug_println(GPUD_SCANOUT_OK);
         let _ = debug_println(GPUD_SCANOUT_MODE);
     } else if backend
-        .attach_bootstrap_solid_scanout(DISPLAY_WIDTH, DISPLAY_HEIGHT, [0, 0, 0, 255])
+        .attach_bootstrap_solid_scanout(display_w, display_h, [0, 0, 0, 255])
         .is_ok()
     {
         let _ = debug_println("gpud: bootstrap text unavailable, fallback solid");
@@ -353,7 +354,7 @@ fn service_requests(
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
-                                    let damage_rect = damage_rect_from_cb(&scene_cb);
+                                    let damage_rect = damage_rect_from_cb(&scene_cb, backend.display_w, backend.display_h);
                                     // Lift the save-under cursor so scene blits land on
                                     // a cursor-free plane, present, then re-apply it on
                                     // top so the pointer always stays visible.
@@ -557,8 +558,8 @@ fn service_requests(
                         let _ = backend.present_scanout_damage(Rect {
                             x: 0,
                             y: 0,
-                            width: DISPLAY_WIDTH,
-                            height: DISPLAY_HEIGHT,
+                            width: backend.display_w,
+                            height: backend.display_h,
                         });
                         if backend.is_holding_boot_splash() {
                             let _ = debug_println(if backend.cursor_tex_ready() {
@@ -675,8 +676,8 @@ fn present_buildup_tick(
     let _ = backend.present_scanout_damage(Rect {
         x: 0,
         y: 0,
-        width: DISPLAY_WIDTH,
-        height: DISPLAY_HEIGHT,
+        width: backend.display_w,
+        height: backend.display_h,
     });
     let dt = nsec().unwrap_or(t0).saturating_sub(t0);
     *present_ns_sum = present_ns_sum.saturating_add(dt);
@@ -843,9 +844,9 @@ fn decode_handoff_id_present(frame: &[u8]) -> Option<u32> {
 }
 
 /// Extract bounding damage rect from ALL command types.
-fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
-    let mut min_x = DISPLAY_WIDTH;
-    let mut min_y = DISPLAY_HEIGHT;
+fn damage_rect_from_cb(cb: &CommittedBuffer, display_w: u32, display_h: u32) -> Rect {
+    let mut min_x = display_w;
+    let mut min_y = display_h;
     let mut max_x = 0u32;
     let mut max_y = 0u32;
     let mut found = false;
@@ -861,7 +862,7 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
             // back to screen-relative; ignore blits aimed elsewhere (atlas/cache).
             Command::BlitAbsolute { dst_x, dst_y_abs, width, height, .. } => {
                 if *dst_y_abs >= DISPLAY_PLANE_ROW
-                    && *dst_y_abs < DISPLAY_PLANE_ROW + DISPLAY_HEIGHT
+                    && *dst_y_abs < DISPLAY_PLANE_ROW + display_h
                 {
                     (*dst_x, dst_y_abs - DISPLAY_PLANE_ROW, *width, *height)
                 } else {
@@ -912,10 +913,10 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
     if found {
         // Clamp to the display plane — halo-style commands (DropShadow) may
         // extend past the screen edges.
-        let min_x = min_x.min(DISPLAY_WIDTH);
-        let min_y = min_y.min(DISPLAY_HEIGHT);
-        let max_x = max_x.min(DISPLAY_WIDTH);
-        let max_y = max_y.min(DISPLAY_HEIGHT);
+        let min_x = min_x.min(display_w);
+        let min_y = min_y.min(display_h);
+        let max_x = max_x.min(display_w);
+        let max_y = max_y.min(display_h);
         Rect {
             x: min_x,
             y: min_y,
@@ -923,7 +924,7 @@ fn damage_rect_from_cb(cb: &CommittedBuffer) -> Rect {
             height: max_y.saturating_sub(min_y).max(1),
         }
     } else {
-        Rect { x: 0, y: 0, width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT }
+        Rect { x: 0, y: 0, width: display_w, height: display_h }
     }
 }
 

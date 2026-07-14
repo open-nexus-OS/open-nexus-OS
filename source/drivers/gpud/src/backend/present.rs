@@ -150,7 +150,7 @@ impl VirtioGpuBackend {
                     Ok(()) => {
                         let _ = nexus_abi::trace_line("gpud: set_scanout ok");
                         let _ = nexus_abi::trace_line("gpud: scanout ok");
-                        let _ = nexus_abi::trace_line("gpud: scanout 1280x800 bgra8888");
+                        let _ = nexus_abi::trace_line("gpud: scanout bgra8888");
                         // Absorb the one-time virgl texture-sampling stall (~500ms)
                         // HERE, at boot, so the user's first present/scroll is fast
                         // instead of frozen for half a second.
@@ -229,7 +229,7 @@ impl VirtioGpuBackend {
         self.ctrl_submit_struct(&scanout).map_err(|_| GfxError::CommandRejected)?;
         let _ = nexus_abi::trace_line("gpud: set_scanout ok");
         let _ = nexus_abi::trace_line("gpud: scanout ok");
-        let _ = nexus_abi::trace_line("gpud: scanout 1280x800 bgra8888");
+        let _ = nexus_abi::trace_line("gpud: scanout bgra8888");
 
         let record = ResourceRecord {
             id,

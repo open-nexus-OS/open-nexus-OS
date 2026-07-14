@@ -582,6 +582,37 @@ impl CtrlQueue {
         self.classify_resp(slot, "ctrl")
     }
 
+    /// Submit `GET_DISPLAY_INFO` and DECODE its data-carrying reply
+    /// (`RESP_OK_DISPLAY_INFO` = hdr + `pmodes[]`): returns scanout 0's
+    /// preferred `width × height` (QEMU: the device's `xres=`/`yres=`).
+    /// The 256-byte response slot holds the 24-byte header plus `pmodes[0]`
+    /// (24 bytes) comfortably; the device caps its write at the descriptor
+    /// length, so the absent tail modes are never read.
+    pub(crate) fn submit_display_info_query(
+        &mut self,
+        mmio_base: usize,
+        cmd: &[u8],
+    ) -> Result<(u32, u32), GfxError> {
+        let slot = self.enqueue_pair(mmio_base, cmd, &[])?;
+        self.wait_slot(slot)?;
+        let va = self.resp_slot_va(slot);
+        let hdr =
+            unsafe { core::ptr::read_volatile(va as *const protocol::VirtioGpuCtrlHdr) };
+        if hdr.type_ != protocol::VIRTIO_GPU_RESP_OK_DISPLAY_INFO {
+            return Err(GfxError::CommandRejected);
+        }
+        let mode = unsafe {
+            core::ptr::read_volatile(
+                (va + core::mem::size_of::<protocol::VirtioGpuCtrlHdr>())
+                    as *const protocol::VirtioGpuDisplayOne,
+            )
+        };
+        if mode.enabled == 0 || mode.r.width == 0 || mode.r.height == 0 {
+            return Err(GfxError::CommandRejected);
+        }
+        Ok((mode.r.width, mode.r.height))
+    }
+
     /// Classify a drained slot's device response. RESP_OK_NODATA → Ok; any error
     /// type is logged (the string names the exact QEMU rejection) → CommandRejected.
     fn classify_resp(&self, slot: RingSlot, label: &str) -> Result<(), GfxError> {

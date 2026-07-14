@@ -72,6 +72,11 @@ const HOVER_SPRING: animation::SpringConfig = animation::SpringConfig {
 /// Toggle-thumb press: peak stretch along the travel axis (the handoff
 /// "toggles stretch the thumb while pressed" — capsule, Y pinned).
 const TOGGLE_STRETCH: f32 = 1.35;
+/// Interaction motion applies to CONTROL-sized elements only: container
+/// catch-all handlers (overlay backdrop = full screen, panel-body tap
+/// consumers) must never hover-grow/press-dip — a 1.06 scale on a 328-wide
+/// panel visibly displaces content from its (unscaled) hit boxes.
+const INTERACTION_MAX_DIM: i32 = 160;
 
 /// Continuous-loop (`AnimKind::Loop`) breathe opacity endpoints + midpoint —
 /// an inherently-animated widget (Skeleton) pulses between these forever via a
@@ -717,6 +722,9 @@ impl super::DslApp {
     /// identity. Rides the same driver + NodeAnim + frame-pulse machinery as
     /// every other animation (no extra loop).
     pub(super) fn interaction_hover(&mut self, old: Option<usize>, new: Option<usize>) {
+        // Containers (overlay backdrops, panel bodies) never grow.
+        let new = new.filter(|&id| self.interaction_sized(id));
+        let old = old.filter(|&id| self.interaction_sized(id));
         let was_idle = self.anim.driver.active_count() == 0;
         if let Some(id) = old {
             let cur = self.anim.cur(id, AnimProp::ScaleX);
@@ -751,6 +759,9 @@ impl super::DslApp {
     /// springy release with an elastic pop past identity (the handoff's
     /// "instant down, springy release" / `--motion-spring-icon` character).
     pub(super) fn interaction_press(&mut self, node_id: usize) {
+        if !self.interaction_sized(node_id) {
+            return; // container catch-all (backdrop/panel body): no dip
+        }
         let was_idle = self.anim.driver.active_count() == 0;
         let cur = self.anim.cur(node_id, AnimProp::ScaleX);
         self.anim.driver.keyframe_to(
@@ -790,6 +801,19 @@ impl super::DslApp {
         if was_idle && self.anim.driver.active_count() > 0 {
             self.anim.driver.reset_clock(nsec_now());
         }
+    }
+
+    /// Whether `node_id`'s box is CONTROL-sized (see `INTERACTION_MAX_DIM`):
+    /// interaction motion targets buttons/tiles/pills, never container
+    /// catch-all handlers (overlay backdrops, panel-body tap consumers).
+    pub(super) fn interaction_sized(&self, node_id: usize) -> bool {
+        self.layout
+            .boxes
+            .iter()
+            .find(|b| b.node_id == node_id)
+            .is_none_or(|b| {
+                b.rect.width.0 <= INTERACTION_MAX_DIM && b.rect.height.0 <= INTERACTION_MAX_DIM
+            })
     }
 
     /// Whether a BOUNDED (non-loop) animation is interpolating — the only

@@ -49,6 +49,8 @@ pub const VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING: u32 = 0x0107;
 pub const VIRTIO_GPU_CMD_UPDATE_CURSOR: u32 = 0x0300;
 pub const VIRTIO_GPU_CMD_MOVE_CURSOR: u32 = 0x0301;
 pub const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
+/// `GET_DISPLAY_INFO`'s data-carrying OK (`hdr` + `pmodes[16]`).
+pub const VIRTIO_GPU_RESP_OK_DISPLAY_INFO: u32 = 0x1101;
 pub const VIRTIO_GPU_RESP_ERR_UNSPEC: u32 = 0x1200;
 
 /// virtio-gpu pixel format constants (per virtio-gpu spec §5.7.6.1).
@@ -64,6 +66,17 @@ pub struct VirtioGpuCtrlHdr {
     pub fence_id: u64,
     pub ctx_id: u32,
     pub _padding: u32,
+}
+
+/// One scanout's mode in the `GET_DISPLAY_INFO` response
+/// (`virtio_gpu_display_one`): the host's preferred rect (QEMU: the
+/// device's `xres=`/`yres=`), `enabled` = the scanout is connected.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct VirtioGpuDisplayOne {
+    pub r: VirtioGpuRect,
+    pub enabled: u32,
+    pub flags: u32,
 }
 
 /// CREATE_RESOURCE_2D command.

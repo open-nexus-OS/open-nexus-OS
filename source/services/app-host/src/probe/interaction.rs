@@ -108,13 +108,18 @@ impl super::DslApp {
     /// re-renders exactly that span; layout and boxes stay retained.
     pub(super) fn hover(&mut self, x: i32, y: i32) -> Option<(i32, i32)> {
         let scroll = self.scroll_param();
-        let target = self.view.hover_box_id_scrolled(
-            &self.layout.boxes,
-            "Tap",
-            nexus_layout_types::FxPx::new(x),
-            nexus_layout_types::FxPx::new(y),
-            scroll,
-        );
+        let target = self
+            .view
+            .hover_box_id_scrolled(
+                &self.layout.boxes,
+                "Tap",
+                nexus_layout_types::FxPx::new(x),
+                nexus_layout_types::FxPx::new(y),
+                scroll,
+            )
+            // Container catch-alls (overlay backdrop, panel body) are TAP
+            // consumers, never hover targets — no wash, no grow.
+            .filter(|&id| self.interaction_sized(id));
         if target == self.hovered {
             return None;
         }

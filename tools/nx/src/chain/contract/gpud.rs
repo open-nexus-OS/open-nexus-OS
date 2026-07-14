@@ -100,7 +100,7 @@ impl Contract for GpudContract {
             // Software cursor: cursor rendered via BlendCursor in every frame CB.
             // No OP_UPLOAD_CURSOR / "gpud: cursor uploaded" — hardware path disabled.
             bus.emit_marker(id, "gpud: cursor on");
-            bus.emit_marker(id, "gpud: display ready (w=1280, h=800)");
+            bus.emit_marker(id, "gpud: display ready");
             // Phase 2+7: GPU blur+present pipeline markers (fire when CB is processed)
             if self.gpu_present {
                 // Present-chain hops (graphical-output bisection). String-identical
