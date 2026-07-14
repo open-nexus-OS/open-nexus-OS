@@ -122,6 +122,26 @@ impl super::DslApp {
                 vis_text.push((bi as u32, ti as u32));
             }
         }
+        // Glass occlusion for the GLYPH pass: text runs paint AFTER all box
+        // fills, so a run belonging to a node UNDER a later glass box (an
+        // overlay panel) would print over the panel's reset fill. Drop runs
+        // whose box overlaps a LATER glass box — the compositor's backdrop
+        // blur owns everything beneath glass. (Overlap, not full cover: a
+        // label half-under a panel belongs under it entirely.)
+        vis_text.retain(|&(bi, _)| {
+            let t = &self.layout.boxes[bi as usize];
+            !self.layout.boxes.iter().any(|g| {
+                g.node_id > t.node_id
+                    && matches!(
+                        g.visual.material,
+                        nexus_layout_types::SurfaceMaterial::Glass(_)
+                    )
+                    && t.rect.x.0 < g.rect.x.0 + g.rect.width.0
+                    && t.rect.x.0 + t.rect.width.0 > g.rect.x.0
+                    && t.rect.y.0 < g.rect.y.0 + g.rect.height.0
+                    && t.rect.y.0 + t.rect.height.0 > g.rect.y.0
+            })
+        });
         for y in y_start..y_end {
             for px in row.chunks_exact_mut(4) {
                 px.copy_from_slice(&base);

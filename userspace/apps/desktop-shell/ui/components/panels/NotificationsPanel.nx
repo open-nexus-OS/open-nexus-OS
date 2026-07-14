@@ -75,7 +75,7 @@ Component NotificationsPanel {
     .width(330)
     .padding(4)
     .gap(2)
-    .material(window)
+    .material(panel)
     .rounded(xl)
     .transition(slideUp)
 }

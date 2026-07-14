@@ -136,7 +136,7 @@ Component CalendarPanel {
     .width(288)
     .padding(4)
     .gap(2)
-    .material(window)
+    .material(panel)
     .rounded(xl)
     .transition(slideUp)
 }

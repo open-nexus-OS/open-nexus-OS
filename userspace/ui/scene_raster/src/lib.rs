@@ -110,6 +110,33 @@ impl RowCanvas<'_> {
         self.buf[i + 3] = (a + self.buf[i + 3] as u32 * inv / 255) as u8;
     }
 
+    /// REPLACE one pixel of this row (alpha included; same shift/scissor
+    /// discipline as [`blend`](Self::blend)) — the glass-region reset write.
+    #[inline]
+    pub fn set(&mut self, x: i32, c: Rgba8) {
+        let x = x - self.shift_x;
+        if let Some((x0, x1)) = self.clip_x {
+            if x < x0 || x >= x1 {
+                return;
+            }
+        }
+        if x < 0 || x >= self.width {
+            return;
+        }
+        let i = (x * 4) as usize;
+        if i + 4 > self.buf.len() {
+            return;
+        }
+        // Premultiplied write — the exact pixel `blend` produces onto an
+        // empty destination, so a glass reset is indistinguishable from
+        // painting the tint on a fresh surface.
+        let a = c.a as u32;
+        self.buf[i] = (c.b as u32 * a / 255) as u8;
+        self.buf[i + 1] = (c.g as u32 * a / 255) as u8;
+        self.buf[i + 2] = (c.r as u32 * a / 255) as u8;
+        self.buf[i + 3] = c.a;
+    }
+
     /// This row's slice of an (optionally rounded) rect fill.
     pub(crate) fn fill_round_rect_row(&mut self, x: i32, y: i32, w: i32, h: i32, radius: i32, c: Rgba8) {
         if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
@@ -139,6 +166,32 @@ impl RowCanvas<'_> {
                 }
             }
             self.blend(xx, c);
+        }
+    }
+
+    /// This row's slice of an (optionally rounded) rect fill, REPLACING the
+    /// destination pixels (alpha included) instead of src-over blending.
+    /// Glass-material boxes use this: whatever the surface painted BENEATH a
+    /// glass region must not bake through its translucent fill — the
+    /// compositor supplies the backdrop (destination-so-far blur), so the
+    /// region's surface pixels start from the pure tint.
+    pub(crate) fn fill_round_rect_row_replace(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        radius: i32,
+        c: Rgba8,
+    ) {
+        if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
+            return;
+        }
+        let yy = self.y;
+        for xx in x..x + w {
+            if Self::inside_round_rect(xx, yy, x, y, w, h, radius) {
+                self.set(xx, c);
+            }
         }
     }
 
@@ -302,7 +355,20 @@ pub(crate) fn paint_box_row_at(
                 let radius = (b.visual.corner_radius.top_left.0.max(0) as i64
                     * radius_pct.max(1) as i64
                     / 100) as i32;
-                canvas.fill_round_rect_row(x, y, w, h, radius, bg);
+                // GLASS boxes RESET their rect to the pure tint (alpha
+                // included) instead of src-over: content the surface painted
+                // beneath a glass region must not bake through — the
+                // COMPOSITOR supplies the backdrop (destination-so-far blur
+                // of everything already composited under the region).
+                if matches!(
+                    b.visual.material,
+                    nexus_layout_types::SurfaceMaterial::Glass(_)
+                ) {
+                    let r = radius.max(0).min(w / 2).min(h / 2);
+                    canvas.fill_round_rect_row_replace(x, y, w, h, r, bg);
+                } else {
+                    canvas.fill_round_rect_row(x, y, w, h, radius, bg);
+                }
             }
             ShapeKind::TriangleUp => {
                 let pts = [(xf + wf / 2.0, yf), (xf + wf, yf + hf), (xf, yf + hf)];

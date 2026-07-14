@@ -76,13 +76,23 @@ top right — the touch hub: appearance/mode REAL, sliders local, chips
 disabled-honest), NotificationsPanel (330, top left, demo cards),
 CalendarPanel (288, top left, static July-2026 month grid — five
 deterministic week rows, today = accent circle), and the DESKTOP-ONLY
-WifiPanel/SoundPanel/BatteryPanel (300, top right). Panels use the denser
-`window` material: the compositor's glass blur samples the WALLPAPER plane
-only, so surface content under a panel would ghost through the lighter
-`panel` fill (documented limit until content-blur lands). Entry =
+WifiPanel/SoundPanel/BatteryPanel (300, top right). Entry =
 `.transition(slideUp)`.
+
+**Glass over surface content (the glass-reset contract).** On the virgl
+buildup backend every glass region already gets destination-so-far GPU blur
+(gpud `blur_rt_backdrop` — the desktop's own base layer composites first in
+the same present). What used to ghost through panels was SURFACE-side: the
+CPU painter src-over'ed the translucent panel fill over the tiles baked in
+the same band. Two painter rules fix it: (1) GLASS boxes RESET their rect to
+the pure premultiplied tint (`fill_round_rect_row_replace`,
+`nexus-scene-raster`) — content beneath glass belongs to the compositor's
+backdrop blur, never to the surface pixels; (2) the GLYPH pass drops text
+runs whose box lies under a LATER glass box (text paints after all fills and
+would otherwise print over the reset). Panels ride the plain `panel`
+material.
 
 Known deltas vs the handoff (deliberate): island bars are static (media
 service pending), paged launcher grid + page dots land when one page
 overflows, desktop icon field wraps in rows (column-wrap pending engine
-support), panel glass blurs the wallpaper plane only (see above).
+support).
