@@ -1,0 +1,37 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Conformance fixture (NOT an installed app): the animation-machinery
+// contracts that used to ride on the counter demo — a Skeleton (continuous
+// Loop intent + the clip-without-scroll regression precondition), a
+// wiggle-effect text and a fadeScale-animated bar.
+
+Store DemoStore {
+    value: Int = 0,
+}
+
+Event DemoEvent {
+    Bump,
+}
+
+reduce DemoEvent {
+    Bump => state.value += 1,
+}
+
+Page AnimDemo {
+    Stack {
+        Text($state.value)
+            .textSize(xl)
+            .effect(wiggle, trigger: $state.value)
+        Stack { Spacer }
+            .width(80)
+            .height(6)
+            .bg(surfaceVariant)
+            .animate(fadeScale, value: $state.value)
+        Skeleton { width: 180, height: 16 }
+        Button { label: "+" }
+        on Tap -> dispatch(Bump)
+    }
+    .gap(2)
+    .padding(3)
+}

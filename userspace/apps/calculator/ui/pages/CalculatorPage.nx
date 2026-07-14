@@ -1,0 +1,190 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A REAL integer calculator (promoted from the counter demo): display +
+// key grid, chained + − × ÷ with a pending accumulator, C / ± / =.
+// Still the canonical smallest DSL app AND the animation demo: the display
+// carries `.effect(wiggle)` (attention wiggle on every result change) —
+// authored purely in the DSL, interpolated by the app-host on the
+// compositor frame pulse. Division by zero shows 0 (honest, no crash).
+
+Store CalcStore {
+    display: Int = 0,
+    acc: Int = 0,
+    op: Str = "",
+    fresh: Int = 1,
+}
+
+Event CalcEvent {
+    Digit(Int),
+    Op(Str),
+    Eq,
+    Clear,
+    Neg,
+}
+
+reduce CalcEvent {
+    Digit(d) => {
+        if state.fresh == 1 {
+            state.display = d;
+            state.fresh = 0;
+        } else {
+            if state.display < 99999999 {
+                if state.display > -99999999 {
+                    state.display = state.display * 10 + d;
+                } else {
+                    state.display = state.display;
+                }
+            } else {
+                state.display = state.display;
+            }
+        }
+    },
+    Op(o) => {
+        if state.op == "" {
+            state.acc = state.display;
+        } else {
+            if state.fresh == 0 {
+                if state.op == "+" {
+                    state.acc = state.acc + state.display;
+                } else {
+                    if state.op == "-" {
+                        state.acc = state.acc - state.display;
+                    } else {
+                        if state.op == "*" {
+                            state.acc = state.acc * state.display;
+                        } else {
+                            if state.display != 0 {
+                                state.acc = state.acc / state.display;
+                            } else {
+                                state.acc = 0;
+                            }
+                        }
+                    }
+                }
+            } else {
+                state.acc = state.acc;
+            }
+        }
+        state.display = state.acc;
+        state.op = o;
+        state.fresh = 1;
+    },
+    Eq => {
+        if state.op == "+" {
+            state.display = state.acc + state.display;
+        } else {
+            if state.op == "-" {
+                state.display = state.acc - state.display;
+            } else {
+                if state.op == "*" {
+                    state.display = state.acc * state.display;
+                } else {
+                    if state.op == "/" {
+                        if state.display != 0 {
+                            state.display = state.acc / state.display;
+                        } else {
+                            state.display = 0;
+                        }
+                    } else {
+                        state.display = state.display;
+                    }
+                }
+            }
+        }
+        state.acc = 0;
+        state.op = "";
+        state.fresh = 1;
+    },
+    Clear => {
+        state.display = 0;
+        state.acc = 0;
+        state.op = "";
+        state.fresh = 1;
+    },
+    Neg => state.display = 0 - state.display,
+}
+
+Page CalculatorPage {
+    Stack {
+        Stack {
+            Spacer
+            Text($state.display)
+                .textSize(xl)
+                .fg(onSurface)
+                .effect(wiggle, trigger: $state.display)
+        }
+        .direction(row)
+        .align(center)
+        .paddingX(3)
+        .height(40)
+        .rounded(lg)
+        .bg(surfaceVariant)
+        // Animation demo (kept from the counter): a value-tracked
+        // fade+scale — present while a value is on the display, gone at 0.
+        Stack { Spacer }
+            .width(80)
+            .height(6)
+            .bg(surfaceVariant)
+            .animate(fadeScale, value: $state.display)
+        Stack {
+            Stack {
+                Button { label: "C" }
+                on Tap -> dispatch(Clear)
+                Button { label: "+/-" }
+                on Tap -> dispatch(Neg)
+                Button { label: "/" }
+                on Tap -> dispatch(Op("/"))
+            }
+            .direction(row)
+            .gap(1)
+            Stack {
+                Button { label: "7" }
+                on Tap -> dispatch(Digit(7))
+                Button { label: "8" }
+                on Tap -> dispatch(Digit(8))
+                Button { label: "9" }
+                on Tap -> dispatch(Digit(9))
+                Button { label: "x" }
+                on Tap -> dispatch(Op("*"))
+            }
+            .direction(row)
+            .gap(1)
+            Stack {
+                Button { label: "4" }
+                on Tap -> dispatch(Digit(4))
+                Button { label: "5" }
+                on Tap -> dispatch(Digit(5))
+                Button { label: "6" }
+                on Tap -> dispatch(Digit(6))
+                Button { label: "-" }
+                on Tap -> dispatch(Op("-"))
+            }
+            .direction(row)
+            .gap(1)
+            Stack {
+                Button { label: "1" }
+                on Tap -> dispatch(Digit(1))
+                Button { label: "2" }
+                on Tap -> dispatch(Digit(2))
+                Button { label: "3" }
+                on Tap -> dispatch(Digit(3))
+                Button { label: "+" }
+                on Tap -> dispatch(Op("+"))
+            }
+            .direction(row)
+            .gap(1)
+            Stack {
+                Button { label: "0" }
+                on Tap -> dispatch(Digit(0))
+                Button { label: "=" }
+                on Tap -> dispatch(Eq)
+            }
+            .direction(row)
+            .gap(1)
+        }
+        .gap(1)
+    }
+    .gap(1)
+    .padding(2)
+}

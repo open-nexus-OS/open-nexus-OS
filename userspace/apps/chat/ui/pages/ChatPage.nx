@@ -1,40 +1,130 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Chat (design-system look): toolbar header, a SCROLLABLE QuerySpec-fed
-// transcript, composer row. The transcript Stack is the page's `.scroll`
-// viewport: wheel input pans it paint-only (no re-layout), and reaching the
-// end fires `EndReached` → `LoadMore` → the next keyset page appends.
+// Chat: OVERVIEW of open conversations → picking one shows the nicely
+// formatted transcript (sender-aligned bubbles: even seq = "you", accent,
+// right; odd = the peer, surfaceVariant, left — derived from seq PARITY,
+// no string parsing). NOTE (documented trap): `.overlay()` does NOT
+// composite inside a BANDED scroll surface (the packed band slices have
+// no home for an absolute layer spanning header+content) — the overview
+// is a plain BRANCH SWAP instead; the transcript's scroll container
+// re-appears with the thread.
 
 Page ChatPage {
     Stack {
-        Toolbar { title: @t("chat.title"), subtitle: @t("chat.subtitle") }
         Stack {
-            List($state.messages) { msg in
+            if $state.thread == "" {
                 Stack {
-                    Text(msg.text).textSize(sm).fg(onSurface)
+                    Text(@t("chat.title")).textSize(lg).fg(onSurface)
                 }
-                .bg(surfaceVariant)
-                .rounded(lg)
-                .padding(2)
-                .key(msg.seq)
+                .direction(row)
+                .align(center)
+                .gap(2)
+            } else {
+                Stack {
+                    Stack {
+                        Icon { symbol: "chevron.left", size: 16 }
+                            .fg(onSurfaceVariant)
+                    }
+                    .width(28)
+                    .height(28)
+                    .rounded(md)
+                    .align(center)
+                    .justify(center)
+                    on Tap -> dispatch(CloseThread)
+                    Circle { size: 28
+                        Icon { symbol: "person", size: 14 }
+                            .fg(onSurface)
+                    }
+                    .material(subtle)
+                    Stack {
+                        Text($state.threadName).textSize(base).fg(onSurface)
+                        Text(@t("chat.online")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
             }
-            .gap(2)
+        }
+        .paddingX(3)
+        .height(48)
+        .align(start)
+        .justify(center)
+        Stack {
+            if $state.thread == "" {
+                Stack {
+                    ChatListRow { id: "mira", name: @t("chat.mira"), last: @t("chat.miraLast"), time: "09:41", unread: "3" }
+                    ChatListRow { id: "ben", name: @t("chat.ben"), last: @t("chat.benLast"), time: "08:12", unread: "" }
+                    ChatListRow { id: "team", name: @t("chat.team"), last: @t("chat.teamLast"), time: @t("chat.yesterday"), unread: "12" }
+                    ChatListRow { id: "lea", name: @t("chat.lea"), last: @t("chat.leaLast"), time: @t("chat.yesterday"), unread: "" }
+                    Spacer
+                }
+                .gap(1)
+                .padding(3)
+                .grow(1)
+            } else {
+                Stack { }
+            }
+            Stack {
+                List($state.messages) { msg in
+                    Stack {
+                        if msg.seq % 2 == 0 {
+                            Spacer
+                        } else {
+                            Stack { }
+                        }
+                        if msg.seq % 2 == 0 {
+                            Stack {
+                                Text(@t("chat.you")).textSize(xs).fg(onAccent)
+                                Text(msg.text).textSize(sm).fg(onAccent)
+                            }
+                            .gap(0)
+                            .padding(2)
+                            .rounded(lg)
+                            .bg(accent)
+                        } else {
+                            Stack {
+                                Text($state.threadName).textSize(xs).fg(onSurfaceVariant)
+                                Text(msg.text).textSize(sm).fg(onSurface)
+                            }
+                            .gap(0)
+                            .padding(2)
+                            .rounded(lg)
+                            .bg(surfaceVariant)
+                        }
+                        if msg.seq % 2 == 0 {
+                            Stack { }
+                        } else {
+                            Spacer
+                        }
+                    }
+                    .direction(row)
+                    .key(msg.seq)
+                }
+                .gap(2)
+            }
+            .grow(1)
+            .padding(3)
+            .scroll(vertical)
+            on EndReached -> dispatch(LoadMore)
         }
         .grow(1)
-        .padding(3)
-        .scroll(vertical)
-        on EndReached -> dispatch(LoadMore)
-        Stack {
-            TextField { label: @t("chat.message"), value: $state.draft }
-            Button { label: @t("chat.send") }
-            on Tap -> dispatch(Send)
+        if $state.thread == "" {
+            Stack { }
+        } else {
+            Stack {
+                TextField { label: @t("chat.message"), value: $state.draft }
+                Button { label: @t("chat.send") }
+                on Tap -> dispatch(Send)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            .padding(2)
+            .bg(surface)
         }
-        .direction(row)
-        .align(center)
-        .gap(2)
-        .padding(2)
-        .bg(surface)
     }
     .gap(0)
 }

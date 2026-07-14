@@ -34,8 +34,7 @@ impl nexus_dsl_runtime::EffectHost for Registry {
             };
             return Ok(Value::List(vec![
                 row("chat", "Chat", "message"),
-                row("counter", "Counter", "calculator"),
-                row("search", "Search", "magnifyingglass"),
+                row("calculator", "Calculator", "calculator"),
                 row("settings", "Settings", "gearshape"),
             ]));
         }

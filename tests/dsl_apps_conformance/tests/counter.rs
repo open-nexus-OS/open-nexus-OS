@@ -20,8 +20,8 @@ impl nexus_dsl_runtime::EffectHost for NoHost {
 use common::scene_texts;
 
 #[test]
-fn plus_tap_increments_and_damages() {
-    let nxir = common::compile("counter");
+fn digit_tap_updates_display_and_damages() {
+    let nxir = common::compile("calculator");
     let symbols = common::program_symbols(&nxir);
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
@@ -32,24 +32,25 @@ fn plus_tap_increments_and_damages() {
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
     let boxes = common::layout_boxes(&view);
 
-    // The "+" button = the page's LAST declared handler (toggle, "-", "+" in
-    // authoring order; handlers() preserves emit order).
-    let plus_id = view.handlers().last().map(|(box_id, _)| *box_id).expect("handlers exist");
+    // The "7" key = the 4th declared handler (authoring order: C, ±, ÷, 7…;
+    // handlers() preserves emit order). A digit ALWAYS changes the display.
+    let seven_id =
+        view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
     let (x, y) = boxes
         .iter()
-        .find(|b| b.node_id == plus_id)
+        .find(|b| b.node_id == seven_id)
         .map(|b| (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2))
-        .expect("+ handler box found");
+        .expect("7 handler box found");
 
     assert!(scene_texts(&view).iter().any(|t| t == "0"), "starts at 0");
 
-    // 1) Direct dispatch (control): Inc must be visible damage.
-    let (e, c) = view.runtime().event_case("CounterEvent", "Inc").expect("Inc exists");
+    // 1) Direct dispatch (control): Digit(7) must be visible damage.
+    let (e, c) = view.runtime().event_case("CalcEvent", "Digit").expect("Digit exists");
     let d = view
-        .dispatch(&tokens, &device, &locale, &mut host, e, c, vec![])
-        .expect("Inc dispatches");
-    assert_ne!(d, Damage::None, "Inc must produce visible damage");
-    assert!(scene_texts(&view).iter().any(|t| t == "1"), "count shows 1 after Inc");
+        .dispatch(&tokens, &device, &locale, &mut host, e, c, vec![Value::Int(7)])
+        .expect("Digit dispatches");
+    assert_ne!(d, Damage::None, "Digit must produce visible damage");
+    assert!(scene_texts(&view).iter().any(|t| t == "7"), "display shows 7 after Digit(7)");
 
     // 2) The pointer path the app-host tap() uses.
     let d2 = view
@@ -67,16 +68,17 @@ fn plus_tap_increments_and_damages() {
         .expect("pointer ok");
     assert!(
         matches!(d2, Some(Damage::Paint) | Some(Damage::Layout)),
-        "pointer tap on + must dispatch with visible damage, got {d2:?}"
+        "pointer tap on 7 must dispatch with visible damage, got {d2:?}"
     );
-    assert!(scene_texts(&view).iter().any(|t| t == "2"), "count shows 2 after tap");
+    // Digit(7) via dispatch + the tapped 7 append: the display shows 77.
+    assert!(scene_texts(&view).iter().any(|t| t == "77"), "display shows 77 after tap");
 }
 
 /// The ON-DEVICE window geometry (floating window ≈ 320×254 content): the
 /// exact repro of "tap animates but the count stays 0".
 #[test]
 fn plus_tap_at_device_window_size() {
-    let nxir = common::compile("counter");
+    let nxir = common::compile("calculator");
     let symbols = common::program_symbols(&nxir);
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
@@ -103,13 +105,14 @@ fn plus_tap_at_device_window_size() {
             e.press_offset
         );
     }
-    let plus_id = view.handlers().last().map(|(box_id, _)| *box_id).expect("handlers exist");
+    let seven_id =
+        view.handlers().get(3).map(|(box_id, _)| *box_id).expect("handlers exist");
     let (x, y) = boxes
         .iter()
-        .find(|b| b.node_id == plus_id)
+        .find(|b| b.node_id == seven_id)
         .map(|b| (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2))
-        .expect("+ handler box found");
-    eprintln!("tapping + at ({x},{y})");
+        .expect("7 handler box found");
+    eprintln!("tapping 7 at ({x},{y})");
     let d = view
         .pointer_scrolled(
             &tokens,
@@ -125,7 +128,7 @@ fn plus_tap_at_device_window_size() {
         .expect("pointer ok");
     assert!(
         matches!(d, Some(Damage::Paint) | Some(Damage::Layout)),
-        "device-size tap on + must dispatch, got {d:?}"
+        "device-size tap on 7 must dispatch, got {d:?}"
     );
     assert!(scene_texts(&view).iter().any(|t| t == "1"), "count shows 1");
 }

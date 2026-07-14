@@ -1,6 +1,17 @@
 {
-  "chat.title": "Chat",
+  "chat.title": "Chats",
   "chat.subtitle": "Local echo",
   "chat.message": "Message",
-  "chat.send": "Send"
+  "chat.send": "Send",
+  "chat.online": "online",
+  "chat.you": "You",
+  "chat.mira": "Mira",
+  "chat.miraLast": "Genau dafür ist diese Nachricht da.",
+  "chat.ben": "Ben",
+  "chat.benLast": "Bis morgen!",
+  "chat.team": "Team Nexus",
+  "chat.teamLast": "Build ist grün — Release steht.",
+  "chat.lea": "Lea",
+  "chat.leaLast": "Danke dir!",
+  "chat.yesterday": "Yesterday"
 }

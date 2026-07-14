@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One conversation row in the chats OVERVIEW: avatar circle + name + last
+// line, time + optional unread badge on the right. Tapping opens the
+// thread (`OpenThread(id, name)` — the transcript view below the overlay).
+
+Component ChatListRow {
+    props: {
+        id: Str,
+        name: Str,
+        last: Str,
+        time: Str,
+        unread: Str,
+    }
+    Stack {
+        Circle { size: 36
+            Icon { symbol: "person", size: 16 }
+                .fg(onSurface)
+        }
+        .material(subtle)
+        Stack {
+            Text($props.name).textSize(base).fg(onSurface)
+            Text($props.last).textSize(xs).fg(onSurfaceVariant)
+        }
+        .gap(0)
+        Spacer
+        Stack {
+            Text($props.time).textSize(xs).fg(onSurfaceVariant)
+            if $props.unread != "" {
+                Circle { size: 18
+                    Text($props.unread).textSize(xs).fg(onAccent)
+                }
+                .bg(accent)
+            } else {
+                Stack { }
+            }
+        }
+        .gap(1)
+        .align(end)
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(2)
+    .height(56)
+    .rounded(lg)
+    on Tap -> dispatch(OpenThread($props.id, $props.name))
+}

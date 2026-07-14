@@ -14,9 +14,13 @@ Store ChatStore {
     nextToken: Str = "",
     loading: Bool = false,
     lastError: Int = 0,
+    thread: Str = "",
+    threadName: Str = "",
 }
 
 Event ChatEvent {
+    OpenThread(Str, Str),
+    CloseThread,
     LoadFirst,
     LoadMore,
     Loaded(List<Msg>, Str),
@@ -26,6 +30,11 @@ Event ChatEvent {
 }
 
 reduce ChatEvent {
+    OpenThread(id, name) => {
+        state.thread = id;
+        state.threadName = name;
+    },
+    CloseThread => state.thread = "",
     LoadFirst => state.loading = true,
     LoadMore => state.loading = true,
     Loaded(rows, next) => {

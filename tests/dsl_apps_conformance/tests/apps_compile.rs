@@ -3,12 +3,19 @@
 //
 // Gate zero: every shipped DSL app project compiles to canonical `.nxir` and
 // mounts at the display size. Per-app interaction tests live in their own
-// files (shell.rs / settings.rs / search.rs / chat.rs).
+// files (shell.rs / settings.rs / chat.rs).
 
 use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 
 fn app_root(app: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../userspace/apps").join(app)
+}
+
+/// A conformance FIXTURE project (tests/dsl_apps_conformance/fixtures/*) —
+/// contract pages that are not installed apps (e.g. the animation-machinery
+/// demo that used to ride on the counter).
+fn fixture_root(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)
 }
 
 fn compile_and_mount(app: &str) {
@@ -46,8 +53,8 @@ fn greeter_compiles_and_mounts() {
 }
 
 #[test]
-fn counter_compiles_and_mounts() {
-    compile_and_mount("counter");
+fn calculator_compiles_and_mounts() {
+    compile_and_mount("calculator");
 }
 
 /// The DSL animation binding (TASK-0062/0075): the counter page authors
@@ -55,31 +62,47 @@ fn counter_compiles_and_mounts() {
 /// activity bar. Both intents must reach the mounted `View` — proof the
 /// front-end stamps the decided motion modifiers (not a silent `_ => {}`).
 #[test]
-fn counter_emits_animation_intents() {
+fn calculator_emits_animation_intents() {
     use nexus_dsl_runtime::AnimKind;
-    let nxir = nexus_dsl_core::compile_project_dir(&app_root("counter"))
-        .unwrap_or_else(|e| panic!("counter compiles: {e}"));
+    let nxir = nexus_dsl_core::compile_project_dir(&app_root("calculator"))
+        .unwrap_or_else(|e| panic!("calculator compiles: {e}"));
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
     let symbols: Vec<String> = Vec::new();
     let keys: Vec<u32> = Vec::new();
     let locale = IdentityLocale { symbols: &symbols, keys: &keys };
     let view = View::mount(&nxir, &tokens, &device, &locale)
-        .unwrap_or_else(|e| panic!("counter mounts: {e:?}"));
+        .unwrap_or_else(|e| panic!("calculator mounts: {e:?}"));
     let anims = view.animations();
     assert!(
         anims.iter().any(|(_, i)| i.kind == AnimKind::Effect),
-        "counter: expected the `.effect(wiggle)` intent, got {anims:?}"
+        "calculator: expected the `.effect(wiggle)` intent, got {anims:?}"
     );
     assert!(
         anims.iter().any(|(_, i)| i.kind == AnimKind::Animate),
-        "counter: expected the `.animate(fadeScale)` intent, got {anims:?}"
+        "calculator: expected the `.animate(fadeScale)` intent, got {anims:?}"
     );
-    // Track B: the Skeleton kit widget emits a continuous Loop intent (no
-    // modifier) so the host breathes its resting frame on the frame pulse.
+}
+
+/// Track B: the Skeleton kit widget emits a continuous Loop intent (no
+/// modifier) so the host breathes its resting frame on the frame pulse.
+/// Lives on the animdemo FIXTURE since the counter became the calculator.
+#[test]
+fn skeleton_emits_loop_intent() {
+    use nexus_dsl_runtime::AnimKind;
+    let nxir = nexus_dsl_core::compile_project_dir(&fixture_root("animdemo"))
+        .unwrap_or_else(|e| panic!("animdemo compiles: {e}"));
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::tablet("landscape");
+    let symbols: Vec<String> = Vec::new();
+    let keys: Vec<u32> = Vec::new();
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let view = View::mount(&nxir, &tokens, &device, &locale)
+        .unwrap_or_else(|e| panic!("animdemo mounts: {e:?}"));
+    let anims = view.animations();
     assert!(
         anims.iter().any(|(_, i)| i.kind == AnimKind::Loop),
-        "counter: expected the Skeleton `Loop` intent, got {anims:?}"
+        "animdemo: expected the Skeleton `Loop` intent, got {anims:?}"
     );
 }
 
@@ -91,17 +114,17 @@ fn counter_emits_animation_intents() {
 /// this exact page as scrollable and flipped it onto the banded
 /// compositor-scroll surface path (which broke its animations).
 #[test]
-fn counter_clips_without_being_scrollable() {
+fn skeleton_clips_without_being_scrollable() {
     use nexus_layout_types::Overflow;
-    let nxir = nexus_dsl_core::compile_project_dir(&app_root("counter"))
-        .unwrap_or_else(|e| panic!("counter compiles: {e}"));
+    let nxir = nexus_dsl_core::compile_project_dir(&fixture_root("animdemo"))
+        .unwrap_or_else(|e| panic!("animdemo compiles: {e}"));
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
     let symbols: Vec<String> = Vec::new();
     let keys: Vec<u32> = Vec::new();
     let locale = IdentityLocale { symbols: &symbols, keys: &keys };
     let view = View::mount(&nxir, &tokens, &device, &locale)
-        .unwrap_or_else(|e| panic!("counter mounts: {e:?}"));
+        .unwrap_or_else(|e| panic!("animdemo mounts: {e:?}"));
     let engine = nexus_layout::LayoutEngine::new();
     let layout = engine
         .layout_with_viewport(
@@ -116,18 +139,13 @@ fn counter_clips_without_being_scrollable() {
         .boxes
         .iter()
         .any(|b| matches!(b.overflow, Overflow::Scroll(_)));
-    assert!(has_clip, "counter: the Skeleton must clip (the hazard's precondition)");
-    assert!(!has_scroll, "counter: no `.scroll(...)` container — must NOT be scrollable");
+    assert!(has_clip, "animdemo: the Skeleton must clip (the hazard's precondition)");
+    assert!(!has_scroll, "animdemo: no `.scroll(...)` container — must NOT be scrollable");
 }
 
 #[test]
 fn settings_compiles_and_mounts() {
     compile_and_mount("settings");
-}
-
-#[test]
-fn search_compiles_and_mounts() {
-    compile_and_mount("search");
 }
 
 #[test]

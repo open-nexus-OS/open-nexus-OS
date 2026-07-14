@@ -115,13 +115,13 @@ impl QueryStore {
             "Genau dafuer ist diese Nachricht da.",
         ];
         for seq in 1..=SEED_MESSAGES {
-            let voice = if seq % 2 == 0 { "Du" } else { "Mira" };
+            // Pure line — the UI derives the voice from the seq PARITY
+            // (even = "you", right-aligned accent bubble) and renders the
+            // sender label itself; a "Mira #3:" prefix inside the bubble
+            // was the old plain-list look.
             let line = LINES[(seq as usize) % LINES.len()];
             let mut text = String::new();
-            let _ = core::fmt::write(
-                &mut text,
-                format_args!("{voice} #{seq}: {line}"),
-            );
+            let _ = core::fmt::write(&mut text, format_args!("{line} (#{seq})"));
             let _ = engine.put(&mut kv, 0, &[QVal::Int(seq), QVal::Str(text)]);
         }
         Self { engine, kv }
@@ -469,10 +469,12 @@ impl EffectHost for AppEffectHost {
         ];
         let mut rows: Vec<Value> = Vec::with_capacity((end - start + 1) as usize);
         for seq in start..=end {
-            let voice = if seq % 2 == 0 { "Du" } else { "Mira" };
+            // Pure line — the chat UI derives the sender from the seq
+            // PARITY (even = "you") and renders bubbles + sender labels;
+            // a "Mira #3:" prefix inside the bubble was the plain-list look.
             let line = LINES[(seq as usize) % LINES.len()];
             let mut text = String::new();
-            let _ = core::fmt::write(&mut text, format_args!("{voice} #{seq}: {line}"));
+            let _ = core::fmt::write(&mut text, format_args!("{line}"));
             let mut fields: Vec<(u32, Value)> =
                 alloc::vec![(seq_sym, Value::Int(seq)), (text_sym, Value::Str(text))];
             fields.sort_by_key(|(sym, _)| *sym);
