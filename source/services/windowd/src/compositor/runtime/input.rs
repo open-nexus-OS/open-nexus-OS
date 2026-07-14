@@ -141,10 +141,14 @@ impl DisplayServerRuntime {
                     continue;
                 }
                 // A visible app window's frame; the desktop base is chromeless
-                // full-screen.
+                // full-screen. A slot WITHOUT a live surface (mid re-create /
+                // failed re-open) must not consume presses — fall through.
                 let (frame, app_idx) = match wid {
                     WindowId::App(a) => {
                         let idx = a as usize;
+                        if self.apps[idx].surface_id.is_none() {
+                            continue;
+                        }
                         (self.apps[idx].win.frame(), Some(idx))
                     }
                     WindowId::Desktop => (
@@ -169,6 +173,28 @@ impl DisplayServerRuntime {
                     }
                 }
                 let press = frame.press(cursor_x, cursor_y);
+                if let Some(idx) = app_idx {
+                    if !matches!(press, WindowPress::Miss) {
+                        // Fold-immune press trace (presses are rare): pins
+                        // WHICH zone consumed a click on an app window — the
+                        // "click did nothing and the window vanished" class
+                        // is invisible without it.
+                        let z = match press {
+                            WindowPress::Close => "close",
+                            WindowPress::Minimize => "min",
+                            WindowPress::Maximize => "max",
+                            WindowPress::TitleDrag => "drag",
+                            WindowPress::Body => "body",
+                            WindowPress::Miss => "miss",
+                        };
+                        let _ = nexus_abi::debug_write(
+                            alloc::format!(
+                                "windowd: press app{idx} zone={z} at {cursor_x},{cursor_y}\n"
+                            )
+                            .as_bytes(),
+                        );
+                    }
+                }
                 match press {
                     WindowPress::Close => {
                         window_consumed_press = true;

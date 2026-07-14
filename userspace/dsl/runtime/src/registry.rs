@@ -36,6 +36,9 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "primary" => ColorToken::Primary,
         "onPrimary" => ColorToken::OnPrimary,
         "danger" => ColorToken::Danger,
+        "onDanger" => ColorToken::OnDanger,
+        "success" => ColorToken::Success,
+        "onSuccess" => ColorToken::OnSuccess,
         _ => return None,
     })
 }

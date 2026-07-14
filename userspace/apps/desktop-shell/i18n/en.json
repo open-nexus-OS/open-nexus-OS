@@ -56,5 +56,10 @@
   "panels.profileBalanced": "Balanced",
   "panels.profileSaver": "Power saver",
   "common.back": "Back",
-  "common.loading": "Loading…"
+  "common.loading": "Loading…",
+  "control.wifiNet": "Home network",
+  "control.modeSub": "View mode",
+  "control.battery": "Battery",
+  "control.batteryPct": "78%",
+  "control.off": "Off"
 }

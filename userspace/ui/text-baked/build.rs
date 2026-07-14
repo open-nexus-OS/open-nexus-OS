@@ -39,8 +39,24 @@ fn emit_glyph_atlas(
     px: f32,
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    const FIRST: u32 = 32;
-    const LAST: u32 = 126;
+    // Sparse charset: dense ASCII (32..=126) + the non-contiguous extras the
+    // UI actually renders (German umlauts/ß + the calculator math symbols).
+    // MUST stay sorted ascending (the runtime lookup binary-searches the
+    // tail) and < 256 entries (kern indices are u8).
+    const EXTRAS: [u32; 11] = [
+        0x00B1, // ±
+        0x00C4, // Ä
+        0x00D6, // Ö
+        0x00D7, // ×
+        0x00DC, // Ü
+        0x00DF, // ß
+        0x00E4, // ä
+        0x00F6, // ö
+        0x00F7, // ÷
+        0x00FC, // ü
+        0x2212, // −
+    ];
+    let charset: Vec<u32> = (32u32..=126).chain(EXTRAS.iter().copied()).collect();
     let lm = font
         .horizontal_line_metrics(px)
         .ok_or_else(|| format!("{name}: no horizontal line metrics"))?;
@@ -51,8 +67,8 @@ fn emit_glyph_atlas(
     let mut glyphs = String::new();
     let mut advance_sum = 0u32;
     let mut advance_max = 0u32;
-    for code in FIRST..=LAST {
-        let ch = char::from_u32(code).ok_or("ascii range")?;
+    for &code in &charset {
+        let ch = char::from_u32(code).ok_or("charset codepoint")?;
         let (m, bitmap) = font.rasterize(ch, px);
         let off = cov.len() as u32;
         cov.extend_from_slice(&bitmap);
@@ -65,7 +81,7 @@ fn emit_glyph_atlas(
             m.width, m.height, m.xmin, top
         ));
     }
-    let n = LAST - FIRST + 1;
+    let n = charset.len() as u32;
     let cov_path = out_dir.join(format!("{}.a8", name.to_lowercase()));
     fs::write(&cov_path, &cov)?;
     writeln!(generated, "pub const {name}_ASCENT: i32 = {ascent};")?;
@@ -81,16 +97,25 @@ fn emit_glyph_atlas(
         generated,
         "pub const {name}_GLYPHS: &[(u32, u16, u16, i16, i16, u16); {n}] = &[{glyphs}];"
     )?;
+    // The sparse EXTRAS tail (codepoints past ASCII, in glyph-index order
+    // 95.. — the runtime maps ASCII by offset and looks these up).
+    let extras_list: String =
+        EXTRAS.iter().map(|c| format!("{c}, ")).collect();
+    writeln!(
+        generated,
+        "pub const {name}_EXTRAS: &[u32; {}] = &[{extras_list}];",
+        EXTRAS.len()
+    )?;
     // Sparse kerning: only pairs whose kern rounds to a non-zero pixel count
     // at this size (most round to 0 at 13–16 px). Indices are glyph indices.
     let mut kern = String::new();
-    for l in FIRST..=LAST {
-        for r in FIRST..=LAST {
+    for (li, &l) in charset.iter().enumerate() {
+        for (ri, &r) in charset.iter().enumerate() {
             let (lc, rc) = (char::from_u32(l).unwrap_or(' '), char::from_u32(r).unwrap_or(' '));
             if let Some(k) = font.horizontal_kern(lc, rc, px) {
                 let kpx = k.round() as i32;
                 if kpx != 0 {
-                    kern.push_str(&format!("({}, {}, {kpx}), ", l - FIRST, r - FIRST));
+                    kern.push_str(&format!("({li}, {ri}, {kpx}), "));
                 }
             }
         }

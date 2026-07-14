@@ -1,56 +1,255 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Control Center drop-down (design_handoff_launcher: 328 wide, top
-// right, panel glass — the touch shell's single hub). Appearance + windowing
-// mode are REAL (windowd presentation authority); brightness/volume are
-// local UI state until their services land; connectivity chips are honest
-// disabled placeholders. The `/control` page remains as the deep-link twin.
+// The Control Center in the design-handoff look (04-os-control-center):
+// header icon row + avatar, a 2×2 connectivity/mode TILE GRID (Desktop =
+// the REAL windowing-mode toggle, success-green when active via
+// `device.profile`), brightness/sound slider cards whose round side
+// buttons are the REAL dark/light theme switch (moon/sun), and a battery
+// status row. WLAN/Bluetooth/Airplane tiles are honest demo placeholders
+// (no radio services yet); sliders stay local UI state.
 
 Component ControlCenterPanel {
     Panel {
-        Text(@t("control.appearance")).textSize(sm).fg(onSurfaceVariant)
         Stack {
-            Button { label: @t("control.light") }
-            on Tap -> dispatch(SetTheme("light"))
-            Button { label: @t("control.dark") }
-            on Tap -> dispatch(SetTheme("dark"))
+            Spacer
+            Stack {
+                Icon { symbol: "pencil", size: 14 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            Stack {
+                Icon { symbol: "power", size: 14 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            Stack {
+                Icon { symbol: "gearshape", size: 14 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            Circle { size: 28
+                Icon { symbol: "person", size: 13 }
+                    .fg(onSurface)
+            }
+            .material(subtle)
         }
         .direction(row)
-        .gap(2)
-        Text(@t("control.mode")).textSize(sm).fg(onSurfaceVariant)
+        .align(center)
+        .gap(1)
         Stack {
-            Button { label: @t("control.tablet") }
-            on Tap -> dispatch(SetMode("tablet"))
-            Button { label: @t("control.desktop") }
-            on Tap -> dispatch(SetMode("desktop"))
+            Stack {
+                Stack {
+                    Circle { size: 30
+                        Icon { symbol: "wifi", size: 14 }
+                            .fg(onAccent)
+                    }
+                    .bg(accent)
+                    Stack {
+                        Text(@t("control.wifi")).textSize(sm).fg(onSurface)
+                        Text(@t("control.wifiNet")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .padding(2)
+                .rounded(lg)
+                .bg(surfaceVariant)
+                Stack {
+                    Circle { size: 30
+                        Icon { symbol: "bluetooth", size: 14 }
+                            .fg(onSurfaceVariant)
+                    }
+                    .material(subtle)
+                    Stack {
+                        Text(@t("control.bluetooth")).textSize(sm).fg(onSurface)
+                        Text(@t("control.off")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .padding(2)
+                .rounded(lg)
+            }
+            .gap(1)
+            .grow(1)
+            Stack {
+                Stack {
+                    Circle { size: 30
+                        Icon { symbol: "airplane", size: 14 }
+                            .fg(onSurfaceVariant)
+                    }
+                    .material(subtle)
+                    Stack {
+                        Text(@t("control.airplane")).textSize(sm).fg(onSurface)
+                        Text(@t("control.off")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .padding(2)
+                .rounded(lg)
+                if device.profile == desktop {
+                    Stack {
+                        Circle { size: 30
+                            Icon { symbol: "desktopcomputer", size: 14 }
+                                .fg(onSuccess)
+                        }
+                        .bg(success)
+                        Stack {
+                            Text(@t("control.desktop")).textSize(sm).fg(onSurface)
+                            Text(@t("control.modeSub")).textSize(xs).fg(onSurfaceVariant)
+                        }
+                        .gap(0)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .padding(2)
+                    .rounded(lg)
+                    .bg(surfaceVariant)
+                    on Tap -> dispatch(SetMode("tablet"))
+                } else {
+                    Stack {
+                        Circle { size: 30
+                            Icon { symbol: "desktopcomputer", size: 14 }
+                                .fg(onSurfaceVariant)
+                        }
+                        .material(subtle)
+                        Stack {
+                            Text(@t("control.desktop")).textSize(sm).fg(onSurface)
+                            Text(@t("control.modeSub")).textSize(xs).fg(onSurfaceVariant)
+                        }
+                        .gap(0)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .padding(2)
+                    .rounded(lg)
+                    on Tap -> dispatch(SetMode("desktop"))
+                }
+            }
+            .gap(1)
+            .grow(1)
         }
         .direction(row)
-        .gap(2)
-        Text(@t("control.brightness")).textSize(sm).fg(onSurfaceVariant)
-        Slider { value: $state.brightness }
-            .label(@t("control.brightness"))
-        Text(@t("control.volume")).textSize(sm).fg(onSurfaceVariant)
-        Slider { value: $state.volume }
-            .label(@t("control.volume"))
+        .gap(1)
         Stack {
-            Chip { label: @t("control.wifi") }
-                .disabled(true)
-            Chip { label: @t("control.bluetooth") }
-                .disabled(true)
-            Chip { label: @t("control.airplane") }
-                .disabled(true)
+            Stack {
+                Icon { symbol: "sun.max", size: 13 }
+                    .fg(onSurfaceVariant)
+                Text(@t("control.brightness")).textSize(sm).fg(onSurfaceVariant)
+            }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            Stack {
+                Stack {
+                    Slider { value: $state.brightness }
+                        .label(@t("control.brightness"))
+                }
+                .grow(1)
+                Circle { size: 30
+                    Icon { symbol: "moon", size: 14 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+                on Tap -> dispatch(SetTheme("dark"))
+                Circle { size: 30
+                    Icon { symbol: "sun.max", size: 14 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+                on Tap -> dispatch(SetTheme("light"))
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+        }
+        .gap(1)
+        .padding(2)
+        .rounded(lg)
+        .bg(surfaceVariant)
+        Stack {
+            Stack {
+                Icon { symbol: "speaker.wave", size: 13 }
+                    .fg(onSurfaceVariant)
+                Text(@t("control.volume")).textSize(sm).fg(onSurfaceVariant)
+            }
+            .direction(row)
+            .align(center)
+            .gap(1)
+            Stack {
+                Stack {
+                    Slider { value: $state.volume }
+                        .label(@t("control.volume"))
+                }
+                .grow(1)
+                Circle { size: 30
+                    Icon { symbol: "speaker.wave", size: 14 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+        }
+        .gap(1)
+        .padding(2)
+        .rounded(lg)
+        .bg(surfaceVariant)
+        Stack {
+            Icon { symbol: "battery.75", size: 14 }
+                .fg(success)
+            Text(@t("control.battery")).textSize(sm).fg(onSurface)
+            Spacer
+            Stack {
+                Stack { }
+                    .width(70)
+                    .height(6)
+                    .rounded(full)
+                    .bg(success)
+            }
+            .width(90)
+            .height(6)
+            .rounded(full)
+            .bg(border)
+            Text(@t("control.batteryPct")).textSize(sm).fg(onSurfaceVariant)
         }
         .direction(row)
+        .align(center)
         .gap(2)
+        .padding(2)
+        .rounded(lg)
+        .bg(surfaceVariant)
         if $state.applyError != 0 {
             Text(@t("control.applyFailed")).fg(danger)
         } else {
             Stack { }
         }
     }
-    .width(328)
-    .padding(4)
+    .width(340)
+    .padding(3)
     .gap(2)
     .rounded(xl)
     .transition(slideUp)

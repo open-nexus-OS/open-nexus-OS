@@ -58,6 +58,11 @@ mod probe {
         let _ = nexus_abi::debug_write(&buf[..n + 1]);
     }
     use nexus_display_proto::client_surface as wire;
+
+    /// Max packed WebRender band height (header+footer+content, surface rows)
+    /// an app surface may keep RESIDENT in the shared gpud atlas (4000 rows
+    /// minus the desktop base's 800 and headroom for a second window).
+    const MAX_BAND_ROWS: u32 = 2000;
     use nexus_ipc::{Client as _, KernelClient, Wait};
 
     mod anim;
@@ -248,7 +253,23 @@ mod probe {
         // desktop uses a separate windowd path that ignores the scroll band).
         let band: Option<(u32, u32, u32)> =
             if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                app.as_ref().and_then(|d| d.band_geometry())
+                app.as_ref().and_then(|d| d.band_geometry()).filter(|&(h, f, c)| {
+                    // Resident-band budget: the gpud GL atlas holds 4000 rows
+                    // SHARED with every other resident surface (desktop base
+                    // = 800). A taller band still ALLOCATES but gpud clamps
+                    // its upload — the composite then samples transparent
+                    // rows and the window "vanishes" (the chat-thread
+                    // re-create bug). Too-tall content falls back to the
+                    // plain path honestly: visible-sized VMO, wheel-driven
+                    // re-emit scroll — slower, but complete and correct.
+                    let fits = h + f + c <= MAX_BAND_ROWS;
+                    if !fits {
+                        let _ = nexus_abi::debug_write(
+                            b"apphost: band too tall, plain-path fallback\n",
+                        );
+                    }
+                    fits
+                })
             } else {
                 None
             };
@@ -750,7 +771,10 @@ mod probe {
                     let now_band = if level != wire::WIN_LEVEL_DESKTOP
                         && mode != wire::WIN_MODE_FULLSCREEN
                     {
-                        dsl.band_geometry()
+                        // Same MAX_BAND_ROWS budget as surface create — the
+                        // detector and the re-create MUST agree, or a too-tall
+                        // page would re-create into the clamped-band vanish.
+                        dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
                     } else {
                         None
                     };
@@ -764,7 +788,7 @@ mod probe {
             if recreate_surface && app.is_some() {
                 let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_ref() {
                     if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                        dsl.band_geometry()
+                        dsl.band_geometry().filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
                     } else {
                         None
                     }

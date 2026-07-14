@@ -192,10 +192,20 @@ impl DisplayServerRuntime {
                     self.apps[idx].win.set_frame(wx, wy, u32::from(width), content_h);
                 }
                 if !self.open_app_window(idx) {
-                    // Atlas exhausted: roll the registration back fail-closed.
+                    // Atlas exhausted: roll the registration back fail-closed
+                    // AND hide the window — the destroy path deliberately
+                    // keeps `visible=true` for re-creates, so a failed
+                    // re-open would otherwise leave a ZOMBIE (advertised in
+                    // the hit/composite stack, no surface, no band: eats
+                    // clicks, renders nothing).
                     let _ = self.client_surfaces.destroy(id);
                     let _ = nexus_abi_cap_close(vmo_slot);
                     self.apps[idx].surface_id = None;
+                    self.apps[idx].win.visible = false;
+                    self.windows.hide(wid);
+                    let _ = nexus_abi::debug_write(
+                        b"windowd: surface re-open QUOTA (window hidden)\n",
+                    );
                     return wire::encode_surface_ack(
                         wire::OP_SURFACE_CREATE,
                         wire::SURFACE_STATUS_QUOTA,

@@ -1,15 +1,16 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The login greeter page (TASK-0080B): user list + secret field + submit,
-// rendering the TASK-0065B session contract. The failure banner and the
-// authenticating state are DRIVEN by SessionStore.phase (0 idle /
-// 1 authenticating / 2 failure) — sessiond's answers, never local guesses.
+// The login greeter in the design-handoff look (07-os-login): date + big
+// clock top-center, the selected user's avatar + name + password pill with
+// a submit arrow mid-center, the user switcher bottom-left (avatar circles
+// from sessiond's REAL user list) and session action buttons bottom-right
+// (demo). Failure/authenticating states still render sessiond's phases —
+// never local guesses. Clock/date are the static demo values until the
+// time service lands (consistent with the shell's top-bar clock).
 
 // The greeter is the pre-session desktop surface: chromeless, full-screen,
-// desktop z-band (same declared intent as the shell — the compositor treats
-// "who is the desktop" purely declaratively). `level: desktop` alone implies
-// full-screen; `mode: fullscreen` is a floating-window mode, not declared here.
+// desktop z-band (same declared intent as the shell).
 Window {
     style: plain,
     level: desktop,
@@ -18,41 +19,95 @@ Window {
 
 Page GreeterPage {
     Stack {
+        Stack {
+            Text(@t("greeter.date")).textSize(sm).fg(onSurface)
+            Text(@t("greeter.clock")).textSize(xl).fg(onSurface)
+        }
+        .align(center)
+        .gap(1)
+        .paddingY(6)
         Spacer
-        Card {
+        Stack {
+            Circle { size: 88
+                Icon { symbol: "person", size: 40 }
+                    .fg(onSurface)
+            }
+            .material(subtle)
+            if $state.selected == "" {
+                Text(@t("greeter.pickUser")).textSize(base).fg(onSurface)
+            } else {
+                Text($state.selected).textSize(base).fg(onSurface)
+            }
             Stack {
-                Text(@t("greeter.title")).textSize(lg).fg(onSurface)
-                List($state.users) { user in
-                    Button { label: user }
-                        .bg(surfaceVariant)
+                TextField { label: @t("greeter.secret"), value: $state.secret }
+                Circle { size: 32
+                    Icon { symbol: "arrow.right", size: 14 }
                         .fg(onSurface)
-                        .rounded(md)
-                        .key(user)
+                }
+                .material(subtle)
+                on Tap -> dispatch(Submit)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            if $state.phase == 1 {
+                Text(@t("greeter.authenticating")).textSize(xs).fg(onSurfaceVariant)
+            } else {
+                if $state.phase == 2 {
+                    Text(@t("greeter.failed")).textSize(xs).fg(danger)
+                } else {
+                    Text(@t("greeter.hint")).textSize(xs).fg(onSurfaceVariant)
+                }
+            }
+        }
+        .align(center)
+        .gap(2)
+        Spacer
+        Stack {
+            Stack {
+                List($state.users) { user in
+                    Stack {
+                        Circle { size: 44
+                            Icon { symbol: "person", size: 18 }
+                                .fg(onSurface)
+                        }
+                        .material(subtle)
+                        Text(user).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .align(center)
+                    .gap(1)
+                    .key(user)
                     on Tap -> dispatch(Pick(user))
                 }
                 .direction(row)
-                .wrap(true)
-                .gap(2)
-                Text($state.selected).fg(onSurfaceVariant)
-                TextField { label: @t("greeter.secret"), value: $state.secret }
-                if $state.phase == 1 {
-                    Text(@t("greeter.authenticating")).fg(onSurfaceVariant)
-                } else {
-                    if $state.phase == 2 {
-                        Text(@t("greeter.failed")).fg(danger)
-                    } else {
-                        Spacer
-                    }
-                }
-                Button { label: @t("greeter.login") }
-                    .disabled($state.phase == 1)
-                on Tap -> dispatch(Submit)
+                .gap(3)
             }
-            .gap(3)
-            .padding(4)
+            Spacer
+            Stack {
+                Circle { size: 40
+                    Icon { symbol: "moon", size: 16 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+                Circle { size: 40
+                    Icon { symbol: "arrow.counterclockwise", size: 16 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+                Circle { size: 40
+                    Icon { symbol: "power", size: 16 }
+                        .fg(onSurface)
+                }
+                .material(subtle)
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
         }
-        Spacer
+        .direction(row)
+        .align(end)
+        .paddingX(5)
+        .paddingY(4)
     }
-    .align(center)
     .padding(4)
 }

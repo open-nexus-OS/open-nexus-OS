@@ -341,6 +341,17 @@ pub(crate) fn run_responder_loop(
                     Ok(route) => (nexus_abi::routing::STATUS_OK, route.send.slot, route.recv.slot),
                     Err(_) => (nexus_abi::routing::STATUS_NOT_FOUND, 0u32, 0u32),
                 };
+            if name == b"statefsd" {
+                // Persist diagnosis: the request log alone can't tell a
+                // NOT_FOUND lookup from a downstream reply loss.
+                if status == nexus_abi::routing::STATUS_OK {
+                    debug_write_bytes(b"init: route statefsd OK send=0x");
+                    debug_write_hex(send_slot as usize);
+                    debug_write_byte(b'\n');
+                } else {
+                    debug_write_bytes(b"init: route statefsd NOT_FOUND\n");
+                }
+            }
             if name == b"samgrd" && chan.svc_name == "selftest-client" {
                 debug_write_bytes(b"init: route samgrd rsp status=0x");
                 debug_write_hex(status as usize);

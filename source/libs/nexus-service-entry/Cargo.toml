@@ -12,6 +12,7 @@ heap-768k = []
 heap-1m = []
 heap-2m = []
 heap-4m = []
+heap-8m = []
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }

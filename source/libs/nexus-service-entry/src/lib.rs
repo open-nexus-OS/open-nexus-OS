@@ -107,15 +107,28 @@ pub mod os {
     // profile switch (tablet ⇄ desktop) and width-class re-emit — each mount
     // allocates a fresh program + view + layout on the never-freeing bump, so
     // repeated toggles page-faulted the 2MiB heap on the third mount.
-    #[cfg(feature = "heap-4m")]
+    // 8MiB: a THEME switch is another full drop-first remount, and with an
+    // overlay panel open (Control Center) that mount is the largest one —
+    // the shell page-faulted at exactly heap-base + 4MiB mid re-theme.
+    #[cfg(feature = "heap-8m")]
+    const HEAP_SIZE: usize = 8 * 1024 * 1024;
+    #[cfg(all(feature = "heap-4m", not(feature = "heap-8m")))]
     const HEAP_SIZE: usize = 4 * 1024 * 1024;
-    #[cfg(all(feature = "heap-2m", not(feature = "heap-4m")))]
+    #[cfg(all(feature = "heap-2m", not(any(feature = "heap-4m", feature = "heap-8m"))))]
     const HEAP_SIZE: usize = 2 * 1024 * 1024;
-    #[cfg(all(feature = "heap-1m", not(any(feature = "heap-2m", feature = "heap-4m"))))]
+    #[cfg(all(
+        feature = "heap-1m",
+        not(any(feature = "heap-2m", feature = "heap-4m", feature = "heap-8m"))
+    ))]
     const HEAP_SIZE: usize = 1024 * 1024;
     #[cfg(all(
         feature = "heap-768k",
-        not(any(feature = "heap-1m", feature = "heap-2m", feature = "heap-4m"))
+        not(any(
+            feature = "heap-1m",
+            feature = "heap-2m",
+            feature = "heap-4m",
+            feature = "heap-8m"
+        ))
     ))]
     const HEAP_SIZE: usize = 768 * 1024;
     #[cfg(all(
@@ -124,7 +137,8 @@ pub mod os {
             feature = "heap-768k",
             feature = "heap-1m",
             feature = "heap-2m",
-            feature = "heap-4m"
+            feature = "heap-4m",
+            feature = "heap-8m"
         ))
     ))]
     const HEAP_SIZE: usize = 512 * 1024;
@@ -133,7 +147,8 @@ pub mod os {
         feature = "heap-768k",
         feature = "heap-1m",
         feature = "heap-2m",
-        feature = "heap-4m"
+        feature = "heap-4m",
+        feature = "heap-8m"
     )))]
     const HEAP_SIZE: usize = 384 * 1024;
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];

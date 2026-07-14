@@ -1,7 +1,11 @@
 {
   "greeter.title": "Sign in",
-  "greeter.secret": "Password",
+  "greeter.secret": "Enter password",
   "greeter.login": "Log in",
   "greeter.authenticating": "Checking…",
-  "greeter.failed": "Login failed"
+  "greeter.failed": "Login failed",
+  "greeter.date": "Sunday, 5 July",
+  "greeter.clock": "09:41",
+  "greeter.pickUser": "Choose a user",
+  "greeter.hint": "Tap the arrow to sign in"
 }

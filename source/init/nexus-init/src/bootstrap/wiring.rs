@@ -1511,6 +1511,24 @@ pub(crate) fn wire_services(
                                             }
                                         }
                                     }
+                                    // Persistence (settingsd → statefsd): the
+                                    // declarative migration left this target
+                                    // out of the ReplyInbox arm — every
+                                    // `settingsd: … persist=fail` was this
+                                    // missing case, not statefsd.
+                                    ServiceId::Statefsd => {
+                                        if let Ok(s) =
+                                            nexus_abi::cap_transfer(pid, state_req, Rights::SEND)
+                                        {
+                                            chan.set_send(ServiceId::Statefsd, s);
+                                            chan.set_recv(ServiceId::Statefsd, reply_recv);
+                                            if spec.announce {
+                                                debug_write_bytes(b"init: ");
+                                                debug_write_bytes(name.as_bytes());
+                                                debug_write_bytes(b" route->statefsd ok\n");
+                                            }
+                                        }
+                                    }
                                     // execd route wires with the launch path (later).
                                     _ => {}
                                 }

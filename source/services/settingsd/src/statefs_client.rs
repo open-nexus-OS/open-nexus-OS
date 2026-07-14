@@ -30,8 +30,11 @@ const SF_OP_GET: u8 = 2;
 const SF_STATUS_OK: u8 = 0;
 
 /// settingsd's key in statefsd's flat KV store. Stable across boots (a const),
-/// so the same overrides load back every time.
-const PREFS_KEY: &str = "settingsd/prefs";
+/// so the same overrides load back every time. statefsd's journal engine
+/// accepts ONLY `/state/`-rooted keys (validate_key) — the original bare
+/// `settingsd/prefs` earned STATUS_INVALID_KEY on every PUT, which was the
+/// actual `persist=fail` after the route was wired.
+const PREFS_KEY: &str = "/state/settingsd/prefs";
 
 /// Load the persisted prefs blob, or `None` when statefsd is unreachable /
 /// the key is unset. The returned string is the `key=value\n` override blob
@@ -57,7 +60,25 @@ pub(crate) fn store_prefs(blob: &str) -> bool {
     req.extend_from_slice(PREFS_KEY.as_bytes());
     req.extend_from_slice(val);
     match request_reply(&req) {
-        Some(rsp) => decode_put_ok(&rsp),
+        Some(rsp) => {
+            let ok = decode_put_ok(&rsp);
+            if !ok {
+                // The reply ARRIVED but was not PUT/OK — print the raw
+                // op/status bytes so the failing layer is named exactly.
+                let mut line = [0u8; 48];
+                let base = b"settingsd: statefs put rsp op=.. st=..\n";
+                line[..base.len()].copy_from_slice(base);
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                let op = rsp.get(3).copied().unwrap_or(0xff);
+                let st = rsp.get(4).copied().unwrap_or(0xff);
+                line[30] = HEX[(op >> 4) as usize];
+                line[31] = HEX[(op & 15) as usize];
+                line[36] = HEX[(st >> 4) as usize];
+                line[37] = HEX[(st & 15) as usize];
+                let _ = nexus_abi::debug_write(&line[..base.len()]);
+            }
+            ok
+        }
         None => false,
     }
 }
@@ -115,8 +136,16 @@ fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {
 /// client recipe: clone the reply-send cap, NONBLOCK send with a yield budget,
 /// bounded receive on the shared `@reply` inbox, filter on statefs magic).
 fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
-    let (send_slot, _recv) = route_blocking(b"statefsd")?;
-    let (reply_send_slot, reply_recv_slot) = route_blocking(b"@reply")?;
+    // Persist-diagnosis markers (raw, fold-immune): `persist=fail` alone
+    // cannot distinguish "route lookup failed" from "PUT sent, reply lost".
+    let Some((send_slot, _recv)) = route_blocking(b"statefsd") else {
+        let _ = nexus_abi::debug_write(b"settingsd: statefs route FAIL\n");
+        return None;
+    };
+    let Some((reply_send_slot, reply_recv_slot)) = route_blocking(b"@reply") else {
+        let _ = nexus_abi::debug_write(b"settingsd: statefs @reply route FAIL\n");
+        return None;
+    };
 
     let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
     let hdr = nexus_abi::MsgHeader::new(
@@ -150,6 +179,7 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
     }
     let _ = nexus_abi::cap_close(reply_send_clone);
     if !sent {
+        let _ = nexus_abi::debug_write(b"settingsd: statefs send FAIL\n");
         return None;
     }
 
@@ -171,6 +201,7 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
                     out.extend_from_slice(&buf[..n]);
                     return Some(out);
                 }
+                let _ = nexus_abi::debug_write(b"settingsd: statefs reply frame mismatch\n");
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
                     return None;
                 }
@@ -178,6 +209,7 @@ fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {
                 if nexus_abi::nsec().unwrap_or(0) >= deadline {
+                    let _ = nexus_abi::debug_write(b"settingsd: statefs reply timeout\n");
                     return None;
                 }
                 let _ = yield_();
