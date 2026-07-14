@@ -261,6 +261,7 @@ mod probe {
         let vmo_h = band.map_or(surf_h, |(h, f, c)| h + f + c);
         if let Some(dsl) = app.as_mut() {
             dsl.banded = band.is_some();
+            dsl.last_band = band;
             dsl.alloc_band_h = vmo_h;
         }
 
@@ -485,6 +486,8 @@ mod probe {
                 }
                 }
             };
+            // Shared surface re-create trigger (WM resize / band change).
+            let mut recreate_surface = false;
             // Classify the frame: present-ack (flow control) vs input vs theme vs other.
             if wire::decode_surface_ack(&event_frame[..len], wire::OP_SURFACE_PRESENT).is_some() {
                 present_in_flight = false;
@@ -556,18 +559,13 @@ mod probe {
                     raw_marker("apphost: re-themed");
                 }
             } else if let Some((_, _, rw, rh)) = wire::decode_surface_rect(&event_frame[..len]) {
-                // WM resize (the compositor owns geometry): re-create the surface
-                // at the new size so the CONTENT grows with the frame — not just
-                // the shadow. Destroy the old (windowd is one-slot), make a new
-                // VMO, re-layout (state-preserving) + render, re-create + present.
+                // WM resize (the compositor owns geometry): re-layout at the
+                // new size, then run the SHARED surface re-create below.
                 let (nw, nh) = (u32::from(rw), u32::from(rh));
                 if nw > 0 && nh > 0 && (nw, nh) != (surf_w, surf_h) {
                     surf_w = nw;
                     surf_h = nh;
-                    // Re-layout at the new VISIBLE size, then recompute the scroll
-                    // band (a resize re-sends CREATE, so the tall band is
-                    // re-negotiated). Banded ⇒ tall VMO + render_band; else visible.
-                    let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_mut() {
+                    if let Some(dsl) = app.as_mut() {
                         // Mobile-first breakpoints: a resize that crosses a
                         // width class (compact/regular/wide) changes the
                         // PAGE STRUCTURE (`if device.sizeClass` arms) — a
@@ -578,84 +576,8 @@ mod probe {
                             dsl.reemit_for_size_class(nw);
                         }
                         dsl.resize(surf_w, surf_h);
-                        if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                            dsl.band_geometry()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                    let nvmo_h = band2.map_or(surf_h, |(h, f, c)| h + f + c);
-                    let (rc_content_h, rc_header_h, rc_footer_h) =
-                        band2.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
-                            (
-                                c.min(u16::MAX as u32) as u16,
-                                h.min(u16::MAX as u32) as u16,
-                                f.min(u16::MAX as u32) as u16,
-                            )
-                        });
-                    if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
-                        let _ = send_retry(&client, &wire::encode_surface_destroy(surface_id));
-                        let _ = nexus_abi::cap_close(vmo);
-                        vmo = nv;
-                        if let Some(dsl) = app.as_mut() {
-                            dsl.banded = band2.is_some();
-                            dsl.alloc_band_h = nvmo_h;
-                            if dsl.banded {
-                                let _ = dsl.render_band(vmo);
-                            } else {
-                                let _ = dsl.render(vmo);
-                            }
-                        }
-                        if let Ok(clone) = cap_clone(vmo) {
-                            let create = wire::encode_surface_create(
-                                surf_w as u16,
-                                surf_h as u16,
-                                wire::FORMAT_BGRA8888,
-                                style,
-                                level,
-                                mode,
-                                resizable,
-                                nonce,
-                                rc_content_h,
-                                rc_header_h,
-                                rc_footer_h,
-                            );
-                            if send_retry_cap(&client, &create, clone).is_ok() {
-                                if let Ok(id) = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect) {
-                                    surface_id = id;
-                                    if let Some(dsl) = app.as_mut() {
-                                        dsl.set_surface_id(id);
-                                    }
-                                    damage = [wire::DamageRect {
-                                        x: 0,
-                                        y: 0,
-                                        width: surf_w as u16,
-                                        height: surf_h as u16,
-                                    }];
-                                    // The fresh surface's seq restarts at 0 on the
-                                    // windowd side (strict last_seq+1). Reset ours
-                                    // so the next present is seq=1 — otherwise it's
-                                    // rejected BAD_SEQ and the resized frame never
-                                    // shows.
-                                    seq = 0;
-                                    present_in_flight = false;
-                                    dirty = true;
-                                    raw_marker("apphost: resized");
-                                    // Fresh surface id: any pulse parked at
-                                    // windowd for the OLD id is gone — re-arm
-                                    // so continuous loops survive a resize.
-                                    if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
-                                        let req = wire::encode_surface_frame_req(surface_id);
-                                        let _ = client.send(&req, Wait::NonBlocking);
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        raw_marker("apphost: FAIL resize vmo");
                     }
+                    recreate_surface = true;
                 }
             } else if wire::decode_surface_frame(&event_frame[..len]).is_some() {
                 // Compositor frame pulse (Choreographer): advance the scroll
@@ -818,6 +740,108 @@ mod probe {
                 odd_frame_markers += 1;
                 raw_marker("apphost: event frame skipped (not input)");
             }
+            // Band re-negotiation: a dispatch/theme-driven re-emit can change
+            // the page STRUCTURE (chat overview ⇄ thread) and with it the
+            // packed-band geometry the surface was created with. The band
+            // slices are mount-fixed on the windowd side, so the surface must
+            // RE-CREATE — same flow as a WM resize, same size.
+            if !recreate_surface && dirty {
+                if let Some(dsl) = app.as_ref() {
+                    let now_band = if level != wire::WIN_LEVEL_DESKTOP
+                        && mode != wire::WIN_MODE_FULLSCREEN
+                    {
+                        dsl.band_geometry()
+                    } else {
+                        None
+                    };
+                    if now_band != dsl.last_band {
+                        recreate_surface = true;
+                    }
+                }
+            }
+            // SHARED surface re-create (WM resize / band re-negotiation):
+            // recompute the band, new VMO, destroy + re-create + present.
+            if recreate_surface && app.is_some() {
+                let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_ref() {
+                    if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
+                        dsl.band_geometry()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let nvmo_h = band2.map_or(surf_h, |(h, f, c)| h + f + c);
+                let (rc_content_h, rc_header_h, rc_footer_h) =
+                    band2.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
+                        (
+                            c.min(u16::MAX as u32) as u16,
+                            h.min(u16::MAX as u32) as u16,
+                            f.min(u16::MAX as u32) as u16,
+                        )
+                    });
+                if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
+                    let _ = send_retry(&client, &wire::encode_surface_destroy(surface_id));
+                    let _ = nexus_abi::cap_close(vmo);
+                    vmo = nv;
+                    if let Some(dsl) = app.as_mut() {
+                        dsl.banded = band2.is_some();
+                        dsl.last_band = band2;
+                        dsl.alloc_band_h = nvmo_h;
+                        if dsl.banded {
+                            let _ = dsl.render_band(vmo);
+                        } else {
+                            let _ = dsl.render(vmo);
+                        }
+                    }
+                    if let Ok(clone) = cap_clone(vmo) {
+                        let create = wire::encode_surface_create(
+                            surf_w as u16,
+                            surf_h as u16,
+                            wire::FORMAT_BGRA8888,
+                            style,
+                            level,
+                            mode,
+                            resizable,
+                            nonce,
+                            rc_content_h,
+                            rc_header_h,
+                            rc_footer_h,
+                        );
+                        if send_retry_cap(&client, &create, clone).is_ok() {
+                            if let Ok(id) =
+                                recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect)
+                            {
+                                surface_id = id;
+                                if let Some(dsl) = app.as_mut() {
+                                    dsl.set_surface_id(id);
+                                }
+                                damage = [wire::DamageRect {
+                                    x: 0,
+                                    y: 0,
+                                    width: surf_w as u16,
+                                    height: surf_h as u16,
+                                }];
+                                // The fresh surface's seq restarts at 0 on the
+                                // windowd side (strict last_seq+1). Reset ours
+                                // so the next present is seq=1 — otherwise it's
+                                // rejected BAD_SEQ and the frame never shows.
+                                seq = 0;
+                                present_in_flight = false;
+                                dirty = true;
+                                raw_marker("apphost: resized");
+                                // Fresh surface id: re-arm parked pulses.
+                                if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
+                                    let req = wire::encode_surface_frame_req(surface_id);
+                                    let _ = client.send(&req, Wait::NonBlocking);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    raw_marker("apphost: FAIL resize vmo");
+                }
+            }
             // Coalesced present: render + present the latest model once the
             // previous present is acked. Runs in the same iteration an ack
             // clears the in-flight slot, so a tap that arrived mid-present is
@@ -949,6 +973,12 @@ mod probe {
         /// re-renders the band on a content change (LoadMore). `false` = the
         /// legacy paint-time-`dy` scroll (unchanged).
         banded: bool,
+        /// The band geometry (`header_h, footer_h, content_h`) the CURRENT
+        /// windowd surface was created with — the re-negotiation detector
+        /// compares `band_geometry()` after every model change (a structural
+        /// view swap moves the packed-band slices; mount-fixed slices painted
+        /// chat's composer over the bubbles).
+        last_band: Option<(u32, u32, u32)>,
         /// The tall VMO/band height (rows) allocated at create — render_band
         /// clamps to it so a LoadMore that grows content never overflows the VMO
         /// (the compositor band is the same fixed size; `tail(…)` keeps it finite).
@@ -1058,6 +1088,7 @@ mod probe {
                 vis_anim: alloc::vec::Vec::new(),
                 vis_text: alloc::vec::Vec::new(),
                 banded: false,
+                last_band: None,
                 alloc_band_h: 0,
                 band_pick: alloc::vec::Vec::new(),
             };
