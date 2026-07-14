@@ -8,7 +8,7 @@
 // disabled placeholders. The `/control` page remains as the deep-link twin.
 
 Component ControlCenterPanel {
-    Stack {
+    Panel {
         Text(@t("control.appearance")).textSize(sm).fg(onSurfaceVariant)
         Stack {
             Button { label: @t("control.light") }
@@ -52,7 +52,6 @@ Component ControlCenterPanel {
     .width(328)
     .padding(4)
     .gap(2)
-    .material(panel)
     .rounded(xl)
     .transition(slideUp)
 }

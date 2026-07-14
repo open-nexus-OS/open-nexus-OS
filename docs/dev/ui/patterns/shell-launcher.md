@@ -81,16 +81,24 @@ The guest follows the device's reported mode instead of assuming 1280×800:
    fixed pitch, so every VMO-addressing site is untouched.
 4. The desktop surface then reports the real width to the DSL shell →
    `device.sizeClass` picks the dock family (mode ⟂ width, above).
+5. **inputd** re-bases its pointer DISPLAY space on the same mode: it asks
+   windowd `OP_GET_VISIBLE_MODE` (input-live-protocol op 5) from its server
+   loop's idle arm (rate-limited retry until windowd serves), then
+   `InputdService::set_display_space(w, h)` rebuilds the transform — so
+   absolute (tablet/touch) coordinates land in the exact space windowd
+   hit-tests in. Marker: `inputd: display mode WxH` (fold-immune).
+6. The **wallpaper** maps aspect-correct via `build_cover_luts` (uniform
+   cover scale + center-crop; at native aspect byte-identical to the plain
+   scale LUT) — no stretching on narrow modes.
 
 Wire traps this chain survived (documented for the next data-carrying op):
 the virtio response DESCRIPTOR must advertise the full reply length (a
 header-sized window silently truncates `pmodes` to zeros); an early
-`new_for("gpud")` mint races the init ctrl-plane (handshake reply lands on
-the fresh recv slot) — use the wired slots; boot markers on this path must
-be fold-immune (`debug_write`) or the outcome is invisible in armed boots.
-Open (c): inputd still normalizes absolute pointers into the fixed
-1280×800 space (x misaligned on narrow modes), and the wallpaper stretches
-instead of letterboxing.
+`new_for("gpud")` mint in windowd crossed slots — the fresh recv slot
+received inputd's `OP_UPDATE_VISIBLE_STATE` pushes ("IN…" frames) meant for
+windowd's SERVER, and gpud never saw the request — use the init-wired
+persistent slot pair for early queries; boot markers on this path must be
+fold-immune (`debug_write`) or the outcome is invisible in armed boots.
 
 ## Drop-down panels (v2, shipped)
 

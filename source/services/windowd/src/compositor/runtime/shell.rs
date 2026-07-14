@@ -211,6 +211,22 @@ impl DisplayServerRuntime {
                 systemui::wallpaper_rle_for(mode == crate::theme::ThemeMode::Dark);
             self.source_frame.pixels = data;
             self.source_frame.rows = Some(rows);
+            // Plane 0 (the boot-written wallpaper SOURCE plane) is only
+            // written once at boot — rewrite it from the swapped source, or
+            // every consumer sampling plane 0 keeps the old theme's pixels.
+            let _ = self.write_source_frame_to_vmo();
+            // gpud's wallpaper GL texture is a one-shot reveal upload from
+            // plane 0 — tell it the plane changed so the next present
+            // re-uploads (fire-and-forget; the present that follows the
+            // full-frame damage below picks it up in order).
+            if self.ensure_gpud_client() {
+                if let Some(client) = self.gpud_client.as_ref() {
+                    let _ = client.send(
+                        &[nexus_display_proto::OP_WALLPAPER_DIRTY],
+                        Wait::NonBlocking,
+                    );
+                }
+            }
             // Full CPU repaint: mark every tile dirty (the GPU blit rect from
             // `queue_full_frame_damage` below alone skips the wallpaper bands).
             self.queue_dirty_rect(DamageRect {
@@ -218,6 +234,11 @@ impl DisplayServerRuntime {
                 y: 0,
                 width: self.mode.width,
                 height: self.mode.height,
+            });
+            // Fold-immune proof the swap ran (this decided a user-visible bug).
+            let _ = nexus_abi::debug_write(match mode {
+                crate::theme::ThemeMode::Dark => b"windowd: wallpaper swapped dark\n".as_slice(),
+                crate::theme::ThemeMode::Light => b"windowd: wallpaper swapped light\n".as_slice(),
             });
         }
         // Live re-theme: tell the app-client so it re-renders in the new mode.

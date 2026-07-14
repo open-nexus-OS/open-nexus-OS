@@ -18,16 +18,11 @@ Component MiniPlayer {
             Text(@t("shell.trackArtist")).textSize(xs).fg(onSurfaceVariant)
         }
         .gap(0)
-        Stack {
+        Circle { size: 22
             Icon { symbol: "play", size: 12 }
                 .fg(onSurface)
         }
-        .width(22)
-        .height(22)
         .material(subtle)
-        .rounded(full)
-        .align(center)
-        .justify(center)
     }
     .direction(row)
     .align(center)

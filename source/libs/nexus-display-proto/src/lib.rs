@@ -85,6 +85,12 @@ pub const SET_LAYER_TRANSFORM_LEN: usize = 12;
 /// reply: `[status, w: u16 le, h: u16 le]` = 5 bytes.
 pub const OP_GET_DISPLAY_MODE: u8 = 11;
 
+/// windowd → gpud: the wallpaper SOURCE plane (VMO plane 0) was rewritten
+/// (theme-matched wallpaper swap) — re-upload the wallpaper GL texture from
+/// it on the next present. Without this, gpud's one-shot reveal latch keeps
+/// the boot wallpaper forever. Request: `[op]`; reply: `[status]`.
+pub const OP_WALLPAPER_DIRTY: u8 = 12;
+
 /// Encoded [`OP_GET_DISPLAY_MODE`] reply length.
 pub const DISPLAY_MODE_REPLY_LEN: usize = 5;
 

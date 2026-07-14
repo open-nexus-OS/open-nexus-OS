@@ -112,6 +112,29 @@ Component UserRow {
 Single-primary-prop widgets accept positional sugar: `Text("Hi")` ≡
 `Text { value: "Hi" }`.
 
+### Container primitives: `Panel` and `Circle`
+
+Two named containers for the shapes every surface is built from — both host
+arbitrary children (icons, text, stacks) and take every modifier:
+
+```nx
+Panel {                       // panel-glass surface: material(panel) +
+    Text(@t("net.title"))     // rounded(lg) + padding(3) pre-applied;
+    Slider { value: $state.v }// explicit .material/.rounded/.padding win
+}
+.width(328)
+
+Circle { size: 22             // perfectly round: size pins a square box,
+    Icon { symbol: "play", size: 12 } // radius is welded to full, content
+}                             // centers on both axes
+.material(subtle)
+```
+
+`Panel` is the building block for Control-Center tiles, window content
+panels and the properties sidebar; `Circle` for round buttons, badges and
+avatar-like elements. Both are sugar over `Stack` — same layout semantics,
+no new paint machinery.
+
 ## Conditionals
 
 Plain `if/else`, including on the device environment:

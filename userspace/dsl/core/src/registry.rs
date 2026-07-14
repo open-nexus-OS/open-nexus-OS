@@ -160,6 +160,14 @@ pub const WIDGETS: &[WidgetSpec] = &[
     WidgetSpec { name: "ListItem", primary_prop: Some("title"), interactive: true, label_prop: Some("title"), allows_children: false },
     WidgetSpec { name: "Toolbar", primary_prop: Some("title"), interactive: false, label_prop: None, allows_children: false },
     WidgetSpec { name: "SearchBar", primary_prop: Some("value"), interactive: true, label_prop: Some("placeholder"), allows_children: false },
+    // Container primitives: material surfaces that host arbitrary children
+    // (icons/text/stacks) and take every modifier. `Panel` = the panel-glass
+    // surface (Control-Center tiles, window content panels, properties
+    // sidebar); `Circle` = a perfectly round container (`size` pins a square
+    // box, radius welded to full, content centered) for round buttons,
+    // badges and avatar-like elements.
+    WidgetSpec { name: "Panel", primary_prop: None, interactive: false, label_prop: None, allows_children: true },
+    WidgetSpec { name: "Circle", primary_prop: Some("size"), interactive: false, label_prop: None, allows_children: true },
 ];
 
 #[must_use]

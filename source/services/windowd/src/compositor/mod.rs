@@ -269,6 +269,19 @@ fn dispatch_client_frame(
         } else {
             let _ = server.send(&response, Wait::Blocking);
         }
+    } else if frame_has_op(frame, input_live_protocol::OP_GET_VISIBLE_MODE) {
+        // inputd asks for the resolved device mode so its pointer display
+        // space matches the space windowd hit-tests in (600×800 ≠ 1280×800).
+        let (w, h) = runtime.visible_mode_wh();
+        let response = input_live_protocol::encode_visible_mode_reply(
+            w.min(u16::MAX as u32) as u16,
+            h.min(u16::MAX as u32) as u16,
+        );
+        if let Some(reply) = moved_cap.take() {
+            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
+        } else {
+            let _ = server.send(&response, Wait::Blocking);
+        }
     } else if frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
         // Frame-aligned coalescing: STAGE the update (latest sample wins,
         // wheel sums); applied ONCE per frame by apply_staged_input. Reply

@@ -278,6 +278,11 @@ pub struct VirtioGpuBackend {
     /// Plane 0 (it does so at boot, independent of GPU mode).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) wallpaper_from_vmo_uploaded: bool,
+    /// `OP_WALLPAPER_DIRTY`: windowd rewrote Plane 0 (theme-matched wallpaper
+    /// swap) — the next buildup present re-uploads the wallpaper texture from
+    /// the VMO instead of keeping the one-shot reveal upload forever.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) wallpaper_reupload_pending: bool,
     /// Atomic boot reveal: guest-time (ns) of the first buildup present — the origin for
     /// the reveal fallback timers. The logo splash is held until the desktop is composable
     /// (wallpaper + cursor), but a hard cap from this origin guarantees it is NEVER held
@@ -525,6 +530,8 @@ impl VirtioGpuBackend {
             gl_wallpaper_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             wallpaper_from_vmo_uploaded: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            wallpaper_reupload_pending: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             reveal_content_since_ns: 0,
             // RT-direct layer compositing on by default for the virgl path; the

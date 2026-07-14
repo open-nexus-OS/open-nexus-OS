@@ -343,7 +343,8 @@ pub mod os {
 
     #[panic_handler]
     fn panic(info: &PanicInfo) -> ! {
-        debug_write_bytes(b"panic");
+        debug_write_bytes(b"panic svc=");
+        debug_write_str(service_name());
         if let Some(location) = info.location() {
             debug_write_bytes(b" file=");
             debug_write_str(location.file());

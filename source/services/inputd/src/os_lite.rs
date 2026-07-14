@@ -16,8 +16,8 @@ use hid::HidEvent;
 
 use hidrawd::PointerSource;
 use input_live_protocol::{
-    decode_push_hid_batch_reusing, encode_status, encode_update_visible_state,
-    encode_visible_state_frame,
+    decode_push_hid_batch_reusing, decode_visible_mode_reply, encode_get_visible_mode,
+    encode_status, encode_update_visible_state, encode_visible_state_frame,
     frame_has_op, VisibleState, WireHidBatch, OP_GET_VISIBLE_STATE, OP_PUSH_HID_BATCH,
     STATUS_MALFORMED, STATUS_OK, STATUS_OVERFLOW, STATUS_UNSUPPORTED,
 };
@@ -35,6 +35,12 @@ use crate::{
 
 const WHEEL_INDICATOR_PULSE_NS: u64 = 120_000_000;
 const ROUTE_BIND_RETRIES: usize = 256;
+/// Display-mode resolution (windowd `OP_GET_VISIBLE_MODE`): retry cadence and
+/// attempt cap. windowd typically serves within ~1s of boot; the cap only
+/// bounds a genuinely absent compositor (inputd then stays on the 1280×800
+/// fallback space — exactly the pre-mode behaviour).
+const DISPLAY_MODE_RETRY_NS: u64 = 200_000_000;
+const DISPLAY_MODE_MAX_ATTEMPTS: u32 = 100;
 
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Caps are pre-granted by init before resume — no yield needed.
@@ -109,6 +115,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
                 runtime.expire_transient_input_state();
+                runtime.try_resolve_display_mode();
                 runtime.chain.idle_yields = runtime.chain.idle_yields.saturating_add(1);
                 runtime.report_chain_if_due();
                 let _ = yield_();
@@ -182,6 +189,9 @@ struct LiveRouteRuntime {
     windowd_client: Option<KernelClient>,
     last_windowd_push_state: Option<VisibleState>,
     last_windowd_push_ns: u64,
+    display_mode_resolved: bool,
+    display_mode_attempts: u32,
+    display_mode_last_attempt_ns: u64,
     chain: InputdChainTelemetry,
 }
 
@@ -266,8 +276,68 @@ impl LiveRouteRuntime {
             windowd_client: KernelClient::new_with_slots(5, 6).ok(),
             last_windowd_push_state: None,
             last_windowd_push_ns: 0,
+            display_mode_resolved: false,
+            display_mode_attempts: 0,
+            display_mode_last_attempt_ns: 0,
             chain: InputdChainTelemetry::new(),
         })
+    }
+
+    /// One bounded attempt (rate-limited, capped) to learn windowd's resolved
+    /// VISIBLE display mode and re-base the pointer display space on it.
+    /// Called from the server loop's idle arm — never blocks input handling
+    /// for more than the short reply timeout, and stops for good once
+    /// resolved or the attempt cap is reached (1280×800 fallback stands).
+    fn try_resolve_display_mode(&mut self) {
+        if self.display_mode_resolved || self.display_mode_attempts >= DISPLAY_MODE_MAX_ATTEMPTS
+        {
+            return;
+        }
+        let now = nsec().unwrap_or(0);
+        if now.saturating_sub(self.display_mode_last_attempt_ns) < DISPLAY_MODE_RETRY_NS {
+            return;
+        }
+        self.display_mode_last_attempt_ns = now;
+        self.display_mode_attempts += 1;
+        if self.windowd_client.is_none() {
+            self.windowd_client = KernelClient::new_for("windowd")
+                .ok()
+                .or_else(|| KernelClient::new_with_slots(5, 6).ok());
+        }
+        let Some(client) = &self.windowd_client else {
+            return;
+        };
+        // Nothing else ever arrives unsolicited on this channel (windowd only
+        // replies when asked) — drain defensively so a stale frame can't
+        // shadow the mode reply.
+        while client.recv(Wait::NonBlocking).is_ok() {}
+        if client
+            .send(&encode_get_visible_mode(), Wait::Timeout(core::time::Duration::from_millis(2)))
+            .is_err()
+        {
+            return;
+        }
+        for _ in 0..3 {
+            match client.recv(Wait::Timeout(core::time::Duration::from_millis(30))) {
+                Ok(reply) => {
+                    let Some((w, h)) = decode_visible_mode_reply(&reply) else {
+                        continue; // skip a foreign frame, retry within bound
+                    };
+                    if self.input.set_display_space(u32::from(w), u32::from(h)).is_ok() {
+                        let pos = self.input.display_pointer_position();
+                        self.visible_state.cursor_x = pos.x;
+                        self.visible_state.cursor_y = pos.y;
+                        // Fold-immune one-shot outcome line (raw atomic write):
+                        // this decides every later click's coordinate space.
+                        let msg = alloc::format!("inputd: display mode {w}x{h}\n");
+                        let _ = nexus_abi::debug_write(msg.as_bytes());
+                        self.display_mode_resolved = true;
+                    }
+                    return;
+                }
+                Err(_) => return,
+            }
+        }
     }
 
     fn visible_state_snapshot(&mut self) -> VisibleState {

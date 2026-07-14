@@ -1003,17 +1003,32 @@ impl VirtioGpuBackend {
             return Ok(());
         }
 
+        // OP_WALLPAPER_DIRTY: windowd rewrote Plane 0 (theme-matched wallpaper
+        // swap) — drop the one-shot latch so the block below re-uploads the
+        // texture from the fresh plane pixels. `should_reveal` was computed
+        // from the still-set latch above, so the splash gate never re-arms.
+        let mut wallpaper_reupload = false;
+        if self.wallpaper_reupload_pending {
+            self.wallpaper_reupload_pending = false;
+            if self.wallpaper_from_vmo_uploaded {
+                self.wallpaper_from_vmo_uploaded = false;
+                wallpaper_reupload = true;
+                let _ = nexus_abi::debug_write(b"gpud: wallpaper reupload\n");
+            }
+        }
         // One-shot: replace the logo splash with the real wallpaper (windowd's decoded
         // JPEG in VMO Plane 0) — only on reveal. Done before the batch — it issues its own
         // transfer_to_host (a ctrl command), like `virgl_vector_init` above. The reveal
         // marker records WHICH condition released it, so a slow boot pins the culprit
         // (wallpaper Plane 0 vs cursor vs the time cap) directly in the UART timeline.
         if COMPOSITOR_STAGE >= 1 && should_reveal && !self.wallpaper_from_vmo_uploaded {
-            let _ = nexus_abi::debug_println(match (plane0, cursor) {
-                (true, true) => "gpud: desktop reveal (plane0 + cursor ready)",
-                (true, false) => "gpud: desktop reveal (plane0 ready, cursor slow)",
-                (false, _) => "gpud: desktop reveal (TIME CAP — plane0 still empty)",
-            });
+            if !wallpaper_reupload {
+                let _ = nexus_abi::debug_println(match (plane0, cursor) {
+                    (true, true) => "gpud: desktop reveal (plane0 + cursor ready)",
+                    (true, false) => "gpud: desktop reveal (plane0 ready, cursor slow)",
+                    (false, _) => "gpud: desktop reveal (TIME CAP — plane0 still empty)",
+                });
+            }
             self.try_upload_wallpaper_from_vmo();
         }
         // Batch the whole present: every SUBMIT_3D draw below + the final flush is

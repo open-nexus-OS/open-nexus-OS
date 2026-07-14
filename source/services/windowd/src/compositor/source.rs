@@ -100,3 +100,40 @@ pub(crate) fn build_scale_lut(dl: u32, sl: u32) -> Result<Vec<u32>, WindowdError
     }
     Ok(lut)
 }
+
+/// Aspect-preserving COVER mapping (wallpaper): scale the source uniformly
+/// until it covers the destination, center-crop the overflow axis. Returns
+/// the per-axis dst→src LUTs. At equal aspect (e.g. native 1280×800) both
+/// LUTs degrade to the plain [`build_scale_lut`] mapping — byte-identical
+/// output. Integer-only: the dominant axis is picked by cross-multiplying
+/// the aspect ratios, the visible source window by exact division.
+pub(crate) fn build_cover_luts(
+    dw: u32,
+    dh: u32,
+    sw: u32,
+    sh: u32,
+) -> Result<(Vec<u32>, Vec<u32>), WindowdError> {
+    if dw == 0 || dh == 0 || sw == 0 || sh == 0 {
+        return Err(WindowdError::BufferLengthMismatch);
+    }
+    // Visible source window (vw×vh at offset ox/oy) that maps 1:1-aspect onto
+    // the destination. dw*sh vs dh*sw decides which axis the scale pins.
+    let (vw, vh) = if u64::from(dw) * u64::from(sh) >= u64::from(dh) * u64::from(sw) {
+        // Width-dominant: the full source width is used, height is cropped.
+        (sw, ((u64::from(dh) * u64::from(sw)) / u64::from(dw)).max(1) as u32)
+    } else {
+        // Height-dominant: the full source height is used, width is cropped.
+        (((u64::from(dw) * u64::from(sh)) / u64::from(dh)).max(1) as u32, sh)
+    };
+    let ox = (sw - vw.min(sw)) / 2;
+    let oy = (sh - vh.min(sh)) / 2;
+    let mut lut_x = build_scale_lut(dw, vw.min(sw))?;
+    for v in &mut lut_x {
+        *v = (*v + ox).min(sw - 1);
+    }
+    let mut lut_y = build_scale_lut(dh, vh.min(sh))?;
+    for v in &mut lut_y {
+        *v = (*v + oy).min(sh - 1);
+    }
+    Ok((lut_x, lut_y))
+}

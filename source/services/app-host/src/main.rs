@@ -491,6 +491,9 @@ mod probe {
                 // same contract as a live re-theme.
                 if p != shell_profile {
                     shell_profile = p;
+                    // Same drop-first bracketing as the re-theme arm (see there).
+                    app = None;
+                    raw_marker("apphost: profile old app dropped");
                     app = DslApp::mount(
                         payload,
                         surf_w,
@@ -524,6 +527,12 @@ mod probe {
                 // without a remount is a later refinement) and repaint.
                 if mode != theme_mode {
                     theme_mode = mode;
+                    // Drop the old app BEFORE mounting the new one: the drop
+                    // walks every runtime collection — if a heap clobber
+                    // corrupted them, the panic fires HERE (bracketed by the
+                    // markers) and not ambiguously inside the new mount.
+                    app = None;
+                    raw_marker("apphost: re-theme old app dropped");
                     app = DslApp::mount(
                         payload,
                         surf_w,

@@ -192,6 +192,32 @@ impl<R: RouteTarget> InputdService<R> {
         Ok(())
     }
 
+    /// Re-base the pointer DISPLAY space on the compositor's resolved device
+    /// mode (boot-time: windowd answers `OP_GET_VISIBLE_MODE` once gpud told
+    /// it the real resolution). Rebuilds the display→route transform and
+    /// carries the current pointer position over proportionally, so absolute
+    /// (tablet/touch) coordinates land in the same space windowd hit-tests in.
+    pub fn set_display_space(&mut self, width: u32, height: u32) -> Result<(), InputdError> {
+        let old = self.pointer_state.display_space();
+        if old.width() == width && old.height() == height {
+            return Ok(());
+        }
+        let display_space = PointerSpace::new(width, height).map_err(InputdError::from)?;
+        let (route_width, route_height) = self.router.bounds();
+        let route_space =
+            PointerSpace::new(route_width, route_height).map_err(InputdError::from)?;
+        self.pointer_transform =
+            PointerTransform::new(display_space, route_space).map_err(InputdError::from)?;
+        let pos = self.pointer_state.display_position();
+        let scaled = PointerPosition::new(
+            (i64::from(pos.x) * i64::from(width) / i64::from(old.width().max(1))) as i32,
+            (i64::from(pos.y) * i64::from(height) / i64::from(old.height().max(1))) as i32,
+        );
+        self.pointer_state =
+            PointerState::new(display_space, scaled).map_err(InputdError::from)?;
+        Ok(())
+    }
+
     pub fn set_text_focus(&mut self, focused: bool) -> Result<Option<ImeHook>, InputdError> {
         self.text_focus = focused;
         if focused && !self.ime_visible {

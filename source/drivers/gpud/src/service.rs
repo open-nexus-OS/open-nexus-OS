@@ -523,6 +523,16 @@ fn service_requests(
                             (status, None)
                         }
                     }
+                    nexus_display_proto::OP_WALLPAPER_DIRTY => {
+                        // windowd rewrote the wallpaper SOURCE plane (theme
+                        // swap): re-upload the wallpaper texture on the next
+                        // buildup present (self-tick picks it up).
+                        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+                        {
+                            backend.wallpaper_reupload_pending = true;
+                        }
+                        (STATUS_OK, None)
+                    }
                     nexus_display_proto::OP_GET_DISPLAY_MODE => {
                         // The VISIBLE mode resolved at probe (GET_DISPLAY_INFO,
                         // clamped to the fixed resource budget). Reply payload

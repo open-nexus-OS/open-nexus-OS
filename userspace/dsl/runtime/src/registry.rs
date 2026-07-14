@@ -66,6 +66,7 @@ pub fn radius(name: &str) -> FxPx {
 }
 
 /// Layout/paint configuration accumulated from a node's modifiers.
+#[derive(Clone)]
 pub struct Mods {
     pub padding: EdgeInsets,
     pub gap: FxPx,
@@ -264,6 +265,16 @@ fn text_node(value: String, mods: &Mods, tokens: &dyn Tokens) -> LayoutNode {
     )
 }
 
+/// A numeric prop as raw pixels (`Circle { size: 44 }`); `None` for
+/// non-numeric values (the checker flags them, this stays fail-soft).
+fn value_px(value: &Value) -> Option<FxPx> {
+    match value {
+        Value::Int(i) => Some(FxPx::new(*i as i32)),
+        Value::Fx(raw) => Some(FxPx::new((raw >> 32) as i32)),
+        _ => None,
+    }
+}
+
 fn value_text(value: &Value) -> String {
     match value {
         Value::Str(s) => s.clone(),
@@ -286,6 +297,42 @@ pub fn build_widget(
     let prop = |name: &str| props.iter().find(|(n, _)| n == name).map(|(_, v)| v);
     match kind {
         "Stack" | "List" => plain_stack(mods, tokens, children),
+        "Panel" => {
+            // Container primitive: a Stack with the panel-glass surface
+            // pre-applied — explicit `.material/.rounded/.padding` win.
+            let mut m = mods.clone();
+            if m.material.is_none() {
+                m.material = material_token("panel");
+            }
+            if m.rounded.is_none() {
+                m.rounded = Some(radius("lg"));
+            }
+            if m.padding == EdgeInsets::zero() {
+                m.padding = EdgeInsets::all(spacing(3));
+            }
+            plain_stack(&m, tokens, children)
+        }
+        "Circle" => {
+            // Container primitive: a perfectly round box — `size` (or
+            // `.width`) pins a square, the corner radius is welded to full
+            // and content centers on both axes. Round buttons, badges,
+            // avatar-like elements; every modifier still applies.
+            let size = prop("size")
+                .and_then(value_px)
+                .or(mods.width)
+                .unwrap_or_else(|| FxPx::new(40));
+            let mut m = mods.clone();
+            m.width = Some(size);
+            m.height = Some(size);
+            m.rounded = Some(radius("full"));
+            if m.align.is_none() {
+                m.align = Some(Align::Center);
+            }
+            if m.justify.is_none() {
+                m.justify = Some(Justify::Center);
+            }
+            plain_stack(&m, tokens, children)
+        }
         "Card" => {
             // Kit promotion: GlassCard (Panel + material tokens) is the SSOT.
             let mut card = nexus_widget_card::GlassCard::new()

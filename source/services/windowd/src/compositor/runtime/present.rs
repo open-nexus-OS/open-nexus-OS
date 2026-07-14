@@ -314,7 +314,12 @@ impl DisplayServerRuntime {
         // keeps the normal desktop while it is up, no special casing.)
         let glass_quality = select_glass_quality(PROOF_PANEL_H);
         for rect in content.iter().copied().take(content_count) {
-            self.write_damage_rect(rect, glass_quality, paint_only)?;
+            if let Err(e) = self.write_damage_rect(rect, glass_quality, paint_only) {
+                // Fold-immune: a failed Plane-1 recomposite silently freezes
+                // the base scene (the wallpaper-swap hunt earned this line).
+                let _ = nexus_abi::debug_write(b"windowd: recomposite ERR\n");
+                return Err(e);
+            }
         }
 
         // 3. Blit list: content + gpu-blit + cursor rects — all refresh the

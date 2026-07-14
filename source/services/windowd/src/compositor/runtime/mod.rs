@@ -14,7 +14,7 @@ use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
 use super::filter::filter_layout_variant_index;
 use super::scene::copy_scene_row;
-use super::source::build_scale_lut;
+use super::source::build_cover_luts;
 use super::tile_map::TileMap;
 use super::types::{
     FixedDebugLine, ProofBoxRect, ProofCard, ProofPaintPart, ProofPaintRole, RenderClip,
@@ -753,8 +753,11 @@ impl DisplayServerRuntime {
             pixels: source_pixels,
             rows: source_rows,
         };
-        let source_x_lut = build_scale_lut(mode.width, source_width)?;
-        let source_y_lut = build_scale_lut(mode.height, source_height)?;
+        // Aspect-preserving cover-crop: at a non-native mode (e.g. 600×800)
+        // the wallpaper keeps its aspect and center-crops instead of
+        // stretching; at native aspect this is the plain scale mapping.
+        let (source_x_lut, source_y_lut) =
+            build_cover_luts(mode.width, mode.height, source_width, source_height)?;
         let cursor = crate::render_assets::render_cursor_surface(CallerCtx::system());
         let (cursor_width, cursor_height) = match cursor {
             Some(cursor) => (cursor.width, cursor.height),
@@ -1001,6 +1004,13 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::App(_) => "app3",
             crate::window_scene::WindowId::Desktop => "desktop",
         }
+    }
+
+    /// The resolved VISIBLE display mode `(w, h)` — the device mode windowd
+    /// obtained from gpud at boot (fallback 1280×800). Served to inputd via
+    /// `OP_GET_VISIBLE_MODE` so pointer normalization shares this space.
+    pub(crate) fn visible_mode_wh(&self) -> (u32, u32) {
+        (self.mode.width, self.mode.height)
     }
 
     /// The on-screen damage rect (incl. shadow halo) of a stack window.

@@ -11,6 +11,7 @@
 
 use super::{build_scale_lut, cursor_damage_rect, TileMap};
 use crate::compositor::damage::DamageRect;
+use crate::compositor::source::build_cover_luts;
 
 #[test]
 fn scale_lut_is_monotonic_and_clamped() {
@@ -18,6 +19,37 @@ fn scale_lut_is_monotonic_and_clamped() {
     assert_eq!(lut, vec![0, 0, 0, 1, 1, 1, 2, 2]);
     assert!(lut.windows(2).all(|pair| pair[0] <= pair[1]));
     assert_eq!(*lut.last().unwrap_or(&u32::MAX), 2);
+}
+
+#[test]
+fn cover_luts_native_mode_matches_plain_scale() {
+    let (x, y) = build_cover_luts(1280, 800, 1280, 800).expect("luts");
+    assert_eq!(x, build_scale_lut(1280, 1280).expect("x"));
+    assert_eq!(y, build_scale_lut(800, 800).expect("y"));
+}
+
+#[test]
+fn cover_luts_narrow_mode_center_crops_width() {
+    // 600×800 onto a 1280×800 source: height pins the scale (1:1), the
+    // width shows the centered 600-column window (offset (1280-600)/2).
+    let (x, y) = build_cover_luts(600, 800, 1280, 800).expect("luts");
+    assert_eq!(x[0], 340);
+    assert_eq!(x[599], 340 + 599);
+    assert_eq!(y[0], 0);
+    assert_eq!(y[799], 799);
+    assert!(x.windows(2).all(|p| p[0] <= p[1]));
+    assert!(x.iter().all(|&v| v < 1280));
+}
+
+#[test]
+fn cover_luts_short_mode_center_crops_height() {
+    // 1280×400 onto 1280×800: width pins the scale, height center-crops.
+    let (x, y) = build_cover_luts(1280, 400, 1280, 800).expect("luts");
+    assert_eq!(x[0], 0);
+    assert_eq!(x[1279], 1279);
+    assert_eq!(y[0], 200);
+    assert_eq!(y[399], 200 + 399);
+    assert!(y.iter().all(|&v| v < 800));
 }
 
 #[test]

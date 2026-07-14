@@ -24,6 +24,12 @@ pub const OP_PUSH_HID_BATCH: u8 = 1;
 pub const OP_GET_VISIBLE_STATE: u8 = 2;
 pub const OP_SEND_COMPOSED_FRAME_VMO: u8 = 3;
 pub const OP_UPDATE_VISIBLE_STATE: u8 = 4;
+/// inputd → windowd: ask the compositor for its resolved VISIBLE display
+/// mode (the device mode windowd obtained from gpud at boot). Reply =
+/// [`encode_visible_mode_reply`]. inputd re-bases its pointer display
+/// space on the answer so absolute (tablet/touch) coordinates land in the
+/// same space windowd hit-tests in. Append-only op numbering.
+pub const OP_GET_VISIBLE_MODE: u8 = 5;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_MALFORMED: u8 = 1;
@@ -300,6 +306,42 @@ pub fn encode_send_composed_frame_vmo() -> [u8; HEADER_LEN] {
 }
 
 #[must_use]
+pub fn encode_get_visible_mode() -> [u8; HEADER_LEN] {
+    [MAGIC0, MAGIC1, VERSION, OP_GET_VISIBLE_MODE, 0, 0, 0, 0]
+}
+
+/// Reply to [`OP_GET_VISIBLE_MODE`]: header + `w`/`h` as LE u16 in the
+/// header's length field bytes (the frame stays [`HEADER_LEN`] bytes; the
+/// reply op is the request op with the high bit set, mirroring
+/// [`encode_visible_state_frame`]).
+#[must_use]
+pub fn encode_visible_mode_reply(w: u16, h: u16) -> [u8; HEADER_LEN] {
+    let wb = w.to_le_bytes();
+    let hb = h.to_le_bytes();
+    [MAGIC0, MAGIC1, VERSION, OP_GET_VISIBLE_MODE | 0x80, wb[0], wb[1], hb[0], hb[1]]
+}
+
+/// Decode an [`encode_visible_mode_reply`] frame → `(w, h)`; `None` on any
+/// mismatch (magic/version/op) or zero dimension.
+#[must_use]
+pub fn decode_visible_mode_reply(frame: &[u8]) -> Option<(u16, u16)> {
+    if frame.len() < HEADER_LEN
+        || frame[0] != MAGIC0
+        || frame[1] != MAGIC1
+        || frame[2] != VERSION
+        || frame[3] != (OP_GET_VISIBLE_MODE | 0x80)
+    {
+        return None;
+    }
+    let w = u16::from_le_bytes([frame[4], frame[5]]);
+    let h = u16::from_le_bytes([frame[6], frame[7]]);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    Some((w, h))
+}
+
+#[must_use]
 pub fn encode_update_visible_state(state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_LEN] {
     encode_state_frame(OP_UPDATE_VISIBLE_STATE, state)
 }
@@ -527,6 +569,18 @@ mod tests {
         let update = encode_update_visible_state(state);
         assert_eq!(decode_visible_state(&update), None);
         assert_eq!(decode_update_visible_state(&update[..update.len() - 1]), None);
+    }
+
+    #[test]
+    fn visible_mode_reply_roundtrip_and_rejects() {
+        let reply = encode_visible_mode_reply(600, 800);
+        assert_eq!(decode_visible_mode_reply(&reply), Some((600, 800)));
+        // Request frames and foreign ops must not decode as a reply.
+        assert_eq!(decode_visible_mode_reply(&encode_get_visible_mode()), None);
+        assert_eq!(decode_visible_mode_reply(&encode_get_visible_state()), None);
+        assert_eq!(decode_visible_mode_reply(&reply[..HEADER_LEN - 1]), None);
+        assert_eq!(decode_visible_mode_reply(&encode_visible_mode_reply(0, 800)), None);
+        assert!(frame_has_op(&encode_get_visible_mode(), OP_GET_VISIBLE_MODE));
     }
 }
 
