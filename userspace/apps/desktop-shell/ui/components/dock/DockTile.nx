@@ -2,22 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One dock app icon (design_handoff_launcher dock pill entry, `AppIcon sm`):
-// 44×44 uniform glass tile, radius lg (~handoff 14), glyph from the app's
-// manifest `icon`. Tap handlers attach at the use site.
+// 44×44 — per-app gradient artwork when the manifest carries colors, the
+// uniform glass tile otherwise. Tap handlers attach at the use site.
 
 Component DockTile {
     props: {
         label: Str,
         icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
     }
-    Stack {
-        Icon { symbol: $props.icon, size: 22 }
-            .fg(onSurface)
+    if $props.iconTop != "" {
+        Stack {
+            Icon { symbol: $props.icon, size: 22 }
+                .fg(onAccent)
+        }
+        .width(44)
+        .height(44)
+        .bgGradient($props.iconTop, $props.iconBottom)
+        .rounded(lg)
+        .align(center)
+        .justify(center)
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 22 }
+                .fg(onSurface)
+        }
+        .width(44)
+        .height(44)
+        .material(card)
+        .rounded(lg)
+        .align(center)
+        .justify(center)
     }
-    .width(44)
-    .height(44)
-    .material(card)
-    .rounded(lg)
-    .align(center)
-    .justify(center)
 }

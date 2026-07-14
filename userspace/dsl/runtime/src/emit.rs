@@ -518,6 +518,30 @@ fn apply_modifier(
             });
         } // scroll
         48 => mods.overlay = true, // overlay(): full-bleed out-of-flow layer
+        49 => {
+            // bgGradient(top, bottom): both args are exprs → "#rrggbb[aa]"
+            // strings (literal or prop-fed). Unparseable = no gradient —
+            // never a panic, the solid `.bg` (if any) stays in charge.
+            let mut colors = [[0u8; 4]; 2];
+            let mut ok = 0;
+            for i in 0..2 {
+                let Some(arg) = (args.len() > i as u32).then(|| args.get(i as u32)) else {
+                    break;
+                };
+                if let Ok(ir::token_arg::Which::Expr(Ok(expr))) = arg.which() {
+                    ctx.record_deps(expr, Damage::Paint);
+                    if let Ok(Value::Str(text)) = ctx.eval(expr) {
+                        if let Some(c) = parse_hex_color(&text) {
+                            colors[i as usize] = c;
+                            ok += 1;
+                        }
+                    }
+                }
+            }
+            if ok == 2 {
+                mods.bg_gradient = Some((colors[0], colors[1]));
+            }
+        } // bgGradient
         // -- motion (paint): the curated `.animate`/`.transition`/`.effect`
         //    (docs/dev/ui/foundations/animation.md). The runtime stays PURE —
         //    it stamps a value-typed INTENT (token id + committed snapshot of
@@ -530,6 +554,16 @@ fn apply_modifier(
         _ => {} // key/label/others: identity/semantics — no paint effect here
     }
     Ok(())
+}
+
+/// Parses `#rrggbb` / `#rrggbbaa` into RGBA bytes (alpha defaults to 255).
+fn parse_hex_color(text: &str) -> Option<[u8; 4]> {
+    let hex = text.strip_prefix('#')?;
+    if hex.len() != 6 && hex.len() != 8 {
+        return None;
+    }
+    let b = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
+    Some([b(0)?, b(2)?, b(4)?, if hex.len() == 8 { b(6)? } else { 255 }])
 }
 
 /// Stamps a motion intent (`.animate`/`.transition`/`.effect`) onto the

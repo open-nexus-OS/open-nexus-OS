@@ -109,6 +109,12 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // with ordinary flex (rows/Spacer/justify); paint and hit-testing prefer
     // the layer naturally (later node ids win).
     ModifierSpec { name: "overlay", args: &[], class: FieldClass::Layout },
+    // -- gradient fill (paint, APPEND-ONLY id): `.bgGradient(top, bottom)` —
+    // a vertical linear background gradient (the design system's
+    // `linear-gradient(to bottom, …)`). Args are EXPRESSIONS evaluating to
+    // "#rrggbb"/"#rrggbbaa" strings, so both literals and props work
+    // (per-app icon artwork colors ride the manifest → enumerate → props).
+    ModifierSpec { name: "bgGradient", args: &[ModArg::Expr, ModArg::Expr], class: FieldClass::Paint },
 ];
 
 #[must_use]

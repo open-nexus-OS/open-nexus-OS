@@ -352,6 +352,40 @@ impl<'p> Runtime<'p> {
         &mut self.stores
     }
 
+    /// Snapshot every store's live field values, keyed by field SYMBOL.
+    /// Host-side state preservation across a REMOUNT of the same program
+    /// (live re-theme): a remount resets stores to their declared defaults,
+    /// which silently closed overlays and reset sliders mid-session.
+    #[must_use]
+    pub fn store_snapshot(&self) -> Vec<Vec<(u32, Value)>> {
+        self.stores
+            .iter()
+            .map(|s| {
+                s.field_syms
+                    .iter()
+                    .copied()
+                    .zip(s.fields.iter().cloned())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Restore a [`Runtime::store_snapshot`]. Defensive by construction:
+    /// stores match by INDEX (same program → same order) but fields match by
+    /// SYMBOL, so a snapshot from a different program shape restores nothing
+    /// it cannot prove — it never misassigns a value to the wrong field.
+    pub fn store_restore(&mut self, snapshot: &[Vec<(u32, Value)>]) {
+        for (state, snap) in self.stores.iter_mut().zip(snapshot.iter()) {
+            for &(sym, ref value) in snap {
+                if let Ok(index) = state.field_index(sym) {
+                    if let Some(slot) = state.fields.get_mut(index) {
+                        *slot = value.clone();
+                    }
+                }
+            }
+        }
+    }
+
     /// Two-way binding write: the ONE store mutation machinery reducers use
     /// (compare-and-mark via `set_path`), driven by an interaction value.
     /// Returns the changed fields like `dispatch`.

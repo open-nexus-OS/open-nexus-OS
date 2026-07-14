@@ -17,7 +17,7 @@ version = "0.1.0"
 min_sdk = "1.0.0"
 bundle_type = "app"
 # Launcher tile glyph (theme icon-set symbol, resources/themes [icons.symbols]).
-icon = "calculator"
+icon = "calculator|#3d4757|#1a202c"
 payload_kind = "ui-program"
 abilities = ["calculator.MainAbility"]
 caps = ["nexus.permission.WINDOW"]

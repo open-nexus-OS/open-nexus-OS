@@ -267,6 +267,10 @@ pub enum SurfaceMaterial {
 pub struct VisualStyle {
     /// Background fill color (None = transparent).
     pub background: Option<Rgba8>,
+    /// Vertical linear background gradient `(top, bottom)` — the design
+    /// system's `linear-gradient(to bottom, …)`. Wins over `background`
+    /// when set; the row-based painter lerps one flat color per row.
+    pub background_gradient: Option<(Rgba8, Rgba8)>,
     /// Per-edge borders.
     pub border: EdgeBorder,
     /// Per-corner radii for rounded rectangles.

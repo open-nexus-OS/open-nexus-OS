@@ -13,6 +13,8 @@ struct Registry {
     id_sym: u32,
     label_sym: u32,
     icon_sym: u32,
+    icon_top_sym: u32,
+    icon_bottom_sym: u32,
 }
 impl nexus_dsl_runtime::EffectHost for Registry {
     fn call(
@@ -28,6 +30,8 @@ impl nexus_dsl_runtime::EffectHost for Registry {
                     (self.id_sym, Value::Str(id.into())),
                     (self.label_sym, Value::Str(label.into())),
                     (self.icon_sym, Value::Str(icon.into())),
+                    (self.icon_top_sym, Value::Str("#4ade80".into())),
+                    (self.icon_bottom_sym, Value::Str("#15803d".into())),
                 ];
                 fields.sort_by_key(|(s, _)| *s);
                 Value::Record(fields)
@@ -48,7 +52,13 @@ fn hover_sweep_never_panics() {
     let symbols = common::program_symbols(&nxir);
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
     let mut host =
-        Registry { id_sym: sym("id"), label_sym: sym("label"), icon_sym: sym("icon") };
+        Registry {
+            id_sym: sym("id"),
+            label_sym: sym("label"),
+            icon_sym: sym("icon"),
+            icon_top_sym: sym("iconTop"),
+            icon_bottom_sym: sym("iconBottom"),
+        };
     let tokens = nexus_theme_tokens::BaseTokens;
     let device = FixtureEnv::tablet("landscape");
     let keys: Vec<u32> = Vec::new();

@@ -272,6 +272,9 @@ impl DisplayServerRuntime {
             {
                 let rect = self.app_window_rect(idx);
                 self.queue_gpu_blit_rect(old.merge(rect));
+                // Other glass windows overlapping the vacated/covered region
+                // hold a stale backdrop snapshot — re-blur them live.
+                self.invalidate_blur_over(old.merge(rect), Some(idx));
                 if !self.drag_transform_marker {
                     self.drag_transform_marker = true;
                     let _ = debug_println("windowd: drag gpu-transform");

@@ -70,6 +70,7 @@ Rules:
 | `.borderColor(t)` | color token | border color |
 | `.opacity(n)` | `0..100` | node opacity |
 | `.material(m)` | material token | glass surface (panel/card/subtle/window/overlay) |
+| `.bgGradient(top, bottom)` | two exprs → `"#rrggbb[aa]"` | vertical linear background gradient (`linear-gradient(to bottom, …)`); wins over `.bg`. Args are EXPRESSIONS so both literals and props work — app-icon artwork colors ride the manifest → enumerate → props. Row-based painter: one lerped flat color per row, exact and alloc-free. |
 
 ## Shape & elevation (class: paint)
 

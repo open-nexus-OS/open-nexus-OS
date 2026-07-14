@@ -63,6 +63,12 @@ pub(crate) struct AppEffectHost {
     id_sym: Option<u32>,
     label_sym: Option<u32>,
     icon_sym: Option<u32>,
+    /// App-icon artwork gradient stops (`iconTop`/`iconBottom`), split from
+    /// the manifest's packed `icon = "symbol|#top|#bottom"` (design-handoff
+    /// app icons: gradient tile + white glyph). Absent when the page never
+    /// reads them.
+    icon_top_sym: Option<u32>,
+    icon_bottom_sym: Option<u32>,
     seq_sym: Option<u32>,
     text_sym: Option<u32>,
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
@@ -142,6 +148,11 @@ impl AppEffectHost {
             id_sym: symbols.iter().position(|s| s == "id").map(|i| i as u32),
             label_sym: symbols.iter().position(|s| s == "label").map(|i| i as u32),
             icon_sym: symbols.iter().position(|s| s == "icon").map(|i| i as u32),
+            icon_top_sym: symbols.iter().position(|s| s == "iconTop").map(|i| i as u32),
+            icon_bottom_sym: symbols
+                .iter()
+                .position(|s| s == "iconBottom")
+                .map(|i| i as u32),
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
             query_store: None,
@@ -177,10 +188,22 @@ impl AppEffectHost {
             .map(|(id, label, icon)| {
                 let mut fields =
                     alloc::vec![(id_sym, Value::Str(id)), (label_sym, Value::Str(label))];
-                // The launcher-tile glyph: only pages that READ `app.icon`
-                // have the symbol; others get the two-field record unchanged.
+                // The launcher-tile artwork: the manifest packs
+                // `symbol|#top|#bottom` into ONE registry string (no wire
+                // change); split here so the DSL sees three plain fields.
+                // Only pages that READ a field have its symbol.
+                let mut parts = icon.split('|');
+                let glyph = parts.next().unwrap_or("");
+                let top = parts.next().unwrap_or("");
+                let bottom = parts.next().unwrap_or("");
                 if let Some(icon_sym) = self.icon_sym {
-                    fields.push((icon_sym, Value::Str(icon)));
+                    fields.push((icon_sym, Value::Str(glyph.into())));
+                }
+                if let Some(sym) = self.icon_top_sym {
+                    fields.push((sym, Value::Str(top.into())));
+                }
+                if let Some(sym) = self.icon_bottom_sym {
+                    fields.push((sym, Value::Str(bottom.into())));
                 }
                 fields.sort_by_key(|(sym, _)| *sym);
                 Value::Record(fields)

@@ -299,6 +299,30 @@ impl DisplayServerRuntime {
 
     /// `SURFACE_PRESENT`: validate seq + damage, mark the window body dirty
     /// (the render path blits from the VMO), queue the damage. Acks the seq.
+    /// Invalidate the CACHED glass backdrop of every visible app window
+    /// (except `skip`) whose frame intersects `rect`. The cache is a
+    /// snapshot of what was BEHIND the window when it was built — content
+    /// changing underneath (another window presenting, the desktop
+    /// repainting, a drag) leaves it stale, which showed as "blur shows the
+    /// wallpaper, not the actual background". Over-invalidation is safe:
+    /// the next present just re-blurs that region live.
+    pub(crate) fn invalidate_blur_over(&mut self, rect: DamageRect, skip: Option<usize>) {
+        for i in 0..self.apps.len() {
+            if Some(i) == skip || !self.apps[i].win.visible || self.apps[i].win.blur_valid == false
+            {
+                continue;
+            }
+            let f = self.app_window_rect(i);
+            let x0 = rect.x.max(f.x);
+            let y0 = rect.y.max(f.y);
+            let x1 = (rect.x + rect.width).min(f.x + f.width);
+            let y1 = (rect.y + rect.height).min(f.y + f.height);
+            if x1 > x0 && y1 > y0 {
+                self.apps[i].win.blur_valid = false;
+            }
+        }
+    }
+
     pub(crate) fn handle_surface_present(
         &mut self,
         frame: &[u8],
@@ -325,6 +349,11 @@ impl DisplayServerRuntime {
                     if count == 0 {
                         self.desktop_dirty_rows = (0, u32::MAX);
                         self.queue_full_frame_damage();
+                        let (w, h) = (self.mode.width, self.mode.height);
+                        self.invalidate_blur_over(
+                            DamageRect { x: 0, y: 0, width: w, height: h },
+                            None,
+                        );
                     } else {
                         for r in &rects[..count] {
                             let y0 = r.y as u32;
@@ -333,12 +362,16 @@ impl DisplayServerRuntime {
                             self.desktop_dirty_rows = (s0.min(y0), s1.max(y1));
                             // The desktop is full-screen at the origin:
                             // surface-local == display coordinates.
-                            self.queue_dirty_rect(DamageRect {
+                            let dr = DamageRect {
                                 x: r.x as u32,
                                 y: r.y as u32,
                                 width: r.width as u32,
                                 height: r.height as u32,
-                            });
+                            };
+                            self.queue_dirty_rect(dr);
+                            // Windows above the repainted desktop region hold
+                            // a stale backdrop snapshot — re-blur them.
+                            self.invalidate_blur_over(dr, None);
                         }
                     }
                 } else if let Some(idx) = self.app_index_by_surface(surface_id) {
@@ -377,6 +410,9 @@ impl DisplayServerRuntime {
                         };
                     self.apps[idx].win.surface_dirty = true;
                     let rect = self.app_window_rect(idx);
+                    // Other glass windows overlapping this one see it through
+                    // their backdrop — their cached blur is now stale.
+                    self.invalidate_blur_over(rect, Some(idx));
                     match self.apps[idx].surface_dirty_rows {
                         // Bounded: damage only the presented body rows on
                         // screen (body starts under the WM title bar).

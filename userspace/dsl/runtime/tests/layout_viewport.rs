@@ -249,11 +249,14 @@ fn greeter_login_flow_is_tappable_end_to_end() {
 
     // Drive the flow by tapping handler boxes: non-Tap handlers (the secret
     // field's `on Change`) miss by design; every Tap handler must HIT when
-    // its box centre is tapped. Rounds: Login-before-Pick fails honestly
-    // (UNKNOWN_USER), Pick then Login succeeds — bounded retries.
+    // its box centre is tapped. The redesigned greeter (handoff 07) places
+    // the user list BELOW the submit arrow in tree order — walk handlers in
+    // REVERSE so Pick(user) lands before Submit (top-down looped on the
+    // failed-submit re-emit forever). Rounds stay bounded.
     let mut tap_hits = 0usize;
     'outer: for _round in 0..6 {
-        let handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
+        let handler_ids: Vec<usize> =
+            view.handlers().iter().rev().map(|(id, _)| *id).collect();
         assert!(
             !handler_ids.is_empty(),
             "greeter registered no handlers:\n{}",
@@ -422,6 +425,8 @@ fn shell_app_grid_tiles_launch_and_hover() {
         id_sym: u32,
         label_sym: u32,
         icon_sym: u32,
+        icon_top_sym: u32,
+        icon_bottom_sym: u32,
         launched: Vec<String>,
     }
     impl nexus_dsl_runtime::EffectHost for FakeRegistry {
@@ -440,6 +445,10 @@ fn shell_app_grid_tiles_launch_and_hover() {
                             (self.id_sym, Value::Str(id.into())),
                             (self.label_sym, Value::Str(label.into())),
                             (self.icon_sym, Value::Str("star".into())),
+                        (self.icon_top_sym, Value::Str("#4ade80".into())),
+                        (self.icon_bottom_sym, Value::Str("#15803d".into())),
+                            (self.icon_top_sym, Value::Str("#4ade80".into())),
+                            (self.icon_bottom_sym, Value::Str("#15803d".into())),
                         ];
                         fields.sort_by_key(|(sym, _)| *sym);
                         Value::Record(fields)
@@ -471,6 +480,8 @@ fn shell_app_grid_tiles_launch_and_hover() {
         id_sym: sym("id"),
         label_sym: sym("label"),
         icon_sym: sym("icon"),
+        icon_top_sym: sym("iconTop"),
+        icon_bottom_sym: sym("iconBottom"),
         launched: Vec::new(),
     };
 
@@ -830,7 +841,7 @@ fn real_shell_control_panel_overlays_top_right() {
     let panel_box = |boxes: &[nexus_layout::LayoutBox]| {
         boxes
             .iter()
-            .find(|b| b.rect.width.as_i32() == 328 && b.rect.x.as_i32() > 850)
+            .find(|b| b.rect.width.as_i32() == 340 && b.rect.x.as_i32() > 850)
             .map(|b| (b.rect.x.as_i32(), b.rect.y.as_i32()))
     };
     assert!(panel_box(&layout_boxes(&view)).is_none(), "panel closed at mount");
@@ -928,7 +939,13 @@ fn real_shell_column_grows_on_tablet() {
 
 #[test]
 fn shell_grid_tiles_lay_out_in_a_row() {
-    struct Registry { id_sym: u32, label_sym: u32, icon_sym: u32 }
+    struct Registry {
+        id_sym: u32,
+        label_sym: u32,
+        icon_sym: u32,
+        icon_top_sym: u32,
+        icon_bottom_sym: u32,
+    }
     impl nexus_dsl_runtime::EffectHost for Registry {
         fn call(&mut self, svc: &str, method: &str, _a: &[nexus_dsl_runtime::Value], _t: u32)
             -> Result<nexus_dsl_runtime::Value, u32> {
@@ -939,6 +956,8 @@ fn shell_grid_tiles_lay_out_in_a_row() {
                         (self.id_sym, Value::Str(id.into())),
                         (self.label_sym, Value::Str(label.into())),
                         (self.icon_sym, Value::Str("star".into())),
+                        (self.icon_top_sym, Value::Str("#4ade80".into())),
+                        (self.icon_bottom_sym, Value::Str("#15803d".into())),
                     ];
                     fields.sort_by_key(|(sym, _)| *sym);
                     Value::Record(fields)
@@ -955,7 +974,13 @@ fn shell_grid_tiles_lay_out_in_a_row() {
     let symbols = symbols_of(&nxir);
     let sym = |n: &str| symbols.iter().position(|s| s == n).expect(n) as u32;
     let mut host =
-        Registry { id_sym: sym("id"), label_sym: sym("label"), icon_sym: sym("icon") };
+        Registry {
+            id_sym: sym("id"),
+            label_sym: sym("label"),
+            icon_sym: sym("icon"),
+            icon_top_sym: sym("iconTop"),
+            icon_bottom_sym: sym("iconBottom"),
+        };
     let device = nexus_dsl_runtime::FixtureEnv::tablet("landscape");
     let tokens = nexus_theme_tokens::BaseTokens;
     let keys: Vec<u32> = Vec::new();

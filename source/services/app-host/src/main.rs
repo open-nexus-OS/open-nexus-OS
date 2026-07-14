@@ -518,16 +518,24 @@ mod probe {
                 // same contract as a live re-theme.
                 if p != shell_profile {
                     shell_profile = p;
+                    // Preserve live store state (open panels, sliders) across
+                    // the remount — the boot-time persisted-settings probe
+                    // pushes a profile AFTER the shell is interactive, and a
+                    // store reset there snapped open overlays shut. Field-
+                    // symbol matching keeps this safe across the profile's
+                    // structural differences.
+                    let store_snapshot = app.as_ref().map(|d| d.view.runtime.store_snapshot());
                     // Same drop-first bracketing as the re-theme arm (see there).
                     app = None;
                     raw_marker("apphost: profile old app dropped");
-                    app = DslApp::mount(
+                    app = DslApp::mount_restoring(
                         payload,
                         surf_w,
                         surf_h,
                         theme_mode,
                         shell_profile,
                         base_alpha,
+                        store_snapshot.as_deref(),
                     );
                     if let Some(dsl) = app.as_mut() {
                         if dsl.render(vmo) {
@@ -554,19 +562,24 @@ mod probe {
                 // without a remount is a later refinement) and repaint.
                 if mode != theme_mode {
                     theme_mode = mode;
+                    // Preserve the live store state across the remount (open
+                    // panels, slider values, selections) — a theme change is
+                    // presentation, not a session reset.
+                    let store_snapshot = app.as_ref().map(|d| d.view.runtime.store_snapshot());
                     // Drop the old app BEFORE mounting the new one: the drop
                     // walks every runtime collection — if a heap clobber
                     // corrupted them, the panic fires HERE (bracketed by the
                     // markers) and not ambiguously inside the new mount.
                     app = None;
                     raw_marker("apphost: re-theme old app dropped");
-                    app = DslApp::mount(
+                    app = DslApp::mount_restoring(
                         payload,
                         surf_w,
                         surf_h,
                         theme_mode,
                         shell_profile,
                         base_alpha,
+                        store_snapshot.as_deref(),
                     );
                     if let Some(dsl) = app.as_mut() {
                         let _ = dsl.render(vmo);
@@ -1036,6 +1049,25 @@ mod probe {
             shell_profile: u8,
             base_alpha: u8,
         ) -> Option<Self> {
+            Self::mount_restoring(nxir, w, h, theme_mode, shell_profile, base_alpha, None)
+        }
+
+        /// [`Self::mount`] + an optional store snapshot from the PREVIOUS
+        /// mount of the same program. A live re-theme is a drop-first remount
+        /// — without this, every store reset to its defaults (open Control
+        /// Center snapped shut ~1.5s after a moon/sun tap, sliders jumped
+        /// back). Restored BEFORE the initial effects so service-loaded data
+        /// still refreshes over the stale copy.
+        #[allow(clippy::too_many_arguments)]
+        fn mount_restoring(
+            nxir: &'static [u8],
+            w: u32,
+            h: u32,
+            theme_mode: u8,
+            shell_profile: u8,
+            base_alpha: u8,
+            store_snapshot: Option<&[alloc::vec::Vec<(u32, nexus_dsl_runtime::Value)>]>,
+        ) -> Option<Self> {
             use nexus_dsl_runtime::{IdentityLocale, View};
 
             let runtime = nexus_dsl_runtime::Runtime::mount(nxir).ok()?;
@@ -1061,6 +1093,9 @@ mod probe {
                 let locale = IdentityLocale { symbols: &symbols, keys: &keys };
                 View::mount(nxir, tokens, &device, &locale).ok()?
             };
+            if let Some(snapshot) = store_snapshot {
+                view.runtime.store_restore(snapshot);
+            }
             // Declarative initial load (principles.md §5): an `@effect` event
             // dispatched by NOTHING is a ROOT — it runs once at mount. Fire the
             // roots BEFORE the first layout so the frame reflects service-loaded

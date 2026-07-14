@@ -329,6 +329,33 @@ pub fn paint_box_row(canvas: &mut RowCanvas<'_>, b: &LayoutBox) {
     paint_box_row_at(canvas, b, x, y, w, h, b.visual.background, 100);
 }
 
+/// The row's flat color of a vertical linear gradient: a row-based painter
+/// renders `linear-gradient(to bottom, top, bottom)` EXACTLY as one lerped
+/// color per row — no banding beyond 8-bit quantization, zero extra passes.
+#[inline]
+fn gradient_row_color(
+    top: nexus_layout_types::Rgba8,
+    bottom: nexus_layout_types::Rgba8,
+    row: i32,
+    y: i32,
+    h: i32,
+) -> nexus_layout_types::Rgba8 {
+    let t_num = (row - y).clamp(0, h.max(1) - 1);
+    let t_den = (h.max(1) - 1).max(1);
+    // Signed-safe integer lerp per channel.
+    let ch = |a: u8, b: u8| -> u8 {
+        let ai = a as i32;
+        let bi = b as i32;
+        (ai + (bi - ai) * t_num / t_den) as u8
+    };
+    nexus_layout_types::Rgba8 {
+        r: ch(top.r, bottom.r),
+        g: ch(top.g, bottom.g),
+        b: ch(top.b, bottom.b),
+        a: ch(top.a, bottom.a),
+    }
+}
+
 /// [`paint_box_row`] at an EXPLICIT geometry + background: the shared shape
 /// dispatch used by the plain path (the box's own rect) and the per-node
 /// ANIMATION path (the transformed rect + faded fill) — every `ShapeKind`
@@ -348,6 +375,12 @@ pub(crate) fn paint_box_row_at(
     if w <= 0 || h <= 0 || canvas.y < y || canvas.y >= y + h {
         return;
     }
+    // A vertical gradient wins over the flat fill: substitute this row's
+    // lerped color and reuse every shape path unchanged.
+    let background = match b.visual.background_gradient {
+        Some((top, bottom)) => Some(gradient_row_color(top, bottom, canvas.y, y, h)),
+        None => background,
+    };
     if let Some(bg) = background {
         let (xf, yf, wf, hf) = (x as f32, y as f32, w as f32, h as f32);
         match &b.visual.shape {

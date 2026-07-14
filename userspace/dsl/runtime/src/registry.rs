@@ -39,6 +39,12 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "onDanger" => ColorToken::OnDanger,
         "success" => ColorToken::Success,
         "onSuccess" => ColorToken::OnSuccess,
+        "warning" => ColorToken::Warning,
+        "onWarning" => ColorToken::OnWarning,
+        "info" => ColorToken::Info,
+        "onInfo" => ColorToken::OnInfo,
+        "focusRing" => ColorToken::FocusRing,
+        "shadow" => ColorToken::Shadow,
         _ => return None,
     })
 }
@@ -52,17 +58,23 @@ pub fn type_size(name: &str) -> Option<TypographyToken> {
         "md" => TypographyToken::Md,
         "lg" => TypographyToken::Lg,
         "xl" => TypographyToken::Xl,
+        "xxl" => TypographyToken::Xxl,
+        "xxxl" => TypographyToken::Xxxl,
+        "display" => TypographyToken::Display,
         _ => return None,
     })
 }
 
 #[must_use]
 pub fn radius(name: &str) -> FxPx {
+    // Design-handoff radius scale (reference/tokens/spacing.css): sm 6,
+    // md 8, lg 10, xl 14, 2xl 16 — the previous 4/8/12/16 drifted from it.
     FxPx::new(match name {
-        "sm" => 4,
+        "sm" => 6,
         "md" => 8,
-        "lg" => 12,
-        "xl" => 16,
+        "lg" => 10,
+        "xl" => 14,
+        "xxl" => 16,
         "full" => 9999,
         _ => 0,
     })
@@ -71,6 +83,8 @@ pub fn radius(name: &str) -> FxPx {
 /// Layout/paint configuration accumulated from a node's modifiers.
 #[derive(Clone)]
 pub struct Mods {
+    /// `.bgGradient(top, bottom)` — vertical linear fill (wins over `bg`).
+    pub bg_gradient: Option<([u8; 4], [u8; 4])>,
     pub padding: EdgeInsets,
     pub gap: FxPx,
     /// Fixed box sizes in raw px (`.width(320)`); `full` is a no-op today
@@ -116,6 +130,7 @@ pub enum ScrollAxis {
 impl Default for Mods {
     fn default() -> Self {
         Self {
+            bg_gradient: None,
             padding: EdgeInsets::zero(),
             gap: FxPx::ZERO,
             width: None,
@@ -163,6 +178,17 @@ impl Mods {
         if let Some(bg) = self.bg {
             visual.background = Some(tokens.color(bg));
         }
+        if let Some((top, bottom)) = self.bg_gradient {
+            visual.background_gradient = Some((
+                nexus_layout_types::Rgba8 { r: top[0], g: top[1], b: top[2], a: top[3] },
+                nexus_layout_types::Rgba8 {
+                    r: bottom[0],
+                    g: bottom[1],
+                    b: bottom[2],
+                    a: bottom[3],
+                },
+            ));
+        }
         if let Some(rounded) = self.rounded {
             visual.corner_radius = CornerRadius::uniform(rounded);
         }
@@ -188,7 +214,27 @@ impl Mods {
                         GlassLevel::Subtle => MaterialToken::Subtle,
                         GlassLevel::Window => MaterialToken::Window,
                     };
-                    visual.background = Some(tokens.glass(token).tint);
+                    let g = tokens.glass(token);
+                    visual.background = Some(g.tint);
+                    // Design-system `--glass-shine`: a vertical gradient from
+                    // tint⊕edge-highlight down to the plain tint. The edge
+                    // token existed but was never RENDERED — glass looked
+                    // flat and the only "shine" was accidental blur bleed.
+                    if g.edge.a > 0 && visual.background_gradient.is_none() {
+                        let blend = |t: u8, e: u8| -> u8 {
+                            (t as u32 + (e as u32).saturating_sub(t as u32) * g.edge.a as u32 / 255)
+                                as u8
+                        };
+                        let top = nexus_layout_types::Rgba8 {
+                            r: blend(g.tint.r, g.edge.r),
+                            g: blend(g.tint.g, g.edge.g),
+                            b: blend(g.tint.b, g.edge.b),
+                            // The shine also lifts opacity a touch (white over
+                            // the tint), exactly like the CSS overlay.
+                            a: g.tint.a.saturating_add(g.edge.a / 4),
+                        };
+                        visual.background_gradient = Some((top, g.tint));
+                    }
                 }
             }
         }

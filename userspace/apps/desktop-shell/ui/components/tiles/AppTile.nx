@@ -1,28 +1,43 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// One home-grid app tile (design_handoff_launcher `AppIcon md`): a UNIFORM
-// glass tile — the handoff differentiates apps only by the icon artwork,
-// never by tile color — 64×64, radius xl (~handoff 18), card glass, glyph
-// from the app's manifest `icon` (theme icon-set symbol), label 12/600
-// below. Tap handlers attach at the use site.
+// One home-grid app tile (design_handoff `AppIcon md`, screenshots/
+// 12-app-icons.png): per-app icon ARTWORK — a vertical-gradient rounded
+// square (colors from the app manifest, `icon = "symbol|#top|#bottom"`)
+// with a white glyph. Apps without artwork colors keep the uniform glass
+// tile. Label 12/600 below; tap handlers attach at the use site.
 
 Component AppTile {
     props: {
         label: Str,
         icon: Str,
+        iconTop: Str,
+        iconBottom: Str,
     }
     Stack {
-        Stack {
-            Icon { symbol: $props.icon, size: 30 }
-                .fg(onSurface)
+        if $props.iconTop != "" {
+            Stack {
+                Icon { symbol: $props.icon, size: 30 }
+                    .fg(onAccent)
+            }
+            .width(64)
+            .height(64)
+            .bgGradient($props.iconTop, $props.iconBottom)
+            .rounded(xl)
+            .align(center)
+            .justify(center)
+        } else {
+            Stack {
+                Icon { symbol: $props.icon, size: 30 }
+                    .fg(onSurface)
+            }
+            .width(64)
+            .height(64)
+            .material(card)
+            .rounded(xl)
+            .align(center)
+            .justify(center)
         }
-        .width(64)
-        .height(64)
-        .material(card)
-        .rounded(xl)
-        .align(center)
-        .justify(center)
         Text($props.label).textSize(sm).fg(onSurface)
     }
     .align(center)

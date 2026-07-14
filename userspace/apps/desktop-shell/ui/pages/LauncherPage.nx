@@ -44,7 +44,7 @@ Page LauncherPage {
             } else {
                 List($state.apps) { app in
                     Stack {
-                        AppTile { label: app.label, icon: app.icon }
+                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom }
                     }
                     .key(app.id)
                     on Tap -> dispatch(Launch(app.id))
