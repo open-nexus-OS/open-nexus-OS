@@ -59,9 +59,38 @@ never a hardcoded app list.
 
 Host: `layout_viewport.rs` probes pin all four families (wide dock bottom,
 compact/regular mount+dock, desktop taskbar heights). On-device: tablet wide
-+ desktop toggle + both launchers are boot-proven (2026-07-13); compact/
-regular boot proof waits on virtio-gpu display-info plumbing (the guest mode
-is fixed 1280×800 today — QEMU `xres=` hints are ignored).
++ desktop toggle + both launchers are boot-proven (2026-07-13); the compact
+family is boot-proven at 600×800 (2026-07-14) via the display-info chain
+below.
+
+## Device display mode (how the shell learns its real resolution)
+
+The guest follows the device's reported mode instead of assuming 1280×800:
+
+1. **gpud probe** sends virtio-gpu `GET_DISPLAY_INFO`; `pmodes[0]` carries
+   the device's preferred mode (QEMU `xres=`/`yres=`). Clamped to the fixed
+   1280×800 resource budget → `backend.display_w/h`; scanout, present rects
+   and damage clamps follow it.
+2. **windowd** asks gpud `OP_GET_DISPLAY_MODE` (one bounded round-trip on
+   the init-wired persistent windowd↔gpud slot pair, BEFORE the runtime is
+   built) and constructs `DisplayServerRuntime::new_with_mode(w, h)`.
+3. **Resource ⟂ visible**: the shared VMO layout (stride 5120, plane
+   offsets, atlas) stays at the fixed 1280×800 maximum; only the VISIBLE
+   sub-rect (scanout, viewport, dock/window sizes, damage clamps) follows
+   the mode. `VisibleBootstrapMode::for_visible` welds the stride to the
+   fixed pitch, so every VMO-addressing site is untouched.
+4. The desktop surface then reports the real width to the DSL shell →
+   `device.sizeClass` picks the dock family (mode ⟂ width, above).
+
+Wire traps this chain survived (documented for the next data-carrying op):
+the virtio response DESCRIPTOR must advertise the full reply length (a
+header-sized window silently truncates `pmodes` to zeros); an early
+`new_for("gpud")` mint races the init ctrl-plane (handshake reply lands on
+the fresh recv slot) — use the wired slots; boot markers on this path must
+be fold-immune (`debug_write`) or the outcome is invisible in armed boots.
+Open (c): inputd still normalizes absolute pointers into the fixed
+1280×800 space (x misaligned on narrow modes), and the wallpaper stretches
+instead of letterboxing.
 
 ## Drop-down panels (v2, shipped)
 

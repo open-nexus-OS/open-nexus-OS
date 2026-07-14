@@ -523,6 +523,16 @@ fn service_requests(
                             (status, None)
                         }
                     }
+                    nexus_display_proto::OP_GET_DISPLAY_MODE => {
+                        // The VISIBLE mode resolved at probe (GET_DISPLAY_INFO,
+                        // clamped to the fixed resource budget). Reply payload
+                        // rides the 5-byte status+u32 frame: LE u32 = w | h<<16
+                        // — byte-identical to `encode_display_mode_reply`.
+                        (
+                            STATUS_OK,
+                            Some(backend.display_w | (backend.display_h << 16)),
+                        )
+                    }
                     _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
                 };
                 drop(moved_cap);

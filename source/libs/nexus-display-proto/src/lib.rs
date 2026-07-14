@@ -77,6 +77,40 @@ pub const OP_SET_LAYER_TRANSFORM: u8 = 10;
 /// Encoded [`OP_SET_LAYER_TRANSFORM`] frame length.
 pub const SET_LAYER_TRANSFORM_LEN: usize = 12;
 
+/// Query the VISIBLE display mode gpud resolved at probe
+/// (`GET_DISPLAY_INFO` → the device's `xres=`/`yres=`, clamped to the fixed
+/// resource budget). windowd asks this ONCE, blocking, BEFORE it builds its
+/// config/atlas/framebuffer — the mode must exist before anything sizes to
+/// it (the framebuffer-handoff ack would be too late). Request: `[op]`;
+/// reply: `[status, w: u16 le, h: u16 le]` = 5 bytes.
+pub const OP_GET_DISPLAY_MODE: u8 = 11;
+
+/// Encoded [`OP_GET_DISPLAY_MODE`] reply length.
+pub const DISPLAY_MODE_REPLY_LEN: usize = 5;
+
+/// Encode the [`OP_GET_DISPLAY_MODE`] reply.
+#[must_use]
+pub fn encode_display_mode_reply(status: u8, w: u16, h: u16) -> [u8; DISPLAY_MODE_REPLY_LEN] {
+    let mut f = [0u8; DISPLAY_MODE_REPLY_LEN];
+    f[0] = status;
+    f[1..3].copy_from_slice(&w.to_le_bytes());
+    f[3..5].copy_from_slice(&h.to_le_bytes());
+    f
+}
+
+/// Decode an [`OP_GET_DISPLAY_MODE`] reply → `(w, h)`; `None` when malformed
+/// or the status is not OK.
+#[must_use]
+pub fn decode_display_mode_reply(frame: &[u8]) -> Option<(u16, u16)> {
+    if frame.len() < DISPLAY_MODE_REPLY_LEN || frame[0] != STATUS_OK {
+        return None;
+    }
+    Some((
+        u16::from_le_bytes([frame[1], frame[2]]),
+        u16::from_le_bytes([frame[3], frame[4]]),
+    ))
+}
+
 /// Encode the layer-transform override (see [`OP_SET_LAYER_TRANSFORM`]).
 #[must_use]
 pub fn encode_set_layer_transform(

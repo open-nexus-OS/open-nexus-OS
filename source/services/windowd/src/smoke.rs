@@ -60,23 +60,35 @@ pub struct VisibleBootstrapMode {
 
 impl VisibleBootstrapMode {
     pub fn fixed() -> Result<Self> {
+        Self::for_visible(VISIBLE_BOOTSTRAP_WIDTH, VISIBLE_BOOTSTRAP_HEIGHT)
+    }
+
+    /// A mode with a DYNAMIC visible size (gpud's resolved display info) on
+    /// the FIXED shared-VMO layout: `stride` is ALWAYS the layout pitch
+    /// (`VISIBLE_BOOTSTRAP_WIDTH * 4` — plane rows, atlas and gpud mirror
+    /// it), never derived from the visible width. Every VMO row write keeps
+    /// addressing the fixed pitch; `width`/`height` are what the compositor
+    /// shows (dock, snap, damage clamps, surface sizes).
+    pub fn for_visible(width: u32, height: u32) -> Result<Self> {
         let stride = checked_stride(VISIBLE_BOOTSTRAP_WIDTH)?;
-        Ok(Self {
-            width: VISIBLE_BOOTSTRAP_WIDTH,
-            height: VISIBLE_BOOTSTRAP_HEIGHT,
-            stride,
-            format: VISIBLE_BOOTSTRAP_FORMAT,
-        })
+        Ok(Self { width, height, stride, format: VISIBLE_BOOTSTRAP_FORMAT }.validate()?)
     }
 
     pub fn validate(self) -> Result<Self> {
-        if self.width != VISIBLE_BOOTSTRAP_WIDTH || self.height != VISIBLE_BOOTSTRAP_HEIGHT {
+        // The visible mode may be SMALLER than the fixed layout (the plane
+        // rows are laid out for the maximum); never larger, never zero.
+        if self.width == 0
+            || self.height == 0
+            || self.width > VISIBLE_BOOTSTRAP_WIDTH
+            || self.height > VISIBLE_BOOTSTRAP_HEIGHT
+        {
             return Err(WindowdError::InvalidDimensions);
         }
         if self.format != PixelFormat::Bgra8888 {
             return Err(WindowdError::UnsupportedFormat);
         }
-        if self.stride != checked_stride(self.width)? {
+        // `stride` is the FIXED layout pitch, not width-derived.
+        if self.stride != checked_stride(VISIBLE_BOOTSTRAP_WIDTH)? {
             return Err(WindowdError::InvalidStride);
         }
         let _ = checked_len(self.stride, self.height)?;

@@ -266,8 +266,15 @@ mod tests {
     #[test]
     fn visible_bootstrap_rejects_invalid_mode_and_capability() {
         let mode = VisibleBootstrapMode::fixed().expect("fixed mode");
+        // Visible modes ≤ the fixed layout are VALID (dynamic display info);
+        // zero or above-layout dimensions are rejected.
+        assert!(VisibleBootstrapMode { width: 1024, ..mode }.validate().is_ok());
         assert_eq!(
-            VisibleBootstrapMode { width: 1024, ..mode }.validate(),
+            VisibleBootstrapMode { width: 0, ..mode }.validate(),
+            Err(WindowdError::InvalidDimensions)
+        );
+        assert_eq!(
+            VisibleBootstrapMode { width: 1281, ..mode }.validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(

@@ -418,14 +418,42 @@ impl CtrlQueue {
     /// chain) WITHOUT waiting for completion. The caller `drain`s the batch later
     /// and may inspect the response at the returned slot. `first`+`second` are
     /// concatenated into the slot's command buffer (`second` empty = single blob).
+    ///
+    /// The response descriptor advertises only the 24-byte control header —
+    /// enough for every `RESP_OK_NODATA`/error reply. Data-carrying replies
+    /// (`GET_DISPLAY_INFO`) go through [`Self::enqueue_pair_resp_len`]: the
+    /// device caps its write at the descriptor length, so a header-sized
+    /// window silently TRUNCATES the payload to zeros.
     pub(crate) fn enqueue_pair(
         &mut self,
         mmio_base: usize,
         first: &[u8],
         second: &[u8],
     ) -> Result<RingSlot, GfxError> {
+        self.enqueue_pair_resp_len(
+            mmio_base,
+            first,
+            second,
+            core::mem::size_of::<protocol::VirtioGpuCtrlHdr>(),
+        )
+    }
+
+    /// [`Self::enqueue_pair`] with an explicit device-writable response window
+    /// (`resp_len ≤ RESP_SLOT_SIZE`) for data-carrying replies.
+    pub(crate) fn enqueue_pair_resp_len(
+        &mut self,
+        mmio_base: usize,
+        first: &[u8],
+        second: &[u8],
+        resp_len: usize,
+    ) -> Result<RingSlot, GfxError> {
         let total = first.len().checked_add(second.len()).ok_or(GfxError::ResourceExhausted)?;
         if total == 0 || total > 4096 || core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() > total
+        {
+            return Err(GfxError::CommandRejected);
+        }
+        if resp_len < core::mem::size_of::<protocol::VirtioGpuCtrlHdr>()
+            || resp_len > RESP_SLOT_SIZE
         {
             return Err(GfxError::CommandRejected);
         }
@@ -451,12 +479,7 @@ impl CtrlQueue {
             );
             core::ptr::write_volatile(
                 self.desc.add(slot.resp_desc()),
-                VqDesc {
-                    addr: resp_pa,
-                    len: core::mem::size_of::<protocol::VirtioGpuCtrlHdr>() as u32,
-                    flags: 2,
-                    next: 0,
-                },
+                VqDesc { addr: resp_pa, len: resp_len as u32, flags: 2, next: 0 },
             );
         }
         self.publish(mmio_base, slot);
@@ -593,12 +616,13 @@ impl CtrlQueue {
         mmio_base: usize,
         cmd: &[u8],
     ) -> Result<(u32, u32), GfxError> {
-        let slot = self.enqueue_pair(mmio_base, cmd, &[])?;
+        let slot = self.enqueue_pair_resp_len(mmio_base, cmd, &[], RESP_SLOT_SIZE)?;
         self.wait_slot(slot)?;
         let va = self.resp_slot_va(slot);
         let hdr =
             unsafe { core::ptr::read_volatile(va as *const protocol::VirtioGpuCtrlHdr) };
         if hdr.type_ != protocol::VIRTIO_GPU_RESP_OK_DISPLAY_INFO {
+            raw_diag_line(b"gpud: dinfo hdr", &[hdr.type_]);
             return Err(GfxError::CommandRejected);
         }
         let mode = unsafe {
@@ -608,6 +632,10 @@ impl CtrlQueue {
             )
         };
         if mode.enabled == 0 || mode.r.width == 0 || mode.r.height == 0 {
+            raw_diag_line(
+                b"gpud: dinfo mode",
+                &[mode.enabled, mode.r.width, mode.r.height],
+            );
             return Err(GfxError::CommandRejected);
         }
         Ok((mode.r.width, mode.r.height))
@@ -650,4 +678,42 @@ impl CtrlQueue {
         }
         Err(GfxError::CommandRejected)
     }
+}
+
+/// Fold-immune diagnostic line: `<label> v0 v1 …` via the raw atomic
+/// [`nexus_abi::debug_write`] syscall (bypasses verdict folding — these
+/// fire only on device-reply anomalies and must never be swallowed).
+/// Alloc-free: bounded stack buffer, decimal rendering.
+fn raw_diag_line(label: &[u8], vals: &[u32]) {
+    let mut buf = [0u8; 96];
+    let mut p = 0usize;
+    let mut put = |buf: &mut [u8; 96], p: &mut usize, s: &[u8]| {
+        for &b in s {
+            if *p < buf.len() {
+                buf[*p] = b;
+                *p += 1;
+            }
+        }
+    };
+    put(&mut buf, &mut p, label);
+    for &v in vals {
+        put(&mut buf, &mut p, b" ");
+        let mut tmp = [0u8; 10];
+        let mut n = 0;
+        let mut v = v;
+        loop {
+            tmp[n] = b'0' + (v % 10) as u8;
+            v /= 10;
+            n += 1;
+            if v == 0 {
+                break;
+            }
+        }
+        while n > 0 {
+            n -= 1;
+            put(&mut buf, &mut p, &tmp[n..=n]);
+        }
+    }
+    put(&mut buf, &mut p, b"\n");
+    let _ = nexus_abi::debug_write(&buf[..p]);
 }

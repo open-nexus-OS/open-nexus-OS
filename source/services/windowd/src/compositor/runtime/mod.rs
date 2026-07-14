@@ -66,8 +66,8 @@ const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPU_UPLOAD_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
 const GPUD_STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
-const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
-const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
+pub(crate) const GPUD_FALLBACK_SEND_SLOT: u32 = 5;
+pub(crate) const GPUD_FALLBACK_RECV_SLOT: u32 = 6;
 const FIRST_HANDOFF_DEADLINE_NS: u64 = 1_000_000_000;
 use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
@@ -684,7 +684,14 @@ fn alloc_band_or_log(
 }
 
 impl DisplayServerRuntime {
+    /// The fixed-maximum 1280×800 mode (tests + host harness).
     pub(crate) fn new() -> Result<Self, WindowdError> {
+        Self::new_with_mode(crate::compositor::DISPLAY_WIDTH, crate::compositor::DISPLAY_HEIGHT)
+    }
+
+    /// Boot entry: the VISIBLE mode gpud resolved from the device (≤ the
+    /// fixed shared-VMO layout; `mode.stride` stays the fixed layout pitch).
+    pub(crate) fn new_with_mode(visible_w: u32, visible_h: u32) -> Result<Self, WindowdError> {
         let _ = debug_println(RUNTIME_INIT_START);
         // Runtime text (TASK-0070 Phase 6): dynamic text renders from the baked
         // glyph atlases of the manifest-default face (`ui.font.family` key shape).
@@ -692,7 +699,7 @@ impl DisplayServerRuntime {
             "windowd: font family={} sizes=13,16",
             crate::assets::FONT_FAMILY
         ));
-        let mode = VisibleBootstrapMode::fixed()?.validate()?;
+        let mode = VisibleBootstrapMode::for_visible(visible_w, visible_h)?;
 
         // Resolve the active shell from SystemUI's declarative manifest registry
         // (the boot default product). This drives the compositor chrome instead of

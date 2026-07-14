@@ -399,6 +399,78 @@ fn dispatch_client_frame(
     }
 }
 
+/// One bounded blocking `OP_GET_DISPLAY_MODE` round-trip to gpud (the mode
+/// it resolved at probe). Fallback = the fixed 1280×800 layout maximum on
+/// ANY failure — route wait exhausted, timeout, malformed reply. The
+/// temporary client drops before the runtime builds its own gpud connection.
+fn query_gpud_display_mode() -> (u32, u32) {
+    #[cfg(nexus_env = "os")]
+    {
+        use nexus_ipc::{Client as _, KernelClient, Wait};
+        // Fold-immune outcome line (raw atomic debug_write): fires once at
+        // boot and decides the session's visible mode — it must never be
+        // swallowed by verdict folding (windowd is armed by this point).
+        fn raw_line(s: &str) {
+            let _ = nexus_abi::debug_write(s.as_bytes());
+            let _ = nexus_abi::debug_write(b"\n");
+        }
+        let fallback = (DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        // Use the init-wired persistent windowd↔gpud pair (slots 5/6 — the
+        // same pair the runtime's fallback path uses), NOT a minted route:
+        // this early in boot a `new_for("gpud")` mint races the init
+        // ctrl-plane (its handshake reply lands on the fresh recv slot) and
+        // gpud never sees the request. The wired pair is pre-granted before
+        // windowd resumes, and `KernelClient` holds only slot numbers (no
+        // close on drop), so the temporary client leaves the slots intact
+        // for the runtime.
+        let Ok(client) = KernelClient::new_with_slots(
+            runtime::GPUD_FALLBACK_SEND_SLOT,
+            runtime::GPUD_FALLBACK_RECV_SLOT,
+        ) else {
+            raw_line("windowd: display-mode query no slots (1280x800)");
+            return fallback;
+        };
+        while client.recv(Wait::NonBlocking).is_ok() {}
+        let req = [nexus_display_proto::OP_GET_DISPLAY_MODE];
+        if client.send(&req, Wait::Timeout(core::time::Duration::from_millis(500))).is_err() {
+            raw_line("windowd: display-mode query send fail (1280x800)");
+            return fallback;
+        }
+        // gpud resolves the mode during probe (before serving); a freshly
+        // registered gpud may still be running its virgl selftests — give the
+        // reply a generous bound. Only a genuinely wedged gpud ever pays it.
+        // Skip (bounded) any non-reply frame that still slips through.
+        for _ in 0..4 {
+            match client.recv(Wait::Timeout(core::time::Duration::from_millis(3000))) {
+                Ok(reply) => match nexus_display_proto::decode_display_mode_reply(&reply) {
+                    Some((w, h)) if w > 0 && h > 0 => {
+                        raw_line(&alloc::format!("windowd: display mode {w}x{h}"));
+                        return (u32::from(w), u32::from(h));
+                    }
+                    _ => {
+                        let n = reply.len().min(8);
+                        raw_line(&alloc::format!(
+                            "windowd: display-mode skip frame len={} b={:?}",
+                            reply.len(),
+                            &reply[..n]
+                        ));
+                    }
+                },
+                Err(_) => {
+                    raw_line("windowd: display-mode query timeout (1280x800)");
+                    return fallback;
+                }
+            }
+        }
+        raw_line("windowd: display-mode no reply (1280x800)");
+        fallback
+    }
+    #[cfg(not(nexus_env = "os"))]
+    {
+        (DISPLAY_WIDTH, DISPLAY_HEIGHT)
+    }
+}
+
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Verdict folding: fold windowd's scattered `debug_println` bring-up markers (route/shell/
     // wallpaper/handoff/present…) into one `windowd N/N` grid line in interactive boots. Flushed
@@ -411,7 +483,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
             KernelServer::new_with_slots(3, 4).map_err(|_| "windowd: init fail kernel-server")?
         }
     };
-    let mut runtime = match DisplayServerRuntime::new() {
+    // Resolve the VISIBLE display mode from gpud BEFORE anything sizes to it
+    // (gpud resolved it at probe from the device's GET_DISPLAY_INFO; the
+    // framebuffer-handoff ack would be far too late — atlas/dock/damage all
+    // derive from the mode). One bounded blocking round-trip; any failure
+    // keeps the 1280×800 fixed-layout default. The shared-VMO layout stays
+    // at the fixed maximum regardless — only the visible sub-rect follows.
+    let (visible_w, visible_h) = query_gpud_display_mode();
+    let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {
             let _ = debug_println(READY_MARKER);
             rt
