@@ -119,6 +119,9 @@ impl DisplayServerRuntime {
         // The launch surfaced: stop the wait ring (one waiter done).
         if fresh_launch {
             self.end_cursor_wait();
+            // A NEW window follows its declared intent — clear any stale WM
+            // mode override left in the reused slot.
+            self.apps[idx].wm_mode = None;
         }
         let wid = crate::window_scene::WindowId::App(idx as u8);
         // The declared intent rides ATOMICALLY on the create frame (the old
@@ -565,7 +568,9 @@ impl DisplayServerRuntime {
         crate::surface_presentation::WindowPresentation::resolve(
             self.apps[idx].intent_style,
             self.apps[idx].intent_level,
-            self.apps[idx].intent_mode,
+            // WM override (app-menu mode switch) wins over the declared
+            // intent; a fresh launch cleared it back to the intent.
+            self.apps[idx].wm_mode.unwrap_or(self.apps[idx].intent_mode),
             self.apps[idx].intent_resizable,
             self.windowing_policy,
         )

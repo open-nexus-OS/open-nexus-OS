@@ -1,0 +1,152 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// stash window state: the window-kit STORE CONTRACT + the SELECTION that
+// drives the properties pane and the floating action bar (the window
+// design's reactivity: what is selected decides what both show). WinAct
+// window actions forward to windowd (`window.control`); file actions are
+// demo no-ops (they close the menu / clear the selection honestly).
+
+Store StashStore {
+    section: Str = "pictures",
+    menu: Str = "",
+    leftOpen: Int = 1,
+    rightOpen: Int = 1,
+    tool: Str = "",
+    selection: Str = "",
+    selName: Str = "",
+    selKind: Str = "",
+    selSize: Str = "",
+    selDate: Str = "",
+    applyError: Int = 0,
+}
+
+Event StashEvent {
+    WinMenu(Str),
+    WinMenuPick(Str),
+    WinNoop,
+    WinLeft,
+    WinRight,
+    WinTool(Str),
+    WinAct(Str),
+    Pick(Str, Str, Str, Str, Str),
+    Applied(Bool),
+    ApplyFailed(Int),
+}
+
+reduce StashEvent {
+    WinMenu(m) => {
+        if state.menu == m {
+            state.menu = "";
+        } else {
+            state.menu = m;
+        }
+    },
+    WinMenuPick(id) => {
+        if id == "more.datei" {
+            state.menu = "more.datei";
+        } else {
+            if id == "more.ansicht" {
+                state.menu = "more.ansicht";
+            } else {
+                if id == "nav.recent" {
+                    state.section = "recent";
+                    state.menu = "";
+                } else {
+                    if id == "nav.pictures" {
+                        state.section = "pictures";
+                        state.menu = "";
+                    } else {
+                        if id == "nav.videos" {
+                            state.section = "videos";
+                            state.menu = "";
+                        } else {
+                            if id == "nav.audio" {
+                                state.section = "audio";
+                                state.menu = "";
+                            } else {
+                                if id == "nav.docs" {
+                                    state.section = "docs";
+                                    state.menu = "";
+                                } else {
+                                    if id == "nav.downloads" {
+                                        state.section = "downloads";
+                                        state.menu = "";
+                                    } else {
+                                        if id == "nav.storage" {
+                                            state.section = "storage";
+                                            state.menu = "";
+                                        } else {
+                                            if id == "nav.trash" {
+                                                state.section = "trash";
+                                                state.menu = "";
+                                            } else {
+                                                state.menu = "";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    WinNoop => state.menu = state.menu,
+    WinLeft => {
+        if state.leftOpen == 1 {
+            state.leftOpen = 0;
+        } else {
+            state.leftOpen = 1;
+        }
+    },
+    WinRight => {
+        if state.rightOpen == 1 {
+            state.rightOpen = 0;
+        } else {
+            state.rightOpen = 1;
+        }
+    },
+    WinTool(t) => {
+        if state.tool == t {
+            state.tool = "";
+        } else {
+            state.tool = t;
+        }
+    },
+    WinAct(a) => {
+        // File actions are demo: "delete" clears the selection (the honest
+        // visible effect), everything else just closes any open menu. The
+        // window.* actions run through the effect below regardless.
+        if a == "delete" {
+            state.selection = "";
+            state.selName = "";
+        }
+        state.menu = "";
+    },
+    Pick(id, name, kind, size, date) => {
+        if state.selection == id {
+            state.selection = "";
+            state.selName = "";
+            state.selKind = "";
+            state.selSize = "";
+            state.selDate = "";
+        } else {
+            state.selection = id;
+            state.selName = name;
+            state.selKind = kind;
+            state.selSize = size;
+            state.selDate = date;
+        }
+    },
+    Applied(ok) => state.applyError = 0,
+    ApplyFailed(code) => state.applyError = code,
+}
+
+@effect on WinAct(a) {
+    match svc.settings.set("window.control", a, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}

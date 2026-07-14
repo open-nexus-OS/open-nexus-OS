@@ -240,6 +240,11 @@ pub(crate) struct AppWindowSlot {
     /// window without any wire-visible window id (fail-closed: no match =
     /// no action).
     pub(crate) owner_sid: u64,
+    /// WM mode OVERRIDE (`CONTROL_WIN_MODE` — the app-menu Split/Fullscreen/
+    /// Freeform actions): `None` = follow the app's DECLARED intent. Kept
+    /// separate so a surface re-create (which re-sends the static declared
+    /// intent) cannot revert a user-chosen mode; a FRESH launch resets it.
+    pub(crate) wm_mode: Option<u8>,
     pub(crate) intent_resizable: bool,
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
@@ -344,6 +349,7 @@ impl AppWindowSlot {
             intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
             intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
             owner_sid: 0,
+            wm_mode: None,
             intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channel: None,

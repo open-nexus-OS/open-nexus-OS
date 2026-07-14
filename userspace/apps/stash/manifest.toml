@@ -1,0 +1,20 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: stash — the file-manager DEMO app in the design-handoff window
+# frame (02-os-app-window): window-kit chrome, nav sidebar, breadcrumb +
+# file list, properties pane and floating action bar that both REACT to the
+# selection (the window-design selection-reactivity proof). Static demo
+# data until a real file service lands (honest demo — no fake VFS).
+
+name = "stash"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "app"
+icon = "folder"
+payload_kind = "ui-program"
+abilities = ["stash.MainAbility"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]
+dependencies = ["window-kit"]
+provides = []
+resources = []

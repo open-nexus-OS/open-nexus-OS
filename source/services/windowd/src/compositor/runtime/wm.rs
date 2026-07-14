@@ -264,7 +264,8 @@ impl DisplayServerRuntime {
         use nexus_display_proto::client_surface as wire;
         let wid = WindowId::App(idx as u8);
         let full_now = self.windows.is_fullscreen(wid)
-            || self.apps[idx].intent_mode == wire::WIN_MODE_FULLSCREEN;
+            || self.apps[idx].wm_mode.unwrap_or(self.apps[idx].intent_mode)
+                == wire::WIN_MODE_FULLSCREEN;
         let mode = match value {
             wire::WIN_MODE_AUTO => {
                 if full_now {
@@ -277,7 +278,7 @@ impl DisplayServerRuntime {
         };
         match mode {
             wire::WIN_MODE_FULLSCREEN => {
-                self.apps[idx].intent_mode = wire::WIN_MODE_FULLSCREEN;
+                self.apps[idx].wm_mode = Some(wire::WIN_MODE_FULLSCREEN);
                 if !self.windows.is_fullscreen(wid) {
                     // Reuses the WM toggle: work-area frame, band residency,
                     // content-rect push, full damage.
@@ -291,7 +292,7 @@ impl DisplayServerRuntime {
                 // Presentation-only: the INTENT becomes freeform (a split
                 // window is a positioned floating window); the frame snaps
                 // to the left work-area half.
-                self.apps[idx].intent_mode = wire::WIN_MODE_FREEFORM;
+                self.apps[idx].wm_mode = Some(wire::WIN_MODE_FREEFORM);
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }
@@ -306,7 +307,7 @@ impl DisplayServerRuntime {
                 // Free form: a centered floating default in the work area
                 // ("bis nach oben" allowed — y may reach 0; the shell top
                 // bar composites above every window regardless).
-                self.apps[idx].intent_mode = wire::WIN_MODE_FREEFORM;
+                self.apps[idx].wm_mode = Some(wire::WIN_MODE_FREEFORM);
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }

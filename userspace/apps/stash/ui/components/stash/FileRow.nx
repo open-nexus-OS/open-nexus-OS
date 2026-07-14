@@ -1,0 +1,52 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One file-list row (design handoff 02: Name · Datum · Größe columns):
+// tapping SELECTS the file (toggle) — the properties pane and the floating
+// action bar react to that selection. Accent fill marks the selected row.
+
+Component FileRow {
+    props: {
+        id: Str,
+        name: Str,
+        kind: Str,
+        date: Str,
+        size: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onAccent)
+            Text($props.name).textSize(sm).fg(onAccent)
+            Spacer
+            Text($props.date).textSize(xs).fg(onAccent)
+            Text($props.size).textSize(xs).fg(onAccent)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(40)
+        .rounded(md)
+        .bg(accent)
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onSurfaceVariant)
+            Text($props.name).textSize(sm).fg(onSurface)
+            Spacer
+            Text($props.date).textSize(xs).fg(onSurfaceVariant)
+            Text($props.size).textSize(xs).fg(onSurfaceVariant)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(40)
+        .rounded(md)
+        on Tap -> dispatch(Pick($props.id, $props.name, $props.kind, $props.size, $props.date))
+    }
+}

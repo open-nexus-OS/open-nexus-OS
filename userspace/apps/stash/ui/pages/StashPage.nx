@@ -1,0 +1,243 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// stash — the file-manager DEMO in the design-handoff window frame
+// (02-os-app-window): window-kit chrome (app menu with REAL window
+// controls, ⋯ menu with cascading flyouts, sidebar toggles, toolbar
+// slots), nav sidebar, breadcrumb + file list, and the SELECTION
+// REACTIVITY proof: the properties pane shows the selected file and the
+// floating action bar swaps its actions when something is selected.
+// Static demo rows (no fake VFS — an honest demo data set).
+
+Window {
+    style: plain,
+    mode: fullscreen,
+    resizable: false,
+}
+
+Page StashPage {
+    Stack {
+        // Fullscreen chrome inset: the window sits BEHIND the shell top bar.
+        Stack { }
+            .height(40)
+        WinTopBar { icon: "folder", tool1: "magnifyingglass", tool2: "arrow.up.arrow.down", tool3: "list.bullet" }
+        Stack {
+            if $state.leftOpen == 1 {
+                Stack {
+                    Text(@t("stash.nav")).textSize(xs).fg(onSurfaceVariant)
+                    WinSideItem { id: "nav.recent", label: @t("stash.recent"), sub: "", icon: "star", active: $state.section == "recent" }
+                    WinSideItem { id: "nav.pictures", label: @t("stash.pictures"), sub: "", icon: "photo", active: $state.section == "pictures" }
+                    WinSideItem { id: "nav.videos", label: @t("stash.videos"), sub: "", icon: "film", active: $state.section == "videos" }
+                    WinSideItem { id: "nav.audio", label: @t("stash.audio"), sub: "", icon: "music.note", active: $state.section == "audio" }
+                    WinSideItem { id: "nav.docs", label: @t("stash.docs"), sub: "", icon: "doc", active: $state.section == "docs" }
+                    WinSideItem { id: "nav.downloads", label: @t("stash.downloads"), sub: "", icon: "arrow.down.circle", active: $state.section == "downloads" }
+                    WinSideItem { id: "nav.storage", label: @t("stash.storage"), sub: "", icon: "internaldrive", active: $state.section == "storage" }
+                    WinSideItem { id: "nav.trash", label: @t("stash.trash"), sub: "", icon: "trash", active: $state.section == "trash" }
+                    Spacer
+                    Stack {
+                        Circle { size: 26
+                            Icon { symbol: "person", size: 14 }
+                                .fg(onSurface)
+                        }
+                        .material(subtle)
+                        Stack {
+                            Text(@t("stash.userName")).textSize(sm).fg(onSurface)
+                            Text(@t("stash.userSub")).textSize(xs).fg(onSurfaceVariant)
+                        }
+                        .gap(0)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .paddingX(2)
+                }
+                .width(240)
+                .gap(1)
+                .padding(3)
+            } else {
+                Stack { }
+            }
+            Stack {
+                Panel {
+                    Stack {
+                        Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
+                        Icon { symbol: "chevron.right", size: 12 }
+                            .fg(onSurfaceVariant)
+                        Text(@t("stash.pictures")).textSize(sm).fg(onSurfaceVariant)
+                        Icon { symbol: "chevron.right", size: 12 }
+                            .fg(onSurfaceVariant)
+                        Text(@t("stash.folder")).textSize(sm).fg(onSurface)
+                        Spacer
+                        Text(@t("stash.objects")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(1)
+                    Stack {
+                        Text(@t("stash.colName")).textSize(xs).fg(onSurfaceVariant)
+                        Spacer
+                        Text(@t("stash.colDate")).textSize(xs).fg(onSurfaceVariant)
+                        Text(@t("stash.colSize")).textSize(xs).fg(onSurfaceVariant)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .paddingX(2)
+                    FileRow { id: "f1", name: "IMG_4521.jpg", kind: "JPEG", date: "12.05.2026", size: "4,2 MB", icon: "photo", active: $state.selection == "f1" }
+                    FileRow { id: "f2", name: "IMG_4522.jpg", kind: "JPEG", date: "12.05.2026", size: "3,8 MB", icon: "photo", active: $state.selection == "f2" }
+                    FileRow { id: "f3", name: "DSC_0042.jpg", kind: "JPEG", date: "13.05.2026", size: "6,3 MB", icon: "photo", active: $state.selection == "f3" }
+                    FileRow { id: "f4", name: "Panorama_Beach.jpg", kind: "JPEG", date: "14.05.2026", size: "12,4 MB", icon: "photo", active: $state.selection == "f4" }
+                    FileRow { id: "f5", name: "VID_20260514.mp4", kind: "MP4", date: "14.05.2026", size: "48,2 MB", icon: "film", active: $state.selection == "f5" }
+                    FileRow { id: "f6", name: "Reisekosten.xlsx", kind: "XLSX", date: "15.05.2026", size: "284 KB", icon: "doc", active: $state.selection == "f6" }
+                    Spacer
+                    // Floating action bar (design handoff `WindowActionBar`):
+                    // the item set IS the selection reactivity — no selection
+                    // = create/sort actions, a selected file = file actions.
+                    Stack {
+                        Spacer
+                        Panel {
+                            if $state.selection == "" {
+                                Stack {
+                                    WinActionItem { id: "new", label: @t("stash.actNew"), icon: "plus", kind: "primary" }
+                                    WinActionItem { id: "sort", label: @t("stash.actSort"), icon: "arrow.up.arrow.down", kind: "" }
+                                    WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
+                                }
+                                .direction(row)
+                                .align(center)
+                                .gap(1)
+                            } else {
+                                Stack {
+                                    WinActionItem { id: "move", label: @t("stash.actMove"), icon: "move", kind: "primary" }
+                                    WinActionItem { id: "copy", label: @t("stash.actCopy"), icon: "doc.on.doc", kind: "" }
+                                    WinActionItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "" }
+                                    WinActionItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger" }
+                                    WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
+                                }
+                                .direction(row)
+                                .align(center)
+                                .gap(1)
+                            }
+                        }
+                        .padding(1)
+                        Spacer
+                    }
+                    .direction(row)
+                    .align(center)
+                }
+                .gap(1)
+            }
+            .grow(1)
+            .padding(3)
+            if $state.rightOpen == 1 {
+                Stack {
+                    Panel {
+                        Text(@t("stash.props")).textSize(sm).fg(onSurface)
+                        if $state.selection == "" {
+                            Text(@t("stash.propsEmpty")).textSize(xs).fg(onSurfaceVariant)
+                        } else {
+                            Stack {
+                                WinPropRow { label: @t("stash.propName"), value: $state.selName, icon: "doc" }
+                                WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "info.circle" }
+                                WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "internaldrive" }
+                                WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "pencil" }
+                                WinPropRow { label: @t("stash.propState"), value: @t("stash.propSync"), icon: "checkmark" }
+                            }
+                            .gap(0)
+                        }
+                    }
+                    .gap(1)
+                }
+                .width(260)
+                .padding(3)
+            } else {
+                Stack { }
+            }
+            if $state.menu == "" {
+                Stack { }
+            } else {
+                Stack {
+                    Stack {
+                        if $state.menu == "app" {
+                            Stack {
+                                Panel {
+                                    Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
+                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
+                                    WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
+                                    WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
+                                    Stack { }
+                                        .height(1)
+                                        .bg(border)
+                                    WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
+                                    WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
+                                }
+                                .width(230)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            Stack { }
+                        }
+                        Spacer
+                        if $state.menu == "more.datei" {
+                            Stack {
+                                Panel {
+                                    WinMenuItem { id: "new", label: @t("win.new"), icon: "plus", kind: "", act: true }
+                                    WinMenuItem { id: "share", label: @t("stash.actShare"), icon: "square.and.arrow.up", kind: "", act: true }
+                                    WinMenuItem { id: "delete", label: @t("stash.actDelete"), icon: "trash", kind: "danger", act: true }
+                                }
+                                .width(200)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            if $state.menu == "more.ansicht" {
+                                Stack {
+                                    Panel {
+                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check", act: false }
+                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "", act: false }
+                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "", act: false }
+                                    }
+                                    .width(220)
+                                    .gap(0)
+                                    .padding(1)
+                                }
+                                on Tap -> dispatch(WinNoop)
+                            } else {
+                                Stack { }
+                            }
+                        }
+                        if $state.menu == "more" {
+                            Stack {
+                                Panel {
+                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub", act: false }
+                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub", act: false }
+                                    Stack { }
+                                        .height(1)
+                                        .bg(border)
+                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "", act: false }
+                                }
+                                .width(210)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            Stack { }
+                        }
+                    }
+                    .direction(row)
+                    .align(start)
+                    .paddingX(2)
+                    .grow(1)
+                }
+                .overlay()
+                on Tap -> dispatch(WinMenu(""))
+            }
+        }
+        .direction(row)
+        .grow(1)
+    }
+    .grow(1)
+}
