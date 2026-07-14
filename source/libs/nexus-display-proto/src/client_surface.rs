@@ -166,6 +166,24 @@ pub const OP_SURFACE_THEME: u8 = 16;
 /// Theme modes (align with windowd `ThemeMode` + the DSL `LightTokens`/`DarkTokens`).
 pub const THEME_LIGHT: u8 = 0;
 pub const THEME_DARK: u8 = 1;
+/// The theme byte packs `mode | accent << 4`: the LOW nibble is the mode
+/// (`THEME_*`), the HIGH nibble the accent-palette index (0 = the theme's
+/// built-in accent — the historical byte layout, so old encoders stay
+/// valid). Split with these on decode.
+pub const THEME_MODE_MASK: u8 = 0x0F;
+pub const THEME_ACCENT_SHIFT: u8 = 4;
+
+/// Packs `mode` + accent-palette index into the theme byte.
+#[must_use]
+pub fn pack_theme(mode: u8, accent: u8) -> u8 {
+    (mode & THEME_MODE_MASK) | (accent << THEME_ACCENT_SHIFT)
+}
+
+/// Splits the theme byte → `(mode, accent)`.
+#[must_use]
+pub fn unpack_theme(byte: u8) -> (u8, u8) {
+    (byte & THEME_MODE_MASK, byte >> THEME_ACCENT_SHIFT)
+}
 
 pub const SURFACE_THEME_FRAME_LEN: usize = HEADER_LEN + 1;
 
@@ -280,6 +298,16 @@ pub const CONTROL_SHELL_PROFILE: u8 = 1; // value = PROFILE_*
 /// cursor (loading ring) until the fresh window's surface arrives (value
 /// unused). Fire-and-forget hint — losing it only skips the ring.
 pub const CONTROL_LAUNCH_PENDING: u8 = 2;
+/// The user picked an accent-palette color (settings → Erscheinungsbild).
+/// value = palette index (0 = the theme's built-in accent). windowd stores
+/// it and re-pushes `OP_SURFACE_THEME` with the packed byte to every app.
+pub const CONTROL_THEME_ACCENT: u8 = 3;
+/// App-chrome window controls (the app-icon dropdown of a client-chrome
+/// window): windowd applies the action to the SENDING client's window.
+/// value unused for minimize/close; for mode, value = `WIN_MODE_*`.
+pub const CONTROL_WIN_MINIMIZE: u8 = 4;
+pub const CONTROL_WIN_CLOSE: u8 = 5;
+pub const CONTROL_WIN_MODE: u8 = 6;
 
 pub const SURFACE_CONTROL_FRAME_LEN: usize = HEADER_LEN + 2;
 

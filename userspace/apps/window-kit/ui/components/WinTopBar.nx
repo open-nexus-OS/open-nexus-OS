@@ -1,0 +1,135 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The window's three-zone top chrome (design_handoff_open_nexus_os window
+// frame): LEADING app chip (window-mode menu) + left-sidebar toggle ·
+// CENTER toolbar slots (up to three tool icons; "" hides a slot) ·
+// TRAILING ⋯ app menu + properties-sidebar toggle + window controls.
+// Dispatches into the consuming app's WindowStore (see window-kit manifest
+// for the store contract).
+
+Component WinTopBar {
+    props: {
+        icon: Str,
+        tool1: Str,
+        tool2: Str,
+        tool3: Str,
+    }
+    Stack {
+        Circle { size: 26
+            Icon { symbol: $props.icon, size: 14 }
+                .fg(onSurface)
+        }
+        .material(subtle)
+        on Tap -> dispatch(WinMenu("app"))
+        Stack {
+            Icon { symbol: "sidebar.left", size: 15 }
+                .fg(onSurfaceVariant)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinLeft)
+        Spacer
+        if $props.tool1 != "" {
+            Stack {
+                Icon { symbol: $props.tool1, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinTool($props.tool1))
+        } else {
+            Stack { }
+        }
+        if $props.tool2 != "" {
+            Stack {
+                Icon { symbol: $props.tool2, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinTool($props.tool2))
+        } else {
+            Stack { }
+        }
+        if $props.tool3 != "" {
+            Stack {
+                Icon { symbol: $props.tool3, size: 15 }
+                    .fg(onSurfaceVariant)
+            }
+            .width(28)
+            .height(28)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinTool($props.tool3))
+        } else {
+            Stack { }
+        }
+        Spacer
+        Stack {
+            Icon { symbol: "ellipsis", size: 15 }
+                .fg(onSurfaceVariant)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinMenu("more"))
+        Stack {
+            Icon { symbol: "sidebar.right", size: 15 }
+                .fg(onSurfaceVariant)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinRight)
+        Stack {
+            Icon { symbol: "minus", size: 14 }
+                .fg(onSurfaceVariant)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinAct("minimize"))
+        Stack {
+            Icon { symbol: "square", size: 12 }
+                .fg(onSurfaceVariant)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinAct("zoom"))
+        Stack {
+            Icon { symbol: "xmark", size: 14 }
+                .fg(danger)
+        }
+        .width(28)
+        .height(28)
+        .rounded(md)
+        .align(center)
+        .justify(center)
+        on Tap -> dispatch(WinAct("close"))
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+    .paddingX(2)
+    .height(40)
+}

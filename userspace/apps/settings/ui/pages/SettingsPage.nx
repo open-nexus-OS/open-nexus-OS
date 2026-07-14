@@ -1,46 +1,78 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings (design handoff "OS Settings Window", compact layout): toolbar,
-// section-nav chip row (sidebar stand-in at the floating default size),
-// grouped setting rows per section. REAL function: Personalisierung →
-// light/dark via `svc.settings` (windowd re-themes live). Connection rows
-// are honest static placeholders (no radio services yet).
+// Settings in the design-handoff WINDOW frame (03-os-settings-window):
+// window-kit top chrome (app menu · sidebar toggles · toolbar slots · ⋯
+// menu with cascading flyouts) + nav sidebar + breadcrumb content pane +
+// optional properties pane. REAL function: Personalisierung →
+// Erscheinungsbild (light/dark + accent palette via `svc.settings`,
+// windowd applies live and persists). Every other section is demo look.
+
+Window {
+    style: plain,
+    mode: fullscreen,
+    resizable: false,
+}
 
 Page SettingsPage {
     Stack {
-        Toolbar { title: @t("settings.title") }
+        WinTopBar { icon: "gearshape", tool1: "magnifyingglass", tool2: "list.bullet", tool3: "" }
         Stack {
-            Stack {
-                SectionChip { label: @t("settings.connections"), active: $state.section == 0 }
-            }
-            on Tap -> dispatch(Select(0))
-            Stack {
-                SectionChip { label: @t("settings.personalization"), active: $state.section == 1 }
-            }
-            on Tap -> dispatch(Select(1))
-            Stack {
-                SectionChip { label: @t("settings.general"), active: $state.section == 2 }
-            }
-            on Tap -> dispatch(Select(2))
-        }
-        .direction(row)
-        .gap(1)
-        .padding(2)
-        Stack {
-            if $state.section == 0 {
-                Card {
+            if $state.leftOpen == 1 {
+                Stack {
+                    Text(@t("settings.title")).textSize(xs).fg(onSurfaceVariant)
+                    WinSideItem { id: "nav.connect", label: @t("settings.connections"), sub: @t("settings.connectionsSub"), icon: "wifi", active: $state.section == "connect" }
+                    WinSideItem { id: "nav.devices", label: @t("settings.devices"), sub: @t("settings.devicesSub"), icon: "bluetooth", active: $state.section == "devices" }
+                    WinSideItem { id: "nav.sound", label: @t("settings.sound"), sub: @t("settings.soundSub"), icon: "speaker.wave", active: $state.section == "sound" }
+                    WinSideItem { id: "nav.display", label: @t("settings.display"), sub: @t("settings.displaySub"), icon: "desktopcomputer", active: $state.section == "display" }
+                    WinSideItem { id: "nav.notify", label: @t("settings.notify"), sub: @t("settings.notifySub"), icon: "bell", active: $state.section == "notify" }
+                    WinSideItem { id: "nav.personal", label: @t("settings.personalization"), sub: @t("settings.personalSub"), icon: "paintpalette", active: $state.section == "personal" }
+                    WinSideItem { id: "nav.apps", label: @t("settings.apps"), sub: @t("settings.appsSub"), icon: "square.grid", active: $state.section == "apps" }
+                    WinSideItem { id: "nav.general", label: @t("settings.general"), sub: @t("settings.generalSub"), icon: "internaldrive", active: $state.section == "general" }
+                    Spacer
                     Stack {
-                        ListItem { title: @t("settings.wifi"), subtitle: @t("settings.wifiNet"), showChevron: true }
-                        ListItem { title: @t("settings.bluetooth"), subtitle: @t("settings.off"), showChevron: true }
-                        ListItem { title: @t("settings.dataUsage"), showChevron: true }
+                        Circle { size: 26
+                            Icon { symbol: "person", size: 14 }
+                                .fg(onSurface)
+                        }
+                        .material(subtle)
+                        Stack {
+                            Text(@t("settings.userName")).textSize(sm).fg(onSurface)
+                            Text(@t("settings.userSub")).textSize(xs).fg(onSurfaceVariant)
+                        }
+                        .gap(0)
                     }
-                    .gap(1)
-                    .padding(2)
+                    .direction(row)
+                    .align(center)
+                    .gap(2)
+                    .paddingX(2)
                 }
+                .width(250)
+                .gap(1)
+                .padding(3)
             } else {
-                if $state.section == 1 {
-                    Card {
+                Stack { }
+            }
+            Stack {
+                Panel {
+                    Stack {
+                        Text(@t("settings.title")).textSize(sm).fg(onSurfaceVariant)
+                        Icon { symbol: "chevron.right", size: 12 }
+                            .fg(onSurfaceVariant)
+                        if $state.section == "connect" {
+                            Text(@t("settings.connections")).textSize(sm).fg(onSurface)
+                        } else {
+                            if $state.section == "personal" {
+                                Text(@t("settings.personalization")).textSize(sm).fg(onSurface)
+                            } else {
+                                Text(@t("settings.general")).textSize(sm).fg(onSurface)
+                            }
+                        }
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(1)
+                    if $state.section == "personal" {
                         Stack {
                             Text(@t("settings.appearance")).textSize(sm).fg(onSurfaceVariant)
                             Stack {
@@ -51,30 +83,175 @@ Page SettingsPage {
                             }
                             .direction(row)
                             .gap(2)
+                            Text(@t("settings.accent")).textSize(sm).fg(onSurfaceVariant)
+                            Stack {
+                                Stack {
+                                    Chip { label: @t("settings.accentDefault"), selected: $state.accent == "default" }
+                                }
+                                on Tap -> dispatch(SetAccent("default"))
+                                Stack {
+                                    Chip { label: @t("settings.accentViolet"), selected: $state.accent == "violet" }
+                                }
+                                on Tap -> dispatch(SetAccent("violet"))
+                                Stack {
+                                    Chip { label: @t("settings.accentPink"), selected: $state.accent == "pink" }
+                                }
+                                on Tap -> dispatch(SetAccent("pink"))
+                                Stack {
+                                    Chip { label: @t("settings.accentRed"), selected: $state.accent == "red" }
+                                }
+                                on Tap -> dispatch(SetAccent("red"))
+                                Stack {
+                                    Chip { label: @t("settings.accentOrange"), selected: $state.accent == "orange" }
+                                }
+                                on Tap -> dispatch(SetAccent("orange"))
+                                Stack {
+                                    Chip { label: @t("settings.accentGreen"), selected: $state.accent == "green" }
+                                }
+                                on Tap -> dispatch(SetAccent("green"))
+                            }
+                            .direction(row)
+                            .wrap(true)
+                            .gap(1)
+                            Stack {
+                                Circle { size: 22 }
+                                    .bg(accent)
+                                Text(@t("settings.accentLive")).textSize(xs).fg(onSurfaceVariant)
+                            }
+                            .direction(row)
+                            .align(center)
+                            .gap(2)
                             if $state.applyError != 0 {
                                 Text(@t("settings.applyFailed")).fg(danger)
                             } else {
-                                Spacer
+                                Stack { }
                             }
                         }
                         .gap(2)
-                        .padding(2)
-                    }
-                } else {
-                    Card {
-                        Stack {
-                            ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
-                            ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
-                            ListItem { title: @t("settings.about"), showChevron: true }
+                    } else {
+                        if $state.section == "connect" {
+                            Stack {
+                                ListItem { title: @t("settings.wifi"), subtitle: @t("settings.wifiNet"), showChevron: true }
+                                ListItem { title: @t("settings.bluetooth"), subtitle: @t("settings.off"), showChevron: true }
+                                ListItem { title: @t("settings.dataUsage"), showChevron: true }
+                                ListItem { title: @t("settings.tethering"), showChevron: true }
+                            }
+                            .gap(1)
+                        } else {
+                            Stack {
+                                ListItem { title: @t("settings.language"), subtitle: @t("settings.languageValue"), showChevron: true }
+                                ListItem { title: @t("settings.time"), subtitle: @t("settings.timeValue"), showChevron: true }
+                                ListItem { title: @t("settings.about"), showChevron: true }
+                            }
+                            .gap(1)
                         }
-                        .gap(1)
-                        .padding(2)
                     }
                 }
+                .gap(3)
+            }
+            .grow(1)
+            .padding(3)
+            if $state.rightOpen == 1 {
+                Stack {
+                    Panel {
+                        Text(@t("settings.props")).textSize(sm).fg(onSurface)
+                        WinPropRow { label: @t("settings.propDevice"), value: @t("settings.propDeviceV"), icon: "desktopcomputer" }
+                        WinPropRow { label: @t("settings.propOs"), value: @t("settings.propOsV"), icon: "info.circle" }
+                        WinPropRow { label: @t("settings.propDisplay"), value: @t("settings.propDisplayV"), icon: "photo" }
+                    }
+                    .gap(1)
+                }
+                .width(260)
+                .padding(3)
+            } else {
+                Stack { }
+            }
+            if $state.menu == "" {
+                Stack { }
+            } else {
+                Stack {
+                    Stack {
+                        if $state.menu == "app" {
+                            Stack {
+                                Panel {
+                                    Text(@t("win.mode")).textSize(xs).fg(onSurfaceVariant)
+                                    WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "" }
+                                    WinMenuItem { id: "mode.full", label: @t("win.fullscreen"), icon: "maximize", kind: "check" }
+                                    WinMenuItem { id: "mode.free", label: @t("win.freeform"), icon: "square", kind: "" }
+                                    Stack { }
+                                        .height(1)
+                                        .bg(border)
+                                    WinMenuItem { id: "win.minimize", label: @t("win.minimize"), icon: "minimize", kind: "" }
+                                    WinMenuItem { id: "win.close", label: @t("win.close"), icon: "xmark", kind: "danger" }
+                                }
+                                .width(230)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            Stack { }
+                        }
+                        Spacer
+                        if $state.menu == "more.datei" {
+                            Stack {
+                                Panel {
+                                    WinMenuItem { id: "datei.neu", label: @t("win.new"), icon: "plus", kind: "" }
+                                    WinMenuItem { id: "datei.open", label: @t("win.open"), icon: "folder", kind: "" }
+                                    WinMenuItem { id: "datei.save", label: @t("win.save"), icon: "arrow.down.circle", kind: "" }
+                                }
+                                .width(200)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            if $state.menu == "more.ansicht" {
+                                Stack {
+                                    Panel {
+                                        WinMenuItem { id: "ansicht.liste", label: @t("win.viewList"), icon: "list.bullet", kind: "check" }
+                                        WinMenuItem { id: "ansicht.raster", label: @t("win.viewGrid"), icon: "square.grid.3x3", kind: "" }
+                                        WinMenuItem { id: "ansicht.props", label: @t("win.viewProps"), icon: "sidebar.right", kind: "" }
+                                    }
+                                    .width(220)
+                                    .gap(0)
+                                    .padding(1)
+                                }
+                                on Tap -> dispatch(WinNoop)
+                            } else {
+                                Stack { }
+                            }
+                        }
+                        if $state.menu == "more" {
+                            Stack {
+                                Panel {
+                                    WinMenuItem { id: "more.datei", label: @t("win.file"), icon: "doc", kind: "sub" }
+                                    WinMenuItem { id: "more.ansicht", label: @t("win.view"), icon: "eye", kind: "sub" }
+                                    Stack { }
+                                        .height(1)
+                                        .bg(border)
+                                    WinMenuItem { id: "help", label: @t("win.help"), icon: "info.circle", kind: "" }
+                                }
+                                .width(210)
+                                .gap(0)
+                                .padding(1)
+                            }
+                            on Tap -> dispatch(WinNoop)
+                        } else {
+                            Stack { }
+                        }
+                    }
+                    .direction(row)
+                    .align(start)
+                    .paddingX(2)
+                    .grow(1)
+                }
+                .overlay()
+                on Tap -> dispatch(WinMenu(""))
             }
         }
+        .direction(row)
         .grow(1)
-        .padding(2)
     }
-    .gap(0)
+    .grow(1)
 }

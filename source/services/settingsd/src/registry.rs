@@ -34,6 +34,13 @@ fn is_theme_mode(v: &str) -> bool {
     matches!(v, "dark" | "light")
 }
 
+fn is_theme_accent(v: &str) -> bool {
+    // The curated accent palette (`nexus-theme-tokens::ACCENT_PALETTE`) +
+    // "default" (the theme's built-in accent). Kept as a literal list — this
+    // crate is windowd-independent and the palette is append-only.
+    matches!(v, "default" | "violet" | "pink" | "red" | "orange" | "green")
+}
+
 fn is_font_family(v: &str) -> bool {
     // One vendored face today; the key shape is what ships (live switching is
     // a follow-up — the validator grows with the font registry).
@@ -58,6 +65,7 @@ fn is_locale(v: &str) -> bool {
 /// adding a row here; unknown keys are refused on every path.
 const SPECS: &[KeySpec] = &[
     KeySpec { key: "ui.theme.mode", default: "dark", validate: is_theme_mode },
+    KeySpec { key: "ui.theme.accent", default: "default", validate: is_theme_accent },
     KeySpec { key: "ui.shell.mode", default: "tablet", validate: is_shell_mode },
     KeySpec { key: "ui.font.family", default: "inter", validate: is_font_family },
     KeySpec { key: "ui.locale", default: "de-DE", validate: is_locale },

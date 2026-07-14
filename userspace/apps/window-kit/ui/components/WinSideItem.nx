@@ -1,0 +1,61 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One navigation-sidebar row (design handoff `Sidebar`): icon + title
+// (+ optional subtitle), accent-filled when active. Tap dispatches
+// `WinMenuPick(id)` — the app's reducer routes nav ids (by convention
+// prefixed "nav.") to its section state.
+
+Component WinSideItem {
+    props: {
+        id: Str,
+        label: Str,
+        sub: Str,
+        icon: Str,
+        active: Bool,
+    }
+    if $props.active {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onAccent)
+            Stack {
+                Text($props.label).textSize(sm).fg(onAccent)
+                if $props.sub != "" {
+                    Text($props.sub).textSize(xs).fg(onAccent)
+                } else {
+                    Stack { }
+                }
+            }
+            .gap(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(44)
+        .rounded(lg)
+        .bg(accent)
+        on Tap -> dispatch(WinMenuPick($props.id))
+    } else {
+        Stack {
+            Icon { symbol: $props.icon, size: 15 }
+                .fg(onSurfaceVariant)
+            Stack {
+                Text($props.label).textSize(sm).fg(onSurface)
+                if $props.sub != "" {
+                    Text($props.sub).textSize(xs).fg(onSurfaceVariant)
+                } else {
+                    Stack { }
+                }
+            }
+            .gap(0)
+        }
+        .direction(row)
+        .align(center)
+        .gap(2)
+        .paddingX(2)
+        .height(44)
+        .rounded(lg)
+        on Tap -> dispatch(WinMenuPick($props.id))
+    }
+}

@@ -1072,12 +1072,48 @@ mod probe {
     static LIGHT_TOKENS: nexus_dsl_runtime::theme_tokens::LightTokens =
         nexus_dsl_runtime::theme_tokens::LightTokens;
 
-    /// The token set for a wire theme mode — so the app renders with the SAME
-    /// tokens the compositor pushed (dark desktop ⇒ dark app).
-    fn tokens_for(mode: u8) -> &'static dyn nexus_dsl_runtime::theme_tokens::Tokens {
-        match mode {
-            wire::THEME_DARK => &DARK_TOKENS,
-            wire::THEME_LIGHT => &LIGHT_TOKENS,
+    /// One accent-overridden snapshot per palette entry × mode (alloc-free —
+    /// `tokens_for` returns `&'static`). Index = palette index − 1.
+    const fn accented(
+        base: &'static (dyn nexus_dsl_runtime::theme_tokens::Tokens + Sync),
+        idx: u8,
+        dark: bool,
+    ) -> nexus_dsl_runtime::theme_tokens::AccentTokens {
+        let accent = match nexus_dsl_runtime::theme_tokens::accent_color(idx, dark) {
+            Some(c) => c,
+            // Unreachable for 1..=5; keep the built-in blue as a safe value.
+            None => nexus_layout_types::Rgba8::new(59, 130, 246, 255),
+        };
+        nexus_dsl_runtime::theme_tokens::AccentTokens { base, accent }
+    }
+    static ACCENTED_DARK: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
+        accented(&DARK_TOKENS, 1, true),
+        accented(&DARK_TOKENS, 2, true),
+        accented(&DARK_TOKENS, 3, true),
+        accented(&DARK_TOKENS, 4, true),
+        accented(&DARK_TOKENS, 5, true),
+    ];
+    static ACCENTED_LIGHT: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
+        accented(&LIGHT_TOKENS, 1, false),
+        accented(&LIGHT_TOKENS, 2, false),
+        accented(&LIGHT_TOKENS, 3, false),
+        accented(&LIGHT_TOKENS, 4, false),
+        accented(&LIGHT_TOKENS, 5, false),
+    ];
+
+    /// The token set for a PACKED wire theme byte (`mode | accent << 4`) — the
+    /// app renders with the SAME tokens the compositor pushed (dark desktop ⇒
+    /// dark app; user accent ⇒ accented widgets). The packed byte flows
+    /// through `theme_mode` unchanged, so an accent switch re-mounts via the
+    /// same `mode != theme_mode` path as a light/dark toggle.
+    fn tokens_for(packed: u8) -> &'static dyn nexus_dsl_runtime::theme_tokens::Tokens {
+        let (mode, accent) = wire::unpack_theme(packed);
+        let accent_slot = (accent as usize).checked_sub(1);
+        match (mode, accent_slot) {
+            (wire::THEME_DARK, Some(i)) if i < ACCENTED_DARK.len() => &ACCENTED_DARK[i],
+            (wire::THEME_LIGHT, Some(i)) if i < ACCENTED_LIGHT.len() => &ACCENTED_LIGHT[i],
+            (wire::THEME_DARK, _) => &DARK_TOKENS,
+            (wire::THEME_LIGHT, _) => &LIGHT_TOKENS,
             _ => &BASE_TOKENS,
         }
     }

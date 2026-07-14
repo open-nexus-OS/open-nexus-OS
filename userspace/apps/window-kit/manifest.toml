@@ -1,0 +1,26 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: window-kit — the shared DSL component library for the
+# design-handoff WINDOW look (top chrome with slots, menu items, floating
+# action bar, sidebar rows, property rows). `bundle_type = "library"`:
+# contributes `Component` declarations ONLY (TASK-0081 C3); consuming apps
+# name it in `dependencies` and the components compile INTO their .nxir.
+#
+# STORE CONTRACT (the consuming app declares these — the kit dispatches):
+#   fields  menu: Str · leftOpen: Int · rightOpen: Int · tool: Str ·
+#           selection: Str
+#   events  WinMenu(Str) · WinMenuPick(Str) · WinNoop · WinLeft · WinRight ·
+#           WinTool(Str) · WinAct(Str)
+#   (WinNoop = consume-tap for panel bodies inside the menu overlay; the
+#   overlay layer itself dispatches WinMenu("") as the outside-close.)
+
+name = "window-kit"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "library"
+payload_kind = "library"
+abilities = []
+caps = []
+provides = []
+resources = []

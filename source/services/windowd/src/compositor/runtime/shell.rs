@@ -70,6 +70,23 @@ impl DisplayServerRuntime {
             wire::CONTROL_SHELL_PROFILE => {
                 self.set_shell_profile_wire(value, true);
             }
+            wire::CONTROL_THEME_ACCENT => {
+                // Accent-palette pick: store + re-push the packed theme byte
+                // to every app-host (they re-mount with the accent override),
+                // then persist. windowd's own chrome has no accent-role
+                // pixels today, so no local repaint beyond the push.
+                if self.theme_accent != value {
+                    self.theme_accent = value;
+                    self.push_app_theme();
+                    let _ = debug_println(&alloc::format!(
+                        "uitheme: accent switched (to={value})"
+                    ));
+                    #[cfg(all(nexus_env = "os", target_os = "none"))]
+                    {
+                        let _ = crate::settings_client::set_theme_accent(value);
+                    }
+                }
+            }
             wire::CONTROL_LAUNCH_PENDING => {
                 // Shell-initiated app launch (svc.ability.launch): show the
                 // wait ring until the fresh window's surface arrives.
@@ -344,8 +361,20 @@ impl DisplayServerRuntime {
                 "windowd: theme restored (mode={})",
                 mode.as_str()
             ));
-            // settingsd is reachable — restore the persisted shell mode in the
-            // same breath (no second probe): apply-only, never re-persist.
+            // settingsd is reachable — restore the persisted accent in the
+            // same breath (apply-only): pushes the packed theme byte if it
+            // differs from the boot default.
+            if let Some(accent) = crate::settings_client::get_theme_accent() {
+                if accent != self.theme_accent {
+                    self.theme_accent = accent;
+                    self.push_app_theme();
+                    let _ = debug_println(&alloc::format!(
+                        "windowd: theme accent restored (idx={accent})"
+                    ));
+                }
+            }
+            // …and the persisted shell mode (no second probe): apply-only,
+            // never re-persist.
             if let Some(shell_mode) = crate::settings_client::get_shell_mode() {
                 use nexus_display_proto::client_surface as wire;
                 let profile = if shell_mode == "desktop" {

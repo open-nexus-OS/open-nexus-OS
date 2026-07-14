@@ -1,0 +1,50 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One dropdown-menu row (design handoff `Menu`): optional icon + label,
+// `kind` selects the treatment — "" plain · "danger" red · "check" a
+// trailing checkmark · "sub" a trailing chevron (cascading submenu; the
+// app's `WinMenuPick` reducer switches `menu` to the submenu id). Tap
+// dispatches `WinMenuPick(id)`.
+
+Component WinMenuItem {
+    props: {
+        id: Str,
+        label: Str,
+        icon: Str,
+        kind: Str,
+    }
+    Stack {
+        if $props.icon != "" {
+            Icon { symbol: $props.icon, size: 13 }
+                .fg(onSurfaceVariant)
+        } else {
+            Stack { }
+        }
+        if $props.kind == "danger" {
+            Text($props.label).textSize(sm).fg(danger)
+        } else {
+            Text($props.label).textSize(sm).fg(onSurface)
+        }
+        Spacer
+        if $props.kind == "sub" {
+            Icon { symbol: "chevron.right", size: 12 }
+                .fg(onSurfaceVariant)
+        } else {
+            Stack { }
+        }
+        if $props.kind == "check" {
+            Icon { symbol: "checkmark", size: 12 }
+                .fg(accent)
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(2)
+    .height(30)
+    .rounded(md)
+    on Tap -> dispatch(WinMenuPick($props.id))
+}

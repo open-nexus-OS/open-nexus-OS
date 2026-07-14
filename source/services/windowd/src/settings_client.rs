@@ -59,6 +59,42 @@ pub(crate) fn set_theme_mode(mode: crate::theme::ThemeMode) -> bool {
     matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
 }
 
+/// Best-effort SET of `ui.theme.accent` (palette index → its registered
+/// name). Same contract as `set_theme_mode`: the live push already happened,
+/// a transport failure only misses reboot persistence.
+pub(crate) fn set_theme_accent(index: u8) -> bool {
+    let name = match index as usize {
+        0 => "default",
+        i if i <= nexus_theme_tokens::ACCENT_PALETTE.len() => {
+            nexus_theme_tokens::ACCENT_PALETTE[i - 1].0
+        }
+        _ => return false,
+    };
+    let mut req = [0u8; 48];
+    let Some(len) = wire::encode_set_req(nexus_abi::settingsd::KEY_UI_THEME_ACCENT, name, &mut req)
+    else {
+        return false;
+    };
+    let Some(rsp) = request_reply(&req[..len]) else {
+        return false;
+    };
+    matches!(wire::decode_response(wire::OP_SET, &rsp), Some((wire::STATUS_OK, _)))
+}
+
+/// Best-effort GET of `ui.theme.accent` → the palette index; `None` on any
+/// failure (caller keeps 0 = built-in accent). The boot restore twin of
+/// `set_theme_accent`.
+pub(crate) fn get_theme_accent() -> Option<u8> {
+    let mut req = [0u8; 32];
+    let len = wire::encode_get_req(nexus_abi::settingsd::KEY_UI_THEME_ACCENT, &mut req)?;
+    let rsp = request_reply(&req[..len])?;
+    let (status, value) = wire::decode_response(wire::OP_GET, &rsp)?;
+    if status != wire::STATUS_OK {
+        return None;
+    }
+    nexus_theme_tokens::accent_index(value)
+}
+
 /// Best-effort GET of `ui.shell.mode` (`"tablet"`/`"desktop"`); `None` on any
 /// failure or unknown value (caller keeps the SystemUI boot default).
 pub(crate) fn get_shell_mode() -> Option<&'static str> {

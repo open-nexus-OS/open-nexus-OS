@@ -300,7 +300,10 @@ impl AppEffectHost {
     /// the desktop from the stored value.
     fn settings_set(&self, key: &str, value: &str) -> Result<Value, u32> {
         use nexus_abi::settingsd as sw;
-        if key == sw::KEY_UI_THEME_MODE || key == sw::KEY_UI_SHELL_MODE {
+        if key == sw::KEY_UI_THEME_MODE
+            || key == sw::KEY_UI_SHELL_MODE
+            || key == sw::KEY_UI_THEME_ACCENT
+        {
             return self.presentation_control(key, value);
         }
         let send_slot = Self::svc_send_slot("settings").ok_or(ERR_SVC_UNKNOWN)?;
@@ -329,6 +332,14 @@ impl AppEffectHost {
         let (control, v) = if key == sw::KEY_UI_THEME_MODE {
             let v = if value == "light" { wire::THEME_LIGHT } else { wire::THEME_DARK };
             (wire::CONTROL_THEME, v)
+        } else if key == sw::KEY_UI_THEME_ACCENT {
+            // Accent-palette pick: name → index (unknown names fail closed —
+            // settingsd would refuse them too; the palette is the SSOT).
+            let Some(idx) = nexus_dsl_runtime::theme_tokens::accent_index(value) else {
+                raw_marker("apphost: dsl svc settings.set FAIL (accent name)");
+                return Err(ERR_SVC_UNAVAILABLE);
+            };
+            (wire::CONTROL_THEME_ACCENT, idx)
         } else {
             let v = if value == "desktop" { wire::PROFILE_DESKTOP } else { wire::PROFILE_TABLET };
             (wire::CONTROL_SHELL_PROFILE, v)

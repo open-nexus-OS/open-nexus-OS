@@ -253,6 +253,24 @@ impl DisplayServerRuntime {
                         // composite — it takes priority over per-region material
                         // glass (the body's frosted backdrop covers the viewport).
                         if sn.scroll_id == 0 && sn.layer_count > 0 {
+                            // WINDOW BODY FIRST (mirrors the Desktop arm's
+                            // base-then-regions order): a windowed app with
+                            // material regions still owns its whole frame —
+                            // without this base composite only the glass
+                            // regions painted and the rest of the window was
+                            // MISSING (settings' window-frame page rendered
+                            // as floating panels over the bare desktop). The
+                            // regions then blur the drawn body = the inner
+                            // frost the design intends.
+                            if let Some(p) = sn.glass {
+                                let _ =
+                                    crate::compositor::shell_window::ShellWindow::composite_glass(
+                                        &mut encoder,
+                                        p,
+                                        mode.width,
+                                        mode.height,
+                                    );
+                            }
                             if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = sn.layer_geom
                             {
                                 for l in sn.layers.iter().take(sn.layer_count) {

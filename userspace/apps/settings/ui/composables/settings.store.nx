@@ -1,32 +1,137 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings store: the selected section (Int id — 0 connections,
-// 1 personalization, 2 general) + REAL theme writes through `svc.settings`
-// (the app-host routes `ui.theme.mode` to windowd: live apply + persist).
-// Connection rows are honest placeholders until their services land.
+// Settings window state: the window-kit STORE CONTRACT (menu/leftOpen/
+// rightOpen/tool/selection + Win* events) + the app's own section nav and
+// the REAL Erscheinungsbild writes — `ui.theme.mode` and `ui.theme.accent`
+// route through `svc.settings` to windowd (live apply + persist), exactly
+// like the Control Center. Everything else is demo look per the handoff.
 
 Store SettingsStore {
-    section: Int = 0,
+    section: Str = "personal",
+    menu: Str = "",
+    leftOpen: Int = 1,
+    rightOpen: Int = 0,
+    tool: Str = "",
+    selection: Str = "",
+    accent: Str = "default",
     applyError: Int = 0,
 }
 
 Event SettingsEvent {
-    Select(Int),
+    WinMenu(Str),
+    WinMenuPick(Str),
+    WinNoop,
+    WinLeft,
+    WinRight,
+    WinTool(Str),
+    WinAct(Str),
     SetTheme(Str),
+    SetAccent(Str),
     Applied(Bool),
     ApplyFailed(Int),
 }
 
 reduce SettingsEvent {
-    Select(section) => state.section = section,
+    WinMenu(m) => {
+        if state.menu == m {
+            state.menu = "";
+        } else {
+            state.menu = m;
+        }
+    },
+    WinMenuPick(id) => {
+        if id == "more.datei" {
+            state.menu = "more.datei";
+        } else {
+            if id == "more.ansicht" {
+                state.menu = "more.ansicht";
+            } else {
+                if id == "nav.connect" {
+                    state.section = "connect";
+                    state.menu = "";
+                } else {
+                    if id == "nav.devices" {
+                        state.section = "devices";
+                        state.menu = "";
+                    } else {
+                        if id == "nav.sound" {
+                            state.section = "sound";
+                            state.menu = "";
+                        } else {
+                            if id == "nav.display" {
+                                state.section = "display";
+                                state.menu = "";
+                            } else {
+                                if id == "nav.notify" {
+                                    state.section = "notify";
+                                    state.menu = "";
+                                } else {
+                                    if id == "nav.personal" {
+                                        state.section = "personal";
+                                        state.menu = "";
+                                    } else {
+                                        if id == "nav.apps" {
+                                            state.section = "apps";
+                                            state.menu = "";
+                                        } else {
+                                            if id == "nav.general" {
+                                                state.section = "general";
+                                                state.menu = "";
+                                            } else {
+                                                state.menu = "";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    WinLeft => {
+        if state.leftOpen == 1 {
+            state.leftOpen = 0;
+        } else {
+            state.leftOpen = 1;
+        }
+    },
+    WinRight => {
+        if state.rightOpen == 1 {
+            state.rightOpen = 0;
+        } else {
+            state.rightOpen = 1;
+        }
+    },
+    WinTool(t) => {
+        if state.tool == t {
+            state.tool = "";
+        } else {
+            state.tool = t;
+        }
+    },
+    WinNoop => state.menu = state.menu,
+    WinAct(a) => state.menu = "",
     SetTheme(mode) => state.applyError = 0,
+    SetAccent(name) => {
+        state.accent = name;
+        state.applyError = 0;
+    },
     Applied(ok) => state.applyError = 0,
     ApplyFailed(code) => state.applyError = code,
 }
 
 @effect on SetTheme(mode) {
     match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+        Ok(ok) => dispatch(Applied(ok)),
+        Err(e) => dispatch(ApplyFailed(e)),
+    }
+}
+
+@effect on SetAccent(name) {
+    match svc.settings.set("ui.theme.accent", name, timeoutMs: 250) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

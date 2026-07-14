@@ -627,11 +627,7 @@ impl DisplayServerRuntime {
             // renders with the same tokens as the compositor (dark desktop ⇒
             // dark app). Direct to the pending slot — the app is not yet bound
             // to a role. On a live toggle, `push_app_theme` re-sends to all.
-            let mode = match self.theme_mode {
-                crate::theme::ThemeMode::Dark => wire::THEME_DARK,
-                crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
-            };
-            let frame = wire::encode_surface_theme(mode);
+            let frame = wire::encode_surface_theme(self.theme_wire_byte());
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
             let _ = nexus_abi::ipc_send_v1(slot, &hdr, &frame, nexus_abi::IPC_SYS_NONBLOCK, 0);
             // And the active SHELL PROFILE, so the app's `device.profile`
@@ -675,13 +671,20 @@ impl DisplayServerRuntime {
 
     /// Sends the active theme mode to the app on its event channel (`chrome =
     /// intent ⟂ policy` for colours too: the WM owns the theme, apps follow).
-    pub(crate) fn push_app_theme(&mut self) {
+    /// The packed theme byte for `OP_SURFACE_THEME` pushes: low nibble =
+    /// mode, high nibble = the accent-palette index (`pack_theme`).
+    pub(crate) fn theme_wire_byte(&self) -> u8 {
         use nexus_display_proto::client_surface as wire;
         let mode = match self.theme_mode {
             crate::theme::ThemeMode::Dark => wire::THEME_DARK,
             crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
         };
-        let frame = wire::encode_surface_theme(mode);
+        wire::pack_theme(mode, self.theme_accent)
+    }
+
+    pub(crate) fn push_app_theme(&mut self) {
+        use nexus_display_proto::client_surface as wire;
+        let frame = wire::encode_surface_theme(self.theme_wire_byte());
         // Live re-theme reaches EVERY connected app-host: every window's channel
         // is in `event_channels` (nonce-bound), the desktop's is separate.
         #[cfg(nexus_env = "os")]

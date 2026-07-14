@@ -1,0 +1,26 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One properties-pane row (design handoff "Eigenschaften"): icon + label
+// left, value right. Pure display — the pane's CONTENT is the app's
+// selection reactivity (render different rows for `$state.selection`).
+
+Component WinPropRow {
+    props: {
+        label: Str,
+        value: Str,
+        icon: Str,
+    }
+    Stack {
+        Icon { symbol: $props.icon, size: 13 }
+            .fg(onSurfaceVariant)
+        Text($props.label).textSize(sm).fg(onSurface)
+        Spacer
+        Text($props.value).textSize(sm).fg(onSurfaceVariant)
+    }
+    .direction(row)
+    .align(center)
+    .gap(2)
+    .paddingX(2)
+    .height(36)
+}

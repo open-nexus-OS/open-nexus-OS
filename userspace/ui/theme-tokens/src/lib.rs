@@ -269,6 +269,80 @@ impl Tokens for LightTokens {
     }
 }
 
+/// The curated **accent palette** (settings → Erscheinungsbild → Farbpalette).
+/// Index 0 = the theme's built-in accent (no override); 1..=5 are the named
+/// alternates as `(name, dark-mode value, light-mode value)` — the dark value
+/// is one step lighter for contrast on dark surfaces, mirroring how the
+/// built-in blue differs between the two themes.
+pub const ACCENT_PALETTE: &[(&str, Rgba8, Rgba8)] = &[
+    ("violet", Rgba8::new(167, 139, 250, 255), Rgba8::new(139, 92, 246, 255)),
+    ("pink", Rgba8::new(244, 114, 182, 255), Rgba8::new(236, 72, 153, 255)),
+    ("red", Rgba8::new(248, 113, 113, 255), Rgba8::new(239, 68, 68, 255)),
+    ("orange", Rgba8::new(251, 146, 60, 255), Rgba8::new(249, 115, 22, 255)),
+    ("green", Rgba8::new(74, 222, 128, 255), Rgba8::new(34, 197, 94, 255)),
+];
+
+/// The accent override for palette index `1..=ACCENT_PALETTE.len()` in the
+/// given mode; `None` for 0/out-of-range (= the theme's built-in accent).
+#[must_use]
+pub const fn accent_color(index: u8, dark: bool) -> Option<Rgba8> {
+    if index == 0 || index as usize > ACCENT_PALETTE.len() {
+        return None;
+    }
+    let (_, d, l) = ACCENT_PALETTE[index as usize - 1];
+    Some(if dark { d } else { l })
+}
+
+/// Palette index for an accent NAME (`"violet"` → 1); `None` for unknown
+/// names, `Some(0)` for `"default"`/`""` (the built-in accent).
+#[must_use]
+pub fn accent_index(name: &str) -> Option<u8> {
+    if name.is_empty() || name == "default" || name == "blue" {
+        return Some(0);
+    }
+    let mut i = 0;
+    while i < ACCENT_PALETTE.len() {
+        if ACCENT_PALETTE[i].0.as_bytes() == name.as_bytes() {
+            return Some(i as u8 + 1);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// A theme snapshot with the ACCENT ROLE overridden (user-picked palette
+/// color). Delegates every token to `base` except [`ColorToken::Accent`] —
+/// `OnAccent` keeps the base value (the palette is tuned so the base
+/// on-accent foreground stays readable on every entry).
+#[derive(Clone, Copy)]
+pub struct AccentTokens {
+    /// `+ Sync` so accented snapshots can live in statics (the app-host's
+    /// per-palette table) — every generated theme is a Sync ZST.
+    pub base: &'static (dyn Tokens + Sync),
+    pub accent: Rgba8,
+}
+
+impl Tokens for AccentTokens {
+    fn color(&self, token: ColorToken) -> Rgba8 {
+        match token {
+            ColorToken::Accent => self.accent,
+            other => self.base.color(other),
+        }
+    }
+    fn length(&self, token: LengthToken) -> FxPx {
+        self.base.length(token)
+    }
+    fn type_size(&self, token: TypographyToken) -> FxPx {
+        self.base.type_size(token)
+    }
+    fn motion_ms(&self, token: MotionDurationToken) -> u32 {
+        self.base.motion_ms(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        self.base.glass(token)
+    }
+}
+
 /// High-contrast a11y theme, resolved from `highcontrast.nxtheme.toml`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HighContrastTokens;

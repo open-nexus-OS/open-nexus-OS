@@ -497,6 +497,11 @@ pub(crate) struct DisplayServerRuntime {
     /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
     /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
     theme_mode: crate::theme::ThemeMode,
+    /// Accent-palette index (`ui.theme.accent`, 0 = the theme's built-in
+    /// accent). Rides the theme push's high nibble; app-hosts resolve it via
+    /// `nexus-theme-tokens::accent_color`. windowd's own baked chrome accent
+    /// is unaffected (follow-up if chrome ever paints accent-role pixels).
+    pub(crate) theme_accent: u8,
     /// The cross-process app-client windows (ADR-0042 R1 → RFC-0065
     /// multi-window): one SLOT per concurrently open floating app window
     /// (`WindowId::App(i)` indexes this array). Each slot bundles what used to
@@ -857,6 +862,7 @@ impl DisplayServerRuntime {
             gl_cursor_active: false,
             shape_cache_pushed: false,
             theme_mode: crate::theme::ThemeMode::Dark,
+            theme_accent: 0,
             session_probe: session::SessionProbe::default(),
             theme_probe: shell::ThemeProbe::default(),
             greeter_login_watch: false,

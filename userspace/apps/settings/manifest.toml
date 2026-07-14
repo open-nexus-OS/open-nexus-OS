@@ -16,5 +16,8 @@ icon = "gearshape"
 payload_kind = "ui-program"
 abilities = ["settings.MainAbility"]
 caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]
+# Shared window-frame components (TASK-0081 C3 library): compiled INTO this
+# app's .nxir at build time.
+dependencies = ["window-kit"]
 provides = []
 resources = []

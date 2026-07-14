@@ -1,0 +1,46 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One floating-action-bar button (design handoff `WindowActionBar`): icon
+// over label, column layout. `kind`: "" default · "primary" filled accent
+// circle behind the icon · "danger" red. Tap dispatches `WinAct(id)` —
+// the bar's visible item set is the app's SELECTION REACTIVITY (compose
+// different items when `$state.selection` changes).
+
+Component WinActionItem {
+    props: {
+        id: Str,
+        label: Str,
+        icon: Str,
+        kind: Str,
+    }
+    Stack {
+        if $props.kind == "primary" {
+            Circle { size: 26
+                Icon { symbol: $props.icon, size: 14 }
+                    .fg(onAccent)
+            }
+            .bg(accent)
+        } else {
+            if $props.kind == "danger" {
+                Icon { symbol: $props.icon, size: 16 }
+                    .fg(danger)
+            } else {
+                Icon { symbol: $props.icon, size: 16 }
+                    .fg(onSurface)
+            }
+        }
+        if $props.kind == "danger" {
+            Text($props.label).textSize(xs).fg(danger)
+        } else {
+            Text($props.label).textSize(xs).fg(onSurfaceVariant)
+        }
+    }
+    .align(center)
+    .justify(center)
+    .gap(1)
+    .width(66)
+    .height(52)
+    .rounded(lg)
+    on Tap -> dispatch(WinAct($props.id))
+}

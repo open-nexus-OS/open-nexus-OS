@@ -42,8 +42,9 @@ fn settings_theme_toggle_reaches_settings_set() {
     let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
     let mut host = SettingsSpy { sets: Vec::new() };
 
-    // Select the Personalisierung section deterministically, then tap the
-    // pane buttons (below the chip row) — light/dark dispatch SetTheme.
+    // Select the Personalisierung section deterministically (the window-kit
+    // nav dispatches `WinMenuPick("nav.personal")`), then tap the pane
+    // buttons (below the chrome row) — light/dark dispatch SetTheme.
     let program_symbols = common::program_symbols(&nxir);
     common::dispatch(
         &mut view,
@@ -51,8 +52,8 @@ fn settings_theme_toggle_reaches_settings_set() {
         &mut host,
         &program_symbols,
         "SettingsEvent",
-        "Select",
-        vec![Value::Int(1)],
+        "WinMenuPick",
+        vec![Value::Str("nav.personal".into())],
     );
     let boxes = common::layout_boxes(&view);
     let ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
@@ -61,8 +62,11 @@ fn settings_theme_toggle_reaches_settings_set() {
         if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
             continue;
         }
-        if b.rect.y.as_i32() < 100 {
-            continue; // toolbar + chip row
+        if b.rect.y.as_i32() < 60 {
+            continue; // window-kit top chrome
+        }
+        if b.rect.x.as_i32() < 260 {
+            continue; // nav sidebar — tapping it would switch the section away
         }
         let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
         let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
