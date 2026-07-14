@@ -22,7 +22,8 @@ fg = "#0a0a0a"
 surface = "#ffffff"
 surfaceAlt = "#e9ebef"
 border = "#0000001a"
-divider = "#d4d4d4"
+# translucent hairline per handoff --glass-divider rgba(0,0,0,.10)
+divider = "#0000001a"
 muted = "#ececf0"
 mutedFg = "#717182"
 # status
@@ -31,6 +32,8 @@ dangerFg = "#ffffff"
 destructive = "#d4183d"
 destructiveFg = "#ffffff"
 warning = "#f59e0b"
+# handoff says white-on-warning, but amber #f59e0b + white is ~2.1 contrast —
+# near-black ink is the same deliberate a11y tightening as `success` below.
 warningFg = "#0a0a0a"
 # success uses green-600 (not green-500) so white text clears WCAG UI contrast
 # (3.0) — a deliberate a11y tightening of the handoff #22c55e (which was 2.28).
@@ -78,6 +81,8 @@ glassTint = "#ffffff"
 glassEdge = "#ffffff54"
 # shadow tint (semantic ColorToken::Shadow)
 shadow = "#00000060"
+# modal/sheet backdrop dim (handoff --glass-scrim rgba(0,0,0,.28))
+scrim = "#00000047"
 
 # ── Length scales (theme-invariant; authored once here) ──────────────────────
 # Semantic small/medium/large map to LengthToken::{Radius,Spacing}{Small,Medium,
@@ -162,22 +167,27 @@ borderColor = "#ffffff"
 borderAlpha = 0.80
 
 [material.glassSubtle]
+# Handoff --glass-subtle-bg: plain rgba(255,255,255,.70) — NO border; blur
+# aligned to the --glass-blur-sm step (the old 12 sat between scale steps).
 type = "glass"
-blurRadiusDp = 12
+blurRadiusDp = 8
 downsampleFactor = 2
 tintColor = "#ffffff"
 tintAlpha = 0.70
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.10
-borderColor = "#ffffff"
-borderAlpha = 0.80
 
 [material.glassWindow]
 type = "glass"
-blurRadiusDp = 30
+# --glass-blur-lg step (30 sat between scale steps)
+blurRadiusDp = 40
 downsampleFactor = 2
+# --glass-window-bg: linear-gradient(165deg, #f8f9fb@.94, #eceef3@.90) —
+# tint = top stop, tintBottom = bottom stop (vertical approximation).
 tintColor = "#f8f9fb"
 tintAlpha = 0.94
+tintBottomColor = "#eceef3"
+tintBottomAlpha = 0.90
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.85
 borderColor = "#ffffff"

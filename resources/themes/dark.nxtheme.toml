@@ -5,6 +5,8 @@ version = 1
 # Dark overrides only what differs from base (qualifier chain falls back to base
 # for anything omitted). See docs/dev/ui/foundations/visual/token-reconciliation.md.
 [tokens]
+# modal/sheet backdrop dim (handoff dark --glass-scrim rgba(0,0,0,.45))
+scrim = "#00000073"
 accent = "#60a5fa"
 accentFg = "#0a0a0a"
 # handoff .dark neutrals: bg/card oklch(0.145)=#0a0a0a; secondary/muted/accent/
@@ -16,7 +18,8 @@ fg = "#fafafa"
 surface = "#171717"
 surfaceAlt = "#262626"
 border = "#262626"
-divider = "#525252"
+# translucent hairline (handoff dark divider rgba(255,255,255,.10))
+divider = "#ffffff1a"
 muted = "#262626"
 mutedFg = "#a1a1a1"
 focusRing = "#60a5fa"
@@ -93,10 +96,12 @@ borderAlpha = 0.10
 
 [material.glassWindow]
 type = "glass"
-blurRadiusDp = 30
+blurRadiusDp = 40
 downsampleFactor = 2
 tintColor = "#34363e"
 tintAlpha = 0.82
+tintBottomColor = "#20222a"
+tintBottomAlpha = 0.74
 edgeHighlightColor = "#ffffff"
 edgeHighlightAlpha = 0.14
 borderColor = "#ffffff"

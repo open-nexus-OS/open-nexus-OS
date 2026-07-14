@@ -180,6 +180,10 @@ pub struct GlassMaterial {
     pub downsample_factor: u32,
     pub tint_color: ColorValue,
     pub tint_alpha: f32,
+    /// Optional bottom stop of a two-stop tint gradient (`tintBottomColor`).
+    pub tint_bottom_color: Option<ColorValue>,
+    /// Alpha of the bottom tint stop (`tintBottomAlpha`).
+    pub tint_bottom_alpha: Option<f32>,
     pub edge_highlight_color: ColorValue,
     pub edge_highlight_alpha: f32,
     pub border_color: Option<ColorValue>,

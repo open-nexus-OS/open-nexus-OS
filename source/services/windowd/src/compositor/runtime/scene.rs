@@ -279,8 +279,9 @@ impl DisplayServerRuntime {
                                     }
                                     let blur_radius = match l.glass_level {
                                         wire::GLASS_PANEL => 40,
+                                        wire::GLASS_OVERLAY => 40,
                                         wire::GLASS_CARD => 20,
-                                        wire::GLASS_SUBTLE => 12,
+                                        wire::GLASS_SUBTLE => 8,
                                         _ => 30,
                                     };
                                     crate::compositor::shell_window::composite_material_glass(
@@ -395,8 +396,9 @@ impl DisplayServerRuntime {
                                     continue;
                                 }
                                 let blur_radius = match l.glass_level {
+                                    wire::GLASS_OVERLAY => 40,
                                     wire::GLASS_CARD => 20,
-                                    wire::GLASS_SUBTLE => 12,
+                                    wire::GLASS_SUBTLE => 8,
                                     _ => 30,
                                 };
                                 crate::compositor::shell_window::composite_material_glass(

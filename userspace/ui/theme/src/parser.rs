@@ -161,6 +161,14 @@ fn parse_material(table: &toml::Table, _path: &Path) -> Result<Option<Material>,
                     a: 255,
                 }),
                 tint_alpha: table["tintAlpha"].as_float().unwrap_or(0.3) as f32,
+                tint_bottom_color: table
+                    .get("tintBottomColor")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| ColorValue::from_hex(s).ok()),
+                tint_bottom_alpha: table
+                    .get("tintBottomAlpha")
+                    .and_then(|v| v.as_float())
+                    .map(|f| f as f32),
                 edge_highlight_color: ColorValue::from_hex(edge_color_str).unwrap_or(ColorValue {
                     r: 255,
                     g: 255,

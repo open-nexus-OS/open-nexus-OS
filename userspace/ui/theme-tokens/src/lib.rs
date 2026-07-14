@@ -66,6 +66,12 @@ pub enum ColorToken {
     FocusRing,
     /// The Dynamic-Island pill fill (solid black in both themes).
     IslandBg,
+    /// Modal/sheet backdrop dim (handoff `--glass-scrim`).
+    Scrim,
+    /// Destructive action (handoff role distinct from `Danger`).
+    Destructive,
+    /// Content on `Destructive`.
+    OnDestructive,
 }
 
 /// Semantic length roles (radii, spacing, hairline widths).
@@ -172,6 +178,10 @@ pub enum MaterialToken {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlassSurface {
     pub tint: Rgba8,
+    /// Bottom stop of the material's tint GRADIENT (handoff
+    /// `--glass-window-bg` two-stop linear); `None` = flat tint (the
+    /// edge-shine still grades the top).
+    pub tint_bottom: Option<Rgba8>,
     pub edge: Rgba8,
     pub border: Option<Rgba8>,
     pub blur_radius: u32,
@@ -204,6 +214,7 @@ pub trait Tokens {
     fn glass(&self, _token: MaterialToken) -> GlassSurface {
         GlassSurface {
             tint: self.color(ColorToken::Surface),
+            tint_bottom: None,
             edge: Rgba8::TRANSPARENT,
             border: Some(self.color(ColorToken::Border)),
             blur_radius: 0,

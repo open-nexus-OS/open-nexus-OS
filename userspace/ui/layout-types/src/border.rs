@@ -149,35 +149,37 @@ impl ShadowLevel {
                 offset_y: FxPx::new(1),
                 blur_radius: FxPx::new(2),
                 spread: FxPx::ZERO,
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 32 },
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 31 },
             },
+            // Design-handoff elevation scale (reference/tokens/spacing.css):
+            // md 0 4 12 .15 · lg 0 8 24 .18 · xl 0 12 32 .22 · 2xl 0 25 50 .25.
             Self::Md => BoxShadow {
-                offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(2),
-                blur_radius: FxPx::new(6),
-                spread: FxPx::new(-2),
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 48 },
-            },
-            Self::Lg => BoxShadow {
                 offset_x: FxPx::ZERO,
                 offset_y: FxPx::new(4),
                 blur_radius: FxPx::new(12),
-                spread: FxPx::new(-3),
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 56 },
+                spread: FxPx::ZERO,
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 38 },
+            },
+            Self::Lg => BoxShadow {
+                offset_x: FxPx::ZERO,
+                offset_y: FxPx::new(8),
+                blur_radius: FxPx::new(24),
+                spread: FxPx::ZERO,
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 46 },
             },
             Self::Xl => BoxShadow {
                 offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(6),
-                blur_radius: FxPx::new(20),
-                spread: FxPx::new(-4),
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 64 },
+                offset_y: FxPx::new(12),
+                blur_radius: FxPx::new(32),
+                spread: FxPx::ZERO,
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 56 },
             },
             Self::Xxl2 => BoxShadow {
                 offset_x: FxPx::ZERO,
-                offset_y: FxPx::new(10),
-                blur_radius: FxPx::new(32),
-                spread: FxPx::new(-6),
-                color: Rgba8 { r: 0, g: 0, b: 0, a: 80 },
+                offset_y: FxPx::new(25),
+                blur_radius: FxPx::new(50),
+                spread: FxPx::ZERO,
+                color: Rgba8 { r: 0, g: 0, b: 0, a: 64 },
             },
         }
     }
@@ -249,6 +251,8 @@ pub enum GlassLevel {
     Subtle,
     /// Denser window material — solider so document content stays legible.
     Window,
+    /// Strongest overlay material (modals/sheets — handoff `--glass-overlay`).
+    Overlay,
 }
 
 /// The compositing material of a node's surface region: opaque fill, or frosted

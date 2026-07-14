@@ -75,6 +75,8 @@ pub const GLASS_PANEL: u8 = 0;
 pub const GLASS_CARD: u8 = 1;
 pub const GLASS_SUBTLE: u8 = 2;
 pub const GLASS_WINDOW: u8 = 3;
+/// Modal/sheet overlay material (append-only wire id).
+pub const GLASS_OVERLAY: u8 = 4;
 
 /// Max glass layers per surface (bounds the frame; a real shell uses a handful:
 /// topbar, dock, launcher panel, a few cards).

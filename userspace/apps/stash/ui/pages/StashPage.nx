@@ -119,6 +119,7 @@ Page StashPage {
                             }
                         }
                         .padding(1)
+                        .shadow(lg)
                         Spacer
                     }
                     .direction(row)

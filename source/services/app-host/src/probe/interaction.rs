@@ -237,6 +237,7 @@ impl super::DslApp {
                 SurfaceMaterial::Glass(GlassLevel::Card) => wire::GLASS_CARD,
                 SurfaceMaterial::Glass(GlassLevel::Subtle) => wire::GLASS_SUBTLE,
                 SurfaceMaterial::Glass(GlassLevel::Window) => wire::GLASS_WINDOW,
+                SurfaceMaterial::Glass(GlassLevel::Overlay) => wire::GLASS_OVERLAY,
                 SurfaceMaterial::Opaque => continue,
             };
             layers[n] = wire::LayerDesc {

@@ -45,6 +45,9 @@ pub fn color_token(name: &str) -> Option<ColorToken> {
         "onInfo" => ColorToken::OnInfo,
         "focusRing" => ColorToken::FocusRing,
         "shadow" => ColorToken::Shadow,
+        "scrim" => ColorToken::Scrim,
+        "destructive" => ColorToken::Destructive,
+        "onDestructive" => ColorToken::OnDestructive,
         _ => return None,
     })
 }
@@ -61,6 +64,20 @@ pub fn type_size(name: &str) -> Option<TypographyToken> {
         "xxl" => TypographyToken::Xxl,
         "xxxl" => TypographyToken::Xxxl,
         "display" => TypographyToken::Display,
+        _ => return None,
+    })
+}
+
+/// Maps a `.shadow(<token>)` name to the design elevation scale.
+#[must_use]
+pub fn shadow_level(name: &str) -> Option<nexus_layout_types::ShadowLevel> {
+    use nexus_layout_types::ShadowLevel;
+    Some(match name {
+        "sm" => ShadowLevel::Sm,
+        "md" => ShadowLevel::Md,
+        "lg" => ShadowLevel::Lg,
+        "xl" => ShadowLevel::Xl,
+        "xxl" => ShadowLevel::Xxl2,
         _ => return None,
     })
 }
@@ -85,6 +102,8 @@ pub fn radius(name: &str) -> FxPx {
 pub struct Mods {
     /// `.bgGradient(top, bottom)` — vertical linear fill (wins over `bg`).
     pub bg_gradient: Option<([u8; 4], [u8; 4])>,
+    /// `.shadow(sm|md|lg|xl|xxl)` — design elevation (BoxShadow scale).
+    pub shadow: Option<nexus_layout_types::ShadowLevel>,
     pub padding: EdgeInsets,
     pub gap: FxPx,
     /// Fixed box sizes in raw px (`.width(320)`); `full` is a no-op today
@@ -131,6 +150,7 @@ impl Default for Mods {
     fn default() -> Self {
         Self {
             bg_gradient: None,
+            shadow: None,
             padding: EdgeInsets::zero(),
             gap: FxPx::ZERO,
             width: None,
@@ -167,6 +187,7 @@ pub fn material_token(name: &str) -> Option<SurfaceMaterial> {
         "card" => SurfaceMaterial::Glass(GlassLevel::Card),
         "subtle" => SurfaceMaterial::Glass(GlassLevel::Subtle),
         "window" => SurfaceMaterial::Glass(GlassLevel::Window),
+        "overlay" => SurfaceMaterial::Glass(GlassLevel::Overlay),
         _ => return None,
     })
 }
@@ -192,6 +213,9 @@ impl Mods {
         if let Some(rounded) = self.rounded {
             visual.corner_radius = CornerRadius::uniform(rounded);
         }
+        if let Some(level) = self.shadow {
+            visual.shadow = Some(level.to_box_shadow());
+        }
         if let Some(opacity) = self.opacity {
             visual.opacity = Some(nexus_layout_types::Fraction(u32::from(opacity)));
         }
@@ -213,14 +237,19 @@ impl Mods {
                         GlassLevel::Card => MaterialToken::Card,
                         GlassLevel::Subtle => MaterialToken::Subtle,
                         GlassLevel::Window => MaterialToken::Window,
+                        GlassLevel::Overlay => MaterialToken::Overlay,
                     };
                     let g = tokens.glass(token);
                     visual.background = Some(g.tint);
-                    // Design-system `--glass-shine`: a vertical gradient from
-                    // tint⊕edge-highlight down to the plain tint. The edge
-                    // token existed but was never RENDERED — glass looked
-                    // flat and the only "shine" was accidental blur bleed.
-                    if g.edge.a > 0 && visual.background_gradient.is_none() {
+                    // Design-system material gradient: the top stop carries
+                    // the `--glass-shine` (tint⊕edge — the edge token existed
+                    // but was never RENDERED; glass looked flat and the only
+                    // "shine" was accidental blur bleed), the bottom stop is
+                    // the authored `tintBottom` when the material declares a
+                    // two-stop gradient (`--glass-window-bg`), else the tint.
+                    if (g.edge.a > 0 || g.tint_bottom.is_some())
+                        && visual.background_gradient.is_none()
+                    {
                         let blend = |t: u8, e: u8| -> u8 {
                             (t as u32 + (e as u32).saturating_sub(t as u32) * g.edge.a as u32 / 255)
                                 as u8
@@ -233,7 +262,7 @@ impl Mods {
                             // the tint), exactly like the CSS overlay.
                             a: g.tint.a.saturating_add(g.edge.a / 4),
                         };
-                        visual.background_gradient = Some((top, g.tint));
+                        visual.background_gradient = Some((top, g.tint_bottom.unwrap_or(g.tint)));
                     }
                 }
             }

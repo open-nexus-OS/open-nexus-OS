@@ -375,6 +375,13 @@ pub(crate) fn paint_box_row_at(
     if w <= 0 || h <= 0 || canvas.y < y || canvas.y >= y + h {
         return;
     }
+    // Soft drop shadow BEHIND the box (design elevation, `.shadow(t)`):
+    // painted first so the box fill covers its own footprint. Analytic
+    // rounded-rect SDF with a linear falloff over the blur radius — a
+    // one-shot cost at (re)render time, never per frame.
+    if let Some(shadow) = b.visual.shadow {
+        paint_shadow_row(canvas, &shadow, b, x, y, w, h);
+    }
     // A vertical gradient wins over the flat fill: substitute this row's
     // lerped color and reuse every shape path unchanged.
     let background = match b.visual.background_gradient {
@@ -433,6 +440,80 @@ pub(crate) fn paint_box_row_at(
     let radius = (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64
         / 100) as i32;
     paint_borders_row(canvas, x, y, w, h, radius, &b.visual.border);
+}
+
+/// One row of a soft drop shadow: signed distance to the (offset, spread-
+/// adjusted) rounded shadow rect, alpha falls off linearly across the blur
+/// band. Row-based like everything else here — no buffers, no passes.
+fn paint_shadow_row(
+    canvas: &mut RowCanvas<'_>,
+    shadow: &nexus_layout_types::BoxShadow,
+    b: &LayoutBox,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    let blur = shadow.blur_radius.0.max(1) as f32;
+    let sx = x + shadow.offset_x.0 - shadow.spread.0;
+    let sy = y + shadow.offset_y.0 - shadow.spread.0;
+    let sw = w + 2 * shadow.spread.0;
+    let sh = h + 2 * shadow.spread.0;
+    if sw <= 0 || sh <= 0 {
+        return;
+    }
+    let reach = shadow.blur_radius.0;
+    if canvas.y < sy - reach || canvas.y >= sy + sh + reach {
+        return;
+    }
+    let radius = b.visual.corner_radius.top_left.0.max(0).min(sw / 2).min(sh / 2) as f32;
+    let (cx, cy) = (sx as f32 + sw as f32 / 2.0, sy as f32 + sh as f32 / 2.0);
+    let (hw, hh) = (sw as f32 / 2.0 - radius, sh as f32 / 2.0 - radius);
+    let py = canvas.y as f32 + 0.5;
+    let x0 = (sx - reach).max(0);
+    let x1 = (sx + sw + reach).min(canvas.width);
+    let dy = (py - cy).abs() - hh;
+    let dyc = if dy > 0.0 { dy } else { 0.0 };
+    for px in x0..x1 {
+        let pxf = px as f32 + 0.5;
+        let dx = (pxf - cx).abs() - hw;
+        let dxc = if dx > 0.0 { dx } else { 0.0 };
+        // Rounded-rect SDF (outside-only; interior clamps to the max axis).
+        let outside = sqrt_f32(dxc * dxc + dyc * dyc);
+        let inside = if dx.max(dy) < 0.0 { dx.max(dy) } else { 0.0 };
+        let dist = outside + inside - radius;
+        // Linear falloff across [-blur/2, +blur/2] around the rect edge.
+        let t = 0.5 - dist / blur;
+        if t <= 0.0 {
+            continue;
+        }
+        let f = if t >= 1.0 { 1.0 } else { t };
+        let a = (shadow.color.a as f32 * f) as u8;
+        if a == 0 {
+            continue;
+        }
+        canvas.blend(px, nexus_layout_types::Rgba8 {
+            r: shadow.color.r,
+            g: shadow.color.g,
+            b: shadow.color.b,
+            a,
+        });
+    }
+}
+
+/// `no_std` sqrt via Newton iterations (the painter has no libm; three
+/// rounds from a decent seed are exact to well under 8-bit alpha).
+#[inline]
+fn sqrt_f32(v: f32) -> f32 {
+    if v <= 0.0 {
+        return 0.0;
+    }
+    let mut r = if v >= 1.0 { v } else { 1.0 };
+    r = 0.5 * (r + v / r);
+    r = 0.5 * (r + v / r);
+    r = 0.5 * (r + v / r);
+    r = 0.5 * (r + v / r);
+    0.5 * (r + v / r)
 }
 
 /// Paint every box's contribution to this row, in box (z) order.

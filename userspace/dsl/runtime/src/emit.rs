@@ -485,6 +485,7 @@ fn apply_modifier(
         27 => mods.opacity = Some(int_arg().clamp(0, 255) as u8),          // opacity
         28 => mods.material = registry::material_token(&token_name(ctx)),  // material
         29 => mods.rounded = Some(registry::radius(&token_name(ctx))),     // rounded
+        31 => mods.shadow = registry::shadow_level(&token_name(ctx)),      // shadow
         32 => mods.text_size = registry::type_size(&token_name(ctx)),      // textSize
         21 => {
             if let Some(Ok(ir::token_arg::Which::Boolean(b))) = first.map(|a| a.which()) {

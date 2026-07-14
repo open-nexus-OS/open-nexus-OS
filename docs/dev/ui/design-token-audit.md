@@ -22,29 +22,38 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
 - **Blur-Layering**: Fenster-Glass-Backdrop-Cache wird invalidiert, wenn sich darunter
   Inhalt ändert (Desktop-Damage, Present eines überlappten Fensters, Drag) — Blur zeigt den
   echten Hintergrund statt des Wallpaper-Snapshots.
+- **Shadows (Elevation)**: `ShadowLevel`-Skala auf die Handoff-Werte gezogen (md 0/4/12 .15 …
+  2xl 0/25/50 .25), `.shadow(sm|md|lg|xl|xxl)` konsumiert sie jetzt (Mods → `VisualStyle.shadow`),
+  und `scene_raster` malt den weichen Schatten analytisch pro Zeile (Rounded-Rect-SDF +
+  linearer Falloff, One-Shot beim Re-Render). Demo: Stash-Floating-Actionbar `.shadow(lg)`.
+- **Scrim + Destructive**: `ColorToken::{Scrim, Destructive, OnDestructive}` + TOML (`scrim`
+  base #00000047 / dark #00000073) + DSL-Mapping.
+- **Divider**: transluzente Hairline per Handoff (base `#0000001a`, dark `#ffffff1a`).
+- **glassSubtle**: Border entfernt, Blur auf die sm-Stufe (8) — wie im Handoff.
+- **glassWindow-Gradient**: `GlassSurface.tint_bottom` (TOML `tintBottomColor/-Alpha`) —
+  der Fenster-Body rendert den 2-Stop-Handoff-Verlauf (hell `#f8f9fb@.94 → #eceef3@.90`,
+  dunkel `#34363e@.82 → #20222a@.74`); Blur auf lg (40).
+- **material(overlay)**: `GlassLevel::Overlay` + Wire `GLASS_OVERLAY=4` (append-only) +
+  DSL-Mapping — das Overlay-Material ist aus Seiten nutzbar.
+- **warningFg**: bleibt bewusst near-black (Amber + Weiß ≈ 2.1 Kontrast) — dieselbe
+  dokumentierte a11y-Verschärfung wie `success`; im TOML kommentiert.
 
 ## Offen — Token-Abweichungen
 
 | Rolle | Handoff | Implementierung | Status |
 |---|---|---|---|
-| `warning-fg` | `#ffffff` | `#0a0a0a` | echte Abweichung, klären |
-| `divider` | `rgba(0,0,0,.10)` | `#d4d4d4` opak | angleichen |
 | `success` | `#22c55e` | `#16a34a` | GEWOLLT (a11y, dokumentiert) |
-| `destructive` | `#d4183d` | Wert in TOML, **kein `ColorToken::Destructive`** | Rolle ergänzen |
-| glassWindow tint | 165°-Gradient 2 Stops | Solid (Stop 1) | GPU-Glass-Tint als Gradient (FS_SDF_GRAD existiert) |
-| glassSubtle | kein Border/Blur | erfundener Border + blur 12 | angleichen (blur→8/sm) |
-| Blur-Skala | benannte Tokens sm 8/md 20/lg 40/xl 64 | nur per-Material `blurRadiusDp` | Tokens einführen |
+| `warning-fg` | `#ffffff` | `#0a0a0a` | GEWOLLT (a11y, jetzt dokumentiert) |
+| Blur-Skala | benannte Tokens sm 8/md 20/lg 40/xl 64 | per-Material `blurRadiusDp` (Werte jetzt auf Skalenstufen) | benannte Tokens optional |
 
 ## Offen — fehlende Primitives
 
-- **Shadows**: kein `ShadowToken`-Set/`[shadow]`-TOML; `.shadow`-Modifier deklariert, nie
-  konsumiert. Handoff-Elevation: sm `0 1px 2px .12` · md `0 4px 12px .15` · lg `0 8px 24px .18`
-  · xl `0 12px 32px .22` · 2xl `0 25px 50px .25` + icon/dock/label-Schatten + mehrlagige
-  Material-Schatten mit inset (window: `0 30px 60px .30, inset 0 1px 0 .85`).
-- **Scrim**: `--glass-scrim rgba(0,0,0,.28)` [dark .45] fehlt (Modal/Alert-Backdrop).
-- **Borders**: nur uniform 1px; per-Seite (Sidebar right-border, pane-border) + die
-  Material-Border-Farben (window-pane `.07`, chip `.09`, bar `.95`, icon `.20`) fehlen.
-- **material(overlay)**: `MaterialToken::Overlay` existiert, `GlassLevel` + DSL-Mapping nicht.
+- **Per-Seite-Borders im DSL** (Sidebar right-border, pane-border; `EdgeBorder` kann es,
+  es fehlen die Modifier) + die Material-Border-Farben (window-pane `.07`, chip `.09`,
+  bar `.95`, icon `.20`) als Tokens.
+- **Mehrlagige Material-Schatten mit inset** (window: `0 30px 60px .30, inset 0 1px 0 .85`)
+  — die einfache Elevation-Skala ist da; inset-Layers fehlen.
+- **Icon/Dock/Label-Sonderschatten** (`--shadow-icon`, `--shadow-dock-*`, `--glass-label-shadow`).
 
 ## Offen — Component-API (Handoff prop-basiert vs. DSL modifier-basiert)
 

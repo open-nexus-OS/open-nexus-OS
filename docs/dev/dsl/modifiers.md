@@ -78,7 +78,7 @@ Rules:
 |---|---|---|
 | `.rounded(t)` | radius token (`sm\|md\|lg\|xl\|full`) | corner radius |
 | `.border(t)` | length token | border width |
-| `.shadow(t)` | shadow token (`sm\|md\|lg`) | elevation |
+| `.shadow(t)` | shadow token (`sm\|md\|lg\|xl\|xxl`) | elevation — the design-handoff scale (md `0 4 12 .15` … xxl `0 25 50 .25`), painted as an analytic soft rounded-rect shadow behind the box |
 
 ## Typography (class: layout — text metrics affect measurement)
 

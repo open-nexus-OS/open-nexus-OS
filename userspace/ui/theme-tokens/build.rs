@@ -51,6 +51,9 @@ const ROLES: &[(&str, &str)] = &[
     ("OnInfo", "infoFg"),
     ("FocusRing", "focusRing"),
     ("IslandBg", "islandBg"),
+    ("Scrim", "scrim"),
+    ("Destructive", "destructive"),
+    ("OnDestructive", "destructiveFg"),
 ];
 
 fn main() {
@@ -102,6 +105,16 @@ fn main() {
                 _ => panic!("nexus-theme-tokens: material '{mat_name}' missing or not glass"),
             };
             let alpha = |a: f32| (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let tint_bottom = match g.tint_bottom_color {
+                Some(c) => format!(
+                    "Some(Rgba8::new({}, {}, {}, {}))",
+                    c.r,
+                    c.g,
+                    c.b,
+                    alpha(g.tint_bottom_alpha.unwrap_or(1.0))
+                ),
+                None => "None".to_string(),
+            };
             let border = match g.border_color {
                 Some(c) => format!(
                     "Some(Rgba8::new({}, {}, {}, {}))",
@@ -113,8 +126,9 @@ fn main() {
                 None => "None".to_string(),
             };
             generated.push_str(&format!(
-                "        MaterialToken::{variant} => GlassSurface {{ tint: Rgba8::new({}, {}, {}, {}), edge: Rgba8::new({}, {}, {}, {}), border: {}, blur_radius: {}, saturation: {}, downsample: {} }},\n",
+                "        MaterialToken::{variant} => GlassSurface {{ tint: Rgba8::new({}, {}, {}, {}), tint_bottom: {}, edge: Rgba8::new({}, {}, {}, {}), border: {}, blur_radius: {}, saturation: {}, downsample: {} }},\n",
                 g.tint_color.r, g.tint_color.g, g.tint_color.b, alpha(g.tint_alpha),
+                tint_bottom,
                 g.edge_highlight_color.r, g.edge_highlight_color.g, g.edge_highlight_color.b, alpha(g.edge_highlight_alpha),
                 border, g.blur_radius_dp, GLASS_SATURATION, g.downsample_factor,
             ));
