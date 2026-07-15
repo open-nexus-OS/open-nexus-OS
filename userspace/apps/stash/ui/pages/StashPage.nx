@@ -105,7 +105,7 @@ Page StashPage {
                         } else {
                             List($state.files) { f in
                                 Stack {
-                                    FileRow { id: f.name, name: f.name, kind: f.kind, date: "-", size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                    FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
                                 }
                                 .key(f.name)
                             }
@@ -136,7 +136,19 @@ Page StashPage {
                                     .height(52)
                                     .rounded(lg)
                                     on Tap -> dispatch(NewFolder)
-                                    WinActionItem { id: "sort", label: @t("stash.actSort"), icon: "arrow.up.arrow.down", kind: "" }
+                                    // Sort cycles name → kind → date (app-host reorders).
+                                    Stack {
+                                        Icon { symbol: "arrow.up.arrow.down", size: 16 }
+                                            .fg(onSurface)
+                                        Text(@t("stash.actSort")).textSize(xs).fg(onSurfaceVariant)
+                                    }
+                                    .align(center)
+                                    .justify(center)
+                                    .gap(1)
+                                    .width(66)
+                                    .height(52)
+                                    .rounded(lg)
+                                    on Tap -> dispatch(CycleSort)
                                     WinActionItem { id: "more", label: @t("stash.actMore"), icon: "ellipsis", kind: "" }
                                 }
                                 .direction(row)
@@ -190,6 +202,7 @@ Page StashPage {
                                 WinPropRow { label: @t("stash.propName"), value: $state.selName, icon: "doc" }
                                 WinPropRow { label: @t("stash.propKind"), value: $state.selKind, icon: "info.circle" }
                                 WinPropRow { label: @t("stash.propSize"), value: $state.selSize, icon: "internaldrive" }
+                                WinPropRow { label: @t("stash.propCreated"), value: $state.selDate, icon: "calendar" }
                                 WinPropRow { label: @t("stash.propDate"), value: $state.selDate, icon: "pencil" }
                                 WinPropRow { label: @t("stash.propState"), value: @t("stash.propSync"), icon: "checkmark" }
                             }

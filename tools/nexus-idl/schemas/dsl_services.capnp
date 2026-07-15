@@ -34,7 +34,7 @@ const dslSurface :List(DslMethod) = [
   (service = "catalog", method = "list", args = [], result = "List<Str>"),
   (service = "db", method = "put", args = ["Str", "Str"], result = "Bool"),
   # -- file surface (vfsd via RFC-0073; FILES permission, filemanager role)
-  (service = "files", method = "list", args = ["Str", "Int"], result = "List<FileEntry>"),
+  (service = "files", method = "list", args = ["Str", "Int", "Str"], result = "List<FileEntry>"),
   (service = "files", method = "mkdir", args = ["Str"], result = "Bool"),
   (service = "files", method = "remove", args = ["Str"], result = "Bool"),
   (service = "files", method = "stat", args = ["Str"], result = "FileEntry"),

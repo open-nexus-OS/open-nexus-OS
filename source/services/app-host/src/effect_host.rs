@@ -88,6 +88,7 @@ pub(crate) struct AppEffectHost {
     kind_sym: Option<u32>,
     size_sym: Option<u32>,
     size_text_sym: Option<u32>,
+    date_sym: Option<u32>,
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
     /// engine queryd hosts; keyset paging = the DSL's lazy-loading window.
     query_store: Option<QueryStore>,
@@ -177,6 +178,7 @@ impl AppEffectHost {
             kind_sym: symbols.iter().position(|s| s == "kind").map(|i| i as u32),
             size_sym: symbols.iter().position(|s| s == "size").map(|i| i as u32),
             size_text_sym: symbols.iter().position(|s| s == "sizeText").map(|i| i as u32),
+            date_sym: symbols.iter().position(|s| s == "date").map(|i| i as u32),
             query_store: None,
             surface_id: 0,
         }
@@ -270,6 +272,9 @@ impl AppEffectHost {
             let stem = entry_icon_stem(entry);
             fields.push((sym, Value::Str(alloc::format!("mime:{stem}"))));
         }
+        if let Some(sym) = self.date_sym {
+            fields.push((sym, Value::Str(stub_date(&entry.name, entry.kind))));
+        }
         fields.sort_by_key(|(sym, _)| *sym);
         Value::Record(fields)
     }
@@ -277,7 +282,7 @@ impl AppEffectHost {
     /// `svc.files.list(path, cursor)` → `List<FileEntry{ name, kind, size }>`
     /// — one bounded ReadDir page from vfsd (RFC-0072/0073; `cursor` 0 = first
     /// page, continuation via the page's next cursor).
-    fn files_list(&self, path: &str, cursor: i64) -> Result<Value, u32> {
+    fn files_list(&self, path: &str, cursor: i64, sort: &str) -> Result<Value, u32> {
         let Some(name_sym) = self.name_sym else {
             raw_marker("apphost: dsl svc files.list FAIL (no name symbol)");
             return Err(ERR_SVC_SHAPE);
@@ -296,8 +301,32 @@ impl AppEffectHost {
         };
         match nexus_vfs_types::decode_readdir_response(&resp[..len]) {
             Ok(page) => {
-                let rows: Vec<Value> = page
-                    .entries
+                // Sort the page (name | kind | date). Directories always sort
+                // before files; ties break by name. "date" uses the stub key.
+                let dir_first = |e: &nexus_vfs_types::DirEntry| {
+                    u8::from(e.kind != nexus_vfs_types::FileKind::Dir)
+                };
+                let mut entries: Vec<&nexus_vfs_types::DirEntry> = page.entries.iter().collect();
+                match sort {
+                    "kind" => entries.sort_by(|a, b| {
+                        dir_first(a)
+                            .cmp(&dir_first(b))
+                            .then_with(|| entry_icon_stem(a).cmp(entry_icon_stem(b)))
+                            .then_with(|| a.name.cmp(&b.name))
+                    }),
+                    "date" => entries.sort_by(|a, b| {
+                        dir_first(a)
+                            .cmp(&dir_first(b))
+                            .then_with(|| {
+                                stub_date_key(&a.name, a.kind).cmp(&stub_date_key(&b.name, b.kind))
+                            })
+                            .then_with(|| a.name.cmp(&b.name))
+                    }),
+                    _ => entries.sort_by(|a, b| {
+                        dir_first(a).cmp(&dir_first(b)).then_with(|| a.name.cmp(&b.name))
+                    }),
+                }
+                let rows: Vec<Value> = entries
                     .iter()
                     .map(|entry| self.file_entry_record(name_sym, entry))
                     .collect();
@@ -790,7 +819,9 @@ impl EffectHost for AppEffectHost {
             ("files", "list") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 let cursor = args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
-                self.files_list(path, cursor)
+                // Optional sort mode ("name" | "kind" | "date"); absent = name.
+                let sort = args.get(2).and_then(str_of).unwrap_or("name");
+                self.files_list(path, cursor, sort)
             }
             ("files", "mkdir") => {
                 let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
@@ -827,6 +858,53 @@ fn int_of(v: &Value) -> Option<i64> {
 /// Human-readable size for direct UI binding (`12 B` / `4.2 KB` / `3.8 MB`);
 /// directories render as a plain dash (ASCII — the baked UI font has no
 /// em-dash glyph; it renders as `?`). Integer math only (no_std, no floats).
+/// A deterministic STUB modified-date for a listing entry. The OS has no
+/// real-time clock yet, so timestamps are demo values derived from the name —
+/// stable per file (so re-listing shows the same date) and varied enough that
+/// date-sort is meaningful. Directories carry no date ("-"), matching the
+/// design. Real per-file stored timestamps land once an RTC service exists.
+fn stub_date(name: &str, kind: nexus_vfs_types::FileKind) -> String {
+    if kind == nexus_vfs_types::FileKind::Dir {
+        return String::from("-");
+    }
+    let (year, month, day) = stub_ymd(name);
+    let mut out = String::new();
+    push_two(&mut out, day);
+    out.push('.');
+    push_two(&mut out, month);
+    out.push('.');
+    let _ = core::fmt::write(&mut out, format_args!("{year}"));
+    out
+}
+
+/// FNV-1a of the name → a demo `(year, month, day)` in mid-2026.
+fn stub_ymd(name: &str) -> (u32, u32, u32) {
+    let mut hash: u32 = 2166136261;
+    for byte in name.bytes() {
+        hash = (hash ^ u32::from(byte)).wrapping_mul(16777619);
+    }
+    let day = 1 + (hash % 28);
+    let month = 5 + ((hash / 28) % 3);
+    (2026, month, day)
+}
+
+/// A sortable key for the stub date (directories sort first with key 0).
+fn stub_date_key(name: &str, kind: nexus_vfs_types::FileKind) -> u32 {
+    if kind == nexus_vfs_types::FileKind::Dir {
+        return 0;
+    }
+    let (year, month, day) = stub_ymd(name);
+    year * 10000 + month * 100 + day
+}
+
+/// Appends a zero-padded two-digit number.
+fn push_two(out: &mut String, value: u32) {
+    if value < 10 {
+        out.push('0');
+    }
+    let _ = core::fmt::write(out, format_args!("{value}"));
+}
+
 /// The mime icon stem for a listing entry (RFC-0073): directories use the
 /// directory stem, files resolve by extension through the mime SSOT.
 fn entry_icon_stem(entry: &nexus_vfs_types::DirEntry) -> &'static str {

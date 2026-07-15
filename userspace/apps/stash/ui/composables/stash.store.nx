@@ -30,6 +30,8 @@ Store StashStore {
     files: List<FileEntry> = [],
     filesLoading: Int = 1,
     filesError: Int = 0,
+    // Sort mode for the listing: "name" | "kind" | "date" (app-host sorts).
+    sortBy: Str = "name",
 }
 
 Event StashEvent {
@@ -51,6 +53,7 @@ Event StashEvent {
     FolderCreated(Bool),
     DeleteSel,
     Deleted(Bool),
+    CycleSort,
 }
 
 reduce StashEvent {
@@ -242,6 +245,19 @@ reduce StashEvent {
             }
         }
     },
+    CycleSort => {
+        // name → kind → date → name (the app-host applies the mode on reload).
+        if state.sortBy == "name" {
+            state.sortBy = "kind";
+        } else {
+            if state.sortBy == "kind" {
+                state.sortBy = "date";
+            } else {
+                state.sortBy = "name";
+            }
+        }
+        state.filesLoading = 1;
+    },
     DeleteSel => state.filesLoading = 1,
     Deleted(ok) => {
         state.selection = "";
@@ -288,7 +304,7 @@ reduce StashEvent {
 // Root effect: LoadFiles is dispatched nowhere, so this fires once at mount
 // (the DSL initial-load contract) and fills the list from the real home.
 @effect on LoadFiles {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -297,7 +313,7 @@ reduce StashEvent {
 // Sidebar navigation reloads the listing for the new location. state.path is
 // already updated by the reducer when this effect runs.
 @effect on WinMenuPick(id) {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -305,7 +321,7 @@ reduce StashEvent {
 
 // Toolbar back / refresh reloads the (possibly changed) location.
 @effect on WinNav(dir) {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -313,7 +329,7 @@ reduce StashEvent {
 
 // A newly created folder reloads the listing so it appears immediately.
 @effect on FolderCreated(ok) {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -322,7 +338,7 @@ reduce StashEvent {
 // Tapping a row may have opened a folder (state.path changed) — reload for the
 // current location. A pure selection re-lists the same folder (idempotent).
 @effect on Pick(id, name, kind, size, date) {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
@@ -339,7 +355,15 @@ reduce StashEvent {
 
 // After a successful delete, reload the folder (the entry is gone).
 @effect on Deleted(ok) {
-    match svc.files.list(state.path, 0, timeoutMs: 250) {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
+        Ok(files) => dispatch(FilesLoaded(files)),
+        Err(e) => dispatch(FilesFailed(e)),
+    }
+}
+
+// Sort mode changed → reload the listing in the new order.
+@effect on CycleSort {
+    match svc.files.list(state.path, 0, state.sortBy, timeoutMs: 250) {
         Ok(files) => dispatch(FilesLoaded(files)),
         Err(e) => dispatch(FilesFailed(e)),
     }
