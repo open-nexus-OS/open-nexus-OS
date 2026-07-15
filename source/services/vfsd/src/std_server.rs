@@ -21,10 +21,11 @@ use thiserror::Error;
 
 use nexus_idl_runtime::vfs_capnp::{
     close_request, close_response, mount_request, mount_response, open_request, open_response,
-    read_request, read_response, stat_request, stat_response,
+    read_dir_request, read_dir_response, read_request, read_response, stat_request, stat_response,
 };
 use nexus_ipc::{IpcError, Wait};
 use nexus_packagefs::PackageFsClient;
+use nexus_vfs_types::{ReadDirPage, VfsError, CODE_OK, MAX_ENTRIES_PER_PAGE};
 
 use crate::{CapFdToken, NamespaceView, ReplayGuard, SandboxError, RIGHT_READ, RIGHT_WRITE};
 
@@ -33,8 +34,12 @@ const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 const OPCODE_STAT: u8 = 4;
 const OPCODE_MOUNT: u8 = 5;
+const OPCODE_READDIR: u8 = 6;
 
 const KIND_DIRECTORY: u16 = 1;
+
+/// The provider-relative path addressing a mount's root listing.
+const DIR_ROOT_REL: &str = ".";
 
 /// Result alias used by the service.
 pub type Result<T> = core::result::Result<T, ServerError>;
@@ -174,9 +179,25 @@ pub enum ServiceError {
     /// File handle is invalid or has been closed.
     #[error("bad file handle")]
     BadHandle,
+    /// Stable storage error passed through from a provider (RFC-0072).
+    #[error("vfs error: {0}")]
+    Vfs(VfsError),
     /// Underlying provider failed.
     #[error("provider error: {0}")]
     Provider(String),
+}
+
+impl ServiceError {
+    /// Maps to the stable RFC-0072 wire code.
+    fn code(&self) -> u16 {
+        match self {
+            Self::NotFound => VfsError::NotFound.code(),
+            Self::InvalidPath => VfsError::Invalid.code(),
+            Self::BadHandle => VfsError::Invalid.code(),
+            Self::Vfs(err) => err.code(),
+            Self::Provider(_) => VfsError::Io.code(),
+        }
+    }
 }
 
 /// Read-only file metadata stored for active handles.
@@ -205,6 +226,13 @@ struct ProviderEntry {
 trait FsProvider: Send + Sync {
     fn resolve(&self, rel_path: &str) -> core::result::Result<ProviderEntry, ServiceError>;
     fn stat(&self, rel_path: &str) -> core::result::Result<(u64, u16), ServiceError>;
+    /// Lists direct children of `rel_path` (`"."` = mount root), paginated.
+    fn read_dir(
+        &self,
+        rel_path: &str,
+        cursor: u32,
+        limit: u16,
+    ) -> core::result::Result<ReadDirPage, ServiceError>;
 }
 
 /// Package file system provider backed by the packagefs service.
@@ -230,6 +258,15 @@ impl FsProvider for PackageFsProvider {
     fn stat(&self, rel_path: &str) -> core::result::Result<(u64, u16), ServiceError> {
         let entry = self.client.resolve(rel_path).map_err(map_packagefs_error)?;
         Ok((entry.size(), entry.kind()))
+    }
+
+    fn read_dir(
+        &self,
+        rel_path: &str,
+        cursor: u32,
+        limit: u16,
+    ) -> core::result::Result<ReadDirPage, ServiceError> {
+        self.client.list(rel_path, cursor, limit).map_err(ServiceError::Vfs)
     }
 }
 
@@ -299,6 +336,35 @@ impl MountTable {
             Ok((&**provider, rel))
         } else {
             Err(ServiceError::InvalidPath)
+        }
+    }
+
+    /// Like [`Self::resolve`], but an empty relative path is valid and maps to
+    /// the mount root (`"."`) — directories are listable at every level.
+    fn resolve_dir<'a>(
+        &'a self,
+        path: &str,
+    ) -> core::result::Result<(&'a dyn FsProvider, String), ServiceError> {
+        if path == "pkg:/" {
+            let provider = self.mounts.get("/packages").ok_or(ServiceError::NotFound)?;
+            return Ok((&**provider, DIR_ROOT_REL.to_string()));
+        }
+        match self.resolve(path) {
+            Ok(resolved) => Ok(resolved),
+            Err(ServiceError::InvalidPath) => {
+                // Retry as a mount-root listing: "/packages" has an empty rel.
+                let trimmed = path.trim_start_matches('/').trim_end_matches('/');
+                if trimmed.is_empty() {
+                    return Err(ServiceError::InvalidPath);
+                }
+                for (mount, provider) in &self.mounts {
+                    if mount.trim_start_matches('/').trim_end_matches('/') == trimmed {
+                        return Ok((&**provider, DIR_ROOT_REL.to_string()));
+                    }
+                }
+                Err(ServiceError::InvalidPath)
+            }
+            Err(err) => Err(err),
         }
     }
 }
@@ -466,6 +532,13 @@ impl Dispatcher {
         let (provider, rel) = mounts.resolve(path)?;
         provider.stat(&rel).map_err(ServerError::from)
     }
+
+    fn read_dir(&self, path: &str, cursor: u32, limit: u16) -> Result<ReadDirPage> {
+        let limit = limit.clamp(1, MAX_ENTRIES_PER_PAGE);
+        let mounts = self.mounts.lock();
+        let (provider, rel) = mounts.resolve_dir(path)?;
+        provider.read_dir(&rel, cursor, limit).map_err(ServerError::from)
+    }
 }
 
 /// Notifies init when the service is ready.
@@ -560,6 +633,7 @@ where
         OPCODE_CLOSE => handle_close(dispatcher, payload)?,
         OPCODE_STAT => handle_stat(dispatcher, payload)?,
         OPCODE_MOUNT => handle_mount(dispatcher, payload)?,
+        OPCODE_READDIR => handle_readdir(dispatcher, payload)?,
         other => {
             error!("vfsd: unknown opcode {other}");
             return Ok(());
@@ -582,11 +656,10 @@ fn handle_open(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
         .map_err(|err| ServerError::Decode(format!("open path utf8: {err}")))?
         .to_string();
     match dispatcher.open(&path) {
-        Ok((handle, entry)) => encode_open_response(true, handle, entry.size, entry.kind),
-        Err(ServerError::Service(ServiceError::NotFound)) => encode_open_response(false, 0, 0, 0),
-        Err(ServerError::Service(ServiceError::InvalidPath)) => {
-            encode_open_response(false, 0, 0, 0)
+        Ok((handle, entry)) => {
+            encode_open_response(true, handle, entry.size, entry.kind, CODE_OK)
         }
+        Err(ServerError::Service(err)) => encode_open_response(false, 0, 0, 0, err.code()),
         Err(err) => Err(err),
     }
 }
@@ -602,8 +675,8 @@ fn handle_read(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
     let off = request.get_off();
     let len = request.get_len();
     match dispatcher.read(handle, off, len) {
-        Ok(bytes) => encode_read_response(true, &bytes),
-        Err(ServerError::Service(ServiceError::BadHandle)) => encode_read_response(false, &[]),
+        Ok(bytes) => encode_read_response(true, &bytes, CODE_OK),
+        Err(ServerError::Service(err)) => encode_read_response(false, &[], err.code()),
         Err(err) => Err(err),
     }
 }
@@ -617,8 +690,8 @@ fn handle_close(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
         .map_err(|err| ServerError::Decode(format!("close root: {err}")))?;
     let handle = request.get_fh();
     match dispatcher.close(handle) {
-        Ok(()) => encode_close_response(true),
-        Err(ServerError::Service(ServiceError::BadHandle)) => encode_close_response(false),
+        Ok(()) => encode_close_response(true, CODE_OK),
+        Err(ServerError::Service(err)) => encode_close_response(false, err.code()),
         Err(err) => Err(err),
     }
 }
@@ -637,9 +710,31 @@ fn handle_stat(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
         .map_err(|err| ServerError::Decode(format!("stat path utf8: {err}")))?
         .to_string();
     match dispatcher.stat(&path) {
-        Ok((size, kind)) => encode_stat_response(true, size, kind),
-        Err(ServerError::Service(ServiceError::NotFound)) => encode_stat_response(false, 0, 0),
-        Err(ServerError::Service(ServiceError::InvalidPath)) => encode_stat_response(false, 0, 0),
+        Ok((size, kind)) => encode_stat_response(true, size, kind, CODE_OK),
+        Err(ServerError::Service(err)) => encode_stat_response(false, 0, 0, err.code()),
+        Err(err) => Err(err),
+    }
+}
+
+fn handle_readdir(dispatcher: &Dispatcher, payload: &[u8]) -> Result<Vec<u8>> {
+    let mut cursor = std::io::Cursor::new(payload);
+    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+        .map_err(|err| ServerError::Decode(format!("readdir read: {err}")))?;
+    let request = message
+        .get_root::<read_dir_request::Reader<'_>>()
+        .map_err(|err| ServerError::Decode(format!("readdir root: {err}")))?;
+    let path = request
+        .get_path()
+        .map_err(|err| ServerError::Decode(format!("readdir path: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("readdir path utf8: {err}")))?
+        .to_string();
+    match dispatcher.read_dir(&path, request.get_cursor(), request.get_limit()) {
+        Ok(page) => {
+            info!("vfsd: readdir ok (path={path} entries={})", page.entries.len());
+            encode_readdir_response(Ok(&page))
+        }
+        Err(ServerError::Service(err)) => encode_readdir_response(Err(err.code())),
         Err(err) => Err(err),
     }
 }
@@ -686,40 +781,50 @@ fn encode_frame(
     Ok(frame)
 }
 
-fn encode_open_response(success: bool, handle: u32, size: u64, kind: u16) -> Result<Vec<u8>> {
+fn encode_open_response(
+    success: bool,
+    handle: u32,
+    size: u64,
+    kind: u16,
+    err: u16,
+) -> Result<Vec<u8>> {
     encode_frame(OPCODE_OPEN, |message| {
         let mut resp = message.init_root::<open_response::Builder<'_>>();
         resp.set_ok(success);
         resp.set_fh(handle);
         resp.set_size(size);
         resp.set_kind(kind);
+        resp.set_err(err);
         Ok(())
     })
 }
 
-fn encode_read_response(success: bool, bytes: &[u8]) -> Result<Vec<u8>> {
+fn encode_read_response(success: bool, bytes: &[u8], err: u16) -> Result<Vec<u8>> {
     encode_frame(OPCODE_READ, |message| {
         let mut resp = message.init_root::<read_response::Builder<'_>>();
         resp.set_ok(success);
         resp.set_bytes(bytes);
+        resp.set_err(err);
         Ok(())
     })
 }
 
-fn encode_close_response(success: bool) -> Result<Vec<u8>> {
+fn encode_close_response(success: bool, err: u16) -> Result<Vec<u8>> {
     encode_frame(OPCODE_CLOSE, |message| {
         let mut resp = message.init_root::<close_response::Builder<'_>>();
         resp.set_ok(success);
+        resp.set_err(err);
         Ok(())
     })
 }
 
-fn encode_stat_response(success: bool, size: u64, kind: u16) -> Result<Vec<u8>> {
+fn encode_stat_response(success: bool, size: u64, kind: u16, err: u16) -> Result<Vec<u8>> {
     encode_frame(OPCODE_STAT, |message| {
         let mut resp = message.init_root::<stat_response::Builder<'_>>();
         resp.set_ok(success);
         resp.set_size(size);
         resp.set_kind(kind);
+        resp.set_err(err);
         Ok(())
     })
 }
@@ -729,6 +834,38 @@ fn encode_mount_response(success: bool, msg: String) -> Result<Vec<u8>> {
         let mut resp = message.init_root::<mount_response::Builder<'_>>();
         let _ = msg; // suppress unused until mount response gains fields
         resp.set_ok(success);
+        resp.set_err(if success { CODE_OK } else { VfsError::Io.code() });
+        Ok(())
+    })
+}
+
+fn encode_readdir_response(
+    outcome: core::result::Result<&ReadDirPage, u16>,
+) -> Result<Vec<u8>> {
+    encode_frame(OPCODE_READDIR, |message| {
+        let mut resp = message.init_root::<read_dir_response::Builder<'_>>();
+        match outcome {
+            Ok(page) => {
+                resp.set_ok(true);
+                resp.set_err(CODE_OK);
+                resp.set_next_cursor(page.next_cursor);
+                resp.set_eof(page.eof);
+                let mut list = resp.init_entries(page.entries.len() as u32);
+                for (idx, entry) in page.entries.iter().enumerate() {
+                    let mut slot = list.reborrow().get(idx as u32);
+                    slot.set_name(entry.name.as_str());
+                    slot.set_kind(entry.kind as u16);
+                    slot.set_size(entry.size);
+                }
+            }
+            Err(code) => {
+                resp.set_ok(false);
+                resp.set_err(code);
+                resp.set_next_cursor(0);
+                resp.set_eof(true);
+                resp.init_entries(0);
+            }
+        }
         Ok(())
     })
 }
@@ -750,6 +887,40 @@ mod tests {
         fn stat(&self, _rel_path: &str) -> core::result::Result<(u64, u16), ServiceError> {
             Ok((self.bytes.len() as u64, 0))
         }
+
+        fn read_dir(
+            &self,
+            rel_path: &str,
+            cursor: u32,
+            _limit: u16,
+        ) -> core::result::Result<ReadDirPage, ServiceError> {
+            if rel_path != DIR_ROOT_REL {
+                return Err(ServiceError::Vfs(nexus_vfs_types::VfsError::NotFound));
+            }
+            let entries = alloc_entries();
+            let start = cursor as usize;
+            let page: Vec<_> = entries.iter().skip(start).cloned().collect();
+            Ok(ReadDirPage {
+                next_cursor: (start + page.len()) as u32,
+                eof: true,
+                entries: page,
+            })
+        }
+    }
+
+    fn alloc_entries() -> Vec<nexus_vfs_types::DirEntry> {
+        vec![
+            nexus_vfs_types::DirEntry {
+                name: "build.prop".to_string(),
+                kind: nexus_vfs_types::FileKind::File,
+                size: 19,
+            },
+            nexus_vfs_types::DirEntry {
+                name: "system".to_string(),
+                kind: nexus_vfs_types::FileKind::Dir,
+                size: 0,
+            },
+        ]
     }
 
     fn test_dispatcher() -> Dispatcher {
@@ -769,6 +940,34 @@ mod tests {
             next_handle: Mutex::new(1),
             next_nonce: Mutex::new(1),
             packagefs,
+        }
+    }
+
+    #[test]
+    fn readdir_lists_mount_root_and_maps_errors() {
+        let dispatcher = test_dispatcher();
+        // Mount-root listing via both spellings.
+        for path in ["/packages", "pkg:/"] {
+            let page = dispatcher.read_dir(path, 0, 64).expect("root listing");
+            let names: Vec<&str> = page.entries.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(names, ["build.prop", "system"], "path {path}");
+            assert!(page.eof);
+        }
+        // Unknown mount → stable InvalidPath (EINVAL on the wire).
+        let err = dispatcher.read_dir("/nope", 0, 64).expect_err("unknown mount");
+        match err {
+            ServerError::Service(service) => {
+                assert_eq!(service.code(), nexus_vfs_types::VfsError::Invalid.code());
+            }
+            other => panic!("unexpected error {other}"),
+        }
+        // Provider-side NotFound passes through with its stable code.
+        let err = dispatcher.read_dir("pkg:/system/missing", 0, 64).expect_err("not found");
+        match err {
+            ServerError::Service(service) => {
+                assert_eq!(service.code(), nexus_vfs_types::VfsError::NotFound.code());
+            }
+            other => panic!("unexpected error {other}"),
         }
     }
 

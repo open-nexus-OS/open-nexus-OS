@@ -68,8 +68,41 @@ fn chat_bundle_packs_with_launch_ability() {
 }
 
 #[test]
-fn search_bundle_packs_with_launch_ability() {
-    let (name, abilities, _caps) = pack_and_read("search");
-    assert_eq!(name, "search");
-    assert_eq!(abilities, vec!["search.MainAbility".to_string()]);
+fn stash_bundle_packs_as_filemanager_with_files_cap() {
+    // The filemanager role (RFC-0073/TASK-0291): stash packs with FILES
+    // because its bundle_type ceiling allows it.
+    let (name, abilities, caps) = pack_and_read("stash");
+    assert_eq!(name, "stash");
+    assert_eq!(abilities, vec!["stash.MainAbility".to_string()]);
+    assert!(caps.contains(&"nexus.permission.FILES".to_string()), "caps: {caps:?}");
+}
+
+#[test]
+fn test_reject_files_cap_for_plain_app_bundle_type() {
+    // Privilege ceiling: a plain `app` may not ship FILES — pack fails closed.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let toml = tmp.path().join("manifest.toml");
+    std::fs::write(
+        &toml,
+        r#"name = "rogue"
+version = "0.1.0"
+min_sdk = "1.0.0"
+bundle_type = "app"
+abilities = ["rogue.MainAbility"]
+caps = ["nexus.permission.FILES"]
+"#,
+    )
+    .expect("write manifest");
+    let payload = tmp.path().join("placeholder.elf");
+    std::fs::write(&payload, b"\x7fELF placeholder payload").expect("write payload");
+    let out = tmp.path().join("rogue.nxb");
+
+    let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
+        .arg("--toml")
+        .arg(&toml)
+        .arg(&payload)
+        .arg(&out)
+        .status()
+        .expect("run nxb-pack");
+    assert!(!status.success(), "FILES on bundle_type=app must fail the pack");
 }

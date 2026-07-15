@@ -1,0 +1,11 @@
+[package]
+name = "nexus-vfs-types"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared VFS surface types: stable storage error codes (RFC-0072), directory entries, and the bounded raw wire codec used by vfsd/packagefsd servers and clients."
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

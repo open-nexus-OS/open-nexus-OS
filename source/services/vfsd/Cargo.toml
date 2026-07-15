@@ -42,6 +42,7 @@ parking_lot = { version = "0.12", optional = true }
 thiserror = { version = "2", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-vfs-types = { path = "../../../userspace/vfs-types" }
 nexus-packagefs = { path = "../../../userspace/nexus-packagefs", optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }

@@ -140,6 +140,10 @@ enum BundleType {
   # shell/greeter) but may hold SETTINGS (read/write system config via
   # settingsd) — a power a normal app must not have.
   settings @7;
+  # Privileged user-launchable file manager (RFC-0073): may hold FILES
+  # (browse/manage user-visible files via vfsd `svc.files`). Sandboxed apps
+  # reach files only through pickers (deferred, TASK-0083/0084).
+  filemanager @8;
 }
 
 enum ResourceKind {

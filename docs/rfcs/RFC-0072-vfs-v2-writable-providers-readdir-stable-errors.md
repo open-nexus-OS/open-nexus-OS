@@ -13,7 +13,7 @@
 
 ## Status at a Glance
 
-- **Phase 1 (ReadDir + stable error codes on the read-only surface)**: ⬜ — `TASK-0291`
+- **Phase 1 (ReadDir + stable error codes on the read-only surface)**: ✅ — `TASK-0291` (host tests + `SELFTEST: vfs readdir ok`/`deny ok` + visible-boot evidence, 2026-07-15)
 - **Phase 2 (write ops + writable provider registration, `/data` via nxfsd)**: ⬜ — `TASK-0293`
 - **Phase 3 (VMO handle data plane for large reads/writes)**: ⬜ — `TASK-0295`
 
@@ -234,7 +234,7 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 1**: ReadDir + err SSOT on RO surface — proof: `cargo test -p vfsd` + marker `vfsd: readdir ok (mount=/packages entries=<n>)` (TASK-0291)
+- [x] **Phase 1**: ReadDir + err SSOT on RO surface — proof: `cargo test -p vfsd` / `cargo test -p vfs-e2e` + markers `SELFTEST: vfs readdir ok`, `vfsd: readdir ok (mount=/packages entries=3)` (TASK-0291, 2026-07-15). Error-code SSOT crate: `userspace/vfs-types`.
 - [ ] **Phase 2**: write ops + RW provider registration (`/data` via nxfsd) — proof: `vfsd: rw mount ok (/data)` (TASK-0293)
 - [ ] **Phase 3**: VMO bulk IO + inline cap enforcement — proof: TASK-0295 gates
 - [ ] Task(s) linked with stop conditions + proof commands.

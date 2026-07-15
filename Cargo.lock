@@ -197,6 +197,7 @@ dependencies = [
  "nexus-style",
  "nexus-text-baked",
  "nexus-theme-tokens",
+ "nexus-vfs-types",
 ]
 
 [[package]]
@@ -2105,6 +2106,7 @@ dependencies = [
  "capnp",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-vfs-types",
  "thiserror",
 ]
 
@@ -2237,7 +2239,12 @@ dependencies = [
  "capnp",
  "nexus-idl-runtime",
  "nexus-ipc",
+ "nexus-vfs-types",
 ]
+
+[[package]]
+name = "nexus-vfs-types"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-virtio"
@@ -2808,6 +2815,7 @@ dependencies = [
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-service-entry",
+ "nexus-vfs-types",
  "parking_lot",
  "storage",
  "thiserror",
@@ -3615,6 +3623,7 @@ dependencies = [
  "nexus-proof-manifest",
  "nexus-service-entry",
  "nexus-vfs",
+ "nexus-vfs-types",
  "nexus-vmo",
  "packagefsd",
  "policy",
@@ -4495,6 +4504,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-packagefs",
  "nexus-vfs",
+ "nexus-vfs-types",
  "packagefsd",
  "vfsd",
 ]
@@ -4510,6 +4520,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-packagefs",
  "nexus-service-entry",
+ "nexus-vfs-types",
  "parking_lot",
  "sha2",
  "thiserror",

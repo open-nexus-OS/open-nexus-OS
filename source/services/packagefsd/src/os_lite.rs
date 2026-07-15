@@ -19,10 +19,14 @@ use alloc::vec::Vec;
 
 use nexus_ipc::Server;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Wait};
+use nexus_vfs_types::{DirEntry, VfsError};
 use storage::pkgimg::{build_pkgimg, parse_pkgimg, PkgImgCaps, PkgImgFileSpec};
+
+use crate::listing;
 
 const OPCODE_RESOLVE: u8 = 2;
 const OPCODE_MOUNT_STATUS: u8 = 3;
+const OPCODE_LIST: u8 = 4;
 const KIND_FILE: u16 = 0;
 const KIND_DIRECTORY: u16 = 1;
 
@@ -104,6 +108,30 @@ impl BundleRegistry {
         let entries = self.bundles.get(&canonical)?;
         entries.get(path).cloned()
     }
+
+    /// Lists direct children of `rel` (`"."` = bundle roots) in canonical
+    /// order; errors follow the RFC-0072 table (fail-closed).
+    fn list(&self, rel: &str) -> core::result::Result<Vec<DirEntry>, VfsError> {
+        let rel = rel.trim_start_matches('/');
+        if rel.is_empty() || rel == listing::ROOT_REL {
+            return Ok(listing::list_roots(self.active.keys().map(String::as_str)));
+        }
+        let (bundle, sub) = match rel.split_once('/') {
+            Some((bundle, sub)) => (bundle, sub),
+            None => (rel, ""),
+        };
+        let canonical = if bundle.contains('@') {
+            bundle.to_string()
+        } else {
+            let version = self.active.get(bundle).ok_or(VfsError::NotFound)?;
+            format!("{bundle}@{version}")
+        };
+        let entries = self.bundles.get(&canonical).ok_or(VfsError::NotFound)?;
+        listing::list_children(
+            entries.iter().map(|(path, entry)| (path.as_str(), entry.kind, entry.size)),
+            sub,
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -174,6 +202,27 @@ fn run_loop(
                     OPCODE_MOUNT_STATUS => {
                         response.clear();
                         response.push(mount_mode as u8);
+                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
+                    }
+                    OPCODE_LIST => {
+                        // Payload = shared ReadDir codec (nexus-vfs-types); the
+                        // reply payload is relayed verbatim by vfsd.
+                        let payload = match nexus_vfs_types::decode_readdir_request(&bytes[1..]) {
+                            Ok(req) => match registry.list(&req.path) {
+                                Ok(entries) => nexus_vfs_types::encode_readdir_response(
+                                    &entries,
+                                    req.cursor as usize,
+                                    req.limit,
+                                    true,
+                                )
+                                .map(|(payload, _included)| payload)
+                                .unwrap_or_else(nexus_vfs_types::encode_readdir_error),
+                                Err(err) => nexus_vfs_types::encode_readdir_error(err),
+                            },
+                            Err(err) => nexus_vfs_types::encode_readdir_error(err),
+                        };
+                        response.clear();
+                        response.extend_from_slice(&payload);
                         server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
                     _ => {

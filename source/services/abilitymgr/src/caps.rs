@@ -50,6 +50,9 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // Read/write SYSTEM settings via settingsd — settings-type only. (Distinct
     // from STATE, which is an app's OWN state via statefsd.)
     "nexus.permission.SETTINGS",
+    // Browse/manage user-visible files via vfsd (`svc.files`, RFC-0073) —
+    // filemanager-type only (privilege ceiling in nxb-pack).
+    "nexus.permission.FILES",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned
@@ -163,9 +166,11 @@ mod tests {
 
     #[test]
     fn required_caps_resolves_from_manifest() {
-        // chat + search both declare WINDOW in their manifests.
+        // chat + calculator both declare WINDOW in their manifests.
         assert!(required_caps("chat").contains(&"nexus.permission.WINDOW"));
-        assert!(required_caps("search").contains(&"nexus.permission.WINDOW"));
+        assert!(required_caps("calculator").contains(&"nexus.permission.WINDOW"));
+        // stash is the filemanager: FILES rides its manifest (TASK-0291).
+        assert!(required_caps("stash").contains(&"nexus.permission.FILES"));
         // An app with no manifest entry has no required caps.
         assert_eq!(required_caps("definitely-not-installed"), &[] as &[&str]);
     }

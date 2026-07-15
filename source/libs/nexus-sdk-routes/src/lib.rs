@@ -75,6 +75,15 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.SETTINGS",
         child_slot: 15,
     },
+    // File surface (RFC-0073): routed directly to vfsd — per-app mediation is
+    // vfsd's namespace layer (RFC-0042). FILES is ceiling-gated to the
+    // `filemanager` bundle type at pack time (nxb-pack).
+    ServiceRoute {
+        svc: "files",
+        route: "vfsd",
+        permission: "nexus.permission.FILES",
+        child_slot: 16,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

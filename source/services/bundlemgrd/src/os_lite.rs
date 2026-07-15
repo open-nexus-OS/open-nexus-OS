@@ -90,10 +90,11 @@ const OP_LOG_PROBE: u8 = 0x7f;
 include!(concat!(env!("OUT_DIR"), "/app_registry.rs"));
 
 /// User-launchable bundle types — the ones that appear in the launcher grid.
-/// `app` and `settings` (Settings is opened by the user); `shell`/`greeter`
-/// are product-assigned system surfaces and service/library/… are non-UI.
+/// `app`, `settings`, and `filemanager` are opened by the user;
+/// `shell`/`greeter` are product-assigned system surfaces and
+/// service/library/… are non-UI.
 fn is_launchable(bundle_type: &str) -> bool {
-    matches!(bundle_type, "app" | "settings")
+    matches!(bundle_type, "app" | "settings" | "filemanager")
 }
 
 /// Builds the `OP_LIST_APPS` response:

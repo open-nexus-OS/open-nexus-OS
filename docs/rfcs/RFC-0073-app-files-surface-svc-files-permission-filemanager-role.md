@@ -13,7 +13,7 @@
 
 ## Status at a Glance
 
-- **Phase 1 (`svc.files.list/stat` + FILES permission + filemanager role + stash real listing)**: ⬜ — `TASK-0291`
+- **Phase 1 (`svc.files.list/stat` + FILES permission + filemanager role + stash real listing)**: ✅ — `TASK-0291` (pack-ceiling deny test + `apphost: dsl svc files.list ok (n=3)` + stash screenshot evidence, 2026-07-15)
 - **Phase 2 (`svc.files` write surface: mkdir/rename/remove/write via `/data`)**: ⬜ — `TASK-0293`
 - **Phase 3 (mime resolution + file-type icons in the DSL)**: ⬜ — `TASK-0294`
 - **Deferred (not this RFC)**: mediated pickers for sandboxed apps — `TASK-0083`/`TASK-0084`
@@ -245,7 +245,7 @@ When writing this RFC, ensure:
 
 **This section tracks implementation progress. Update as phases complete.**
 
-- [ ] **Phase 1**: `svc.files.list/stat` + FILES + filemanager role + stash real listing — proof: `stash: listing real (n=<count>)` + `SELFTEST: files denied without cap ok` (TASK-0291)
+- [x] **Phase 1**: `svc.files.list/stat` + FILES + filemanager role + stash real listing — proof: `apphost: dsl svc files.list ok (n=3)` + `execd: app route granted svc=files` + visible-boot screenshots; pack-time deny `test_reject_files_cap_for_plain_app_bundle_type` (TASK-0291, 2026-07-15; runtime deny selftest deferred, see task)
 - [ ] **Phase 2**: write surface over `/data` — proof: `stash: write ok` (TASK-0293)
 - [ ] **Phase 3**: mime SSOT + icon bake + stash type icons — proof: `stash: mime icons resolved (n=<count>)` (TASK-0294)
 - [ ] Task(s) linked with stop conditions + proof commands.

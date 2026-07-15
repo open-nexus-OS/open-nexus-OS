@@ -1,13 +1,13 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// stash — the file-manager DEMO in the design-handoff window frame
+// stash — the platform file manager in the design-handoff window frame
 // (02-os-app-window): window-kit chrome (app menu with REAL window
 // controls, ⋯ menu with cascading flyouts, sidebar toggles, toolbar
-// slots), nav sidebar, breadcrumb + file list, and the SELECTION
-// REACTIVITY proof: the properties pane shows the selected file and the
-// floating action bar swaps its actions when something is selected.
-// Static demo rows (no fake VFS — an honest demo data set).
+// slots), nav sidebar, breadcrumb + REAL file listing (svc.files.list →
+// vfsd ReadDir, TASK-0291) with honest loading/error states, and the
+// SELECTION REACTIVITY proof: the properties pane shows the selected file
+// and the floating action bar swaps its actions when something is selected.
 
 Window {
     style: plain,
@@ -63,10 +63,7 @@ Page StashPage {
                         Text(@t("stash.thisPc")).textSize(sm).fg(onSurfaceVariant)
                         Icon { symbol: "chevron.right", size: 12 }
                             .fg(onSurfaceVariant)
-                        Text(@t("stash.pictures")).textSize(sm).fg(onSurfaceVariant)
-                        Icon { symbol: "chevron.right", size: 12 }
-                            .fg(onSurfaceVariant)
-                        Text(@t("stash.folder")).textSize(sm).fg(onSurface)
+                        Text($state.path).textSize(sm).fg(onSurface)
                         Spacer
                         Text(@t("stash.objects")).textSize(xs).fg(onSurfaceVariant)
                     }
@@ -83,12 +80,22 @@ Page StashPage {
                     .align(center)
                     .gap(2)
                     .paddingX(2)
-                    FileRow { id: "f1", name: "IMG_4521.jpg", kind: "JPEG", date: "12.05.2026", size: "4,2 MB", icon: "photo", active: $state.selection == "f1" }
-                    FileRow { id: "f2", name: "IMG_4522.jpg", kind: "JPEG", date: "12.05.2026", size: "3,8 MB", icon: "photo", active: $state.selection == "f2" }
-                    FileRow { id: "f3", name: "DSC_0042.jpg", kind: "JPEG", date: "13.05.2026", size: "6,3 MB", icon: "photo", active: $state.selection == "f3" }
-                    FileRow { id: "f4", name: "Panorama_Beach.jpg", kind: "JPEG", date: "14.05.2026", size: "12,4 MB", icon: "photo", active: $state.selection == "f4" }
-                    FileRow { id: "f5", name: "VID_20260514.mp4", kind: "MP4", date: "14.05.2026", size: "48,2 MB", icon: "film", active: $state.selection == "f5" }
-                    FileRow { id: "f6", name: "Reisekosten.xlsx", kind: "XLSX", date: "15.05.2026", size: "284 KB", icon: "doc", active: $state.selection == "f6" }
+                    // REAL listing (svc.files.list → vfsd ReadDir, TASK-0291);
+                    // honest loading/error states, never fake rows.
+                    if $state.filesError != 0 {
+                        Text(@t("stash.loadError")).textSize(sm).fg(onSurfaceVariant)
+                    } else {
+                        if $state.filesLoading == 1 {
+                            Text(@t("stash.loading")).textSize(sm).fg(onSurfaceVariant)
+                        } else {
+                            List($state.files) { f in
+                                Stack {
+                                    FileRow { id: f.name, name: f.name, kind: f.kind, date: "-", size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                }
+                                .key(f.name)
+                            }
+                        }
+                    }
                     Spacer
                     // Floating action bar (design handoff `WindowActionBar`):
                     // the item set IS the selection reactivity — no selection

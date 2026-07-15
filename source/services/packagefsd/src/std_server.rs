@@ -19,15 +19,19 @@ use storage::pkgimg::{parse_pkgimg, PkgImgCaps};
 use thiserror::Error;
 
 use nexus_idl_runtime::packagefs_capnp::{
-    publish_bundle, publish_response, resolve_path, resolve_response,
+    list_path, list_response, publish_bundle, publish_response, resolve_path, resolve_response,
 };
 use nexus_ipc::{IpcError, Wait};
+use nexus_vfs_types::{DirEntry, VfsError, MAX_ENTRIES_PER_PAGE};
+
+use crate::listing;
 
 const KIND_FILE: u16 = 0;
 const KIND_DIRECTORY: u16 = 1;
 
 const OPCODE_PUBLISH: u8 = 1;
 const OPCODE_RESOLVE: u8 = 2;
+const OPCODE_LIST: u8 = 4;
 
 /// Result alias for operations in this crate.
 pub type Result<T> = core::result::Result<T, ServerError>;
@@ -306,6 +310,38 @@ impl BundleRegistry {
         let path = sanitize_entry_path(path)?;
         record.lookup(&path)
     }
+
+    /// Lists direct children of `rel` (`"."` = bundle roots) in canonical
+    /// order; errors follow the RFC-0072 table (fail-closed).
+    pub fn list(&self, rel: &str) -> core::result::Result<Vec<DirEntry>, VfsError> {
+        let rel = rel.trim_start_matches('/');
+        if rel.is_empty() || rel == listing::ROOT_REL {
+            let active = self.active.lock();
+            return Ok(listing::list_roots(active.keys().map(String::as_str)));
+        }
+        let (bundle, sub) = match rel.split_once('/') {
+            Some((bundle, sub)) => (bundle, sub),
+            None => (rel, ""),
+        };
+        let canonical = if bundle.contains('@') {
+            bundle.to_string()
+        } else {
+            let active = self.active.lock();
+            let version = active.get(bundle).ok_or(VfsError::NotFound)?;
+            format!("{bundle}@{version}")
+        };
+        let sub = if sub.is_empty() {
+            String::new()
+        } else {
+            sanitize_entry_path(sub).map_err(|_| VfsError::Invalid)?
+        };
+        let guard = self.bundles.lock();
+        let record = guard.get(&canonical).ok_or(VfsError::NotFound)?;
+        listing::list_children(
+            record.files.iter().map(|(path, entry)| (path.as_str(), entry.kind, entry.size())),
+            &sub,
+        )
+    }
 }
 
 /// Metadata returned by [`BundleRegistry::resolve`].
@@ -430,6 +466,7 @@ where
     let response = match opcode {
         OPCODE_PUBLISH => handle_publish(state, payload)?,
         OPCODE_RESOLVE => handle_resolve(state, payload)?,
+        OPCODE_LIST => handle_list(state, payload)?,
         other => {
             error!("packagefsd: unknown opcode {other}");
             return Ok(());
@@ -504,6 +541,65 @@ fn handle_resolve(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
         Err(ServiceError::NotFound) => encode_resolve_response(false, 0, 0, &[]),
         Err(err) => Err(ServerError::Service(err)),
     }
+}
+
+fn handle_list(state: &mut ServiceState, payload: &[u8]) -> Result<Vec<u8>> {
+    let mut cursor = std::io::Cursor::new(payload);
+    let message = serialize::read_message(&mut cursor, ReaderOptions::new())
+        .map_err(|err| ServerError::Decode(format!("list read: {err}")))?;
+    let request = message
+        .get_root::<list_path::Reader<'_>>()
+        .map_err(|err| ServerError::Decode(format!("list root: {err}")))?;
+    let rel = request
+        .get_rel()
+        .map_err(|err| ServerError::Decode(format!("list rel: {err}")))?
+        .to_str()
+        .map_err(|err| ServerError::Decode(format!("list rel utf8: {err}")))?
+        .to_string();
+    let start = request.get_cursor() as usize;
+    let limit = request.get_limit().clamp(1, MAX_ENTRIES_PER_PAGE) as usize;
+    match state.registry.list(&rel) {
+        Ok(entries) => {
+            let page = entries.get(start..).unwrap_or(&[]);
+            let take = page.len().min(limit);
+            let next = (start + take) as u32;
+            let eof = start + take >= entries.len();
+            encode_list_response(Ok((&page[..take], next, eof)))
+        }
+        Err(err) => encode_list_response(Err(err)),
+    }
+}
+
+fn encode_list_response(
+    outcome: core::result::Result<(&[DirEntry], u32, bool), VfsError>,
+) -> Result<Vec<u8>> {
+    let mut message = capnp::message::Builder::new_default();
+    {
+        let mut response = message.init_root::<list_response::Builder<'_>>();
+        match outcome {
+            Ok((entries, next_cursor, eof)) => {
+                response.set_ok(true);
+                response.set_err(nexus_vfs_types::CODE_OK);
+                response.set_next_cursor(next_cursor);
+                response.set_eof(eof);
+                let mut list = response.init_entries(entries.len() as u32);
+                for (idx, entry) in entries.iter().enumerate() {
+                    let mut slot = list.reborrow().get(idx as u32);
+                    slot.set_name(entry.name.as_str());
+                    slot.set_kind(entry.kind as u16);
+                    slot.set_size(entry.size);
+                }
+            }
+            Err(err) => {
+                response.set_ok(false);
+                response.set_err(err.code());
+                response.set_next_cursor(0);
+                response.set_eof(true);
+                response.init_entries(0);
+            }
+        }
+    }
+    serialize_response(OPCODE_LIST, message)
 }
 
 fn encode_publish_response(ok: bool) -> Result<Vec<u8>> {

@@ -1,23 +1,25 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: stash — the file-manager DEMO app in the design-handoff window
-# frame (02-os-app-window): window-kit chrome, nav sidebar, breadcrumb +
-# file list, properties pane and floating action bar that both REACT to the
-# selection (the window-design selection-reactivity proof). Static demo
-# data until a real file service lands (honest demo — no fake VFS).
+# CONTEXT: stash — the platform file manager (privileged `filemanager` role,
+# RFC-0073): window-kit chrome, nav sidebar, breadcrumb + REAL file listing
+# via `svc.files` (vfsd ReadDir, TASK-0291), properties pane and floating
+# action bar that both REACT to the selection. Write flows arrive with the
+# nxfs `/data` mount (TASK-0293).
 
 name = "stash"
 version = "0.1.0"
 min_sdk = "1.0.0"
-bundle_type = "app"
+bundle_type = "filemanager"
 icon = "folder|#2dd4bf|#0f766e"
 # Real app-icon artwork (SVG in the bundle's assets/), rasterized at build
 # time by nexus-app-icons; the packed `icon` string stays the fallback glyph.
 icon_svg = "assets/icon.svg"
 payload_kind = "ui-program"
 abilities = ["stash.MainAbility"]
-caps = ["nexus.permission.WINDOW", "nexus.permission.SETTINGS"]
+# FILES is ceiling-gated to the filemanager role (nxb-pack). window.control
+# rides the windowd presentation channel, so SETTINGS is not needed.
+caps = ["nexus.permission.WINDOW", "nexus.permission.FILES"]
 dependencies = ["window-kit"]
 provides = []
 resources = []

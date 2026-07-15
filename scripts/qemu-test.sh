@@ -515,6 +515,8 @@ expected_sequence=(
   "SELFTEST: capfd read ok"
   "vfsd: capfd grant ok"
   "SELFTEST: vfs real data ok"
+  "SELFTEST: vfs readdir ok"
+  "SELFTEST: vfs readdir deny ok"
   "SELFTEST: vfs ebadf ok"
   "vfsd: access denied"
   "SELFTEST: sandbox deny ok"

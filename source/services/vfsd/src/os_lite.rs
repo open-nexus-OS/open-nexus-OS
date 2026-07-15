@@ -13,6 +13,7 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -21,6 +22,9 @@ use core::fmt;
 
 use nexus_abi;
 use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Server, Wait};
+use nexus_vfs_types::{
+    decode_readdir_response, encode_readdir_error, encode_readdir_request, VfsError,
+};
 
 use crate::{NamespaceView, SandboxError};
 
@@ -28,6 +32,14 @@ const OPCODE_STAT: u8 = 4;
 const OPCODE_OPEN: u8 = 1;
 const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
+const OPCODE_READDIR: u8 = 6;
+
+/// packagefsd's list opcode (see packagefsd os_lite dispatch).
+const PKGFS_OPCODE_LIST: u8 = 4;
+
+/// Bulk reply scratch for the packagefsd hop (file payloads + listing pages);
+/// stays under the 8 KiB IPC frame cap.
+const PKGFS_REPLY_BUF: usize = 8 * 1024;
 
 const KIND_FILE: u16 = 0;
 
@@ -92,7 +104,11 @@ impl Namespace {
         frame.push(PKGFS_OPCODE_RESOLVE);
         frame.extend_from_slice(rel.as_bytes());
         client.send(&frame, Wait::Blocking).map_err(|_| Error::Transport)?;
-        let rsp = client.recv(Wait::Blocking).map_err(|_| Error::Transport)?;
+        // Bulk-capable recv: the default client recv truncates at 512 bytes,
+        // which silently corrupts multi-KB payloads.
+        let mut buf = vec![0u8; PKGFS_REPLY_BUF];
+        let n = client.recv_into(Wait::Blocking, &mut buf).map_err(|_| Error::Transport)?;
+        let rsp = &buf[..n];
         if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
             return Err(Error::NotFound);
         }
@@ -122,6 +138,61 @@ impl Namespace {
             return Err(Error::InvalidPath);
         }
         Ok(FileHandle { owner_service_id: 0, bytes: entry.bytes })
+    }
+
+    /// Relays a ReadDir request to packagefsd and returns the validated reply
+    /// payload (shared `nexus-vfs-types` codec on both hops). The returned
+    /// payload is sent to the caller verbatim; errors are already encoded.
+    fn read_dir(&self, request_payload: &[u8]) -> (Vec<u8>, Option<usize>) {
+        let request = match nexus_vfs_types::decode_readdir_request(request_payload) {
+            Ok(request) => request,
+            Err(err) => return (encode_readdir_error(err), None),
+        };
+        // Namespace: only pkg:/ paths exist in os-lite; "pkg:/" is the root.
+        let rel = if request.path == "pkg:/" {
+            ".".to_string()
+        } else {
+            let canonical = match self.view.assert_allowed(&request.path) {
+                Ok(canonical) => canonical,
+                Err(_) => {
+                    debug_print("vfsd: access denied\n");
+                    return (encode_readdir_error(VfsError::Access), None);
+                }
+            };
+            match canonical.strip_prefix("pkg:/") {
+                Some(rel) if !rel.is_empty() => rel.to_string(),
+                _ => return (encode_readdir_error(VfsError::Invalid), None),
+            }
+        };
+        let forwarded = match encode_readdir_request(&rel, request.cursor, request.limit) {
+            Ok(payload) => payload,
+            Err(err) => return (encode_readdir_error(err), None),
+        };
+        let client = match KernelClient::new_for("packagefsd") {
+            Ok(client) => client,
+            Err(_) => return (encode_readdir_error(VfsError::Io), None),
+        };
+        let mut frame = Vec::with_capacity(1 + forwarded.len());
+        frame.push(PKGFS_OPCODE_LIST);
+        frame.extend_from_slice(&forwarded);
+        if client.send(&frame, Wait::Blocking).is_err() {
+            return (encode_readdir_error(VfsError::Io), None);
+        }
+        let mut buf = vec![0u8; PKGFS_REPLY_BUF];
+        let n = match client.recv_into(Wait::Blocking, &mut buf) {
+            Ok(n) => n,
+            Err(_) => return (encode_readdir_error(VfsError::Io), None),
+        };
+        buf.truncate(n);
+        // Validate before relaying: a malformed provider page must surface as
+        // EIO here, never reach the app client half-broken.
+        match decode_readdir_response(&buf) {
+            Ok(page) => {
+                let count = page.entries.len();
+                (buf, Some(count))
+            }
+            Err(err) => (encode_readdir_error(err), None),
+        }
     }
 }
 
@@ -157,13 +228,20 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut handles: BTreeMap<u32, FileHandle> = BTreeMap::new();
     let mut next_handle: u32 = 1;
     loop {
-        match server.recv_with_header_meta(Wait::Blocking) {
-            Ok((_hdr, sender_service_id, frame)) => {
+        // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
+        // into the request (their private inbox); direct clients (selftest)
+        // send plainly and read the shared response endpoint. Replying on the
+        // wrong path silently strands the caller — route per message.
+        match server.recv_request_with_meta(Wait::Blocking) {
+            Ok((frame, sender_service_id, reply_cap)) => {
                 if frame.is_empty() {
+                    if let Some(reply_cap) = reply_cap {
+                        reply_cap.close();
+                    }
                     continue;
                 }
                 let opcode = frame[0];
-                match opcode {
+                let reply: Vec<u8> = match opcode {
                     OPCODE_STAT => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
                         let mut reply = Vec::new();
@@ -178,7 +256,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        reply
                     }
                     OPCODE_OPEN => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
@@ -203,10 +281,13 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        reply
                     }
                     OPCODE_READ => {
                         if frame.len() < 1 + 4 + 8 + 4 {
+                            if let Some(reply_cap) = reply_cap {
+                                reply_cap.close();
+                            }
                             continue;
                         }
                         let fh = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
@@ -230,10 +311,13 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             }
                             None => reply.push(0),
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        reply
                     }
                     OPCODE_CLOSE => {
                         if frame.len() < 5 {
+                            if let Some(reply_cap) = reply_cap {
+                                reply_cap.close();
+                            }
                             continue;
                         }
                         let fh = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
@@ -251,10 +335,31 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                                 reply.push(0);
                             }
                         }
-                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
+                        reply
+                    }
+                    OPCODE_READDIR => {
+                        let (reply, entries) = namespace.read_dir(&frame[1..]);
+                        if let Some(count) = entries {
+                            debug_print(&format!(
+                                "vfsd: readdir ok (mount=/packages entries={count})\n"
+                            ));
+                        }
+                        reply
                     }
                     _ => {
+                        if let Some(reply_cap) = reply_cap {
+                            reply_cap.close();
+                        }
                         let _ = nexus_abi::yield_();
+                        continue;
+                    }
+                };
+                match reply_cap {
+                    Some(reply_cap) => {
+                        let _ = reply_cap.reply_and_close_wait(&reply, Wait::Blocking);
+                    }
+                    None => {
+                        server.send(&reply, Wait::Blocking).map_err(|_| Error::Transport)?;
                     }
                 }
             }

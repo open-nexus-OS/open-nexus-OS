@@ -15,3 +15,4 @@ nexus-packagefs = { path = "../../userspace/nexus-packagefs" }
 nexus-vfs = { path = "../../userspace/nexus-vfs", features = ["idl-capnp"] }
 packagefsd = { path = "../../source/services/packagefsd", features = ["idl-capnp"] }
 vfsd = { path = "../../source/services/vfsd", features = ["idl-capnp"] }
+nexus-vfs-types = { path = "../../userspace/vfs-types" }

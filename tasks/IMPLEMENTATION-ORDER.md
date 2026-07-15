@@ -46,7 +46,7 @@ For Kanban-style status view, see: `tasks/STATUS-BOARD.md`.
 
 | Task | Title | Status |
 |------|-------|--------|
-| TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | In Progress (2026-07-15) |
+| TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | In Review (2026-07-15, proofs green) |
 
 ---
 

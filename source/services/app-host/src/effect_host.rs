@@ -44,6 +44,13 @@ const ERR_SVC_SHAPE: u32 = 3;
 const SVC_DEADLINE_NS: u64 = 2_000_000_000;
 /// Reply-inbox scratch bound (list responses carry every entry).
 const REPLY_BUF: usize = 512;
+/// Reply scratch for `svc.files` directory pages — sized to the shared codec's
+/// response budget (`nexus-vfs-types`), which itself stays under the 8 KiB
+/// IPC frame.
+const FILES_REPLY_BUF: usize = nexus_vfs_types::MAX_READDIR_RESPONSE_BYTES + 16;
+/// vfsd bring-up opcodes (see `vfsd/src/os_lite.rs`).
+const VFS_OPCODE_STAT: u8 = 4;
+const VFS_OPCODE_READDIR: u8 = 6;
 
 /// Proof marker that bypasses verdict folding (the app-host process arms
 /// folding for every line via `nexus-service-entry`; the svc chain must stay
@@ -74,6 +81,13 @@ pub(crate) struct AppEffectHost {
     icon_art_sym: Option<u32>,
     seq_sym: Option<u32>,
     text_sym: Option<u32>,
+    /// `svc.files` FileEntry record fields (RFC-0073): `name`/`kind`/`size`
+    /// (+ `sizeText`, the human-formatted size for direct UI binding). Only
+    /// pages that read a field have its symbol interned.
+    name_sym: Option<u32>,
+    kind_sym: Option<u32>,
+    size_sym: Option<u32>,
+    size_text_sym: Option<u32>,
     /// Lazily seeded in-process query store (`EffectHost::query()`). Same
     /// engine queryd hosts; keyset paging = the DSL's lazy-loading window.
     query_store: Option<QueryStore>,
@@ -159,6 +173,10 @@ impl AppEffectHost {
             icon_art_sym: symbols.iter().position(|s| s == "iconArt").map(|i| i as u32),
             seq_sym: symbols.iter().position(|s| s == "seq").map(|i| i as u32),
             text_sym: symbols.iter().position(|s| s == "text").map(|i| i as u32),
+            name_sym: symbols.iter().position(|s| s == "name").map(|i| i as u32),
+            kind_sym: symbols.iter().position(|s| s == "kind").map(|i| i as u32),
+            size_sym: symbols.iter().position(|s| s == "size").map(|i| i as u32),
+            size_text_sym: symbols.iter().position(|s| s == "sizeText").map(|i| i as u32),
             query_store: None,
             surface_id: 0,
         }
@@ -224,6 +242,116 @@ impl AppEffectHost {
             .collect();
         raw_marker("apphost: dsl svc bundlemgr.enumerate ok");
         Ok(Value::List(rows))
+    }
+
+    /// Builds one `FileEntry` record (field-sorted, `Value::Record` contract).
+    /// `icon` is the interim glyph until the mime pipeline lands (TASK-0294):
+    /// directories are `folder`, files `file-text`.
+    fn file_entry_record(
+        &self,
+        name_sym: u32,
+        entry: &nexus_vfs_types::DirEntry,
+    ) -> Value {
+        let mut fields = alloc::vec![(name_sym, Value::Str(entry.name.clone()))];
+        if let Some(sym) = self.id_sym {
+            fields.push((sym, Value::Str(entry.name.clone())));
+        }
+        if let Some(sym) = self.kind_sym {
+            fields.push((sym, Value::Str(entry.kind.label().into())));
+        }
+        if let Some(sym) = self.size_sym {
+            fields.push((sym, Value::Int(entry.size.min(i64::MAX as u64) as i64)));
+        }
+        if let Some(sym) = self.size_text_sym {
+            fields.push((sym, Value::Str(format_size(entry.size, entry.kind))));
+        }
+        if let Some(sym) = self.icon_sym {
+            let glyph = match entry.kind {
+                nexus_vfs_types::FileKind::Dir => "folder",
+                nexus_vfs_types::FileKind::File => "doc",
+            };
+            fields.push((sym, Value::Str(glyph.into())));
+        }
+        fields.sort_by_key(|(sym, _)| *sym);
+        Value::Record(fields)
+    }
+
+    /// `svc.files.list(path, cursor)` → `List<FileEntry{ name, kind, size }>`
+    /// — one bounded ReadDir page from vfsd (RFC-0072/0073; `cursor` 0 = first
+    /// page, continuation via the page's next cursor).
+    fn files_list(&self, path: &str, cursor: i64) -> Result<Value, u32> {
+        let Some(name_sym) = self.name_sym else {
+            raw_marker("apphost: dsl svc files.list FAIL (no name symbol)");
+            return Err(ERR_SVC_SHAPE);
+        };
+        let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
+        let cursor = u32::try_from(cursor).map_err(|_| ERR_SVC_SHAPE)?;
+        let payload = nexus_vfs_types::encode_readdir_request(path, cursor, 64)
+            .map_err(|_| ERR_SVC_SHAPE)?;
+        let mut req = Vec::with_capacity(1 + payload.len());
+        req.push(VFS_OPCODE_READDIR);
+        req.extend_from_slice(&payload);
+        let mut resp = alloc::vec![0u8; FILES_REPLY_BUF];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc files.list FAIL (vfsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        match nexus_vfs_types::decode_readdir_response(&resp[..len]) {
+            Ok(page) => {
+                let rows: Vec<Value> = page
+                    .entries
+                    .iter()
+                    .map(|entry| self.file_entry_record(name_sym, entry))
+                    .collect();
+                let mut line = String::from("apphost: dsl svc files.list ok (n=");
+                let _ = core::fmt::write(&mut line, format_args!("{})", rows.len()));
+                raw_marker(&line);
+                Ok(Value::List(rows))
+            }
+            Err(err) => {
+                // Deterministic error name in the marker, stable code to the
+                // DSL's Err arm (offset so it never collides with host codes).
+                let mut line = String::from("apphost: dsl svc files.list deny (");
+                line.push_str(err.name());
+                line.push(')');
+                raw_marker(&line);
+                Err(100 + u32::from(err.code()))
+            }
+        }
+    }
+
+    /// `svc.files.stat(path)` → `FileEntry` for a single path.
+    fn files_stat(&self, path: &str) -> Result<Value, u32> {
+        let Some(name_sym) = self.name_sym else {
+            raw_marker("apphost: dsl svc files.stat FAIL (no name symbol)");
+            return Err(ERR_SVC_SHAPE);
+        };
+        let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
+        let mut req = Vec::with_capacity(1 + path.len());
+        req.push(VFS_OPCODE_STAT);
+        req.extend_from_slice(path.as_bytes());
+        let mut resp = [0u8; REPLY_BUF];
+        let Some(len) = call_reply(send_slot, &req, &mut resp) else {
+            raw_marker("apphost: dsl svc files.stat FAIL (vfsd unreachable)");
+            return Err(ERR_SVC_UNAVAILABLE);
+        };
+        // vfsd bring-up stat reply: [1, size u64 LE, kind u16 LE] | [0].
+        let frame = &resp[..len];
+        if frame.len() < 1 + 8 + 2 || frame[0] != 1 {
+            raw_marker("apphost: dsl svc files.stat deny (ENOTFOUND)");
+            return Err(100 + u32::from(nexus_vfs_types::VfsError::NotFound.code()));
+        }
+        let size = u64::from_le_bytes([
+            frame[1], frame[2], frame[3], frame[4], frame[5], frame[6], frame[7], frame[8],
+        ]);
+        let kind = match u16::from_le_bytes([frame[9], frame[10]]) {
+            1 => nexus_vfs_types::FileKind::Dir,
+            _ => nexus_vfs_types::FileKind::File,
+        };
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let entry = nexus_vfs_types::DirEntry { name: String::from(name), kind, size };
+        raw_marker("apphost: dsl svc files.stat ok");
+        Ok(self.file_entry_record(name_sym, &entry))
     }
 
     /// `svc.session.users()` → `List<Str>` of greeter user display names.
@@ -619,9 +747,53 @@ impl EffectHost for AppEffectHost {
                 let id = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.ability_launch(id)
             }
+            ("files", "list") => {
+                let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                let cursor = args.get(1).and_then(int_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_list(path, cursor)
+            }
+            ("files", "stat") => {
+                let path = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
+                self.files_stat(path)
+            }
             _ => Err(ERR_SVC_UNKNOWN),
         }
     }
+}
+
+fn int_of(v: &Value) -> Option<i64> {
+    match v {
+        Value::Int(n) => Some(*n),
+        _ => None,
+    }
+}
+
+/// Human-readable size for direct UI binding (`12 B` / `4.2 KB` / `3.8 MB`);
+/// directories render as a plain dash (ASCII — the baked UI font has no
+/// em-dash glyph; it renders as `?`). Integer math only (no_std, no floats).
+fn format_size(size: u64, kind: nexus_vfs_types::FileKind) -> String {
+    if kind == nexus_vfs_types::FileKind::Dir {
+        return String::from("-");
+    }
+    let mut out = String::new();
+    let (scaled_x10, unit) = if size >= 1024 * 1024 * 1024 {
+        (size * 10 / (1024 * 1024 * 1024), "GB")
+    } else if size >= 1024 * 1024 {
+        (size * 10 / (1024 * 1024), "MB")
+    } else if size >= 1024 {
+        (size * 10 / 1024, "KB")
+    } else {
+        let _ = core::fmt::write(&mut out, format_args!("{size} B"));
+        return out;
+    };
+    let whole = scaled_x10 / 10;
+    let tenth = scaled_x10 % 10;
+    if tenth == 0 {
+        let _ = core::fmt::write(&mut out, format_args!("{whole} {unit}"));
+    } else {
+        let _ = core::fmt::write(&mut out, format_args!("{whole}.{tenth} {unit}"));
+    }
+    out
 }
 
 fn str_of(v: &Value) -> Option<&str> {

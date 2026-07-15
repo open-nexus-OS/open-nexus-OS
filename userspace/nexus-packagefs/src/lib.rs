@@ -35,11 +35,13 @@ compile_error!("nexus_env: missing. Set RUSTFLAGS='--cfg nexus_env=\"host\"' or 
 compile_error!("Enable the `idl-capnp` feature to build the packagefs client.");
 
 use nexus_idl_runtime::packagefs_capnp::{
-    publish_bundle, publish_response, resolve_path, resolve_response,
+    list_path, list_response, publish_bundle, publish_response, resolve_path, resolve_response,
 };
+use nexus_vfs_types::{DirEntry, FileKind, ReadDirPage, VfsError};
 
 const OPCODE_PUBLISH: u8 = 1;
 const OPCODE_RESOLVE: u8 = 2;
+const OPCODE_LIST: u8 = 4;
 
 /// Result alias for packagefs client operations.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -227,6 +229,71 @@ impl PackageFsClient {
         let kind = response.get_kind();
         let bytes = response.get_bytes().map_err(|_| Error::Decode)?.to_vec();
         Ok(ResolvedEntry::new(size, kind, bytes))
+    }
+
+    /// Lists direct children of `rel` (`"."` = bundle roots).
+    ///
+    /// Errors are the stable RFC-0072 codes so callers (vfsd) can pass them
+    /// through unchanged; transport/decode failures surface as `EIO`.
+    pub fn list(
+        &self,
+        rel: &str,
+        cursor: u32,
+        limit: u16,
+    ) -> core::result::Result<ReadDirPage, VfsError> {
+        let mut message = capnp::message::Builder::new_default();
+        {
+            let mut req = message.init_root::<list_path::Builder<'_>>();
+            req.set_rel(rel);
+            req.set_cursor(cursor);
+            req.set_limit(limit);
+        }
+        let mut payload = Vec::new();
+        capnp::serialize::write_message(&mut payload, &message).map_err(|_| VfsError::Io)?;
+        let mut frame = Vec::with_capacity(1 + payload.len());
+        frame.push(OPCODE_LIST);
+        frame.extend_from_slice(&payload);
+        let response = self.backend.call(frame).map_err(|_| VfsError::Io)?;
+        let (opcode, body) = response.split_first().ok_or(VfsError::Io)?;
+        if *opcode != OPCODE_LIST {
+            return Err(VfsError::Io);
+        }
+        let mut cursor_reader = std::io::Cursor::new(body);
+        let message = capnp::serialize::read_message(
+            &mut cursor_reader,
+            capnp::message::ReaderOptions::new(),
+        )
+        .map_err(|_| VfsError::Io)?;
+        let response =
+            message.get_root::<list_response::Reader<'_>>().map_err(|_| VfsError::Io)?;
+        if let Some(err) = VfsError::from_code(response.get_err()) {
+            return Err(err);
+        }
+        if !response.get_ok() {
+            // ok must equal err == 0; a disagreeing server is a protocol bug.
+            return Err(VfsError::Io);
+        }
+        let entries_reader = response.get_entries().map_err(|_| VfsError::Io)?;
+        let mut entries = Vec::with_capacity(entries_reader.len() as usize);
+        for entry in entries_reader.iter() {
+            let name = entry
+                .get_name()
+                .map_err(|_| VfsError::Io)?
+                .to_str()
+                .map_err(|_| VfsError::Io)?
+                .to_string();
+            let kind = match entry.get_kind() {
+                0 => FileKind::File,
+                1 => FileKind::Dir,
+                _ => return Err(VfsError::Io),
+            };
+            entries.push(DirEntry { name, kind, size: entry.get_size() });
+        }
+        Ok(ReadDirPage {
+            entries,
+            next_cursor: response.get_next_cursor(),
+            eof: response.get_eof(),
+        })
     }
 
     #[cfg(nexus_env = "host")]

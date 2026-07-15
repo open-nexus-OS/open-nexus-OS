@@ -342,6 +342,7 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
         "shell" => mf::BundleType::Shell,
         "greeter" => mf::BundleType::Greeter,
         "settings" => mf::BundleType::Settings,
+        "filemanager" => mf::BundleType::Filemanager,
         other => return Err(format!("manifest.toml unknown bundle_type: {other}").into()),
     };
 
@@ -358,6 +359,7 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
                 Some(("shell", mf::BundleType::Shell))
             }
             "nexus.permission.SETTINGS" => Some(("settings", mf::BundleType::Settings)),
+            "nexus.permission.FILES" => Some(("filemanager", mf::BundleType::Filemanager)),
             _ => None,
         };
         if let Some((role, needed)) = required {

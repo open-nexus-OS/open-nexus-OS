@@ -11,5 +11,6 @@ idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 [dependencies]
 capnp = { version = "0.24", optional = true }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }
+nexus-vfs-types = { path = "../vfs-types" }
 nexus-ipc = { path = "../nexus-ipc" }
 thiserror = "2"

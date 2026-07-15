@@ -66,6 +66,23 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
     emit_line(crate::markers::M_SELFTEST_VFS_REAL_DATA_OK);
     emit_line(crate::markers::M_SELFTEST_PKGIMG_STAT_READ_OK);
 
+    // readdir (RFC-0072 Phase 1 / TASK-0291): the namespace root lists the
+    // active bundles; a real page with >= 1 entry is the positive proof.
+    match vfs.read_dir("pkg:/", 0, 64) {
+        Ok(page) if !page.entries.is_empty() => {
+            emit_line(crate::markers::M_SELFTEST_VFS_READDIR_OK);
+        }
+        _ => return Err(()),
+    }
+    // readdir negative: an unknown bundle must fail with the stable
+    // ENOTFOUND code (never an empty fake page).
+    match vfs.read_dir("pkg:/__definitely_missing_bundle__", 0, 64) {
+        Err(nexus_vfs::Error::Vfs(nexus_vfs_types::VfsError::NotFound)) => {
+            emit_line(crate::markers::M_SELFTEST_VFS_READDIR_DENY_OK);
+        }
+        _ => return Err(()),
+    }
+
     // traversal deny path (userspace confinement floor)
     if vfs.stat("pkg:/system/../secrets.txt").is_err() {
         emit_line(crate::markers::M_SELFTEST_SANDBOX_DENY_OK);

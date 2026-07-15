@@ -68,6 +68,7 @@ bundlemgrd = { path = "../../../source/services/bundlemgrd", optional = true }
 nexus-idl-runtime = { path = "../../../userspace/nexus-idl-runtime", optional = true }
 capnp = { version = "0.24", default-features = false, optional = true }
 nexus-vfs = { path = "../../../userspace/nexus-vfs", default-features = false, features = ["os-kernel"], optional = true }
+nexus-vfs-types = { path = "../../../userspace/vfs-types" }
 keystored = { path = "../../../source/services/keystored", optional = true }
 policyd = { path = "../../../source/services/policyd", optional = true }
 samgrd = { path = "../../../source/services/samgrd", optional = true }

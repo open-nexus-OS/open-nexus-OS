@@ -44,14 +44,16 @@ compile_error!("Enable the `idl-capnp` feature for host builds of nexus-vfs.");
 
 #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
 use nexus_idl_runtime::vfs_capnp::{
-    close_request, close_response, open_request, open_response, read_request, read_response,
-    stat_request, stat_response,
+    close_request, close_response, open_request, open_response, read_dir_request,
+    read_dir_response, read_request, read_response, stat_request, stat_response,
 };
+use nexus_vfs_types::{ReadDirPage, VfsError};
 
 const OPCODE_OPEN: u8 = 1;
 const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 const OPCODE_STAT: u8 = 4;
+const OPCODE_READDIR: u8 = 6;
 
 /// Result alias for VFS client operations.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -73,6 +75,8 @@ pub enum Error {
     Ipc(String),
     /// Backend is not implemented for this build configuration.
     Unsupported,
+    /// Stable storage error reported by the service (RFC-0072 table).
+    Vfs(VfsError),
 }
 
 impl fmt::Display for Error {
@@ -85,6 +89,7 @@ impl fmt::Display for Error {
             Self::Decode => f.write_str("failed to decode response"),
             Self::Ipc(s) => write!(f, "ipc error: {s}"),
             Self::Unsupported => f.write_str("backend unsupported"),
+            Self::Vfs(err) => write!(f, "vfs error: {err}"),
         }
     }
 }
@@ -342,6 +347,74 @@ impl VfsClient {
         }
     }
 
+    /// Lists direct children of `path` (`"pkg:/"` = namespace root) as one
+    /// bounded page (RFC-0072: ≤ 64 entries, deterministic order).
+    pub fn read_dir(&self, path: &str, cursor: u32, limit: u16) -> Result<ReadDirPage> {
+        let path = validate_dir_path(path)?;
+        #[cfg(nexus_env = "os")]
+        {
+            let payload = nexus_vfs_types::encode_readdir_request(path, cursor, limit)
+                .map_err(Error::Vfs)?;
+            let mut frame = Vec::with_capacity(1 + payload.len());
+            frame.push(OPCODE_READDIR);
+            frame.extend_from_slice(&payload);
+            let rsp = self.backend.call(frame)?;
+            return nexus_vfs_types::decode_readdir_response(&rsp).map_err(Error::Vfs);
+        }
+        #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
+        {
+            let mut message = capnp::message::Builder::new_default();
+            {
+                let mut request = message.init_root::<read_dir_request::Builder<'_>>();
+                request.set_path(path);
+                request.set_cursor(cursor);
+                request.set_limit(limit);
+            }
+            let response = self.dispatch(OPCODE_READDIR, &message)?;
+            let (opcode, payload) = response.split_first().ok_or(Error::Decode)?;
+            if *opcode != OPCODE_READDIR {
+                return Err(Error::Decode);
+            }
+            let mut cursor_reader = std::io::Cursor::new(payload);
+            let message = capnp::serialize::read_message(
+                &mut cursor_reader,
+                capnp::message::ReaderOptions::new(),
+            )
+            .map_err(|_| Error::Decode)?;
+            let response =
+                message.get_root::<read_dir_response::Reader<'_>>().map_err(|_| Error::Decode)?;
+            if let Some(err) = VfsError::from_code(response.get_err()) {
+                return Err(Error::Vfs(err));
+            }
+            if !response.get_ok() {
+                return Err(Error::Decode);
+            }
+            let entries_reader = response.get_entries().map_err(|_| Error::Decode)?;
+            let mut entries = Vec::with_capacity(entries_reader.len() as usize);
+            for entry in entries_reader.iter() {
+                let name = entry
+                    .get_name()
+                    .map_err(|_| Error::Decode)?
+                    .to_str()
+                    .map_err(|_| Error::Decode)?;
+                let kind = nexus_vfs_types::FileKind::from_wire(
+                    u8::try_from(entry.get_kind()).map_err(|_| Error::Decode)?,
+                )
+                .ok_or(Error::Decode)?;
+                entries.push(nexus_vfs_types::DirEntry {
+                    name: String::from(name),
+                    kind,
+                    size: entry.get_size(),
+                });
+            }
+            Ok(ReadDirPage {
+                entries,
+                next_cursor: response.get_next_cursor(),
+                eof: response.get_eof(),
+            })
+        }
+    }
+
     #[cfg(all(nexus_env = "host", feature = "idl-capnp"))]
     fn dispatch(
         &self,
@@ -355,6 +428,14 @@ impl VfsClient {
         frame.extend_from_slice(&payload);
         self.backend.call(frame)
     }
+}
+
+/// Directory paths additionally allow the bare namespace root (`pkg:/`).
+fn validate_dir_path(path: &str) -> Result<&str> {
+    if path == "pkg:/" {
+        return Ok(path);
+    }
+    validate_namespace_path(path)
 }
 
 fn validate_namespace_path(path: &str) -> Result<&str> {

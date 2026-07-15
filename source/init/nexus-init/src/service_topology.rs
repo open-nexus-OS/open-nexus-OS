@@ -182,6 +182,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::Bundlemgrd), // svc.bundle.* (app enumeration)
     (ServiceId::Execd, ServiceId::Sessiond),   // svc.session.* (DSL greeter login)
     (ServiceId::Execd, ServiceId::Settingsd),  // svc.settings.* (DSL settings app)
+    (ServiceId::Execd, ServiceId::Vfsd),       // svc.files.* (filemanager, RFC-0073/TASK-0291)
     (ServiceId::Windowd, ServiceId::Bundlemgrd),    // dynamic Apps menu (OP_LIST_APPS)
     (ServiceId::Windowd, ServiceId::Sessiond),      // greeter/login relay (TASK-0065B)
     (ServiceId::Windowd, ServiceId::Settingsd),     // theme GET/SET persistence (TASK-0072 P10)

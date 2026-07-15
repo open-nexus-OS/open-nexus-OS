@@ -1,6 +1,6 @@
 ---
 title: TASK-0291 VFS ReadDir + stable errors + svc.files (FILES permission, filemanager role) + stash lists real content
-status: In Progress
+status: In Review
 owner: @runtime
 created: 2026-07-15
 depends-on: []
@@ -87,12 +87,22 @@ End-to-end, boot-proven:
 
 ### Proof (OS / QEMU) — required
 
-- `vfsd: readdir ok (mount=/packages entries=<n>)`
-- `app-host: svc.files routed (slot=16)`
-- `stash: listing real (n=<n>)` with n ≥ 1
-- `SELFTEST: files denied without cap ok` (an app without FILES gets the deny path)
-- Visible-boot evidence: stash launched by click, screenshot shows real `/packages` entries
-  (not the six demo names).
+Marker ladder (gated, `scripts/qemu-test.sh`):
+
+- `SELFTEST: vfs readdir ok` (root page with ≥ 1 entry over kernel IPC)
+- `SELFTEST: vfs readdir deny ok` (unknown bundle → stable ENOTFOUND)
+
+Launch-path evidence (visible boot, uart log):
+
+- `execd: app route granted svc=files` (fail-closed provisioning fired for stash)
+- `vfsd: readdir ok (mount=/packages entries=<n>)` (server-side count)
+- `apphost: dsl svc files.list ok (n=<n>)` with n ≥ 1 (the DSL listing is real)
+- Screenshot: stash launched by click shows real `/packages` entries (not the six demo names).
+
+The app-without-FILES deny path is covered at pack time
+(`test_reject_files_cap_for_plain_app_bundle_type`, nxb-pack) plus the fail-closed route
+provisioning (no cap → no slot → `ERR_SVC_UNAVAILABLE`); a dedicated runtime deny selftest needs
+a DSL test app without FILES and is deferred to the track's next slice.
 
 ## Touched paths (allowlist)
 
@@ -117,3 +127,40 @@ End-to-end, boot-proven:
 4. dsl_services `files.list/stat` + routes row + app-host dispatch + deny selftest.
 5. stash: manifest flip + store effect + real rows + honest empty/error states.
 6. QEMU markers + visible-boot evidence.
+
+## Progress snapshot (2026-07-15) — all phases delivered, awaiting review/commit
+
+- [x] Shared surface crate `userspace/vfs-types` (`nexus-vfs-types`): RFC-0072 error-code SSOT +
+  DirEntry bounds + the bounded raw ReadDir codec used on BOTH os-lite hops (client↔vfsd,
+  vfsd↔packagefsd) — one codec, no wire drift; 11 unit tests incl. byte-budget truncation.
+- [x] packagefsd: shared `listing.rs` (canonical order, synthesized dirs, ENOTFOUND/ENOTDIR) wired
+  into BOTH servers (os_lite raw `OPCODE_LIST=4`, std capnp `ListPath/ListResponse`); client
+  `PackageFsClient::list`.
+- [x] vfsd: `OPCODE_READDIR=6` in BOTH servers; std path with `FsProvider::read_dir` + `err` codes
+  on every capnp response; os-lite path validates-and-relays provider pages.
+- [x] nexus-vfs client `read_dir` (os raw + host capnp) + `Error::Vfs(code)`.
+- [x] Platform: `svc.files.list/stat` (dsl_services), `files→vfsd` route slot 16, FILES in
+  abilitymgr KNOWN_PERMISSIONS, `filemanager @8` bundle type + nxb-pack ceiling + bundlemgrd
+  launchable, app-host `files.*` arms (bounded 7 KiB reply scratch, human `sizeText`).
+- [x] stash: `bundle_type = "filemanager"`, caps = WINDOW+FILES (SETTINGS dropped —
+  `window.control` rides the windowd presentation channel), mock rows deleted, root-effect
+  initial load, honest loading/error states, breadcrumb shows the real path.
+- [x] Three plumbing fixes found by the boot proof (recorded in the wiring):
+  init RouteTable is requester-scoped → `(Execd, Vfsd)` in REQUIRED_ROUTES + execd wiring arm;
+  `KernelClient::recv` truncates at 512 B → `recv_into` with 8 KiB scratch on the packagefsd hop;
+  vfsd replies now ride the caller's CAP_MOVE reply inbox (`recv_request_with_meta` + ReplyCap,
+  settingsd pattern) so app-host children actually receive them.
+
+## Proof evidence (closure run 2026-07-15)
+
+- Host: `cargo test -p nexus-vfs-types -p packagefsd -p vfsd -p nexus-vfs -p nexus-packagefs
+  -p nexus-sdk-routes -p abilitymgr -p nxb-pack -p vfs-e2e -p nexus-init` — all green, incl. the
+  new e2e (`tests/vfs_e2e/tests/readdir_e2e.rs`: pagination determinism + error codes end-to-end)
+  and `test_reject_files_cap_for_plain_app_bundle_type` (pack-time ceiling deny).
+- OS marker ladder: `scripts/qemu-test.sh --profile=headless` exit 0 —
+  `SELFTEST: vfs readdir ok`, `SELFTEST: vfs readdir deny ok` verified in sequence.
+- Visible boot (virgl, VNC-driven): login → click stash →
+  `execd: app route granted svc=files`, `vfsd: readdir ok (mount=/packages entries=3)`,
+  `apphost: dsl svc files.list ok (n=3)`; screenshots show the real `/packages` listing
+  (demo.exit0 / demo.hello / system) and full selection reactivity (accent row + properties
+  pane Name/Type from real data + Move/Copy/Share/Delete action bar).

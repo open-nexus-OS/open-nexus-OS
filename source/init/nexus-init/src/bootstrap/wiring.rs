@@ -672,6 +672,21 @@ pub(crate) fn wire_services(
                         }
                     }
                 }
+                // svc.files.* (filemanager role, RFC-0073/TASK-0291): CLONE of
+                // the pre-minted vfsd request endpoint — the generic vfsd arm
+                // transfers the original to vfsd itself. Named route, replies
+                // ride the child's CAP_MOVE inbox (vfsd is ReplyCap-aware).
+                if let Some((vfs_req, _)) = eps.server_pair(ServiceId::Vfsd) {
+                    if let Ok(clone) = nexus_abi::cap_clone(vfs_req) {
+                        if let Ok(s) = nexus_abi::cap_transfer(pid, clone, Rights::SEND) {
+                            chan.set_send(ServiceId::Vfsd, s);
+                            chan.set_recv(ServiceId::Vfsd, reply_recv_slot);
+                            if iw(init_wire, init_fold, "init:execd") {
+                                debug_write_bytes(b"init: execd route->vfsd ok\n");
+                            }
+                        }
+                    }
+                }
             }
             "keystored" => {
                 // #region agent log (keystored arm entry)

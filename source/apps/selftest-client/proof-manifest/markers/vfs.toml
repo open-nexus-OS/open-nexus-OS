@@ -45,6 +45,12 @@ phase = "vfs"
 [marker."SELFTEST: capfd read ok"]
 phase = "vfs"
 
+[marker."SELFTEST: vfs readdir ok"]
+phase = "vfs"
+
+[marker."SELFTEST: vfs readdir deny ok"]
+phase = "vfs"
+
 [marker."SELFTEST: vfs ebadf ok"]
 phase = "vfs"
 
